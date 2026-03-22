@@ -82,6 +82,7 @@ class ActivityLogService {
       'module_complete',
       'password_change',
       'intake_approval',
+      'public_intake_login_help',
       'password_reset_link_sent',
       'dashboard_view',
       'audit_center_viewed',

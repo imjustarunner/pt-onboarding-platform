@@ -512,22 +512,51 @@ export const login = async (req, res, next) => {
       isValidPassword = await bcrypt.compare(password, user.password_hash);
     }
 
-    // If normal password did not match (or isn't set), fall back to temporary password if present + unexpired
-    if (!isValidPassword && hasTempHash) {
-      // Enforce expiration (with small clock-skew buffer)
+    // Temporary password: verify hash first, then enforce expiry (avoid "expired" on wrong password)
+    let tempPasswordMatched = false;
+    if (hasTempHash) {
+      tempPasswordMatched = await bcrypt.compare(password, user.temporary_password_hash);
+    }
+    if (!isValidPassword && tempPasswordMatched) {
       if (user.temporary_password_expires_at) {
         const expiresAt = new Date(user.temporary_password_expires_at);
         const now = new Date();
         const bufferMs = 60 * 1000; // 1 minute
         if (expiresAt.getTime() < (now.getTime() - bufferMs)) {
+          try {
+            const tokenResult = await User.generatePasswordlessToken(user.id, 48, 'reset');
+            const agency = await resolvePrimaryAgencyForUser(user.id, null);
+            const frontendBase = String(config.frontendUrl || '').replace(/\/$/, '');
+            const portalSlug = agency?.portal_url || agency?.slug || null;
+            const resetLink = portalSlug
+              ? `${frontendBase}/${portalSlug}/reset-password/${tokenResult.token}`
+              : `${frontendBase}/reset-password/${tokenResult.token}`;
+            const subject = 'Reset your password';
+            const body = `Your temporary password has expired.\n\nUse this link to set a new password (expires in 48 hours):\n${resetLink}\n\nIf you did not try to sign in, you can ignore this email.`;
+            const to = pickRecoveryRecipientEmail(user, user.email);
+            if (to) {
+              await sendRecoveryEmail({
+                agencyId: agency?.id || null,
+                to,
+                subject,
+                text: body,
+                html: null,
+                source: 'auto'
+              });
+            }
+          } catch (e) {
+            console.error('[auth] expired temp password reset email failed', e?.message || e);
+          }
           return res.status(401).json({
             error: {
-              message: 'Temporary password has expired. Please contact your administrator for a new temporary password.'
+              message: 'Your temporary password has expired. We emailed you a link to reset your password.',
+              temporaryPasswordExpired: true,
+              passwordResetSent: true
             }
           });
         }
       }
-      isValidPassword = await bcrypt.compare(password, user.temporary_password_hash);
+      isValidPassword = true;
     }
 
     if (!isValidPassword) {

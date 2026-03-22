@@ -22,6 +22,11 @@
             <span class="mode-label">Clock In / Out</span>
             <span class="mode-desc">Record your shift start or end time</span>
           </button>
+          <button v-if="allowedModes.includes('skill_builders')" type="button" class="mode-btn" @click="selectMode('skill_builders')">
+            <span class="mode-icon">🎯</span>
+            <span class="mode-label">Skill Builders time</span>
+            <span class="mode-desc">Pick the program event, then clock in or out as yourself (no personal login)</span>
+          </button>
           <button v-if="allowedModes.includes('guardian') && programSites.length > 0" type="button" class="mode-btn" @click="selectMode('guardian')">
             <span class="mode-icon">👤</span>
             <span class="mode-label">Guardian Check-in</span>
@@ -94,6 +99,95 @@
         <h3>Done</h3>
         <p>Guardian {{ guardianCheckIn ? 'check-in' : 'check-out' }} recorded.</p>
         <button class="btn btn-primary" @click="resetGuardian">Start Over</button>
+      </div>
+
+      <div v-else-if="mode === 'skill_builders' && sbStep === 1" class="step">
+        <h3>Skill Builders — choose date &amp; event</h3>
+        <p class="hint" style="margin-bottom: 12px;">
+          Shows program events tied to this office’s agencies for the day you pick. Tap an event, then clock in or out
+          under your name.
+        </p>
+        <div class="row">
+          <div class="field">
+            <label>Program day</label>
+            <input v-model="sbDate" type="date" @change="loadSbEvents" />
+          </div>
+        </div>
+        <div v-if="sbLoading" class="loading">Loading Skill Builders events…</div>
+        <div v-else-if="!sbEvents.length" class="muted">No Skill Builders events on this date for agencies at this office.</div>
+        <div v-else class="grid">
+          <button v-for="e in sbEvents" :key="e.id" type="button" class="pick" @click="selectSbEvent(e)">
+            <div style="font-weight: 800;">{{ e.title }}</div>
+            <div style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
+              {{ e.agencyName }} · {{ e.groupName }}
+            </div>
+          </button>
+        </div>
+        <button class="btn btn-secondary" style="margin-top: 12px;" type="button" @click="selectMode(null)">Back</button>
+      </div>
+
+      <div v-else-if="mode === 'skill_builders' && sbStep === 2" class="step">
+        <h3>Clock in or clock out?</h3>
+        <p class="muted" style="margin-bottom: 12px;">{{ selectedSbEvent?.title }}</p>
+        <div class="mode-buttons">
+          <button type="button" class="mode-btn" @click="startSbClockFlow('in')">
+            <span class="mode-icon">▶</span>
+            <span class="mode-label">Clock in</span>
+          </button>
+          <button type="button" class="mode-btn" @click="startSbClockFlow('out')">
+            <span class="mode-icon">⏹</span>
+            <span class="mode-label">Clock out</span>
+          </button>
+        </div>
+        <button class="btn btn-secondary" style="margin-top: 12px;" type="button" @click="sbStep = 1">Back</button>
+      </div>
+
+      <div v-else-if="mode === 'skill_builders' && sbStep === 3" class="step">
+        <h3>{{ sbAction === 'in' ? 'Clock in' : 'Clock out' }} — tap your name</h3>
+        <p class="muted" style="margin-bottom: 10px;">{{ selectedSbEvent?.title }}</p>
+        <template v-if="sbAction === 'in'">
+          <div class="field" style="margin-bottom: 12px;">
+            <label>Scheduled session (optional)</label>
+            <select v-model.number="sbSessionPick" class="select">
+              <option :value="0">Not tied to a specific session</option>
+              <option v-for="s in sbSessions" :key="s.id" :value="s.id">
+                {{ formatSbSessionOption(s) }}
+              </option>
+            </select>
+          </div>
+          <div class="field" style="margin-bottom: 12px;">
+            <label>Client on this punch (optional)</label>
+            <select v-model.number="sbClientPick" class="select">
+              <option :value="0">—</option>
+              <option v-for="c in sbRoster.clients || []" :key="c.id" :value="c.id">
+                {{ c.initials || c.identifier_code || `Client #${c.id}` }}
+              </option>
+            </select>
+          </div>
+        </template>
+        <div v-if="sbLoading" class="loading">Loading roster…</div>
+        <div v-else-if="!(sbRoster.providers || []).length" class="muted">No providers on this event roster.</div>
+        <div v-else class="grid">
+          <button
+            v-for="p in sbRoster.providers"
+            :key="p.id"
+            type="button"
+            class="pick"
+            :disabled="sbSaving"
+            @click="doSbClock(p)"
+          >
+            <div style="font-weight: 800;">{{ p.display_name || `${p.first_name} ${p.last_name}` }}</div>
+          </button>
+        </div>
+        <button class="btn btn-secondary" style="margin-top: 12px;" type="button" :disabled="sbSaving" @click="sbStep = 2">
+          Back
+        </button>
+      </div>
+
+      <div v-else-if="mode === 'skill_builders' && sbStep === 4" class="step">
+        <h3>Done</h3>
+        <p>{{ sbSuccessMessage }}</p>
+        <button type="button" class="btn btn-primary" @click="resetSb">Start over</button>
       </div>
 
       <div v-else-if="mode === 'clock' && clockStep === 1" class="step">
@@ -299,7 +393,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 
@@ -317,7 +411,7 @@ const locationId = computed(() => {
 });
 
 const defaultSettings = {
-  allowed_modes: ['clock', 'guardian', 'event', 'client_check_in'],
+  allowed_modes: ['clock', 'guardian', 'event', 'client_check_in', 'skill_builders'],
   default_mode: 'clock',
   show_mode_selector: true,
   kiosk_type: 'lobby'
@@ -341,12 +435,14 @@ const isEventMode = computed(() => mode.value === 'event' || mode.value === 'cli
 const modeTitle = computed(() => {
   if (mode.value === 'clock') return 'Clock In / Out';
   if (mode.value === 'guardian') return 'Guardian Check-in';
+  if (mode.value === 'skill_builders') return 'Skill Builders time';
   if (mode.value === 'event' || mode.value === 'client_check_in') return 'Check In';
   return 'Welcome';
 });
 const modeSubtitle = computed(() => {
   if (mode.value === 'clock') return 'Record your shift start or end time.';
   if (mode.value === 'guardian') return 'Check in or out as a guardian for your client.';
+  if (mode.value === 'skill_builders') return 'Clock in or out for a program event using the shared kiosk (tap your name).';
   if (mode.value === 'event' || mode.value === 'client_check_in') return 'Select your scheduled office time, check in, and complete the questionnaire.';
   return 'Choose an option below.';
 });
@@ -387,6 +483,140 @@ const definitionLoading = ref(false);
 const formFields = ref([]);
 const answers = ref({});
 const typicalDayTime = ref('');
+
+/** Skill Builders kiosk (location-scoped; staff identified by tap, not kiosk login). */
+const sbStep = ref(1);
+const sbDate = ref(new Date().toISOString().slice(0, 10));
+const sbEvents = ref([]);
+const sbLoading = ref(false);
+const sbSaving = ref(false);
+const selectedSbEvent = ref(null);
+const sbAction = ref('in');
+const sbRoster = ref({ providers: [], clients: [] });
+const sbSessions = ref([]);
+const sbSessionPick = ref(0);
+const sbClientPick = ref(0);
+const sbSuccessMessage = ref('');
+
+function sbYmdAddDays(ymd, delta) {
+  const [y, mo, da] = String(ymd || '').split('-').map(Number);
+  const dt = new Date(Date.UTC(y, mo - 1, da));
+  if (!Number.isFinite(dt.getTime())) return new Date().toISOString().slice(0, 10);
+  dt.setUTCDate(dt.getUTCDate() + delta);
+  return dt.toISOString().slice(0, 10);
+}
+
+function formatSbSessionOption(s) {
+  if (!s) return '';
+  const st = String(s.startTime || '').slice(0, 5);
+  const et = String(s.endTime || '').slice(0, 5);
+  return `${s.sessionDate} · ${String(s.weekday || '').slice(0, 3)} ${st}–${et}`;
+}
+
+const loadSbEvents = async () => {
+  if (!locationId.value) return;
+  try {
+    sbLoading.value = true;
+    error.value = '';
+    const resp = await api.get(`/kiosk/${locationId.value}/skill-builders-events`, {
+      params: { date: sbDate.value }
+    });
+    sbEvents.value = resp.data?.events || [];
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to load Skill Builders events';
+    sbEvents.value = [];
+  } finally {
+    sbLoading.value = false;
+  }
+};
+
+const selectSbEvent = (e) => {
+  selectedSbEvent.value = e;
+  sbStep.value = 2;
+};
+
+const startSbClockFlow = async (action) => {
+  sbAction.value = action;
+  sbSessionPick.value = 0;
+  sbClientPick.value = 0;
+  sbStep.value = 3;
+  await loadSbRosterAndSessions();
+};
+
+const loadSbRosterAndSessions = async () => {
+  const e = selectedSbEvent.value;
+  const lid = locationId.value;
+  if (!e?.id || !e?.agencyId || !lid) return;
+  try {
+    sbLoading.value = true;
+    error.value = '';
+    const from = sbDate.value;
+    const to = sbYmdAddDays(from, 120);
+    const rosterP = api.get(`/kiosk/${lid}/skill-builders-events/${e.id}/roster`, {
+      params: { agencyId: e.agencyId }
+    });
+    const sessionsP =
+      sbAction.value === 'in'
+        ? api.get(`/kiosk/${lid}/skill-builders-events/${e.id}/sessions`, {
+            params: { agencyId: e.agencyId, from, to }
+          })
+        : Promise.resolve({ data: { sessions: [] } });
+    const [r1, r2] = await Promise.all([rosterP, sessionsP]);
+    sbRoster.value = r1.data || { providers: [], clients: [] };
+    sbSessions.value = r2.data?.sessions || [];
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to load roster';
+    sbRoster.value = { providers: [], clients: [] };
+    sbSessions.value = [];
+  } finally {
+    sbLoading.value = false;
+  }
+};
+
+const doSbClock = async (staff) => {
+  const e = selectedSbEvent.value;
+  const lid = locationId.value;
+  if (!e?.id || !e?.agencyId || !lid || !staff?.id) return;
+  try {
+    sbSaving.value = true;
+    error.value = '';
+    if (sbAction.value === 'in') {
+      const body = { agencyId: e.agencyId, userId: staff.id };
+      if (sbSessionPick.value) body.sessionId = sbSessionPick.value;
+      if (sbClientPick.value) body.clientId = sbClientPick.value;
+      await api.post(`/kiosk/${lid}/skill-builders-events/${e.id}/clock-in`, body);
+      sbSuccessMessage.value = 'Clocked in for this Skill Builders event.';
+    } else {
+      await api.post(`/kiosk/${lid}/skill-builders-events/${e.id}/clock-out`, {
+        agencyId: e.agencyId,
+        userId: staff.id
+      });
+      sbSuccessMessage.value = 'Clocked out. If applicable, a payroll time claim was created.';
+    }
+    sbStep.value = 4;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Clock action failed';
+  } finally {
+    sbSaving.value = false;
+  }
+};
+
+const resetSb = () => {
+  sbStep.value = 1;
+  selectedSbEvent.value = null;
+  sbRoster.value = { providers: [], clients: [] };
+  sbSessions.value = [];
+  sbSessionPick.value = 0;
+  sbClientPick.value = 0;
+  sbSuccessMessage.value = '';
+  loadSbEvents();
+};
+
+watch(mode, (m) => {
+  if (m === 'skill_builders') {
+    resetSb();
+  }
+});
 
 const formatTime = (iso) => {
   try {

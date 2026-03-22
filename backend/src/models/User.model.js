@@ -826,15 +826,23 @@ class User {
     }
     if (providerStartDate !== undefined) {
       try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
         const [columns] = await pool.execute(
-          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'provider_start_date'"
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'provider_start_date'",
+          [dbName]
         );
         if (columns.length > 0) {
           updates.push('provider_start_date = ?');
           values.push(providerStartDate ? String(providerStartDate).slice(0, 10) : null);
+        } else {
+          console.warn(
+            'User.update: provider_start_date column not found in INFORMATION_SCHEMA for DB',
+            dbName,
+            '— run migration 575_users_provider_start_date.sql'
+          );
         }
-      } catch {
-        // ignore (older DBs)
+      } catch (err) {
+        console.warn('provider_start_date column check failed:', err?.message || err);
       }
     }
     if (credential !== undefined) {

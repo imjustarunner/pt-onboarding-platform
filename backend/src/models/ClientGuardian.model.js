@@ -109,6 +109,8 @@ class ClientGuardian {
       `SELECT
          c.id AS client_id,
          c.initials,
+         c.full_name,
+         c.grade,
          c.status,
          c.document_status,
          c.submission_date,

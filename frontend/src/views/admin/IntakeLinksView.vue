@@ -455,6 +455,14 @@
                       Required
                     </label>
                   </div>
+                  <div v-if="form.formType === 'smart_registration'" class="form-group" style="grid-column: 1 / -1;">
+                    <label>Show this upload step</label>
+                    <select v-model="step.visibility">
+                      <option value="always">Always</option>
+                      <option value="new_client_only">New clients only (skip when existing client match)</option>
+                      <option value="existing_client_only">Existing clients only (skip for new client match)</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div v-if="step.type === 'document'" class="form-grid">
@@ -514,6 +522,14 @@
                       placeholder="e.g., Check each box if you agree with the statement on that line. You may uncheck any you do not agree with."
                     ></textarea>
                   </div>
+                  <div v-if="form.formType === 'smart_registration'" class="form-group" style="grid-column: 1 / -1;">
+                    <label>Show this document step</label>
+                    <select v-model="step.visibility">
+                      <option value="always">Always</option>
+                      <option value="new_client_only">New clients only (skip when existing client match)</option>
+                      <option value="existing_client_only">Existing clients only (skip for new client match)</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div v-if="step.type === 'school_roi'" class="form-grid">
@@ -523,6 +539,14 @@
                       This inserts the programmed Smart School ROI step as its own section in the sequence.
                       No template dropdown is required for this step.
                     </div>
+                  </div>
+                  <div v-if="form.formType === 'smart_registration'" class="form-group" style="grid-column: 1 / -1;">
+                    <label>Show this School ROI step</label>
+                    <select v-model="step.visibility">
+                      <option value="always">Always</option>
+                      <option value="new_client_only">New clients only (skip when existing client match)</option>
+                      <option value="existing_client_only">Existing clients only (skip for new client match)</option>
+                    </select>
                   </div>
                 </div>
 
@@ -543,6 +567,7 @@
                       <option value="program_event">Program events</option>
                       <option value="class">Classes</option>
                       <option value="event">Events (framed)</option>
+                      <option value="agency_catalog">Agency catalog (public)</option>
                     </select>
                   </div>
                   <div class="form-group">
@@ -740,6 +765,9 @@
                       No classes found for this learning organization.
                     </div>
                   </div>
+                  <div v-if="step.sourceType === 'agency_catalog'" class="muted" style="grid-column: 1 / -1;">
+                    Registrants choose from your agency&rsquo;s live catalog (Skill Builders events and registration-eligible classes). Options load automatically; nothing to configure here.
+                  </div>
                   <div class="form-group" v-if="step.sourceType === 'manual' || step.sourceType === 'event'" style="grid-column: 1 / -1;">
                     <label>Options</label>
                     <div v-if="step.sourceType === 'event'" class="muted" style="margin-bottom: 8px;">
@@ -761,6 +789,13 @@
                 </div>
 
                 <div v-else-if="step.type === 'questions'" class="question-builder">
+                  <div v-if="form.formType === 'smart_registration'" class="form-group" style="margin-bottom: 12px;">
+                    <label>Show this questions step</label>
+                    <select v-model="step.visibility">
+                      <option value="always">Always</option>
+                      <option value="new_client_only">New clients only (hide when existing client match)</option>
+                    </select>
+                  </div>
                   <div class="question-list">
                     <div v-for="(field, fIdx) in getStepFields(step)" :key="field.id || fIdx" class="question-block">
                       <div class="question-row">
@@ -785,6 +820,10 @@
                           <input v-model="field.required" type="checkbox" :disabled="field.type === 'info'" />
                           Required
                         </label>
+                        <select v-if="form.formType === 'smart_registration'" v-model="field.visibility" title="Field visibility">
+                          <option value="always">Always show</option>
+                          <option value="new_client_only">New clients only</option>
+                        </select>
                         <div class="question-controls">
                           <button class="btn btn-xs btn-secondary" type="button" @click="moveField(step, fIdx, -1)" :disabled="fIdx === 0">↑</button>
                           <button class="btn btn-xs btn-secondary" type="button" @click="moveField(step, fIdx, 1)" :disabled="fIdx === getStepFields(step).length - 1">↓</button>
@@ -1436,13 +1475,14 @@ const applyFieldTemplate = (template) => {
   if (!template?.fields_json) return;
   form.intakeFieldsText = JSON.stringify(template.fields_json, null, 2);
   if (!form.intakeSteps.length) {
-    form.intakeSteps = [
+    form.intakeSteps = sanitizeSteps([
       {
         id: createId('step'),
         type: 'questions',
+        visibility: 'always',
         fields: template.fields_json || []
       }
-    ];
+    ]);
   }
 };
 
@@ -1741,6 +1781,9 @@ const sanitizeSteps = (steps) => {
       if (!next.id) next.id = createId('step');
       if (!next.type) next.type = next.templateId ? 'document' : 'questions';
       if (next.type === 'questions') {
+        next.visibility = ['always', 'new_client_only'].includes(String(next.visibility || '').trim())
+          ? String(next.visibility).trim()
+          : 'always';
         const fields = Array.isArray(next.fields) ? next.fields : [];
         next.fields = fields
           .filter((f) => f && typeof f === 'object')
@@ -1753,6 +1796,9 @@ const sanitizeSteps = (steps) => {
             helperText: f.helperText || '',
             scope: f.scope || 'submission',
             documentKey: f.documentKey || '',
+            visibility: ['always', 'new_client_only'].includes(String(f.visibility || '').trim())
+              ? String(f.visibility).trim()
+              : 'always',
             showIf: {
               fieldKey: f.showIf?.fieldKey || '',
               equals: f.showIf?.equals || ''
@@ -1762,6 +1808,9 @@ const sanitizeSteps = (steps) => {
       } else if (next.type === 'document') {
         if (next.templateId === undefined) next.templateId = null;
         if (next.checkboxDisclaimer === undefined) next.checkboxDisclaimer = '';
+        next.visibility = ['always', 'new_client_only', 'existing_client_only'].includes(String(next.visibility || '').trim())
+          ? String(next.visibility).trim()
+          : 'always';
       } else if (next.type === 'registration') {
         next.label = String(next.label || '').trim() || 'Registration';
         next.description = String(next.description || '').trim();
@@ -1773,7 +1822,7 @@ const sanitizeSteps = (steps) => {
           : 'email';
         next.defaultVideoUrl = String(next.defaultVideoUrl || '').trim();
         next.providerUserIdsCsv = String(next.providerUserIdsCsv || '').trim();
-        next.sourceType = ['manual', 'program', 'program_event', 'class', 'event'].includes(String(next.sourceType || ''))
+        next.sourceType = ['manual', 'program', 'program_event', 'class', 'event', 'agency_catalog'].includes(String(next.sourceType || ''))
           ? String(next.sourceType)
           : 'manual';
         const sourceConfig = next.sourceConfig && typeof next.sourceConfig === 'object'
@@ -1866,11 +1915,17 @@ const sanitizeSteps = (steps) => {
       } else if (next.type === 'school_roi') {
         next.templateId = null;
         next.checkboxDisclaimer = '';
+        next.visibility = ['always', 'new_client_only', 'existing_client_only'].includes(String(next.visibility || '').trim())
+          ? String(next.visibility).trim()
+          : 'always';
       } else if (next.type === 'upload') {
         next.label = next.label ?? '';
         next.accept = next.accept ?? '.pdf,.doc,.docx';
         next.maxFiles = Math.max(1, Math.min(10, parseInt(next.maxFiles, 10) || 1));
         next.required = next.required !== false;
+        next.visibility = ['always', 'new_client_only', 'existing_client_only'].includes(String(next.visibility || '').trim())
+          ? String(next.visibility).trim()
+          : 'always';
       }
       return next;
     });
@@ -1899,13 +1954,14 @@ const normalizeIntakeSteps = (link) => {
   docIds.forEach((id) =>
     steps.push({ id: createId('step'), type: 'document', templateId: id, checkboxDisclaimer: '' })
   );
-  return steps;
+  return sanitizeSteps(steps);
 };
 
 const addStep = (type, options = {}) => {
   const step = { id: createId('step'), type };
   if (type === 'questions') {
     step.fields = [];
+    step.visibility = 'always';
   } else if (type === 'registration') {
     step.label = 'Registration';
     step.description = '';
@@ -1953,12 +2009,15 @@ const addStep = (type, options = {}) => {
     step.accept = '.pdf,.doc,.docx';
     step.maxFiles = 1;
     step.required = true;
+    step.visibility = 'always';
   } else if (type === 'school_roi') {
     step.templateId = null;
     step.checkboxDisclaimer = '';
+    step.visibility = 'always';
   } else {
     step.templateId = options?.templateId ?? null;
     step.checkboxDisclaimer = '';
+    step.visibility = 'always';
   }
   form.intakeSteps.push(step);
   return step;
@@ -1991,6 +2050,7 @@ const addField = (step) => {
     required: false,
     helperText: '',
     scope: 'submission',
+    visibility: 'always',
     showIf: { fieldKey: '', equals: '' },
     options: []
   });
@@ -2007,6 +2067,7 @@ const addFieldAfter = (step, idx) => {
     required: false,
     helperText: '',
     scope: 'submission',
+    visibility: 'always',
     showIf: { fieldKey: '', equals: '' },
     options: []
   };
@@ -2024,7 +2085,8 @@ const getConditionalTargets = (step, idx) => {
     .map((f) => ({ key: f.key, label: f.label }));
   const registrationContextTargets = [
     { key: 'registration_account_state', label: 'Registration account state (new/existing)' },
-    { key: 'registration_has_account', label: 'Registration has account (true/false)' }
+    { key: 'registration_has_account', label: 'Registration has account (true/false)' },
+    { key: 'registration_client_match', label: 'Client match (new/existing)' }
   ];
   const seen = new Set();
   const merged = [...base, ...registrationContextTargets]
@@ -2465,6 +2527,8 @@ const refreshRegistrationStepOptions = (step) => {
       })
       .filter(Boolean);
     step.options = options;
+  } else if (sourceType === 'agency_catalog') {
+    step.options = [];
   } else {
     const entityType = sourceType === 'event' ? 'event' : 'manual';
     step.options = (Array.isArray(step.options) ? step.options : [])

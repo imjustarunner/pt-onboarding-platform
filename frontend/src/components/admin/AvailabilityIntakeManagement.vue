@@ -92,7 +92,7 @@
                 <div class="meta">
                   Daytime blocks:
                   <span v-for="(b, idx) in r.blocks" :key="idx" class="pill">
-                    {{ b.dayOfWeek }} {{ b.startTime }}–{{ b.endTime }}
+                    {{ b.dayOfWeek }} {{ formatTimeRange12h(b.startTime, b.endTime) }}
                   </span>
                 </div>
               </div>
@@ -106,7 +106,7 @@
                 <select class="select" v-model="schoolAssign[r.id].blockKey">
                   <option value="">Use block…</option>
                   <option v-for="opt in r.blocks" :key="blockKey(opt)" :value="blockKey(opt)">
-                    {{ opt.dayOfWeek }} {{ opt.startTime }}–{{ opt.endTime }}
+                    {{ opt.dayOfWeek }} {{ formatTimeRange12h(opt.startTime, opt.endTime) }}
                   </option>
                 </select>
                 <input class="input" type="number" min="0" v-model.number="schoolAssign[r.id].slotsTotal" />
@@ -234,7 +234,7 @@
                   <div class="meta">Confirmed: {{ new Date(p.confirmedAt).toLocaleString() }}</div>
                   <div class="meta">
                     <span v-for="(b, idx) in p.blocks" :key="idx" class="pill">
-                      {{ b.dayOfWeek }} {{ b.startTime }}–{{ b.endTime }} ({{ b.blockType }}) <span v-if="b.departFrom">• {{ b.departFrom }}</span>
+                      {{ b.dayOfWeek }} {{ formatTimeRange12h(b.startTime, b.endTime) }} ({{ b.blockType }}) <span v-if="b.departFrom">• {{ b.departFrom }}</span>
                     </span>
                   </div>
                 </div>
@@ -303,6 +303,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import { formatTimeRange12h } from '../../utils/timeFormat';
 import { useAgencyStore } from '../../store/agency';
 
 const props = defineProps({
@@ -360,7 +361,7 @@ const weekdayLabel = (n) => weekdays.find((d) => d.value === Number(n))?.label |
 const hourLabel = (h) => {
   const d = new Date();
   d.setHours(Number(h), 0, 0, 0);
-  return d.toLocaleTimeString([], { hour: 'numeric' });
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
 };
 
 const fmtDateTime = (v) => {

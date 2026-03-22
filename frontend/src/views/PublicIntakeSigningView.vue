@@ -138,6 +138,9 @@
             <div v-else-if="isSmartRegistration && registrationAccountLookupChecked && !registrationAccountExists" class="muted" style="margin-top:4px;">
               No existing account found. Registration will include new-account questions.
             </div>
+            <div v-if="isSmartRegistration && isExistingClientByMatch" class="muted" style="margin-top:4px;">
+              Existing client record matched for this school (initials + affiliation). Some steps may be shortened.
+            </div>
           </div>
           <div class="form-group">
             <label>{{ (intakeForSelf || isMedicalRecordsRequest || isJobApplication) ? t('yourPhoneOptional') : t('guardianPhoneOptional') }}</label>
@@ -488,7 +491,15 @@
               type="text"
             />
           </div>
-          <div v-if="currentRegistrationOptions.length" class="registration-options">
+          <div v-if="hideRegistrationOptionsPicker && currentRegistrationOptions[0]" class="locked-registration muted">
+            <p><strong>Event for this registration link</strong></p>
+            <p>{{ currentRegistrationOptions[0].label }}</p>
+            <p v-if="currentRegistrationOptions[0].description">{{ currentRegistrationOptions[0].description }}</p>
+            <small v-if="currentRegistrationOptions[0].videoJoinUrl" class="muted">
+              Video: <a :href="currentRegistrationOptions[0].videoJoinUrl" target="_blank" rel="noopener">Join link</a>
+            </small>
+          </div>
+          <div v-else-if="currentRegistrationOptions.length" class="registration-options">
             <label v-for="opt in currentRegistrationOptions" :key="opt.id" class="registration-option">
               <input
                 v-if="isCurrentRegistrationMulti"
@@ -660,6 +671,33 @@
           Thank you for your application. We have received your materials and will review them shortly.
         </p>
         <template v-else>
+          <div v-if="formTypeKey === 'smart_registration' && registrationCompletion?.newGuardianAccount" class="notice-block" style="margin-bottom: 16px;">
+            <p><strong>Guardian portal</strong></p>
+            <p v-if="registrationCompletion.loginEmail">
+              Check your email for login instructions. Sign in as <strong>{{ registrationCompletion.loginEmail }}</strong>
+              using the temporary password we sent (valid 72 hours). After signing in you will choose a new password.
+            </p>
+            <p v-else>
+              Check your email for your username and temporary password (72 hours). You will set a new password after signing in.
+            </p>
+            <p v-if="registrationCompletion.portalLoginUrl">
+              <a class="btn btn-secondary btn-sm" :href="registrationCompletion.portalLoginUrl" target="_blank" rel="noopener">Open login page</a>
+            </p>
+            <p class="muted" style="margin-top: 8px;">
+              Temporary password expired? Use &ldquo;Forgot password&rdquo; on the login page to receive a reset link.
+            </p>
+            <div style="margin-top: 12px;">
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="loginHelpSending"
+                @click="sendPublicIntakeLoginHelp"
+              >
+                {{ loginHelpSending ? 'Sending…' : 'Still need help? Notify staff' }}
+              </button>
+              <span v-if="loginHelpMessage" class="muted" style="margin-left: 8px;">{{ loginHelpMessage }}</span>
+            </div>
+          </div>
           <p v-if="!downloadUrl && pollingForDownload" class="preparing-message">
             <span class="preparing-spinner"></span>
             Your download link is being prepared. A copy will be emailed to the address you provided once it is ready.
@@ -1065,10 +1103,24 @@ const hasProgrammedSchoolRoiStep = computed(() =>
 const hasRegistrationStep = computed(() =>
   intakeSteps.value.some((step) => String(step?.type || '').trim().toLowerCase() === 'registration')
 );
+
+const FLOW_STEP_VISIBILITY = new Set(['always', 'new_client_only', 'existing_client_only']);
+
 const flowSteps = computed(() => {
+  const isExisting =
+    String(intakeResponses.submission?.registration_client_match || '').trim().toLowerCase() === 'existing';
+  const stepVisible = (s) => {
+    if (!s) return true;
+    const vis = (String(s.visibility ?? '').trim().toLowerCase() || 'always');
+    if (!FLOW_STEP_VISIBILITY.has(vis) || vis === 'always') return true;
+    if (vis === 'new_client_only') return !isExisting;
+    if (vis === 'existing_client_only') return isExisting;
+    return true;
+  };
   if (intakeSteps.value.length) {
     return intakeSteps.value
       .filter((s) => s?.type === 'document' || s?.type === 'upload' || s?.type === 'school_roi' || s?.type === 'registration')
+      .filter(stepVisible)
       .map((s) => {
         if (s.type === 'upload') return { ...s };
         if (s.type === 'school_roi') return { ...s };
@@ -1081,6 +1133,21 @@ const flowSteps = computed(() => {
 });
 const currentFlowIndex = ref(0);
 const currentFlowStep = computed(() => flowSteps.value[currentFlowIndex.value] || null);
+
+watch(
+  flowSteps,
+  (steps) => {
+    if (!steps.length) {
+      currentFlowIndex.value = 0;
+      return;
+    }
+    if (currentFlowIndex.value > steps.length - 1) {
+      currentFlowIndex.value = Math.max(0, steps.length - 1);
+    }
+  },
+  { flush: 'post' }
+);
+
 const getCurrentRegistrationRules = () => {
   const step = currentFlowStep.value;
   if (!step || step.type !== 'registration') return { allowMultiple: false, minSelections: 1, maxSelections: 1 };
@@ -1095,13 +1162,55 @@ const getCurrentRegistrationRules = () => {
       : 1
   };
 };
+
+/** When intake_links.company_event_id is set, narrow options to that event (and hide picker in UI). */
+const filterRegistrationOptionsByLinkedEvent = (options) => {
+  const lockId = Number(link.value?.company_event_id || 0) || null;
+  if (!lockId || !Array.isArray(options)) return options;
+  const narrowed = options.filter((o) =>
+    ['company_event', 'event'].includes(String(o.entityType || '').toLowerCase())
+    && Number(o.entityId) === lockId
+  );
+  return narrowed.length ? narrowed : options;
+};
+
 const currentRegistrationOptions = computed(() => {
   const step = currentFlowStep.value;
   if (!step || step.type !== 'registration') return [];
+  if (String(step.sourceType || '') === 'agency_catalog') {
+    const rows = Array.isArray(agencyRegistrationCatalog.value) ? agencyRegistrationCatalog.value : [];
+    const mapped = rows
+      .filter((it) => it && typeof it === 'object')
+      .map((it) => {
+        const kind = String(it.kind || '').trim().toLowerCase();
+        const id = Number(it.id || 0) || null;
+        const entityType = kind === 'company_event' ? 'company_event' : 'class';
+        const title = String(it.title || '').trim() || (kind === 'company_event' ? `Event ${id}` : `Class ${id}`);
+        const summaryParts = [String(it.summary || '').trim()];
+        if (it.startsAt) summaryParts.push(`Starts: ${it.startsAt}`);
+        return {
+          id: `cat_${kind}_${id}`,
+          label: title,
+          description: summaryParts.filter(Boolean).join(' · '),
+          entityType,
+          entityId: id,
+          videoJoinUrl: String(step.defaultVideoUrl || '').trim(),
+          paymentLinkUrl: String(step?.selfPay?.paymentLinkUrl || '').trim(),
+          costDollars: Math.max(0, Number(step?.selfPay?.costDollars || 0) || 0),
+          providerUserIdsCsv: String(step.providerUserIdsCsv || '').trim(),
+          scheduleBlocks: [],
+          frequencyLabel: null,
+          termsSummary: null,
+          displayCost: ''
+        };
+      })
+      .filter((opt) => opt.id && opt.label && opt.entityId);
+    return filterRegistrationOptionsByLinkedEvent(mapped);
+  }
   const raw = Array.isArray(step.options)
     ? step.options
     : (Array.isArray(step.sourceConfig?.options) ? step.sourceConfig.options : []);
-  return raw
+  const mappedManual = raw
     .filter((opt) => opt && typeof opt === 'object')
     .map((opt) => ({
       id: String(opt.id || opt.value || opt.label || '').trim(),
@@ -1134,6 +1243,17 @@ const currentRegistrationOptions = computed(() => {
       })()
     }))
     .filter((opt) => opt.id && opt.label);
+  return filterRegistrationOptionsByLinkedEvent(mappedManual);
+});
+
+const hideRegistrationOptionsPicker = computed(() => {
+  const lockId = Number(link.value?.company_event_id || 0) || null;
+  if (!lockId || currentFlowStep.value?.type !== 'registration') return false;
+  const opts = currentRegistrationOptions.value;
+  if (opts.length !== 1) return false;
+  const o = opts[0];
+  return ['company_event', 'event'].includes(String(o.entityType || '').toLowerCase())
+    && Number(o.entityId) === lockId;
 });
 const isCurrentRegistrationMulti = computed(() => getCurrentRegistrationRules().allowMultiple);
 const currentRegistrationScheduleBlocks = computed(() => {
@@ -1185,6 +1305,10 @@ const uploadStatus = reactive({});
 const uploadStepFiles = ref([]);
 const uploadStepInputRef = ref(null);
 const embeddedSmartSchoolRoi = ref(null);
+const agencyRegistrationCatalog = ref([]);
+const registrationCompletion = ref(null);
+const loginHelpSending = ref(false);
+const loginHelpMessage = ref('');
 const fieldValuesByTemplate = reactive({});
 const sessionToken = ref(String(route.query?.session || '').trim());
 const submissionStorageKey = computed(() =>
@@ -1678,6 +1802,9 @@ const requiresOrganizationId = computed(
 );
 const isSmartSchoolRoi = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi');
 const isSmartRegistration = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_registration');
+const isExistingClientByMatch = computed(() =>
+  String(intakeResponses.submission?.registration_client_match || '').trim().toLowerCase() === 'existing'
+);
 const isJobApplication = computed(() => String(link.value?.form_type || '').toLowerCase() === 'job_application');
 const isMedicalRecordsRequest = computed(() => String(link.value?.form_type || '').toLowerCase() === 'medical_records_request');
 const intakeFields = computed(() => Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : []);
@@ -2331,6 +2458,10 @@ const submitConsent = async () => {
     error.value = '';
     stepError.value = '';
     syncClientNamesToResponses();
+    ensureRegistrationMaps();
+    if (organizationId.value) {
+      intakeResponses.submission.organizationId = Number(organizationId.value) || organizationId.value;
+    }
     const clientPayloads = buildClientPayloads();
     const payload = {
       sessionToken: sessionToken.value || null,
@@ -2354,6 +2485,9 @@ const submitConsent = async () => {
     };
     const resp = await api.post(`/public-intake/${publicKey}/consent`, payload);
     submissionId.value = resp.data?.submission?.id || null;
+    if (resp.data?.clientMatch && typeof resp.data.clientMatch === 'object') {
+      Object.assign(intakeResponses.submission, resp.data.clientMatch);
+    }
     currentFlowIndex.value = 0;
     step.value = 2;
   } catch (e) {
@@ -2561,6 +2695,24 @@ const currentFlowContinueLabel = computed(() => {
   return t('continue');
 });
 
+const sendPublicIntakeLoginHelp = async () => {
+  if (loginHelpSending.value || !publicKey) return;
+  loginHelpMessage.value = '';
+  loginHelpSending.value = true;
+  try {
+    await api.post(`/public-intake/${publicKey}/login-help`, {
+      submissionId: submissionId.value || null,
+      signerEmail: String(guardianEmail.value || '').trim() || null,
+      message: 'Public intake login help requested after registration'
+    });
+    loginHelpMessage.value = 'Thanks — we logged your request.';
+  } catch {
+    loginHelpMessage.value = 'Could not send request. Please contact the school or agency directly.';
+  } finally {
+    loginHelpSending.value = false;
+  }
+};
+
 const finalizePacket = async () => {
   const previousStep = step.value;
   try {
@@ -2605,6 +2757,9 @@ const finalizePacket = async () => {
     downloadUrl.value = resp.data?.downloadUrl || '';
     emailDeliveryStatus.value = resp.data?.emailDelivery || null;
     clientBundleLinks.value = resp.data?.clientBundles || [];
+    if (resp.data?.registrationCompletion) {
+      registrationCompletion.value = resp.data.registrationCompletion;
+    }
     jobApplicationSubmitted.value = !!resp.data?.jobApplicationSubmitted;
     if (downloadUrl.value || jobApplicationSubmitted.value) {
       pollingForDownload.value = false;
@@ -2640,6 +2795,9 @@ const pollForDownloadUrl = async () => {
         if (resp.data?.emailDelivery) {
           emailDeliveryStatus.value = resp.data.emailDelivery;
         }
+        if (resp.data?.registrationCompletion) {
+          registrationCompletion.value = resp.data.registrationCompletion;
+        }
         break;
       }
     } catch {
@@ -2650,6 +2808,9 @@ const pollForDownloadUrl = async () => {
 };
 
 const resetIntakeState = () => {
+  agencyRegistrationCatalog.value = [];
+  registrationCompletion.value = null;
+  loginHelpMessage.value = '';
   guardianFirstName.value = '';
   guardianLastName.value = '';
   guardianEmail.value = '';
@@ -2844,6 +3005,8 @@ const stepQuestionFields = computed(() => {
   const fields = [];
   intakeSteps.value.forEach((step) => {
     if (step?.type !== 'questions' || !Array.isArray(step.fields)) return;
+    const stepVis = String(step.visibility || 'always').trim().toLowerCase();
+    if (stepVis === 'new_client_only' && isExistingClientByMatch.value) return;
     fields.push(...step.fields);
   });
   if (!fields.length) return [];
@@ -2862,6 +3025,8 @@ const stepQuestionFields = computed(() => {
 const questionValues = computed(() => intakeResponses.submission);
 
 const isQuestionVisible = (field, values = {}) => {
+  const fv = String(field?.visibility || 'always').trim().toLowerCase();
+  if (fv === 'new_client_only' && isExistingClientByMatch.value) return false;
   const showIf = field?.showIf;
   if (!showIf || !showIf.fieldKey) return true;
   const actual = values[showIf.fieldKey];
@@ -3107,7 +3272,28 @@ const completeUploadStep = async () => {
   }
 };
 
-watch(currentFlowStep, (step) => {
+const loadAgencyRegistrationCatalog = async () => {
+  if (!isSmartRegistration.value || !publicKey) return;
+  try {
+    const r = await api.get(`/public-intake/${publicKey}/registration-catalog`);
+    agencyRegistrationCatalog.value = Array.isArray(r.data?.items) ? r.data.items : [];
+  } catch {
+    agencyRegistrationCatalog.value = [];
+  }
+};
+
+const preselectLinkedCompanyEvent = (regStep) => {
+  const stepId = String(regStep?.id || '').trim();
+  const ceid = Number(link.value?.company_event_id || 0);
+  if (!stepId || !ceid) return;
+  const optId = `cat_company_event_${ceid}`;
+  const opts = currentRegistrationOptions.value;
+  if (!opts.some((o) => String(o.id) === optId)) return;
+  if (getRegistrationSelectionIds(stepId).length) return;
+  setRegistrationSelectionIds(stepId, [optId]);
+};
+
+watch(currentFlowStep, async (step) => {
   if (step?.type === 'upload') {
     uploadStepFiles.value = [];
   }
@@ -3129,6 +3315,13 @@ watch(currentFlowStep, (step) => {
       if (ids.length) {
         intakeResponses.submission.registrationSelectionIdsByStep[stepId] = ids;
       }
+    }
+    if (String(step.sourceType || '') === 'agency_catalog') {
+      if (!agencyRegistrationCatalog.value.length) {
+        await loadAgencyRegistrationCatalog();
+      }
+      await nextTick();
+      preselectLinkedCompanyEvent(step);
     }
   }
 });

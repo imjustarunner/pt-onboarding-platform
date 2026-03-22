@@ -8,6 +8,17 @@ import {
   isSupervisorActor,
   supervisorHasSuperviseeInSchool
 } from '../utils/supervisorSchoolAccess.js';
+import {
+  resolveSkillBuildersProgramOrganizationId,
+  buildSkillsGroupEventDescription,
+  computeSkillsGroupEventWindow,
+  insertSkillsGroupCompanyEvent,
+  updateSkillsGroupCompanyEvent,
+  deactivateSkillsGroupCompanyEvent
+} from '../services/skillBuildersSkillsGroup.service.js';
+import { replaceSkillsGroupMeetings } from '../services/skillsGroupMeetingsWrite.service.js';
+import { materializeSkillBuildersEventSessions } from '../services/skillBuildersEventSessions.service.js';
+import { ProviderAvailabilityService } from '../services/providerAvailability.service.js';
 
 const allowedOrgTypes = ['school', 'program', 'learning'];
 const allowedWeekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -136,7 +147,8 @@ async function loadGroupsWithDetails({ organizationId, providerUserId = null }) 
   }
 
   const [groups] = await pool.execute(
-    `SELECT DISTINCT sg.id, sg.organization_id, sg.agency_id, sg.name, sg.start_date, sg.end_date, sg.created_at, sg.updated_at
+    `SELECT DISTINCT sg.id, sg.organization_id, sg.agency_id, sg.name, sg.start_date, sg.end_date,
+            sg.skill_builders_program_organization_id, sg.company_event_id, sg.created_at, sg.updated_at
      FROM skills_groups sg
      ${providerUserId ? 'JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id' : ''}
      WHERE ${where}
@@ -158,7 +170,8 @@ async function loadGroupsWithDetails({ organizationId, providerUserId = null }) 
   );
 
   const [providers] = await pool.execute(
-    `SELECT sgp.skills_group_id, u.id AS provider_user_id, u.first_name, u.last_name, u.email
+    `SELECT sgp.skills_group_id, u.id AS provider_user_id, u.first_name, u.last_name, u.email,
+            u.skill_builder_eligible
      FROM skills_group_providers sgp
      JOIN users u ON u.id = sgp.provider_user_id
      WHERE sgp.skills_group_id IN (${placeholders})
@@ -185,7 +198,16 @@ async function loadGroupsWithDetails({ organizationId, providerUserId = null }) 
   }
   for (const p of providers || []) {
     const g = byId.get(Number(p.skills_group_id));
-    if (g) g.providers.push({ provider_user_id: p.provider_user_id, first_name: p.first_name, last_name: p.last_name, email: p.email });
+    if (g) {
+      const elig = p.skill_builder_eligible;
+      g.providers.push({
+        provider_user_id: p.provider_user_id,
+        first_name: p.first_name,
+        last_name: p.last_name,
+        email: p.email,
+        skill_builder_eligible: !!(elig === true || elig === 1 || elig === '1')
+      });
+    }
   }
   for (const c of clients || []) {
     const g = byId.get(Number(c.skills_group_id));
@@ -194,6 +216,111 @@ async function loadGroupsWithDetails({ organizationId, providerUserId = null }) 
 
   return Array.from(byId.values());
 }
+
+async function syncSkillsGroupIntegratedEvent(conn, { groupId, activeAgencyId, userId, schoolOrgId, groupName }) {
+  const gid = Number(groupId);
+  const [grows] = await conn.execute(
+    `SELECT start_date, end_date, company_event_id, skill_builders_program_organization_id
+     FROM skills_groups WHERE id = ? LIMIT 1`,
+    [gid]
+  );
+  const g = grows?.[0];
+  if (!g) return;
+
+  const school = await Agency.findById(schoolOrgId);
+  const schoolName = String(school?.name || 'School').trim();
+
+  const [mrows] = await conn.execute(
+    `SELECT weekday, start_time, end_time
+     FROM skills_group_meetings
+     WHERE skills_group_id = ?
+     ORDER BY FIELD(weekday,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
+    [gid]
+  );
+
+  const resolvedProgramId = await resolveSkillBuildersProgramOrganizationId(conn, activeAgencyId);
+  const programOrgId =
+    resolvedProgramId ||
+    (g.skill_builders_program_organization_id ? Number(g.skill_builders_program_organization_id) : null);
+
+  const agencyTz = await ProviderAvailabilityService.resolveAgencyTimeZone({ agencyId: activeAgencyId });
+  const { startsAt, endsAt, timeZone: eventTz } = computeSkillsGroupEventWindow(
+    g.start_date,
+    g.end_date,
+    agencyTz
+  );
+  const description = buildSkillsGroupEventDescription({
+    schoolName,
+    groupName: String(groupName || '').trim() || `Group ${gid}`,
+    startDate: g.start_date,
+    endDate: g.end_date,
+    meetings: mrows || []
+  });
+  const title = `Skill Builders: ${String(groupName || '').trim() || `Group ${gid}`}`.slice(0, 255);
+
+  if (g.company_event_id) {
+    await updateSkillsGroupCompanyEvent(conn, Number(g.company_event_id), {
+      title,
+      description,
+      startsAt,
+      endsAt,
+      programOrgId,
+      userId,
+      timeZone: eventTz
+    });
+    if (programOrgId) {
+      await conn.execute(
+        `UPDATE skills_groups SET skill_builders_program_organization_id = ? WHERE id = ?`,
+        [programOrgId, gid]
+      );
+    }
+    return;
+  }
+
+  if (!programOrgId) return;
+
+  const eventId = await insertSkillsGroupCompanyEvent(conn, {
+    agencyId: activeAgencyId,
+    programOrgId,
+    userId,
+    title,
+    description,
+    startsAt,
+    endsAt,
+    timeZone: eventTz
+  });
+  await conn.execute(
+    `UPDATE skills_groups SET skill_builders_program_organization_id = ?, company_event_id = ? WHERE id = ?`,
+    [programOrgId, eventId, gid]
+  );
+}
+
+/**
+ * GET /api/school-portal/:orgId/skill-builders-program
+ * Admin UI: whether the agency has a resolvable Skill Builders program org.
+ */
+export const getSkillBuildersProgramLink = async (req, res, next) => {
+  try {
+    const { orgId } = req.params;
+    const access = await ensureSkillsGroupOrgAccess(req, orgId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (!canManageSkillsGroups(req)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const aid = access.activeAgencyId;
+    if (!aid) return res.json({ hasProgram: false, programOrganizationId: null, programName: null });
+
+    const programOrgId = await resolveSkillBuildersProgramOrganizationId(pool, aid);
+    if (!programOrgId) {
+      return res.json({ hasProgram: false, programOrganizationId: null, programName: null });
+    }
+    const [rows] = await pool.execute(`SELECT id, name FROM agencies WHERE id = ? LIMIT 1`, [programOrgId]);
+    const name = String(rows?.[0]?.name || '').trim() || 'Skill Builders';
+    res.json({ hasProgram: true, programOrganizationId: programOrgId, programName: name });
+  } catch (e) {
+    next(e);
+  }
+};
 
 /**
  * GET /api/school-portal/:orgId/skills-groups
@@ -247,6 +374,18 @@ export const createSkillsGroup = async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
+
+      const programOrgId = await resolveSkillBuildersProgramOrganizationId(conn, activeAgencyId);
+      if (!programOrgId) {
+        await conn.rollback();
+        return res.status(400).json({
+          error: {
+            message:
+              'No affiliated program named "Skill Builders" exists for this agency. Create or rename a program organization, then try again.'
+          }
+        });
+      }
+
       const [result] = await conn.execute(
         `INSERT INTO skills_groups
           (organization_id, agency_id, name, start_date, end_date, created_by_user_id, updated_by_user_id)
@@ -276,6 +415,16 @@ export const createSkillsGroup = async (req, res, next) => {
           [groupId, weekday, startTime, endTime]
         );
       }
+
+      await syncSkillsGroupIntegratedEvent(conn, {
+        groupId,
+        activeAgencyId,
+        userId: req.user.id,
+        schoolOrgId: parseInt(orgId, 10),
+        groupName: name
+      });
+
+      await materializeSkillBuildersEventSessions(conn, { skillsGroupId: groupId });
 
       await conn.commit();
       const rows = await loadGroupsWithDetails({ organizationId: orgId, providerUserId: null });
@@ -353,30 +502,28 @@ export const updateSkillsGroup = async (req, res, next) => {
       values.push(gid);
       await conn.execute(`UPDATE skills_groups SET ${updates.join(', ')} WHERE id = ?`, values);
 
-      // Replace meetings only when caller includes meetings[].
       if (hasMeetingsField) {
-        await conn.execute(`DELETE FROM skills_group_meetings WHERE skills_group_id = ?`, [gid]);
-        for (const raw of meetings) {
-          const weekdayRaw = String(raw?.weekday || '').trim();
-          const startRaw = String(raw?.start_time || '').trim();
-          const endRaw = String(raw?.end_time || '').trim();
-          const any = !!weekdayRaw || !!startRaw || !!endRaw;
-          if (!any) continue;
-          const weekday = normalizeWeekday(weekdayRaw);
-          const startTime = normalizeTime(startRaw);
-          const endTime = normalizeTime(endRaw);
-          if (!weekday || !startTime || !endTime) {
-            await conn.rollback();
-            return res.status(400).json({ error: { message: 'Invalid meeting (weekday/start_time/end_time)' } });
+        try {
+          await replaceSkillsGroupMeetings(conn, gid, meetings);
+        } catch (e) {
+          await conn.rollback();
+          const code = Number(e?.statusCode);
+          if (code === 400) {
+            return res.status(400).json({ error: { message: e.message || 'Invalid meetings' } });
           }
-          // eslint-disable-next-line no-await-in-loop
-          await conn.execute(
-            `INSERT INTO skills_group_meetings (skills_group_id, weekday, start_time, end_time)
-             VALUES (?, ?, ?, ?)`,
-            [gid, weekday, startTime, endTime]
-          );
+          throw e;
         }
       }
+
+      await syncSkillsGroupIntegratedEvent(conn, {
+        groupId: gid,
+        activeAgencyId: access.activeAgencyId,
+        userId: req.user.id,
+        schoolOrgId: parseInt(orgId, 10),
+        groupName: name
+      });
+
+      await materializeSkillBuildersEventSessions(conn, { skillsGroupId: gid });
 
       await conn.commit();
       const rows = await loadGroupsWithDetails({ organizationId: orgId, providerUserId: null });
@@ -405,6 +552,15 @@ export const deleteSkillsGroup = async (req, res, next) => {
 
     const gid = parseInt(groupId, 10);
     if (!gid) return res.status(400).json({ error: { message: 'Invalid groupId' } });
+
+    const [ceRows] = await pool.execute(
+      `SELECT company_event_id FROM skills_groups WHERE id = ? AND organization_id = ? LIMIT 1`,
+      [gid, parseInt(orgId, 10)]
+    );
+    const ceid = ceRows?.[0]?.company_event_id ? Number(ceRows[0].company_event_id) : null;
+    if (ceid) {
+      await deactivateSkillsGroupCompanyEvent(pool, ceid, req.user.id);
+    }
 
     await pool.execute(`DELETE FROM skills_groups WHERE id = ? AND organization_id = ?`, [gid, parseInt(orgId, 10)]);
     res.json({ ok: true });
@@ -442,6 +598,17 @@ export const updateSkillsGroupProvider = async (req, res, next) => {
     }
 
     if (action === 'add') {
+      const [elig] = await pool.execute(
+        `SELECT skill_builder_eligible FROM users WHERE id = ? LIMIT 1`,
+        [providerUserId]
+      );
+      const eligible = elig?.[0]?.skill_builder_eligible;
+      const isEligible = eligible === true || eligible === 1 || eligible === '1';
+      if (!isEligible) {
+        return res.status(400).json({
+          error: { message: 'Only Skill Builder–eligible providers can be added to a Skill Builders skills group.' }
+        });
+      }
       await pool.execute(
         `INSERT IGNORE INTO skills_group_providers (skills_group_id, provider_user_id) VALUES (?, ?)`,
         [gid, providerUserId]
@@ -502,7 +669,10 @@ export const updateSkillsGroupClient = async (req, res, next) => {
 
     if (action === 'add') {
       await pool.execute(
-        `INSERT IGNORE INTO skills_group_clients (skills_group_id, client_id) VALUES (?, ?)`,
+        `INSERT INTO skills_group_clients
+          (skills_group_id, client_id, active_for_providers, ready_confirmed_by_user_id, ready_confirmed_at)
+         VALUES (?, ?, 0, NULL, NULL)
+         ON DUPLICATE KEY UPDATE skills_group_id = skills_group_id`,
         [gid, clientId]
       );
     } else {
@@ -606,6 +776,7 @@ export const listSkillsEligibleProviders = async (req, res, next) => {
            LOWER(u.role) IN ('provider','clinician')
            OR (u.has_provider_access = TRUE)
          )
+         AND (u.skill_builder_eligible = TRUE OR u.skill_builder_eligible = 1)
        ORDER BY u.last_name ASC, u.first_name ASC`,
       [agencyId]
     );

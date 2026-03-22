@@ -12,6 +12,7 @@ import {
   buildEventIcs,
   computeNextOccurrence
 } from '../services/companyEvents.service.js';
+import { backfillSkillsGroupCompanyEvents } from '../services/skillBuildersGroupEventBackfill.service.js';
 
 const DEFAULT_RSVP_OPTIONS = [
   { key: '1', label: 'Yes' },
@@ -56,6 +57,43 @@ const userHasAgencyAccess = async (req, agencyId) => {
   const agencies = await User.getAgencies(req.user?.id);
   return (agencies || []).some((agency) => Number(agency?.id) === Number(agencyId));
 };
+
+async function getSkillBuilderCoordinatorAccess(userId) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT has_skill_builder_coordinator_access FROM users WHERE id = ? LIMIT 1`,
+      [userId]
+    );
+    const v = rows?.[0]?.has_skill_builder_coordinator_access;
+    return v === true || v === 1 || v === '1';
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR' || e?.code === 'ER_NO_SUCH_TABLE') return false;
+    throw e;
+  }
+}
+
+/** Affiliated child org suitable for program-scoped events (excludes schools). */
+async function validateAffiliatedOrganizationForEvent(agencyId, organizationId) {
+  if (!organizationId) return { ok: true, organizationId: null };
+  const [rows] = await pool.execute(
+    `SELECT child.id, child.organization_type
+     FROM organization_affiliations oa
+     JOIN agencies child ON child.id = oa.organization_id
+     WHERE oa.agency_id = ?
+       AND oa.organization_id = ?
+       AND oa.is_active = TRUE
+       AND (child.is_archived = FALSE OR child.is_archived IS NULL)
+       AND (child.is_active = TRUE OR child.is_active IS NULL)
+     LIMIT 1`,
+    [agencyId, organizationId]
+  );
+  const row = rows?.[0];
+  if (!row) return { error: 'Selected organization is not affiliated with this agency' };
+  if (String(row.organization_type || '').toLowerCase() === 'school') {
+    return { error: 'School organizations cannot be used for program-scoped company events' };
+  }
+  return { ok: true, organizationId: Number(row.id) };
+}
 
 const userCanManageCompanyEvents = (req) => {
   const role = String(req.user?.role || '').toLowerCase();
@@ -162,6 +200,9 @@ function mapEventRow(row, req, opts = {}) {
   const base = {
     id,
     agencyId,
+    organizationId: row.organization_id != null && row.organization_id !== undefined
+      ? Number(row.organization_id)
+      : null,
     title: row.title,
     description: row.description || '',
     eventType: row.event_type || 'company_event',
@@ -177,7 +218,14 @@ function mapEventRow(row, req, opts = {}) {
     reminderConfig,
     votingClosedAt: row.voting_closed_at || null,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    skillBuilderDirectHours:
+      row.skill_builder_direct_hours != null && row.skill_builder_direct_hours !== ''
+        ? Number(row.skill_builder_direct_hours)
+        : null,
+    registrationEligible: !!(row.registration_eligible === 1 || row.registration_eligible === true),
+    medicaidEligible: !!(row.medicaid_eligible === 1 || row.medicaid_eligible === true),
+    cashEligible: !!(row.cash_eligible === 1 || row.cash_eligible === true)
   };
   const nextOccurrence = computeNextOccurrence(base);
   const calendarSource = nextOccurrence || { startsAt, endsAt };
@@ -291,6 +339,21 @@ function parseEventPayload(body = {}) {
   const smsCodeRaw = String(body.smsCode || body.sms_code || '').trim();
   const smsCode = smsCodeRaw ? smsCodeRaw.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().slice(0, 32) : null;
 
+  const rawSbHours = body.skillBuilderDirectHours ?? body.skill_builder_direct_hours;
+  let skillBuilderDirectHours = null;
+  if (rawSbHours !== undefined && rawSbHours !== null && String(rawSbHours).trim() !== '') {
+    const n = Number(rawSbHours);
+    if (Number.isFinite(n) && n >= 0 && n <= 999) skillBuilderDirectHours = n;
+  }
+
+  const triBool = (raw, fallback = false) => {
+    if (raw === undefined) return fallback;
+    return raw === true || raw === 1 || raw === '1' || String(raw).toLowerCase() === 'true';
+  };
+  const registrationEligible = triBool(body.registrationEligible ?? body.registration_eligible, false);
+  const medicaidEligible = triBool(body.medicaidEligible ?? body.medicaid_eligible, false);
+  const cashEligible = triBool(body.cashEligible ?? body.cash_eligible, false);
+
   if (!title) return { error: 'title is required' };
   if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
     return { error: 'startsAt and endsAt are required and must be valid dates' };
@@ -298,6 +361,14 @@ function parseEventPayload(body = {}) {
   if (endsAt <= startsAt) return { error: 'endsAt must be after startsAt' };
   if (votingClosedAtRaw && !Number.isFinite(votingClosedAt?.getTime())) return { error: 'Invalid votingClosedAt value' };
   if (votingConfig.viaSms && !smsCode) return { error: 'smsCode is required when SMS voting is enabled' };
+
+  const rawOrg = body.organizationId ?? body.organization_id;
+  let organizationId = null;
+  if (rawOrg !== undefined && rawOrg !== null && rawOrg !== '') {
+    const n = parsePositiveInt(rawOrg);
+    if (!n) return { error: 'organizationId must be a positive integer when provided' };
+    organizationId = n;
+  }
 
   return {
     title,
@@ -314,11 +385,16 @@ function parseEventPayload(body = {}) {
     reminderConfig,
     votingClosedAt,
     smsCode,
+    organizationId,
     audience: {
       userIds: normalizeIds(audience.userIds),
       groupIds: normalizeIds(audience.groupIds),
       roleKeys: normalizeRoleAudience(audience.roleKeys)
-    }
+    },
+    skillBuilderDirectHours,
+    registrationEligible,
+    medicaidEligible,
+    cashEligible
   };
 }
 
@@ -679,6 +755,86 @@ async function getEventDeliverySummary(eventId) {
   return summary;
 }
 
+/**
+ * POST body: { agencyId } — creates company_events from school skills_groups missing links (same data as CLI backfill).
+ * Requires agency access and (Skill Builders sub-coordinator OR staff who can manage company events).
+ */
+export const postBackfillSkillsGroupCompanyEvents = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query?.agencyId);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+    const isCoord = await getSkillBuilderCoordinatorAccess(req.user?.id);
+    const isStaff = userCanManageCompanyEvents(req);
+    if (!isCoord && !isStaff) {
+      return res.status(403).json({
+        error: { message: 'Skill Builders sub-coordinator or admin/staff access required' }
+      });
+    }
+    const conn = await pool.getConnection();
+    try {
+      const result = await backfillSkillsGroupCompanyEvents(conn, {
+        agencyId,
+        actorUserId: Number(req.user.id)
+      });
+      res.json({ ok: true, ...result });
+    } finally {
+      conn.release();
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const listProgramCompanyEventsForCoordinator = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const organizationId = parsePositiveInt(req.query.organizationId);
+    if (!agencyId || !organizationId) {
+      return res.status(400).json({ error: { message: 'agencyId and organizationId are required' } });
+    }
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+    if (!(await getSkillBuilderCoordinatorAccess(req.user?.id))) {
+      return res.status(403).json({ error: { message: 'Sub-coordinator access required' } });
+    }
+    const aff = await validateAffiliatedOrganizationForEvent(agencyId, organizationId);
+    if (aff.error) return res.status(400).json({ error: { message: aff.error } });
+
+    // Program hub "Events": rows scoped to this program org, plus any company_events
+    // referenced by school skills_groups with this program (covers legacy / inconsistent organization_id).
+    const [rows] = await pool.execute(
+      `SELECT merged.*
+       FROM (
+         SELECT ce.*
+         FROM company_events ce
+         WHERE ce.agency_id = ?
+           AND ce.organization_id = ?
+         UNION
+         SELECT ce2.*
+         FROM company_events ce2
+         INNER JOIN skills_groups sg
+           ON sg.company_event_id = ce2.id
+           AND sg.agency_id = ce2.agency_id
+         WHERE ce2.agency_id = ?
+           AND sg.skill_builders_program_organization_id = ?
+       ) AS merged
+       ORDER BY merged.starts_at DESC, merged.id DESC
+       LIMIT 200`,
+      [agencyId, organizationId, agencyId, organizationId]
+    );
+    const events = (rows || []).map((row) => mapEventRow(row, req));
+    res.json({ ok: true, events });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const listCompanyEventsForAgency = async (req, res, next) => {
   try {
     const agencyId = parsePositiveInt(req.params.id);
@@ -780,66 +936,21 @@ export const createCompanyEvent = async (req, res, next) => {
     const parsed = parseEventPayload(req.body || {});
     if (parsed.error) return res.status(400).json({ error: { message: parsed.error } });
 
+    let organizationIdForRow = null;
+    if (parsed.organizationId) {
+      const v = await validateAffiliatedOrganizationForEvent(agencyId, parsed.organizationId);
+      if (v.error) return res.status(400).json({ error: { message: v.error } });
+      organizationIdForRow = v.organizationId;
+    }
+
     const [insertResult] = await pool.execute(
       `INSERT INTO company_events
-       (agency_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
+        organizationIdForRow,
         userId,
-        userId,
-        parsed.title,
-        parsed.description || null,
-        parsed.eventType || null,
-        parsed.splashContent || null,
-        parsed.startsAt,
-        parsed.endsAt,
-        parsed.timezone,
-        JSON.stringify(parsed.recurrence),
-        parsed.isActive ? 1 : 0,
-        parsed.rsvpMode || 'none',
-        JSON.stringify(parsed.votingConfig),
-        JSON.stringify(parsed.reminderConfig),
-        parsed.votingClosedAt || null,
-        parsed.smsCode
-      ]
-    );
-    const eventId = Number(insertResult.insertId);
-    await setEventAudience(eventId, parsed.audience);
-
-    const row = await loadEventByIdForAgency(eventId, agencyId);
-    const event = mapEventRow(row || {}, req);
-    const audience = await getAudienceForEvent(eventId);
-    res.status(201).json({ ...event, audience, responseSummary: [] });
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const updateCompanyEvent = async (req, res, next) => {
-  try {
-    const agencyId = parsePositiveInt(req.params.id);
-    const eventId = parsePositiveInt(req.params.eventId);
-    const userId = parsePositiveInt(req.user?.id);
-    if (!agencyId || !eventId || !userId) return res.status(400).json({ error: { message: 'Invalid request' } });
-    if (!(await userHasAgencyAccess(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
-    }
-    if (!userCanManageCompanyEvents(req)) {
-      return res.status(403).json({ error: { message: 'Admin or staff access required' } });
-    }
-
-    const existing = await loadEventByIdForAgency(eventId, agencyId);
-    if (!existing) return res.status(404).json({ error: { message: 'Company event not found' } });
-
-    const parsed = parseEventPayload(req.body || {});
-    if (parsed.error) return res.status(400).json({ error: { message: parsed.error } });
-
-    await pool.execute(
-      `UPDATE company_events
-       SET updated_by_user_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?
-       WHERE id = ? AND agency_id = ?`,
-      [
         userId,
         parsed.title,
         parsed.description || null,
@@ -855,17 +966,112 @@ export const updateCompanyEvent = async (req, res, next) => {
         JSON.stringify(parsed.reminderConfig),
         parsed.votingClosedAt || null,
         parsed.smsCode,
-        eventId,
-        agencyId
+        parsed.skillBuilderDirectHours,
+        parsed.registrationEligible ? 1 : 0,
+        parsed.medicaidEligible ? 1 : 0,
+        parsed.cashEligible ? 1 : 0
       ]
     );
+    const eventId = Number(insertResult.insertId);
     await setEventAudience(eventId, parsed.audience);
 
     const row = await loadEventByIdForAgency(eventId, agencyId);
     const event = mapEventRow(row || {}, req);
     const audience = await getAudienceForEvent(eventId);
-    const responseSummary = await listEventResponseSummary(eventId);
-    res.json({ ...event, audience, responseSummary });
+    res.status(201).json({ ...event, audience, responseSummary: [] });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export async function fetchCompanyEventDetailForEdit(req, agencyId, eventId) {
+  const row = await loadEventByIdForAgency(eventId, agencyId);
+  if (!row) return null;
+  const event = mapEventRow(row, req);
+  const audience = await getAudienceForEvent(eventId);
+  const responseSummary = await listEventResponseSummary(eventId);
+  return { ...event, audience, responseSummary };
+}
+
+/**
+ * Persist company event update (shared by agency admin route and Skill Builders event portal).
+ * Caller must enforce authorization.
+ */
+export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
+  const userId = parsePositiveInt(req.user?.id);
+  if (!agencyId || !eventId || !userId) {
+    return { error: { status: 400, message: 'Invalid request' } };
+  }
+
+  const existing = await loadEventByIdForAgency(eventId, agencyId);
+  if (!existing) return { error: { status: 404, message: 'Company event not found' } };
+
+  const parsed = parseEventPayload(body || {});
+  if (parsed.error) return { error: { status: 400, message: parsed.error } };
+
+  let organizationIdForRow = null;
+  if (parsed.organizationId) {
+    const v = await validateAffiliatedOrganizationForEvent(agencyId, parsed.organizationId);
+    if (v.error) return { error: { status: 400, message: v.error } };
+    organizationIdForRow = v.organizationId;
+  }
+
+  await pool.execute(
+    `UPDATE company_events
+     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?
+     WHERE id = ? AND agency_id = ?`,
+    [
+      userId,
+      organizationIdForRow,
+      parsed.title,
+      parsed.description || null,
+      parsed.eventType || null,
+      parsed.splashContent || null,
+      parsed.startsAt,
+      parsed.endsAt,
+      parsed.timezone,
+      JSON.stringify(parsed.recurrence),
+      parsed.isActive ? 1 : 0,
+      parsed.rsvpMode || 'none',
+      JSON.stringify(parsed.votingConfig),
+      JSON.stringify(parsed.reminderConfig),
+      parsed.votingClosedAt || null,
+      parsed.smsCode,
+      parsed.skillBuilderDirectHours,
+      parsed.registrationEligible ? 1 : 0,
+      parsed.medicaidEligible ? 1 : 0,
+      parsed.cashEligible ? 1 : 0,
+      eventId,
+      agencyId
+    ]
+  );
+  await setEventAudience(eventId, parsed.audience);
+
+  const row = await loadEventByIdForAgency(eventId, agencyId);
+  const event = mapEventRow(row || {}, req);
+  const audience = await getAudienceForEvent(eventId);
+  const responseSummary = await listEventResponseSummary(eventId);
+  return { ok: true, data: { ...event, audience, responseSummary } };
+}
+
+export const updateCompanyEvent = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.params.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const userId = parsePositiveInt(req.user?.id);
+    if (!agencyId || !eventId || !userId) return res.status(400).json({ error: { message: 'Invalid request' } });
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+    if (!userCanManageCompanyEvents(req)) {
+      return res.status(403).json({ error: { message: 'Admin or staff access required' } });
+    }
+
+    const result = await persistCompanyEventUpdate(req, agencyId, eventId, req.body);
+    if (result.error) {
+      return res.status(result.error.status).json({ error: { message: result.error.message } });
+    }
+    res.json(result.data);
   } catch (error) {
     next(error);
   }

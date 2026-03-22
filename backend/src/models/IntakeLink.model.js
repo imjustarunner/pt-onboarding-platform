@@ -12,6 +12,7 @@ class IntakeLink {
       organizationId = null,
       programId = null,
       learningClassId = null,
+      companyEventId = null,
       jobDescriptionId = null,
       isActive = true,
       createClient = true,
@@ -27,9 +28,9 @@ class IntakeLink {
 
     const [result] = await pool.execute(
       `INSERT INTO intake_links
-       (public_key, title, description, language_code, scope_type, form_type, organization_id, program_id, learning_class_id, job_description_id, is_active,
+       (public_key, title, description, language_code, scope_type, form_type, organization_id, program_id, learning_class_id, company_event_id, job_description_id, is_active,
         create_client, create_guardian, requires_assignment, allowed_document_template_ids, intake_fields, intake_steps, retention_policy_json, custom_messages, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         publicKey,
         title,
@@ -40,6 +41,7 @@ class IntakeLink {
         organizationId,
         programId,
         learningClassId,
+        companyEventId,
         jobDescriptionId,
         isActive ? 1 : 0,
         createClient ? 1 : 0,

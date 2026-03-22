@@ -22,6 +22,7 @@ import SupervisionSession from '../models/SupervisionSession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import pool from '../config/database.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
+import { syncProgramMembershipForSkillBuilderEligibleUser } from '../services/skillBuildersProgramAffiliation.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +33,29 @@ const isAdminOrSuperAdmin = (req) => {
 };
 
 const normalizeBoolFlag = (val) => val === 1 || val === true || val === '1';
+
+/** MySQL DATE / JS Date → yyyy-MM-dd for JSON (never use String(date).slice(0,10) — that yields "Fri Mar 21"). */
+const toYmdDateOnly = (v) => {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    const y = v.getUTCFullYear();
+    const m = String(v.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(v.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10);
+  const parsed = Date.parse(s);
+  if (!Number.isNaN(parsed)) {
+    const dt = new Date(parsed);
+    const y = dt.getUTCFullYear();
+    const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(dt.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return null;
+};
 const SSO_EXCLUDED_ROLES = new Set(['school_staff', 'client_guardian', 'client', 'guardian']);
 const isMissingBillingInfraError = (err) => {
   if (!err) return false;
@@ -1866,8 +1890,8 @@ export const updateUser = async (req, res, next) => {
       if (providerStartDate === null || providerStartDate === '') {
         updateData.providerStartDate = null;
       } else {
-        const s = String(providerStartDate).slice(0, 10);
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        const s = toYmdDateOnly(providerStartDate);
+        if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) {
           return res.status(400).json({ error: { message: 'providerStartDate must be YYYY-MM-DD' } });
         }
         updateData.providerStartDate = s;
@@ -2141,6 +2165,24 @@ export const updateUser = async (req, res, next) => {
     // readers still rely on user_info_values.
     if (credential !== undefined) {
       await syncLegacyProviderCredentialValue(id, updateData.credential);
+    }
+
+    if (skillBuilderEligible !== undefined) {
+      const elig =
+        user.skill_builder_eligible === true ||
+        user.skill_builder_eligible === 1 ||
+        user.skill_builder_eligible === '1';
+      if (elig) {
+        let sbConn;
+        try {
+          sbConn = await pool.getConnection();
+          await syncProgramMembershipForSkillBuilderEligibleUser(sbConn, parseInt(id, 10));
+        } catch (e) {
+          console.warn('Skill Builders program affiliation sync failed:', e?.message || e);
+        } finally {
+          if (sbConn) sbConn.release();
+        }
+      }
     }
 
     // Admin audit: log when admin updates another user's profile
@@ -5698,7 +5740,7 @@ export const getAccountInfo = async (req, res, next) => {
       title: user.title ?? null,
       serviceFocus: user.service_focus ?? null,
       languagesSpoken: user.languages_spoken ?? null,
-      providerStartDate: user.provider_start_date ? String(user.provider_start_date).slice(0, 10) : null,
+      providerStartDate: toYmdDateOnly(user.provider_start_date),
       personalEmail: personalEmail || user.personal_email || null,
       phoneNumber: user.phone_number || null, // Keep for backward compatibility
       personalPhone: user.personal_phone || null,

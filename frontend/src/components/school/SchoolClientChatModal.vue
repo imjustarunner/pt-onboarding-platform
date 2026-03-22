@@ -43,8 +43,16 @@
       </div>
 
       <div v-if="showActionBar" class="modal-actions-bar">
-        <button class="btn btn-secondary btn-sm action-btn action-btn-active" type="button" @click="activePane = null">
+        <button class="btn btn-secondary btn-sm action-btn action-btn-active" type="button" @click="subView = 'default'; activePane = null">
           View & Comment
+        </button>
+        <button
+          v-if="showSkillBuildersEntry"
+          class="btn btn-secondary btn-sm"
+          type="button"
+          @click="openSkillBuildersTab"
+        >
+          Skill Builders
         </button>
         <button
           v-if="props.showChecklistAction"
@@ -62,6 +70,14 @@
         >
           Edit
         </button>
+      </div>
+
+      <div v-if="canToggleSkillsYes" class="skills-yes-bar">
+        <label class="skills-yes-label">
+          <input type="checkbox" :checked="!!skillsYesLocal" :disabled="skillsYesSaving" @change="onSkillsYesChange($event)" />
+          <span>Skill Builders (Skills Yes)</span>
+        </label>
+        <span v-if="skillsYesError" class="error">{{ skillsYesError }}</span>
       </div>
 
       <div class="phi-warning">
@@ -116,7 +132,148 @@
       <div v-if="loading" class="loading">Loading…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else class="body">
-        <div v-if="checklist" class="checklist-roi-split">
+        <div v-if="subView === 'skill_builders' && showSkillBuildersEntry" class="sb-tab-panel">
+          <div class="sb-tab-head">
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="selectedSkillEvent ? (selectedSkillEvent = null) : (subView = 'default')"
+            >
+              ← {{ selectedSkillEvent ? 'Events list' : 'Back' }}
+            </button>
+            <h3 class="sb-tab-title">Skill Builders</h3>
+          </div>
+          <div v-if="builderLoading" class="muted">Loading…</div>
+          <div v-else-if="builderError" class="error">{{ builderError }}</div>
+          <template v-else-if="selectedSkillEvent">
+            <section class="sb-section">
+              <h4>{{ selectedSkillEvent.eventTitle || selectedSkillEvent.skillsGroupName }}</h4>
+              <p class="muted">
+                {{ selectedSkillEvent.schoolName || '' }}
+                <span v-if="formatSbRange(selectedSkillEvent)"> · {{ formatSbRange(selectedSkillEvent) }}</span>
+              </p>
+              <p v-if="selectedSkillEvent.eventDescription" class="sb-desc">{{ selectedSkillEvent.eventDescription }}</p>
+            </section>
+            <section class="sb-section">
+              <h4>This student</h4>
+              <ul class="sb-list sb-flat">
+                <li v-if="builderClientSummary?.initials">Initials: {{ builderClientSummary.initials }}</li>
+                <li v-if="builderClientSummary?.grade">Grade: {{ builderClientSummary.grade }}</li>
+                <li v-if="builderClientSummary?.ageYears != null">Age: {{ builderClientSummary.ageYears }}</li>
+                <li v-else-if="builderClientSummary?.dateOfBirth">Date of birth: {{ builderClientSummary.dateOfBirth }}</li>
+                <li>
+                  Documents / paperwork:
+                  {{ builderClientSummary?.paperworkStatusLabel || builderClientSummary?.documentStatus || '—' }}
+                </li>
+                <li v-if="builderClientSummary?.clientStatusLabel">Status: {{ builderClientSummary.clientStatusLabel }}</li>
+              </ul>
+              <p class="muted small">More document links and resources will appear here as we wire them in.</p>
+            </section>
+            <section class="sb-section">
+              <h4>Schedule</h4>
+              <p class="muted">
+                Group window:
+                {{ formatDateShort(selectedSkillEvent.groupStartDate) }} – {{ formatDateShort(selectedSkillEvent.groupEndDate) }}
+              </p>
+              <ul v-if="(selectedSkillEvent.meetings || []).length" class="sb-list">
+                <li v-for="(m, idx) in selectedSkillEvent.meetings" :key="idx">
+                  {{ m.weekday }} · {{ formatSbClock(m.startTime) }}–{{ formatSbClock(m.endTime) }}
+                </li>
+              </ul>
+              <p v-else class="muted">No weekly meeting pattern on file.</p>
+            </section>
+            <section class="sb-section">
+              <h4>Providers</h4>
+              <ul v-if="(selectedSkillEvent.providers || []).length" class="sb-list">
+                <li v-for="p in selectedSkillEvent.providers" :key="p.id">{{ p.firstName }} {{ p.lastName }}</li>
+              </ul>
+              <p v-else class="muted">No providers listed yet.</p>
+            </section>
+            <div class="sb-portal-actions">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="!organizationSlugForPortal"
+                :title="!organizationSlugForPortal ? 'Organization slug missing for portal link' : ''"
+                @click="goSkillBuilderEventPortal(selectedSkillEvent)"
+              >
+                Event portal
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="selectedSkillEvent = null">More events</button>
+            </div>
+            <div v-if="canCoordinatorConfirm && selectedSkillEvent.companyEventId && !selectedSkillEvent.activeForProviders" class="sb-row-actions" style="margin-top: 10px;">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="confirmBusyId === selectedSkillEvent.companyEventId"
+                @click="confirmEventForClient(selectedSkillEvent.companyEventId)"
+              >
+                Confirm active for event
+              </button>
+            </div>
+          </template>
+          <template v-else>
+            <section class="sb-section">
+              <div class="sb-events-toolbar">
+                <h4 class="sb-events-title">Events</h4>
+                <label class="sb-past-toggle">
+                  <input v-model="showPastSkillEvents" type="checkbox" />
+                  Show past events
+                </label>
+              </div>
+              <p v-if="upcomingSbEvents.length" class="sb-subh">Upcoming &amp; current</p>
+              <ul v-if="upcomingSbEvents.length" class="sb-event-pick">
+                <li v-for="ev in upcomingSbEvents" :key="`u-${ev.skillsGroupId}`">
+                  <button type="button" class="sb-event-btn" @click="selectedSkillEvent = ev">
+                    <span class="sb-event-name">{{ ev.eventTitle || ev.skillsGroupName }}</span>
+                    <span class="muted sb-event-when">{{ formatSbRange(ev) }}</span>
+                    <span class="muted sb-event-school">{{ ev.schoolName }}</span>
+                  </button>
+                </li>
+              </ul>
+              <p v-else class="muted">No current or upcoming events.</p>
+              <template v-if="showPastSkillEvents && pastSbEvents.length">
+                <p class="sb-subh">Past</p>
+                <ul class="sb-event-pick">
+                  <li v-for="ev in pastSbEvents" :key="`p-${ev.skillsGroupId}`">
+                    <button type="button" class="sb-event-btn" @click="selectedSkillEvent = ev">
+                      <span class="sb-event-name">{{ ev.eventTitle || ev.skillsGroupName }}</span>
+                      <span class="muted sb-event-when">{{ formatSbRange(ev) }}</span>
+                      <span class="muted sb-event-school">{{ ev.schoolName }}</span>
+                    </button>
+                  </li>
+                </ul>
+              </template>
+            </section>
+            <section v-if="!selectedSkillEvent" class="sb-section">
+              <h4>Approved non-guardian pickups</h4>
+              <ul v-if="builderPickups.length" class="sb-list">
+                <li v-for="p in builderPickups" :key="p.id">
+                  {{ p.display_name || p.displayName }}
+                  <span v-if="p.relationship" class="muted"> · {{ p.relationship }}</span>
+                  <span v-if="p.phone" class="muted"> · {{ p.phone }}</span>
+                </li>
+              </ul>
+              <p v-else class="muted">None recorded.</p>
+              <div v-if="canEditSkillBuilderExtras" class="sb-mini-form">
+                <input v-model="pickupDraft.name" class="input" placeholder="Name" />
+                <input v-model="pickupDraft.relationship" class="input" placeholder="Relationship" />
+                <input v-model="pickupDraft.phone" class="input" placeholder="Phone" />
+                <button type="button" class="btn btn-primary btn-sm" :disabled="pickupSaving" @click="savePickup">
+                  {{ pickupSaving ? 'Saving…' : 'Add pickup' }}
+                </button>
+              </div>
+            </section>
+            <section v-if="!selectedSkillEvent" class="sb-section">
+              <h4>Program notes</h4>
+              <p class="muted small">
+                Event-scoped discussion and notes live in the <strong>Event portal</strong> (open an event above). School portal users do not see program-only threads.
+              </p>
+            </section>
+          </template>
+        </div>
+
+        <div v-if="subView === 'default' && checklist" class="checklist-roi-split">
           <div class="checklist checklist-half">
             <div class="checklist-title">Compliance checklist (read-only)</div>
             <div class="checklist-grid">
@@ -174,7 +331,7 @@
           </div>
         </div>
 
-        <div class="dual" :class="dualClass">
+        <div v-if="subView === 'default'" class="dual" :class="dualClass">
           <section
             class="pane pane-comments"
             :class="paneClass('comments')"
@@ -252,6 +409,7 @@
           </section>
         </div>
 
+        <template v-if="subView === 'default'">
         <div v-if="canLaunchSmartRoi" class="documents-section">
           <div class="documents-section-title">Direct sign</div>
           <div class="muted">
@@ -299,6 +457,7 @@
             </div>
           </div>
         </div>
+        </template>
       </div>
     </div>
   </div>
@@ -313,6 +472,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import WaitlistNoteModal from './WaitlistNoteModal.vue';
 import ClientTicketThreadPanel from './ClientTicketThreadPanel.vue';
@@ -323,12 +483,17 @@ import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 const props = defineProps({
   client: { type: Object, required: true },
   schoolOrganizationId: { type: Number, default: null },
-  initialPane: { type: String, default: null }, // null | 'comments' | 'messages'
+  /** Parent agency id (affiliated agency) for Skill Builders APIs */
+  parentAgencyId: { type: Number, default: null },
+  /** School portal org slug (for Event portal link) */
+  organizationSlug: { type: String, default: '' },
+  initialPane: { type: String, default: null }, // null | 'comments' | 'messages' | 'skill_builders'
   canEditAction: { type: Boolean, default: false },
   showChecklistAction: { type: Boolean, default: false }
 });
-const emit = defineEmits(['close', 'open-edit', 'open-checklist']);
+const emit = defineEmits(['close', 'open-edit', 'open-checklist', 'client-updated']);
 
+const router = useRouter();
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
@@ -342,7 +507,16 @@ const canViewPacketAudit = computed(() => {
   if (isSchoolStaff.value) return schoolStaffAccessLevel.value === 'roi_docs';
   return canViewClientDocuments.value;
 });
-const showActionBar = computed(() => !isSchoolStaff.value && (props.canEditAction || props.showChecklistAction));
+const showSkillBuildersEntry = computed(() => {
+  const aid = Number(props.parentAgencyId || 0);
+  return !!props.client?.skills && Number.isFinite(aid) && aid > 0;
+});
+
+const showActionBar = computed(
+  () =>
+    !isSchoolStaff.value &&
+    (props.canEditAction || props.showChecklistAction || showSkillBuildersEntry.value)
+);
 const canLaunchSmartRoi = computed(() => Number(props.schoolOrganizationId || 0) > 0 && Number(props.client?.id || 0) > 0);
 
 const isWaitlist = computed(() => {
@@ -418,6 +592,89 @@ const staffRoiSummary = ref(null);
 const staffRoiError = ref('');
 
 const activePane = ref(null); // null | 'comments' | 'messages'
+const subView = ref('default'); // 'default' | 'skill_builders'
+
+const skillsYesLocal = ref(false);
+const skillsYesSaving = ref(false);
+const skillsYesError = ref('');
+
+const builderLoading = ref(false);
+const builderError = ref('');
+const builderEvents = ref([]);
+const builderClientSummary = ref(null);
+const selectedSkillEvent = ref(null);
+const showPastSkillEvents = ref(false);
+const builderPickups = ref([]);
+const pickupDraft = ref({ name: '', relationship: '', phone: '' });
+const pickupSaving = ref(false);
+const confirmBusyId = ref(null);
+
+const canToggleSkillsYes = computed(() => {
+  if (isSchoolStaff.value) return false;
+  const orgOk = Number(props.schoolOrganizationId || 0) > 0;
+  if (!orgOk) return false;
+  return !!(props.client?.user_is_assigned_provider || props.canEditAction);
+});
+
+const canCoordinatorConfirm = computed(() =>
+  ['admin', 'staff', 'support', 'super_admin'].includes(roleNorm.value)
+);
+
+const canEditSkillBuilderExtras = computed(
+  () => !isSchoolStaff.value && (props.client?.user_is_assigned_provider || props.canEditAction || canCoordinatorConfirm.value)
+);
+
+function sbEventEndMs(ev) {
+  const raw = ev?.eventEndsAt || ev?.groupEndDate;
+  const t = raw ? new Date(raw).getTime() : NaN;
+  return Number.isFinite(t) ? t : 0;
+}
+
+const organizationSlugForPortal = computed(() => String(props.organizationSlug || '').trim());
+
+const upcomingSbEvents = computed(() => {
+  const now = Date.now();
+  return (builderEvents.value || []).filter((ev) => sbEventEndMs(ev) >= now || !sbEventEndMs(ev));
+});
+
+const pastSbEvents = computed(() => {
+  const now = Date.now();
+  return (builderEvents.value || []).filter((ev) => sbEventEndMs(ev) > 0 && sbEventEndMs(ev) < now);
+});
+
+function formatSbRange(ev) {
+  const a = ev?.eventStartsAt ? new Date(ev.eventStartsAt) : null;
+  const b = ev?.eventEndsAt ? new Date(ev.eventEndsAt) : null;
+  if (a && Number.isFinite(a.getTime())) {
+    try {
+      const opt = { dateStyle: 'medium' };
+      const end = b && Number.isFinite(b.getTime()) ? b.toLocaleDateString(undefined, opt) : '';
+      return end ? `${a.toLocaleDateString(undefined, opt)} – ${end}` : a.toLocaleDateString(undefined, opt);
+    } catch {
+      return '';
+    }
+  }
+  if (ev?.groupStartDate || ev?.groupEndDate) {
+    return `${formatDateShort(ev.groupStartDate)} – ${formatDateShort(ev.groupEndDate)}`;
+  }
+  return '';
+}
+
+function formatSbClock(t) {
+  const s = String(t || '').slice(0, 5);
+  return s || '—';
+}
+
+function formatDateShort(d) {
+  if (!d) return '—';
+  return String(d).slice(0, 10);
+}
+
+function goSkillBuilderEventPortal(ev) {
+  const id = Number(ev?.companyEventId || 0);
+  if (!id || !organizationSlugForPortal.value) return;
+  router.push(`/${organizationSlugForPortal.value}/skill-builders/event/${id}`);
+}
 const dualClass = computed(() => (activePane.value ? `dual-active-${activePane.value}` : 'dual-active-both'));
 const paneClass = (pane) => {
   const active = activePane.value;
@@ -472,9 +729,11 @@ const load = async () => {
       const who = c.checklist_updated_by_name || null;
       const when = c.checklist_updated_at ? new Date(c.checklist_updated_at).toLocaleString() : null;
       checklistAudit.value = who && when ? `Last updated by ${who} on ${when}` : (when ? `Last updated on ${when}` : '');
+      syncSkillsLocal();
     } catch {
       checklist.value = null;
       checklistAudit.value = '';
+      syncSkillsLocal();
     }
 
     if (props.schoolOrganizationId && checklist.value) {
@@ -565,6 +824,97 @@ const launchSmartRoi = async () => {
 const formatDateTime = (d) => (d ? new Date(d).toLocaleString() : '');
 
 const formatDateOnly = (d) => (d ? String(d).slice(0, 10) : '—');
+
+function syncSkillsLocal() {
+  skillsYesLocal.value = !!(props.client?.skills ?? fullClient.value?.skills);
+}
+
+async function onSkillsYesChange(ev) {
+  const next = !!ev?.target?.checked;
+  const orgId = Number(props.schoolOrganizationId || 0);
+  const clientId = Number(props.client?.id || 0);
+  if (!orgId || !clientId) return;
+  skillsYesSaving.value = true;
+  skillsYesError.value = '';
+  try {
+    await api.put(`/school-portal/${orgId}/clients/${clientId}/skills`, { skills: next });
+    skillsYesLocal.value = next;
+    emit('client-updated', { clientId, skills: next });
+  } catch (e) {
+    skillsYesError.value = e.response?.data?.error?.message || e.message || 'Failed to update';
+    ev.target.checked = !next;
+  } finally {
+    skillsYesSaving.value = false;
+  }
+}
+
+async function loadBuilderDetail() {
+  const aid = Number(props.parentAgencyId || 0);
+  const cid = Number(props.client?.id || 0);
+  const sid = Number(props.schoolOrganizationId || 0);
+  if (!aid || !cid) return;
+  builderLoading.value = true;
+  builderError.value = '';
+  try {
+    const res = await api.get(`/skill-builders/clients/${cid}/builder-detail`, {
+      params: { agencyId: aid, schoolOrganizationId: sid || undefined },
+      skipGlobalLoading: true
+    });
+    builderClientSummary.value = res.data?.clientSummary || null;
+    builderEvents.value = Array.isArray(res.data?.events) ? res.data.events : [];
+    builderPickups.value = Array.isArray(res.data?.transportPickups) ? res.data.transportPickups : [];
+    selectedSkillEvent.value = null;
+  } catch (e) {
+    builderError.value = e.response?.data?.error?.message || e.message || 'Failed to load';
+    builderEvents.value = [];
+    builderPickups.value = [];
+  } finally {
+    builderLoading.value = false;
+  }
+}
+
+function openSkillBuildersTab() {
+  subView.value = 'skill_builders';
+  loadBuilderDetail();
+}
+
+async function savePickup() {
+  const aid = Number(props.parentAgencyId || 0);
+  const cid = Number(props.client?.id || 0);
+  const displayName = String(pickupDraft.value.name || '').trim();
+  if (!aid || !cid || !displayName) return;
+  pickupSaving.value = true;
+  try {
+    await api.post(`/skill-builders/clients/${cid}/transport-pickups`, {
+      agencyId: aid,
+      displayName,
+      relationship: pickupDraft.value.relationship || '',
+      phone: pickupDraft.value.phone || ''
+    });
+    pickupDraft.value = { name: '', relationship: '', phone: '' };
+    await loadBuilderDetail();
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Failed to save');
+  } finally {
+    pickupSaving.value = false;
+  }
+}
+
+async function confirmEventForClient(eventId) {
+  const aid = Number(props.parentAgencyId || 0);
+  const cid = Number(props.client?.id || 0);
+  if (!aid || !cid || !eventId) return;
+  confirmBusyId.value = eventId;
+  try {
+    await api.post(`/skill-builders/events/${eventId}/clients/${cid}/confirm-active`, { agencyId: aid });
+    await loadBuilderDetail();
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Failed to confirm');
+  } finally {
+    confirmBusyId.value = null;
+  }
+}
+
 const formatKey = (v) => {
   const s = String(v || '').trim();
   if (!s) return '—';
@@ -575,6 +925,9 @@ onMounted(() => {
   const p = String(props.initialPane || '').trim().toLowerCase();
   if (p === 'comments' || p === 'messages') {
     activePane.value = p;
+  }
+  if (p === 'skill_builders') {
+    openSkillBuildersTab();
   }
   load();
 });
@@ -588,7 +941,11 @@ watch(
     waitlistNote.value = '';
     {
       const p = String(props.initialPane || '').trim().toLowerCase();
-      activePane.value = (p === 'comments' || p === 'messages') ? p : null;
+      activePane.value = p === 'comments' || p === 'messages' ? p : null;
+      subView.value = p === 'skill_builders' ? 'skill_builders' : 'default';
+      if (p === 'skill_builders') {
+        openSkillBuildersTab();
+      }
     }
     comments.value = [];
     commentDraft.value = '';
@@ -1033,6 +1390,154 @@ textarea, select {
   .dual.dual-active-messages {
     grid-template-columns: 1fr;
   }
+}
+
+.skills-yes-bar {
+  margin: 8px 16px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--bg-alt, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.skills-yes-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sb-tab-panel {
+  margin-bottom: 12px;
+}
+.sb-tab-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.sb-tab-title {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.sb-section {
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--bg, #fff);
+}
+.sb-section h4 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+.sb-list {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+.sb-row-actions {
+  margin-top: 6px;
+}
+.sb-mini-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  max-width: 420px;
+}
+.sb-notes {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+}
+.sb-note-meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #64748b);
+}
+.sb-note-body {
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+.sb-events-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.sb-events-title {
+  margin: 0;
+  font-size: 1rem;
+}
+.sb-past-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+}
+.sb-subh {
+  margin: 12px 0 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #64748b);
+}
+.sb-event-pick {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sb-event-btn {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: var(--bg-alt, #f8fafc);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.sb-event-btn:hover {
+  border-color: var(--primary, #4f46e5);
+}
+.sb-event-name {
+  display: block;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+.sb-event-when,
+.sb-event-school {
+  display: block;
+  font-size: 0.82rem;
+  margin-top: 2px;
+}
+.sb-portal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.sb-desc {
+  margin: 8px 0 0;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+.sb-flat {
+  list-style: none;
+  padding-left: 0;
+}
+.small {
+  font-size: 0.82rem;
 }
 </style>
 

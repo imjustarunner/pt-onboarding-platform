@@ -9,7 +9,9 @@ import DocumentTemplate from '../models/DocumentTemplate.model.js';
 import ClientSchoolRoiSigningLink from '../models/ClientSchoolRoiSigningLink.model.js';
 import PublicIntakeSigningService from '../services/publicIntakeSigning.service.js';
 import DocumentSigningService from '../services/documentSigning.service.js';
-import PublicIntakeClientService from '../services/publicIntakeClient.service.js';
+import PublicIntakeClientService, { deriveInitials } from '../services/publicIntakeClient.service.js';
+import { fetchRegistrationCatalogItems } from '../services/registrationCatalog.service.js';
+import { enrollClientsInCompanyEvent } from '../services/skillBuildersIntakeEnrollment.service.js';
 import applyClientRoiCompletion from '../services/clientRoiCompletion.service.js';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
@@ -86,9 +88,23 @@ const normalizeRegistrationSelections = (intakeData = null) => {
       entityId: Number(row.entityId || 0) || null,
       sourceProgramId: Number(row.sourceProgramId || 0) || null,
       sourceSiteId: Number(row.sourceSiteId || 0) || null,
-      scheduleBlocks: Array.isArray(row.scheduleBlocks) ? row.scheduleBlocks : []
+      scheduleBlocks: Array.isArray(row.scheduleBlocks) ? row.scheduleBlocks : [],
+      payerType: String(row.payerType || row.payer_type || '').trim().toLowerCase() || null
     }))
     .filter((row) => !!row.entityType);
+};
+const extractRegistrationPayerType = (intakeData = null) => {
+  const sub = intakeData?.responses?.submission && typeof intakeData.responses.submission === 'object'
+    ? intakeData.responses.submission
+    : {};
+  const raw = String(sub.registrationPayerType || sub.registration_payer_type || '').trim().toLowerCase();
+  if (raw === 'medicaid' || raw === 'cash') return raw;
+  return null;
+};
+const registrationEntityType = (selection) => {
+  const t = String(selection?.entityType || '').trim().toLowerCase();
+  if (t === 'event') return 'company_event';
+  return t;
 };
 const deriveRegistrationSlotDate = ({ selection = {}, intakeData = null, payload = null } = {}) => {
   const blocks = Array.isArray(selection?.scheduleBlocks) ? selection.scheduleBlocks : [];
@@ -117,6 +133,7 @@ const enrollSmartRegistrationSelections = async ({
     classEnrollments: 0,
     programAssignments: 0,
     programEventSignups: 0,
+    companyEventEnrollments: 0,
     errors: []
   };
   if (!selections.length) return result;
@@ -124,6 +141,21 @@ const enrollSmartRegistrationSelections = async ({
   const uniqueClientIds = Array.from(new Set((Array.isArray(clientIds) ? clientIds : [])
     .map((id) => Number(id || 0))
     .filter((id) => Number.isFinite(id) && id > 0)));
+  const globalPayer = extractRegistrationPayerType(intakeData);
+  const lockedCompanyEventId = Number(link?.company_event_id || 0) || null;
+  let agencyIdForEnrollment = null;
+  if (uniqueClientIds.length) {
+    const ph = uniqueClientIds.map(() => '?').join(',');
+    try {
+      const [agencyRows] = await pool.execute(
+        `SELECT agency_id FROM clients WHERE id IN (${ph}) AND agency_id IS NOT NULL LIMIT 1`,
+        uniqueClientIds
+      );
+      agencyIdForEnrollment = Number(agencyRows?.[0]?.agency_id || 0) || null;
+    } catch {
+      agencyIdForEnrollment = null;
+    }
+  }
   let participantUserId = Number(guardianUserId || 0) || null;
   if (!participantUserId) {
     const email = String(payload?.guardian?.email || '').trim().toLowerCase();
@@ -137,9 +169,36 @@ const enrollSmartRegistrationSelections = async ({
     }
   }
   for (const selection of selections) {
-    if (selection.entityType === 'class') {
+    const effectiveType = registrationEntityType(selection);
+    if (effectiveType === 'class') {
       const classId = Number(selection.entityId || 0) || null;
       if (!classId || !uniqueClientIds.length) continue;
+      let classOk = false;
+      try {
+        const [eligibleRows] = await pool.execute(
+          `SELECT id FROM learning_program_classes
+           WHERE id = ?
+             AND registration_eligible = 1
+             AND is_active = 1
+             AND LOWER(COALESCE(status, '')) = 'active'
+             AND (ends_at IS NULL OR ends_at >= NOW())
+             AND (enrollment_opens_at IS NULL OR enrollment_opens_at <= NOW())
+             AND (enrollment_closes_at IS NULL OR enrollment_closes_at >= NOW())
+           LIMIT 1`,
+          [classId]
+        );
+        classOk = !!(eligibleRows && eligibleRows.length);
+      } catch {
+        classOk = false;
+      }
+      if (!classOk) {
+        result.errors.push({
+          type: 'class_not_registration_eligible',
+          classId,
+          message: 'Class is not open for registration or outside the enrollment window'
+        });
+        continue;
+      }
       for (const clientId of uniqueClientIds) {
         try {
           await LearningProgramClass.addClientMember({
@@ -162,7 +221,57 @@ const enrollSmartRegistrationSelections = async ({
       }
       continue;
     }
-    if (selection.entityType === 'program_event') {
+    if (effectiveType === 'company_event') {
+      const eventId = Number(selection.entityId || 0) || null;
+      if (!eventId || !agencyIdForEnrollment || !uniqueClientIds.length) continue;
+      if (lockedCompanyEventId && eventId !== lockedCompanyEventId) {
+        result.errors.push({
+          type: 'company_event_scope_mismatch',
+          eventId,
+          expectedEventId: lockedCompanyEventId,
+          message: 'Selected event does not match this registration link.'
+        });
+        continue;
+      }
+      const payer = selection.payerType || globalPayer || null;
+      try {
+        const bulk = await enrollClientsInCompanyEvent({
+          agencyId: agencyIdForEnrollment,
+          eventId,
+          clientIds: uniqueClientIds,
+          payerType: payer
+        });
+        if (!bulk.ok) {
+          result.errors.push({
+            type: 'company_event_enrollment_failed',
+            eventId,
+            message: bulk.error || 'Company event enrollment failed',
+            details: bulk.results
+          });
+          continue;
+        }
+        const okCount = (bulk.results || []).filter((r) => r?.ok).length;
+        result.companyEventEnrollments += okCount;
+        for (const r of bulk.results || []) {
+          if (!r?.ok) {
+            result.errors.push({
+              type: 'company_event_client_failed',
+              eventId,
+              clientId: r.clientId,
+              message: r.error || 'Enrollment failed for client'
+            });
+          }
+        }
+      } catch (error) {
+        result.errors.push({
+          type: 'company_event_enrollment_failed',
+          eventId,
+          message: error?.message || 'Unknown company event enrollment error'
+        });
+      }
+      continue;
+    }
+    if (effectiveType === 'program_event') {
       const programId = Number(selection.sourceProgramId || 0) || null;
       const siteId = Number(selection.sourceSiteId || 0) || null;
       const slotId = Number(selection.entityId || 0) || null;
@@ -537,7 +646,11 @@ const resolvePacketCompletionEmailContent = async ({
   primaryClientName,
   schoolName,
   downloadUrl,
-  expiresInDays = 7
+  expiresInDays = 7,
+  registrationLoginEmail = null,
+  registrationTempPassword = null,
+  portalLoginUrl = null,
+  registrationEventSummary = null
 }) => {
   const customMessages = link?.custom_messages && typeof link.custom_messages === 'object'
     ? link.custom_messages
@@ -556,6 +669,11 @@ const resolvePacketCompletionEmailContent = async ({
     selectedTemplate = await EmailTemplate.findByTypeAndAgency(selectedTemplateType, agencyId);
   }
 
+  const regLogin = String(registrationLoginEmail || signerEmail || '').trim();
+  const regPw = String(registrationTempPassword || '').trim();
+  const regPortal = String(portalLoginUrl || '').trim();
+  const regEvent = String(registrationEventSummary || '').trim();
+
   const params = {
     SIGNER_NAME: String(signerName || '').trim() || 'Signer',
     SIGNER_EMAIL: String(signerEmail || '').trim() || '',
@@ -567,8 +685,24 @@ const resolvePacketCompletionEmailContent = async ({
     SCHOOL_NAME: String(schoolName || '').trim() || 'School',
     DOWNLOAD_URL: String(downloadUrl || '').trim(),
     LINK_EXPIRES_DAYS: Number(expiresInDays || 7),
-    LINK_EXPIRY_DAYS: Number(expiresInDays || 7)
+    LINK_EXPIRY_DAYS: Number(expiresInDays || 7),
+    REGISTRATION_LOGIN_EMAIL: regLogin,
+    REGISTRATION_TEMP_PASSWORD: regPw,
+    PORTAL_LOGIN_URL: regPortal,
+    REGISTRATION_EVENT_SUMMARY: regEvent
   };
+
+  const credsBlock = regPw
+    ? [
+        '',
+        '— Guardian portal access —',
+        `Username (email): ${regLogin}`,
+        `Temporary password (valid 72 hours; you will set a new password after signing in): ${regPw}`,
+        regPortal ? `Sign in: ${regPortal}` : '',
+        'If this password expires before you sign in, use "Forgot password" on the login page to receive a reset link.',
+        regEvent ? `Event / registration: ${regEvent}` : ''
+      ].filter(Boolean).join('\n')
+    : '';
 
   const fallbackSubject = `Thank you for completing your intake packet${params.SCHOOL_NAME ? ` for ${params.SCHOOL_NAME}` : ''}`;
   const fallbackText = [
@@ -577,6 +711,7 @@ const resolvePacketCompletionEmailContent = async ({
     `${params.CLIENT_SUMMARY ? `${params.CLIENT_SUMMARY}\n` : ''}Thank you for completing the intake packet${params.SCHOOL_NAME ? ` for ${params.SCHOOL_NAME}` : ''}.`,
     'Our staff will be in touch with next steps.',
     'Once your client is assigned to a provider, they will reach out to schedule intake and begin services.',
+    credsBlock,
     '',
     params.DOWNLOAD_URL
       ? `You can view/download your signed copy here:\n${params.DOWNLOAD_URL}\n\nThis link expires in ${params.LINK_EXPIRES_DAYS} days.`
@@ -602,6 +737,15 @@ const resolvePacketCompletionEmailContent = async ({
         <p>Thank you for completing the intake packet${params.SCHOOL_NAME ? ` for <strong>${escapeHtml(params.SCHOOL_NAME)}</strong>` : ''}.</p>
         <p>Our staff will be in touch with next steps.</p>
         <p>Once your client is assigned to a provider, they will reach out to schedule intake and begin services.</p>
+        ${regPw
+          ? `<div style="margin:16px 0;padding:12px;border:1px solid #ddd;border-radius:8px;background:#f9fafb;">
+               <p><strong>Guardian portal</strong></p>
+               <p>Username: ${escapeHtml(regLogin)}</p>
+               <p>Temporary password (72h): <code>${escapeHtml(regPw)}</code></p>
+               ${regPortal ? `<p><a href="${escapeHtml(regPortal)}">Sign in</a></p>` : ''}
+               ${regEvent ? `<p><strong>Event:</strong> ${escapeHtml(regEvent)}</p>` : ''}
+             </div>`
+          : ''}
         ${params.DOWNLOAD_URL
           ? `<p><a href="${escapeHtml(params.DOWNLOAD_URL)}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">View Signed Packet</a></p>
              <p style="color:#777;">This link expires in ${params.LINK_EXPIRES_DAYS} days.</p>`
@@ -956,6 +1100,75 @@ const hashIntakeData = (intakeData) => {
     return null;
   }
 };
+
+const mergeIntakeSubmissionPatch = (intakeData, submissionPatch = {}) => {
+  if (!intakeData || typeof intakeData !== 'object') {
+    return { responses: { submission: { ...(submissionPatch || {}) } } };
+  }
+  const next = JSON.parse(JSON.stringify(intakeData));
+  next.responses = next.responses && typeof next.responses === 'object' ? next.responses : {};
+  next.responses.submission = next.responses.submission && typeof next.responses.submission === 'object'
+    ? next.responses.submission
+    : {};
+  Object.assign(next.responses.submission, submissionPatch);
+  return next;
+};
+
+async function computePublicIntakeClientMatch({ link, intakeData = null, payload = {} } = {}) {
+  const base = {
+    registration_client_match: 'new',
+    registration_matched_client_id: null
+  };
+  if (String(link?.form_type || '').trim().toLowerCase() !== 'smart_registration') return base;
+  const orgId = Number(
+    payload?.organizationId
+      || intakeData?.responses?.submission?.organizationId
+      || link.organization_id
+      || 0
+  ) || null;
+  const rawClients = Array.isArray(payload?.clients) && payload.clients.length
+    ? payload.clients
+    : (Array.isArray(intakeData?.clients) && intakeData.clients.length
+      ? intakeData.clients
+      : (payload?.client ? [payload.client] : []));
+  const first = rawClients[0];
+  const firstName = String(first?.firstName || '').trim();
+  const lastName = String(first?.lastName || '').trim();
+  const fullName = String(first?.fullName || `${firstName} ${lastName}` || '').trim();
+  if (!orgId || !fullName) return base;
+
+  let agencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId);
+  if (!agencyId) {
+    agencyId = await AgencySchool.getActiveAgencyIdForSchool(orgId);
+  }
+  if (!agencyId) return base;
+
+  const expectedInitials = deriveInitials(fullName);
+  const dob = findDateLikeValue(first || {}) || normalizeDateOnly(first?.dateOfBirth || first?.date_of_birth);
+
+  let sql = `SELECT c.id FROM clients c
+    INNER JOIN client_organization_assignments coa
+      ON coa.client_id = c.id AND coa.organization_id = ? AND coa.is_active = TRUE
+    WHERE c.agency_id = ? AND c.initials = ?`;
+  const params = [orgId, agencyId, expectedInitials];
+  if (dob) {
+    sql += ' AND (c.date_of_birth IS NULL OR DATE(c.date_of_birth) = ?)';
+    params.push(dob);
+  }
+  sql += ' LIMIT 5';
+  try {
+    const [matches] = await pool.execute(sql, params);
+    if (Array.isArray(matches) && matches.length === 1) {
+      return {
+        registration_client_match: 'existing',
+        registration_matched_client_id: Number(matches[0].id) || null
+      };
+    }
+  } catch {
+    return base;
+  }
+  return base;
+}
 
 const parseFieldDefinitions = (rawFieldDefs) => {
   try {
@@ -1915,6 +2128,55 @@ const loadAllowedTemplates = async (link) => {
   return templates;
 };
 
+const INTAKE_STEP_VISIBILITY = new Set(['always', 'new_client_only', 'existing_client_only']);
+
+const extractRegistrationClientMatchFromIntakeData = (intakeData) => {
+  if (!intakeData || typeof intakeData !== 'object') return '';
+  const r = intakeData.responses;
+  if (r?.submission && typeof r.submission === 'object') {
+    return r.submission.registration_client_match;
+  }
+  if (intakeData.submission && typeof intakeData.submission === 'object') {
+    return intakeData.submission.registration_client_match;
+  }
+  return '';
+};
+
+const isIntakeStepVisibleForClientMatch = (step, registrationClientMatch, formType) => {
+  if (String(formType || '').toLowerCase() !== 'smart_registration') return true;
+  // Missing / blank / unknown visibility → same as always (existing intakes without this field keep full flow).
+  const vis = (String(step?.visibility ?? '').trim().toLowerCase() || 'always');
+  if (!INTAKE_STEP_VISIBILITY.has(vis) || vis === 'always') return true;
+  const match = String(registrationClientMatch || '').trim().toLowerCase();
+  const isExisting = match === 'existing';
+  if (vis === 'new_client_only') return !isExisting;
+  if (vis === 'existing_client_only') return isExisting;
+  return true;
+};
+
+/** Document templates the signer must have completed for this submission (matches public flowSteps documents). */
+const filterPacketDocumentTemplates = (link, allAllowedTemplates, intakeData) => {
+  const steps = Array.isArray(link?.intake_steps) ? link.intake_steps : [];
+  const byId = new Map((allAllowedTemplates || []).filter(Boolean).map((t) => [Number(t.id), t]));
+  if (!steps.length) {
+    return (allAllowedTemplates || []).slice();
+  }
+  const match = extractRegistrationClientMatchFromIntakeData(intakeData);
+  const formType = link?.form_type;
+  const ordered = [];
+  const seen = new Set();
+  for (const step of steps) {
+    if (String(step?.type || '').trim().toLowerCase() !== 'document') continue;
+    if (!isIntakeStepVisibleForClientMatch(step, match, formType)) continue;
+    const tid = Number(step.templateId);
+    if (!Number.isFinite(tid) || tid <= 0 || !byId.has(tid)) continue;
+    if (seen.has(tid)) continue;
+    seen.add(tid);
+    ordered.push(byId.get(tid));
+  }
+  return ordered;
+};
+
 const loadTemplateById = async (link, templateId) => {
   const allowedIds = Array.isArray(link.allowed_document_template_ids)
     ? link.allowed_document_template_ids
@@ -2052,6 +2314,8 @@ export const getPublicIntakeLink = async (req, res, next) => {
         form_type: link.form_type || 'intake',
         organization_id: link.organization_id,
         program_id: link.program_id,
+        learning_class_id: link.learning_class_id ?? null,
+        company_event_id: link.company_event_id ?? null,
         create_client: link.create_client,
         create_guardian: link.create_guardian,
         intake_fields: link.intake_fields,
@@ -2258,7 +2522,18 @@ export const createPublicConsent = async (req, res, next) => {
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
 
     const intakeData = req.body?.intakeData || null;
-    const intakeDataHash = hashIntakeData(intakeData);
+    let effectiveIntakeData = intakeData;
+    let clientMatchPayload = null;
+    if (effectiveIntakeData && String(link.form_type || '').trim().toLowerCase() === 'smart_registration') {
+      const matchPatch = await computePublicIntakeClientMatch({
+        link,
+        intakeData: effectiveIntakeData,
+        payload: req.body || {}
+      });
+      clientMatchPayload = matchPatch;
+      effectiveIntakeData = mergeIntakeSubmissionPatch(effectiveIntakeData, matchPatch);
+    }
+    const intakeDataHash = hashIntakeData(effectiveIntakeData);
     const sessionToken = String(req.body?.sessionToken || '').trim();
     let submission = sessionToken ? await IntakeSubmission.findBySessionToken(sessionToken) : null;
     if (submission) {
@@ -2285,7 +2560,7 @@ export const createPublicConsent = async (req, res, next) => {
         signer_initials: normalizeName(req.body.signerInitials),
         signer_email: normalizeName(req.body.signerEmail) || null,
         signer_phone: normalizeName(req.body.signerPhone) || null,
-        intake_data: intakeData ? JSON.stringify(intakeData) : null,
+        intake_data: effectiveIntakeData ? JSON.stringify(effectiveIntakeData) : null,
         intake_data_hash: intakeDataHash,
         consent_given_at: now,
         ip_address: ipAddress,
@@ -2303,7 +2578,7 @@ export const createPublicConsent = async (req, res, next) => {
         signerEmail: normalizeName(req.body.signerEmail) || null,
         signerPhone: normalizeName(req.body.signerPhone) || null,
         sessionToken: sessionToken || null,
-        intakeData,
+        intakeData: effectiveIntakeData,
         intakeDataHash,
         consentGivenAt: now,
         ipAddress,
@@ -2320,7 +2595,7 @@ export const createPublicConsent = async (req, res, next) => {
       });
     }
 
-    res.status(201).json({ submission });
+    res.status(201).json({ submission, clientMatch: clientMatchPayload });
   } catch (error) {
     next(error);
   }
@@ -2389,6 +2664,17 @@ export const getPublicIntakeStatus = async (req, res, next) => {
       }
     }
 
+    const sub = intakeData?.responses?.submission && typeof intakeData.responses.submission === 'object'
+      ? intakeData.responses.submission
+      : {};
+    const registrationCompletion = String(link.form_type || '').trim().toLowerCase() === 'smart_registration'
+      ? {
+          newGuardianAccount: !!sub.registration_completion_new_guardian,
+          loginEmail: sub.registration_completion_login_email || null,
+          portalLoginUrl: sub.registration_completion_portal_url || null
+        }
+      : null;
+
     res.json({
       submissionId,
       status: submission.status,
@@ -2397,8 +2683,99 @@ export const getPublicIntakeStatus = async (req, res, next) => {
       signedDocuments: signedDocs,
       downloadUrl,
       clientBundles,
-      intakeData
+      intakeData,
+      registrationCompletion
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPublicIntakeRegistrationCatalog = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    if (String(link.form_type || '').trim().toLowerCase() !== 'smart_registration') {
+      return res.status(403).json({ error: { message: 'Registration catalog is not available for this link.' } });
+    }
+    const { agency } = await resolveIntakeOrgContext(link);
+    const agencyId = Number(agency?.id || 0) || null;
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'Unable to resolve agency for catalog.' } });
+    }
+    const items = await fetchRegistrationCatalogItems(agencyId);
+    res.json({
+      items: (items || []).map((row) => ({
+        kind: row.kind,
+        id: row.id,
+        title: row.title,
+        summary: row.summary,
+        startsAt: row.startsAt,
+        endsAt: row.endsAt,
+        enrollmentOpensAt: row.enrollmentOpensAt,
+        enrollmentClosesAt: row.enrollmentClosesAt,
+        medicaidEligible: !!row.medicaidEligible,
+        cashEligible: !!row.cashEligible
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const matchPublicIntakeClient = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    if (String(link.form_type || '').trim().toLowerCase() !== 'smart_registration') {
+      return res.status(403).json({ error: { message: 'Client match is only available for smart registration links.' } });
+    }
+    const intakeData = req.body?.intakeData || null;
+    const match = await computePublicIntakeClientMatch({
+      link,
+      intakeData,
+      payload: req.body || {}
+    });
+    res.json(match);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const reportPublicIntakeLoginHelp = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const submissionId = Number(req.body?.submissionId || 0) || null;
+    const signerEmail = String(req.body?.signerEmail || '').trim().toLowerCase() || null;
+    const message = String(req.body?.message || '').trim() || null;
+    try {
+      ActivityLogService.logActivity(
+        {
+          actionType: 'public_intake_login_help',
+          userId: null,
+          metadata: {
+            intakeLinkId: link.id,
+            submissionId,
+            signerEmail,
+            message: message ? message.slice(0, 2000) : null
+          }
+        },
+        req
+      );
+    } catch {
+      // best-effort
+    }
+    res.json({ success: true, acknowledged: true });
   } catch (error) {
     next(error);
   }
@@ -2697,12 +3074,12 @@ export const finalizePublicIntake = async (req, res, next) => {
     if (!submission || submission.intake_link_id !== link.id) {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
-    const templates = await loadAllowedTemplates(link);
+    const allAllowedTemplates = await loadAllowedTemplates(link);
     const isEmbeddedSmartRoiFinalize = Boolean(
       hasProgrammedSchoolRoiStep(link)
       && req.body?.intakeData?.smartSchoolRoi
     );
-    if (isSubmissionExpired(submission, { templatesCount: templates.length })) {
+    if (isSubmissionExpired(submission, { templatesCount: allAllowedTemplates.length })) {
       await deleteSubmissionData(submissionId);
       return res.status(410).json({ error: { message: 'This intake session has expired. Please restart the intake.' } });
     }
@@ -2792,6 +3169,7 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     const now = new Date();
     const intakeData = req.body?.intakeData || null;
+    const packetDocumentTemplates = filterPacketDocumentTemplates(link, allAllowedTemplates, intakeData);
     const retentionPolicy = await resolveRetentionPolicy(link);
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
     const intakeDataHash = hashIntakeData(intakeData);
@@ -2967,10 +3345,10 @@ export const finalizePublicIntake = async (req, res, next) => {
         boundClient,
         organization,
         agency,
-        templates,
+        templates: allAllowedTemplates,
         issuedConfig: issuedRoiLink?.roi_context_json?.issuedConfig || issuedRoiLink?.roi_context_json || null
       });
-      const selectedTemplate = await resolveSmartSchoolRoiTemplate({ roiContext, templates });
+      const selectedTemplate = await resolveSmartSchoolRoiTemplate({ roiContext, templates: allAllowedTemplates });
       if (!selectedTemplate?.id) {
         return res.status(400).json({ error: { message: 'No active document template is available for Smart School ROI finalization.' } });
       }
@@ -3302,13 +3680,15 @@ export const finalizePublicIntake = async (req, res, next) => {
       });
     }
 
+    let newGuardianTemporaryPassword = null;
     let createdClients = [];
     if (link.create_client) {
-      const { clients, guardianUser } = await PublicIntakeClientService.createClientAndGuardian({
+      const { clients, guardianUser, newGuardianTemporaryPassword: ngpw } = await PublicIntakeClientService.createClientAndGuardian({
         link,
         payload: req.body
       });
       createdClients = clients || [];
+      newGuardianTemporaryPassword = ngpw || null;
       updatedSubmission = await IntakeSubmission.updateById(submissionId, {
         client_id: createdClients?.[0]?.id || null,
         guardian_user_id: guardianUser?.id || null
@@ -3317,14 +3697,14 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
     const signedByTemplate = new Map(signedDocs.map((d) => [d.document_template_id, d]));
-    for (const t of templates) {
+    for (const t of packetDocumentTemplates) {
       if (!signedByTemplate.has(t.id)) {
         return res.status(400).json({ error: { message: `Missing signed document for ${t.name || 'document'}` } });
       }
     }
 
     const signer = buildSignerFromSubmission(updatedSubmission);
-    const signedDocsOrdered = templates.map((t) => signedByTemplate.get(t.id)).filter(Boolean);
+    const signedDocsOrdered = packetDocumentTemplates.map((t) => signedByTemplate.get(t.id)).filter(Boolean);
     const pdfPaths = [];
     const clientBundles = [];
     const workflowData = buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } });
@@ -3361,10 +3741,10 @@ export const finalizePublicIntake = async (req, res, next) => {
             boundClient,
             organization,
             agency,
-            templates,
+            templates: allAllowedTemplates,
             issuedConfig: issuedRoiLink?.roi_context_json?.issuedConfig || issuedRoiLink?.roi_context_json || null
           });
-          const selectedTemplate = await resolveSmartSchoolRoiTemplate({ roiContext, templates });
+          const selectedTemplate = await resolveSmartSchoolRoiTemplate({ roiContext, templates: allAllowedTemplates });
           if (selectedTemplate?.id) {
             const effectiveRoiContext = roiContext?.documentTemplate?.id
               ? roiContext
@@ -3618,6 +3998,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       classEnrollments: 0,
       programAssignments: 0,
       programEventSignups: 0,
+      companyEventEnrollments: 0,
       errors: []
     };
     try {
@@ -3670,7 +4051,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       const clientPaths = [];
 
       if (isMultiClient) {
-        for (const template of templates) {
+        for (const template of packetDocumentTemplates) {
           const baseAudit = docAuditByTemplate.get(template.id) || {};
           const signatureData = baseAudit?.signatureData || null;
           const baseFieldValues = baseAudit?.fieldValues && typeof baseAudit.fieldValues === 'object' ? baseAudit.fieldValues : {};
@@ -3776,7 +4157,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           }
         }
       } else {
-        for (const template of templates) {
+        for (const template of packetDocumentTemplates) {
           const docRow = signedByTemplate.get(template.id);
           if (!docRow) continue;
           try {
@@ -3972,6 +4353,27 @@ export const finalizePublicIntake = async (req, res, next) => {
         try {
           const clientCount = rawClients.length || 1;
           const { organization, agency } = await resolveIntakeOrgContext(link, { boundClient: null });
+          let registrationEventSummary = '';
+          try {
+            const evSel = normalizeRegistrationSelections(intakeData).find((s) => registrationEntityType(s) === 'company_event');
+            const aid = Number(agency?.id || link?.agency_id || 0) || null;
+            if (evSel?.entityId && aid) {
+              const [erows] = await pool.execute(
+                'SELECT title, starts_at FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1',
+                [Number(evSel.entityId), aid]
+              );
+              const er = erows?.[0];
+              if (er) {
+                const st = er.starts_at ? new Date(er.starts_at).toLocaleString() : '';
+                registrationEventSummary = [String(er.title || '').trim(), st].filter(Boolean).join(' — ');
+              }
+            }
+          } catch {
+            registrationEventSummary = '';
+          }
+          const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
+          const portalLoginUrl = portalBase ? `${portalBase}/login` : '';
+          const isSmartReg = String(link.form_type || '').trim().toLowerCase() === 'smart_registration';
           const packetEmail = await resolvePacketCompletionEmailContent({
             link,
             agencyId: link?.agency_id || agency?.id || null,
@@ -3981,7 +4383,11 @@ export const finalizePublicIntake = async (req, res, next) => {
             primaryClientName,
             schoolName: organization?.name || '',
             downloadUrl,
-            expiresInDays: 7
+            expiresInDays: 7,
+            registrationLoginEmail: updatedSubmission.signer_email || '',
+            registrationTempPassword: isSmartReg && link.create_guardian ? (newGuardianTemporaryPassword || '') : '',
+            portalLoginUrl,
+            registrationEventSummary
           });
           const identity = await resolveIntakeSenderIdentity({
             organizationId: link?.organization_id || null,
@@ -4032,6 +4438,26 @@ export const finalizePublicIntake = async (req, res, next) => {
             message: emailErr?.message || emailErr
           });
         }
+      }
+    }
+
+    if (String(link.form_type || '').trim().toLowerCase() === 'smart_registration' && link.create_guardian) {
+      try {
+        const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
+        const merged = mergeIntakeSubmissionPatch(intakeData, {
+          registration_completion_new_guardian: !!newGuardianTemporaryPassword,
+          registration_completion_login_email: updatedSubmission.signer_email || null,
+          registration_completion_portal_url: portalBase ? `${portalBase}/login` : null
+        });
+        await IntakeSubmission.updateById(submissionId, {
+          intake_data: JSON.stringify(merged),
+          intake_data_hash: hashIntakeData(merged)
+        });
+      } catch (persistErr) {
+        console.error('[publicIntake] registration completion hints persist failed', {
+          submissionId,
+          message: persistErr?.message || persistErr
+        });
       }
     }
 
@@ -4196,22 +4622,28 @@ export const submitPublicIntake = async (req, res, next) => {
       retention_expires_at: retentionExpiresAt
     });
 
+    let newGuardianTemporaryPassword = null;
     let createdClients = [];
     if (link.create_client) {
-      const { clients, guardianUser } = await PublicIntakeClientService.createClientAndGuardian({
+      const { clients, guardianUser, newGuardianTemporaryPassword: ngpw } = await PublicIntakeClientService.createClientAndGuardian({
         link,
         payload: req.body
       });
       createdClients = clients || [];
+      newGuardianTemporaryPassword = ngpw || null;
       updatedSubmission = await IntakeSubmission.updateById(submissionId, {
         client_id: createdClients?.[0]?.id || null,
         guardian_user_id: guardianUser?.id || null
       });
     }
 
-    const templates = await loadAllowedTemplates(link);
-    if (!templates.length) {
+    const allAllowedTemplates = await loadAllowedTemplates(link);
+    if (!allAllowedTemplates.length) {
       return res.status(400).json({ error: { message: 'No documents are configured for this intake link.' } });
+    }
+    const packetDocumentTemplates = filterPacketDocumentTemplates(link, allAllowedTemplates, intakeData);
+    if (!packetDocumentTemplates.length) {
+      return res.status(400).json({ error: { message: 'No documents apply for this session.' } });
     }
 
     const signer = buildSignerFromSubmission(updatedSubmission);
@@ -4250,7 +4682,7 @@ export const submitPublicIntake = async (req, res, next) => {
 
       const clientIndex = intakeClientRows.length - 1;
       const clientPaths = [];
-      for (const template of templates) {
+      for (const template of packetDocumentTemplates) {
         const fieldDefinitions = parseFieldDefinitions(template.field_definitions);
         const fieldValues = buildDocumentFieldValuesForClient({
           link,
@@ -4452,7 +4884,28 @@ export const submitPublicIntake = async (req, res, next) => {
       if (updatedSubmission.signer_email && EmailService.isConfigured()) {
         emailDelivery.attempted = true;
         const clientCount = rawClients.length || 1;
-        const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient: null });
+        const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink: null, boundClient: null });
+        let registrationEventSummary = '';
+        try {
+          const evSel = normalizeRegistrationSelections(intakeData).find((s) => registrationEntityType(s) === 'company_event');
+          const aid = Number(agency?.id || link?.agency_id || 0) || null;
+          if (evSel?.entityId && aid) {
+            const [erows] = await pool.execute(
+              'SELECT title, starts_at FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1',
+              [Number(evSel.entityId), aid]
+            );
+            const er = erows?.[0];
+            if (er) {
+              const st = er.starts_at ? new Date(er.starts_at).toLocaleString() : '';
+              registrationEventSummary = [String(er.title || '').trim(), st].filter(Boolean).join(' — ');
+            }
+          }
+        } catch {
+          registrationEventSummary = '';
+        }
+        const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
+        const portalLoginUrl = portalBase ? `${portalBase}/login` : '';
+        const isSmartReg = String(link.form_type || '').trim().toLowerCase() === 'smart_registration';
         const packetEmail = await resolvePacketCompletionEmailContent({
           link,
           agencyId: link?.agency_id || agency?.id || null,
@@ -4462,7 +4915,11 @@ export const submitPublicIntake = async (req, res, next) => {
           primaryClientName,
           schoolName: organization?.name || '',
           downloadUrl,
-          expiresInDays: 7
+          expiresInDays: 7,
+          registrationLoginEmail: updatedSubmission.signer_email || '',
+          registrationTempPassword: isSmartReg && link.create_guardian ? (newGuardianTemporaryPassword || '') : '',
+          portalLoginUrl,
+          registrationEventSummary
         });
         try {
           const identity = await resolveIntakeSenderIdentity({
@@ -4509,6 +4966,26 @@ export const submitPublicIntake = async (req, res, next) => {
         emailDelivery.attempted = true;
         emailDelivery.sent = false;
         emailDelivery.error = 'email_not_configured';
+      }
+    }
+
+    if (String(link.form_type || '').trim().toLowerCase() === 'smart_registration' && link.create_guardian) {
+      try {
+        const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
+        const merged = mergeIntakeSubmissionPatch(intakeData, {
+          registration_completion_new_guardian: !!newGuardianTemporaryPassword,
+          registration_completion_login_email: updatedSubmission.signer_email || null,
+          registration_completion_portal_url: portalBase ? `${portalBase}/login` : null
+        });
+        await IntakeSubmission.updateById(submissionId, {
+          intake_data: JSON.stringify(merged),
+          intake_data_hash: hashIntakeData(merged)
+        });
+      } catch (persistErr) {
+        console.error('[publicIntake] registration completion hints persist failed (submit)', {
+          submissionId,
+          message: persistErr?.message || persistErr
+        });
       }
     }
 

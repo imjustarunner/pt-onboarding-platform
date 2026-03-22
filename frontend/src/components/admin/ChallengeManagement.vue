@@ -78,6 +78,30 @@
               <input v-model="challengeForm.endsAt" type="datetime-local" />
             </div>
           </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Guardian catalog — registration eligible</label>
+              <select v-model="challengeForm.registrationEligible">
+                <option :value="false">No</option>
+                <option :value="true">Yes</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Medicaid eligible</label>
+              <select v-model="challengeForm.medicaidEligible">
+                <option :value="false">No</option>
+                <option :value="true">Yes</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Cash / self-pay eligible</label>
+              <select v-model="challengeForm.cashEligible">
+                <option :value="false">No</option>
+                <option :value="true">Yes</option>
+              </select>
+            </div>
+          </div>
+          <p class="hint" style="margin-top: 0;">Uses enrollment open/close dates above for when guardians can enroll (active class + window).</p>
           <div class="form-group">
             <label>Activity types (comma-separated)</label>
             <input v-model="challengeForm.activityTypesText" type="text" placeholder="e.g., running, cycling, workout_session, steps" />
@@ -299,7 +323,10 @@ const challengeForm = ref({
   teamMinPointsPerWeek: null,
   individualMinPointsPerWeek: null,
   mastersAgeThreshold: 53,
-  recognitionCategories: []
+  recognitionCategories: [],
+  registrationEligible: false,
+  medicaidEligible: false,
+  cashEligible: false
 });
 
 const weeklyTasksWeek = ref(getThisWeekSunday());
@@ -436,7 +463,10 @@ const openCreateModal = () => {
     teamMinPointsPerWeek: null,
     individualMinPointsPerWeek: null,
     mastersAgeThreshold: 53,
-    recognitionCategories: []
+    recognitionCategories: [],
+    registrationEligible: false,
+    medicaidEligible: false,
+    cashEligible: false
   };
   showChallengeModal.value = true;
 };
@@ -460,7 +490,10 @@ const openEditModal = (c) => {
     teamMinPointsPerWeek: c.team_min_points_per_week ?? c.teamMinPointsPerWeek ?? null,
     individualMinPointsPerWeek: c.individual_min_points_per_week ?? c.individualMinPointsPerWeek ?? null,
     mastersAgeThreshold: c.masters_age_threshold ?? c.mastersAgeThreshold ?? 53,
-    recognitionCategories: recArr
+    recognitionCategories: recArr,
+    registrationEligible: !!(c.registration_eligible === 1 || c.registration_eligible === true || c.registrationEligible),
+    medicaidEligible: !!(c.medicaid_eligible === 1 || c.medicaid_eligible === true || c.medicaidEligible),
+    cashEligible: !!(c.cash_eligible === 1 || c.cash_eligible === true || c.cashEligible)
   };
   showChallengeModal.value = true;
 };
@@ -495,7 +528,10 @@ const saveChallenge = async () => {
       teamMinPointsPerWeek: challengeForm.value.teamMinPointsPerWeek ?? null,
       individualMinPointsPerWeek: challengeForm.value.individualMinPointsPerWeek ?? null,
       mastersAgeThreshold: challengeForm.value.mastersAgeThreshold ?? 53,
-      recognitionCategoriesJson: challengeForm.value.recognitionCategories?.length ? challengeForm.value.recognitionCategories : null
+      recognitionCategoriesJson: challengeForm.value.recognitionCategories?.length ? challengeForm.value.recognitionCategories : null,
+      registrationEligible: !!challengeForm.value.registrationEligible,
+      medicaidEligible: !!challengeForm.value.medicaidEligible,
+      cashEligible: !!challengeForm.value.cashEligible
     };
     if (editingChallenge.value) {
       await api.put(`/learning-program-classes/${editingChallenge.value.id}`, payload);

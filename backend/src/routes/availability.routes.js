@@ -1,6 +1,10 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
+  listProgramCompanyEventsForCoordinator,
+  postBackfillSkillsGroupCompanyEvents
+} from '../controllers/companyEvents.controller.js';
+import {
   getMyAvailabilityPending,
   getMyVirtualWorkingHours,
   putMyVirtualWorkingHours,
@@ -71,6 +75,8 @@ router.get('/admin/intake-cards', listIntakeAvailabilityCards);
 router.get('/admin/pending-counts', getAdminPendingCounts);
 router.get('/admin/skill-builders/options', listSkillBuildersScopeOptions);
 router.get('/admin/skill-builders', listSkillBuildersAvailability);
+router.get('/admin/program-company-events', listProgramCompanyEventsForCoordinator);
+router.post('/admin/backfill-skills-group-company-events', postBackfillSkillsGroupCompanyEvents);
 router.get('/admin/provider-availability-dashboard', providerAvailabilityDashboard);
 router.get('/admin/hourly-worker-direct-indirect', hourlyWorkerDirectIndirectDashboard);
 router.get('/admin/provider-app-tracker', providerAppTracker);

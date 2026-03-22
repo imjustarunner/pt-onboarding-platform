@@ -46,6 +46,14 @@
           <input v-model.trim="draft.eventType" class="input" maxlength="64" placeholder="book_club" />
         </div>
         <div class="form-group">
+          <label class="lbl">Program (optional)</label>
+          <select v-model.number="draft.organizationId" class="input">
+            <option :value="0">Agency-wide (all programs)</option>
+            <option v-for="o in affiliateProgramOrgs" :key="o.id" :value="o.id">{{ o.name }}</option>
+          </select>
+          <small class="hint">Link this event to a specific affiliated program for sub-coordinator dashboards.</small>
+        </div>
+        <div class="form-group">
           <label class="lbl">Start</label>
           <input v-model="draft.startsAtLocal" class="input" type="datetime-local" />
         </div>
@@ -97,6 +105,47 @@
       <div class="form-group">
         <label class="lbl">Splash content</label>
         <textarea v-model.trim="draft.splashContent" class="input" rows="3" placeholder="Reminder details for dashboard splash." />
+      </div>
+
+      <div class="form-group">
+        <label class="lbl">Skill Builders — direct hours (payroll)</label>
+        <input
+          v-model.number="draft.skillBuilderDirectHours"
+          class="input"
+          type="number"
+          min="0"
+          step="0.25"
+          placeholder="e.g. 2"
+        />
+        <small class="hint">Optional. Used on kiosk clock-out for Skill Builders payroll claims. Leave empty if not applicable.</small>
+      </div>
+
+      <div class="form-group">
+        <label class="lbl">Guardian registration catalog</label>
+        <div class="grid" style="margin-top: 6px;">
+          <div class="form-group">
+            <label class="lbl">Registration eligible</label>
+            <select v-model="draft.registrationEligible" class="input">
+              <option :value="false">No</option>
+              <option :value="true">Yes</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="lbl">Medicaid eligible</label>
+            <select v-model="draft.medicaidEligible" class="input">
+              <option :value="false">No</option>
+              <option :value="true">Yes</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="lbl">Cash / self-pay eligible</label>
+            <select v-model="draft.cashEligible" class="input">
+              <option :value="false">No</option>
+              <option :value="true">Yes</option>
+            </select>
+          </div>
+        </div>
+        <small class="hint">When registration is eligible, guardians can see this event in the portal catalog (after migration 583).</small>
       </div>
 
       <div class="voting-block">
@@ -216,6 +265,7 @@
         <thead>
           <tr>
             <th>Title</th>
+            <th>Program</th>
             <th>When</th>
             <th>Audience</th>
             <th>Voting</th>
@@ -229,6 +279,7 @@
               <div style="font-weight: 600;">{{ event.title }}</div>
               <div class="hint">{{ (event.eventType || 'company_event') === 'direct_notice' ? 'direct_message' : (event.eventType || 'company_event') }}</div>
             </td>
+            <td class="hint">{{ programLabelForEvent(event) }}</td>
             <td>
               <div>{{ formatDate(event.startsAt) }} - {{ formatDate(event.endsAt) }}</div>
               <div class="hint">{{ recurrenceLabel(event.recurrence) }}</div>
@@ -258,7 +309,7 @@
             </td>
           </tr>
           <tr v-if="!events.length">
-            <td colspan="6" class="hint">No company events yet.</td>
+            <td colspan="7" class="hint">No company events yet.</td>
           </tr>
         </tbody>
       </table>
@@ -269,6 +320,8 @@
 <script setup>
 import { ref, watch } from 'vue';
 import api from '../../services/api';
+
+const affiliateProgramOrgs = ref([]);
 
 const props = defineProps({
   agencyId: {
@@ -322,6 +375,7 @@ const weekdayOptions = [
 
 const emptyDraft = () => ({
   id: null,
+  organizationId: 0,
   title: '',
   description: '',
   eventType: 'company_event',
@@ -360,7 +414,11 @@ const emptyDraft = () => ({
     userIds: [],
     groupIds: [],
     roleKeys: []
-  }
+  },
+  skillBuilderDirectHours: null,
+  registrationEligible: false,
+  medicaidEligible: false,
+  cashEligible: false
 });
 
 const draft = ref(emptyDraft());
@@ -396,6 +454,15 @@ const audienceLabel = (audience) => {
   const roles = Array.isArray(audience?.roleKeys) ? audience.roleKeys.length : 0;
   if (!users && !groups && !roles) return 'All agency users';
   return `${users} user(s), ${groups} group(s), ${roles} role(s)`;
+};
+
+const programLabelForEvent = (event) => {
+  const id = event?.organizationId;
+  if (id === null || id === undefined || id === '') return '—';
+  const n = Number(id);
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  const o = affiliateProgramOrgs.value.find((x) => Number(x.id) === n);
+  return o?.name ? String(o.name) : `Org ${n}`;
 };
 
 const normalizeRecurrenceForPayload = (recurrence = {}) => {
@@ -488,6 +555,10 @@ const toggleWeekday = (weekday, checked) => {
 const editEvent = (event) => {
   draft.value = {
     id: event.id,
+    organizationId:
+      event.organizationId != null && event.organizationId !== '' && Number(event.organizationId) > 0
+        ? Number(event.organizationId)
+        : 0,
     title: event.title || '',
     description: event.description || '',
     eventType: event.eventType || 'company_event',
@@ -528,12 +599,36 @@ const editEvent = (event) => {
     reminderOffsetsRaw: Array.isArray(event.reminderConfig?.offsetsHours) && event.reminderConfig.offsetsHours.length
       ? event.reminderConfig.offsetsHours.join(',')
       : '24,2',
-    audience: {
-      userIds: Array.isArray(event.audience?.userIds) ? event.audience.userIds.map((id) => Number(id)) : [],
-      groupIds: Array.isArray(event.audience?.groupIds) ? event.audience.groupIds.map((id) => Number(id)) : [],
-      roleKeys: Array.isArray(event.audience?.roleKeys) ? event.audience.roleKeys.map((k) => String(k)) : []
-    }
+      audience: {
+        userIds: Array.isArray(event.audience?.userIds) ? event.audience.userIds.map((id) => Number(id)) : [],
+        groupIds: Array.isArray(event.audience?.groupIds) ? event.audience.groupIds.map((id) => Number(id)) : [],
+        roleKeys: Array.isArray(event.audience?.roleKeys) ? event.audience.roleKeys.map((k) => String(k)) : []
+    },
+    skillBuilderDirectHours:
+      event.skillBuilderDirectHours != null && event.skillBuilderDirectHours !== ''
+        ? Number(event.skillBuilderDirectHours)
+        : null,
+    registrationEligible: !!event.registrationEligible,
+    medicaidEligible: !!event.medicaidEligible,
+    cashEligible: !!event.cashEligible
   };
+};
+
+const loadAffiliateProgramOrgs = async () => {
+  affiliateProgramOrgs.value = [];
+  if (!props.agencyId) return;
+  try {
+    const res = await api.get('/availability/admin/skill-builders/options', {
+      params: { agencyId: props.agencyId },
+      skipGlobalLoading: true
+    });
+    const orgs = Array.isArray(res.data?.organizations) ? res.data.organizations : [];
+    affiliateProgramOrgs.value = orgs.filter(
+      (o) => String(o.organizationType || '').toLowerCase() !== 'school'
+    );
+  } catch {
+    affiliateProgramOrgs.value = [];
+  }
 };
 
 const saveEvent = async () => {
@@ -591,7 +686,18 @@ const saveEvent = async () => {
         userIds: draft.value.audience.userIds,
         groupIds: draft.value.audience.groupIds,
         roleKeys: draft.value.audience.roleKeys
-      }
+      },
+      skillBuilderDirectHours:
+        draft.value.skillBuilderDirectHours === '' || draft.value.skillBuilderDirectHours == null
+          ? null
+          : Number(draft.value.skillBuilderDirectHours),
+      organizationId:
+        draft.value.organizationId && Number(draft.value.organizationId) > 0
+          ? Number(draft.value.organizationId)
+          : null,
+      registrationEligible: !!draft.value.registrationEligible,
+      medicaidEligible: !!draft.value.medicaidEligible,
+      cashEligible: !!draft.value.cashEligible
     };
     if (draft.value.id) {
       await api.put(`/agencies/${props.agencyId}/company-events/${draft.value.id}`, payload);
@@ -766,7 +872,7 @@ const loadAll = async () => {
   loading.value = true;
   error.value = '';
   try {
-    await Promise.all([loadEvents(), loadAudienceOptions(), loadTemplates()]);
+    await Promise.all([loadEvents(), loadAudienceOptions(), loadTemplates(), loadAffiliateProgramOrgs()]);
     await loadSmsReadiness();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load company events';

@@ -23,7 +23,10 @@
     "set-test-passwords": "node src/scripts/setTestPasswords.js",
     "restore-superadmin": "node src/scripts/restoreSuperAdmin.js",
     "migrate-icons": "node src/scripts/migrate-icons-to-uploads.js",
-    "gen-chat-key": "node src/scripts/generateChatEncryptionKey.js","gen-vapid":"node src/scripts/generateVapidKeys.js"
+    "gen-chat-key": "node src/scripts/generateChatEncryptionKey.js",
+    "gen-vapid": "node src/scripts/generateVapidKeys.js",
+    "backfill:skills-groups-company-events": "node src/scripts/backfillSkillsGroupsCompanyEvents.js",
+    "backfill:skill-builder-program-affiliations": "node src/scripts/backfillSkillBuilderProgramAffiliations.js"
   },
   "keywords": [],
   "author": "",

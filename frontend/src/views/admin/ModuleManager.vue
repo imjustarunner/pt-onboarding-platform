@@ -2712,14 +2712,22 @@ const saveTrainingFocus = async () => {
     await fetchModules();
   } catch (err) {
     console.error('Error creating training focus:', err);
+    const status = err.response?.status;
     if (err.response?.data?.error) {
       if (err.response.data.error.errors && Array.isArray(err.response.data.error.errors)) {
         // Show validation errors
         const errorMessages = err.response.data.error.errors.map(e => e.msg || e.message).join(', ');
         trainingFocusError.value = `Validation failed: ${errorMessages}`;
+      } else if (status === 403) {
+        trainingFocusError.value =
+          err.response.data.error.message ||
+          'Permission denied. If you were recently made an admin, sign out and sign back in, then try again.';
       } else {
         trainingFocusError.value = err.response.data.error.message || 'Failed to create training focus';
       }
+    } else if (status === 403) {
+      trainingFocusError.value =
+        'Permission denied. If you were recently made an admin, sign out and sign back in, then try again.';
     } else {
       trainingFocusError.value = err.message || 'Failed to create training focus';
     }

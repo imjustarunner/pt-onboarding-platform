@@ -52,6 +52,13 @@ class ClientGuardianIntakeProfile {
          updated_at = CURRENT_TIMESTAMP`,
       [cid, enc.ciphertextB64, enc.ivB64, enc.authTagB64, enc.keyId, String(source || 'public_intake').slice(0, 50)]
     );
+    if (normalized.dateOfBirth) {
+      try {
+        await pool.execute(`UPDATE clients SET date_of_birth = ? WHERE id = ?`, [normalized.dateOfBirth, cid]);
+      } catch {
+        // Older DBs without date_of_birth — ignore
+      }
+    }
     return this.findByClientId(cid);
   }
 

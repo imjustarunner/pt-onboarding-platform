@@ -2521,6 +2521,28 @@ const accountForm = ref({
   providerStartDate: ''
 });
 
+/** Values for <input type="date"> must be yyyy-MM-dd; API may send Date objects or strings that stringify badly. */
+const toDateInputValue = (raw) => {
+  if (raw === null || raw === undefined) return '';
+  if (raw instanceof Date) {
+    if (Number.isNaN(raw.getTime())) return '';
+    const y = raw.getUTCFullYear();
+    const m = String(raw.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(raw.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(raw).trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10);
+  const t = Date.parse(s);
+  if (!Number.isNaN(t)) {
+    const dt = new Date(t);
+    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+  }
+  return '';
+};
+
 const forcingSkillBuilderConfirm = ref(false);
 
 const canEditSkillBuilderCoordinatorAccess = computed(() => {
@@ -3250,7 +3272,8 @@ const agencyDefaultSelfPayRateUsd = ref(null);
 const agencyFinderIntroBlurb = ref('');
 
 const isProviderLikeUser = computed(() => {
-  const role = String(user.value?.role || accountForm.value?.role || '').toLowerCase();
+  // Prefer account form role while editing — user.value.role stays stale until save + fetchUser().
+  const role = String(accountForm.value?.role || user.value?.role || '').toLowerCase();
   return (
     role === 'provider' ||
     role === 'supervisor' ||
@@ -3767,8 +3790,8 @@ const fetchUser = async () => {
       hasHiringAccess: user.value?.has_hiring_access === true || user.value?.has_hiring_access === 1 || user.value?.has_hiring_access === '1' || accountForm.value?.hasHiringAccess || false,
       hasMedicalRecordsReleaseAccess: user.value?.has_medical_records_release_access === true || user.value?.has_medical_records_release_access === 1 || user.value?.has_medical_records_release_access === '1' || accountForm.value?.hasMedicalRecordsReleaseAccess || false,
       providerStartDate:
-        (user.value.provider_start_date && String(user.value.provider_start_date).slice(0, 10)) ||
-        accountForm.value?.providerStartDate ||
+        toDateInputValue(user.value.provider_start_date) ||
+        toDateInputValue(accountForm.value?.providerStartDate) ||
         ''
     };
     
@@ -3865,7 +3888,7 @@ const fetchAccountInfo = async () => {
       accountForm.value.hasMedicalRecordsReleaseAccess = Boolean(response.data.hasMedicalRecordsReleaseAccess);
     }
     if (response.data?.providerStartDate !== undefined && response.data?.providerStartDate !== null) {
-      accountForm.value.providerStartDate = String(response.data.providerStartDate).slice(0, 10);
+      accountForm.value.providerStartDate = toDateInputValue(response.data.providerStartDate);
     } else if (response.data?.providerStartDate === null) {
       accountForm.value.providerStartDate = '';
     }
@@ -4570,8 +4593,8 @@ const saveAccount = async () => {
     }
 
     if (isProviderLikeUser.value) {
-      const sd = String(accountForm.value.providerStartDate || '').trim();
-      updateData.providerStartDate = sd ? sd.slice(0, 10) : null;
+      const sd = toDateInputValue(accountForm.value.providerStartDate);
+      updateData.providerStartDate = sd || null;
     }
 
     console.log('Update data being sent:', updateData);

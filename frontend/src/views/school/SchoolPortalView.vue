@@ -81,7 +81,7 @@
                   : portalMode === 'roster'
                     ? 'Roster'
                     : portalMode === 'skills'
-                      ? 'Skills Groups'
+                      ? 'Skill Builders'
                       : portalMode === 'school_staff'
                         ? 'School staff'
                         : portalMode === 'messages'
@@ -251,7 +251,7 @@
               />
               <div v-else class="nav-icon-fallback" aria-hidden="true">SG</div>
             </div>
-            <div class="nav-label">Skills</div>
+            <div class="nav-label">Skill Builders</div>
           </button>
 
           <button data-tour="school-nav-staff" class="nav-item" type="button" @click="setPortalMode('school_staff')" :class="{ active: portalMode === 'school_staff' }">
@@ -488,8 +488,8 @@
               />
               <div v-else class="dash-card-icon-fallback" aria-hidden="true">SG</div>
             </div>
-            <div class="dash-card-title">Skills Groups</div>
-            <div class="dash-card-desc">Groups, meetings, providers, and participants.</div>
+            <div class="dash-card-title">Skill Builders</div>
+            <div class="dash-card-desc">After-school program groups, meetings, providers, and participants.</div>
             <div class="dash-card-meta">
               <span class="dash-card-cta">Open</span>
             </div>
@@ -656,6 +656,7 @@
             :roster-scope="isProvider ? 'provider' : 'school'"
             :client-label-mode="clientLabelMode"
             :waitlist-school-count="waitlistSchoolCount"
+            :parent-agency-id="affiliatedAgencyId ? Number(affiliatedAgencyId) : null"
             edit-mode="inline"
             :show-search="true"
             search-placeholder="Search roster…"
@@ -709,6 +710,8 @@
       <SkillsGroupsPanel
         v-else-if="portalMode === 'skills' && organizationId"
         :organization-id="organizationId"
+        :organization-slug="organizationSlug"
+        :organization-display-name="organizationDisplayName || organizationName"
         :client-label-mode="clientLabelMode"
         :focus-unassigned="skillsUnassignedOnly"
       />
@@ -755,6 +758,7 @@
             :roster-scope="isProvider ? 'provider' : 'school'"
             :client-label-mode="clientLabelMode"
             :waitlist-school-count="waitlistSchoolCount"
+            :parent-agency-id="affiliatedAgencyId ? Number(affiliatedAgencyId) : null"
             edit-mode="inline"
             v-model:statusFilterKey="rosterStatusFilterKey"
             @edit-client="openAdminClientEditor"
@@ -799,10 +803,13 @@
       v-if="selectedClient && organizationId"
       :client="selectedClient"
       :school-organization-id="organizationId"
+      :organization-slug="organizationSlug"
+      :parent-agency-id="affiliatedAgencyId ? Number(affiliatedAgencyId) : null"
       :can-edit-action="canEditClientActions"
       :show-checklist-action="isProvider && !!selectedClient?.user_is_assigned_provider"
       @open-edit="openClientEditorFromModal"
       @open-checklist="openChecklistFromModal"
+      @client-updated="onPortalModalClientUpdated"
       @close="selectedClient = null"
     />
 
@@ -2719,6 +2726,14 @@ const openClient = (payload) => {
   selectedClient.value = navigationClientIds.length
     ? { ...client, navigationClientIds }
     : client;
+};
+
+const onPortalModalClientUpdated = (payload) => {
+  const cid = Number(payload?.clientId || 0);
+  const skills = payload?.skills;
+  if (cid && selectedClient.value && Number(selectedClient.value.id) === cid) {
+    selectedClient.value = { ...selectedClient.value, skills: !!skills };
+  }
 };
 
 const openClientEditorFromModal = async (client) => {

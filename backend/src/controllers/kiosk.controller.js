@@ -9,6 +9,11 @@ import OfficeQuestionnaireModule from '../models/OfficeQuestionnaireModule.model
 import OfficeQuestionnaireResponse from '../models/OfficeQuestionnaireResponse.model.js';
 import ModuleContent from '../models/ModuleContent.model.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
+import pool from '../config/database.js';
+import {
+  recordSkillBuilderEventClockIn,
+  recordSkillBuilderEventClockOut
+} from '../services/skillBuildersEventKioskPunch.service.js';
 
 function normalizePin(pin) {
   const p = String(pin || '').trim();
@@ -877,3 +882,224 @@ export const kioskClockOut = async (req, res, next) => {
   }
 };
 
+async function assertSkillBuilderKioskLocationAgency(officeLocationId, agencyId) {
+  const lid = parseInt(officeLocationId, 10);
+  const aid = parseInt(agencyId, 10);
+  if (!lid || !aid) return { error: { status: 400, message: 'agencyId required' } };
+  const loc = await OfficeLocation.findById(lid);
+  if (!loc || !loc.is_active) return { error: { status: 404, message: 'Location not found' } };
+  const [r] = await pool.execute(
+    `SELECT 1 AS ok FROM office_location_agencies WHERE office_location_id = ? AND agency_id = ? LIMIT 1`,
+    [lid, aid]
+  );
+  if (!r?.[0]?.ok) {
+    return { error: { status: 403, message: 'Agency is not linked to this office location' } };
+  }
+  return { ok: true, locationId: lid };
+}
+
+/** Public: Skill Builders integrated program events available at this office (by agency membership). */
+export const listKioskSkillBuilderEvents = async (req, res, next) => {
+  try {
+    const { locationId } = req.params;
+    const date = String(req.query.date || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const loc = await OfficeLocation.findById(parseInt(locationId, 10));
+    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+
+    const [rows] = await pool.execute(
+      `SELECT ce.id, ce.title, ce.starts_at, ce.ends_at,
+              sg.agency_id, a.name AS agency_name, sg.name AS group_name
+       FROM company_events ce
+       INNER JOIN skills_groups sg ON sg.company_event_id = ce.id
+       INNER JOIN office_location_agencies ola ON ola.agency_id = sg.agency_id AND ola.office_location_id = ?
+       INNER JOIN agencies a ON a.id = sg.agency_id
+       WHERE LOWER(COALESCE(ce.event_type, '')) = 'skills_group'
+         AND ce.is_active = 1
+         AND sg.start_date <= ? AND sg.end_date >= ?
+       ORDER BY a.name ASC, ce.title ASC
+       LIMIT 120`,
+      [parseInt(locationId, 10), date, date]
+    );
+    const events = (rows || []).map((r) => ({
+      id: Number(r.id),
+      title: r.title,
+      startsAt: r.starts_at,
+      endsAt: r.ends_at,
+      agencyId: Number(r.agency_id),
+      agencyName: r.agency_name,
+      groupName: r.group_name
+    }));
+    res.json({ date, events });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listKioskSkillBuilderEventRoster = async (req, res, next) => {
+  try {
+    const { locationId, eventId } = req.params;
+    const agencyId = parseInt(req.query.agencyId, 10);
+    const eid = parseInt(eventId, 10);
+    if (!agencyId || !eid) return res.status(400).json({ error: { message: 'agencyId query and event id required' } });
+    const a = await assertSkillBuilderKioskLocationAgency(locationId, agencyId);
+    if (a.error) return res.status(a.error.status).json({ error: { message: a.error.message } });
+
+    const [prov] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name
+       FROM skills_group_providers sgp
+       INNER JOIN users u ON u.id = sgp.provider_user_id
+       INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id
+       WHERE sg.company_event_id = ? AND sg.agency_id = ?
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [eid, agencyId]
+    );
+    const [cli] = await pool.execute(
+      `SELECT c.id, c.initials, c.identifier_code
+       FROM skills_group_clients sgc
+       INNER JOIN clients c ON c.id = sgc.client_id
+       INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
+       WHERE sg.company_event_id = ? AND sg.agency_id = ?
+       ORDER BY c.initials ASC, c.id ASC
+       LIMIT 500`,
+      [eid, agencyId]
+    );
+    res.json({
+      providers: (prov || []).map((r) => ({
+        id: Number(r.id),
+        first_name: r.first_name,
+        last_name: r.last_name,
+        display_name: `${r.first_name || ''} ${r.last_name || ''}`.trim()
+      })),
+      clients: (cli || []).map((r) => ({
+        id: Number(r.id),
+        initials: r.initials,
+        identifier_code: r.identifier_code
+      }))
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listKioskSkillBuilderEventSessions = async (req, res, next) => {
+  try {
+    const { locationId, eventId } = req.params;
+    const agencyId = parseInt(req.query.agencyId, 10);
+    const eid = parseInt(eventId, 10);
+    if (!agencyId || !eid) return res.status(400).json({ error: { message: 'agencyId query and event id required' } });
+    const a = await assertSkillBuilderKioskLocationAgency(locationId, agencyId);
+    if (a.error) return res.status(a.error.status).json({ error: { message: a.error.message } });
+
+    const fromY = String(req.query.from || '').trim().slice(0, 10);
+    const toY = String(req.query.to || '').trim().slice(0, 10);
+    let sql = `
+      SELECT s.id, s.session_date, s.starts_at, s.ends_at, s.timezone,
+             m.weekday, m.start_time, m.end_time
+      FROM skill_builders_event_sessions s
+      INNER JOIN skills_group_meetings m ON m.id = s.skills_group_meeting_id
+      WHERE s.company_event_id = ?`;
+    const params = [eid];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fromY)) {
+      sql += ' AND s.session_date >= ?';
+      params.push(fromY);
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(toY)) {
+      sql += ' AND s.session_date <= ?';
+      params.push(toY);
+    }
+    sql += ' ORDER BY s.session_date ASC, m.start_time ASC, s.id ASC LIMIT 120';
+    const [rows] = await pool.execute(sql, params);
+    const sessions = (rows || []).map((r) => ({
+      id: Number(r.id),
+      sessionDate: r.session_date,
+      startsAt: r.starts_at,
+      endsAt: r.ends_at,
+      timezone: r.timezone || 'UTC',
+      weekday: r.weekday,
+      startTime: String(r.start_time || '').slice(0, 8),
+      endTime: String(r.end_time || '').slice(0, 8)
+    }));
+    res.json({ sessions });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Sessions table not migrated (584)' } });
+    }
+    next(e);
+  }
+};
+
+export const kioskSkillBuilderEventClockIn = async (req, res, next) => {
+  try {
+    const { locationId, eventId } = req.params;
+    const agencyId = parseInt(req.body?.agencyId, 10);
+    const userId = parseInt(req.body?.userId, 10);
+    const sessionRaw = req.body?.sessionId;
+    const clientRaw = req.body?.clientId;
+    const sessionIdParsed = parseInt(sessionRaw, 10);
+    const clientIdParsed = parseInt(clientRaw, 10);
+    const sessionId = Number.isFinite(sessionIdParsed) && sessionIdParsed > 0 ? sessionIdParsed : null;
+    const clientId = Number.isFinite(clientIdParsed) && clientIdParsed > 0 ? clientIdParsed : null;
+    const eid = parseInt(eventId, 10);
+    if (!agencyId || !userId || !eid) {
+      return res.status(400).json({ error: { message: 'agencyId, userId, and event id are required' } });
+    }
+    const a = await assertSkillBuilderKioskLocationAgency(locationId, agencyId);
+    if (a.error) return res.status(a.error.status).json({ error: { message: a.error.message } });
+
+    const result = await recordSkillBuilderEventClockIn(pool, {
+      agencyId,
+      eventId: eid,
+      userId,
+      sessionId,
+      clientId,
+      officeLocationId: a.locationId
+    });
+    if (result.error) {
+      return res.status(result.error.status).json({ error: { message: result.error.message } });
+    }
+    res.status(201).json({ ok: true, punchId: result.punchId });
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR' && String(e?.sqlMessage || '').includes('session_id')) {
+      return res.status(503).json({ error: { message: 'Run migration 584 for session-scoped kiosk punches' } });
+    }
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Kiosk punches table not migrated' } });
+    }
+    next(e);
+  }
+};
+
+export const kioskSkillBuilderEventClockOut = async (req, res, next) => {
+  try {
+    const { locationId, eventId } = req.params;
+    const agencyId = parseInt(req.body?.agencyId, 10);
+    const userId = parseInt(req.body?.userId, 10);
+    const eid = parseInt(eventId, 10);
+    if (!agencyId || !userId || !eid) {
+      return res.status(400).json({ error: { message: 'agencyId, userId, and event id are required' } });
+    }
+    const a = await assertSkillBuilderKioskLocationAgency(locationId, agencyId);
+    if (a.error) return res.status(a.error.status).json({ error: { message: a.error.message } });
+
+    const result = await recordSkillBuilderEventClockOut(pool, { agencyId, eventId: eid, userId });
+    if (result.error) {
+      return res.status(result.error.status).json({ error: { message: result.error.message } });
+    }
+    res.status(201).json({
+      ok: true,
+      punchOutId: result.punchOutId,
+      payrollTimeClaimId: result.payrollTimeClaimId,
+      directHours: result.directHours,
+      indirectHours: result.indirectHours,
+      workedHours: result.workedHours
+    });
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR' && String(e?.sqlMessage || '').includes('session_id')) {
+      return res.status(503).json({ error: { message: 'Run migration 584 for session-scoped kiosk punches' } });
+    }
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Kiosk or payroll tables not migrated' } });
+    }
+    next(e);
+  }
+};

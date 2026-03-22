@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import ClientGuardian from '../models/ClientGuardian.model.js';
 import Notification from '../models/Notification.model.js';
 import { decryptChatText, encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
 
@@ -51,6 +52,32 @@ async function assertThreadAccess(reqUserId, threadId) {
     throw err;
   }
   return true;
+}
+
+async function guardianCanPostSkillBuilderEventChat(userId, companyEventId) {
+  const uid = Number(userId);
+  const eid = Number(companyEventId);
+  if (!uid || !eid) return false;
+  try {
+    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid });
+    const allowed = new Set((linked || []).map((c) => Number(c.client_id)).filter((n) => n > 0));
+    if (!allowed.size) return false;
+    const ids = [...allowed];
+    const ph = ids.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM skills_group_clients sgc
+       INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
+       INNER JOIN clients c ON c.id = sgc.client_id AND c.agency_id = sg.agency_id AND c.skills = TRUE
+       WHERE sg.company_event_id = ?
+         AND sgc.client_id IN (${ph})
+       LIMIT 1`,
+      [eid, ...ids]
+    );
+    return !!rows?.[0];
+  } catch {
+    return false;
+  }
 }
 
 async function assertUsersInAgency(agencyId, userIds) {
@@ -516,10 +543,24 @@ export const sendMessage = async (req, res, next) => {
     await assertThreadAccess(req.user.id, threadId);
 
     // Resolve agency + participants
-    const [[t]] = await pool.execute('SELECT id, agency_id, organization_id FROM chat_threads WHERE id = ?', [threadId]);
+    const [[t]] = await pool.execute(
+      'SELECT id, agency_id, organization_id, company_event_id, thread_type FROM chat_threads WHERE id = ?',
+      [threadId]
+    );
     if (!t) return res.status(404).json({ error: { message: 'Thread not found' } });
     const agencyId = t.agency_id;
-    await assertAgencyOrOrgAccess(req.user, agencyId, t.organization_id || null);
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    const evId = t.company_event_id ? Number(t.company_event_id) : null;
+    const isSbEventThread =
+      String(t.thread_type || '').toLowerCase() === 'skill_builders_event' && evId && Number.isFinite(evId) && evId > 0;
+    if (roleNorm === 'client_guardian' && isSbEventThread) {
+      const okG = await guardianCanPostSkillBuilderEventChat(req.user.id, evId);
+      if (!okG) {
+        return res.status(403).json({ error: { message: 'Access denied to this chat' } });
+      }
+    } else {
+      await assertAgencyOrOrgAccess(req.user, agencyId, t.organization_id || null);
+    }
 
     let bodyPlain = body;
     let bodyCipher = null;
@@ -853,6 +894,8 @@ export const getThreadMeta = async (req, res, next) => {
       `SELECT t.id AS thread_id,
               t.agency_id,
               t.organization_id,
+              t.company_event_id,
+              t.thread_type,
               org.slug AS organization_slug,
               org.name AS organization_name
        FROM chat_threads t
@@ -862,7 +905,19 @@ export const getThreadMeta = async (req, res, next) => {
       [threadId]
     );
     if (!t) return res.status(404).json({ error: { message: 'Thread not found' } });
-    await assertAgencyOrOrgAccess(req.user, t.agency_id, t.organization_id || null);
+    const roleNorm2 = String(req.user?.role || '').toLowerCase();
+    const evMeta = t.company_event_id ? Number(t.company_event_id) : null;
+    const sbThread =
+      String(t.thread_type || '').toLowerCase() === 'skill_builders_event' &&
+      evMeta &&
+      Number.isFinite(evMeta) &&
+      evMeta > 0;
+    if (roleNorm2 === 'client_guardian' && sbThread) {
+      const okG = await guardianCanPostSkillBuilderEventChat(req.user.id, evMeta);
+      if (!okG) return res.status(403).json({ error: { message: 'Access denied' } });
+    } else {
+      await assertAgencyOrOrgAccess(req.user, t.agency_id, t.organization_id || null);
+    }
 
     res.json({
       thread_id: t.thread_id,

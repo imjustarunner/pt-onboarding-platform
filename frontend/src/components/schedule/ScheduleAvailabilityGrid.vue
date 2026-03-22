@@ -111,6 +111,17 @@
           </button>
 
           <button
+            v-if="showSkillBuildersProgramsButton"
+            type="button"
+            class="sched-pill"
+            :disabled="loading"
+            title="Skill Builders events, meetings, and availability"
+            @click="emit('open-skill-builders-programs')"
+          >
+            Events / Classes / Programs
+          </button>
+
+          <button
             v-if="mode === 'self'"
             type="button"
             class="sched-pill"
@@ -1654,9 +1665,10 @@ const props = defineProps({
   // Optional: availability overlay (computed server-side), to highlight open slots.
   availabilityOverlay: { type: Object, default: null },
   // Club/affiliation context: hide office space, Open finder, Google busy, Therapy Notes.
-  hideOfficeAndCalendarIntegration: { type: Boolean, default: false }
+  hideOfficeAndCalendarIntegration: { type: Boolean, default: false },
+  showSkillBuildersProgramsButton: { type: Boolean, default: false }
 });
-const emit = defineEmits(['update:weekStartYmd']);
+const emit = defineEmits(['update:weekStartYmd', 'open-skill-builders-programs']);
 
 const route = useRoute();
 const authStore = useAuthStore();

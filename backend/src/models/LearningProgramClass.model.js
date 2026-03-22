@@ -89,6 +89,9 @@ class LearningProgramClass {
       mastersAgeThreshold = null,
       recognitionCategoriesJson = null,
       recognitionMetric = null,
+      registrationEligible = false,
+      medicaidEligible = false,
+      cashEligible = false,
       createdByUserId = null
   }) {
     const [result] = await pool.execute(
@@ -97,8 +100,9 @@ class LearningProgramClass {
         enrollment_opens_at, enrollment_closes_at, status, is_active, allow_late_join, max_clients,
         metadata_json, activity_types_json, scoring_rules_json, weekly_goal_minimum,
         team_min_points_per_week, individual_min_points_per_week, week_start_time,
-        masters_age_threshold, recognition_categories_json, recognition_metric, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        masters_age_threshold, recognition_categories_json, recognition_metric,
+        registration_eligible, medicaid_eligible, cash_eligible, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         organizationId,
         className,
@@ -123,6 +127,9 @@ class LearningProgramClass {
         mastersAgeThreshold != null ? toInt(mastersAgeThreshold) : 53,
         recognitionCategoriesJson ? JSON.stringify(recognitionCategoriesJson) : null,
         recognitionMetric || 'points',
+        registrationEligible ? 1 : 0,
+        medicaidEligible ? 1 : 0,
+        cashEligible ? 1 : 0,
         createdByUserId
       ]
     );
@@ -154,13 +161,16 @@ class LearningProgramClass {
       weekStartTime: 'week_start_time',
       mastersAgeThreshold: 'masters_age_threshold',
       recognitionCategoriesJson: 'recognition_categories_json',
-      recognitionMetric: 'recognition_metric'
+      recognitionMetric: 'recognition_metric',
+      registrationEligible: 'registration_eligible',
+      medicaidEligible: 'medicaid_eligible',
+      cashEligible: 'cash_eligible'
     };
     const setParts = [];
     const values = [];
     for (const [k, col] of Object.entries(mapping)) {
       if (patch[k] === undefined) continue;
-      if (k === 'isActive' || k === 'allowLateJoin') {
+      if (k === 'isActive' || k === 'allowLateJoin' || k === 'registrationEligible' || k === 'medicaidEligible' || k === 'cashEligible') {
         setParts.push(`${col} = ?`);
         values.push(patch[k] ? 1 : 0);
         continue;

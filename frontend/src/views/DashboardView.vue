@@ -32,41 +32,67 @@
       </div>
     </div>
 
-    <div v-if="!previewMode && isOnboardingComplete && companyEvents.length > 0" class="company-events-strip">
-      <div class="company-events-head">
-        <strong>Upcoming company events</strong>
-        <small class="hint">Targeted to you</small>
+    <div
+      v-if="!previewMode && isOnboardingComplete && generalCompanyEvents.length > 0"
+      class="company-events-strip ce-strip-modern"
+      :class="{ 'ce-strip-collapsed': companyEventsCollapsed }"
+    >
+      <div
+        class="company-events-head ce-strip-head"
+        :class="{ 'dash-attn-pulse': companyEventsAttentionPulse }"
+      >
+        <div class="ce-strip-head-text">
+          <strong>Upcoming company events</strong>
+          <small class="hint">Agency events targeted to you (not Skill Builders series — those are under My Schedule)</small>
+        </div>
+        <div class="ce-strip-head-actions">
+          <span class="ce-count-pill" aria-hidden="true">{{ generalCompanyEvents.length }}</span>
+          <button type="button" class="btn btn-secondary btn-sm top-snapshot-toggle" @click="toggleCompanyEventsCollapsed">
+            {{ companyEventsCollapsed ? 'Expand' : 'Collapse' }}
+          </button>
+        </div>
       </div>
-      <div class="company-events-list">
-        <article v-for="event in companyEvents" :key="`event-${event.id}`" class="company-event-card">
-          <div class="company-event-title">
-            {{ event.title }}
-            <span v-if="event.eventType === 'direct_notice'" class="hint"> · Direct message</span>
-          </div>
-          <div class="company-event-when">{{ formatCompanyEventWhen(event) }}</div>
-          <div v-if="event.splashContent" class="company-event-copy">{{ event.splashContent }}</div>
-          <div v-if="event.votingConfig?.enabled" class="company-event-rsvp">
-            <div class="hint">
-              {{ event.votingConfig?.question || 'RSVP' }}
-              <span v-if="event.myResponse"> — Your response: {{ event.myResponse.responseLabel }}</span>
-              <span v-if="event.votingClosedAt"> (closed)</span>
+      <div v-if="!companyEventsCollapsed" class="company-events-list ce-modern-grid">
+        <article
+          v-for="event in generalCompanyEvents"
+          :key="`event-${event.id}`"
+          class="ce-modern-card"
+          :class="{ 'ce-modern-direct': event.eventType === 'direct_notice' }"
+        >
+          <div class="ce-modern-card-inner">
+            <div class="ce-modern-meta">
+              <span class="ce-type-pill">{{ companyEventTypeLabel(event) }}</span>
+              <span v-if="companyEventRecurrenceChip(event)" class="ce-recurrence-pill">{{ companyEventRecurrenceChip(event) }}</span>
             </div>
-            <div v-if="!event.votingClosedAt" class="company-event-rsvp-actions">
-              <button
-                v-for="opt in (event.votingConfig?.options || [])"
-                :key="`${event.id}-${opt.key}`"
-                type="button"
-                class="btn btn-secondary btn-sm"
-                @click="respondToCompanyEvent(event, opt.key)"
-              >
-                {{ opt.label }}
-              </button>
+            <h3 class="ce-modern-title">
+              {{ event.title }}
+              <span v-if="event.eventType === 'direct_notice'" class="hint"> · Direct message</span>
+            </h3>
+            <div class="ce-modern-when">{{ formatCompanyEventWhen(event) }}</div>
+            <p v-if="event.splashContent" class="ce-modern-desc">{{ event.splashContent }}</p>
+            <div v-if="event.votingConfig?.enabled" class="company-event-rsvp">
+              <div class="hint">
+                {{ event.votingConfig?.question || 'RSVP' }}
+                <span v-if="event.myResponse"> — Your response: {{ event.myResponse.responseLabel }}</span>
+                <span v-if="event.votingClosedAt"> (closed)</span>
+              </div>
+              <div v-if="!event.votingClosedAt" class="company-event-rsvp-actions">
+                <button
+                  v-for="opt in (event.votingConfig?.options || [])"
+                  :key="`${event.id}-${opt.key}`"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="respondToCompanyEvent(event, opt.key)"
+                >
+                  {{ opt.label }}
+                </button>
+              </div>
             </div>
-          </div>
-          <div v-if="event.eventType !== 'direct_notice'" class="company-event-actions">
-            <a v-if="event.googleCalendarUrl" :href="event.googleCalendarUrl" target="_blank" rel="noopener">Add to Google</a>
-            <span v-if="event.googleCalendarUrl"> · </span>
-            <a :href="event.icsUrl">Download ICS</a>
+            <div v-if="event.eventType !== 'direct_notice'" class="ce-modern-links">
+              <a v-if="event.googleCalendarUrl" :href="event.googleCalendarUrl" target="_blank" rel="noopener">Google Calendar</a>
+              <span v-if="event.googleCalendarUrl && event.icsUrl"> · </span>
+              <a v-if="event.icsUrl" :href="event.icsUrl">ICS file</a>
+            </div>
           </div>
         </article>
       </div>
@@ -194,7 +220,10 @@
         class="top-snapshot-wrap top-snapshot-cell"
         data-tour="dash-snapshot"
       >
-        <div class="top-snapshot-head">
+        <div
+          class="top-snapshot-head"
+          :class="{ 'dash-attn-pulse': snapshotAttentionPulse }"
+        >
           <div class="top-snapshot-title">My Snapshot</div>
           <button type="button" class="btn btn-secondary btn-sm top-snapshot-toggle" @click="toggleTopCardCollapsed">
             {{ topCardCollapsed ? 'Expand' : 'Collapse' }}
@@ -234,7 +263,10 @@
       class="top-snapshot-wrap"
       data-tour="dash-social-feeds"
     >
-      <div class="top-snapshot-head">
+      <div
+        class="top-snapshot-head"
+        :class="{ 'dash-attn-pulse': socialFeedsAttentionPulse }"
+      >
         <div class="top-snapshot-title">Feed</div>
         <button type="button" class="btn btn-secondary btn-sm top-snapshot-toggle" @click="toggleSocialFeedsCollapsed">
           {{ socialFeedsCollapsed ? 'Expand' : 'Collapse' }}
@@ -441,6 +473,74 @@
                   </button>
                 </div>
               </div>
+
+              <div
+                v-if="seriesCompanyEvents.length > 0"
+                class="sb-series-strip"
+                :class="{ 'sb-series-collapsed': skillBuildersSeriesCollapsed }"
+              >
+                <div
+                  class="sb-series-head"
+                  :class="{ 'dash-attn-pulse': skillBuildersSeriesAttentionPulse }"
+                >
+                  <div>
+                    <h3 class="sb-series-title">Skill Builders — program series</h3>
+                    <p class="sb-series-sub muted">
+                      Term-based groups and integrated program windows (not one-off agency announcements).
+                    </p>
+                  </div>
+                  <div class="sb-series-head-actions">
+                    <span class="ce-count-pill">{{ seriesCompanyEvents.length }}</span>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm top-snapshot-toggle"
+                      @click="toggleSkillBuildersSeriesCollapsed"
+                    >
+                      {{ skillBuildersSeriesCollapsed ? 'Expand' : 'Collapse' }}
+                    </button>
+                  </div>
+                </div>
+                <div v-if="!skillBuildersSeriesCollapsed" class="company-events-list ce-modern-grid sb-series-grid">
+                  <article
+                    v-for="event in seriesCompanyEvents"
+                    :key="`sb-series-${event.id}`"
+                    class="ce-modern-card ce-modern-series"
+                  >
+                    <div class="ce-modern-card-inner">
+                      <div class="ce-modern-meta">
+                        <span class="ce-type-pill ce-type-pill-series">Program series</span>
+                        <span v-if="companyEventRecurrenceChip(event)" class="ce-recurrence-pill">{{ companyEventRecurrenceChip(event) }}</span>
+                      </div>
+                      <h3 class="ce-modern-title">{{ event.title }}</h3>
+                      <div class="ce-modern-when">{{ formatCompanyEventWhen(event) }}</div>
+                      <p v-if="event.splashContent" class="ce-modern-desc">{{ event.splashContent }}</p>
+                      <div v-if="event.votingConfig?.enabled" class="company-event-rsvp">
+                        <div class="hint">
+                          {{ event.votingConfig?.question || 'RSVP' }}
+                          <span v-if="event.myResponse"> — Your response: {{ event.myResponse.responseLabel }}</span>
+                          <span v-if="event.votingClosedAt"> (closed)</span>
+                        </div>
+                        <div v-if="!event.votingClosedAt" class="company-event-rsvp-actions">
+                          <button
+                            v-for="opt in (event.votingConfig?.options || [])"
+                            :key="`${event.id}-${opt.key}`"
+                            type="button"
+                            class="btn btn-secondary btn-sm"
+                            @click="respondToCompanyEvent(event, opt.key)"
+                          >
+                            {{ opt.label }}
+                          </button>
+                        </div>
+                      </div>
+                      <div v-if="event.eventType !== 'direct_notice'" class="ce-modern-links">
+                        <a v-if="event.googleCalendarUrl" :href="event.googleCalendarUrl" target="_blank" rel="noopener">Google Calendar</a>
+                        <span v-if="event.googleCalendarUrl && event.icsUrl"> · </span>
+                        <a v-if="event.icsUrl" :href="event.icsUrl">ICS file</a>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+              </div>
               <div
                 v-if="isSupervisor(authStore.user)"
                 class="schedule-supervisor-toolbar"
@@ -537,7 +637,9 @@
                 :mode="scheduleGridMode"
                 :week-start-ymd="activeScheduleWeekStartYmd || null"
                 :hide-office-and-calendar-integration="isClubContext"
+                :show-skill-builders-programs-button="canOpenSkillBuildersEventsFromSchedule && scheduleViewMode === 'self'"
                 @update:weekStartYmd="onScheduleWeekStartUpdate"
+                @open-skill-builders-programs="skillBuildersWorkScheduleOverlayOpen = true"
               />
             </div>
           </div>
@@ -917,10 +1019,24 @@
       @close="showSkillBuilderModal = false"
       @confirmed="onSkillBuilderConfirmed"
     />
-    <SkillBuildersAvailabilityModal
-      v-if="showSkillBuildersAvailabilityModal"
+    <ProgramCoordinatorHubModal
+      v-if="programHubOpen && programHubOrg"
       :agency-id="currentAgencyId"
-      @close="showSkillBuildersAvailabilityModal = false"
+      :organization-id="programHubOrg.id"
+      :organization-name="programHubOrg.name"
+      @close="closeProgramHub"
+    />
+    <ProgramHubModal
+      v-if="skillBuildersProviderHubOpen && currentAgencyId"
+      mode="provider"
+      :agency-id="currentAgencyId"
+      @close="skillBuildersProviderHubOpen = false"
+      @open-skill-builder-availability="openSkillBuilderAvailabilityFromHub"
+    />
+    <SkillBuildersEventsScheduleModal
+      v-if="skillBuildersWorkScheduleOverlayOpen && currentAgencyId"
+      :agency-id="Number(currentAgencyId)"
+      @close="skillBuildersWorkScheduleOverlayOpen = false"
     />
     <LastPaycheckModal
       v-if="showLastPaycheckModal"
@@ -1081,7 +1197,9 @@ import SupervisionModal from '../components/supervision/SupervisionModal.vue';
 import ProvidersPanel from '../components/supervision/ProvidersPanel.vue';
 import UserSupervisionTab from '../components/admin/UserSupervisionTab.vue';
 import SkillBuilderAvailabilityModal from '../components/availability/SkillBuilderAvailabilityModal.vue';
-import SkillBuildersAvailabilityModal from '../components/availability/SkillBuildersAvailabilityModal.vue';
+import ProgramCoordinatorHubModal from '../components/availability/ProgramCoordinatorHubModal.vue';
+import ProgramHubModal from '../components/availability/ProgramHubModal.vue';
+import SkillBuildersEventsScheduleModal from '../components/availability/SkillBuildersEventsScheduleModal.vue';
 import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
 import BudgetSubmitExpensesModal from '../components/budget/BudgetSubmitExpensesModal.vue';
 import CompanyCarTripsView from '../components/companyCar/CompanyCarTripsView.vue';
@@ -1118,6 +1236,13 @@ const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+/** SSC / affiliation portal: hide HR-style tabs and schedule tooling. Declared early — many computeds depend on it. */
+const isClubContext = computed(() => {
+  const t = String(
+    agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || ''
+  ).toLowerCase();
+  return t === 'affiliation';
+});
 const userPrefsStore = useUserPreferencesStore();
 const brandingStore = useBrandingStore();
 const tutorialStore = useTutorialStore();
@@ -1138,7 +1263,21 @@ const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
 const clientsNeedsAttentionCount = ref(0);
 const providerPendingClientsCount = ref(0);
 const showSkillBuilderModal = ref(false);
-const showSkillBuildersAvailabilityModal = ref(false);
+const programHubOpen = ref(false);
+const programHubOrg = ref(null); // { id, name } | null
+const skillBuildersProviderHubOpen = ref(false);
+const skillBuildersWorkScheduleOverlayOpen = ref(false);
+
+function closeProgramHub() {
+  programHubOpen.value = false;
+  programHubOrg.value = null;
+}
+
+function openSkillBuilderAvailabilityFromHub() {
+  showSkillBuilderModal.value = true;
+}
+
+const subCoordinatorProgramOrgs = ref([]);
 
 const railCollapsedMode = ref(false);
 const railHoverExpanded = ref(false);
@@ -1191,6 +1330,21 @@ const isSkillBuilderCoordinator = computed(() => {
     u.has_skill_builder_coordinator_access === 1 ||
     u.has_skill_builder_coordinator_access === '1'
   );
+});
+
+const isProviderLikeForSkillBuildersSchedule = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'].includes(role);
+});
+
+/** My Schedule toolbar: Events button for eligible providers, agency admin/staff/support/super_admin, or Skill Builders sub-coordinator. */
+const canOpenSkillBuildersEventsFromSchedule = computed(() => {
+  if (props.previewMode || isClubContext.value || !currentAgencyId.value) return false;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (['super_admin', 'admin', 'staff', 'support'].includes(role)) return true;
+  if (isSkillBuilderCoordinator.value) return true;
+  if (isSkillBuilderEligible.value && isProviderLikeForSkillBuildersSchedule.value) return true;
+  return false;
 });
 
 const isSkillBuilderConfirmRequired = computed(() => {
@@ -1393,6 +1547,83 @@ const dashboardBanner = ref(null); // { type, message, agencyId, names } | null
 const scheduledBannerItems = ref([]);
 const companyEvents = ref([]);
 
+const SNAPSHOT_COLLAPSE_KEY = 'dashboard.snapshotCollapsed.v1';
+const COMPANY_EVENTS_COLLAPSE_KEY = 'dashboard.companyEventsCollapsed.v1';
+const SKILL_BUILDERS_SERIES_COLLAPSE_KEY = 'dashboard.skillBuildersSeriesCollapsed.v1';
+
+const companyEventsCollapsed = ref(false);
+const skillBuildersSeriesCollapsed = ref(false);
+const snapshotAttentionPulse = ref(false);
+const companyEventsAttentionPulse = ref(false);
+const socialFeedsAttentionPulse = ref(false);
+const skillBuildersSeriesAttentionPulse = ref(false);
+
+const isSeriesCompanyEvent = (e) => String(e?.eventType || '').toLowerCase() === 'skills_group';
+
+const generalCompanyEvents = computed(() =>
+  (companyEvents.value || []).filter((e) => !isSeriesCompanyEvent(e)).slice(0, 8)
+);
+const seriesCompanyEvents = computed(() =>
+  (companyEvents.value || []).filter((e) => isSeriesCompanyEvent(e)).slice(0, 8)
+);
+
+const companyEventTypeLabel = (event) => {
+  const t = String(event?.eventType || '').toLowerCase();
+  if (t === 'direct_notice') return 'Direct';
+  if (t === 'skills_group') return 'Series';
+  return 'Event';
+};
+
+const companyEventRecurrenceChip = (event) => {
+  const r = String(event?.recurrence?.frequency || event?.recurrence_json?.frequency || 'none').toLowerCase();
+  if (r === 'weekly') return 'Weekly';
+  if (r === 'monthly') return 'Monthly';
+  if (r === 'none' || !r) return isSeriesCompanyEvent(event) ? 'Term window' : 'One-time';
+  return r;
+};
+
+const loadSnapshotCollapsed = () => {
+  try {
+    topCardCollapsed.value = window?.localStorage?.getItem?.(SNAPSHOT_COLLAPSE_KEY) === '1';
+  } catch {
+    topCardCollapsed.value = false;
+  }
+};
+
+const loadCompanyEventsCollapsed = () => {
+  try {
+    companyEventsCollapsed.value = window?.localStorage?.getItem?.(COMPANY_EVENTS_COLLAPSE_KEY) === '1';
+  } catch {
+    companyEventsCollapsed.value = false;
+  }
+};
+
+const loadSkillBuildersSeriesCollapsed = () => {
+  try {
+    skillBuildersSeriesCollapsed.value = window?.localStorage?.getItem?.(SKILL_BUILDERS_SERIES_COLLAPSE_KEY) === '1';
+  } catch {
+    skillBuildersSeriesCollapsed.value = false;
+  }
+};
+
+const toggleCompanyEventsCollapsed = () => {
+  companyEventsCollapsed.value = !companyEventsCollapsed.value;
+  try {
+    window?.localStorage?.setItem?.(COMPANY_EVENTS_COLLAPSE_KEY, companyEventsCollapsed.value ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+};
+
+const toggleSkillBuildersSeriesCollapsed = () => {
+  skillBuildersSeriesCollapsed.value = !skillBuildersSeriesCollapsed.value;
+  try {
+    window?.localStorage?.setItem?.(SKILL_BUILDERS_SERIES_COLLAPSE_KEY, skillBuildersSeriesCollapsed.value ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+};
+
 const dashboardBannerTexts = computed(() => {
   const scheduled = Array.isArray(scheduledBannerItems.value) ? scheduledBannerItems.value : [];
   const scheduledTexts = scheduled
@@ -1569,9 +1800,20 @@ const openRoiNotifications = async (notification) => {
 
 const formatCompanyEventWhen = (event) => {
   const startsAt = new Date(event?.nextOccurrenceStart || event?.startsAt || 0);
-  if (!Number.isFinite(startsAt.getTime())) return 'Time TBD';
+  const endsAt = new Date(event?.endsAt || 0);
   const recurrence = String(event?.recurrence?.frequency || 'none');
-  const recurrenceLabel = recurrence === 'weekly' ? 'Weekly' : (recurrence === 'monthly' ? 'Monthly' : 'One-time');
+  const recurrenceLabel =
+    recurrence === 'weekly' ? 'Weekly' : recurrence === 'monthly' ? 'Monthly' : 'One-time';
+  if (isSeriesCompanyEvent(event)) {
+    const startOk = Number.isFinite(startsAt.getTime());
+    const endOk = Number.isFinite(endsAt.getTime());
+    if (startOk && endOk) {
+      return `Series window: ${startsAt.toLocaleDateString()} – ${endsAt.toLocaleDateString()} · ${recurrenceLabel}`;
+    }
+    if (startOk) return `Starts ${startsAt.toLocaleString()} · ${recurrenceLabel} program block`;
+    return 'Schedule window set in event details';
+  }
+  if (!Number.isFinite(startsAt.getTime())) return 'Time TBD';
   return `${startsAt.toLocaleString()} (${recurrenceLabel})`;
 };
 
@@ -2025,6 +2267,33 @@ const isOnboardingComplete = computed(() => {
   );
 });
 
+async function loadSubCoordinatorProgramOrgs() {
+  subCoordinatorProgramOrgs.value = [];
+  if (!isSkillBuilderCoordinator.value || !isOnboardingComplete.value) return;
+  const aid = currentAgencyId.value;
+  if (!aid) return;
+  try {
+    const res = await api.get('/availability/admin/skill-builders/options', {
+      params: { agencyId: Number(aid) },
+      skipGlobalLoading: true
+    });
+    const orgs = Array.isArray(res.data?.organizations) ? res.data.organizations : [];
+    subCoordinatorProgramOrgs.value = orgs.filter(
+      (o) => String(o.organizationType || '').toLowerCase() !== 'school'
+    );
+  } catch {
+    subCoordinatorProgramOrgs.value = [];
+  }
+}
+
+watch(
+  () => [isSkillBuilderCoordinator.value, currentAgencyId.value, isOnboardingComplete.value],
+  () => {
+    loadSubCoordinatorProgramOrgs();
+  },
+  { immediate: true }
+);
+
 // Agency logo URL for preview mode
 const previewAgencyLogoUrl = computed(() => {
   if (!props.previewMode) return null;
@@ -2061,10 +2330,6 @@ const canAccessToolsAids = computed(() => {
 });
 
 const isAgencyOrgType = (org) => String(org?.organization_type || org?.organizationType || 'agency').toLowerCase() === 'agency';
-const isClubContext = computed(() => {
-  const t = String(agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || '').toLowerCase();
-  return t === 'affiliation';
-});
 const portalShortTitle = (org) => {
   return String(
     org?.portal_short_title ||
@@ -2237,6 +2502,16 @@ const dashboardCards = computed(() => {
             badgeCount: 0,
             iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
             description: 'Program shift schedule, sign up, and call-off.'
+          });
+        }
+        if (isSkillBuilderEligible.value && !isSkillBuilderCoordinator.value) {
+          cards.push({
+            id: 'skill_builders_provider_hub',
+            label: 'Skill Builders',
+            kind: 'modal',
+            badgeCount: 0,
+            iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', cardIconOrgOverride),
+            description: 'Availability, events, and Skill Builders work schedule.'
           });
         }
       }
@@ -2423,14 +2698,20 @@ const dashboardCards = computed(() => {
         iconUrl: brandingStore.getAdminQuickActionIconUrl('program_overview', orgOverride),
         description: 'Manage affiliated program + learning dashboards.'
       });
-      cards.push({
-        id: 'skill_builders_availability',
-        label: 'Skill Builders',
-        kind: 'modal',
-        badgeCount: 0,
-        iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', orgOverride),
-        description: 'Review Skill Builder availability submissions.'
-      });
+      for (const org of subCoordinatorProgramOrgs.value || []) {
+        const oid = Number(org.id);
+        if (!Number.isFinite(oid) || oid <= 0) continue;
+        const name = String(org.name || '').trim() || `Program ${oid}`;
+        cards.push({
+          id: `sub_coord_program_${oid}`,
+          label: name,
+          kind: 'modal',
+          programOrganizationId: oid,
+          badgeCount: 0,
+          iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', orgOverride),
+          description: `Availability, events, and work schedule for ${name}.`
+        });
+      }
     }
   }
 
@@ -2450,12 +2731,14 @@ const railCards = computed(() => {
     // - If My Account exists (post-onboarding), keep it first and Checklist second.
     // - If My Account doesn't exist yet (during onboarding), Checklist stays first.
     if (hasMy) {
+      if (k.startsWith('sub_coord_program_')) return 4;
       return ({
         my: 0,
         my_schedule: 1,
         program_shifts: 2,
         sub_coordinator_school_overview: 3,
         sub_coordinator_program_overview: 3.5,
+        skill_builders_provider_hub: 3.7,
         skill_builders_availability: 4,
         clients: 5,
         tools_aids: 6,
@@ -2475,11 +2758,13 @@ const railCards = computed(() => {
         providers: 18
       })[k] ?? 999;
     }
+    if (k.startsWith('sub_coord_program_')) return 6;
     return ({
       checklist: 0,
       documents: 1,
       training: 2,
       my_schedule: 3,
+      skill_builders_provider_hub: 3.7,
       program_shifts: 4,
       sub_coordinator_school_overview: 5,
       sub_coordinator_program_overview: 5.5,
@@ -2517,6 +2802,11 @@ const dashboardSocialFeeds = ref([]);
 const selectedSocialFeedId = ref(null);
 const toggleTopCardCollapsed = () => {
   topCardCollapsed.value = !topCardCollapsed.value;
+  try {
+    window?.localStorage?.setItem?.(SNAPSHOT_COLLAPSE_KEY, topCardCollapsed.value ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
 };
 
 const loadSocialFeedsCollapsed = () => {
@@ -2575,8 +2865,16 @@ const handleCardClick = (card) => {
     schoolPortalCardsExpanded.value = !schoolPortalCardsExpanded.value;
     return;
   }
-  if (card.id === 'skill_builders_availability') {
-    showSkillBuildersAvailabilityModal.value = true;
+  if (card.id === 'skill_builders_provider_hub') {
+    skillBuildersProviderHubOpen.value = true;
+    return;
+  }
+  if (String(card?.id || '').startsWith('sub_coord_program_')) {
+    const oid = Number(card?.programOrganizationId);
+    if (Number.isFinite(oid) && oid > 0) {
+      programHubOrg.value = { id: oid, name: String(card?.label || '').trim() || `Program ${oid}` };
+      programHubOpen.value = true;
+    }
     return;
   }
   if (card.id === 'submit') {
@@ -2963,6 +3261,27 @@ watch(() => [route.query?.tab, route.query?.my, route.query?.scheduleMode, route
   syncFromQuery();
 });
 
+/** Deep-link from Skill Builders event portal: open the “Skill Builders events” overlay on My Schedule. */
+watch(
+  () => String(route.query?.sbPrograms || ''),
+  (sb) => {
+    if (props.previewMode) return;
+    if (sb !== '1') return;
+    if (!canOpenSkillBuildersEventsFromSchedule.value) {
+      const q = { ...route.query };
+      delete q.sbPrograms;
+      router.replace({ query: q }).catch(() => {});
+      return;
+    }
+    activeTab.value = 'my_schedule';
+    skillBuildersWorkScheduleOverlayOpen.value = true;
+    const q = { ...route.query };
+    delete q.sbPrograms;
+    router.replace({ query: q }).catch(() => {});
+  },
+  { immediate: true }
+);
+
 // Club context: reset myTab if it's one of the hidden tabs (credentials, payroll, compensation)
 watch([isClubContext, () => myTab.value], () => {
   if (!isClubContext.value) return;
@@ -3086,7 +3405,7 @@ const loadMyCompanyEvents = async () => {
         const bTime = new Date(b?.nextOccurrenceStart || b?.startsAt || 0).getTime();
         return aTime - bTime;
       })
-      .slice(0, 8);
+      .slice(0, 20);
     companyEvents.value = sorted;
   } catch {
     companyEvents.value = [];
@@ -3109,9 +3428,37 @@ onMounted(async () => {
     router.replace({ query: nextQuery }).catch(() => {});
   }
 
-  // Always start expanded on each visit so users do not lose visibility.
-  topCardCollapsed.value = false;
+  loadSnapshotCollapsed();
+  loadCompanyEventsCollapsed();
+  loadSkillBuildersSeriesCollapsed();
   loadSocialFeedsCollapsed();
+
+  const runCollapsedAttentionPulse = () => {
+    if (topCardCollapsed.value) {
+      snapshotAttentionPulse.value = true;
+      window.setTimeout(() => {
+        snapshotAttentionPulse.value = false;
+      }, 3200);
+    }
+    if (companyEventsCollapsed.value && generalCompanyEvents.value.length > 0) {
+      companyEventsAttentionPulse.value = true;
+      window.setTimeout(() => {
+        companyEventsAttentionPulse.value = false;
+      }, 3200);
+    }
+    if (socialFeedsCollapsed.value && dashboardSocialFeeds.value.length > 0) {
+      socialFeedsAttentionPulse.value = true;
+      window.setTimeout(() => {
+        socialFeedsAttentionPulse.value = false;
+      }, 3200);
+    }
+    if (skillBuildersSeriesCollapsed.value && seriesCompanyEvents.value.length > 0) {
+      skillBuildersSeriesAttentionPulse.value = true;
+      window.setTimeout(() => {
+        skillBuildersSeriesAttentionPulse.value = false;
+      }, 3200);
+    }
+  };
   await fetchOnboardingStatus();
   loadScheduleViewPrefs();
   syncFromQuery();
@@ -3152,6 +3499,9 @@ onMounted(async () => {
     loadDashboardSocialFeeds(),
     loadProviderRoiReminderNotifications()
   ]);
+
+  await nextTick();
+  runCollapsedAttentionPulse();
 
   updateRailCollapsedMode();
   railMediaQuery = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)');
@@ -4270,6 +4620,276 @@ h1 {
   background: var(--surface-secondary);
 }
 
+.ce-strip-modern {
+  background: linear-gradient(
+    125deg,
+    color-mix(in srgb, var(--primary-light) 18%, var(--surface-secondary)) 0%,
+    var(--surface-secondary) 52%,
+    color-mix(in srgb, var(--primary-light) 10%, var(--surface-secondary)) 100%
+  );
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--border-color));
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.ce-strip-collapsed {
+  padding-bottom: 10px;
+}
+
+.ce-strip-collapsed .company-events-head {
+  margin-bottom: 0;
+}
+
+.ce-strip-head {
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ce-strip-head-text {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.ce-strip-head-text .hint {
+  display: block;
+  margin-top: 4px;
+  font-weight: 400;
+}
+
+.ce-strip-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.ce-count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--primary) 20%, var(--bg-card));
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
+@keyframes dashAttnPulseRing {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 0%, transparent);
+  }
+  35% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary) 28%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.dash-attn-pulse {
+  animation: dashAttnPulseRing 0.95s ease-out 3;
+  border-radius: 10px;
+}
+
+.ce-modern-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.ce-modern-card {
+  position: relative;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 88%, var(--primary) 12%);
+  background: linear-gradient(
+    155deg,
+    var(--bg-card) 0%,
+    color-mix(in srgb, var(--bg-card) 94%, var(--primary-light) 6%) 100%
+  );
+  overflow: hidden;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.ce-modern-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--border-color));
+  box-shadow:
+    0 10px 28px color-mix(in srgb, var(--primary) 10%, transparent),
+    0 2px 8px color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.ce-modern-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(
+    180deg,
+    var(--primary),
+    color-mix(in srgb, var(--primary) 45%, transparent)
+  );
+  border-radius: 12px 0 0 12px;
+}
+
+.ce-modern-direct::before {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--warning, #d97706) 90%, var(--primary)),
+    color-mix(in srgb, var(--warning, #d97706) 35%, transparent)
+  );
+}
+
+.ce-modern-series::before {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary) 70%, #0d9488),
+    color-mix(in srgb, #0d9488 40%, transparent)
+  );
+}
+
+.ce-modern-card-inner {
+  padding: 14px 14px 14px 18px;
+  position: relative;
+}
+
+.ce-modern-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.ce-type-pill {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 16%, var(--bg-card));
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
+}
+
+.ce-type-pill-series {
+  background: color-mix(in srgb, #0d9488 14%, var(--bg-card));
+  color: color-mix(in srgb, #0f766e 80%, var(--text-primary));
+  border-color: color-mix(in srgb, #0d9488 30%, transparent);
+}
+
+.ce-recurrence-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.ce-modern-title {
+  margin: 0 0 6px 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--text-primary);
+}
+
+.ce-modern-when {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.ce-modern-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ce-modern-links {
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ce-modern-links a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.ce-modern-links a:hover {
+  text-decoration: underline;
+}
+
+.sb-series-strip {
+  border: 1px solid color-mix(in srgb, #0d9488 28%, var(--border-color));
+  border-radius: 12px;
+  padding: 14px 14px 12px;
+  margin: 0 0 18px 0;
+  background: linear-gradient(
+    118deg,
+    color-mix(in srgb, #0d9488 10%, var(--surface-secondary)) 0%,
+    var(--surface-secondary) 60%
+  );
+}
+
+.sb-series-collapsed {
+  padding-bottom: 12px;
+}
+
+.sb-series-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.sb-series-collapsed .sb-series-head {
+  margin-bottom: 0;
+}
+
+.sb-series-title {
+  margin: 0 0 4px 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.sb-series-sub {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  max-width: 52ch;
+}
+
+.sb-series-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.sb-series-grid {
+  margin-top: 4px;
+}
+
 .company-events-head {
   display: flex;
   align-items: baseline;
@@ -4655,4 +5275,5 @@ h1 {
   cursor: not-allowed;
   opacity: 0.7;
 }
+
 </style>

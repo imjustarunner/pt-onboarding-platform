@@ -26,6 +26,10 @@
         <button class="btn btn-secondary btn-sm" type="button" @click="load" :disabled="loading">
           {{ loading ? 'Loading…' : 'Refresh' }}
         </button>
+        <label v-if="showSkillBuildersRosterToggle" class="sb-roster-toggle">
+          <input v-model="skillBuildersOnlyFilter" type="checkbox" />
+          <span>Skill Builders clients only</span>
+        </label>
       </div>
     </div>
 
@@ -69,6 +73,7 @@
       :organization-name="selectedSchoolName"
       :clients-override="isAllSchools ? allClients : null"
       roster-scope="provider"
+      :skill-builders-only="skillBuildersOnlyFilter"
       :client-label-mode="clientLabelMode"
       :psychotherapy-totals-by-client-id="psychotherapyTotalsByClientId"
       :show-search="true"
@@ -113,6 +118,7 @@ const selectedSchoolName = computed(() => {
 });
 const loading = ref(false);
 const allClients = ref([]);
+const skillBuildersOnlyFilter = ref(false);
 const error = ref('');
 const psychotherapyTotalsByClientId = ref(null);
 const pendingClients = ref([]);
@@ -166,6 +172,11 @@ const toggleClientLabelMode = () => {
 
 const currentUserId = computed(() => Number(authStore.user?.id || 0) || null);
 
+const showSkillBuildersRosterToggle = computed(() => {
+  const u = authStore.user;
+  return u?.skill_builder_eligible === true || u?.skill_builder_eligible === 1 || u?.skill_builder_eligible === '1';
+});
+
 const pendingClientsFiltered = computed(() => {
   const selected = selectedSchoolOrgId.value;
   const base = Array.isArray(pendingClients.value) ? pendingClients.value : [];
@@ -203,9 +214,13 @@ const loadAllRosters = async () => {
     return;
   }
   try {
+    const sbParams = skillBuildersOnlyFilter.value ? { skillBuildersOnly: true } : {};
     const results = await Promise.all(
       list.map((s) =>
-        api.get(`/school-portal/${encodeURIComponent(s.schoolOrganizationId)}/my-roster`, { skipGlobalLoading: true })
+        api.get(`/school-portal/${encodeURIComponent(s.schoolOrganizationId)}/my-roster`, {
+          params: sbParams,
+          skipGlobalLoading: true
+        })
       )
     );
     const byId = new Map();
@@ -300,6 +315,10 @@ watch(
   },
   { immediate: true }
 );
+
+watch(skillBuildersOnlyFilter, async () => {
+  if (isAllSchools.value) await loadAllRosters();
+});
 </script>
 
 <style scoped>
@@ -309,6 +328,19 @@ watch(
   min-width: 0;
   max-width: 100%;
 }
+.sb-roster-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  user-select: none;
+}
+.sb-roster-toggle input {
+  margin: 0;
+}
+
 .section-header {
   display: flex;
   justify-content: space-between;

@@ -18,6 +18,7 @@ import {
   upsertClientWaitlistNote,
   listClientComments,
   createClientComment,
+  updateSchoolPortalClientSkillsFlag,
   getSchoolPortalClientSchoolStaffRoiSummary,
   issueSchoolPortalClientSmartRoiLink,
   listSchoolPortalNotificationsFeed,
@@ -69,7 +70,8 @@ import {
   updateSkillsGroupClient,
   listSkillsEligibleClients,
   listSkillsEligibleProviders,
-  listProviderSkillsGroupMeetings
+  listProviderSkillsGroupMeetings,
+  getSkillBuildersProgramLink
 } from '../controllers/schoolSkillsGroups.controller.js';
 import {
   listSchoolPublicDocuments,
@@ -97,6 +99,7 @@ router.put('/:organizationId/clients/:clientId/waitlist-note', authenticate, ups
 router.get('/:organizationId/clients/:clientId/comments', authenticate, listClientComments);
 router.get('/:organizationId/clients/:clientId/school-staff-roi-summary', authenticate, getSchoolPortalClientSchoolStaffRoiSummary);
 router.post('/:organizationId/clients/:clientId/comments', authenticate, createClientComment);
+router.put('/:organizationId/clients/:clientId/skills', authenticate, updateSchoolPortalClientSkillsFlag);
 router.post('/:organizationId/clients/:clientId/smart-roi-link', authenticate, issueSchoolPortalClientSmartRoiLink);
 router.get('/:organizationId/notifications/feed', authenticate, listSchoolPortalNotificationsFeed);
 router.post('/:organizationId/notifications/read', authenticate, markSchoolPortalNotificationsRead);
@@ -154,7 +157,8 @@ router.post('/:schoolId/providers/:providerId/schedule-entries/:entryId/move', a
 router.delete('/:schoolId/providers/:providerId/schedule-entries/:entryId', authenticate, deleteScheduleEntry);
 
 // School-scoped provider assignment (slot-safe)
-// Skills Groups (org-scoped; initially used in school portal UI)
+// Skills Groups / Skill Builders (org-scoped; school portal UI)
+router.get('/:orgId/skill-builders-program', authenticate, getSkillBuildersProgramLink);
 router.get('/:orgId/skills-groups', authenticate, listSkillsGroups);
 router.post('/:orgId/skills-groups', authenticate, createSkillsGroup);
 router.put('/:orgId/skills-groups/:groupId', authenticate, updateSkillsGroup);

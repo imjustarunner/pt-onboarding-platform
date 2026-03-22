@@ -497,8 +497,8 @@
               <tr v-for="(r, idx) in sortedVirtualRows" :key="`v-${r.providerId}-${r.dayOfWeek}-${r.startTime}-${idx}`">
                 <td>{{ r.providerName }}</td>
                 <td>{{ r.dayOfWeek }}</td>
-                <td>{{ r.startTime }}</td>
-                <td>{{ r.endTime }}</td>
+                <td>{{ formatTimeHm12h(r.startTime) }}</td>
+                <td>{{ formatTimeHm12h(r.endTime) }}</td>
                 <td>{{ r.sessionType }}</td>
                 <td>{{ r.frequency }}</td>
               </tr>
@@ -562,6 +562,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { formatTimeHm12h, formatTimeRange12h } from '../../utils/timeFormat';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import AvailabilityIntakeManagement from '../../components/admin/AvailabilityIntakeManagement.vue';
@@ -789,14 +790,7 @@ const providerOptions = computed(() => data.value.providers || []);
 const orgOptions = computed(() => (data.value.organizations || []).filter((o) => String(o?.organization_type || '').toLowerCase() !== 'agency'));
 const officeOptions = computed(() => data.value.offices || []);
 
-const formatRange = (start, end) => {
-  const s = String(start || '').trim();
-  const e = String(end || '').trim();
-  if (!s && !e) return '—';
-  if (s && !e) return s;
-  if (!s && e) return e;
-  return `${s}–${e}`;
-};
+const formatRange = (start, end) => formatTimeRange12h(start, end);
 
 const formatDateTime = (value) => {
   if (!value) return '—';

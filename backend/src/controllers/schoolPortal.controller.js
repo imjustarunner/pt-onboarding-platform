@@ -1120,11 +1120,39 @@ export const getProviderMyRoster = async (req, res, next) => {
       schoolOrganizationId: orgId
     }).catch(() => {});
 
-    const skillsOnly = false;
+    const sbOnly =
+      String(req.query.skillBuildersOnly || req.query.skill_builders_only || '').toLowerCase() === 'true' ||
+      String(req.query.skillBuildersOnly || req.query.skill_builders_only || '') === '1';
+    let skillBuilderEligible = false;
+    try {
+      const [eligRows] = await pool.execute(`SELECT skill_builder_eligible FROM users WHERE id = ? LIMIT 1`, [
+        providerUserId
+      ]);
+      const v = eligRows?.[0]?.skill_builder_eligible;
+      skillBuilderEligible = v === true || v === 1 || v === '1';
+    } catch {
+      skillBuilderEligible = false;
+    }
+    const useSkillBuildersRosterFilter = sbOnly && skillBuilderEligible;
+    const skillsFilterVal = useSkillBuildersRosterFilter ? 1 : 0;
+    const sbExistsSql = useSkillBuildersRosterFilter
+      ? ` AND EXISTS (
+          SELECT 1 FROM skills_group_clients sgc
+          INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
+            AND sg.organization_id = coa.organization_id
+            AND sg.agency_id = c.agency_id
+          INNER JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id AND sgp.provider_user_id = ?
+          WHERE sgc.client_id = c.id
+            AND (sgc.active_for_providers = 1 OR sgc.active_for_providers IS TRUE)
+        )`
+      : '';
 
     // Use the same restricted roster query but force provider filtering.
     let clients = [];
     try {
+      const rosterParams = [orgId, providerUserId];
+      if (useSkillBuildersRosterFilter) rosterParams.push(providerUserId);
+      rosterParams.push(skillsFilterVal);
       const [rows] = await pool.execute(
         `SELECT
            c.id,
@@ -1176,9 +1204,10 @@ export const getProviderMyRoster = async (req, res, next) => {
          WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
            AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
            AND (? = 0 OR c.skills = TRUE)
+           ${sbExistsSql}
          GROUP BY c.id, coa.organization_id
          ORDER BY c.submission_date DESC, c.id DESC`,
-        [orgId, providerUserId, skillsOnly ? 1 : 0]
+        rosterParams
       );
       clients = rows || [];
     } catch (e) {
@@ -4194,6 +4223,81 @@ export const createClientComment = async (req, res, next) => {
           }
         : null
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Update Skill Builders roster flag (clients.skills) from the school portal.
+ * PUT /api/school-portal/:organizationId/clients/:clientId/skills
+ * body: { skills: boolean }
+ */
+export const updateSchoolPortalClientSkillsFlag = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    const clientId = parseInt(req.params.clientId, 10);
+    if (!orgId || !clientId) return res.status(400).json({ error: { message: 'Invalid organizationId or clientId' } });
+
+    const raw = req.body?.skills;
+    const skillsOn =
+      raw === true ||
+      raw === 1 ||
+      String(raw || '').toLowerCase() === 'true' ||
+      String(raw || '') === '1';
+    const skillsOff =
+      raw === false ||
+      raw === 0 ||
+      String(raw || '').toLowerCase() === 'false' ||
+      String(raw || '') === '0';
+    if (!skillsOn && !skillsOff) {
+      return res.status(400).json({ error: { message: 'skills (boolean) is required' } });
+    }
+    const nextSkills = !!skillsOn;
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const inOrg = await clientBelongsToOrg({ clientId, orgId });
+    if (!inOrg) return res.status(404).json({ error: { message: 'Client not found in this organization' } });
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    const roiAccess = await ensureSchoolStaffClientRoiAccess({
+      userId,
+      role: roleNorm,
+      schoolOrganizationId: orgId,
+      clientId
+    });
+    if (!roiAccess.ok) return res.status(roiAccess.status).json({ error: { message: roiAccess.message } });
+
+    const isSupervisorOnly = await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user });
+    const providerLike = ['provider', 'provider_plus', 'clinical_practice_assistant'].includes(roleNorm);
+    if (roleNorm === 'school_staff') {
+      return res.status(403).json({ error: { message: 'School staff cannot update this field' } });
+    }
+    if (providerLike) {
+      const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    } else if (isSupervisorOnly) {
+      const assigned = await supervisorCanAccessClientInOrg({ supervisorUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    } else if (!['super_admin', 'admin', 'staff', 'support'].includes(roleNorm)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    await pool.execute(
+      `UPDATE clients SET skills = ?, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [nextSkills ? 1 : 0, userId, clientId]
+    );
+
+    logClientAccess(req, clientId, 'school_portal_skills_flag_updated').catch(() => {});
+
+    res.json({ ok: true, skills: nextSkills });
   } catch (e) {
     next(e);
   }

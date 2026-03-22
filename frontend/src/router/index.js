@@ -130,6 +130,32 @@ const routes = [
     component: () => import('../views/teamMeeting/JoinTeamMeetingView.vue'),
     meta: { requiresGuest: false }
   },
+  // Public upcoming event listings (no auth; agency slug must match agencies.slug)
+  {
+    path: '/open-events/:agencySlug',
+    name: 'PublicAgencyEventsOpen',
+    component: () => import('../views/public/PublicAgencyEventsView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/open-events/:agencySlug/skill-builders',
+    name: 'PublicOpenEventsLegacySkillBuilders',
+    component: () => import('../views/public/PublicOpenEventsLegacyRedirectView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/open-events/:agencySlug/programs/:programSlug/events',
+    name: 'PublicProgramEventsOpen',
+    component: () => import('../views/public/PublicSkillBuildersProgramEventsView.vue'),
+    meta: { requiresGuest: false }
+  },
+  // Branded program events (portal slug = agencies.slug on the program org)
+  {
+    path: '/:organizationSlug/programs/:programSlug/events',
+    name: 'PublicProgramEvents',
+    component: () => import('../views/public/PublicSkillBuildersProgramEventsView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
   // Organization-specific routes (supports Agency, School, Program, Learning)
   // School splash page (public, no auth required)
   {
@@ -323,6 +349,12 @@ const routes = [
     path: '/:organizationSlug/guardian',
     name: 'OrganizationGuardianPortal',
     component: () => import('../views/guardian/GuardianPortalView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'client_guardian', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/guardian/skill-builders/event/:eventId',
+    name: 'OrganizationGuardianSkillBuilderEvent',
+    component: () => import('../views/guardian/GuardianSkillBuildersEventView.vue'),
     meta: { requiresAuth: true, requiresRole: 'client_guardian', organizationSlug: true }
   },
   // Slug-prefixed authenticated routes (branded portal)
@@ -574,7 +606,7 @@ const routes = [
     path: '/:organizationSlug/admin/settings',
     name: 'OrganizationSettings',
     component: () => import('../views/admin/SettingsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/communications',
@@ -782,6 +814,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canAccessBudgetManagement', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/skill-builders/event/:eventId',
+    name: 'SkillBuildersEventPortal',
+    component: () => import('../views/skillBuilders/SkillBuildersEventPortalView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/providers',
     name: 'OrganizationProviderDirectory',
     component: () => import('../views/admin/ProviderDirectoryView.vue'),
@@ -913,6 +951,12 @@ const routes = [
     path: '/guardian',
     name: 'GuardianPortal',
     component: () => import('../views/guardian/GuardianPortalView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'client_guardian' }
+  },
+  {
+    path: '/guardian/skill-builders/event/:eventId',
+    name: 'GuardianSkillBuilderEvent',
+    component: () => import('../views/guardian/GuardianSkillBuildersEventView.vue'),
     meta: { requiresAuth: true, requiresRole: 'client_guardian' }
   },
   {
@@ -1934,22 +1978,6 @@ router.beforeEach(async (to, from, next) => {
       // Redirect to appropriate dashboard
       next(getDashboardRoute());
     }
-  } else if (to.meta.requiresCapability) {
-    const required = Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability];
-    const caps = authStore.user?.capabilities;
-    // Super admins should not be blocked by capability flags.
-    if (String(authStore.user?.role || '').toLowerCase() === 'super_admin') {
-      next();
-      return;
-    }
-    // Backward-compat: if capabilities are not present yet, don't block navigation.
-    const capsMissing = !caps || typeof caps !== 'object' || Object.keys(caps).length === 0;
-    const hasAll = capsMissing ? true : required.every((k) => !!caps?.[k]);
-    if (hasAll) {
-      next();
-    } else {
-      next(getDashboardRoute());
-    }
   } else if (to.meta.requiresRole) {
     const userRole = authStore.user?.role;
     const userRoleNorm = String(userRole || '').toLowerCase();
@@ -2031,6 +2059,24 @@ router.beforeEach(async (to, from, next) => {
       else next(getDashboardRoute());
     } else {
       // Redirect to appropriate dashboard
+      next(getDashboardRoute());
+    }
+  } else if (to.meta.requiresCapability) {
+    // Capability-only routes (no requiresRole). Must run after requiresRole so routes with BOTH
+    // enforce role first — otherwise canViewTraining alone could reach /admin/modules while POSTs 403.
+    const required = Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability];
+    const caps = authStore.user?.capabilities;
+    // Super admins should not be blocked by capability flags.
+    if (String(authStore.user?.role || '').toLowerCase() === 'super_admin') {
+      next();
+      return;
+    }
+    // Backward-compat: if capabilities are not present yet, don't block navigation.
+    const capsMissing = !caps || typeof caps !== 'object' || Object.keys(caps).length === 0;
+    const hasAll = capsMissing ? true : required.every((k) => !!caps?.[k]);
+    if (hasAll) {
+      next();
+    } else {
       next(getDashboardRoute());
     }
   } else if (to.meta.blockApprovedEmployees) {

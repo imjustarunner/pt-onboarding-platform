@@ -12,7 +12,7 @@
 - **Checklist**: Required onboarding items and completion tracking.
 - **Documents**: Upload/review required documents (when applicable).
 - **Training**: Assigned modules and training focus.
-- **My Schedule (providers)**: Weekly schedule + availability grid (may be disabled per org).
+- **My Schedule (providers)**: Weekly schedule + availability grid (may be disabled per org). **Skill Builders** rail hub for eligible providers. **Events / Classes / Programs** opens a modal (School dropdown vs All grid) for eligible provider-class roles, agency **admin/staff/support/super_admin**, or Skill Builders sub-coordinator—see [`docs/SKILL_BUILDERS_PROGRAM_AND_AFFILIATIONS.md`](../SKILL_BUILDERS_PROGRAM_AND_AFFILIATIONS.md).
 - **Submit (providers)**: Submission hub (mileage, reimbursement, PTO, time claims, availability).
 - **My Account**: Personal account settings, credentials, preferences.
 

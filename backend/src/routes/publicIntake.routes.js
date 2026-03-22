@@ -8,7 +8,10 @@ import {
   createPublicConsent,
   finalizePublicIntake,
   getPublicIntakeLink,
+  getPublicIntakeRegistrationCatalog,
   lookupPublicRegistrationAccount,
+  matchPublicIntakeClient,
+  reportPublicIntakeLoginHelp,
   getPublicIntakeStatus,
   getSchoolIntakeLink,
   previewPublicTemplate,
@@ -36,6 +39,9 @@ router.post(
   createPublicIntakeSession
 );
 router.get('/:publicKey/account-lookup', lookupPublicRegistrationAccount);
+router.get('/:publicKey/registration-catalog', getPublicIntakeRegistrationCatalog);
+router.post('/:publicKey/match-client', matchPublicIntakeClient);
+router.post('/:publicKey/login-help', reportPublicIntakeLoginHelp);
 router.get('/:publicKey', getPublicIntakeLink);
 router.get('/:publicKey/status/:submissionId', getPublicIntakeStatus);
 router.get('/:publicKey/document/:templateId/preview', previewPublicTemplate);

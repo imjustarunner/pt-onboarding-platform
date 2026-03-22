@@ -2,12 +2,28 @@
   <div class="skills-groups">
     <div class="header">
       <div>
-        <h2 style="margin:0;">Skills Groups</h2>
-        <div class="muted">Time-limited groups (6–12 weeks) with scheduled meetings.</div>
+        <h2 style="margin:0;">Skill Builders</h2>
+        <div class="muted">After-school program groups at this school—linked to your agency’s Skill Builders program and integrated company events.</div>
+        <div v-if="canManage" class="program-context muted" style="margin-top: 8px;">
+          <template v-if="programLinkLoading">Checking Skill Builders program…</template>
+          <template v-else-if="programLink.hasProgram">
+            Program: <strong>{{ programLink.programName }}</strong>
+            <span v-if="organizationDisplayName"> · School: <strong>{{ organizationDisplayName }}</strong></span>
+          </template>
+          <template v-else>
+            <span class="warn-text">No affiliated program named “Skill Builders” was found for this agency. Create or rename a program organization to enable new groups.</span>
+          </template>
+        </div>
       </div>
       <div class="actions">
+        <a
+          v-if="canManage && eventManagementHref"
+          class="btn btn-secondary btn-sm"
+          :href="eventManagementHref"
+          style="text-decoration: none; display: inline-flex; align-items: center;"
+        >Event Management</a>
         <button v-if="canManage" class="btn btn-primary btn-sm" type="button" @click="startCreate">
-          Add skills group
+          Add group
         </button>
         <button class="btn btn-secondary btn-sm" type="button" @click="reload" :disabled="loading">
           Refresh
@@ -87,6 +103,9 @@
             <ul v-else class="simple">
               <li v-for="p in selected.providers" :key="p.provider_user_id">
                 {{ p.last_name }}, {{ p.first_name }}
+                <span v-if="canManage && p.skill_builder_eligible === false" class="muted" style="font-size: 0.85em;">
+                  (not Skill Builder eligible — assigned before restriction)
+                </span>
               </li>
             </ul>
           </div>
@@ -103,7 +122,7 @@
       </div>
 
       <div v-else class="detail card muted" style="display:flex; align-items:center; justify-content:center; padding: 20px;">
-        Select a skills group.
+        Select a group.
       </div>
     </div>
 
@@ -111,7 +130,7 @@
     <div v-if="modalOpen" class="modal-overlay" @click.self="closeModal">
       <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h3 style="margin:0;">{{ editingGroupId ? 'Edit skills group' : 'Add skills group' }}</h3>
+          <h3 style="margin:0;">{{ editingGroupId ? 'Edit Skill Builders group' : 'Add Skill Builders group' }}</h3>
           <button class="btn-close" @click="closeModal">×</button>
         </div>
 
@@ -232,12 +251,44 @@ import { useAuthStore } from '../../../store/auth';
 const props = defineProps({
   organizationId: { type: Number, required: true },
   clientLabelMode: { type: String, default: 'codes' }, // 'codes' | 'initials'
-  focusUnassigned: { type: Boolean, default: false }
+  focusUnassigned: { type: Boolean, default: false },
+  organizationSlug: { type: String, default: '' },
+  organizationDisplayName: { type: String, default: '' }
+});
+
+const programLink = ref({ hasProgram: false, programName: '', programOrganizationId: null });
+const programLinkLoading = ref(false);
+
+const eventManagementHref = computed(() => {
+  const s = String(props.organizationSlug || '').trim();
+  if (s) return `/${s}/admin/skill-builders-availability`;
+  return '/admin/skill-builders-availability';
 });
 
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const canManage = computed(() => ['super_admin', 'admin', 'staff', 'support', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value));
+
+async function loadProgramLink() {
+  if (!canManage.value || !props.organizationId) {
+    programLink.value = { hasProgram: false, programName: '', programOrganizationId: null };
+    return;
+  }
+  programLinkLoading.value = true;
+  try {
+    const r = await api.get(`/school-portal/${props.organizationId}/skill-builders-program`, { skipGlobalLoading: true });
+    const d = r.data || {};
+    programLink.value = {
+      hasProgram: !!d.hasProgram,
+      programName: String(d.programName || '').trim() || 'Skill Builders',
+      programOrganizationId: d.programOrganizationId ?? null
+    };
+  } catch {
+    programLink.value = { hasProgram: false, programName: '', programOrganizationId: null };
+  } finally {
+    programLinkLoading.value = false;
+  }
+}
 
 const groups = ref([]);
 const loading = ref(false);
@@ -346,6 +397,7 @@ const reload = async () => {
   } finally {
     loading.value = false;
   }
+  await loadProgramLink();
 };
 
 const select = (g) => {
@@ -561,6 +613,12 @@ onMounted(async () => {
 }
 .muted {
   color: var(--text-secondary);
+  font-size: 13px;
+}
+.warn-text {
+  color: #b45309;
+}
+.program-context {
   font-size: 13px;
 }
 .grid {

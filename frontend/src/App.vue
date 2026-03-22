@@ -97,7 +97,7 @@
                 :to="orgTo('/admin/skill-builders-availability')"
                 @click="closeMobileMenu"
               >
-                Skill Builders Availability
+                Event Management
               </router-link>
               <router-link
                 v-if="canShowAdminDashboardIcon"
@@ -155,12 +155,14 @@
                   </button>
                   <div v-if="directoryMenuOpen" class="nav-dropdown-menu">
                     <router-link :to="orgTo('/operations-dashboard')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'provider_plus' || user?.role === 'clinical_practice_assistant')" >{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
-                    <router-link :to="orgTo('/schedule')" >Schedule Hub</router-link>
+                    <router-link v-if="canSeeScheduleBuildingsDirectoryNav" :to="orgTo('/schedule')">Schedule Hub</router-link>
+                    <router-link v-if="canSeeScheduleBuildingsDirectoryNav" :to="orgTo('/buildings/schedule')">Buildings schedule</router-link>
+                    <router-link v-if="canSeeScheduleBuildingsDirectoryNav" :to="orgTo('/buildings')">Buildings &amp; offices</router-link>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=school')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >School Overview</router-link>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Program Overview</router-link>
                     <router-link :to="orgTo('/admin/school-portals')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Show All School Portals</router-link>
                     <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Provider Booking Interface</router-link>
-                    <router-link :to="orgTo('/admin/skill-builders-availability')" v-if="canSeeSkillBuildersAvailabilityDirectoryNav && !isAffiliationContext" >Skill Builders Availability</router-link>
+                    <router-link :to="orgTo('/admin/skill-builders-availability')" v-if="canSeeSkillBuildersAvailabilityDirectoryNav && !isAffiliationContext" >Event Management</router-link>
                     <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" >Provider Management</router-link>
                     <router-link :to="orgTo('/admin/school-clients')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff') && !isAffiliationContext">
                       <span>School Clients</span>
@@ -451,7 +453,7 @@
               :to="orgTo('/admin/skill-builders-availability')"
               @click="closeMobileMenu"
               class="mobile-nav-link"
-            >Skill Builders Availability</router-link>
+            >Event Management</router-link>
             <router-link
               v-if="hasCapability('canJoinProgramEvents') && user?.role !== 'provider'"
               :to="orgTo('/office')"
@@ -462,6 +464,24 @@
             <template v-if="canSeePortalNav && canSeeFullPortalNav">
               <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
               <router-link :to="orgTo('/operations-dashboard')" v-if="showOperationsDashboardLink && user?.role !== 'provider_plus'" @click="closeMobileMenu" class="mobile-nav-link">{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
+              <router-link
+                v-if="canSeeScheduleBuildingsDirectoryNav"
+                :to="orgTo('/schedule')"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Schedule Hub</router-link>
+              <router-link
+                v-if="canSeeScheduleBuildingsDirectoryNav"
+                :to="orgTo('/buildings/schedule')"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Buildings schedule</router-link>
+              <router-link
+                v-if="canSeeScheduleBuildingsDirectoryNav"
+                :to="orgTo('/buildings')"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Buildings &amp; offices</router-link>
 
               <router-link
                 :to="orgTo('/admin/modules')"
@@ -1404,6 +1424,12 @@ const canSeeSkillBuildersAvailabilityTopNav = computed(() => {
 const canSeeSkillBuildersAvailabilityDirectoryNav = computed(() => {
   const r = String(user.value?.role || '').toLowerCase();
   return canSeeSkillBuildersAvailabilityNav.value && (r === 'super_admin' || r === 'admin');
+});
+
+/** Same roles as router `SCHEDULE_HUB_ROLES` for /schedule and /buildings/*. */
+const canSeeScheduleBuildingsDirectoryNav = computed(() => {
+  const r = String(user.value?.role || '').toLowerCase();
+  return ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff', 'provider_plus'].includes(r);
 });
 
 const availabilityIntakeNavLink = computed(() => {

@@ -2,9 +2,9 @@
   <div class="sbap-wrap">
     <div v-if="showTitle" class="page-header">
       <div>
-        <h1 style="margin: 0;">Worker availability</h1>
+        <h1 style="margin: 0;">Event Management</h1>
         <p class="subtitle" style="margin: 6px 0 0;">
-          Week of {{ weekStart }} • Skill Builder submissions across affiliated organizations.
+          Week of {{ weekStart }} • Availability submissions across affiliated organizations.
         </p>
       </div>
       <div class="header-actions">

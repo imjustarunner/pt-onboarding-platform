@@ -181,6 +181,9 @@ export const createLearningProgramClass = async (req, res, next) => {
         return null;
       })(),
       recognitionMetric: req.body.recognitionMetric || 'points',
+      registrationEligible: asBool(req.body.registrationEligible ?? req.body.registration_eligible, false),
+      medicaidEligible: asBool(req.body.medicaidEligible ?? req.body.medicaid_eligible, false),
+      cashEligible: asBool(req.body.cashEligible ?? req.body.cash_eligible, false),
       createdByUserId: req.user.id
     });
     return res.status(201).json({ class: klass });
@@ -276,6 +279,9 @@ export const duplicateLearningProgramClass = async (req, res, next) => {
       mastersAgeThreshold: source.masters_age_threshold ?? 53,
       recognitionCategoriesJson: source.recognition_categories_json || null,
       recognitionMetric: source.recognition_metric || 'points',
+      registrationEligible: !!(source.registration_eligible === 1 || source.registration_eligible === true),
+      medicaidEligible: !!(source.medicaid_eligible === 1 || source.medicaid_eligible === true),
+      cashEligible: !!(source.cash_eligible === 1 || source.cash_eligible === true),
       createdByUserId: req.user.id
     });
 

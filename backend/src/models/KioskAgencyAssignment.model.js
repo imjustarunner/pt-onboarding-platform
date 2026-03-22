@@ -58,7 +58,11 @@ class KioskAgencyAssignment {
             allowed_days: allowedDays,
             settings: aa.settings_json
               ? (typeof aa.settings_json === 'string' ? JSON.parse(aa.settings_json) : aa.settings_json)
-              : { allowed_modes: ['clock', 'guardian', 'event', 'client_check_in'], default_mode: 'clock', show_mode_selector: true }
+              : {
+                  allowed_modes: ['clock', 'guardian', 'event', 'client_check_in', 'skill_builders'],
+                  default_mode: 'clock',
+                  show_mode_selector: true
+                }
           });
         }
       }
@@ -72,7 +76,11 @@ class KioskAgencyAssignment {
               name: loc.name,
               program_id: null,
               allowed_days: null,
-              settings: { allowed_modes: ['clock', 'guardian', 'event', 'client_check_in'], default_mode: 'clock', show_mode_selector: true }
+              settings: {
+              allowed_modes: ['clock', 'guardian', 'event', 'client_check_in', 'skill_builders'],
+              default_mode: 'clock',
+              show_mode_selector: true
+            }
             });
           }
         }
@@ -84,7 +92,7 @@ class KioskAgencyAssignment {
         }
       }
       const defaultSettings = {
-        allowed_modes: ['clock', 'guardian', 'event', 'client_check_in'],
+        allowed_modes: ['clock', 'guardian', 'event', 'client_check_in', 'skill_builders'],
         default_mode: 'clock',
         show_mode_selector: true,
         kiosk_type: 'lobby'

@@ -126,6 +126,8 @@ import agencyPageOverlaysRoutes from './routes/agencyPageOverlays.routes.js';
 import researchCandidateRoutes from './routes/researchCandidate.routes.js';
 import publicProviderAvailabilityRoutes from './routes/publicProviderAvailability.routes.js';
 import publicSchoolsRoutes from './routes/publicSchools.routes.js';
+import skillBuildersProviderHubRoutes from './routes/skillBuildersProviderHub.routes.js';
+import publicSkillBuildersRoutes from './routes/publicSkillBuilders.routes.js';
 import agentsRoutes from './routes/agents.routes.js';
 import clinicalNoteGeneratorRoutes from './routes/clinicalNoteGenerator.routes.js';
 import complianceCornerRoutes from './routes/complianceCorner.routes.js';
@@ -518,6 +520,7 @@ app.use('/api/health-check', healthCheckRoutes);
 // Public APIs (no auth). Mount early so they never get blocked by future auth gates.
 app.use('/api/public/provider-availability', publicProviderAvailabilityRoutes);
 app.use('/api/public/schools', publicSchoolsRoutes);
+app.use('/api/public/skill-builders', publicSkillBuildersRoutes);
 
 // Club manager email verification (public, no auth) - mount before auth to avoid any auth middleware
 app.get('/api/auth/verify-club-manager-email', verifyClubManagerEmail);
@@ -617,6 +620,7 @@ app.use('/api/offices', officeSettingsRoutes);
 app.use('/api/office-slots', officeSlotActionsRoutes);
 app.use('/api/office-review', officeReviewRoutes);
 app.use('/api/availability', availabilityRoutes);
+app.use('/api/skill-builders', skillBuildersProviderHubRoutes);
 app.use('/api/hiring', hiringRoutes);
 app.use('/api/overlays', agencyPageOverlaysRoutes);
 app.use('/api/agents', agentsRoutes);

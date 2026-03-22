@@ -153,9 +153,23 @@ async function generateUniqueSixDigitClientCode({ agencyId }) {
  * Get all clients (agency view)
  * GET /api/clients
  */
+async function getSkillBuilderEligibilityForUser(userId) {
+  try {
+    const [rows] = await pool.execute(`SELECT skill_builder_eligible FROM users WHERE id = ? LIMIT 1`, [userId]);
+    const v = rows?.[0]?.skill_builder_eligible;
+    return v === true || v === 1 || v === '1';
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') return false;
+    throw e;
+  }
+}
+
 export const getClients = async (req, res, next) => {
   try {
     const { status, organization_id, provider_id, search, client_status_id, paperwork_status_id, insurance_type_id, skills, agency_id } = req.query;
+    const skillBuildersOnly =
+      String(req.query.skillBuildersOnly || req.query.skill_builders_only || '').toLowerCase() === 'true' ||
+      String(req.query.skillBuildersOnly || req.query.skill_builders_only || '') === '1';
     const includeArchived =
       String(req.query.includeArchived || '').toLowerCase() === 'true' || String(req.query.includeArchived || '') === '1';
     const userId = req.user.id;
@@ -241,6 +255,32 @@ export const getClients = async (req, res, next) => {
       }
 
       providerScopedClients = (uniqueClients || []).filter((c) => visibleClientIds.has(parseInt(c?.id, 10)));
+    }
+
+    if (
+      skillBuildersOnly &&
+      String(userRole || '').toLowerCase() === 'provider' &&
+      (await getSkillBuilderEligibilityForUser(userId))
+    ) {
+      const sbIds = new Set();
+      try {
+        for (const agencyId of agencyIds) {
+          const [rows] = await pool.execute(
+            `SELECT DISTINCT sgc.client_id
+             FROM skills_group_clients sgc
+             INNER JOIN skills_group_providers sgp ON sgp.skills_group_id = sgc.skills_group_id AND sgp.provider_user_id = ?
+             INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id AND sg.agency_id = ?`,
+            [userId, agencyId]
+          );
+          for (const row of rows || []) {
+            const id = parseInt(row?.client_id, 10);
+            if (id) sbIds.add(id);
+          }
+        }
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+      providerScopedClients = (providerScopedClients || []).filter((c) => sbIds.has(parseInt(c?.id, 10)));
     }
 
     // Default behavior: archived clients should not appear in the main client list.

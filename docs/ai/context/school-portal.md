@@ -11,7 +11,7 @@ The School Portal is a school-organization dashboard designed for scheduling + r
   - Providers
   - Days
   - Roster
-  - Skills Groups
+  - Skill Builders (program groups at the school; ties to agency **Skill Builders** program + events — [`docs/SKILL_BUILDERS_PROGRAM_AND_AFFILIATIONS.md`](../SKILL_BUILDERS_PROGRAM_AND_AFFILIATIONS.md))
   - School staff
   - Docs / Links
   - Contact admin

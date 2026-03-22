@@ -22,10 +22,85 @@
     <div v-else class="layout">
       <div class="top-cards">
         <div class="top-card">
+          <div class="top-card-title">Skill Builders</div>
+          <div v-if="sbLoading" class="top-card-desc">Loading events…</div>
+          <div v-else-if="sbError" class="error" style="font-size: 13px;">{{ sbError }}</div>
+          <template v-else-if="sbGrouped.length">
+            <p class="top-card-desc" style="margin-bottom: 10px;">
+              Events your children are enrolled in (Skills program). Tap for schedule, providers, and chat.
+            </p>
+            <div class="sb-g-cards">
+              <router-link
+                v-for="g in sbUpcomingGrouped"
+                :key="g.companyEventId"
+                class="sb-g-card"
+                :to="guardianEventLink(g.companyEventId)"
+              >
+                <div class="sb-g-title">{{ g.title }}</div>
+                <div class="sb-g-meta muted">{{ formatSbCardWhen(g) }}</div>
+                <div class="sb-g-meta muted">{{ g.schoolName || 'School' }} · {{ childLabels(g) }}</div>
+              </router-link>
+            </div>
+            <label class="sb-g-past-toggle">
+              <input v-model="showPastSbEvents" type="checkbox" />
+              Show past events
+            </label>
+            <div v-if="showPastSbEvents && sbPastGrouped.length" class="sb-g-cards sb-g-past">
+              <router-link
+                v-for="g in sbPastGrouped"
+                :key="`p-${g.companyEventId}`"
+                class="sb-g-card sb-g-card-past"
+                :to="guardianEventLink(g.companyEventId)"
+              >
+                <div class="sb-g-title">{{ g.title }}</div>
+                <div class="sb-g-meta muted">{{ formatSbCardWhen(g) }}</div>
+                <div class="sb-g-meta muted">{{ childLabels(g) }}</div>
+              </router-link>
+            </div>
+          </template>
+          <div v-else class="top-card-desc">
+            When your children are marked for Skill Builders and assigned to program events, those events will appear here.
+          </div>
+        </div>
+        <div class="top-card">
           <div class="top-card-title">At a glance</div>
           <div class="top-card-desc">
             Upcoming sessions and announcements will show here. (Coming soon)
           </div>
+        </div>
+      </div>
+
+      <div v-if="currentAgencyId" class="reg-catalog-card">
+        <div class="reg-catalog-head">
+          <div>
+            <div class="reg-catalog-title">Register for programs</div>
+            <p class="reg-catalog-sub muted">
+              Open Skill Builders events and learning classes your organization marked for guardian registration.
+            </p>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="regCatalogLoading" @click="fetchRegistrationCatalog">
+            {{ regCatalogLoading ? 'Loading…' : 'Refresh' }}
+          </button>
+        </div>
+        <div v-if="regCatalogError" class="error" style="font-size: 13px;">{{ regCatalogError }}</div>
+        <ul v-else-if="regCatalogItems.length" class="reg-catalog-list">
+          <li v-for="item in regCatalogItems" :key="`${item.kind}-${item.id}`" class="reg-catalog-row">
+            <div class="reg-catalog-meta">
+              <div class="reg-catalog-item-title">{{ item.title }}</div>
+              <div class="muted small">{{ registrationKindLabel(item.kind) }} · {{ formatRegistrationWhen(item) }}</div>
+              <div v-if="item.medicaidEligible || item.cashEligible" class="muted small">
+                {{ registrationPayerLine(item) }}
+              </div>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" @click="openRegistrationEnroll(item)">Register</button>
+          </li>
+        </ul>
+        <p v-else-if="!regCatalogLoading" class="hint" style="margin: 0;">Nothing is open for registration for this program right now.</p>
+        <div class="reg-self-stub">
+          <div class="reg-self-title">Register myself</div>
+          <p class="hint" style="margin: 4px 0 0;">
+            Adult self-registration in the guardian portal is not available yet. Use an intake link from your organization or ask staff to send one.
+          </p>
         </div>
       </div>
 
@@ -66,9 +141,9 @@
               :class="{ active: activePanel === 'child' && Number(selectedChildId) === Number(c.client_id) }"
               @click="openChild(c)"
             >
-              <div class="rail-card-title">Child</div>
+              <div class="rail-card-title">{{ childDisplayName(c) }}</div>
               <div class="rail-card-sub">
-                <span class="pill">{{ c.initials }}</span>
+                <span v-if="c.initials" class="pill">{{ c.initials }}</span>
                 <span class="pill pill-muted">{{ c.organization_name }}</span>
               </div>
             </button>
@@ -158,6 +233,10 @@
               </div>
               <div v-if="selectedChild" class="child-panel-content">
                 <div class="child-details">
+                  <div v-if="selectedChildFullName" class="row">
+                    <div class="label">Name</div>
+                    <div class="value">{{ selectedChildFullName }}</div>
+                  </div>
                   <div class="row">
                     <div class="label">Initials</div>
                     <div class="value">{{ selectedChild.initials }}</div>
@@ -265,6 +344,53 @@
         </div>
       </div>
     </div>
+
+    <div v-if="registrationEnrollOpen" class="modal-overlay" @click.self="closeRegistrationEnroll">
+      <div class="modal modal-wide">
+        <div class="modal-header">
+          <h3 style="margin:0;">Register</h3>
+          <button class="btn-close" type="button" @click="closeRegistrationEnroll">×</button>
+        </div>
+        <div class="modal-body">
+          <p v-if="registrationEnrollTarget" class="muted" style="margin-top:0;">
+            <strong>{{ registrationEnrollTarget.title }}</strong>
+            · {{ registrationEnrollTarget ? registrationKindLabel(registrationEnrollTarget.kind) : '' }}
+          </p>
+          <div v-if="registrationEnrollError" class="error" style="font-size: 13px; margin-bottom: 10px;">{{ registrationEnrollError }}</div>
+          <p v-if="!registrationEnrollDependents.length" class="hint">No dependents linked for this agency. Ask your organization to link a child or use intake to add one.</p>
+          <template v-else>
+            <div class="form-group" style="margin-bottom: 12px;">
+              <div class="lbl">Select child(ren)</div>
+              <div v-for="d in registrationEnrollDependents" :key="d.clientId" class="reg-enroll-check">
+                <label>
+                  <input v-model="registrationEnrollSelected" type="checkbox" :value="d.clientId" />
+                  {{ d.fullName || d.initials || `Client #${d.clientId}` }}
+                </label>
+              </div>
+            </div>
+            <div v-if="registrationPayerChoiceNeeded" class="form-group">
+              <label class="lbl">Coverage / payer</label>
+              <select v-model="registrationEnrollPayerType" class="input">
+                <option value="">Choose…</option>
+                <option v-if="registrationEnrollTarget?.medicaidEligible" value="medicaid">Medicaid</option>
+                <option v-if="registrationEnrollTarget?.cashEligible" value="cash">Cash / self-pay</option>
+              </select>
+            </div>
+          </template>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" type="button" @click="closeRegistrationEnroll">Cancel</button>
+          <button
+            class="btn btn-primary"
+            type="button"
+            :disabled="registrationEnrollSaving || !registrationEnrollDependents.length || !registrationEnrollSelected.length || (registrationPayerChoiceNeeded && !registrationEnrollPayerType)"
+            @click="submitRegistrationEnroll"
+          >
+            {{ registrationEnrollSaving ? 'Saving…' : 'Confirm' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -287,6 +413,22 @@ const router = useRouter();
 const loading = ref(false);
 const error = ref('');
 const overview = ref({ children: [], programs: [] });
+
+const sbEvents = ref([]);
+const sbLoading = ref(false);
+const sbError = ref('');
+const showPastSbEvents = ref(false);
+
+const regCatalogItems = ref([]);
+const regCatalogLoading = ref(false);
+const regCatalogError = ref('');
+const registrationEnrollOpen = ref(false);
+const registrationEnrollTarget = ref(null);
+const registrationEnrollDependents = ref([]);
+const registrationEnrollSelected = ref([]);
+const registrationEnrollPayerType = ref('');
+const registrationEnrollSaving = ref(false);
+const registrationEnrollError = ref('');
 
 const activePanel = ref('modules');
 const selectedChildId = ref(null);
@@ -336,6 +478,17 @@ const selectedChild = computed(() => {
   return (children.value || []).find((c) => Number(c?.client_id) === id) || null;
 });
 
+const selectedChildFullName = computed(() => {
+  const n = String(selectedChild.value?.full_name || '').trim();
+  return n || '';
+});
+
+const registrationPayerChoiceNeeded = computed(() => {
+  const t = registrationEnrollTarget.value;
+  if (!t) return false;
+  return !!(t.medicaidEligible && t.cashEligible);
+});
+
 const userName = computed(() => {
   const u = authStore.user || {};
   const n = `${String(u.first_name || '').trim()} ${String(u.last_name || '').trim()}`.trim();
@@ -348,6 +501,133 @@ const changePasswordTo = computed(() => {
   const slug = String(route.params.organizationSlug || '').trim();
   return slug ? `/${slug}/change-password` : '/change-password';
 });
+
+/** Slug for guardian-prefixed routes (URL or first program). */
+const guardianPathSlug = computed(() => {
+  const p = String(route.params.organizationSlug || '').trim();
+  if (p) return p;
+  const list = programs.value || [];
+  const cur = list.find((x) => Number(x?.id) === Number(agencyStore.currentAgency?.id));
+  const pick = cur || list[0];
+  return String(pick?.slug || pick?.portal_url || '').trim() || '';
+});
+
+function guardianEventLink(eventId) {
+  const slug = guardianPathSlug.value;
+  const id = Number(eventId || 0);
+  if (slug && id) return `/${slug}/guardian/skill-builders/event/${id}`;
+  return `/guardian/skill-builders/event/${id}`;
+}
+
+const sbGrouped = computed(() => {
+  const map = new Map();
+  for (const e of sbEvents.value || []) {
+    const id = Number(e.companyEventId);
+    if (!id) continue;
+    if (!map.has(id)) {
+      map.set(id, {
+        companyEventId: id,
+        agencyId: Number(e.agencyId),
+        title: e.title,
+        startsAt: e.startsAt,
+        endsAt: e.endsAt,
+        schoolName: e.schoolName,
+        schoolSlug: e.schoolSlug,
+        children: []
+      });
+    }
+    map.get(id).children.push({ clientId: e.clientId, initials: e.clientInitials });
+  }
+  return [...map.values()].sort((a, b) => {
+    const tb = new Date(b.endsAt || b.startsAt || 0).getTime();
+    const ta = new Date(a.endsAt || a.startsAt || 0).getTime();
+    return tb - ta;
+  });
+});
+
+function sbEndMs(g) {
+  const t = g?.endsAt ? new Date(g.endsAt).getTime() : NaN;
+  return Number.isFinite(t) ? t : 0;
+}
+
+const sbUpcomingGrouped = computed(() => {
+  const now = Date.now();
+  return sbGrouped.value.filter((g) => !sbEndMs(g) || sbEndMs(g) >= now);
+});
+
+const sbPastGrouped = computed(() => {
+  const now = Date.now();
+  return sbGrouped.value.filter((g) => sbEndMs(g) > 0 && sbEndMs(g) < now);
+});
+
+function formatSbCardWhen(g) {
+  const a = g?.startsAt ? new Date(g.startsAt) : null;
+  const b = g?.endsAt ? new Date(g.endsAt) : null;
+  if (a && Number.isFinite(a.getTime())) {
+    try {
+      const opt = { dateStyle: 'medium' };
+      const end = b && Number.isFinite(b.getTime()) ? b.toLocaleDateString(undefined, opt) : '';
+      return end ? `${a.toLocaleDateString(undefined, opt)} – ${end}` : a.toLocaleDateString(undefined, opt);
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+function childDisplayName(c) {
+  const n = String(c?.full_name || '').trim();
+  if (n) return n;
+  if (c?.initials) return `Child (${c.initials})`;
+  return 'Child';
+}
+
+function programChildrenLine(p) {
+  const parts = (p?.children || []).map((c) => {
+    const n = String(c?.full_name || '').trim();
+    return n || String(c?.initials || '').trim();
+  }).filter(Boolean);
+  return parts.length ? `Child: ${parts.join(', ')}` : '';
+}
+
+function childLabels(g) {
+  const byId = new Map((children.value || []).map((c) => [Number(c.client_id), c]));
+  const parts = (g.children || []).map((ch) => {
+    const row = byId.get(Number(ch.clientId));
+    if (row) return childDisplayName(row);
+    return String(ch.initials || `#${ch.clientId}`).trim();
+  }).filter(Boolean);
+  return parts.length ? parts.join(', ') : 'Your child';
+}
+
+function registrationKindLabel(kind) {
+  const k = String(kind || '');
+  if (k === 'company_event') return 'Skill Builders event';
+  if (k === 'learning_class') return 'Learning class';
+  return k || 'Offering';
+}
+
+function formatRegistrationWhen(item) {
+  const a = item?.startsAt ? new Date(item.startsAt) : null;
+  const b = item?.endsAt ? new Date(item.endsAt) : null;
+  if (a && Number.isFinite(a.getTime())) {
+    try {
+      const opt = { dateStyle: 'medium' };
+      const end = b && Number.isFinite(b.getTime()) ? b.toLocaleDateString(undefined, opt) : '';
+      return end ? `${a.toLocaleDateString(undefined, opt)} – ${end}` : a.toLocaleDateString(undefined, opt);
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+function registrationPayerLine(item) {
+  const bits = [];
+  if (item?.medicaidEligible) bits.push('Medicaid');
+  if (item?.cashEligible) bits.push('Cash / self-pay');
+  return bits.length ? `Enrollment: ${bits.join(' · ')}` : '';
+}
 
 const panelTitle = computed(() => {
   if (activePanel.value === 'billing') return 'Billing';
@@ -408,6 +688,119 @@ const initProgramContext = async () => {
   }
 };
 
+const fetchSkillBuilderEvents = async () => {
+  const aid = Number(agencyStore.currentAgency?.id || 0);
+  if (!aid) {
+    sbEvents.value = [];
+    return;
+  }
+  sbLoading.value = true;
+  sbError.value = '';
+  try {
+    const resp = await api.get('/guardian-portal/skill-builders/events', {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    sbEvents.value = Array.isArray(resp.data?.events) ? resp.data.events : [];
+  } catch (err) {
+    sbError.value = err.response?.data?.error?.message || 'Could not load Skill Builders events';
+    sbEvents.value = [];
+  } finally {
+    sbLoading.value = false;
+  }
+};
+
+const fetchRegistrationCatalog = async () => {
+  const aid = Number(agencyStore.currentAgency?.id || 0);
+  if (!aid) {
+    regCatalogItems.value = [];
+    return;
+  }
+  regCatalogLoading.value = true;
+  regCatalogError.value = '';
+  try {
+    const resp = await api.get('/guardian-portal/registration/catalog', {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    regCatalogItems.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
+  } catch (err) {
+    regCatalogError.value = err.response?.data?.error?.message || 'Could not load registration catalog';
+    regCatalogItems.value = [];
+  } finally {
+    regCatalogLoading.value = false;
+  }
+};
+
+const openRegistrationEnroll = async (item) => {
+  registrationEnrollTarget.value = item;
+  registrationEnrollSelected.value = [];
+  registrationEnrollPayerType.value = '';
+  registrationEnrollError.value = '';
+  const aid = Number(agencyStore.currentAgency?.id || 0);
+  if (!aid) return;
+  try {
+    const resp = await api.get('/guardian-portal/dependents', {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    registrationEnrollDependents.value = Array.isArray(resp.data?.dependents) ? resp.data.dependents : [];
+  } catch {
+    registrationEnrollDependents.value = [];
+  }
+  if (item?.medicaidEligible && !item?.cashEligible) registrationEnrollPayerType.value = 'medicaid';
+  else if (!item?.medicaidEligible && item?.cashEligible) registrationEnrollPayerType.value = 'cash';
+  registrationEnrollOpen.value = true;
+};
+
+const closeRegistrationEnroll = () => {
+  registrationEnrollOpen.value = false;
+  registrationEnrollTarget.value = null;
+  registrationEnrollDependents.value = [];
+  registrationEnrollSelected.value = [];
+  registrationEnrollPayerType.value = '';
+  registrationEnrollError.value = '';
+};
+
+const submitRegistrationEnroll = async () => {
+  const aid = Number(agencyStore.currentAgency?.id || 0);
+  const target = registrationEnrollTarget.value;
+  const ids = (registrationEnrollSelected.value || []).map((x) => Number(x)).filter((n) => n > 0);
+  if (!aid || !target || !ids.length) return;
+  if (registrationPayerChoiceNeeded.value && !registrationEnrollPayerType.value) return;
+  registrationEnrollSaving.value = true;
+  registrationEnrollError.value = '';
+  try {
+    const body = {
+      agencyId: aid,
+      clientIds: ids,
+      ...(registrationEnrollPayerType.value ? { payerType: registrationEnrollPayerType.value } : {})
+    };
+    let resp;
+    if (target.kind === 'company_event') {
+      resp = await api.post(`/guardian-portal/registration/company-events/${target.id}/enroll`, body);
+    } else if (target.kind === 'learning_class') {
+      resp = await api.post(`/guardian-portal/registration/learning-classes/${target.id}/enroll`, body);
+    } else {
+      registrationEnrollError.value = 'Unknown offering type';
+      return;
+    }
+    const results = Array.isArray(resp.data?.results) ? resp.data.results : [];
+    const failed = results.filter((r) => !r.ok);
+    if (failed.length) {
+      registrationEnrollError.value = failed.map((r) => r.error || 'Failed').join('; ');
+      return;
+    }
+    closeRegistrationEnroll();
+    await fetchRegistrationCatalog();
+    await fetchSkillBuilderEvents();
+  } catch (err) {
+    registrationEnrollError.value = err.response?.data?.error?.message || err.message || 'Enrollment failed';
+  } finally {
+    registrationEnrollSaving.value = false;
+  }
+};
+
 const fetchOverview = async () => {
   try {
     loading.value = true;
@@ -415,6 +808,7 @@ const fetchOverview = async () => {
     const resp = await api.get('/guardian-portal/overview');
     overview.value = resp.data || { children: [], programs: [] };
     await initProgramContext();
+    await fetchSkillBuilderEvents();
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load guardian dashboard';
     overview.value = { children: [], programs: [] };
@@ -426,6 +820,14 @@ const fetchOverview = async () => {
 const refreshAll = async () => {
   await fetchOverview();
 };
+
+watch(
+  () => agencyStore.currentAgency?.id,
+  () => {
+    fetchSkillBuilderEvents();
+    fetchRegistrationCatalog();
+  }
+);
 
 const openChild = (c) => {
   selectedChildId.value = Number(c?.client_id) || null;
@@ -540,8 +942,54 @@ onMounted(async () => {
 
 .top-cards {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+.sb-g-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sb-g-card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg-alt);
+  transition: border-color 0.15s ease;
+}
+.sb-g-card:hover {
+  border-color: var(--primary);
+}
+.sb-g-card-past {
+  opacity: 0.92;
+}
+.sb-g-title {
+  font-weight: 800;
+  font-size: 14px;
+}
+.sb-g-meta {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.sb-g-past {
+  margin-top: 10px;
+}
+.sb-g-past-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+@media (max-width: 900px) {
+  .top-cards {
+    grid-template-columns: 1fr;
+  }
 }
 
 .top-card {
@@ -788,6 +1236,86 @@ onMounted(async () => {
   border-top: 1px solid var(--border);
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal-wide {
+  max-width: 640px;
+}
+
+.reg-catalog-card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.reg-catalog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.reg-catalog-title {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.reg-catalog-sub {
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.reg-catalog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reg-catalog-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-alt);
+}
+
+.reg-catalog-item-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.reg-self-stub {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.reg-self-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.reg-enroll-check {
+  margin: 6px 0;
+  font-size: 14px;
+}
+
+.reg-enroll-check label {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 @media (max-width: 980px) {

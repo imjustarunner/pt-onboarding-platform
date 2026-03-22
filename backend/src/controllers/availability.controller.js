@@ -13,6 +13,13 @@ import { isPublicProviderFinderFeatureEnabled } from '../services/publicAvailabi
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
 import { directIndirectRatioKindFromRatio } from '../utils/directIndirectRatioBands.js';
+import {
+  normalizeSkillBuilderBlocks,
+  totalMinutesForSkillBuilderBlocks,
+  SKILL_BUILDER_MINUTES_PER_WEEK,
+  replaceProviderSkillBuilderAvailabilityBlocks,
+  upsertBiweeklySkillBuilderConfirmations
+} from '../services/skillBuilderAvailabilityBlocks.service.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -172,7 +179,6 @@ const canManageAvailability = (role) => {
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const WEEKDAY_SET = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
 const WEEKEND_SET = new Set(['Saturday', 'Sunday']);
-const SKILL_BUILDER_MINUTES_PER_WEEK = 6 * 60;
 
 function canViewAvailabilityDashboard(role) {
   const r = String(role || '').toLowerCase();
@@ -1158,66 +1164,6 @@ export const confirmMySupervisedAvailability = async (req, res, next) => {
   }
 };
 
-function normalizeSkillBuilderBlocks(blocks) {
-  const normalized = [];
-  for (const b of blocks || []) {
-    const dayOfWeek = normalizeDayName(b?.dayOfWeek);
-    const blockType = normalizeBlockType(b?.blockType);
-    if (!dayOfWeek || !blockType) continue;
-
-    const departFrom = String(b?.departFrom || '').trim().slice(0, 255);
-    if (!departFrom) continue;
-    const departTime = b?.departTime ? normalizeTimeHHMM(b.departTime) : null;
-    const isBooked =
-      b?.isBooked === true ||
-      b?.isBooked === 1 ||
-      b?.isBooked === '1' ||
-      String(b?.isBooked || '').toLowerCase() === 'true';
-
-    if (blockType === 'AFTER_SCHOOL') {
-      if (!WEEKDAY_SET.has(dayOfWeek)) continue;
-      normalized.push({
-        dayOfWeek,
-        blockType,
-        startTime: '15:00:00',
-        endTime: '16:30:00',
-        departFrom,
-        departTime,
-        isBooked
-      });
-    } else if (blockType === 'WEEKEND') {
-      if (!WEEKEND_SET.has(dayOfWeek)) continue;
-      normalized.push({
-        dayOfWeek,
-        blockType,
-        startTime: '12:00:00',
-        endTime: '15:00:00',
-        departFrom,
-        departTime,
-        isBooked
-      });
-    } else {
-      const startTime = normalizeTimeHHMM(b?.startTime);
-      const endTime = normalizeTimeHHMM(b?.endTime);
-      if (!startTime || !endTime) continue;
-      if (endTime <= startTime) continue;
-      normalized.push({ dayOfWeek, blockType, startTime, endTime, departFrom, departTime, isBooked });
-    }
-  }
-  return normalized;
-}
-
-function totalMinutesForSkillBuilderBlocks(blocks) {
-  let total = 0;
-  for (const b of blocks || []) {
-    const t = String(b?.blockType || '').toUpperCase();
-    if (t === 'AFTER_SCHOOL') total += 90;
-    else if (t === 'WEEKEND') total += 180;
-    else total += minutesBetween(b?.startTime, b?.endTime);
-  }
-  return total;
-}
-
 export const submitMySkillBuilderAvailability = async (req, res, next) => {
   let conn = null;
   try {
@@ -1248,31 +1194,12 @@ export const submitMySkillBuilderAvailability = async (req, res, next) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    // Replace recurring availability blocks
-    await conn.execute(
-      `DELETE FROM provider_skill_builder_availability WHERE agency_id = ? AND provider_id = ?`,
-      [agencyId, providerId]
-    );
-    for (const b of normalizedBlocks) {
-      await conn.execute(
-        `INSERT INTO provider_skill_builder_availability
-          (agency_id, provider_id, depart_from, depart_time, is_booked, day_of_week, block_type, start_time, end_time)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [agencyId, providerId, b.departFrom, b.departTime || null, b.isBooked ? 1 : 0, b.dayOfWeek, b.blockType, b.startTime, b.endTime]
-      );
-    }
-
-    // Biweekly confirmation: confirm current week + next week (providers are prompted every 2 weeks).
-    for (const wk of [weekStart, nextWeekStart]) {
-      // eslint-disable-next-line no-await-in-loop
-      await conn.execute(
-        `INSERT INTO provider_skill_builder_availability_confirmations
-          (agency_id, provider_id, week_start_date, confirmed_at)
-         VALUES (?, ?, ?, NOW())
-         ON DUPLICATE KEY UPDATE confirmed_at = VALUES(confirmed_at)`,
-        [agencyId, providerId, wk]
-      );
-    }
+    await replaceProviderSkillBuilderAvailabilityBlocks(conn, {
+      agencyId,
+      providerId,
+      normalizedBlocks
+    });
+    await upsertBiweeklySkillBuilderConfirmations(conn, { agencyId, providerId });
 
     await conn.commit();
     res.json({

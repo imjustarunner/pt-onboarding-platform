@@ -474,6 +474,8 @@ class Client {
       'primary_client_language',
       'primary_parent_language',
       'skills',
+      'skill_builders_intake_complete',
+      'skill_builders_treatment_plan_complete',
       'internal_notes',
       'service_day',
       'paperwork_received_at',
@@ -491,6 +493,12 @@ class Client {
         updates.push(`${field} = ?`);
         if (field === 'contact_phone') {
           values.push(clientData[field] ? this.normalizePhone(clientData[field]) : null);
+        } else if (
+          field === 'skills' ||
+          field === 'skill_builders_intake_complete' ||
+          field === 'skill_builders_treatment_plan_complete'
+        ) {
+          values.push(clientData[field] ? 1 : 0);
         } else {
           values.push(clientData[field]);
         }

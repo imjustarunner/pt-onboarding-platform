@@ -19,7 +19,12 @@ import {
   kioskClockOut,
   listKioskGuardians,
   listKioskGuardianClients,
-  kioskGuardianCheckin
+  kioskGuardianCheckin,
+  listKioskSkillBuilderEvents,
+  listKioskSkillBuilderEventRoster,
+  listKioskSkillBuilderEventSessions,
+  kioskSkillBuilderEventClockIn,
+  kioskSkillBuilderEventClockOut
 } from '../controllers/kiosk.controller.js';
 
 const router = express.Router();
@@ -28,6 +33,11 @@ const router = express.Router();
 router.get('/me/context', authenticate, requireKioskUser, getKioskContext);
 
 // Public kiosk endpoints (backward compatibility)
+router.get('/:locationId/skill-builders-events/:eventId/sessions', listKioskSkillBuilderEventSessions);
+router.get('/:locationId/skill-builders-events/:eventId/roster', listKioskSkillBuilderEventRoster);
+router.post('/:locationId/skill-builders-events/:eventId/clock-in', kioskSkillBuilderEventClockIn);
+router.post('/:locationId/skill-builders-events/:eventId/clock-out', kioskSkillBuilderEventClockOut);
+router.get('/:locationId/skill-builders-events', listKioskSkillBuilderEvents);
 router.get('/:locationId/events', listKioskEvents);
 router.get('/:locationId/program-sites', listKioskProgramSites);
 router.get('/:locationId/program-staff', listKioskProgramStaff);

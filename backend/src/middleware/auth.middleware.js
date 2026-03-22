@@ -4,6 +4,18 @@ import User from '../models/User.model.js';
 import { getUserCapabilities } from '../utils/capabilities.js';
 import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
 
+/** Normalize role strings for authorization (JWT quirks / legacy variants). */
+function normalizeAuthRole(role) {
+  let r = String(role || '').toLowerCase().trim();
+  if (r === 'superadmin' || r === 'super-admin' || r === 'super admin') r = 'super_admin';
+  return r;
+}
+
+function isBackofficeAdminRole(role) {
+  const r = normalizeAuthRole(role);
+  return r === 'admin' || r === 'super_admin' || r === 'support';
+}
+
 export const authenticate = (req, res, next) => {
   try {
     // Public endpoints (no auth) - never block these with session auth.
@@ -154,12 +166,30 @@ export const requireAdmin = async (req, res, next) => {
 /**
  * Backoffice admin access only (no supervisors/CPAs).
  * Use this for actions that should be limited to true admins/support/super admins.
+ *
+ * Uses normalized role matching and, if the JWT role is not allowed, re-checks the
+ * database row so promotions to admin/support take effect without forcing a new login.
  */
-export const requireBackofficeAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+export const requireBackofficeAdmin = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    if (isBackofficeAdminRole(req.user.role)) {
+      return next();
+    }
+    const uid = req.user.id;
+    if (!uid) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const row = await User.findById(uid);
+    if (row && isBackofficeAdminRole(row.role)) {
+      return next();
+    }
     return res.status(403).json({ error: { message: 'Admin access required' } });
+  } catch (e) {
+    next(e);
   }
-  next();
 };
 
 /** Kiosk users only – used for kiosk-specific authenticated routes */

@@ -131,6 +131,7 @@ export const createIntakeLink = async (req, res, next) => {
     if (formType === 'medical_records_request') {
       if (!organizationId) return res.status(400).json({ error: { message: 'Agency is required for medical records forms' } });
     }
+    const companyEventId = req.body.companyEventId ? asNumberOrNull(req.body.companyEventId) : null;
     const link = await IntakeLink.create({
       publicKey,
       title: req.body.title || null,
@@ -141,6 +142,7 @@ export const createIntakeLink = async (req, res, next) => {
       organizationId: effectiveOrgId,
       programId: req.body.programId ? parseInt(req.body.programId, 10) : null,
       learningClassId: scopeType === 'learning_class' ? learningClassId : null,
+      companyEventId,
       jobDescriptionId: formType === 'job_application' ? jobDescriptionId : null,
       isActive: req.body.isActive !== false,
       createClient: formType === 'smart_school_roi'
@@ -185,6 +187,8 @@ export const createIntakeLinkFromJob = async (req, res, next) => {
       formType: 'job_application',
       organizationId: jd.agency_id,
       programId: null,
+      learningClassId: null,
+      companyEventId: null,
       jobDescriptionId,
       isActive: true,
       createClient: false,
@@ -274,6 +278,8 @@ export const updateIntakeLink = async (req, res, next) => {
       learning_class_id: req.body.learningClassId !== undefined
         ? resolvedLearningClassId
         : (requestedScopeType === 'learning_class' ? resolvedLearningClassId : undefined),
+      company_event_id:
+        req.body.companyEventId !== undefined ? asNumberOrNull(req.body.companyEventId) : undefined,
       job_description_id: jobDescriptionId,
       requires_assignment: req.body.requiresAssignment !== undefined ? (req.body.requiresAssignment ? 1 : 0) : undefined,
       is_active: req.body.isActive !== undefined ? (req.body.isActive ? 1 : 0) : undefined,
@@ -353,6 +359,7 @@ export const duplicateIntakeLink = async (req, res, next) => {
       organizationId: existing.organization_id || null,
       programId: existing.program_id || null,
       learningClassId: existing.learning_class_id || null,
+      companyEventId: existing.company_event_id || null,
       jobDescriptionId: existing.job_description_id || null,
       isActive: false,
       createClient: existing.create_client !== false,

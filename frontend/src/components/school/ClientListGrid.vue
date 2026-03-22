@@ -389,11 +389,14 @@
       v-if="selectedClient"
       :client="selectedClient"
       :schoolOrganizationId="selectedClient?.organization_id || organizationId"
+      :organization-slug="organizationSlug"
+      :parent-agency-id="parentAgencyId || null"
       :initial-pane="selectedClientInitialPane"
       :can-edit-action="canEditClients"
       :show-checklist-action="showChecklistButton && !!selectedClient?.user_is_assigned_provider"
       @open-edit="openClientEditorFromModal"
       @open-checklist="openChecklistFromModal"
+      @client-updated="onClientUpdatedFromModal"
       @close="selectedClient = null; selectedClientInitialPane = null"
     />
 
@@ -543,6 +546,11 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  /** Affiliated parent agency id (Skill Builders / school portal extras). */
+  parentAgencyId: {
+    type: Number,
+    default: null
+  },
   /**
    * Optional roster status filter (client_status_key), e.g. 'pending' or 'waitlist'.
    * When set, the grid will only show clients matching the filter.
@@ -564,6 +572,11 @@ const props = defineProps({
   waitlistSchoolCount: {
     type: Number,
     default: null
+  },
+  /** Provider my-roster: limit to Skill Builders group clients where user is assigned (requires SB-eligible user). */
+  skillBuildersOnly: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -747,7 +760,11 @@ const fetchClients = async () => {
       props.rosterScope === 'provider'
         ? `/school-portal/${encodeURIComponent(orgKey)}/my-roster`
         : `/school-portal/${encodeURIComponent(orgKey)}/clients`;
-    const response = await api.get(endpoint);
+    const params = {};
+    if (props.rosterScope === 'provider' && props.skillBuildersOnly) {
+      params.skillBuildersOnly = true;
+    }
+    const response = await api.get(endpoint, { params });
     clients.value = response.data || [];
   } catch (err) {
     console.error('Failed to fetch clients:', err);
@@ -1276,6 +1293,20 @@ const markClientUpdatesRead = async (client) => {
   }
 };
 
+const onClientUpdatedFromModal = (payload) => {
+  const cid = Number(payload?.clientId || 0);
+  const skills = payload?.skills;
+  if (cid && selectedClient.value && Number(selectedClient.value.id) === cid) {
+    selectedClient.value = { ...selectedClient.value, skills: !!skills };
+  }
+  clients.value = (clients.value || []).map((c) =>
+    Number(c?.id) === cid ? { ...c, skills: !!skills } : c
+  );
+  if (!useClientsOverride() && props.organizationId) {
+    fetchClients();
+  }
+};
+
 const openClient = (client, initialPane = null) => {
   if (!canOpenSchoolClient(client)) return;
   selectedClient.value = client;
@@ -1358,13 +1389,16 @@ watch(
   { immediate: true }
 );
 
-watch(() => props.organizationId, () => {
-  if (useClientsOverride()) return;
-  if (props.organizationId) {
-    fetchClients();
-    fetchEditPermissions();
+watch(
+  () => [props.organizationId, props.organizationSlug, props.skillBuildersOnly],
+  () => {
+    if (useClientsOverride()) return;
+    if (props.organizationId || (props.rosterScope === 'provider' && props.organizationSlug)) {
+      fetchClients();
+      if (props.organizationId) fetchEditPermissions();
+    }
   }
-});
+);
 
 watch(
   () => (showAttentionFilters.value ? attentionSummary.value.total : 0),
@@ -1392,9 +1426,9 @@ onMounted(() => {
       saveSort();
     }
   }
-  if (!useClientsOverride() && props.organizationId) {
+  if (!useClientsOverride() && (props.organizationId || (props.rosterScope === 'provider' && props.organizationSlug))) {
     fetchClients();
-    fetchEditPermissions();
+    if (props.organizationId) fetchEditPermissions();
   }
 });
 </script>

@@ -9,7 +9,7 @@ import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
 import { resolvePaperworkStatusId, seedClientAffiliations, seedClientPaperworkItems } from '../utils/clientProvisioning.js';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 
-const deriveInitials = (fullName) => {
+export const deriveInitials = (fullName) => {
   const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return 'TBD';
   const formatTri = (value) => {
@@ -127,6 +127,7 @@ class PublicIntakeClientService {
     }
 
     let guardianUser = null;
+    let newGuardianTemporaryPassword = null;
     const createGuardian = !!link.create_guardian;
     if (createGuardian) {
       const guardianPayload = payload?.guardian || {};
@@ -156,7 +157,10 @@ class PublicIntakeClientService {
           status: 'PENDING_SETUP'
         });
 
-        await User.setTemporaryPassword(guardianUser.id, tempPassword, 48);
+        const isSmartRegistration = String(link.form_type || '').trim().toLowerCase() === 'smart_registration';
+        const tempHours = isSmartRegistration ? 72 : 48;
+        await User.setTemporaryPassword(guardianUser.id, tempPassword, tempHours);
+        newGuardianTemporaryPassword = tempPassword;
       }
 
       for (const client of createdClients) {
@@ -171,7 +175,7 @@ class PublicIntakeClientService {
       }
     }
 
-    return { clients: createdClients, guardianUser };
+    return { clients: createdClients, guardianUser, newGuardianTemporaryPassword };
   }
 }
 
