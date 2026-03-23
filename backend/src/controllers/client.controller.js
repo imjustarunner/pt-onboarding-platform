@@ -21,6 +21,7 @@ import { isCategoryEnabledForUser } from '../services/notificationDispatcher.ser
 import crypto from 'crypto';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { isSkillsClientFlag } from '../utils/skillsClientFlag.js';
+import { bumpGradeCanonical, normalizeGradeForSave } from '../utils/clientGrade.js';
 
 function normalizeSixDigitClientCode(value) {
   const raw = String(value || '').trim();
@@ -798,7 +799,7 @@ export const createClient = async (req, res, next) => {
       client_status_id: client_status_id ? parseInt(client_status_id, 10) : null,
       insurance_type_id: insurance_type_id ? parseInt(insurance_type_id, 10) : null,
       school_year: school_year ? String(school_year).trim() : null,
-      grade: grade ? String(grade).trim() : null,
+      grade: normalizeGradeForSave(grade),
       doc_date: doc_date ? String(doc_date).slice(0, 10) : null,
 
       // New intake fields (optional)
@@ -1303,14 +1304,7 @@ function computeNextSchoolYearLabel(fromLabel = null) {
 }
 
 function bumpGrade(raw) {
-  const s = String(raw ?? '').trim();
-  if (!s) return null;
-  const upper = s.toUpperCase();
-  if (upper === 'K' || upper === 'KG' || upper === 'KINDERGARTEN') return '1';
-  const n = parseInt(s, 10);
-  if (!Number.isFinite(n)) return null;
-  const next = Math.min(12, n + 1);
-  return String(next);
+  return bumpGradeCanonical(raw);
 }
 
 /**

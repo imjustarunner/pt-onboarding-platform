@@ -784,7 +784,7 @@ const quickActions = computed(() => {
   },
   {
     id: 'skill_builders_availability',
-    title: 'Event Management',
+    title: 'Event availability',
     description: 'Review weekly availability submissions by day',
     to: '/admin/skill-builders-availability',
     emoji: '🧩',

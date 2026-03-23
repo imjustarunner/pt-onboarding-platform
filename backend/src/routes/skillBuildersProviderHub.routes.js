@@ -21,6 +21,8 @@ import {
   listSkillBuildersEventsDirectory,
   getSkillBuilderPortalCompanyEventForEdit,
   putSkillBuilderPortalCompanyEventForEdit,
+  getSkillBuilderEventSkillsGroupRoster,
+  postSkillBuilderEventSkillsGroupRoster,
   patchSkillBuilderEventSession,
   listSkillBuilderEventProviderAttendance,
   listSkillBuilderEventClientAttendance,
@@ -28,6 +30,15 @@ import {
   postSkillBuilderSessionCurriculum,
   getSkillBuilderSessionCurriculumFile,
   deleteSkillBuilderSessionCurriculum,
+  listSkillBuilderEventProgramDocuments,
+  listSkillBuilderProgramOrganizationDocuments,
+  postSkillBuilderEventProgramDocument,
+  postSkillBuilderProgramOrganizationProgramDocument,
+  deleteSkillBuilderEventProgramDocument,
+  deleteSkillBuilderProgramOrganizationProgramDocument,
+  patchSkillBuilderEventProgramDocument,
+  patchSkillBuilderProgramOrganizationProgramDocument,
+  postSkillBuilderSessionCurriculumFromLibrary,
   listSkillBuilderSessionClinicalNotes,
   getSkillBuilderSessionClinicalNote,
   putSkillBuilderSessionClinicalNoteManual,
@@ -39,6 +50,7 @@ import {
   patchCoordinatorSkillBuilderClient,
   confirmClientReadyForGroups,
   coordinatorAssignClientToEvent,
+  coordinatorUnassignClientFromEvent,
   listCoordinatorSkillBuilderCompanyEvents,
   getClientSkillBuilderDetail,
   listSkillBuilderClientNotes,
@@ -58,12 +70,24 @@ router.post('/me/applications', applyToSkillBuilderEvent);
 router.get('/me/clients', listMySkillBuilderEventClients);
 router.get('/me/work-schedule', getMySkillBuilderWorkSchedule);
 
+router.get('/program-organizations/:programOrganizationId/program-documents', listSkillBuilderProgramOrganizationDocuments);
+router.post('/program-organizations/:programOrganizationId/program-documents', ...postSkillBuilderProgramOrganizationProgramDocument);
+router.delete(
+  '/program-organizations/:programOrganizationId/program-documents/:documentId',
+  deleteSkillBuilderProgramOrganizationProgramDocument
+);
+router.patch(
+  '/program-organizations/:programOrganizationId/program-documents/:documentId',
+  patchSkillBuilderProgramOrganizationProgramDocument
+);
+
 router.get('/events/directory', listSkillBuildersEventsDirectory);
 router.get('/coordinator/master-clients', listMasterSkillBuilderClients);
 router.get('/coordinator/company-events-search', listCoordinatorSkillBuilderCompanyEvents);
 router.patch('/coordinator/clients/:clientId', patchCoordinatorSkillBuilderClient);
 router.post('/coordinator/clients/:clientId/confirm-ready', confirmClientReadyForGroups);
 router.post('/coordinator/clients/:clientId/assign-event', coordinatorAssignClientToEvent);
+router.post('/coordinator/clients/:clientId/unassign-event', coordinatorUnassignClientFromEvent);
 router.get('/clients/:clientId/builder-detail', getClientSkillBuilderDetail);
 router.get('/clients/:clientId/builder-notes', listSkillBuilderClientNotes);
 router.post('/clients/:clientId/builder-notes', createSkillBuilderClientNote);
@@ -72,8 +96,15 @@ router.get('/events/:eventId/chat-thread', ensureSkillBuilderEventChatThread);
 router.post('/events/:eventId/clients/:clientId/confirm-active', confirmClientActiveForSkillBuilderEvent);
 router.get('/events/:eventId/company-event-edit', getSkillBuilderPortalCompanyEventForEdit);
 router.put('/events/:eventId/company-event-edit', putSkillBuilderPortalCompanyEventForEdit);
+router.get('/events/:eventId/skills-group-roster', getSkillBuilderEventSkillsGroupRoster);
+router.post('/events/:eventId/skills-group-roster', postSkillBuilderEventSkillsGroupRoster);
 router.get('/events/:eventId/sessions', listSkillBuilderEventSessions);
 router.patch('/events/:eventId/sessions/:sessionId', patchSkillBuilderEventSession);
+router.get('/events/:eventId/program-documents', listSkillBuilderEventProgramDocuments);
+router.post('/events/:eventId/program-documents', ...postSkillBuilderEventProgramDocument);
+router.delete('/events/:eventId/program-documents/:documentId', deleteSkillBuilderEventProgramDocument);
+router.patch('/events/:eventId/program-documents/:documentId', patchSkillBuilderEventProgramDocument);
+router.post('/events/:eventId/sessions/:sessionId/curriculum-from-library', postSkillBuilderSessionCurriculumFromLibrary);
 router.post('/events/:eventId/sessions/:sessionId/curriculum', ...postSkillBuilderSessionCurriculum);
 router.get('/events/:eventId/sessions/:sessionId/curriculum', getSkillBuilderSessionCurriculumFile);
 router.delete('/events/:eventId/sessions/:sessionId/curriculum', deleteSkillBuilderSessionCurriculum);

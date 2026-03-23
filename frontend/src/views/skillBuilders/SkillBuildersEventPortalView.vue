@@ -34,7 +34,7 @@
               class="btn btn-secondary btn-sm"
               :to="skillBuildersEventsOverlayHref"
             >
-              Skill Builders events
+              Programs &amp; events
             </router-link>
             <button
               v-if="canEditEventInPortal"
@@ -208,6 +208,17 @@
                 <p v-else class="muted">No materialized sessions in range.</p>
               </div>
 
+              <div v-if="detail.skillsGroup && agencyId && eventId" class="sbep-sched-block">
+                <p class="sbep-subh">Session curriculum (PDFs)</p>
+                <p class="muted small sbep-card-lead">
+                  Program library PDFs attach per session — same tools as <strong>Materials</strong>. Open Materials to
+                  upload to the shared program library, attach from the library, or upload directly to a session row.
+                </p>
+                <button type="button" class="btn btn-primary btn-sm" @click="selectRailSection('materials')">
+                  Open Materials &amp; PDFs
+                </button>
+              </div>
+
               <div
                 v-if="detail.skillsGroup && sessions.length && detail.event?.virtualSessionsEnabled !== false"
                 class="sbep-sched-block"
@@ -366,9 +377,18 @@
               section-id="materials"
               title="Materials"
               :icon-url="sectionIconUrl('materials')"
-              badge="Coming soon"
             >
-              <p class="muted small">Course materials and handouts will appear here when your team adds them.</p>
+              <SkillBuildersSessionCurriculumMaterials
+                v-if="agencyId && eventId"
+                :agency-id="agencyId"
+                :event-id="eventId"
+                :sessions="sessions"
+                :sessions-loading="sessionsLoading"
+                :format-session-label="formatSessionKioskLabel"
+                :viewer-caps="viewerCaps"
+                :program-documents-library-route="programDocumentsLibraryRoute"
+                @refresh-sessions="loadSessions"
+              />
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
@@ -630,6 +650,7 @@
                 :agency-id="agencyId"
                 :highlight-event-id="eventId"
                 :program-session-summaries="sessionsForWorkSchedulePanel"
+                mode="provider"
               />
             </SkillBuildersEventDashboardSection>
 
@@ -838,6 +859,24 @@ const viewerCaps = computed(() => {
     canManageTeamSchedules: !!detail.value?.canManageCompanyEvent,
     canManageCompanyEvent: !!detail.value?.canManageCompanyEvent,
     canPostEventDiscussion: true
+  };
+});
+
+/** Opens coordinator Skill Builders hub → Program documents (library upload + attach by date/session). */
+const programDocumentsLibraryRoute = computed(() => {
+  const s = organizationSlug.value;
+  const oid = detail.value?.programPortal?.organizationId;
+  if (!s || !Number.isFinite(Number(oid)) || Number(oid) <= 0) return null;
+  if (!viewerCaps.value.canManageCompanyEvent && !viewerCaps.value.canManageTeamSchedules) return null;
+  const name = String(detail.value?.programPortal?.name || '').trim();
+  return {
+    path: `/${s}/dashboard`,
+    query: {
+      programHub: '1',
+      programHubOrgId: String(oid),
+      programHubSection: 'documents',
+      ...(name ? { programHubOrgName: name } : {})
+    }
   };
 });
 
@@ -1254,7 +1293,11 @@ function formatSessionKioskLabel(s) {
   const dayAbbr = String(s.weekday || '').slice(0, 3);
   const st = wallHmToDisplay(formatHm(s.startTime));
   const et = wallHmToDisplay(formatHm(s.endTime));
-  return `${datePart} · ${dayAbbr} ${st}–${et}`;
+  const timePart = `${dayAbbr} ${st}–${et}`;
+  if (s.sessionLabel) {
+    return `${s.sessionLabel} · ${datePart} · ${timePart}`;
+  }
+  return `${datePart} · ${timePart}`;
 }
 
 function formatWeekdayList(days) {
@@ -1368,7 +1411,7 @@ const scheduleHubHref = computed(() => {
 const skillBuildersEventsOverlayHref = computed(() => {
   const s = organizationSlug.value;
   if (!s || !canOpenSkillBuildersEventsOverlay.value) return null;
-  return { path: `/${s}/dashboard`, query: { tab: 'my_schedule', sbPrograms: '1' } };
+  return `/${s}/admin/skill-builders-program-events`;
 });
 
 const canEditEventInPortal = computed(

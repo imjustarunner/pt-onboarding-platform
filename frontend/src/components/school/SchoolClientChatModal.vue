@@ -185,7 +185,7 @@
               <h4>This student</h4>
               <ul class="sb-list sb-flat">
                 <li v-if="builderClientSummary?.initials">Initials: {{ builderClientSummary.initials }}</li>
-                <li v-if="builderClientSummary?.grade">Grade: {{ builderClientSummary.grade }}</li>
+                <li v-if="builderClientSummary?.grade">Grade: {{ formatGradeDisplay(builderClientSummary.grade) }}</li>
                 <li v-if="builderClientSummary?.ageYears != null">Age: {{ builderClientSummary.ageYears }}</li>
                 <li v-else-if="builderClientSummary?.dateOfBirth">Date of birth: {{ builderClientSummary.dateOfBirth }}</li>
                 <li>
@@ -487,6 +487,7 @@ import PhiDocumentsPanel from '../admin/PhiDocumentsPanel.vue';
 import { useAuthStore } from '../../store/auth';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { formatSkillBuilderWallTime12h } from '../../utils/skillBuildersDisplay.js';
+import { formatGradeDisplay } from '../../utils/clientGrade.js';
 
 const props = defineProps({
   client: { type: Object, required: true },

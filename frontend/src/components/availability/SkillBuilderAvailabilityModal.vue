@@ -1,13 +1,19 @@
 <template>
-  <div class="sb-modal-overlay" @click.self="onRequestClose">
-    <div class="sb-modal" role="dialog" aria-modal="true" aria-labelledby="sb-modal-title">
+  <div :class="isPageLayout ? 'sb-page-shell' : 'sb-modal-overlay'" @click.self="onOverlayBackdropClick">
+    <div
+      class="sb-modal"
+      :class="{ 'sb-modal--embedded': isPageLayout }"
+      :role="isPageLayout ? 'region' : 'dialog'"
+      :aria-modal="isPageLayout ? undefined : true"
+      aria-labelledby="sb-modal-title"
+    >
       <div class="sb-modal-header">
         <div class="sb-modal-title-wrap">
           <h2 id="sb-modal-title" class="sb-modal-title">Skill Builder availability</h2>
           <div v-if="lockOpen" class="sb-modal-required">Required</div>
         </div>
         <button
-          v-if="!lockOpen"
+          v-if="!lockOpen && !isPageLayout"
           type="button"
           class="sb-modal-close"
           aria-label="Close"
@@ -104,8 +110,12 @@ import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   agencyId: { type: [Number, String, null], default: null },
-  lockOpen: { type: Boolean, default: false }
+  lockOpen: { type: Boolean, default: false },
+  /** `modal` = overlay dialog; `page` = full-page content (no dimmed backdrop or close control). */
+  layout: { type: String, default: 'modal' }
 });
+
+const isPageLayout = computed(() => String(props.layout || 'modal').toLowerCase() === 'page');
 
 const emit = defineEmits(['close', 'confirmed']);
 
@@ -257,6 +267,11 @@ const onRequestClose = () => {
   emit('close');
 };
 
+const onOverlayBackdropClick = () => {
+  if (isPageLayout.value) return;
+  onRequestClose();
+};
+
 onMounted(refresh);
 
 watch(
@@ -278,6 +293,11 @@ watch(
   justify-content: center;
   z-index: 1500;
 }
+.sb-page-shell {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+}
 .sb-modal {
   width: 96%;
   max-width: 980px;
@@ -289,6 +309,11 @@ watch(
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
+}
+.sb-modal.sb-modal--embedded {
+  width: 100%;
+  max-height: none;
+  box-shadow: var(--shadow, 0 1px 3px rgba(15, 23, 42, 0.08));
 }
 .sb-modal-header {
   display: flex;

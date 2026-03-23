@@ -48,7 +48,7 @@
             </button>
           </div>
         </div>
-        <p class="pch-detail-tagline">{{ sectionTagline }}</p>
+        <p v-if="sectionTagline" class="pch-detail-tagline">{{ sectionTagline }}</p>
 
         <div class="pch-body pch-detail-body">
           <div v-show="activeSection === 'availability'" class="pch-panel">
@@ -158,7 +158,15 @@
           </div>
 
           <div v-show="activeSection === 'schedule'" class="pch-panel">
-            <SkillBuildersWorkSchedulePanel :agency-id="props.agencyId" />
+            <SkillBuildersWorkSchedulePanel :agency-id="props.agencyId" :mode="props.mode" />
+          </div>
+          <div v-show="activeSection === 'documents'" class="pch-panel">
+            <SkillBuildersProgramDocumentsPanel
+              v-if="coordinatorAgencyId && resolvedCoordinatorOrganizationId"
+              :agency-id="coordinatorAgencyId"
+              :organization-id="resolvedCoordinatorOrganizationId"
+            />
+            <p v-else class="pch-muted">Program organization is required to manage documents.</p>
           </div>
           <div v-show="activeSection === 'clients'" class="pch-panel">
             <SkillBuildersClientManagementPanel v-if="coordinatorAgencyId" :agency-id="coordinatorAgencyId" />
@@ -177,12 +185,15 @@ import api from '../../services/api';
 import SkillBuildersAvailabilityPanel from './SkillBuildersAvailabilityPanel.vue';
 import SkillBuildersWorkSchedulePanel from './SkillBuildersWorkSchedulePanel.vue';
 import SkillBuildersClientManagementPanel from './SkillBuildersClientManagementPanel.vue';
+import SkillBuildersProgramDocumentsPanel from './SkillBuildersProgramDocumentsPanel.vue';
 
 const props = defineProps({
   mode: { type: String, default: 'coordinator' }, // 'coordinator' | 'provider'
   agencyId: { type: [Number, String, null], default: null },
   organizationId: { type: [Number, String, null], default: null },
-  organizationName: { type: String, default: '' }
+  organizationName: { type: String, default: '' },
+  /** When set (e.g. `documents`), open this section instead of the hub grid. */
+  initialSection: { type: String, default: null }
 });
 
 defineEmits(['close', 'open-skill-builder-availability']);
@@ -194,6 +205,8 @@ const agencyStore = useAgencyStore();
 const titleId = `pch-title-${Math.random().toString(36).slice(2, 9)}`;
 /** null = hub (pick a section); otherwise section id */
 const activeSection = ref(null);
+/** After applying `initialSection` once so we do not override user navigation. */
+const initialSectionApplied = ref(false);
 const eventsLoading = ref(false);
 const eventsError = ref('');
 const programEvents = ref([]);
@@ -212,6 +225,11 @@ const displayName = computed(() => {
 const coordinatorAgencyId = computed(() => {
   const a = Number(props.agencyId);
   return Number.isFinite(a) && a > 0 ? a : null;
+});
+
+const resolvedCoordinatorOrganizationId = computed(() => {
+  const o = Number(props.organizationId);
+  return Number.isFinite(o) && o > 0 ? o : null;
 });
 
 const sectionItems = computed(() => {
@@ -240,6 +258,13 @@ const sectionItems = computed(() => {
   ];
   if (props.mode === 'coordinator' && coordinatorAgencyId.value) {
     base.push({
+      id: 'documents',
+      label: 'Program documents',
+      shortLabel: 'Docs',
+      icon: '📄',
+      description: 'Program-wide PDF library; attach per event session from here or the event portal.'
+    });
+    base.push({
       id: 'clients',
       label: 'Client management',
       shortLabel: 'Clients',
@@ -257,9 +282,31 @@ const headerSubtitle = computed(() => {
 });
 
 const sectionTagline = computed(() => {
+  if (activeSection.value === 'documents') return '';
   const item = sectionItems.value.find((s) => s.id === activeSection.value);
   return item?.description || '';
 });
+
+watch(
+  () => props.initialSection,
+  (v) => {
+    if (v == null || String(v).trim() === '') initialSectionApplied.value = false;
+  }
+);
+
+watch(
+  () => [props.initialSection, sectionItems.value],
+  () => {
+    if (initialSectionApplied.value) return;
+    const want = String(props.initialSection || '').trim();
+    if (!want) return;
+    if (sectionItems.value.some((s) => s.id === want)) {
+      activeSection.value = want;
+      initialSectionApplied.value = true;
+    }
+  },
+  { immediate: true }
+);
 
 function openSection(id) {
   activeSection.value = id;

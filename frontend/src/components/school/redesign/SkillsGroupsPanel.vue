@@ -21,7 +21,7 @@
           class="btn btn-secondary btn-sm"
           :href="eventManagementHref"
           style="text-decoration: none; display: inline-flex; align-items: center;"
-        >Event Management</a>
+        >Event availability</a>
         <button v-if="canManage" class="btn btn-primary btn-sm" type="button" @click="startCreate">
           Add group
         </button>
@@ -104,7 +104,7 @@
               <li v-for="p in selected.providers" :key="p.provider_user_id">
                 {{ p.last_name }}, {{ p.first_name }}
                 <span v-if="canManage && p.skill_builder_eligible === false" class="muted" style="font-size: 0.85em;">
-                  (not Skill Builder eligible — assigned before restriction)
+                  (not Skill Development Program eligible — assigned before restriction)
                 </span>
               </li>
             </ul>

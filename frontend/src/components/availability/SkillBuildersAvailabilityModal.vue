@@ -2,7 +2,7 @@
   <div class="sbam-overlay" @click.self="$emit('close')">
     <div class="sbam-modal" role="dialog" aria-modal="true" aria-labelledby="sbam-title">
       <div class="sbam-header">
-        <h2 id="sbam-title" style="margin: 0;">Event Management</h2>
+        <h2 id="sbam-title" style="margin: 0;">Event availability</h2>
         <button type="button" class="sbam-close" aria-label="Close" @click="$emit('close')">×</button>
       </div>
       <div class="sbam-body">

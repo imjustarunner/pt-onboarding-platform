@@ -543,9 +543,9 @@
 
                 <label
                   class="compact-toggle"
-                  title="If enabled, this provider must submit (or confirm) at least 6 hours/week via Submit → Additional Availability."
+                  title="If enabled, this provider is in the Skill Development Program (including at least 6 hours/week via Submit → Additional Availability when required)."
                 >
-                  <span class="compact-title">Skill Builder eligible</span>
+                  <span class="compact-title">Skill Development Program eligible</span>
                   <div class="toggle-switch toggle-switch-sm">
                     <input
                       id="skill-builder-eligible-toggle"

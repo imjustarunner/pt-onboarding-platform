@@ -2,7 +2,7 @@
   <div class="sbap-wrap">
     <div v-if="showTitle" class="page-header">
       <div>
-        <h1 style="margin: 0;">Event Management</h1>
+        <h1 style="margin: 0;">{{ pageHeading }}</h1>
         <p class="subtitle" style="margin: 6px 0 0;">
           Week of {{ weekStart }} • Availability submissions across affiliated organizations.
         </p>
@@ -159,7 +159,8 @@ const props = defineProps({
   agencyId: { type: [Number, String, null], default: null },
   organizationId: { type: [Number, String, null], default: null },
   showScopeFilters: { type: Boolean, default: true },
-  showTitle: { type: Boolean, default: true }
+  showTitle: { type: Boolean, default: true },
+  pageHeading: { type: String, default: 'Event availability' }
 });
 
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];

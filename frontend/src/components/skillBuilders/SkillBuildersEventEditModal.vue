@@ -162,33 +162,148 @@
             </div>
 
             <div v-if="isSkillsGroupIntegrated" class="sb-ce-section">
+              <strong class="sb-ce-subhead">Program staff</strong>
+              <p class="muted small sb-ce-pattern-lead">
+                Staff on this list can use the station kiosk for this program and appear on the program roster. Per-session
+                assignments on specific dates are still managed from the event portal.
+              </p>
+              <div v-if="rosterLoading" class="muted small sb-ce-msg">Loading program staff…</div>
+              <div v-else-if="rosterError" class="error-box sb-ce-msg">{{ rosterError }}</div>
+              <template v-else-if="roster.skillsGroupId">
+                <ul v-if="roster.assignedProviders.length" class="sb-ce-roster-list">
+                  <li v-for="p in roster.assignedProviders" :key="p.id" class="sb-ce-roster-row">
+                    <span class="sb-ce-roster-name">{{ p.lastName }}, {{ p.firstName }}</span>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="rosterSaving"
+                      @click="removeRosterProvider(p.id)"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                </ul>
+                <p v-else class="muted small">No staff assigned yet. Add providers below.</p>
+                <p v-if="sdpPromoteNotice" class="muted small sb-ce-sdp-notice">{{ sdpPromoteNotice }}</p>
+                <div class="sb-ce-roster-add">
+                  <label class="sb-ce-lbl sb-ce-roster-lbl">Skill Development Program eligible</label>
+                  <div class="sb-ce-roster-row-inner">
+                    <select v-model="providerToAdd" class="input sb-ce-roster-select" :disabled="rosterSaving">
+                      <option value="">Choose provider…</option>
+                      <option v-for="p in addableProviders" :key="`e-${p.id}`" :value="String(p.id)">
+                        {{ p.lastName }}, {{ p.firstName }}
+                      </option>
+                    </select>
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="!providerToAdd || rosterSaving"
+                      @click="addRosterProvider(false)"
+                    >
+                      {{ rosterSaving ? 'Saving…' : 'Add' }}
+                    </button>
+                  </div>
+                  <p class="muted small sb-ce-roster-hint">
+                    Only people with <strong>Skill Development Program eligible</strong> turned on in their account appear
+                    here.
+                  </p>
+                </div>
+                <div class="sb-ce-roster-expand">
+                  <button
+                    type="button"
+                    class="btn btn-link btn-sm sb-ce-roster-expand-btn"
+                    @click="showExpandedAgencyProviders = !showExpandedAgencyProviders"
+                  >
+                    Don&rsquo;t see who you&rsquo;re looking for? Add additional provider.
+                  </button>
+                  <div v-show="showExpandedAgencyProviders" class="sb-ce-roster-expanded">
+                    <label class="sb-ce-lbl">All agency providers</label>
+                    <p class="muted small sb-ce-roster-hint">
+                      Choose anyone on this agency. If they aren&rsquo;t Skill Development Program eligible yet,
+                      we&rsquo;ll turn that on in their account when you add them.
+                    </p>
+                    <div class="sb-ce-roster-row-inner">
+                      <select
+                        v-model="providerToAddExpanded"
+                        class="input sb-ce-roster-select"
+                        :disabled="rosterSaving"
+                      >
+                        <option value="">Choose provider…</option>
+                        <option
+                          v-for="p in addableAllAgencyProviders"
+                          :key="`a-${p.id}`"
+                          :value="String(p.id)"
+                        >
+                          {{ p.lastName }}, {{ p.firstName
+                          }}<template v-if="!p.skillDevelopmentProgramEligible"> — will enable SDP</template>
+                        </option>
+                      </select>
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        :disabled="!providerToAddExpanded || rosterSaving"
+                        @click="addRosterProvider(true)"
+                      >
+                        {{ rosterSaving ? 'Saving…' : 'Add' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <p v-else class="muted small">No integrated skills group is linked to this event.</p>
+            </div>
+
+            <div v-if="isSkillsGroupIntegrated" class="sb-ce-section">
               <strong class="sb-ce-subhead">Program station kiosk</strong>
               <p class="muted small sb-ce-pattern-lead">
-                Providers open your branded <strong>station</strong> link, enter the 6-digit event PIN, then their personal
-                4-digit kiosk PIN (from profile preferences). Each station PIN must be unique across Skill Builders events
-                for this agency so the kiosk always opens the right program.
+                At the station, staff open your portal link, enter this program’s <strong>6-digit station PIN</strong>, then
+                their personal <strong>4-digit kiosk PIN</strong> (from profile preferences). Each station PIN must be unique
+                across Skill Builders programs for this agency.
               </p>
               <p v-if="kioskEntryUrl" class="muted small sb-ce-kiosk-url">
                 <strong>Station link:</strong> <code class="sb-ce-code">{{ kioskEntryUrl }}</code>
               </p>
-              <p v-else class="muted small">Save the program portal slug to show the full station URL here.</p>
-              <p v-if="draft.kioskEventPinSet" class="muted small">A station PIN is currently set.</p>
+              <p v-else class="muted small">Set the agency portal slug so this link is complete.</p>
+
+              <div class="sb-ce-pin-status" role="status">
+                <template v-if="draft.kioskEventPinSet">
+                  <p class="sb-ce-pin-status-line"><strong>Station PIN:</strong> already saved (6 digits)</p>
+                  <p class="muted small sb-ce-pin-status-note">
+                    The code is stored securely and cannot be shown again. Share it with staff separately, or set a new PIN
+                    below to replace it.
+                  </p>
+                </template>
+                <template v-else>
+                  <p class="sb-ce-pin-status-line"><strong>Station PIN:</strong> not set yet</p>
+                  <p class="muted small sb-ce-pin-status-note">
+                    Add a 6-digit PIN so the station can unlock this program. Providers will still use their own 4-digit PIN
+                    after that step.
+                  </p>
+                </template>
+              </div>
+
               <div class="form-group">
-                <label class="sb-ce-lbl">New 6-digit station PIN (optional)</label>
+                <label class="sb-ce-lbl">{{
+                  draft.kioskEventPinSet ? 'New 6-digit station PIN (replace existing)' : '6-digit station PIN'
+                }}</label>
                 <input
                   v-model="draft.kioskEventPinNew"
-                  class="input"
-                  type="password"
+                  class="input sb-ce-pin-input"
+                  type="text"
                   inputmode="numeric"
                   maxlength="6"
-                  autocomplete="new-password"
-                  placeholder="Leave blank to keep current"
+                  autocomplete="off"
+                  :placeholder="draft.kioskEventPinSet ? 'Leave empty to keep the current PIN' : 'e.g. 123456'"
+                  :disabled="draft.kioskEventPinClear"
                 />
               </div>
-              <div class="form-group">
-                <label class="sb-ce-check">
-                  <input v-model="draft.kioskEventPinClear" type="checkbox" />
-                  Remove station PIN (disable kiosk unlock for this event)
+              <div class="sb-ce-kiosk-remove">
+                <label class="sb-ce-check-row">
+                  <input v-model="draft.kioskEventPinClear" type="checkbox" :disabled="kioskPinNewDigitCount > 0" />
+                  <span>
+                    <strong>Remove station PIN</strong> — turn off kiosk unlock for this program until you set a new PIN.
+                    (Clear the “new PIN” field above if you want to use this option.)
+                  </span>
                 </label>
               </div>
             </div>
@@ -353,6 +468,29 @@ const affiliateProgramOrgs = ref([]);
 /** Linked skills_group_meetings rows for display (from GET company-event-edit). */
 const skillsGroupMeetingsPreview = ref([]);
 
+const rosterLoading = ref(false);
+const rosterError = ref('');
+const rosterSaving = ref(false);
+const roster = ref({
+  skillsGroupId: null,
+  organizationId: null,
+  assignedProviders: [],
+  eligibleProviders: [],
+  allAgencyProviders: []
+});
+const providerToAdd = ref('');
+const providerToAddExpanded = ref('');
+const showExpandedAgencyProviders = ref(false);
+const sdpPromoteNotice = ref('');
+
+const rosterAssignedIds = computed(() => new Set((roster.value.assignedProviders || []).map((p) => p.id)));
+const addableProviders = computed(() =>
+  (roster.value.eligibleProviders || []).filter((p) => !rosterAssignedIds.value.has(p.id))
+);
+const addableAllAgencyProviders = computed(() =>
+  (roster.value.allAgencyProviders || []).filter((p) => !rosterAssignedIds.value.has(p.id))
+);
+
 const isSkillsGroupIntegrated = computed(
   () => String(draft.value.eventType || '').toLowerCase() === 'skills_group'
 );
@@ -433,6 +571,8 @@ function wallTimeToInput(v) {
 }
 
 const draft = ref(emptyDraft());
+
+const kioskPinNewDigitCount = computed(() => String(draft.value.kioskEventPinNew || '').replace(/\D/g, '').length);
 
 function browserTimeZone() {
   try {
@@ -666,6 +806,84 @@ function toggleWeekday(weekday, checked) {
   draft.value.recurrence.byWeekday = [...set].sort((a, b) => a - b);
 }
 
+async function loadSkillsGroupRoster(options = {}) {
+  const silent = !!options.silent;
+  rosterError.value = '';
+  if (!props.eventId || !props.agencyId) return;
+  if (!silent) rosterLoading.value = true;
+  try {
+    const res = await api.get(`/skill-builders/events/${props.eventId}/skills-group-roster`, {
+      params: { agencyId: props.agencyId },
+      skipGlobalLoading: true
+    });
+    roster.value = {
+      skillsGroupId: res.data?.skillsGroupId ?? null,
+      organizationId: res.data?.organizationId ?? null,
+      assignedProviders: Array.isArray(res.data?.assignedProviders) ? res.data.assignedProviders : [],
+      eligibleProviders: Array.isArray(res.data?.eligibleProviders) ? res.data.eligibleProviders : [],
+      allAgencyProviders: Array.isArray(res.data?.allAgencyProviders) ? res.data.allAgencyProviders : []
+    };
+    providerToAdd.value = '';
+    providerToAddExpanded.value = '';
+  } catch (e) {
+    rosterError.value = e.response?.data?.error?.message || e.message || 'Failed to load program staff';
+    roster.value = {
+      skillsGroupId: null,
+      organizationId: null,
+      assignedProviders: [],
+      eligibleProviders: [],
+      allAgencyProviders: []
+    };
+  } finally {
+    if (!silent) rosterLoading.value = false;
+  }
+}
+
+async function addRosterProvider(fromExpanded) {
+  const id = Number(fromExpanded ? providerToAddExpanded.value : providerToAdd.value);
+  if (!id || rosterSaving.value) return;
+  rosterSaving.value = true;
+  rosterError.value = '';
+  sdpPromoteNotice.value = '';
+  try {
+    const res = await api.post(
+      `/skill-builders/events/${props.eventId}/skills-group-roster`,
+      { agencyId: props.agencyId, providerUserId: id, action: 'add' },
+      { skipGlobalLoading: true }
+    );
+    if (res.data?.skillDevelopmentProgramEligibleUpdated) {
+      sdpPromoteNotice.value =
+        'Skill Development Program eligibility was turned on for this provider in their account.';
+    }
+    await loadSkillsGroupRoster({ silent: true });
+    providerToAdd.value = '';
+    providerToAddExpanded.value = '';
+  } catch (e) {
+    rosterError.value = e.response?.data?.error?.message || e.message || 'Could not add provider';
+  } finally {
+    rosterSaving.value = false;
+  }
+}
+
+async function removeRosterProvider(userId) {
+  const id = Number(userId);
+  if (!id || rosterSaving.value) return;
+  rosterSaving.value = true;
+  rosterError.value = '';
+  try {
+    await api.post(
+      `/skill-builders/events/${props.eventId}/skills-group-roster`,
+      { agencyId: props.agencyId, providerUserId: id, action: 'remove' },
+      { skipGlobalLoading: true }
+    );
+    await loadSkillsGroupRoster({ silent: true });
+  } catch (e) {
+    rosterError.value = e.response?.data?.error?.message || e.message || 'Could not remove provider';
+  } finally {
+    rosterSaving.value = false;
+  }
+}
+
 async function loadAffiliateProgramOrgs() {
   affiliateProgramOrgs.value = [];
   if (!props.agencyId) return;
@@ -690,7 +908,8 @@ async function loadEditBundle() {
         params: { agencyId: props.agencyId },
         skipGlobalLoading: true
       }),
-      loadAffiliateProgramOrgs()
+      loadAffiliateProgramOrgs(),
+      loadSkillsGroupRoster()
     ]);
     skillsGroupMeetingsPreview.value = Array.isArray(evRes.data?.skillsGroupMeetings)
       ? evRes.data.skillsGroupMeetings.map((x) => ({ ...x }))
@@ -829,7 +1048,33 @@ watch(
       loadError.value = '';
       skillsGroupMeetingsPreview.value = [];
       draft.value = emptyDraft();
+      rosterError.value = '';
+      roster.value = {
+        skillsGroupId: null,
+        organizationId: null,
+        assignedProviders: [],
+        eligibleProviders: [],
+        allAgencyProviders: []
+      };
+      providerToAdd.value = '';
+      providerToAddExpanded.value = '';
+      showExpandedAgencyProviders.value = false;
+      sdpPromoteNotice.value = '';
     }
+  }
+);
+
+watch(
+  () => draft.value.kioskEventPinClear,
+  (cleared) => {
+    if (cleared) draft.value.kioskEventPinNew = '';
+  }
+);
+
+watch(
+  () => draft.value.kioskEventPinNew,
+  () => {
+    if (kioskPinNewDigitCount.value > 0) draft.value.kioskEventPinClear = false;
   }
 );
 </script>
@@ -910,6 +1155,107 @@ watch(
   align-items: flex-start;
   font-size: 0.88rem;
   cursor: pointer;
+}
+.sb-ce-check-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  cursor: pointer;
+}
+.sb-ce-check-row input[type='checkbox'] {
+  margin-top: 3px;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+.sb-ce-kiosk-remove {
+  margin-top: 4px;
+}
+.sb-ce-pin-status {
+  padding: 10px 12px;
+  margin: 10px 0 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e2e8f0);
+}
+.sb-ce-pin-status-line {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+}
+.sb-ce-pin-status-note {
+  margin: 0;
+  line-height: 1.4;
+}
+.sb-ce-pin-input {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  max-width: 12rem;
+}
+.sb-ce-roster-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sb-ce-roster-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sb-ce-roster-name {
+  font-size: 0.92rem;
+}
+.sb-ce-roster-add {
+  margin-top: 4px;
+}
+.sb-ce-roster-lbl {
+  margin-bottom: 6px;
+}
+.sb-ce-roster-row-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.sb-ce-roster-hint {
+  margin: 8px 0 0;
+  line-height: 1.4;
+}
+.sb-ce-roster-expand {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border, #e2e8f0);
+}
+.sb-ce-roster-expand-btn {
+  padding: 0 !important;
+  height: auto !important;
+  font-weight: 600;
+  text-align: left;
+  white-space: normal;
+  line-height: 1.35;
+}
+.sb-ce-roster-expanded {
+  margin-top: 10px;
+}
+.sb-ce-sdp-notice {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: #ecfdf5;
+  border-radius: 8px;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+.sb-ce-roster-select {
+  flex: 1;
+  min-width: 200px;
+  max-width: 420px;
 }
 .sb-ce-kiosk-url {
   margin: 8px 0 0;

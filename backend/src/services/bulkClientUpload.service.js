@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 import { adjustProviderSlots } from './providerSlots.service.js';
 import { notifyClientBecameCurrent, notifyPaperworkReceived } from './clientNotifications.service.js';
 import ClientNotes from '../models/ClientNotes.model.js';
+import { normalizeGradeForSave } from '../utils/clientGrade.js';
 
 const slugify = (s) =>
   String(s || '')
@@ -836,7 +837,7 @@ export async function processBulkClientUpload({ agencyId, userId, userRole, file
               deliveryMethodId,
               waitlistStartedAt,
               row.docDate || null,
-              row.grade || null,
+              normalizeGradeForSave(row.grade),
               row.schoolYear || null,
               row.gender || null,
               identifierCode,
@@ -885,7 +886,7 @@ export async function processBulkClientUpload({ agencyId, userId, userRole, file
           if (insuranceProvided) set('insurance_type_id', insuranceTypeId);
           if (deliveryProvided) set('paperwork_delivery_method_id', deliveryMethodId);
           if (row.docDate !== undefined && row.docDate) set('doc_date', row.docDate);
-          if (row.grade !== undefined && String(row.grade || '').trim()) set('grade', row.grade);
+          if (row.grade !== undefined && String(row.grade || '').trim()) set('grade', normalizeGradeForSave(row.grade));
           if (row.schoolYear !== undefined && String(row.schoolYear || '').trim()) set('school_year', row.schoolYear);
           if (row.gender !== undefined && String(row.gender || '').trim()) set('gender', row.gender);
           if (row.primaryClientLanguage !== undefined && String(row.primaryClientLanguage || '').trim()) set('primary_client_language', row.primaryClientLanguage);

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { normalizeGradeForSave } from '../utils/clientGrade.js';
 
 /**
  * Client Model
@@ -115,7 +116,7 @@ class Client {
       ['paperwork_delivery_method_id', paperwork_delivery_method_id],
       ['doc_date', doc_date],
       ['roi_expires_at', roi_expires_at],
-      ['grade', grade],
+      ['grade', grade === undefined ? undefined : normalizeGradeForSave(grade)],
       ['school_year', clientData.school_year],
       ['gender', gender],
       ['identifier_code', identifier_code],
@@ -499,6 +500,8 @@ class Client {
           field === 'skill_builders_treatment_plan_complete'
         ) {
           values.push(clientData[field] ? 1 : 0);
+        } else if (field === 'grade') {
+          values.push(normalizeGradeForSave(clientData[field]));
         } else {
           values.push(clientData[field]);
         }

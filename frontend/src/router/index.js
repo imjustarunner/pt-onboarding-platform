@@ -12,6 +12,18 @@ import { getSchoolStaffWaiverStatus } from '../utils/schoolStaffWaiverGate';
 import api from '../services/api';
 
 const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff', 'provider_plus'];
+/** Matches Directory “Programs & events” access (nav + dedicated page). */
+const SKILL_BUILDERS_PROGRAM_EVENTS_ROLES = [
+  'admin',
+  'staff',
+  'support',
+  'super_admin',
+  'provider',
+  'provider_plus',
+  'intern',
+  'intern_plus',
+  'clinical_practice_assistant'
+];
 const PROVIDER_PLUS_EXPERIENCE_ROLES = ['provider_plus', 'clinical_practice_assistant'];
 const TOOLS_AIDS_ROUTE_SEGMENTS = ['/admin/tools-aids', '/admin/note-aid', '/admin/clinical-note-generator'];
 
@@ -718,6 +730,34 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'schedule_manager', allowSubCoordinator: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/skill-builders-program-events',
+    name: 'OrganizationSkillBuildersProgramsEvents',
+    component: () => import('../views/admin/SkillBuildersProgramsEventsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: SKILL_BUILDERS_PROGRAM_EVENTS_ROLES,
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
+    path: '/:organizationSlug/admin/skill-builders-client-management',
+    name: 'OrganizationSkillBuildersClientManagement',
+    component: () => import('../views/admin/SkillBuildersClientManagementView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager', allowSubCoordinator: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/skill-builders-my-availability',
+    name: 'OrganizationSkillBuildersMyAvailability',
+    component: () => import('../views/admin/SkillBuildersProviderAvailabilityView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: SKILL_BUILDERS_PROGRAM_EVENTS_ROLES,
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/documents',
     name: 'OrganizationDocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
@@ -1296,6 +1336,32 @@ const routes = [
     name: 'SkillBuildersAvailability',
     component: () => import('../views/admin/SkillBuildersAvailabilityView.vue'),
     meta: { requiresAuth: true, requiresRole: 'schedule_manager', allowSubCoordinator: true }
+  },
+  {
+    path: '/admin/skill-builders-program-events',
+    name: 'SkillBuildersProgramsEvents',
+    component: () => import('../views/admin/SkillBuildersProgramsEventsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: SKILL_BUILDERS_PROGRAM_EVENTS_ROLES,
+      allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/admin/skill-builders-client-management',
+    name: 'SkillBuildersClientManagement',
+    component: () => import('../views/admin/SkillBuildersClientManagementView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager', allowSubCoordinator: true }
+  },
+  {
+    path: '/admin/skill-builders-my-availability',
+    name: 'SkillBuildersMyAvailability',
+    component: () => import('../views/admin/SkillBuildersProviderAvailabilityView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: SKILL_BUILDERS_PROGRAM_EVENTS_ROLES,
+      allowSubCoordinator: true
+    }
   },
   {
     path: '/admin/documents',

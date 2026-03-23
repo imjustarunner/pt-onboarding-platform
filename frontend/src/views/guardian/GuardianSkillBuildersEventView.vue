@@ -26,7 +26,7 @@
               <ul class="gsbe-list">
                 <li v-for="ch in detail.myChildren" :key="ch.clientId">
                   <strong>{{ ch.fullName || ch.initials || `Client #${ch.clientId}` }}</strong>
-                  <span v-if="ch.grade" class="muted"> · Grade {{ ch.grade }}</span>
+                  <span v-if="ch.grade" class="muted"> · Grade {{ formatGradeDisplay(ch.grade) }}</span>
                   <div v-if="ch.documentStatus || ch.paperworkStatusLabel" class="muted small">
                     Docs: {{ ch.paperworkStatusLabel || ch.documentStatus || '—' }}
                   </div>
@@ -250,6 +250,7 @@ import SkillBuildersEventPortalLayout from '../../components/skillBuilders/Skill
 import SkillBuildersEventDashboardSection from '../../components/skillBuilders/SkillBuildersEventDashboardSection.vue';
 import SkillBuildersEventProvidersGrid from '../../components/skillBuilders/SkillBuildersEventProvidersGrid.vue';
 import { useBrandingStore } from '../../store/branding';
+import { formatGradeDisplay } from '../../utils/clientGrade.js';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();

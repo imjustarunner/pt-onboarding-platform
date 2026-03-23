@@ -507,8 +507,12 @@
           </div>
           <div class="form-group">
             <label>Grade</label>
-            <input v-model="newClient.grade" type="text" placeholder="5" />
-            <small>Optional. Numeric grades will be promoted +1 in bulk.</small>
+            <select v-model="newClient.grade" class="filter-select">
+              <option v-for="o in STANDARD_GRADE_SELECT_OPTIONS" :key="`nc-grade-${o.value}`" :value="o.value">{{
+                o.label
+              }}</option>
+            </select>
+            <small>Optional. Uses K and 1st–12th; school-year rollover advances to the next grade when applicable.</small>
           </div>
           <div class="form-group">
             <label class="checkbox-label" style="display:flex; align-items:center; gap: 8px;">
@@ -785,6 +789,7 @@ import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import BulkClientImporter from '../../components/admin/BulkClientImporter.vue';
+import { STANDARD_GRADE_SELECT_OPTIONS, normalizeGradeForSave } from '../../utils/clientGrade.js';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -1939,7 +1944,7 @@ const createClient = async () => {
       ...newClient.value,
       client_type: String(newClient.value?.client_type || '').toLowerCase(),
       school_year: normalizeSchoolYearLabel(newClient.value.school_year) || null,
-      grade: String(newClient.value.grade || '').trim() || null,
+      grade: normalizeGradeForSave(newClient.value.grade),
       insurance_type_id: newClient.value.insurance_type_id ? Number(newClient.value.insurance_type_id) : null,
       doc_date: newClient.value.doc_date ? String(newClient.value.doc_date).slice(0, 10) : null,
       // Assign provider/day in a second call so slot adjustments are enforced centrally.

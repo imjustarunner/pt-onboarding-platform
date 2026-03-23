@@ -289,16 +289,28 @@ export const patchCoordinatorSkillBuilderClient = async (req, res, next) => {
         ? undefined
         : !!req.body.skillBuildersTreatmentPlanComplete;
 
-    const prevTp = !!(cur.skill_builders_treatment_plan_complete === 1 || cur.skill_builders_treatment_plan_complete === true);
+    const curIntake = !!(cur.skill_builders_intake_complete === 1 || cur.skill_builders_intake_complete === true);
+    const curTp = !!(cur.skill_builders_treatment_plan_complete === 1 || cur.skill_builders_treatment_plan_complete === true);
+
+    if (intake === false && curTp) {
+      return res.status(400).json({
+        error: {
+          message: 'Mark treatment plan as not complete before marking intake incomplete'
+        }
+      });
+    }
+    if (tp === true) {
+      const intakeAfter = intake !== undefined ? intake : curIntake;
+      if (!intakeAfter) {
+        return res.status(400).json({
+          error: { message: 'Intake must be complete before treatment plan can be marked complete' }
+        });
+      }
+    }
 
     const payload = {};
     if (intake !== undefined) payload.skill_builders_intake_complete = intake;
     if (tp !== undefined) payload.skill_builders_treatment_plan_complete = tp;
-
-    let shouldPromptMarkReady = false;
-    if (tp === true && !prevTp) {
-      shouldPromptMarkReady = true;
-    }
 
     if (Object.keys(payload).length) {
       await Client.update(clientId, payload, userId);
@@ -308,8 +320,8 @@ export const patchCoordinatorSkillBuilderClient = async (req, res, next) => {
     res.json({
       ok: true,
       client: updated,
-      shouldPromptMarkReady,
-      promptMessage: shouldPromptMarkReady ? 'Mark client as confirmed for providers?' : null
+      shouldPromptMarkReady: false,
+      promptMessage: null
     });
   } catch (e) {
     next(e);
@@ -417,6 +429,42 @@ export const coordinatorAssignClientToEvent = async (req, res, next) => {
     );
 
     res.json({ ok: true, skillsGroupId: Number(sg.id) });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** POST /api/skill-builders/coordinator/clients/:clientId/unassign-event */
+export const coordinatorUnassignClientFromEvent = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const clientId = parsePositiveInt(req.params.clientId);
+    const eventId = parsePositiveInt(req.body?.companyEventId);
+    if (!agencyId || !clientId || !eventId) {
+      return res.status(400).json({ error: { message: 'agencyId and companyEventId are required' } });
+    }
+    if (!(await assertSkillBuildersCoordinationAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+    }
+
+    const cur = await Client.findById(clientId);
+    if (!cur || Number(cur.agency_id) !== agencyId || !isSkillsClientFlag(cur.skills)) {
+      return res.status(400).json({ error: { message: 'Client not found or not a skills client' } });
+    }
+
+    const [r] = await pool.execute(
+      `DELETE sgc FROM skills_group_clients sgc
+       INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id AND sg.agency_id = ?
+       WHERE sgc.client_id = ? AND sg.company_event_id = ?`,
+      [agencyId, clientId, eventId]
+    );
+
+    const affected = Number(r?.affectedRows ?? 0);
+    if (!affected) {
+      return res.status(404).json({ error: { message: 'Client is not assigned to this event' } });
+    }
+
+    res.json({ ok: true, removed: affected });
   } catch (e) {
     next(e);
   }

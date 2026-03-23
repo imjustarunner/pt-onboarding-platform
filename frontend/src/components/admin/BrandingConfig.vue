@@ -672,7 +672,7 @@
             <div class="icon-description">Icon for the "Agency Calendar" action card</div>
           </div>
           <div class="icon-row">
-            <div class="icon-label">Event Management Icon</div>
+            <div class="icon-label">Event availability icon</div>
             <div class="icon-selector-cell">
               <IconSelector v-model="platformForm.skillBuildersAvailabilityIconId" />
               <button
@@ -685,7 +685,7 @@
                 Clear
               </button>
             </div>
-            <div class="icon-description">Icon for the "Event Management" action card</div>
+            <div class="icon-description">Icon for the "Event availability" action card</div>
           </div>
           <div class="icon-row">
             <div class="icon-label">Digital Forms Icon</div>
@@ -1430,7 +1430,7 @@
             <div class="icon-description">Icon for the "Agency Calendar" action card</div>
             </div>
           <div class="icon-row">
-            <div class="icon-label">Event Management Icon</div>
+            <div class="icon-label">Event availability icon</div>
               <div class="icon-selector-cell">
                 <IconSelector v-model="agencyBrandingForm.skillBuildersAvailabilityIconId" />
                 <button
@@ -1443,7 +1443,7 @@
                   Clear
                 </button>
               </div>
-            <div class="icon-description">Icon for the "Event Management" action card</div>
+            <div class="icon-description">Icon for the "Event availability" action card</div>
           </div>
           <div class="icon-row">
             <div class="icon-label">Digital Forms Icon</div>
@@ -1948,7 +1948,7 @@
             <div class="icon-description">Icon for the "Agency Calendar" action card</div>
           </div>
           <div class="icon-row">
-            <div class="icon-label">Event Management Icon</div>
+            <div class="icon-label">Event availability icon</div>
             <div class="icon-selector-cell">
               <IconSelector v-model="brandingForm.skillBuildersAvailabilityIconId" />
               <button
@@ -1961,7 +1961,7 @@
                 Clear
               </button>
             </div>
-            <div class="icon-description">Icon for the "Event Management" action card</div>
+            <div class="icon-description">Icon for the "Event availability" action card</div>
           </div>
         </div>
 

@@ -38,8 +38,10 @@ import {
   getClinicalNoteBySessionClient,
   getDecryptedCurriculumTextForSession,
   listClinicalNotesForSession,
+  loadProgramDocumentRow,
   loadSessionCurriculumRow,
   processPdfUploadBuffer,
+  programLibraryStorageKey,
   requireNoteAidEnabledForAgency,
   upsertClinicalNote,
   upsertCurriculumRecord
@@ -438,6 +440,8 @@ export const listMySkillBuilderEventClients = async (req, res, next) => {
        LEFT JOIN agencies school ON school.id = sg.organization_id
        WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
          AND (sgc.active_for_providers = 1 OR sgc.active_for_providers IS TRUE)
+         AND COALESCE(c.skill_builders_intake_complete, 0) = 1
+         AND COALESCE(c.skill_builders_treatment_plan_complete, 0) = 1
        ORDER BY school.name ASC, sg.name ASC, c.initials ASC
        LIMIT 500`,
       [userId, agencyId]
@@ -532,12 +536,15 @@ async function fetchSkillBuilderWorkScheduleData(agencyId, providerUserId, weekS
     conn.release();
   }
 
-  const upParams = [providerUserId, agencyId];
-  let upSql = `SELECT ce.id, ce.title, ce.starts_at, ce.ends_at, sg.name AS skills_group_name, school.name AS school_name
+  const upParams = [providerUserId, providerUserId, agencyId];
+  let upSql = `SELECT ce.id, ce.title, ce.starts_at, ce.ends_at, sg.name AS skills_group_name, school.name AS school_name,
+       app.status AS application_status
      FROM company_events ce
      INNER JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
      INNER JOIN agencies school ON school.id = sg.organization_id
      LEFT JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id AND sgp.provider_user_id = ?
+     LEFT JOIN company_event_provider_applications app
+       ON app.company_event_id = ce.id AND app.user_id = ? AND app.status IN ('pending','approved')
      WHERE ce.agency_id = ?
        AND (ce.is_active = TRUE OR ce.is_active IS NULL)
        AND ce.ends_at >= NOW()
@@ -554,7 +561,8 @@ async function fetchSkillBuilderWorkScheduleData(agencyId, providerUserId, weekS
     startsAt: r.starts_at,
     endsAt: r.ends_at,
     skillsGroupName: r.skills_group_name,
-    schoolName: r.school_name
+    schoolName: r.school_name,
+    applicationStatus: r.application_status != null ? String(r.application_status) : null
   }));
 
   return {
@@ -752,6 +760,62 @@ async function canManageSessionCurriculum(req, agencyId, eventId) {
   );
   if (r?.[0]) return { ok: true };
   return { error: { status: 403, message: 'Not authorized to manage session curriculum' } };
+}
+
+/** Library is scoped to overarching program org (nested events share the same PDF pool). */
+async function assertProgramDocumentsAccess(req, agencyId, programOrganizationId) {
+  const progId = parsePositiveInt(programOrganizationId);
+  const aid = parsePositiveInt(agencyId);
+  if (!progId || !aid) return { error: { status: 400, message: 'agencyId and program organization id required' } };
+  if (!(await userHasAgencyAccess(req, aid))) {
+    return { error: { status: 403, message: 'Not authorized for this agency' } };
+  }
+  if (await isAgencyStaffLikeForSkillBuilders(req, aid)) return { ok: true };
+  const uid = parsePositiveInt(req.user?.id);
+  if (await getSkillBuilderCoordinatorAccess(uid)) return { ok: true };
+  const [r] = await pool.execute(
+    `SELECT 1 FROM skills_group_providers sgp
+     INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id
+     INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = sg.agency_id
+     WHERE sgp.provider_user_id = ? AND ce.agency_id = ? AND ce.organization_id = ?
+     LIMIT 1`,
+    [uid, aid, progId]
+  );
+  if (r?.[0]) return { ok: true };
+  return { error: { status: 403, message: 'Not authorized for this program document library' } };
+}
+
+async function fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId) {
+  const [rows] = await pool.execute(
+    `SELECT ce.organization_id AS ce_org, sg.skill_builders_program_organization_id AS sg_prog
+     FROM company_events ce
+     LEFT JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
+     WHERE ce.id = ? AND ce.agency_id = ?
+     LIMIT 1`,
+    [eventId, agencyId]
+  );
+  const ceOrg = rows?.[0]?.ce_org != null ? Number(rows[0].ce_org) : null;
+  const sgProg = rows?.[0]?.sg_prog != null ? Number(rows[0].sg_prog) : null;
+  if (Number.isFinite(ceOrg) && ceOrg > 0) return ceOrg;
+  if (Number.isFinite(sgProg) && sgProg > 0) return sgProg;
+  return null;
+}
+
+function mapProgramDocumentRowsToApi(rows) {
+  return (rows || []).map((r) => {
+    const fn = String(r.original_filename || '').trim() || 'document.pdf';
+    const title =
+      r.display_title != null && String(r.display_title).trim() ? String(r.display_title).trim().slice(0, 255) : null;
+    return {
+      id: Number(r.id),
+      originalFilename: fn,
+      displayTitle: title,
+      displayLabel: title || fn,
+      fileSizeBytes: r.file_size_bytes != null ? Number(r.file_size_bytes) : null,
+      createdAt: r.created_at,
+      mimeType: r.mime_type
+    };
+  });
 }
 
 async function clientOnEventRoster(clientId, eventId, agencyId) {
@@ -952,12 +1016,16 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
     const coord = await getSkillBuilderCoordinatorAccess(userId);
     const rosterRestrict = !staffLike && !coord;
 
+    const docCompleteClause = `
+         AND COALESCE(c.skill_builders_intake_complete, 0) = 1
+         AND COALESCE(c.skill_builders_treatment_plan_complete, 0) = 1`;
     const clientSql = rosterRestrict
       ? `SELECT c.id, c.initials, c.identifier_code
          FROM skills_group_clients sgc
          JOIN clients c ON c.id = sgc.client_id
          WHERE sgc.skills_group_id = ?
            AND (sgc.active_for_providers = 1 OR sgc.active_for_providers IS TRUE)
+           ${docCompleteClause}
          ORDER BY c.initials ASC
          LIMIT 200`
       : `SELECT c.id, c.initials, c.identifier_code, c.document_status, c.paperwork_status_id,
@@ -966,6 +1034,7 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
          JOIN clients c ON c.id = sgc.client_id
          LEFT JOIN paperwork_statuses ps ON ps.id = c.paperwork_status_id
          WHERE sgc.skills_group_id = ?
+           ${docCompleteClause}
          ORDER BY c.initials ASC
          LIMIT 200`;
     const [clientRows] = await pool.execute(clientSql, [sg?.id || 0]);
@@ -1084,6 +1153,40 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
     next(e);
   }
 };
+
+/**
+ * Labels each occurrence in the loaded range: "Session 1" when one slot that calendar day,
+ * or "Session 1.1", "Session 1.2" when the same day is split into multiple meeting times.
+ */
+function assignSkillBuilderSessionLabels(sessions) {
+  if (!Array.isArray(sessions) || !sessions.length) return;
+  const byDate = new Map();
+  for (const s of sessions) {
+    const d = String(s.sessionDate || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+    if (!byDate.has(d)) byDate.set(d, []);
+    byDate.get(d).push(s);
+  }
+  const uniqueDates = [...byDate.keys()].sort();
+  const dateToIndex = new Map(uniqueDates.map((d, i) => [d, i + 1]));
+  for (const d of uniqueDates) {
+    const list = byDate.get(d).slice().sort((a, b) => {
+      const ta = String(a.startTime || '');
+      const tb = String(b.startTime || '');
+      if (ta !== tb) return ta.localeCompare(tb);
+      return Number(a.id) - Number(b.id);
+    });
+    const di = dateToIndex.get(d);
+    if (!di) continue;
+    if (list.length === 1) {
+      list[0].sessionLabel = `Session ${di}`;
+    } else {
+      list.forEach((s, i) => {
+        s.sessionLabel = `Session ${di}.${i + 1}`;
+      });
+    }
+  }
+}
 
 /** GET /api/skill-builders/events/:eventId/sessions?agencyId=&from=YYYY-MM-DD&to=YYYY-MM-DD */
 export const listSkillBuilderEventSessions = async (req, res, next) => {
@@ -1251,6 +1354,7 @@ export const listSkillBuilderEventSessions = async (req, res, next) => {
         clinicalNoteCount: clinicalNoteCountBySession.get(id) || 0
       };
     });
+    assignSkillBuilderSessionLabels(sessions);
     res.json({ ok: true, sessions });
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE') {
@@ -1911,6 +2015,193 @@ export const quickEnrollClientToSkillBuilderEvent = async (req, res, next) => {
   }
 };
 
+/** Staff/coordinator: integrated group roster for kiosk + program (skills_group_providers). */
+export const getSkillBuilderEventSkillsGroupRoster = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) {
+      return res.status(400).json({ error: { message: 'agencyId and event id required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const userId = parsePositiveInt(req.user?.id);
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const coord = await getSkillBuilderCoordinatorAccess(userId);
+    if (!staffLike && !coord) {
+      return res.status(403).json({ error: { message: 'You do not have permission to manage this roster' } });
+    }
+
+    const [sgRows] = await pool.execute(
+      `SELECT sg.id, sg.organization_id, LOWER(COALESCE(ce.event_type, '')) AS event_type
+       FROM skills_groups sg
+       INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = sg.agency_id
+       WHERE sg.company_event_id = ? AND sg.agency_id = ?
+       LIMIT 1`,
+      [eventId, agencyId]
+    );
+    const sg = sgRows?.[0];
+    if (!sg || String(sg.event_type || '') !== 'skills_group') {
+      return res.json({
+        ok: true,
+        skillsGroupId: null,
+        organizationId: null,
+        assignedProviders: [],
+        eligibleProviders: [],
+        allAgencyProviders: []
+      });
+    }
+
+    const skillsGroupId = Number(sg.id);
+    const organizationId = Number(sg.organization_id);
+
+    const [assigned] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name
+       FROM skills_group_providers sgp
+       INNER JOIN users u ON u.id = sgp.provider_user_id
+       WHERE sgp.skills_group_id = ?
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [skillsGroupId]
+    );
+
+    const providerScopeSql = `
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
+         AND (
+           LOWER(u.role) IN ('provider', 'clinician', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant')
+           OR (u.has_provider_access = TRUE)
+         )`;
+
+    const [eligible] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.email
+       ${providerScopeSql}
+         AND (u.skill_builder_eligible = TRUE OR u.skill_builder_eligible = 1)
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [agencyId]
+    );
+
+    const [allAgency] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.email, u.skill_builder_eligible
+       ${providerScopeSql}
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [agencyId]
+    );
+
+    const mapSdp = (r) => ({
+      id: Number(r.id),
+      firstName: r.first_name || '',
+      lastName: r.last_name || '',
+      email: r.email || '',
+      skillDevelopmentProgramEligible: !!(r.skill_builder_eligible === true || r.skill_builder_eligible === 1 || r.skill_builder_eligible === '1')
+    });
+
+    res.json({
+      ok: true,
+      skillsGroupId,
+      organizationId,
+      assignedProviders: (assigned || []).map((r) => ({
+        id: Number(r.id),
+        firstName: r.first_name || '',
+        lastName: r.last_name || ''
+      })),
+      eligibleProviders: (eligible || []).map(mapSdp),
+      allAgencyProviders: (allAgency || []).map(mapSdp)
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const postSkillBuilderEventSkillsGroupRoster = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const providerUserId = parsePositiveInt(req.body?.providerUserId ?? req.body?.provider_user_id);
+    const action = String(req.body?.action || '').toLowerCase();
+    if (!agencyId || !eventId || !providerUserId || !['add', 'remove'].includes(action)) {
+      return res.status(400).json({ error: { message: 'agencyId, providerUserId, and action add|remove are required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const uid = parsePositiveInt(req.user?.id);
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const coord = await getSkillBuilderCoordinatorAccess(uid);
+    if (!staffLike && !coord) {
+      return res.status(403).json({ error: { message: 'You do not have permission to manage this roster' } });
+    }
+
+    const [sgRows] = await pool.execute(
+      `SELECT sg.id
+       FROM skills_groups sg
+       INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = sg.agency_id
+       WHERE sg.company_event_id = ? AND sg.agency_id = ? AND LOWER(COALESCE(ce.event_type, '')) = 'skills_group'
+       LIMIT 1`,
+      [eventId, agencyId]
+    );
+    const gid = sgRows?.[0]?.id ? Number(sgRows[0].id) : null;
+    if (!gid) {
+      return res.status(404).json({ error: { message: 'No integrated Skill Builders group for this event' } });
+    }
+
+    if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      const [ua] = await pool.execute(
+        `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+        [providerUserId, agencyId]
+      );
+      if (!ua?.[0]) {
+        return res.status(400).json({ error: { message: 'Provider is not part of this agency' } });
+      }
+    }
+
+    let skillDevelopmentProgramEligibleUpdated = false;
+    if (action === 'add') {
+      const [elig] = await pool.execute(
+        `SELECT skill_builder_eligible FROM users WHERE id = ? LIMIT 1`,
+        [providerUserId]
+      );
+      const eligible = elig?.[0]?.skill_builder_eligible;
+      const isEligible = eligible === true || eligible === 1 || eligible === '1';
+      if (!isEligible) {
+        await pool.execute(`UPDATE users SET skill_builder_eligible = 1 WHERE id = ?`, [providerUserId]);
+        skillDevelopmentProgramEligibleUpdated = true;
+      }
+      await pool.execute(
+        `INSERT IGNORE INTO skills_group_providers (skills_group_id, provider_user_id) VALUES (?, ?)`,
+        [gid, providerUserId]
+      );
+    } else {
+      await pool.execute(`DELETE FROM skills_group_providers WHERE skills_group_id = ? AND provider_user_id = ?`, [
+        gid,
+        providerUserId
+      ]);
+    }
+
+    const [assigned] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name
+       FROM skills_group_providers sgp
+       INNER JOIN users u ON u.id = sgp.provider_user_id
+       WHERE sgp.skills_group_id = ?
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [gid]
+    );
+
+    res.json({
+      ok: true,
+      assignedProviders: (assigned || []).map((r) => ({
+        id: Number(r.id),
+        firstName: r.first_name || '',
+        lastName: r.last_name || ''
+      })),
+      skillDevelopmentProgramEligibleUpdated: action === 'add' ? skillDevelopmentProgramEligibleUpdated : false
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 async function listSkillsGroupMeetingsForCompanyEvent(agencyId, eventId) {
   const [sgRows] = await pool.execute(
     `SELECT id FROM skills_groups WHERE company_event_id = ? AND agency_id = ? LIMIT 1`,
@@ -2030,7 +2321,8 @@ export const postSkillBuilderSessionCurriculum = [
         fileSizeBytes: req.file.size,
         uploadedByUserId: req.user.id,
         extractedTextEnc,
-        extractStatus
+        extractStatus,
+        sourceProgramDocumentId: null
       });
       res.json({ ok: true, extractStatus, hasExtractedText: !!extractedTextEnc });
     } catch (e) {
@@ -2092,6 +2384,412 @@ export const deleteSkillBuilderSessionCurriculum = async (req, res, next) => {
     await deleteCurriculumForSession(sessionId);
     res.json({ ok: true });
   } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/events/:eventId/program-documents — library for the event’s overarching program org */
+export const listSkillBuilderEventProgramDocuments = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) {
+      return res.status(400).json({ error: { message: 'agencyId and event id required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const progOrgId = await fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId);
+    if (!progOrgId) {
+      return res.status(400).json({ error: { message: 'Event is not linked to a program organization' } });
+    }
+    const [rows] = await pool.execute(
+      `SELECT id, original_filename, display_title, file_size_bytes, created_at, mime_type
+       FROM skill_builders_event_program_documents
+       WHERE agency_id = ? AND program_organization_id = ?
+       ORDER BY created_at DESC`,
+      [agencyId, progOrgId]
+    );
+    res.json({ ok: true, documents: mapProgramDocumentRowsToApi(rows) });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migrations 591–593 for program documents' } });
+    }
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/program-organizations/:programOrganizationId/program-documents */
+export const listSkillBuilderProgramOrganizationDocuments = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const programOrganizationId = parsePositiveInt(req.params.programOrganizationId);
+    if (!agencyId || !programOrganizationId) {
+      return res.status(400).json({ error: { message: 'agencyId and program organization id required' } });
+    }
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+    const [rows] = await pool.execute(
+      `SELECT id, original_filename, display_title, file_size_bytes, created_at, mime_type
+       FROM skill_builders_event_program_documents
+       WHERE agency_id = ? AND program_organization_id = ?
+       ORDER BY created_at DESC`,
+      [agencyId, programOrganizationId]
+    );
+    res.json({ ok: true, documents: mapProgramDocumentRowsToApi(rows) });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migrations 591–593 for program documents' } });
+    }
+    next(e);
+  }
+};
+
+/** POST multipart /api/skill-builders/events/:eventId/program-documents — upload into the event’s program library */
+export const postSkillBuilderEventProgramDocument = [
+  curriculumUpload.single('file'),
+  async (req, res, next) => {
+    try {
+      const agencyId = parsePositiveInt(req.body?.agencyId);
+      const eventId = parsePositiveInt(req.params.eventId);
+      if (!agencyId || !eventId) {
+        return res.status(400).json({ error: { message: 'agencyId and event id required' } });
+      }
+      const cm = await canManageSessionCurriculum(req, agencyId, eventId);
+      if (cm.error) return res.status(cm.error.status).json({ error: { message: cm.error.message } });
+      if (!req.file?.buffer) return res.status(400).json({ error: { message: 'file is required' } });
+
+      const progOrgId = await fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId);
+      if (!progOrgId) {
+        return res.status(400).json({ error: { message: 'Event is not linked to a program organization' } });
+      }
+
+      const rawTitle = String(req.body?.title ?? req.body?.displayTitle ?? '').trim().slice(0, 255);
+      const displayTitle = rawTitle || null;
+
+      const key = programLibraryStorageKey(agencyId, progOrgId, req.file.originalname);
+      await StorageService.writeObject(key, req.file.buffer, 'application/pdf', {
+        uploadedBy: String(req.user?.id || ''),
+        kind: 'skill_builders_program_document'
+      });
+
+      const origFn = String(req.file.originalname || 'document.pdf').slice(0, 255);
+      const [ins] = await pool.execute(
+        `INSERT INTO skill_builders_event_program_documents
+         (agency_id, program_organization_id, company_event_id, skills_group_id, storage_path, original_filename, display_title, mime_type, file_size_bytes, uploaded_by_user_id)
+         VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`,
+        [agencyId, progOrgId, key, origFn, displayTitle, 'application/pdf', req.file.size, req.user.id]
+      );
+      res.json({
+        ok: true,
+        document: {
+          id: Number(ins.insertId),
+          originalFilename: origFn,
+          displayTitle,
+          displayLabel: displayTitle || origFn,
+          fileSizeBytes: req.file.size
+        }
+      });
+    } catch (e) {
+      if (e?.message === 'Only PDF files are allowed') {
+        return res.status(400).json({ error: { message: e.message } });
+      }
+      if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+        return res.status(503).json({ error: { message: 'Run migrations 591–593 for program documents' } });
+      }
+      next(e);
+    }
+  }
+];
+
+/** POST multipart /api/skill-builders/program-organizations/:programOrganizationId/program-documents */
+export const postSkillBuilderProgramOrganizationProgramDocument = [
+  curriculumUpload.single('file'),
+  async (req, res, next) => {
+    try {
+      const agencyId = parsePositiveInt(req.body?.agencyId);
+      const programOrganizationId = parsePositiveInt(req.params.programOrganizationId);
+      if (!agencyId || !programOrganizationId) {
+        return res.status(400).json({ error: { message: 'agencyId and program organization id required' } });
+      }
+      const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+      if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+      if (!req.file?.buffer) return res.status(400).json({ error: { message: 'file is required' } });
+
+      const rawTitle = String(req.body?.title ?? req.body?.displayTitle ?? '').trim().slice(0, 255);
+      const displayTitle = rawTitle || null;
+
+      const key = programLibraryStorageKey(agencyId, programOrganizationId, req.file.originalname);
+      await StorageService.writeObject(key, req.file.buffer, 'application/pdf', {
+        uploadedBy: String(req.user?.id || ''),
+        kind: 'skill_builders_program_document'
+      });
+
+      const origFn = String(req.file.originalname || 'document.pdf').slice(0, 255);
+      const [ins] = await pool.execute(
+        `INSERT INTO skill_builders_event_program_documents
+         (agency_id, program_organization_id, company_event_id, skills_group_id, storage_path, original_filename, display_title, mime_type, file_size_bytes, uploaded_by_user_id)
+         VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`,
+        [agencyId, programOrganizationId, key, origFn, displayTitle, 'application/pdf', req.file.size, req.user.id]
+      );
+      res.json({
+        ok: true,
+        document: {
+          id: Number(ins.insertId),
+          originalFilename: origFn,
+          displayTitle,
+          displayLabel: displayTitle || origFn,
+          fileSizeBytes: req.file.size
+        }
+      });
+    } catch (e) {
+      if (e?.message === 'Only PDF files are allowed') {
+        return res.status(400).json({ error: { message: e.message } });
+      }
+      if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+        return res.status(503).json({ error: { message: 'Run migrations 591–593 for program documents' } });
+      }
+      next(e);
+    }
+  }
+];
+
+/** DELETE /api/skill-builders/events/:eventId/program-documents/:documentId */
+export const deleteSkillBuilderEventProgramDocument = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    if (!agencyId || !eventId || !documentId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and document id required' } });
+    }
+    const cm = await canManageSessionCurriculum(req, agencyId, eventId);
+    if (cm.error) return res.status(cm.error.status).json({ error: { message: cm.error.message } });
+
+    const progOrgId = await fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId);
+    if (!progOrgId) {
+      return res.status(400).json({ error: { message: 'Event is not linked to a program organization' } });
+    }
+
+    const row = await loadProgramDocumentRow(documentId);
+    if (!row || Number(row.agency_id) !== agencyId || Number(row.program_organization_id) !== progOrgId) {
+      return res.status(404).json({ error: { message: 'Document not found' } });
+    }
+    if (row.storage_path) {
+      try {
+        await StorageService.deleteObject(row.storage_path);
+      } catch {
+        /* ignore */
+      }
+    }
+    await pool.execute(
+      `DELETE FROM skill_builders_event_program_documents WHERE id = ? AND agency_id = ? AND program_organization_id = ?`,
+      [documentId, agencyId, progOrgId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migrations 591–593 for program documents' } });
+    }
+    next(e);
+  }
+};
+
+/** DELETE /api/skill-builders/program-organizations/:programOrganizationId/program-documents/:documentId */
+export const deleteSkillBuilderProgramOrganizationProgramDocument = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query.agencyId);
+    const programOrganizationId = parsePositiveInt(req.params.programOrganizationId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    if (!agencyId || !programOrganizationId || !documentId) {
+      return res.status(400).json({ error: { message: 'agencyId, program organization id, and document id required' } });
+    }
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+
+    const row = await loadProgramDocumentRow(documentId);
+    if (!row || Number(row.agency_id) !== agencyId || Number(row.program_organization_id) !== programOrganizationId) {
+      return res.status(404).json({ error: { message: 'Document not found' } });
+    }
+    if (row.storage_path) {
+      try {
+        await StorageService.deleteObject(row.storage_path);
+      } catch {
+        /* ignore */
+      }
+    }
+    await pool.execute(
+      `DELETE FROM skill_builders_event_program_documents WHERE id = ? AND agency_id = ? AND program_organization_id = ?`,
+      [documentId, agencyId, programOrganizationId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migrations 591–593 for program documents' } });
+    }
+    next(e);
+  }
+};
+
+/** PATCH /api/skill-builders/events/:eventId/program-documents/:documentId — set display title for attach lists */
+export const patchSkillBuilderEventProgramDocument = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    if (!agencyId || !eventId || !documentId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and document id required' } });
+    }
+    if (req.body?.title === undefined && req.body?.displayTitle === undefined) {
+      return res.status(400).json({ error: { message: 'title or displayTitle is required' } });
+    }
+    const raw = String(req.body?.title ?? req.body?.displayTitle ?? '').trim().slice(0, 255);
+    const displayTitle = raw || null;
+
+    const cm = await canManageSessionCurriculum(req, agencyId, eventId);
+    if (cm.error) return res.status(cm.error.status).json({ error: { message: cm.error.message } });
+
+    const progOrgId = await fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId);
+    if (!progOrgId) {
+      return res.status(400).json({ error: { message: 'Event is not linked to a program organization' } });
+    }
+
+    const row = await loadProgramDocumentRow(documentId);
+    if (!row || Number(row.agency_id) !== agencyId || Number(row.program_organization_id) !== progOrgId) {
+      return res.status(404).json({ error: { message: 'Document not found' } });
+    }
+    await pool.execute(
+      `UPDATE skill_builders_event_program_documents SET display_title = ? WHERE id = ? AND agency_id = ? AND program_organization_id = ?`,
+      [displayTitle, documentId, agencyId, progOrgId]
+    );
+    const fn = String(row.original_filename || '').trim() || 'document.pdf';
+    res.json({
+      ok: true,
+      document: {
+        id: documentId,
+        originalFilename: fn,
+        displayTitle,
+        displayLabel: displayTitle || fn
+      }
+    });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migrations 591–593 for program documents' } });
+    }
+    next(e);
+  }
+};
+
+/** PATCH /api/skill-builders/program-organizations/:programOrganizationId/program-documents/:documentId */
+export const patchSkillBuilderProgramOrganizationProgramDocument = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const programOrganizationId = parsePositiveInt(req.params.programOrganizationId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    if (!agencyId || !programOrganizationId || !documentId) {
+      return res.status(400).json({ error: { message: 'agencyId, program organization id, and document id required' } });
+    }
+    if (req.body?.title === undefined && req.body?.displayTitle === undefined) {
+      return res.status(400).json({ error: { message: 'title or displayTitle is required' } });
+    }
+    const raw = String(req.body?.title ?? req.body?.displayTitle ?? '').trim().slice(0, 255);
+    const displayTitle = raw || null;
+
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+
+    const row = await loadProgramDocumentRow(documentId);
+    if (!row || Number(row.agency_id) !== agencyId || Number(row.program_organization_id) !== programOrganizationId) {
+      return res.status(404).json({ error: { message: 'Document not found' } });
+    }
+    await pool.execute(
+      `UPDATE skill_builders_event_program_documents SET display_title = ? WHERE id = ? AND agency_id = ? AND program_organization_id = ?`,
+      [displayTitle, documentId, agencyId, programOrganizationId]
+    );
+    const fn = String(row.original_filename || '').trim() || 'document.pdf';
+    res.json({
+      ok: true,
+      document: {
+        id: documentId,
+        originalFilename: fn,
+        displayTitle,
+        displayLabel: displayTitle || fn
+      }
+    });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ error: { message: 'Run migrations 591–593 for program documents' } });
+    }
+    next(e);
+  }
+};
+
+/** POST /api/skill-builders/events/:eventId/sessions/:sessionId/curriculum-from-library */
+export const postSkillBuilderSessionCurriculumFromLibrary = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const libraryDocumentId = parsePositiveInt(req.body?.libraryDocumentId);
+    if (!agencyId || !eventId || !sessionId || !libraryDocumentId) {
+      return res
+        .status(400)
+        .json({ error: { message: 'agencyId, event id, session id, and libraryDocumentId required' } });
+    }
+    const cm = await canManageSessionCurriculum(req, agencyId, eventId);
+    if (cm.error) return res.status(cm.error.status).json({ error: { message: cm.error.message } });
+
+    const progOrgId = await fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId);
+    if (!progOrgId) {
+      return res.status(400).json({ error: { message: 'Event is not linked to a program organization' } });
+    }
+    const lib = await loadProgramDocumentRow(libraryDocumentId);
+    if (!lib || Number(lib.agency_id) !== agencyId || Number(lib.program_organization_id) !== progOrgId) {
+      return res.status(404).json({ error: { message: 'Library document not found for this program' } });
+    }
+
+    const [sRows] = await pool.execute(
+      `SELECT s.id, s.company_event_id, s.skills_group_id
+       FROM skill_builders_event_sessions s
+       INNER JOIN skills_groups sg ON sg.id = s.skills_group_id AND sg.agency_id = ?
+       WHERE s.id = ? AND s.company_event_id = ?
+       LIMIT 1`,
+      [agencyId, sessionId, eventId]
+    );
+    if (!sRows?.[0]) return res.status(404).json({ error: { message: 'Session not found' } });
+    const sgId = Number(sRows[0].skills_group_id);
+
+    const buf = await StorageService.readObject(lib.storage_path);
+    const key = curriculumStorageKey(agencyId, eventId, sessionId, lib.original_filename);
+    await StorageService.writeObject(key, buf, lib.mime_type || 'application/pdf', {
+      uploadedBy: String(req.user?.id || ''),
+      kind: 'skill_builders_session_curriculum'
+    });
+    const { extractStatus, extractedTextEnc } = await processPdfUploadBuffer({
+      buffer: buf,
+      mimeType: lib.mime_type || 'application/pdf'
+    });
+    await upsertCurriculumRecord({
+      sessionId,
+      companyEventId: eventId,
+      agencyId,
+      skillsGroupId: sgId,
+      storagePath: key,
+      originalFilename: String(lib.original_filename || 'curriculum.pdf').slice(0, 255),
+      mimeType: lib.mime_type || 'application/pdf',
+      fileSizeBytes: buf?.length ?? lib.file_size_bytes,
+      uploadedByUserId: req.user.id,
+      extractedTextEnc,
+      extractStatus,
+      sourceProgramDocumentId: libraryDocumentId
+    });
+    res.json({ ok: true, extractStatus, hasExtractedText: !!extractedTextEnc });
+  } catch (e) {
+    if (e?.message?.includes('not found') || e?.code === 404) {
+      return res.status(404).json({ error: { message: 'File not found' } });
+    }
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Run migrations 589 and 591' } });
+    }
     next(e);
   }
 };

@@ -1,137 +1,135 @@
 <template>
-  <div class="sbes-overlay" @click.self="$emit('close')">
-    <div class="sbes-modal" role="dialog" aria-modal="true" aria-labelledby="sbes-title">
-      <div class="sbes-header">
-        <div>
-          <h2 id="sbes-title" class="sbes-title">Skill Builders events</h2>
-          <p class="sbes-sub">Open an event portal by school or browse all program events.</p>
-        </div>
-        <button type="button" class="sbes-close" aria-label="Close" @click="$emit('close')">×</button>
+  <div class="sbes-directory" :class="{ 'sbes-directory--page': variant === 'page' }">
+    <div v-if="variant === 'modal'" class="sbes-header">
+      <div>
+        <h2 id="sbes-title" class="sbes-title">Skill Builders events</h2>
+        <p class="sbes-sub">Open an event portal by school or browse all program events.</p>
       </div>
+      <button v-if="showClose" type="button" class="sbes-close" aria-label="Close" @click="$emit('close')">
+        ×
+      </button>
+    </div>
 
-      <div class="sbes-mode" role="tablist">
+    <div class="sbes-mode" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        :class="['sbes-mode-btn', { active: mode === 'school' }]"
+        :aria-selected="mode === 'school'"
+        @click="mode = 'school'"
+      >
+        School
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :class="['sbes-mode-btn', { active: mode === 'all' }]"
+        :aria-selected="mode === 'all'"
+        @click="mode = 'all'"
+      >
+        All
+      </button>
+    </div>
+
+    <div v-if="loading" class="sbes-muted" style="padding: 16px;">Loading…</div>
+    <div v-else-if="error" class="sbes-error" style="padding: 16px;">{{ error }}</div>
+    <div v-else-if="!events.length" class="sbes-muted" style="padding: 16px;">No Skill Builders events found for this agency.</div>
+
+    <div v-else class="sbes-body">
+      <div v-show="mode === 'school'" class="sbes-school-panel">
+        <label class="sbes-label" for="sbes-school-select">Select an event</label>
+        <select id="sbes-school-select" v-model.number="selectedEventId" class="input sbes-select">
+          <option :value="0" disabled>Choose…</option>
+          <option v-for="e in schoolSelectOptions" :key="`opt-${e.companyEventId}`" :value="e.companyEventId">
+            {{ schoolOptionLabel(e) }}
+          </option>
+        </select>
         <button
           type="button"
-          role="tab"
-          :class="['sbes-mode-btn', { active: mode === 'school' }]"
-          :aria-selected="mode === 'school'"
-          @click="mode = 'school'"
+          class="btn btn-primary btn-sm sbes-go"
+          :disabled="!selectedEventId"
+          @click="openPortal(selectedEventId)"
         >
-          School
-        </button>
-        <button
-          type="button"
-          role="tab"
-          :class="['sbes-mode-btn', { active: mode === 'all' }]"
-          :aria-selected="mode === 'all'"
-          @click="mode = 'all'"
-        >
-          All
+          Open event portal
         </button>
       </div>
 
-      <div v-if="loading" class="sbes-muted" style="padding: 16px;">Loading…</div>
-      <div v-else-if="error" class="sbes-error" style="padding: 16px;">{{ error }}</div>
-      <div v-else-if="!events.length" class="sbes-muted" style="padding: 16px;">No Skill Builders events found for this agency.</div>
-
-      <div v-else class="sbes-body">
-        <!-- School: single dropdown of events (by school / assignment) -->
-        <div v-show="mode === 'school'" class="sbes-school-panel">
-          <label class="sbes-label" for="sbes-school-select">Select an event</label>
-          <select id="sbes-school-select" v-model.number="selectedEventId" class="input sbes-select">
-            <option :value="0" disabled>Choose…</option>
-            <option v-for="e in schoolSelectOptions" :key="`opt-${e.companyEventId}`" :value="e.companyEventId">
-              {{ schoolOptionLabel(e) }}
-            </option>
-          </select>
-          <button
-            type="button"
-            class="btn btn-primary btn-sm sbes-go"
-            :disabled="!selectedEventId"
-            @click="openPortal(selectedEventId)"
-          >
-            Open event portal
-          </button>
-        </div>
-
-        <!-- All: grid like Show All School Portals -->
-        <div v-show="mode === 'all'" class="sbes-all-panel">
-          <div class="sbes-controls">
-            <div class="sbes-control">
-              <label class="sbes-label">Search</label>
-              <input v-model.trim="searchQuery" type="search" class="input" placeholder="Event, school, provider…" />
-            </div>
-            <div class="sbes-control">
-              <label class="sbes-label">Sort</label>
-              <select v-model="sortBy" class="input">
-                <option value="school-asc">School (A–Z)</option>
-                <option value="start-desc">Start date (newest)</option>
-                <option value="start-asc">Start date (oldest)</option>
-                <option value="title-asc">Event title (A–Z)</option>
-              </select>
-            </div>
+      <div v-show="mode === 'all'" class="sbes-all-panel">
+        <div class="sbes-controls">
+          <div class="sbes-control">
+            <label class="sbes-label">Search</label>
+            <input v-model.trim="searchQuery" type="search" class="input" placeholder="Event, school, provider…" />
           </div>
-
-          <section v-if="upcomingFiltered.length" class="sbes-section">
-            <h3 class="sbes-section-title">Current &amp; upcoming</h3>
-            <div class="sbes-cards-grid">
-              <button
-                v-for="e in upcomingFiltered"
-                :key="`up-${e.companyEventId}`"
-                type="button"
-                class="sbes-card"
-                @click="openPortal(e.companyEventId)"
-              >
-                <div class="sbes-card-logo">
-                  <img
-                    v-if="logoUrl(e) && !failedLogos.has(String(e.schoolOrganizationId))"
-                    :src="logoUrl(e)"
-                    :alt="''"
-                    class="sbes-card-logo-img"
-                    @error="onLogoError(e.schoolOrganizationId)"
-                  />
-                  <div v-else class="sbes-card-logo-fallback">{{ schoolInitials(e.schoolName) }}</div>
-                </div>
-                <div class="sbes-card-body">
-                  <div class="sbes-card-name">{{ e.title }}</div>
-                  <div class="sbes-card-type">School · {{ e.schoolName }}</div>
-                  <div class="sbes-card-meta">{{ formatDateRange(e.startsAt, e.endsAt) }}</div>
-                  <div class="sbes-card-meta"><strong>Days</strong> {{ e.weekdaysShort }}</div>
-                  <div class="sbes-card-providers"><strong>Providers</strong> {{ providerLine(e) }}</div>
-                </div>
-                <div class="sbes-card-cta">Open portal</div>
-              </button>
-            </div>
-          </section>
-
-          <section v-if="pastFiltered.length" class="sbes-section sbes-past-section">
-            <h3 class="sbes-section-title sbes-past-title">
-              Past events
-              <span class="sbes-past-hint">— archived, still accessible</span>
-            </h3>
-            <div class="sbes-cards-grid sbes-cards-past">
-              <button
-                v-for="e in pastFiltered"
-                :key="`past-${e.companyEventId}`"
-                type="button"
-                class="sbes-card sbes-card-past"
-                @click="openPortal(e.companyEventId)"
-              >
-                <div class="sbes-card-logo">
-                  <div class="sbes-card-logo-fallback">{{ schoolInitials(e.schoolName) }}</div>
-                </div>
-                <div class="sbes-card-body">
-                  <div class="sbes-card-name">{{ e.title }}</div>
-                  <div class="sbes-card-type">{{ e.schoolName }}</div>
-                  <div class="sbes-card-meta">{{ formatDateRange(e.startsAt, e.endsAt) }}</div>
-                  <div class="sbes-card-meta">{{ e.weekdaysShort }}</div>
-                  <div class="sbes-card-providers">{{ providerLine(e) }}</div>
-                </div>
-                <div class="sbes-card-cta">View</div>
-              </button>
-            </div>
-          </section>
+          <div class="sbes-control">
+            <label class="sbes-label">Sort</label>
+            <select v-model="sortBy" class="input">
+              <option value="school-asc">School (A–Z)</option>
+              <option value="start-desc">Start date (newest)</option>
+              <option value="start-asc">Start date (oldest)</option>
+              <option value="title-asc">Event title (A–Z)</option>
+            </select>
+          </div>
         </div>
+
+        <section v-if="upcomingFiltered.length" class="sbes-section">
+          <h3 class="sbes-section-title">Current &amp; upcoming</h3>
+          <div class="sbes-cards-grid">
+            <button
+              v-for="e in upcomingFiltered"
+              :key="`up-${e.companyEventId}`"
+              type="button"
+              class="sbes-card"
+              @click="openPortal(e.companyEventId)"
+            >
+              <div class="sbes-card-logo">
+                <img
+                  v-if="logoUrl(e) && !failedLogos.has(String(e.schoolOrganizationId))"
+                  :src="logoUrl(e)"
+                  :alt="''"
+                  class="sbes-card-logo-img"
+                  @error="onLogoError(e.schoolOrganizationId)"
+                />
+                <div v-else class="sbes-card-logo-fallback">{{ schoolInitials(e.schoolName) }}</div>
+              </div>
+              <div class="sbes-card-body">
+                <div class="sbes-card-name">{{ e.title }}</div>
+                <div class="sbes-card-type">School · {{ e.schoolName }}</div>
+                <div class="sbes-card-meta">{{ formatDateRange(e.startsAt, e.endsAt) }}</div>
+                <div class="sbes-card-meta"><strong>Days</strong> {{ e.weekdaysShort }}</div>
+                <div class="sbes-card-providers"><strong>Providers</strong> {{ providerLine(e) }}</div>
+              </div>
+              <div class="sbes-card-cta">Open portal</div>
+            </button>
+          </div>
+        </section>
+
+        <section v-if="pastFiltered.length" class="sbes-section sbes-past-section">
+          <h3 class="sbes-section-title sbes-past-title">
+            Past events
+            <span class="sbes-past-hint">— archived, still accessible</span>
+          </h3>
+          <div class="sbes-cards-grid sbes-cards-past">
+            <button
+              v-for="e in pastFiltered"
+              :key="`past-${e.companyEventId}`"
+              type="button"
+              class="sbes-card sbes-card-past"
+              @click="openPortal(e.companyEventId)"
+            >
+              <div class="sbes-card-logo">
+                <div class="sbes-card-logo-fallback">{{ schoolInitials(e.schoolName) }}</div>
+              </div>
+              <div class="sbes-card-body">
+                <div class="sbes-card-name">{{ e.title }}</div>
+                <div class="sbes-card-type">{{ e.schoolName }}</div>
+                <div class="sbes-card-meta">{{ formatDateRange(e.startsAt, e.endsAt) }}</div>
+                <div class="sbes-card-meta">{{ e.weekdaysShort }}</div>
+                <div class="sbes-card-providers">{{ providerLine(e) }}</div>
+              </div>
+              <div class="sbes-card-cta">View</div>
+            </button>
+          </div>
+        </section>
       </div>
     </div>
   </div>
@@ -145,7 +143,12 @@ import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const props = defineProps({
-  agencyId: { type: Number, required: true }
+  agencyId: { type: Number, required: true },
+  /** When set (e.g. agency picker on admin page), portal links use this slug before route/store. */
+  portalSlug: { type: String, default: '' },
+  /** 'modal' shows title row; 'page' is embedded on a full page (parent supplies page title). */
+  variant: { type: String, default: 'modal' },
+  showClose: { type: Boolean, default: false }
 });
 
 defineEmits(['close']);
@@ -158,13 +161,14 @@ const mode = ref('school');
 const loading = ref(false);
 const error = ref('');
 const events = ref([]);
-const scope = ref('');
 const selectedEventId = ref(0);
 const searchQuery = ref('');
 const sortBy = ref('school-asc');
 const failedLogos = ref(new Set());
 
 function orgSlug() {
+  const fromProp = String(props.portalSlug || '').trim();
+  if (fromProp) return fromProp;
   return (
     String(route.params?.organizationSlug || '').trim() ||
     String(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || '').trim()
@@ -280,7 +284,6 @@ async function load() {
       skipGlobalLoading: true
     });
     events.value = Array.isArray(res.data?.events) ? res.data.events : [];
-    scope.value = res.data?.scope || '';
     selectedEventId.value = 0;
     failedLogos.value = new Set();
   } catch (e) {
@@ -299,27 +302,20 @@ watch(
 </script>
 
 <style scoped>
-.sbes-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.55);
-  z-index: 1400;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-}
-.sbes-modal {
-  width: 100%;
-  max-width: 1100px;
-  max-height: 92vh;
-  overflow: hidden;
+.sbes-directory {
   display: flex;
   flex-direction: column;
-  background: var(--bg, #fff);
-  border-radius: 14px;
-  border: 1px solid var(--border, #e2e8f0);
-  box-shadow: var(--shadow-lg, 0 25px 50px -12px rgba(0, 0, 0, 0.25));
+  min-height: 0;
+  flex: 1;
+}
+.sbes-directory--page {
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+}
+.sbes-directory--page .sbes-body {
+  padding-left: 0;
+  padding-right: 0;
 }
 .sbes-header {
   display: flex;
@@ -352,6 +348,10 @@ watch(
   gap: 8px;
   padding: 10px 18px 0;
   border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.sbes-directory--page .sbes-mode {
+  padding-left: 0;
+  padding-right: 0;
 }
 .sbes-mode-btn {
   border: none;
@@ -439,7 +439,9 @@ watch(
   text-align: left;
   cursor: pointer;
   font: inherit;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 .sbes-card:hover {
   border-color: var(--primary, #15803d);

@@ -24,6 +24,7 @@
           :week-start="weekStart"
           :inline-data="previewBundle"
           :hide-upcoming-open="true"
+          mode="coordinator"
         />
       </div>
       <details class="sbets-edit">

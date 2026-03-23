@@ -88,7 +88,7 @@ const dashboardTour = {
     {
       element: '[data-tour="dash-rail-card-skill_builders_availability"]',
       popover: {
-        title: 'Event Management',
+        title: 'Event availability',
         description: 'Review and manage weekly availability submissions.',
         side: 'right',
         align: 'center'

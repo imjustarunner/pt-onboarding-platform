@@ -23,6 +23,7 @@
             <th>Age</th>
             <th>Intake</th>
             <th>Treatment plan</th>
+            <th>Confirm</th>
             <th>Events</th>
             <th>Actions</th>
           </tr>
@@ -35,7 +36,7 @@
               </button>
             </td>
             <td>{{ row.schoolName }}</td>
-            <td>{{ row.grade || '—' }}</td>
+            <td>{{ formatGradeDisplay(row.grade) }}</td>
             <td>{{ row.ageYears != null ? row.ageYears : '—' }}</td>
             <td>
               <button
@@ -52,22 +53,39 @@
                 type="button"
                 class="sbcm-status-btn"
                 :class="{ 'is-complete': row.treatmentPlanComplete }"
+                :disabled="!row.intakeComplete && !row.treatmentPlanComplete"
                 @click="toggleTp(row)"
               >
                 {{ row.treatmentPlanComplete ? 'Complete' : 'Needed' }}
               </button>
             </td>
             <td>
+              <button type="button" class="sbcm-confirm-pill" disabled>
+                {{ row.treatmentPlanComplete ? 'Confirmed' : 'Confirm' }}
+              </button>
+            </td>
+            <td>
               <span v-if="!row.events.length" class="muted">None</span>
               <ul v-else class="sbcm-ev-list">
-                <li v-for="ev in row.events" :key="ev.companyEventId">
-                  {{ ev.skillsGroupName || `Event ${ev.companyEventId}` }}
-                  <span v-if="!ev.activeForProviders" class="sbcm-pill">pending</span>
+                <li v-for="ev in row.events" :key="ev.companyEventId" class="sbcm-ev-row">
+                  <span class="sbcm-ev-name">
+                    {{ ev.skillsGroupName || `Event ${ev.companyEventId}` }}
+                    <span v-if="!ev.activeForProviders" class="sbcm-pill">pending</span>
+                  </span>
+                  <button
+                    type="button"
+                    class="sbcm-ev-remove"
+                    @click="unassignEvent(row, ev)"
+                  >
+                    Remove
+                  </button>
                 </li>
               </ul>
             </td>
             <td class="sbcm-actions">
-              <button type="button" class="btn btn-secondary btn-sm" @click="openAssign(row)">Assign event</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="openAssign(row)">
+                Assign event
+              </button>
               <button
                 v-if="row.events.some((e) => !e.activeForProviders)"
                 type="button"
@@ -85,7 +103,8 @@
     <div v-if="assignRow" class="sbcm-modal-overlay" @click.self="closeAssign">
       <div class="sbcm-modal" @click.stop>
         <h3>Assign to event</h3>
-        <p class="muted">{{ assignRow.initials }} · {{ assignRow.schoolName }}</p>
+        <p class="sbcm-school-banner">{{ assignRow.schoolName }}</p>
+        <p class="muted sbcm-modal-client-line">{{ assignRow.initials }}</p>
         <label class="sbcm-label">Search company events</label>
         <input
           v-model="assignSearchQuery"
@@ -141,6 +160,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import { formatGradeDisplay } from '../../utils/clientGrade.js';
 import ClientDetailPanel from '../admin/ClientDetailPanel.vue';
 
 const props = defineProps({
@@ -240,6 +260,10 @@ function onClientProfileUpdated(payload) {
 }
 
 async function toggleIntake(row) {
+  if (row.intakeComplete && row.treatmentPlanComplete) {
+    window.alert('Mark treatment plan as not complete before marking intake incomplete.');
+    return;
+  }
   try {
     await api.patch(`/skill-builders/coordinator/clients/${row.clientId}`, {
       agencyId: aid.value,
@@ -252,48 +276,32 @@ async function toggleIntake(row) {
 }
 
 async function toggleTp(row) {
+  if (!row.treatmentPlanComplete && !row.intakeComplete) {
+    window.alert('Complete intake before marking treatment plan complete.');
+    return;
+  }
   try {
-    const res = await api.patch(`/skill-builders/coordinator/clients/${row.clientId}`, {
+    await api.patch(`/skill-builders/coordinator/clients/${row.clientId}`, {
       agencyId: aid.value,
       skillBuildersTreatmentPlanComplete: !row.treatmentPlanComplete
     });
-    if (res.data?.shouldPromptMarkReady) {
-      const ok = window.confirm(String(res.data?.promptMessage || 'Mark client as confirmed for providers?'));
-      if (ok) {
-        await api.post(`/skill-builders/coordinator/clients/${row.clientId}/confirm-ready`, {
-          agencyId: aid.value,
-          all: true
-        });
-      } else {
-        const pending = (row.events || []).filter((e) => !e.activeForProviders);
-        if (pending.length === 1) {
-          const go = window.confirm('Confirm attendance for the assigned event so providers can see this student?');
-          if (go) {
-            await api.post(`/skill-builders/coordinator/clients/${row.clientId}/confirm-ready`, {
-              agencyId: aid.value,
-              companyEventIds: [pending[0].companyEventId]
-            });
-          }
-        } else if (pending.length > 1) {
-          const raw = window.prompt(
-            `Multiple events need confirmation. Enter company event id(s) comma-separated:\n${pending.map((p) => `${p.companyEventId}: ${p.skillsGroupName}`).join('\n')}`
-          );
-          const ids = String(raw || '')
-            .split(',')
-            .map((x) => Number(String(x).trim()))
-            .filter((n) => Number.isFinite(n) && n > 0);
-          if (ids.length) {
-            await api.post(`/skill-builders/coordinator/clients/${row.clientId}/confirm-ready`, {
-              agencyId: aid.value,
-              companyEventIds: ids
-            });
-          }
-        }
-      }
-    }
     await load({ silent: true });
   } catch (e) {
     window.alert(e.response?.data?.error?.message || e.message || 'Update failed');
+  }
+}
+
+async function unassignEvent(row, ev) {
+  const label = ev.skillsGroupName || `event ${ev.companyEventId}`;
+  if (!window.confirm(`Remove ${row.initials || 'this client'} from ${label}?`)) return;
+  try {
+    await api.post(`/skill-builders/coordinator/clients/${row.clientId}/unassign-event`, {
+      agencyId: aid.value,
+      companyEventId: ev.companyEventId
+    });
+    await load({ silent: true });
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Remove failed');
   }
 }
 
@@ -349,16 +357,29 @@ async function submitAssign() {
     assignError.value = 'Pick an event from the list';
     return;
   }
+  const row = assignRow.value;
   assignSaving.value = true;
   assignError.value = '';
   try {
-    await api.post(`/skill-builders/coordinator/clients/${assignRow.value.clientId}/assign-event`, {
+    await api.post(`/skill-builders/coordinator/clients/${row.clientId}/assign-event`, {
       agencyId: aid.value,
       companyEventId: eid,
-      schoolOrganizationId: assignRow.value.schoolOrganizationId
+      schoolOrganizationId: row.schoolOrganizationId
     });
     closeAssign();
     await load({ silent: true });
+    if (row.intakeComplete && row.treatmentPlanComplete) {
+      const yes = window.confirm(
+        'Confirm attendance for this event so providers can see this student on the roster?'
+      );
+      if (yes) {
+        await api.post(`/skill-builders/coordinator/clients/${row.clientId}/confirm-ready`, {
+          agencyId: aid.value,
+          companyEventIds: [eid]
+        });
+        await load({ silent: true });
+      }
+    }
   } catch (e) {
     assignError.value = e.response?.data?.error?.message || e.message || 'Assign failed';
   } finally {
@@ -465,6 +486,69 @@ watch(
   background: linear-gradient(180deg, rgba(15, 118, 110, 0.14) 0%, #ffffff 100%);
   color: var(--primary, #0f766e);
   border-color: rgba(15, 118, 110, 0.45);
+}
+.sbcm-status-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.sbcm-status-btn:disabled:hover {
+  border-color: rgba(15, 118, 110, 0.35);
+  box-shadow: none;
+}
+.sbcm-confirm-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 5.5rem;
+  padding: 7px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(100, 116, 139, 0.45);
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: default;
+  opacity: 0.92;
+}
+.sbcm-school-banner {
+  margin: 10px 0 4px;
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: var(--text-primary, #0f172a);
+  letter-spacing: -0.02em;
+}
+.sbcm-modal-client-line {
+  margin: 0 0 12px;
+}
+.sbcm-ev-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 10px;
+  margin-bottom: 4px;
+}
+.sbcm-ev-name {
+  flex: 1;
+  min-width: 0;
+}
+.sbcm-ev-remove {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+}
+.sbcm-ev-remove:hover {
+  border-color: #cbd5e1;
+  color: #0f172a;
 }
 .sbcm-initials-btn {
   min-width: 4.5rem;

@@ -84,6 +84,24 @@ export function curriculumStorageKey(agencyId, eventId, sessionId, filename) {
   return `${STORAGE_PREFIX}/${agencyId}/${eventId}/${sessionId}/${Date.now()}-${safe}`;
 }
 
+/** Shared program library uploads (one library per overarching program org under the agency). */
+export function programLibraryStorageKey(agencyId, programOrganizationId, filename) {
+  const safe = String(filename || 'document.pdf').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 180);
+  const prog = Number(programOrganizationId);
+  const p = Number.isFinite(prog) && prog > 0 ? prog : 0;
+  return `${STORAGE_PREFIX}/library/${agencyId}/program-org-${p}/${Date.now()}-${safe}`;
+}
+
+export async function loadProgramDocumentRow(documentId) {
+  const did = Number(documentId);
+  if (!Number.isFinite(did) || did <= 0) return null;
+  const [rows] = await pool.execute(
+    `SELECT * FROM skill_builders_event_program_documents WHERE id = ? LIMIT 1`,
+    [did]
+  );
+  return rows?.[0] || null;
+}
+
 export async function upsertCurriculumRecord({
   sessionId,
   companyEventId,
@@ -95,8 +113,13 @@ export async function upsertCurriculumRecord({
   fileSizeBytes,
   uploadedByUserId,
   extractedTextEnc,
-  extractStatus
+  extractStatus,
+  sourceProgramDocumentId = null
 }) {
+  const srcId =
+    sourceProgramDocumentId != null && Number.isFinite(Number(sourceProgramDocumentId))
+      ? Number(sourceProgramDocumentId)
+      : null;
   const [existing] = await pool.execute(
     `SELECT id FROM skill_builders_event_session_curriculum WHERE session_id = ? LIMIT 1`,
     [sessionId]
@@ -113,7 +136,8 @@ export async function upsertCurriculumRecord({
     await pool.execute(
       `UPDATE skill_builders_event_session_curriculum
        SET company_event_id = ?, agency_id = ?, skills_group_id = ?, storage_path = ?, original_filename = ?, mime_type = ?,
-           file_size_bytes = ?, extract_status = ?, extracted_text_enc = ?, uploaded_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+           file_size_bytes = ?, extract_status = ?, extracted_text_enc = ?, uploaded_by_user_id = ?,
+           source_program_document_id = ?, updated_at = CURRENT_TIMESTAMP
        WHERE session_id = ?`,
       [
         companyEventId,
@@ -126,6 +150,7 @@ export async function upsertCurriculumRecord({
         extractStatus,
         extractedTextEnc,
         uploadedByUserId,
+        srcId,
         sessionId
       ]
     );
@@ -134,8 +159,8 @@ export async function upsertCurriculumRecord({
   const [ins] = await pool.execute(
     `INSERT INTO skill_builders_event_session_curriculum
      (session_id, company_event_id, agency_id, skills_group_id, storage_path, original_filename, mime_type, file_size_bytes,
-      extract_status, extracted_text_enc, uploaded_by_user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      extract_status, extracted_text_enc, uploaded_by_user_id, source_program_document_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       sessionId,
       companyEventId,
@@ -147,7 +172,8 @@ export async function upsertCurriculumRecord({
       fileSizeBytes,
       extractStatus,
       extractedTextEnc,
-      uploadedByUserId
+      uploadedByUserId,
+      srcId
     ]
   );
   return Number(ins.insertId);

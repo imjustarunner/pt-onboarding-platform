@@ -637,9 +637,9 @@
                 :mode="scheduleGridMode"
                 :week-start-ymd="activeScheduleWeekStartYmd || null"
                 :hide-office-and-calendar-integration="isClubContext"
-                :show-skill-builders-programs-button="canOpenSkillBuildersEventsFromSchedule && scheduleViewMode === 'self'"
+                :show-skill-builders-programs-button="skillBuildersProgramsPickerRoleOk && scheduleViewMode === 'self'"
                 @update:weekStartYmd="onScheduleWeekStartUpdate"
-                @open-skill-builders-programs="skillBuildersWorkScheduleOverlayOpen = true"
+                @open-skill-builders-programs="goSkillBuildersProgramsPage"
               />
             </div>
           </div>
@@ -1024,6 +1024,7 @@
       :agency-id="currentAgencyId"
       :organization-id="programHubOrg.id"
       :organization-name="programHubOrg.name"
+      :initial-section="programHubInitialSection"
       @close="closeProgramHub"
     />
     <ProgramHubModal
@@ -1032,11 +1033,6 @@
       :agency-id="currentAgencyId"
       @close="skillBuildersProviderHubOpen = false"
       @open-skill-builder-availability="openSkillBuilderAvailabilityFromHub"
-    />
-    <SkillBuildersEventsScheduleModal
-      v-if="skillBuildersWorkScheduleOverlayOpen && currentAgencyId"
-      :agency-id="Number(currentAgencyId)"
-      @close="skillBuildersWorkScheduleOverlayOpen = false"
     />
     <LastPaycheckModal
       v-if="showLastPaycheckModal"
@@ -1199,7 +1195,6 @@ import UserSupervisionTab from '../components/admin/UserSupervisionTab.vue';
 import SkillBuilderAvailabilityModal from '../components/availability/SkillBuilderAvailabilityModal.vue';
 import ProgramCoordinatorHubModal from '../components/availability/ProgramCoordinatorHubModal.vue';
 import ProgramHubModal from '../components/availability/ProgramHubModal.vue';
-import SkillBuildersEventsScheduleModal from '../components/availability/SkillBuildersEventsScheduleModal.vue';
 import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
 import BudgetSubmitExpensesModal from '../components/budget/BudgetSubmitExpensesModal.vue';
 import CompanyCarTripsView from '../components/companyCar/CompanyCarTripsView.vue';
@@ -1234,6 +1229,13 @@ const props = defineProps({
 
 const router = useRouter();
 const route = useRoute();
+
+function goSkillBuildersProgramsPage() {
+  const slug = String(route.params?.organizationSlug || '').trim();
+  const path = slug ? `/${slug}/admin/skill-builders-program-events` : '/admin/skill-builders-program-events';
+  router.push(path);
+}
+
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 /** SSC / affiliation portal: hide HR-style tabs and schedule tooling. Declared early — many computeds depend on it. */
@@ -1265,12 +1267,14 @@ const providerPendingClientsCount = ref(0);
 const showSkillBuilderModal = ref(false);
 const programHubOpen = ref(false);
 const programHubOrg = ref(null); // { id, name } | null
+/** When opening from ?programHub=1 — e.g. `documents` for Program documents */
+const programHubInitialSection = ref(null);
 const skillBuildersProviderHubOpen = ref(false);
-const skillBuildersWorkScheduleOverlayOpen = ref(false);
 
 function closeProgramHub() {
   programHubOpen.value = false;
   programHubOrg.value = null;
+  programHubInitialSection.value = null;
 }
 
 function openSkillBuilderAvailabilityFromHub() {
@@ -1337,9 +1341,12 @@ const isProviderLikeForSkillBuildersSchedule = computed(() => {
   return ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'].includes(role);
 });
 
-/** My Schedule toolbar: Events button for eligible providers, agency admin/staff/support/super_admin, or Skill Builders sub-coordinator. */
-const canOpenSkillBuildersEventsFromSchedule = computed(() => {
-  if (props.previewMode || isClubContext.value || !currentAgencyId.value) return false;
+/**
+ * Role gate for Skill Builders “programs / events” picker (matches Directory nav).
+ * Does not require currentAgencyId — agency can hydrate after deep link.
+ */
+const skillBuildersProgramsPickerRoleOk = computed(() => {
+  if (props.previewMode || isClubContext.value) return false;
   const role = String(authStore.user?.role || '').toLowerCase();
   if (['super_admin', 'admin', 'staff', 'support'].includes(role)) return true;
   if (isSkillBuilderCoordinator.value) return true;
@@ -3261,23 +3268,53 @@ watch(() => [route.query?.tab, route.query?.my, route.query?.scheduleMode, route
   syncFromQuery();
 });
 
-/** Deep-link from Skill Builders event portal: open the “Skill Builders events” overlay on My Schedule. */
+/** Legacy query ?sbPrograms=1 → dedicated Programs & events page. */
 watch(
   () => String(route.query?.sbPrograms || ''),
   (sb) => {
     if (props.previewMode) return;
     if (sb !== '1') return;
-    if (!canOpenSkillBuildersEventsFromSchedule.value) {
+    if (!skillBuildersProgramsPickerRoleOk.value) {
       const q = { ...route.query };
       delete q.sbPrograms;
       router.replace({ query: q }).catch(() => {});
       return;
     }
-    activeTab.value = 'my_schedule';
-    skillBuildersWorkScheduleOverlayOpen.value = true;
-    const q = { ...route.query };
-    delete q.sbPrograms;
-    router.replace({ query: q }).catch(() => {});
+    goSkillBuildersProgramsPage();
+  },
+  { immediate: true }
+);
+
+/** ?programHub=1&programHubOrgId=&programHubSection=documents — open coordinator Skill Builders hub (e.g. from event portal). */
+function applyProgramHubQuery() {
+  if (props.previewMode) return;
+  const ph = String(route.query?.programHub || '').trim();
+  if (ph !== '1') return;
+  const oid = Number(route.query?.programHubOrgId);
+  if (!Number.isFinite(oid) || oid <= 0) return;
+  const section = String(route.query?.programHubSection || '').trim();
+  const name = String(route.query?.programHubOrgName || '').trim();
+  const allowed = new Set(['documents', 'availability', 'events', 'schedule', 'clients']);
+  programHubOrg.value = { id: oid, name: name || `Program ${oid}` };
+  programHubOpen.value = true;
+  programHubInitialSection.value = allowed.has(section) ? section : null;
+  const q = { ...route.query };
+  delete q.programHub;
+  delete q.programHubOrgId;
+  delete q.programHubSection;
+  delete q.programHubOrgName;
+  router.replace({ query: q }).catch(() => {});
+}
+
+watch(
+  () => [
+    String(route.query?.programHub || ''),
+    String(route.query?.programHubOrgId || ''),
+    String(route.query?.programHubSection || ''),
+    String(route.query?.programHubOrgName || '')
+  ],
+  () => {
+    applyProgramHubQuery();
   },
   { immediate: true }
 );

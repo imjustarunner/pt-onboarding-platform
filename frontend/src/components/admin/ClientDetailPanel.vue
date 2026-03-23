@@ -368,10 +368,17 @@
               <label>Grade</label>
               <div class="info-value">
                 <template v-if="editingOverview">
-                  <input v-model="overviewForm.grade" class="inline-input" placeholder="5" />
+                  <select v-model="overviewForm.grade" class="inline-input">
+                    <option value="">—</option>
+                    <option
+                      v-for="o in overviewGradeSelectOptions"
+                      :key="`${o.value}::${o.label}`"
+                      :value="o.value"
+                    >{{ o.label }}</option>
+                  </select>
                 </template>
                 <template v-else>
-                  {{ client.grade || '-' }}
+                  {{ formatGradeDisplay(client.grade) }}
                 </template>
               </div>
             </div>
@@ -1502,6 +1509,12 @@ import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
 import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
 import ClientSkillBuildersProgramTab from '../skillBuilders/ClientSkillBuildersProgramTab.vue';
 import { isSkillsClientFlag } from '../../utils/skillsClientFlag.js';
+import {
+  formatGradeDisplay,
+  gradeSelectOptionsForModel,
+  normalizeGradeForSave,
+  normalizeGradeToStandard
+} from '../../utils/clientGrade.js';
 
 const props = defineProps({
   client: {
@@ -1611,6 +1624,8 @@ const overviewForm = ref({
   primary_parent_language: '',
   source: ''
 });
+
+const overviewGradeSelectOptions = computed(() => gradeSelectOptionsForModel(overviewForm.value.grade));
 
 // Overview edit dropdowns
 const overviewOrganizations = ref([]);
@@ -2435,7 +2450,11 @@ const hydrateOverviewForm = () => {
   overviewForm.value.insurance_type_id = props.client?.insurance_type_id ? String(props.client.insurance_type_id) : '';
   overviewForm.value.doc_date = props.client?.doc_date ? String(props.client.doc_date).slice(0, 10) : '';
   overviewForm.value.school_year = String(props.client?.school_year || '');
-  overviewForm.value.grade = String(props.client?.grade || '');
+  overviewForm.value.grade = (() => {
+    const raw = String(props.client?.grade || '').trim();
+    if (!raw) return '';
+    return normalizeGradeToStandard(raw) || raw;
+  })();
   overviewForm.value.primary_client_language = String(props.client?.primary_client_language || '');
   overviewForm.value.primary_parent_language = String(props.client?.primary_parent_language || '');
   overviewForm.value.skills = isSkillsClientFlag(props.client?.skills);
@@ -2474,7 +2493,7 @@ const saveOverview = async () => {
       insurance_type_id: overviewForm.value.insurance_type_id ? Number(overviewForm.value.insurance_type_id) : null,
       doc_date: overviewForm.value.doc_date ? String(overviewForm.value.doc_date) : null,
       school_year: String(overviewForm.value.school_year || '').trim() || null,
-      grade: String(overviewForm.value.grade || '').trim() || null,
+      grade: normalizeGradeForSave(overviewForm.value.grade),
       primary_client_language: String(overviewForm.value.primary_client_language || '').trim() || null,
       primary_parent_language: String(overviewForm.value.primary_parent_language || '').trim() || null,
       skills: !!overviewForm.value.skills,

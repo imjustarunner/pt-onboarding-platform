@@ -45,14 +45,17 @@
 
       <section class="sbws-section">
         <h3 class="sbws-h">Integrated events (assigned)</h3>
-        <ul v-if="data.assignedEvents?.length" class="sbws-list">
+        <ul v-if="data.assignedEvents?.length" class="sbws-list sbws-list-events">
           <li
             v-for="ev in data.assignedEvents"
             :key="`ae-${ev.id}`"
             :class="{ 'sbws-highlight': highlightEventIdNum > 0 && Number(ev.id) === highlightEventIdNum }"
           >
-            <strong>{{ ev.title }}</strong>
-            <div class="muted">{{ formatWhen(ev.startsAt, ev.endsAt) }} · {{ ev.schoolName }}</div>
+            <button type="button" class="sbws-event-link" @click="goEventPortal(ev.id)">
+              <strong>{{ ev.title }}</strong>
+              <div class="muted">{{ formatWhen(ev.startsAt, ev.endsAt) }} · {{ ev.schoolName }}</div>
+              <span class="sbws-cta">Open event portal →</span>
+            </button>
           </li>
         </ul>
         <p v-else class="muted">No program events linked to your groups.</p>
@@ -60,10 +63,30 @@
 
       <section v-if="!hideUpcomingOpen" class="sbws-section">
         <h3 class="sbws-h">Upcoming events (open / apply)</h3>
-        <ul v-if="data.upcomingOpenEvents?.length" class="sbws-list">
-          <li v-for="ev in data.upcomingOpenEvents" :key="`up-${ev.id}`">
-            <strong>{{ ev.title }}</strong>
-            <div class="muted">{{ formatWhen(ev.startsAt, ev.endsAt) }} · {{ ev.schoolName }}</div>
+        <p class="muted small sbws-lead">
+          Same events as Skill Builders → Events → “Upcoming (apply).” Open goes to the event portal; Apply submits your
+          interest when you are not on that group’s roster yet.
+        </p>
+        <ul v-if="data.upcomingOpenEvents?.length" class="sbws-list sbws-list-events">
+          <li v-for="ev in data.upcomingOpenEvents" :key="`up-${ev.id}`" class="sbws-up-row">
+            <button type="button" class="sbws-event-link" @click="goEventPortal(ev.id)">
+              <strong>{{ ev.title }}</strong>
+              <div class="muted">{{ formatWhen(ev.startsAt, ev.endsAt) }} · {{ ev.schoolName }}</div>
+              <span class="sbws-cta">Open event portal →</span>
+            </button>
+            <div v-if="mode === 'provider'" class="sbws-up-actions">
+              <button
+                v-if="!ev.applicationStatus || ev.applicationStatus === 'withdrawn'"
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="applyBusyId === ev.id"
+                @click.stop="applyToEvent(ev)"
+              >
+                {{ applyBusyId === ev.id ? 'Applying…' : 'Apply' }}
+              </button>
+              <span v-else-if="ev.applicationStatus === 'pending'" class="muted small">Application pending</span>
+              <span v-else-if="ev.applicationStatus === 'approved'" class="muted small">Approved</span>
+            </div>
           </li>
         </ul>
         <p v-else class="muted">No other upcoming Skill Builders events right now.</p>
@@ -74,6 +97,8 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
+import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -84,8 +109,15 @@ const props = defineProps({
   hideUpcomingOpen: { type: Boolean, default: false },
   highlightEventId: { type: [Number, String, null], default: null },
   /** Optional rows from GET …/sessions (portal passes upcoming slice for this event). */
-  programSessionSummaries: { type: Array, default: null }
+  programSessionSummaries: { type: Array, default: null },
+  /** Provider: show Apply on open events. Coordinator: open portal only (no staff apply). */
+  mode: { type: String, default: 'provider' }
 });
+
+const router = useRouter();
+const route = useRoute();
+const agencyStore = useAgencyStore();
+const applyBusyId = ref(null);
 
 const highlightEventIdNum = computed(() => {
   const n = Number(props.highlightEventId);
@@ -130,6 +162,34 @@ function applyInlineData() {
   loading.value = false;
   error.value = '';
   return true;
+}
+
+function orgSlug() {
+  return (
+    String(route.params?.organizationSlug || '').trim() ||
+    String(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || '').trim()
+  );
+}
+
+function goEventPortal(eventId) {
+  const id = Number(eventId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  const slug = orgSlug();
+  if (slug) router.push(`/${slug}/skill-builders/event/${id}`);
+}
+
+async function applyToEvent(ev) {
+  const aid = Number(props.agencyId);
+  if (!Number.isFinite(aid) || aid <= 0 || !ev?.id) return;
+  applyBusyId.value = ev.id;
+  try {
+    await api.post('/skill-builders/me/applications', { agencyId: aid, companyEventId: ev.id }, { skipGlobalLoading: true });
+    await load();
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Apply failed');
+  } finally {
+    applyBusyId.value = null;
+  }
 }
 
 async function load() {
@@ -194,6 +254,66 @@ watch(
 }
 .sbws-list li {
   margin-bottom: 6px;
+}
+.sbws-list-events {
+  list-style: none;
+  padding-left: 0;
+}
+.sbws-list-events .sbws-up-row {
+  list-style: none;
+}
+.sbws-event-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 8px 10px;
+  margin: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  box-sizing: border-box;
+}
+.sbws-event-link:hover {
+  background: rgba(15, 118, 110, 0.07);
+}
+.sbws-event-link strong {
+  color: var(--primary, #0f766e);
+}
+.sbws-cta {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary, #0f766e);
+}
+.sbws-up-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px 14px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.sbws-up-row:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.sbws-up-row .sbws-event-link {
+  flex: 1;
+  min-width: min(100%, 200px);
+}
+.sbws-up-actions {
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.sbws-lead {
+  margin: 0 0 10px;
+  line-height: 1.45;
 }
 .sbws-highlight {
   margin-left: -4px;

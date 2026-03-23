@@ -97,7 +97,7 @@
                 :to="orgTo('/admin/skill-builders-availability')"
                 @click="closeMobileMenu"
               >
-                Event Management
+                Event availability
               </router-link>
               <router-link
                 v-if="canShowAdminDashboardIcon"
@@ -172,7 +172,7 @@
                       </div>
                     </div>
                     <div
-                      v-if="canSeeSkillBuildersAvailabilityNav && !isAffiliationContext"
+                      v-if="canSeeEventsProgramsNavGroup && !isAffiliationContext"
                       class="nav-dropdown-group nav-dropdown-group-collapsible"
                     >
                       <button
@@ -181,15 +181,26 @@
                         :aria-expanded="directorySkillBuildersNavExpanded ? 'true' : 'false'"
                         @click.stop="directorySkillBuildersNavExpanded = !directorySkillBuildersNavExpanded"
                       >
-                        <span>Skill Builders</span>
+                        <span>Events &amp; programs</span>
                         <span class="nav-dropdown-group-caret" :class="{ open: directorySkillBuildersNavExpanded }" aria-hidden="true">▸</span>
                       </button>
                       <div v-show="directorySkillBuildersNavExpanded" class="nav-dropdown-group-items">
-                        <router-link :to="orgTo('/admin/skill-builders-availability')">Availability &amp; calendar</router-link>
+                        <router-link
+                          v-if="canSeeSkillBuildersCoordinatorNavLinks"
+                          :to="orgTo('/admin/skill-builders-availability')"
+                        >Event availability</router-link>
                         <router-link
                           v-if="canOpenSkillBuildersProgramsFromNav"
                           :to="skillBuildersProgramsDashboardTo"
                         >Programs &amp; events</router-link>
+                        <router-link
+                          v-if="canSeeSkillBuildersCoordinatorNavLinks"
+                          :to="orgTo('/admin/skill-builders-client-management')"
+                        >Client management</router-link>
+                        <router-link
+                          v-if="canSeeSkillBuildersMyAvailabilityNav"
+                          :to="orgTo('/admin/skill-builders-my-availability')"
+                        >Availability</router-link>
                       </div>
                     </div>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=school')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >School Overview</router-link>
@@ -486,7 +497,7 @@
               :to="orgTo('/admin/skill-builders-availability')"
               @click="closeMobileMenu"
               class="mobile-nav-link"
-            >Event Management</router-link>
+            >Event availability</router-link>
             <router-link
               v-if="hasCapability('canJoinProgramEvents') && user?.role !== 'provider'"
               :to="orgTo('/office')"
@@ -513,28 +524,41 @@
                   <router-link :to="orgTo('/buildings')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Buildings &amp; offices</router-link>
                 </template>
               </div>
-              <div v-if="canSeeSkillBuildersAvailabilityNav && !isAffiliationContext" class="mobile-nav-group mobile-nav-group-collapsible">
+              <div v-if="canSeeEventsProgramsNavGroup && !isAffiliationContext" class="mobile-nav-group mobile-nav-group-collapsible">
                 <button
                   type="button"
                   class="mobile-nav-group-trigger"
                   :aria-expanded="directorySkillBuildersNavExpanded ? 'true' : 'false'"
                   @click="directorySkillBuildersNavExpanded = !directorySkillBuildersNavExpanded"
                 >
-                  <span>Skill Builders</span>
+                  <span>Events &amp; programs</span>
                   <span class="mobile-nav-group-caret" :class="{ open: directorySkillBuildersNavExpanded }" aria-hidden="true">▸</span>
                 </button>
                 <template v-if="directorySkillBuildersNavExpanded">
                   <router-link
+                    v-if="canSeeSkillBuildersCoordinatorNavLinks"
                     :to="orgTo('/admin/skill-builders-availability')"
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
-                  >Availability &amp; calendar</router-link>
+                  >Event availability</router-link>
                   <router-link
                     v-if="canOpenSkillBuildersProgramsFromNav"
                     :to="skillBuildersProgramsDashboardTo"
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
                   >Programs &amp; events</router-link>
+                  <router-link
+                    v-if="canSeeSkillBuildersCoordinatorNavLinks"
+                    :to="orgTo('/admin/skill-builders-client-management')"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >Client management</router-link>
+                  <router-link
+                    v-if="canSeeSkillBuildersMyAvailabilityNav"
+                    :to="orgTo('/admin/skill-builders-my-availability')"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >Availability</router-link>
                 </template>
               </div>
 
@@ -1496,7 +1520,7 @@ const canSeeSkillBuildersAvailabilityTopNav = computed(() => {
   return canSeeSkillBuildersAvailabilityNav.value && r !== 'super_admin' && r !== 'admin';
 });
 
-/** Opens Skill Builders program/events overlay on My Schedule (matches Skill Builders event portal link). */
+/** Directory “Programs & events” and related entry points (dedicated page + portal links). */
 const canOpenSkillBuildersProgramsFromNav = computed(() => {
   const r = String(user.value?.role || '').toLowerCase();
   if (['super_admin', 'admin', 'staff', 'support'].includes(r)) return true;
@@ -1513,10 +1537,35 @@ const canOpenSkillBuildersProgramsFromNav = computed(() => {
   return !!(elig && providerLike);
 });
 
-const skillBuildersProgramsDashboardTo = computed(() => ({
-  path: orgTo('/dashboard'),
-  query: { tab: 'my_schedule', sbPrograms: '1' }
-}));
+/** Matches router `schedule_manager` + `allowSubCoordinator` for coordinator Skill Builders admin pages. */
+const canSeeSkillBuildersCoordinatorNavLinks = computed(() => {
+  const r = String(user.value?.role || '').toLowerCase();
+  if (['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'support'].includes(r)) return true;
+  const coord =
+    user.value?.has_skill_builder_coordinator_access === true ||
+    user.value?.has_skill_builder_coordinator_access === 1 ||
+    user.value?.has_skill_builder_coordinator_access === '1';
+  return coord;
+});
+
+const canSeeSkillBuildersMyAvailabilityNav = computed(() => {
+  const r = String(user.value?.role || '').toLowerCase();
+  const elig =
+    user.value?.skill_builder_eligible === true ||
+    user.value?.skill_builder_eligible === 1 ||
+    user.value?.skill_builder_eligible === '1';
+  const providerLike = ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'].includes(r);
+  return !!(elig && providerLike);
+});
+
+const canSeeEventsProgramsNavGroup = computed(
+  () =>
+    canSeeSkillBuildersCoordinatorNavLinks.value ||
+    canOpenSkillBuildersProgramsFromNav.value ||
+    canSeeSkillBuildersMyAvailabilityNav.value
+);
+
+const skillBuildersProgramsDashboardTo = computed(() => orgTo('/admin/skill-builders-program-events'));
 
 /** Same roles as router `SCHEDULE_HUB_ROLES` for /schedule and /buildings/*. */
 const canSeeScheduleBuildingsDirectoryNav = computed(() => {
@@ -2697,31 +2746,32 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   margin: 0;
-  padding: 6px 10px 4px;
+  padding: 8px 10px;
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   text-align: left;
   font: inherit;
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary, #64748b);
+  font-size: inherit;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  /* Match `.nav-dropdown-menu a` so collapsible rows read like normal links */
+  color: var(--text-primary) !important;
 }
 .nav-dropdown-group-trigger:hover {
   background: #f8fafc;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary) !important;
 }
 .nav-dropdown-group-caret {
   display: inline-block;
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
-  opacity: 0.75;
+  opacity: 0.55;
   transition: transform 0.15s ease;
 }
 .nav-dropdown-group-caret.open {
@@ -3665,35 +3715,38 @@ onUnmounted(() => {
   padding: 4px 20px 10px;
 }
 .mobile-nav-group-trigger {
-  width: calc(100% - 40px);
-  margin: 0 20px 4px;
+  width: 100%;
+  margin: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
+  padding: 16px 20px;
+  background: transparent;
+  border: none;
+  border-left: 3px solid transparent;
+  border-radius: 0;
   cursor: pointer;
   text-align: left;
   font: inherit;
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: inherit;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  /* Match `.mobile-nav-link` */
+  color: white;
 }
 .mobile-nav-group-trigger:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-left-color: white;
+  color: white;
 }
 .mobile-nav-group-caret {
   display: inline-block;
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
-  opacity: 0.85;
+  opacity: 0.75;
   transition: transform 0.15s ease;
 }
 .mobile-nav-group-caret.open {
