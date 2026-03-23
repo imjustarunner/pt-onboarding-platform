@@ -46,10 +46,8 @@ export const useBrandingStore = defineStore('branding', () => {
   const iconFilePathCache = ref({}); // { [id]: file_path }
   const iconFetchInFlight = new Map(); // id -> Promise<string|null>
 
-  const canFetchIconsApi = computed(() => {
-    const r = String(authStore.user?.role || '').toLowerCase();
-    return r === 'admin' || r === 'super_admin' || r === 'support';
-  });
+  // Any authenticated user may resolve icon id → file path (GET /icons/:id is read-only; not the icon index).
+  const canFetchIconsApi = computed(() => !!authStore.isAuthenticated);
 
   const iconFilePathById = (id) => {
     const key = String(id ?? '').trim();
@@ -822,12 +820,41 @@ export const useBrandingStore = defineStore('branding', () => {
     return resolveFromOrg(platformBranding.value);
   };
 
+  /**
+   * Dashboard/school icon helpers accept org as undefined | null | object | numeric id.
+   * Numeric ids must resolve to a full agency row so *_icon_path fields work (Dashboard passes currentAgencyId).
+   */
+  const resolveOrganizationParamForIcons = (organization) => {
+    if (organization === undefined) return undefined;
+    if (organization === null) return null;
+    if (typeof organization === 'object') return organization;
+    if (typeof organization === 'number') {
+      const id = Number(organization);
+      if (!Number.isFinite(id) || id <= 0) return undefined;
+      const cur = agencyStore.currentAgency;
+      if (cur && Number(cur.id || 0) === id) return cur;
+      const userList = agencyStore.userAgencies;
+      if (Array.isArray(userList)) {
+        const found = userList.find((a) => Number(a?.id || 0) === id);
+        if (found) return found;
+      }
+      const all = agencyStore.agencies;
+      if (Array.isArray(all)) {
+        const found = all.find((a) => Number(a?.id || 0) === id);
+        if (found) return found;
+      }
+      return undefined;
+    }
+    return organization;
+  };
+
   // Get icon URL for a specific "My Dashboard" card
   // Priority: org-level icon > platform-level icon > null
   // organization param is tri-state:
   // - undefined: use agencyStore.currentAgency
   // - null: force platform branding (ignore currentAgency)
   // - object: use that org as override
+  // - number: resolve agency row by id (same icons as event portal + rail)
   const getDashboardCardIconUrl = (cardId, organization = undefined) => {
     const iconFieldMap = {
       checklist: 'my_dashboard_checklist_icon_path',
@@ -849,14 +876,16 @@ export const useBrandingStore = defineStore('branding', () => {
       clinical_note_generator: 'my_dashboard_clinical_note_generator_icon_path',
       tools_aids: 'my_dashboard_clinical_note_generator_icon_path',
       momentum_stickies: 'my_dashboard_momentum_stickies_icon_path',
-      challenges: 'my_dashboard_training_icon_path'
+      challenges: 'my_dashboard_training_icon_path',
+      social_feeds: 'my_dashboard_communications_icon_path'
     };
 
     const field = iconFieldMap[cardId];
     if (!field) return null;
 
     const idField = field.replace(/_icon_path$/, '_icon_id');
-    const org = organization === undefined ? agencyStore.currentAgency : organization;
+    const orgParam = resolveOrganizationParamForIcons(organization);
+    const org = orgParam === undefined ? agencyStore.currentAgency : orgParam;
     if (org?.[field]) return toUploadsUrl(org[field]);
     if (org?.[idField]) {
       const url = iconUrlById(org[idField]);
@@ -897,7 +926,8 @@ export const useBrandingStore = defineStore('branding', () => {
     if (!field) return null;
     const idField = field.replace(/_icon_path$/, '_icon_id');
 
-    const org = organization === undefined ? agencyStore.currentAgency : organization;
+    const orgParam = resolveOrganizationParamForIcons(organization);
+    const org = orgParam === undefined ? agencyStore.currentAgency : orgParam;
     if (org?.[field]) return toUploadsUrl(org[field]);
     if (org?.[idField]) {
       const url = iconUrlById(org[idField]);

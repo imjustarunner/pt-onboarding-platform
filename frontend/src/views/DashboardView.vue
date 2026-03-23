@@ -297,8 +297,8 @@
     >
       <div
         class="dashboard-rail-wrap"
-        @mouseenter="railHoverExpanded = true"
-        @mouseleave="railHoverExpanded = false"
+        @mouseenter="onDashboardRailWrapEnter"
+        @mouseleave="onDashboardRailWrapLeave"
       >
         <div v-if="authStore.user?.id && !previewMode && !isSchoolStaff" class="rail-dark-mode-toggle rail-dark-mode-top" :class="{ 'rail-collapsed': railEffectiveCollapsed }">
           <label class="rail-dark-mode-label" :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'">
@@ -454,9 +454,17 @@
             data-tour="dash-my-schedule-panel"
           >
             <div ref="myScheduleStageRef" class="my-schedule-stage">
-              <div class="section-header">
-                <h2 style="margin: 0;">My Schedule</h2>
-                <div style="display:flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
+              <div class="section-header schedule-section-header">
+                <div class="schedule-heading-block">
+                  <h2 class="schedule-main-heading">{{ scheduleViewHeadline }}</h2>
+                  <p
+                    class="schedule-context-line"
+                    :class="{ 'schedule-context-line--other': scheduleViewContextIsOther }"
+                  >
+                    {{ scheduleViewContextLine }}
+                  </p>
+                </div>
+                <div class="schedule-header-actions">
                   <button type="button" class="btn btn-secondary btn-sm" @click="toggleScheduleFullscreen">
                     {{ scheduleFullscreenActive ? 'Exit full screen' : 'Show full screen' }}
                   </button>
@@ -483,37 +491,44 @@
                   class="sb-series-head"
                   :class="{ 'dash-attn-pulse': skillBuildersSeriesAttentionPulse }"
                 >
-                  <div>
-                    <h3 class="sb-series-title">Skill Builders — program series</h3>
-                    <p class="sb-series-sub muted">
-                      Term-based groups and integrated program windows (not one-off agency announcements).
-                    </p>
-                  </div>
+                  <h3 class="sb-series-title">Skill Builders</h3>
                   <div class="sb-series-head-actions">
-                    <span class="ce-count-pill">{{ seriesCompanyEvents.length }}</span>
+                    <span class="ce-count-pill ce-count-pill--compact">{{ seriesCompanyEvents.length }}</span>
                     <button
                       type="button"
-                      class="btn btn-secondary btn-sm top-snapshot-toggle"
+                      class="btn btn-secondary sb-series-strip-toggle"
                       @click="toggleSkillBuildersSeriesCollapsed"
                     >
-                      {{ skillBuildersSeriesCollapsed ? 'Expand' : 'Collapse' }}
+                      {{ skillBuildersSeriesCollapsed ? 'Show' : 'Hide' }}
                     </button>
                   </div>
                 </div>
-                <div v-if="!skillBuildersSeriesCollapsed" class="company-events-list ce-modern-grid sb-series-grid">
+                <div v-if="!skillBuildersSeriesCollapsed" class="company-events-list sb-series-grid">
                   <article
                     v-for="event in seriesCompanyEvents"
                     :key="`sb-series-${event.id}`"
-                    class="ce-modern-card ce-modern-series"
+                    class="ce-modern-card ce-modern-series sb-series-item"
+                    :class="{ 'sb-series-item--open': isSkillBuildersSeriesCardExpanded(event.id) }"
                   >
-                    <div class="ce-modern-card-inner">
-                      <div class="ce-modern-meta">
-                        <span class="ce-type-pill ce-type-pill-series">Program series</span>
-                        <span v-if="companyEventRecurrenceChip(event)" class="ce-recurrence-pill">{{ companyEventRecurrenceChip(event) }}</span>
+                    <div class="sb-series-item-compact">
+                      <div class="sb-series-item-text" :title="`${event.title} · ${formatCompanyEventSeriesRangeCompact(event)}`">
+                        <span class="sb-series-item-title">{{ event.title }}</span>
+                        <span class="sb-series-item-dates">{{ formatCompanyEventSeriesRangeCompact(event) }}</span>
                       </div>
-                      <h3 class="ce-modern-title">{{ event.title }}</h3>
-                      <div class="ce-modern-when">{{ formatCompanyEventWhen(event) }}</div>
-                      <p v-if="event.splashContent" class="ce-modern-desc">{{ event.splashContent }}</p>
+                      <button
+                        type="button"
+                        class="btn btn-secondary sb-series-item-toggle"
+                        @click="toggleSkillBuildersSeriesCard(event.id)"
+                      >
+                        {{ isSkillBuildersSeriesCardExpanded(event.id) ? 'Less' : 'More' }}
+                      </button>
+                    </div>
+                    <div
+                      v-show="isSkillBuildersSeriesCardExpanded(event.id)"
+                      class="sb-series-item-expanded"
+                    >
+                      <div class="ce-modern-when sb-series-item-detail-when">{{ formatCompanyEventWhen(event) }}</div>
+                      <p v-if="event.splashContent" class="ce-modern-desc sb-series-item-desc">{{ event.splashContent }}</p>
                       <div v-if="event.votingConfig?.enabled" class="company-event-rsvp">
                         <div class="hint">
                           {{ event.votingConfig?.question || 'RSVP' }}
@@ -542,7 +557,7 @@
                 </div>
               </div>
               <div
-                v-if="isSupervisor(authStore.user)"
+                v-if="isSupervisor(authStore.user) || canPickEmployeeSchedule"
                 class="schedule-supervisor-toolbar"
               >
                 <div class="schedule-view-toggle">
@@ -555,12 +570,22 @@
                     My schedule
                   </button>
                   <button
+                    v-if="isSupervisor(authStore.user)"
                     type="button"
                     class="btn btn-secondary btn-sm"
                     :class="{ active: scheduleViewMode === 'supervisee' }"
                     @click="scheduleViewMode = 'supervisee'"
                   >
                     Supervisee schedules
+                  </button>
+                  <button
+                    v-if="canPickEmployeeSchedule"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :class="{ active: scheduleViewMode === 'employees' }"
+                    @click="scheduleViewMode = 'employees'"
+                  >
+                    Employee schedules
                   </button>
                 </div>
 
@@ -609,6 +634,88 @@
                     </button>
                   </div>
                 </template>
+
+                <template v-else-if="scheduleViewMode === 'employees'">
+                  <div class="schedule-inline-controls">
+                    <select v-model="employeeSortKey" class="input compact-input" title="Sort employees by">
+                      <option value="name">Name</option>
+                      <option value="agency">Agency</option>
+                    </select>
+                    <select v-model="employeeSortDir" class="input compact-input" title="Sort order">
+                      <option value="asc">A → Z</option>
+                      <option value="desc">Z → A</option>
+                    </select>
+                    <input
+                      v-model="employeeQuery"
+                      class="input compact-input supervisee-search-input"
+                      placeholder="Search employees..."
+                      title="Search employees by name or agency"
+                    />
+                  </div>
+                  <div class="schedule-employee-nav-row">
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="!employeesDirectoryFilteredSorted.length || employeeSchedulePickerLoading"
+                      @click="stepEmployeeDirectory(-1)"
+                    >
+                      ← Prev employee
+                    </button>
+                    <span v-if="employeeNavPositionLabel" class="muted schedule-employee-nav-label">{{ employeeNavPositionLabel }}</span>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="!employeesDirectoryFilteredSorted.length || employeeSchedulePickerLoading"
+                      @click="stepEmployeeDirectory(1)"
+                    >
+                      Next employee →
+                    </button>
+                  </div>
+                  <div class="supervisee-chip-row">
+                    <button
+                      v-for="s in employeesDirectoryFilteredSorted"
+                      :key="`emp-chip-${s.id}`"
+                      type="button"
+                      class="supervisee-chip"
+                      :class="{ active: selectedEmployeeDirectoryId === s.id }"
+                      :title="s.label"
+                      :disabled="employeeSchedulePickerLoading"
+                      @click="selectedEmployeeDirectoryId = s.id"
+                    >
+                      <span class="supervisee-chip-avatar">
+                        <span>{{ employeeInitials(s) }}</span>
+                      </span>
+                      <span class="supervisee-chip-name">{{ employeeName(s) }}</span>
+                    </button>
+                  </div>
+                </template>
+              </div>
+
+              <div
+                v-if="canPickEmployeeSchedule && scheduleViewMode === 'self'"
+                class="schedule-supervisor-toolbar schedule-employee-view-as-toolbar"
+              >
+                <span class="schedule-view-as-label">View as</span>
+                <PersonSearchSelect
+                  v-model="myScheduleViewAsUserId"
+                  class="schedule-view-as-picker"
+                  :options="employeeSchedulePickerOptions"
+                  placeholder="Search team member…"
+                  :disabled="employeeSchedulePickerLoading || !currentAgencyId"
+                />
+                <button
+                  v-if="myScheduleViewAsUserId"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="employeeSchedulePickerLoading"
+                  @click="clearMyScheduleViewAs"
+                >
+                  Clear
+                </button>
+                <span v-if="!currentAgencyId" class="hint schedule-view-as-hint">
+                  Choose an organization (top left) to search.
+                </span>
+                <span v-else-if="employeeSchedulePickerLoading" class="muted schedule-view-as-hint">Loading directory…</span>
               </div>
               <div v-if="superviseesError" class="error" style="margin-top: 8px;">{{ superviseesError }}</div>
               <div v-if="!providerSurfacesEnabled" class="hint" style="margin-top: 8px;">
@@ -617,27 +724,34 @@
               <div v-else-if="scheduleViewMode !== 'self' && !currentAgencyId" class="hint" style="margin-top: 8px;">
                 Select an organization to view your schedule.
               </div>
+              <div v-else-if="scheduleViewAsRequiresOrg && !currentAgencyId" class="hint" style="margin-top: 8px;">
+                Select an organization to load this team member’s schedule.
+              </div>
               <div v-else-if="isSupervisor(authStore.user) && scheduleViewMode === 'supervisee' && superviseeScheduleUsers.length === 0" class="hint" style="margin-top: 8px;">
                 No supervisees match the current filter.
+              </div>
+              <div v-else-if="scheduleViewMode === 'employees' && !employeesDirectoryFilteredSorted.length" class="hint" style="margin-top: 8px;">
+                No employees match the current filter.
               </div>
               <ScheduleMultiUserOverlayGrid
                 v-else-if="scheduleViewMode === 'supervisee' && selectedSuperviseeId === 0 && superviseeScheduleUsers.length"
                 :user-ids="allSuperviseeUserIds"
                 :user-label-by-id="superviseeLabelById"
-                :agency-ids="[Number(currentAgencyId)]"
+                :agency-ids="scheduleScopedAgencyId ? [scheduleScopedAgencyId] : []"
                 :week-start-ymd="activeScheduleWeekStartYmd || null"
                 :hide-google-and-therapy-notes="isClubContext"
                 @update:weekStartYmd="onScheduleWeekStartUpdate"
               />
               <ScheduleAvailabilityGrid
                 ref="scheduleGridRef"
-                v-else-if="authStore.user?.id && scheduleGridUserId"
+                v-else-if="authStore.user?.id && scheduleGridUserId && !(scheduleViewAsRequiresOrg && !currentAgencyId)"
                 :user-id="scheduleGridUserId"
-                :agency-id="scheduleViewMode === 'self' ? null : Number(currentAgencyId)"
+                :agency-id="scheduleGridAgencyProp"
+                :agency-ids="scheduleGridAgencyIdsForAdminPreview"
                 :mode="scheduleGridMode"
                 :week-start-ymd="activeScheduleWeekStartYmd || null"
                 :hide-office-and-calendar-integration="isClubContext"
-                :show-skill-builders-programs-button="skillBuildersProgramsPickerRoleOk && scheduleViewMode === 'self'"
+                :show-skill-builders-programs-button="skillBuildersProgramsPickerRoleOk"
                 @update:weekStartYmd="onScheduleWeekStartUpdate"
                 @open-skill-builders-programs="goSkillBuildersProgramsPage"
               />
@@ -1179,6 +1293,7 @@ import UserPreferencesHub from '../components/UserPreferencesHub.vue';
 import AdditionalAvailabilitySubmit from '../components/AdditionalAvailabilitySubmit.vue';
 import VirtualWorkingHoursEditor from '../components/availability/VirtualWorkingHoursEditor.vue';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
+import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 import ScheduleMultiUserOverlayGrid from '../components/schedule/ScheduleMultiUserOverlayGrid.vue';
 import CredentialsView from './CredentialsView.vue';
 import AccountInfoView from './AccountInfoView.vue';
@@ -1285,6 +1400,8 @@ const subCoordinatorProgramOrgs = ref([]);
 
 const railCollapsedMode = ref(false);
 const railHoverExpanded = ref(false);
+/** Debounce rail hover collapse so layout reflow doesn't fire mouseleave/enter loops. */
+let railHoverLeaveTimer = null;
 const RAIL_EXPAND_PINNED_KEY = 'dashboard.railExpandPinned.v1';
 const railExpandPinned = ref((() => {
   try {
@@ -1468,13 +1585,16 @@ const closeLastPaycheckModal = () => {
 };
 
 // Supervisor schedule picker (inside My Schedule card)
-const scheduleViewMode = ref('self'); // 'self' | 'supervisee'
+const scheduleViewMode = ref('self'); // 'self' | 'supervisee' | 'employees'
 const myScheduleStageRef = ref(null);
 const scheduleGridRef = ref(null);
 
 /** When clicking "My schedule" tab: switch to self view and snap to Open finder (main page). */
 const onMyScheduleClick = () => {
   applyScheduleStageThemeIntent();
+  if (scheduleViewMode.value === 'supervisee') {
+    myScheduleViewAsUserId.value = 0;
+  }
   scheduleViewMode.value = 'self';
   nextTick(() => scheduleGridRef.value?.resetToOpenFinder?.());
 };
@@ -1488,14 +1608,24 @@ const superviseeSortDir = ref('asc'); // 'asc' | 'desc'
 const superviseeQuery = ref('');
 const selfScheduleWeekStartYmd = ref('');
 const superviseeScheduleWeekStartYmd = ref('');
+/** Org directory (admin/staff/etc.): full ScheduleAvailabilityGrid + Next/Prev employee. */
+const employeeSortKey = ref('name'); // 'name' | 'agency'
+const employeeSortDir = ref('asc'); // 'asc' | 'desc'
+const employeeQuery = ref('');
+const selectedEmployeeDirectoryId = ref(0);
+const employeeScheduleWeekStartYmd = ref('');
 const SCHEDULE_VIEW_PREF_PREFIX = 'dashboard.scheduleViewPref.v1';
+
+/** Admin/staff/etc.: view another user’s grid while the “My schedule” tab is active (searchable picker). */
+const myScheduleViewAsUserId = ref(0);
+const employeeSchedulePickerLoading = ref(false);
+const employeeSchedulePickerUsersRaw = ref([]);
 
 // If an icon URL 404s (or otherwise fails to load), show a simple fallback glyph.
 const failedRailIconIds = ref(new Set());
 const onRailIconError = (card, event) => {
   try {
     failedRailIconIds.value.add(String(card?.id));
-    // best-effort debugging
     console.warn('[Dashboard] Icon failed to load', {
       cardId: card?.id,
       label: card?.label,
@@ -1505,6 +1635,24 @@ const onRailIconError = (card, event) => {
     // ignore
   }
 };
+
+function onDashboardRailWrapEnter() {
+  if (!railCollapsedMode.value) return;
+  if (railHoverLeaveTimer) {
+    clearTimeout(railHoverLeaveTimer);
+    railHoverLeaveTimer = null;
+  }
+  railHoverExpanded.value = true;
+}
+
+function onDashboardRailWrapLeave() {
+  if (!railCollapsedMode.value) return;
+  if (railHoverLeaveTimer) clearTimeout(railHoverLeaveTimer);
+  railHoverLeaveTimer = setTimeout(() => {
+    railHoverExpanded.value = false;
+    railHoverLeaveTimer = null;
+  }, 220);
+}
 const railIconFallback = (card) => {
   const label = String(card?.label || '').trim();
   if (!label) return '•';
@@ -1824,6 +1972,31 @@ const formatCompanyEventWhen = (event) => {
   return `${startsAt.toLocaleString()} (${recurrenceLabel})`;
 };
 
+/** Short date span for compact Skill Builders series rows (My Schedule). */
+const formatCompanyEventSeriesRangeCompact = (event) => {
+  const startsAt = new Date(event?.nextOccurrenceStart || event?.startsAt || 0);
+  const endsAt = new Date(event?.endsAt || 0);
+  const startOk = Number.isFinite(startsAt.getTime());
+  const endOk = Number.isFinite(endsAt.getTime());
+  if (startOk && endOk) return `${startsAt.toLocaleDateString()} – ${endsAt.toLocaleDateString()}`;
+  if (startOk) return startsAt.toLocaleDateString();
+  return 'Dates TBD';
+};
+
+const expandedSkillBuildersSeriesById = ref({});
+
+const isSkillBuildersSeriesCardExpanded = (eventId) =>
+  !!expandedSkillBuildersSeriesById.value[Number(eventId)];
+
+const toggleSkillBuildersSeriesCard = (eventId) => {
+  const id = Number(eventId);
+  if (!Number.isFinite(id)) return;
+  expandedSkillBuildersSeriesById.value = {
+    ...expandedSkillBuildersSeriesById.value,
+    [id]: !expandedSkillBuildersSeriesById.value[id]
+  };
+};
+
 const respondToCompanyEvent = async (event, responseKey) => {
   if (!event?.id || !responseKey) return;
   try {
@@ -1841,8 +2014,7 @@ const currentAgencyId = computed(() => {
   return currentAgency.value?.id || null;
 });
 
-const { momentumListEnabled } = useMomentumListAddon(currentAgencyId);
-
+/** Clinical/parent agency when the brand org is a school/program; else current org. Used for schedule API + directory matching. */
 const announcementAgencyId = computed(() => {
   const org = currentAgency.value;
   if (!org) return null;
@@ -1853,7 +2025,6 @@ const announcementAgencyId = computed(() => {
     return parentFromCurrent;
   }
 
-  // Fallback: sometimes currentAgency is a partial record; try matching against loaded user organizations.
   const orgId = Number(org.id || 0);
   if (orgId > 0) {
     const match = (agencyStore.userAgencies || []).find((item) => Number(item?.id || 0) === orgId);
@@ -1865,6 +2036,75 @@ const announcementAgencyId = computed(() => {
 
   return Number(org.id || 0) || null;
 });
+
+/** Per-org branding for dashboard rail icons and StaffCard; undefined when no org is selected. */
+const cardIconOrgOverride = computed(() => {
+  const id = Number(currentAgencyId.value || 0);
+  return id > 0 ? id : undefined;
+});
+
+watch(currentAgencyId, () => {
+  failedRailIconIds.value = new Set();
+});
+
+const canPickEmployeeSchedule = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(r);
+});
+
+const userSharesSchedulePickerAgencies = (u) => {
+  const raw = String(u?.agency_ids ?? u?.agencyIds ?? '');
+  const ids = raw.split(',').map((x) => Number(String(x).trim())).filter((n) => Number.isFinite(n) && n > 0);
+  const cur = Number(currentAgencyId.value || 0);
+  const ann = Number(announcementAgencyId.value || 0);
+  if (cur && ids.includes(cur)) return true;
+  if (ann && ids.includes(ann)) return true;
+  return false;
+};
+
+const employeeSchedulePickerOptions = computed(() => {
+  const me = Number(authStore.user?.id || 0);
+  return (employeeSchedulePickerUsersRaw.value || [])
+    .filter((u) => Number(u?.id || 0) > 0 && Number(u?.id || 0) !== me)
+    .filter(userSharesSchedulePickerAgencies)
+    .map((u) => ({
+      id: Number(u.id),
+      first_name: String(u.first_name || '').trim(),
+      last_name: String(u.last_name || '').trim(),
+      email: String(u.email || '').trim()
+    }))
+    .filter((u) => u.id > 0);
+});
+
+const clearMyScheduleViewAs = () => {
+  myScheduleViewAsUserId.value = 0;
+};
+
+const fetchUsersForEmployeeSchedulePicker = async () => {
+  if (!canPickEmployeeSchedule.value || props.previewMode) return;
+  try {
+    employeeSchedulePickerLoading.value = true;
+    const resp = await api.get('/users', { params: { _t: Date.now() }, skipGlobalLoading: true });
+    employeeSchedulePickerUsersRaw.value = Array.isArray(resp.data) ? resp.data : [];
+  } catch {
+    employeeSchedulePickerUsersRaw.value = [];
+  } finally {
+    employeeSchedulePickerLoading.value = false;
+  }
+};
+
+const isViewingAnotherUserOnMySchedule = computed(() => {
+  if (scheduleViewMode.value !== 'self') return false;
+  const v = Number(myScheduleViewAsUserId.value || 0);
+  const me = Number(authStore.user?.id || 0);
+  return Number.isFinite(v) && v > 0 && v !== me;
+});
+
+const scheduleViewAsRequiresOrg = computed(() =>
+  canPickEmployeeSchedule.value && isViewingAnotherUserOnMySchedule.value
+);
+
+const { momentumListEnabled } = useMomentumListAddon(currentAgencyId);
 
 const supervisionPromptRows = ref([]);
 const myChallenges = ref([]);
@@ -2106,7 +2346,21 @@ const loadScheduleViewPrefs = () => {
     if (!raw) return;
     const parsed = JSON.parse(raw);
     const mode = String(parsed?.mode || '').toLowerCase();
-    if (mode === 'self' || mode === 'supervisee') scheduleViewMode.value = mode;
+    const viewAs = Number(parsed?.viewAsUserId ?? 0);
+    const wantViewAs = canPickEmployeeSchedule.value && Number.isFinite(viewAs) && viewAs > 0;
+    const urlMode = String(route.query?.scheduleMode || '').toLowerCase();
+    const urlHasViewAs = String(route.query?.scheduleViewAs || '').trim().length > 0;
+    // Do not override an explicit supervisee-only URL (bookmark/share) with saved view-as prefs.
+    const prefsViewAsOk = !(urlMode === 'supervisee' && !urlHasViewAs);
+
+    // "View as" only applies in My schedule (self) mode. Restoring supervisee first triggers
+    // watch(scheduleViewMode) which clears myScheduleViewAsUserId — apply view-as + self before any supervisee mode.
+    if (wantViewAs && prefsViewAsOk && mode !== 'employees') {
+      scheduleViewMode.value = 'self';
+      myScheduleViewAsUserId.value = viewAs;
+    } else if (mode === 'self' || mode === 'supervisee' || (mode === 'employees' && canPickEmployeeSchedule.value)) {
+      scheduleViewMode.value = mode;
+    }
     const sid = Number(parsed?.superviseeId ?? 0);
     selectedSuperviseeId.value = Number.isFinite(sid) && sid >= 0 ? sid : 0;
     const sortKey = String(parsed?.sortKey || '').toLowerCase();
@@ -2114,10 +2368,21 @@ const loadScheduleViewPrefs = () => {
     const sortDir = String(parsed?.sortDir || '').toLowerCase();
     if (sortDir === 'asc' || sortDir === 'desc') superviseeSortDir.value = sortDir;
     superviseeQuery.value = String(parsed?.query || '');
+    const empSortKey = String(parsed?.employeeSortKey || '').toLowerCase();
+    if (empSortKey === 'name' || empSortKey === 'agency') employeeSortKey.value = empSortKey;
+    const empSortDir = String(parsed?.employeeSortDir || '').toLowerCase();
+    if (empSortDir === 'asc' || empSortDir === 'desc') employeeSortDir.value = empSortDir;
+    employeeQuery.value = String(parsed?.employeeQuery || '');
+    const empId = Number(parsed?.employeeDirectoryId ?? 0);
+    if (Number.isFinite(empId) && empId > 0 && canPickEmployeeSchedule.value) {
+      selectedEmployeeDirectoryId.value = empId;
+    }
     const selfWeek = String(parsed?.selfWeekStartYmd || '').slice(0, 10);
     const superviseeWeek = String(parsed?.superviseeWeekStartYmd || '').slice(0, 10);
+    const employeeWeek = String(parsed?.employeeWeekStartYmd || '').slice(0, 10);
     selfScheduleWeekStartYmd.value = /^\d{4}-\d{2}-\d{2}$/.test(selfWeek) ? selfWeek : '';
     superviseeScheduleWeekStartYmd.value = /^\d{4}-\d{2}-\d{2}$/.test(superviseeWeek) ? superviseeWeek : '';
+    employeeScheduleWeekStartYmd.value = /^\d{4}-\d{2}-\d{2}$/.test(employeeWeek) ? employeeWeek : '';
   } catch {
     // ignore malformed local preferences
   }
@@ -2125,7 +2390,8 @@ const loadScheduleViewPrefs = () => {
 
 const saveScheduleViewPrefs = () => {
   const key = String(scheduleViewPrefKey.value || '');
-  if (!key || !isSupervisor(authStore.user)) return;
+  if (!key) return;
+  if (!isSupervisor(authStore.user) && !canPickEmployeeSchedule.value) return;
   try {
     window.localStorage.setItem(key, JSON.stringify({
       mode: scheduleViewMode.value,
@@ -2133,8 +2399,14 @@ const saveScheduleViewPrefs = () => {
       sortKey: superviseeSortKey.value,
       sortDir: superviseeSortDir.value,
       query: superviseeQuery.value,
+      employeeSortKey: employeeSortKey.value,
+      employeeSortDir: employeeSortDir.value,
+      employeeQuery: employeeQuery.value,
+      employeeDirectoryId: Number(selectedEmployeeDirectoryId.value || 0),
       selfWeekStartYmd: selfScheduleWeekStartYmd.value || null,
-      superviseeWeekStartYmd: superviseeScheduleWeekStartYmd.value || null
+      superviseeWeekStartYmd: superviseeScheduleWeekStartYmd.value || null,
+      employeeWeekStartYmd: employeeScheduleWeekStartYmd.value || null,
+      viewAsUserId: canPickEmployeeSchedule.value ? Number(myScheduleViewAsUserId.value || 0) : 0
     }));
   } catch {
     // ignore storage limits/private mode
@@ -2191,8 +2463,14 @@ const superviseesFilteredSorted = computed(() => {
 });
 
 const scheduleGridUserId = computed(() => {
-  if (scheduleViewMode.value === 'self') return Number(authStore.user?.id || 0);
+  if (scheduleViewMode.value === 'self') {
+    const v = Number(myScheduleViewAsUserId.value || 0);
+    const me = Number(authStore.user?.id || 0);
+    if (Number.isFinite(v) && v > 0 && v !== me) return v;
+    return me;
+  }
   if (scheduleViewMode.value === 'supervisee') return Number(selectedSuperviseeId.value || 0);
+  if (scheduleViewMode.value === 'employees') return Number(selectedEmployeeDirectoryId.value || 0);
   return 0;
 });
 
@@ -2220,23 +2498,214 @@ const superviseeLabelById = computed(() => {
   return out;
 });
 
-const activeScheduleWeekStartYmd = computed(() => (
-  scheduleViewMode.value === 'supervisee'
-    ? String(superviseeScheduleWeekStartYmd.value || '').trim()
-    : String(selfScheduleWeekStartYmd.value || '').trim()
-));
+const employeeName = (s) => {
+  const first = String(s?.firstName || '').trim();
+  const last = String(s?.lastName || '').trim();
+  return `${first} ${last}`.trim() || `User ${Number(s?.id || 0)}`;
+};
+
+const employeeInitials = (s) => {
+  const first = String(s?.firstName || '').trim();
+  const last = String(s?.lastName || '').trim();
+  return `${first.slice(0, 1)}${last.slice(0, 1)}`.toUpperCase() || '?';
+};
+
+const employeeDirectoryLabel = (s) => {
+  const name = employeeName(s);
+  const ag = String(s?.agencyName || '').trim();
+  return ag ? `${name} (${ag})` : name;
+};
+
+const employeesDirectoryRows = computed(() => {
+  const me = Number(authStore.user?.id || 0);
+  return (employeeSchedulePickerUsersRaw.value || [])
+    .filter((u) => Number(u?.id || 0) > 0 && Number(u?.id || 0) !== me)
+    .filter(userSharesSchedulePickerAgencies)
+    .map((u) => ({
+      id: Number(u.id),
+      firstName: String(u.first_name || '').trim(),
+      lastName: String(u.last_name || '').trim(),
+      agencyName: String(u.agencies || u.agency_name || '').trim() || '—',
+      label: ''
+    }))
+    .map((s) => ({ ...s, label: employeeDirectoryLabel(s) }));
+});
+
+const employeesDirectoryFilteredSorted = computed(() => {
+  const q = String(employeeQuery.value || '').trim().toLowerCase();
+  const key = String(employeeSortKey.value || 'name');
+  const dir = String(employeeSortDir.value || 'asc') === 'desc' ? -1 : 1;
+  const normNameKey = (s) => `${String(s?.lastName || '').toLowerCase()}|${String(s?.firstName || '').toLowerCase()}`;
+  const normAgencyKey = (s) => `${String(s?.agencyName || '').toLowerCase()}|${normNameKey(s)}`;
+  return (employeesDirectoryRows.value || [])
+    .filter((s) => {
+      if (!q) return true;
+      const hay = `${s.firstName} ${s.lastName} ${s.agencyName}`.toLowerCase();
+      return hay.includes(q);
+    })
+    .slice()
+    .sort((a, b) => {
+      const ka = key === 'agency' ? normAgencyKey(a) : normNameKey(a);
+      const kb = key === 'agency' ? normAgencyKey(b) : normNameKey(b);
+      return dir * ka.localeCompare(kb);
+    });
+});
+
+const employeeNavPositionLabel = computed(() => {
+  if (scheduleViewMode.value !== 'employees') return '';
+  const list = employeesDirectoryFilteredSorted.value || [];
+  const uid = Number(selectedEmployeeDirectoryId.value || 0);
+  if (!list.length || !uid) return '';
+  const idx = list.findIndex((s) => Number(s.id) === uid);
+  if (idx < 0) return '';
+  return `${idx + 1} of ${list.length}`;
+});
+
+const stepEmployeeDirectory = (delta) => {
+  const list = employeesDirectoryFilteredSorted.value || [];
+  if (!list.length) return;
+  const ids = list.map((s) => Number(s.id));
+  const cur = Number(selectedEmployeeDirectoryId.value || 0);
+  let idx = ids.indexOf(cur);
+  if (idx < 0) idx = 0;
+  else idx = (idx + delta + ids.length) % ids.length;
+  selectedEmployeeDirectoryId.value = ids[idx];
+};
+
+const activeScheduleWeekStartYmd = computed(() => {
+  if (scheduleViewMode.value === 'supervisee') return String(superviseeScheduleWeekStartYmd.value || '').trim();
+  if (scheduleViewMode.value === 'employees') return String(employeeScheduleWeekStartYmd.value || '').trim();
+  return String(selfScheduleWeekStartYmd.value || '').trim();
+});
 
 const onScheduleWeekStartUpdate = (nextYmd) => {
   const next = String(nextYmd || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) return;
   if (scheduleViewMode.value === 'supervisee') {
     superviseeScheduleWeekStartYmd.value = next;
+  } else if (scheduleViewMode.value === 'employees') {
+    employeeScheduleWeekStartYmd.value = next;
   } else {
     selfScheduleWeekStartYmd.value = next;
   }
 };
 
-const scheduleGridMode = computed(() => (scheduleViewMode.value === 'self' ? 'self' : 'admin'));
+const scheduleGridMode = computed(() => {
+  if (scheduleViewMode.value === 'supervisee') return 'admin';
+  if (scheduleViewMode.value === 'employees') return 'admin';
+  if (isViewingAnotherUserOnMySchedule.value) return 'admin';
+  return 'self';
+});
+
+const scheduleGridAgencyProp = computed(() => {
+  if (scheduleViewMode.value === 'self' && !isViewingAnotherUserOnMySchedule.value) return null;
+  const n = Number(announcementAgencyId.value || currentAgencyId.value || 0);
+  return Number.isFinite(n) && n > 0 ? n : null;
+});
+
+/**
+ * When previewing another employee (View as or Employee schedules), merge org scope: brand org,
+ * clinical parent, and the target user's agency_ids. ScheduleAvailabilityGrid merges multi-id loads.
+ */
+const scheduleGridAgencyIdsForAdminPreview = computed(() => {
+  let uid = 0;
+  if (isViewingAnotherUserOnMySchedule.value) uid = Number(myScheduleViewAsUserId.value || 0);
+  else if (scheduleViewMode.value === 'employees') uid = Number(selectedEmployeeDirectoryId.value || 0);
+  else return null;
+  if (!uid) return null;
+  const ids = new Set();
+  const cur = Number(currentAgencyId.value || 0);
+  const ann = Number(announcementAgencyId.value || 0);
+  if (cur) ids.add(cur);
+  if (ann) ids.add(ann);
+  const raw = (employeeSchedulePickerUsersRaw.value || []).find((u) => Number(u?.id || 0) === uid);
+  const rawAgencies = String(raw?.agency_ids ?? raw?.agencyIds ?? '');
+  rawAgencies
+    .split(',')
+    .map((x) => Number(String(x).trim()))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .forEach((n) => ids.add(n));
+  const arr = Array.from(ids.values());
+  return arr.length ? arr : null;
+});
+
+/** Single agency id for schedule-summary when scoping to “current” org (includes clinical parent for schools). */
+const scheduleScopedAgencyId = computed(() => {
+  const n = Number(announcementAgencyId.value || currentAgencyId.value || 0);
+  return Number.isFinite(n) && n > 0 ? n : null;
+});
+
+const scheduleSubjectDisplayName = computed(() => {
+  const uid = Number(scheduleGridUserId.value || 0);
+  const me = Number(authStore.user?.id || 0);
+  if (!uid) return '';
+  if (uid === me) {
+    const fn = String(authStore.user?.first_name || '').trim();
+    const ln = String(authStore.user?.last_name || '').trim();
+    return `${fn} ${ln}`.trim() || 'You';
+  }
+  const fromPicker = (employeeSchedulePickerOptions.value || []).find((u) => Number(u.id) === uid);
+  if (fromPicker) {
+    const t = `${fromPicker.first_name || ''} ${fromPicker.last_name || ''}`.trim();
+    if (t) return t;
+  }
+  const fromRaw = (employeeSchedulePickerUsersRaw.value || []).find((u) => Number(u.id) === uid);
+  if (fromRaw) {
+    const t = `${String(fromRaw.first_name || '').trim()} ${String(fromRaw.last_name || '').trim()}`.trim();
+    if (t) return t;
+  }
+  const sup = (supervisees.value || []).find((s) => Number(s.id) === uid);
+  if (sup) return superviseeName(sup);
+  return `User ${uid}`;
+});
+
+const scheduleViewHeadline = computed(() => {
+  if (scheduleViewMode.value === 'supervisee') {
+    const sid = Number(selectedSuperviseeId.value || 0);
+    if (sid <= 0) return 'Supervisees — combined';
+    const name = scheduleSubjectDisplayName.value || 'Supervisee';
+    return `${name}'s schedule`;
+  }
+  if (scheduleViewMode.value === 'employees') {
+    const name = scheduleSubjectDisplayName.value || 'Employee';
+    return `${name}'s schedule`;
+  }
+  if (isViewingAnotherUserOnMySchedule.value) {
+    const name = scheduleSubjectDisplayName.value || 'Team member';
+    return `${name}'s schedule`;
+  }
+  return 'My schedule';
+});
+
+const scheduleViewContextIsOther = computed(() => {
+  if (isViewingAnotherUserOnMySchedule.value) return true;
+  if (scheduleViewMode.value === 'supervisee' && Number(selectedSuperviseeId.value || 0) > 0) return true;
+  if (scheduleViewMode.value === 'employees' && Number(selectedEmployeeDirectoryId.value || 0) > 0) return true;
+  return false;
+});
+
+const scheduleViewContextLine = computed(() => {
+  const fn = String(authStore.user?.first_name || '').trim();
+  const ln = String(authStore.user?.last_name || '').trim();
+  const you = `${fn} ${ln}`.trim() || 'your account';
+  if (scheduleViewMode.value === 'supervisee') {
+    const sid = Number(selectedSuperviseeId.value || 0);
+    if (sid <= 0) {
+      return `Combined overlay of every supervisee in the chip row (not only yours). You are still ${you}.`;
+    }
+    const name = scheduleSubjectDisplayName.value || 'this supervisee';
+    return `Showing ${name}'s calendar — the same weekly view they see. You are still ${you}.`;
+  }
+  if (scheduleViewMode.value === 'employees') {
+    const name = scheduleSubjectDisplayName.value || 'this team member';
+    return `Employee directory — ${name}'s calendar. Use Next employee to walk the list. You are still ${you}.`;
+  }
+  if (isViewingAnotherUserOnMySchedule.value) {
+    const name = scheduleSubjectDisplayName.value || 'this team member';
+    return `Showing ${name}'s calendar — the same weekly view they see. Admin preview; you are still ${you}.`;
+  }
+  return `Your calendar · ${you}`;
+});
 
 const tabs = computed(() => [
   { id: 'checklist', label: momentumListEnabled.value ? 'Momentum List' : 'Checklist', badgeCount: checklistCount.value },
@@ -2437,15 +2906,13 @@ const dashboardCards = computed(() => {
   const isLimitedAccessNonProvider =
     !isTrueAdmin && !isProviderLikeForSubmissions && (isSup || !!caps?.canManageHiring || !!caps?.canManagePayroll);
 
-  // Use the current organization (when selected) for icon overrides.
-  // If none is selected, we fall back to platform branding inside `getDashboardCardIconUrl`.
-  const cardIconOrgOverride = undefined;
+  const iconOrg = cardIconOrgOverride.value;
   const cards = filteredTabs.value.map((t) => ({
     ...t,
     kind: 'content',
     iconUrl: brandingStore.getDashboardCardIconUrl(
       t.id === 'checklist' && momentumListEnabled.value ? 'momentum_list' : t.id,
-      cardIconOrgOverride
+      iconOrg
     ),
     description:
       t.id === 'checklist'
@@ -2465,7 +2932,7 @@ const dashboardCards = computed(() => {
         label: 'My Schedule',
         kind: 'content',
         badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
+        iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
         description: 'View weekly schedule and request availability from the grid.'
       });
       if (schoolPortalToggleCard.value) cards.push(schoolPortalToggleCard.value);
@@ -2478,7 +2945,7 @@ const dashboardCards = computed(() => {
           label: 'Clients',
           kind: 'content',
           badgeCount: providerPendingClientsCount.value || 0,
-          iconUrl: brandingStore.getDashboardCardIconUrl('clients', cardIconOrgOverride),
+          iconUrl: brandingStore.getDashboardCardIconUrl('clients', iconOrg),
           description: 'Your caseload by school with psychotherapy fiscal-year totals.'
         });
         if (providerSurfacesEnabled.value && !isClubContext.value) {
@@ -2487,7 +2954,7 @@ const dashboardCards = computed(() => {
             label: 'Submit',
             kind: 'content',
             badgeCount: 0,
-            iconUrl: brandingStore.getDashboardCardIconUrl('submit', cardIconOrgOverride),
+            iconUrl: brandingStore.getDashboardCardIconUrl('submit', iconOrg),
             description: 'Submit mileage, in-school claims, and more.'
           });
         }
@@ -2497,7 +2964,7 @@ const dashboardCards = computed(() => {
             label: 'Payroll',
             kind: 'content',
             badgeCount: 0,
-            iconUrl: brandingStore.getDashboardCardIconUrl('payroll', cardIconOrgOverride),
+            iconUrl: brandingStore.getDashboardCardIconUrl('payroll', iconOrg),
             description: 'Your payroll history by pay period.'
           });
         }
@@ -2507,7 +2974,7 @@ const dashboardCards = computed(() => {
             label: 'My Shifts',
             kind: 'content',
             badgeCount: 0,
-            iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
+            iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
             description: 'Program shift schedule, sign up, and call-off.'
           });
         }
@@ -2517,7 +2984,7 @@ const dashboardCards = computed(() => {
             label: 'Skill Builders',
             kind: 'modal',
             badgeCount: 0,
-            iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', cardIconOrgOverride),
+            iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', iconOrg),
             description: 'Availability, events, and Skill Builders work schedule.'
           });
         }
@@ -2534,7 +3001,7 @@ const dashboardCards = computed(() => {
           label: 'Tools & Aids',
           kind: 'content',
           badgeCount: 0,
-          iconUrl: brandingStore.getDashboardCardIconUrl('tools_aids', cardIconOrgOverride),
+          iconUrl: brandingStore.getDashboardCardIconUrl('tools_aids', iconOrg),
           description: 'Note Aid and upcoming clinical tools.'
         });
       }
@@ -2546,7 +3013,7 @@ const dashboardCards = computed(() => {
             label: 'My Shifts',
             kind: 'content',
             badgeCount: 0,
-            iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
+            iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
             description: 'Program shift schedule, sign up, and call-off.'
           });
         }
@@ -2557,7 +3024,7 @@ const dashboardCards = computed(() => {
       label: 'My Account',
       kind: 'content',
       badgeCount: 0,
-      iconUrl: brandingStore.getDashboardCardIconUrl('my', cardIconOrgOverride),
+      iconUrl: brandingStore.getDashboardCardIconUrl('my', iconOrg),
       description: 'Account info, credentials, and personal preferences.'
     });
     if (!isClubContext.value) {
@@ -2566,7 +3033,7 @@ const dashboardCards = computed(() => {
         label: 'On-Demand Training',
         kind: 'content',
         badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('on_demand_training', cardIconOrgOverride),
+        iconUrl: brandingStore.getDashboardCardIconUrl('on_demand_training', iconOrg),
         description: 'Always available after onboarding is complete.'
       });
     }
@@ -2577,7 +3044,7 @@ const dashboardCards = computed(() => {
         label: isClubContext.value ? 'Current Seasons' : 'Challenges',
         kind: 'content',
         badgeCount: myChallenges.value.length,
-        iconUrl: brandingStore.getDashboardCardIconUrl('challenges', cardIconOrgOverride),
+        iconUrl: brandingStore.getDashboardCardIconUrl('challenges', iconOrg),
         description: isClubContext.value ? 'Your enrolled seasons. View leaderboards and log workouts.' : 'Your assigned fitness challenges. View leaderboards and log workouts.'
       });
     }
@@ -2591,7 +3058,7 @@ const dashboardCards = computed(() => {
         kind: 'action',
         to,
         badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('challenges', cardIconOrgOverride),
+        iconUrl: brandingStore.getDashboardCardIconUrl('challenges', iconOrg),
         description: 'Create a new fitness challenge season for your club.'
       });
     }
@@ -2602,7 +3069,7 @@ const dashboardCards = computed(() => {
         label: 'Feed',
         kind: 'content',
         badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('social_feeds', cardIconOrgOverride),
+        iconUrl: brandingStore.getDashboardCardIconUrl('social_feeds', iconOrg),
         description: 'Organization feed and school updates in one place.'
       });
     }
@@ -2615,7 +3082,7 @@ const dashboardCards = computed(() => {
           label: 'Communications',
           kind: 'content',
           badgeCount: 0,
-          iconUrl: brandingStore.getDashboardCardIconUrl('communications', cardIconOrgOverride),
+          iconUrl: brandingStore.getDashboardCardIconUrl('communications', iconOrg),
           description: 'SMS inbox, calls, and delivery automation workspace.'
         });
       }
@@ -2625,7 +3092,7 @@ const dashboardCards = computed(() => {
         label: 'Chats',
         kind: 'content',
         badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('chats', cardIconOrgOverride),
+        iconUrl: brandingStore.getDashboardCardIconUrl('chats', iconOrg),
         description: isClubContext.value ? 'Club members online.' : 'Direct messages in the platform.'
       });
       if (!isClubContext.value) {
@@ -2634,7 +3101,7 @@ const dashboardCards = computed(() => {
           label: 'Contacts',
           kind: 'content',
           badgeCount: 0,
-          iconUrl: brandingStore.getDashboardCardIconUrl('contacts', cardIconOrgOverride),
+          iconUrl: brandingStore.getDashboardCardIconUrl('contacts', iconOrg),
           description: 'Agency contacts for mass communications and outreach.'
         });
       }
@@ -2646,7 +3113,7 @@ const dashboardCards = computed(() => {
       label: 'Notifications',
       kind: 'content',
       badgeCount: 0,
-      iconUrl: brandingStore.getDashboardCardIconUrl('notifications', cardIconOrgOverride),
+      iconUrl: brandingStore.getDashboardCardIconUrl('notifications', iconOrg),
       description: 'Your recent notifications.'
     });
     // Supervision card (supervisors only) – hidden for clubs (no supervision)
@@ -2656,7 +3123,7 @@ const dashboardCards = computed(() => {
         label: 'Supervision',
         kind: 'content',
         badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('supervision', cardIconOrgOverride),
+        iconUrl: brandingStore.getDashboardCardIconUrl('supervision', iconOrg),
         description: 'View and support your supervisees.'
       });
     }
@@ -2667,7 +3134,7 @@ const dashboardCards = computed(() => {
         label: 'My Supervision',
         kind: 'content',
         badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('supervision', cardIconOrgOverride),
+        iconUrl: brandingStore.getDashboardCardIconUrl('supervision', iconOrg),
         description: 'Your supervision sessions, transcripts, and summaries.'
       });
     }
@@ -2678,7 +3145,7 @@ const dashboardCards = computed(() => {
         label: 'Providers',
         kind: 'content',
         badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('supervision', cardIconOrgOverride),
+        iconUrl: brandingStore.getDashboardCardIconUrl('supervision', iconOrg),
         description: 'View and support all providers in your organization.'
       });
     }
@@ -2932,10 +3399,32 @@ const syncFromQuery = () => {
   }
 
   if (String(qTab || '') === 'my_schedule') {
+    // Resolve scheduleViewAs before scheduleMode=supervisee. During router.replace the query can
+    // briefly include both; supervisee-first would clear view-as and cause flicker / reset to "my" schedule.
+    const rawViewAs = String(route.query?.scheduleViewAs || '').trim();
+    if (rawViewAs && canPickEmployeeSchedule.value) {
+      const qViewAs = Number.parseInt(rawViewAs, 10);
+      if (Number.isFinite(qViewAs) && qViewAs > 0) {
+        scheduleViewMode.value = 'self';
+        myScheduleViewAsUserId.value = qViewAs;
+        return;
+      }
+    }
+
     const qScheduleMode = String(route.query?.scheduleMode || '').toLowerCase();
-    if (qScheduleMode === 'self') scheduleViewMode.value = 'self';
+    if (qScheduleMode === 'employees' && canPickEmployeeSchedule.value) {
+      scheduleViewMode.value = 'employees';
+      myScheduleViewAsUserId.value = 0;
+      const qEmpRaw = String(route.query?.employeeId || '').trim();
+      const qEmp = Number.parseInt(qEmpRaw, 10);
+      if (Number.isFinite(qEmp) && qEmp > 0) {
+        selectedEmployeeDirectoryId.value = qEmp;
+      }
+      return;
+    }
     if (qScheduleMode === 'supervisee') {
       scheduleViewMode.value = 'supervisee';
+      myScheduleViewAsUserId.value = 0;
       const qSuperviseeRaw = String(route.query?.superviseeId || '').trim().toLowerCase();
       if (qSuperviseeRaw === 'all') {
         selectedSuperviseeId.value = 0;
@@ -2945,6 +3434,8 @@ const syncFromQuery = () => {
           selectedSuperviseeId.value = qSuperviseeId;
         }
       }
+    } else {
+      if (qScheduleMode === 'self') scheduleViewMode.value = 'self';
     }
   }
 };
@@ -3264,7 +3755,7 @@ watch(() => [props.previewStatus, props.previewData], () => {
   }
 }, { deep: true });
 
-watch(() => [route.query?.tab, route.query?.my, route.query?.scheduleMode, route.query?.superviseeId], () => {
+watch(() => [route.query?.tab, route.query?.my, route.query?.scheduleMode, route.query?.superviseeId, route.query?.employeeId, route.query?.scheduleViewAs], () => {
   syncFromQuery();
 });
 
@@ -3336,29 +3827,56 @@ watch([
   superviseeSortDir,
   superviseeQuery,
   selfScheduleWeekStartYmd,
-  superviseeScheduleWeekStartYmd
+  superviseeScheduleWeekStartYmd,
+  myScheduleViewAsUserId,
+  employeeSortKey,
+  employeeSortDir,
+  employeeQuery,
+  selectedEmployeeDirectoryId,
+  employeeScheduleWeekStartYmd
 ], () => {
   saveScheduleViewPrefs();
 });
 
-watch([activeTab, scheduleViewMode, selectedSuperviseeId], () => {
+watch([activeTab, scheduleViewMode, selectedSuperviseeId, selectedEmployeeDirectoryId, myScheduleViewAsUserId], () => {
   if (props.previewMode) return;
   if (activeTab.value !== 'my_schedule') return;
   const nextQuery = { ...route.query, tab: 'my_schedule' };
-  if (scheduleViewMode.value === 'supervisee') {
+  if (scheduleViewMode.value === 'employees') {
+    nextQuery.scheduleMode = 'employees';
+    const eid = Number(selectedEmployeeDirectoryId.value || 0);
+    if (eid > 0) nextQuery.employeeId = String(eid);
+    else delete nextQuery.employeeId;
+    delete nextQuery.superviseeId;
+    delete nextQuery.scheduleViewAs;
+  } else if (scheduleViewMode.value === 'supervisee') {
     nextQuery.scheduleMode = 'supervisee';
     nextQuery.superviseeId = Number(selectedSuperviseeId.value || 0) > 0
       ? String(Number(selectedSuperviseeId.value || 0))
       : 'all';
+    delete nextQuery.scheduleViewAs;
+    delete nextQuery.employeeId;
   } else {
     delete nextQuery.scheduleMode;
     delete nextQuery.superviseeId;
+    delete nextQuery.employeeId;
+    const v = Number(myScheduleViewAsUserId.value || 0);
+    const me = Number(authStore.user?.id || 0);
+    if (canPickEmployeeSchedule.value && Number.isFinite(v) && v > 0 && v !== me) {
+      nextQuery.scheduleViewAs = String(v);
+    } else {
+      delete nextQuery.scheduleViewAs;
+    }
   }
   const currentMode = String(route.query?.scheduleMode || '');
   const currentId = String(route.query?.superviseeId || '');
+  const currentEmp = String(route.query?.employeeId || '');
+  const currentViewAs = String(route.query?.scheduleViewAs || '');
   const nextMode = String(nextQuery.scheduleMode || '');
   const nextId = String(nextQuery.superviseeId || '');
-  if (currentMode === nextMode && currentId === nextId) return;
+  const nextEmp = String(nextQuery.employeeId || '');
+  const nextViewAs = String(nextQuery.scheduleViewAs || '');
+  if (currentMode === nextMode && currentId === nextId && currentEmp === nextEmp && currentViewAs === nextViewAs) return;
   router.replace({ query: nextQuery });
 });
 
@@ -3541,8 +4059,6 @@ onMounted(async () => {
   runCollapsedAttentionPulse();
 
   updateRailCollapsedMode();
-  railMediaQuery = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)');
-  if (railMediaQuery) railMediaQuery.addEventListener('change', updateRailCollapsedMode);
   railPulseTimer = setTimeout(() => { railPulse.value = false; }, RAIL_PULSE_DURATION_MS);
   // Use document as source of truth so toggle always matches actual applied theme
   isDarkMode.value = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -3602,7 +4118,53 @@ watch([activeTab, currentAgencyId, () => authStore.user?.id], async () => {
   await fetchSuperviseesForSchedule();
 }, { immediate: true });
 
-// Collapse rail to icon-only for all dashboard views; expand on hover.
+watch(scheduleViewMode, (m) => {
+  if (m === 'supervisee' || m === 'employees') myScheduleViewAsUserId.value = 0;
+  if (m === 'self') selectedEmployeeDirectoryId.value = 0;
+});
+
+watch(
+  () => [scheduleViewMode.value, employeesDirectoryFilteredSorted.value, employeeSchedulePickerLoading.value],
+  () => {
+    if (scheduleViewMode.value !== 'employees') return;
+    if (employeeSchedulePickerLoading.value) return;
+    const list = employeesDirectoryFilteredSorted.value || [];
+    if (!list.length) {
+      selectedEmployeeDirectoryId.value = 0;
+      return;
+    }
+    const sid = Number(selectedEmployeeDirectoryId.value || 0);
+    if (!sid || !list.some((s) => Number(s.id) === sid)) {
+      selectedEmployeeDirectoryId.value = list[0].id;
+    }
+  },
+  { immediate: true }
+);
+
+// Admin/staff/provider_plus: directory for “view as” schedule search.
+watch([activeTab, currentAgencyId, () => authStore.user?.id, canPickEmployeeSchedule], async () => {
+  if (props.previewMode) return;
+  if (activeTab.value !== 'my_schedule') return;
+  if (!isOnboardingComplete.value) return;
+  if (!canPickEmployeeSchedule.value) return;
+  await fetchUsersForEmployeeSchedulePicker();
+}, { immediate: true });
+
+watch([employeeSchedulePickerOptions, myScheduleViewAsUserId, currentAgencyId, employeeSchedulePickerLoading], () => {
+  const id = Number(myScheduleViewAsUserId.value || 0);
+  const me = Number(authStore.user?.id || 0);
+  if (!id || id === me) return;
+  if (!currentAgencyId.value) return;
+  if (employeeSchedulePickerLoading.value) return;
+  const opts = employeeSchedulePickerOptions.value || [];
+  const ok = opts.some((u) => Number(u.id) === id);
+  if (ok) return;
+  const raw = (employeeSchedulePickerUsersRaw.value || []).find((u) => Number(u?.id || 0) === id);
+  if (raw && userSharesSchedulePickerAgencies(raw)) return;
+  myScheduleViewAsUserId.value = 0;
+});
+
+// Collapse rail to icon-only; hover on .dashboard-rail-wrap expands labels (see debounced handlers).
 function updateRailCollapsedMode() {
   railCollapsedMode.value = true;
 }
@@ -3618,9 +4180,8 @@ watch(railExpandPinned, (v) => {
   } catch { /* ignore */ }
 });
 let railPulseTimer = null;
-let railMediaQuery = null;
 onUnmounted(() => {
-  if (railMediaQuery) railMediaQuery.removeEventListener('change', updateRailCollapsedMode);
+  if (railHoverLeaveTimer) clearTimeout(railHoverLeaveTimer);
   if (railPulseTimer) clearTimeout(railPulseTimer);
   if (darkModeObserver) darkModeObserver.disconnect();
   document.removeEventListener('pointerdown', handleDocumentPointerDown);
@@ -3812,12 +4373,12 @@ h1 {
   font-weight: 500;
 }
 
-/* Split view: rail + detail */
+/* Split view: rail + detail — stretch columns so the rail can grow with the main pane (scroll only when rail content overflows). */
 .dashboard-shell {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
   margin-bottom: 16px;
 }
 
@@ -3842,6 +4403,9 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  align-self: stretch;
+  height: 100%;
 }
 .rail-dark-mode-toggle {
   padding-bottom: 10px;
@@ -3975,10 +4539,6 @@ h1 {
   background: var(--bg-hover, #f5f5f5);
   border-color: var(--primary);
 }
-.dashboard-shell.schedule-focus .dashboard-rail {
-  max-height: calc(100vh - 24px);
-  overflow: auto;
-}
 .dashboard-shell.schedule-focus .rail-card-row {
   width: 100%;
 }
@@ -3988,6 +4548,56 @@ h1 {
   box-shadow: none;
   padding: 0;
 }
+
+.schedule-section-header.section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin-bottom: 12px;
+}
+
+.schedule-heading-block {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.schedule-main-heading {
+  margin: 0 0 4px 0;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--primary);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.schedule-context-line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  max-width: 56ch;
+}
+
+.schedule-context-line--other {
+  font-weight: 600;
+  color: color-mix(in srgb, var(--warning, #b45309) 88%, var(--text-primary));
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning, #f59e0b) 12%, var(--surface-secondary, var(--bg-alt)));
+  border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 35%, transparent);
+  max-width: none;
+}
+
+.schedule-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
 .my-schedule-stage {
   background: var(--bg-card);
   border-radius: 12px;
@@ -4029,6 +4639,32 @@ h1 {
   border-radius: 12px;
   background: color-mix(in srgb, var(--bg-alt) 84%, white);
 }
+.schedule-employee-view-as-toolbar {
+  align-items: center;
+}
+.schedule-view-as-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 0 0 auto;
+}
+.schedule-view-as-picker {
+  flex: 1 1 240px;
+  min-width: 200px;
+  max-width: 420px;
+}
+.schedule-view-as-picker :deep(.person-search-select) {
+  width: 100%;
+}
+.schedule-view-as-picker :deep(.person-search-select .input) {
+  width: 100%;
+  min-height: 34px;
+}
+.schedule-view-as-hint {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 12px;
+}
 .schedule-view-toggle {
   display: inline-flex;
   gap: 6px;
@@ -4058,6 +4694,18 @@ h1 {
 .supervisee-search-input {
   flex: 1 1 220px;
   min-width: 160px;
+}
+.schedule-employee-nav-row {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.schedule-employee-nav-label {
+  font-size: 12px;
+  white-space: nowrap;
 }
 .supervisee-chip-row {
   width: 100%;
@@ -4153,8 +4801,10 @@ h1 {
   top: 12px;
   align-self: stretch;
   width: 100%;
-  max-height: calc(100vh - 24px);
-  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
   padding-right: 2px; /* avoids scrollbar overlaying focus rings */
 }
 
@@ -4431,6 +5081,7 @@ h1 {
 
 .dashboard-detail {
   min-width: 0;
+  min-height: 0;
 }
 
 .dashboard-rail.disabled {
@@ -4715,6 +5366,13 @@ h1 {
   border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
 }
 
+.ce-count-pill--compact {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
 @keyframes dashAttnPulseRing {
   0% {
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 0%, transparent);
@@ -4875,28 +5533,25 @@ h1 {
 }
 
 .sb-series-strip {
-  border: 1px solid color-mix(in srgb, #0d9488 28%, var(--border-color));
-  border-radius: 12px;
-  padding: 14px 14px 12px;
-  margin: 0 0 18px 0;
-  background: linear-gradient(
-    118deg,
-    color-mix(in srgb, #0d9488 10%, var(--surface-secondary)) 0%,
-    var(--surface-secondary) 60%
-  );
+  border: 1px solid color-mix(in srgb, #0d9488 22%, var(--border-color));
+  border-radius: 8px;
+  padding: 6px 8px 6px;
+  margin: 0 0 10px 0;
+  background: var(--surface-secondary, color-mix(in srgb, var(--bg-alt) 92%, #0d9488 8%));
 }
 
 .sb-series-collapsed {
-  padding-bottom: 12px;
+  padding-bottom: 6px;
 }
 
 .sb-series-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
+  gap: 8px;
+  flex-wrap: nowrap;
+  margin-bottom: 6px;
+  min-height: 28px;
 }
 
 .sb-series-collapsed .sb-series-head {
@@ -4904,27 +5559,146 @@ h1 {
 }
 
 .sb-series-title {
-  margin: 0 0 4px 0;
-  font-size: 1.05rem;
-  font-weight: 700;
-}
-
-.sb-series-sub {
   margin: 0;
   font-size: 13px;
-  line-height: 1.4;
-  max-width: 52ch;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sb-series-head-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   flex-shrink: 0;
 }
 
+.sb-series-strip-toggle.btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.25;
+  min-height: 0;
+  border-radius: 6px;
+}
+
 .sb-series-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+  gap: 8px;
   margin-top: 4px;
+}
+
+/* Override `.company-events-list` grid min column width for small Skill Builders cards */
+.company-events-list.sb-series-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+}
+
+/* Little cards: title + dates stacked, subtle depth */
+.sb-series-item.ce-modern-card {
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 88%, var(--primary) 12%);
+  background: var(--surface-primary, var(--bg-card, #fff));
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 6%, transparent);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.sb-series-item.ce-modern-card:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 4px 12px color-mix(in srgb, var(--primary) 10%, transparent),
+    0 1px 3px color-mix(in srgb, var(--text-primary) 8%, transparent);
+  border-color: color-mix(in srgb, var(--border-color) 78%, var(--primary) 22%);
+}
+
+.sb-series-item.ce-modern-series::before {
+  width: 3px;
+  border-radius: 8px 0 0 8px;
+}
+
+.sb-series-item-compact {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 8px 6px 11px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sb-series-item-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  width: 100%;
+  flex: 1 1 auto;
+  line-height: 1.3;
+}
+
+.sb-series-item-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+  width: 100%;
+}
+
+.sb-series-item-dates {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  line-height: 1.25;
+  width: 100%;
+}
+
+.sb-series-item-toggle.btn {
+  align-self: flex-end;
+  margin-top: auto;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  min-height: 0;
+  border-radius: 5px;
+  letter-spacing: 0.02em;
+}
+
+.sb-series-item-expanded {
+  padding: 4px 8px 8px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 90%, var(--primary) 10%);
+}
+
+.sb-series-item-detail-when {
+  margin: 4px 0 2px 0;
+  font-size: 11px;
+}
+
+.sb-series-item-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  -webkit-line-clamp: 6;
+}
+
+.sb-series-item-expanded .ce-modern-links {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.sb-series-item--open.ce-modern-card {
+  border-color: color-mix(in srgb, var(--primary) 22%, var(--border-color));
 }
 
 .company-events-head {

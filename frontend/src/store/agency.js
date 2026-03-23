@@ -24,16 +24,20 @@ export const useAgencyStore = defineStore('agency', () => {
     const cached = getCached(url);
     if (cached) {
       const full = cached;
-      const replaceIn = (arrRef) => {
+      const mergeOrPush = (arrRef, allowPush) => {
         const arr = Array.isArray(arrRef.value) ? arrRef.value.slice() : [];
         const idx = arr.findIndex((a) => Number(a?.id) === Number(full.id));
         if (idx >= 0) {
           arr[idx] = { ...arr[idx], ...full };
-          arrRef.value = arr;
+        } else if (allowPush) {
+          arr.push(full);
         }
+        arrRef.value = arr;
       };
-      replaceIn(agencies);
-      replaceIn(userAgencies);
+      // Catalog list: always attach so UIs can resolve names by id (e.g. schedule "Agencies shown" chips).
+      mergeOrPush(agencies, true);
+      // User scope: only merge; do not add unrelated orgs to "my memberships".
+      mergeOrPush(userAgencies, false);
       if (Number(currentAgency.value?.id) === Number(full.id)) {
         currentAgency.value = { ...currentAgency.value, ...full };
         localStorage.setItem('currentAgency', JSON.stringify(currentAgency.value));
@@ -45,17 +49,18 @@ export const useAgencyStore = defineStore('agency', () => {
       const full = res.data;
       if (!full?.id) return null;
 
-      // Update lists (best-effort).
-      const replaceIn = (arrRef) => {
+      const mergeOrPush = (arrRef, allowPush) => {
         const arr = Array.isArray(arrRef.value) ? arrRef.value.slice() : [];
         const idx = arr.findIndex((a) => Number(a?.id) === Number(full.id));
         if (idx >= 0) {
           arr[idx] = { ...arr[idx], ...full };
-          arrRef.value = arr;
+        } else if (allowPush) {
+          arr.push(full);
         }
+        arrRef.value = arr;
       };
-      replaceIn(agencies);
-      replaceIn(userAgencies);
+      mergeOrPush(agencies, true);
+      mergeOrPush(userAgencies, false);
 
       // If current agency matches, update it too.
       if (Number(currentAgency.value?.id) === Number(full.id)) {

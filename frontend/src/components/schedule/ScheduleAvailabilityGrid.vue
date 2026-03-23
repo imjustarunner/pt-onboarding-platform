@@ -492,8 +492,8 @@
                 :style="cellBlockStyle(b)"
                 @mouseenter="hoveredBlockKey = blockKey(d, slot.hour, b)"
                 @mouseleave="hoveredBlockKey = ''"
-                @click="onCellBlockClick($event, b, d, slot.hour)"
-                @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour)"
+                @click="onCellBlockClick($event, b, d, slot.hour, slot.minute)"
+                @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour, slot.minute)"
               >
                 <span
                   v-if="hasAgencyBadge(b) && !b.hideAgencyDot"
@@ -1408,14 +1408,19 @@
               :key="`stack-item-${item.id}`"
               class="stack-details-item-wrap"
             >
-              <button
-                class="stack-details-item"
-                type="button"
-                :disabled="!item.link && !item.appJoinUrl && !item.sessionId && !item.googleEvent && !item.eventId"
-                @click="openStackDetailsItem(item)"
-              >
+              <div class="stack-details-static">
+                <div v-if="item.kindLabel" class="stack-details-kind">{{ item.kindLabel }}</div>
                 <div class="stack-details-label">{{ item.label }}</div>
                 <div v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</div>
+                <div v-if="item.detailText" class="stack-details-detail">{{ item.detailText }}</div>
+              </div>
+              <button
+                v-if="stackItemHasAction(item)"
+                class="btn btn-secondary btn-sm stack-details-open-btn"
+                type="button"
+                @click="openStackDetailsItem(item)"
+              >
+                {{ stackItemActionLabel(item) }}
               </button>
               <div v-if="item.eventId && item.appJoinUrl" class="stack-details-activity-row">
                 <button
@@ -2389,14 +2394,37 @@ const selfScheduleAgenciesLoaded = ref(false);
 
 const isAdminMode = computed(() => props.mode === 'admin');
 
+/** Resolve display name from Pinia (user + global agency lists, current org). */
+const agencyNameFromStore = (agencyId) => {
+  const id = Number(agencyId || 0);
+  if (!id) return '';
+  const lists = [
+    agencyStore.userAgencies,
+    agencyStore.agencies,
+    agencyStore.currentAgency ? [agencyStore.currentAgency] : []
+  ];
+  for (const list of lists) {
+    const arr = Array.isArray(list) ? list : [];
+    const row = arr.find((a) => Number(a?.id || 0) === id);
+    if (row) {
+      const n = String(row?.name ?? row?.agency_name ?? row?.title ?? '').trim();
+      if (n) return n;
+    }
+  }
+  return '';
+};
+
 const agencyLabel = (agencyId) => {
   const id = Number(agencyId || 0);
   if (!id) return '';
   const local = (selfScheduleAgencyOptions.value || []).find((row) => Number(row?.id || 0) === id);
   if (local?.name) return String(local.name);
   const map = props.agencyLabelById && typeof props.agencyLabelById === 'object' ? props.agencyLabelById : null;
-  const label = map ? map[String(id)] || map[id] : '';
-  return String(label || '').trim();
+  const fromProp = map ? String(map[String(id)] || map[id] || '').trim() : '';
+  if (fromProp) return fromProp;
+  const fromStore = agencyNameFromStore(id);
+  if (fromStore) return fromStore;
+  return '';
 };
 
 const agencyFilterOptions = computed(() => {
@@ -2531,24 +2559,6 @@ const googleBusyDisabledHint = ref('');
 const autoDisabledGoogleBusy = ref(false);
 const isGoogleInvalidGrant = (msg) => String(msg || '').toLowerCase().includes('invalid_grant');
 
-const debugLog = ({ hypothesisId, message, data = {} }) => {
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/fe6563d2-089e-457a-8c8f-9a4cae053f92', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '572cc7' },
-    body: JSON.stringify({
-      sessionId: '572cc7',
-      runId: (typeof window !== 'undefined' && window.__supvDebugRunId) || 'run-unknown',
-      hypothesisId,
-      location: 'frontend/src/components/schedule/ScheduleAvailabilityGrid.vue',
-      message,
-      data,
-      timestamp: Date.now()
-    })
-  }).catch(() => {});
-  // #endregion
-};
-
 const load = async ({ forceRefresh = false } = {}) => {
   if (!props.userId) return;
   if (!effectiveAgencyIds.value.length) {
@@ -2605,23 +2615,6 @@ const load = async ({ forceRefresh = false } = {}) => {
         data.twilioVideoConfigured = true;
       }
       summary.value = data;
-      const firstSupv = Array.isArray(summary.value?.supervisionSessions) ? summary.value.supervisionSessions[0] : null;
-      debugLog({
-        hypothesisId: 'H4',
-        message: 'schedule-load:single-agency-summary',
-        data: {
-          weekStart: summary.value?.weekStart,
-          supervisionCount: Array.isArray(summary.value?.supervisionSessions) ? summary.value.supervisionSessions.length : 0,
-          firstSession: firstSupv
-            ? {
-                id: firstSupv.id,
-                startAt: firstSupv.startAt,
-                endAt: firstSupv.endAt,
-                startDateYmd: firstSupv.startDateYmd
-              }
-            : null
-        }
-      });
       setScheduleSummary(cacheKey, summary.value);
     } else {
       const [results, twilioResp] = await Promise.all([
@@ -2733,23 +2726,6 @@ const load = async ({ forceRefresh = false } = {}) => {
       merged.twilioVideoConfigured = okOnes.some((r) => !!r.data?.twilioVideoConfigured) || !!twilioResp?.data?.twilioVideoConfigured;
 
       summary.value = merged;
-      const firstSupv = Array.isArray(summary.value?.supervisionSessions) ? summary.value.supervisionSessions[0] : null;
-      debugLog({
-        hypothesisId: 'H4',
-        message: 'schedule-load:multi-agency-summary',
-        data: {
-          weekStart: summary.value?.weekStart,
-          supervisionCount: Array.isArray(summary.value?.supervisionSessions) ? summary.value.supervisionSessions.length : 0,
-          firstSession: firstSupv
-            ? {
-                id: firstSupv.id,
-                startAt: firstSupv.startAt,
-                endAt: firstSupv.endAt,
-                startDateYmd: firstSupv.startDateYmd
-              }
-            : null
-        }
-      });
       setScheduleSummary(cacheKey, summary.value);
     }
 
@@ -2819,6 +2795,27 @@ watch([showGoogleBusy, showGoogleEvents, showExternalBusy, selectedExternalCalen
 watch([() => props.mode, () => props.userId], () => {
   void loadSelfScheduleAgencies();
 }, { immediate: true });
+
+// When chips would show "Agency 123", fetch `/agencies/:id` so store lists get real names (admin / multi-org view).
+watch(
+  [propAgencyIds, selfScheduleAgencyOptions],
+  () => {
+    const want = new Set();
+    for (const raw of propAgencyIds.value || []) {
+      const n = Number(raw || 0);
+      if (n) want.add(n);
+    }
+    for (const row of selfScheduleAgencyOptions.value || []) {
+      const n = Number(row?.id || 0);
+      if (n) want.add(n);
+    }
+    for (const id of want) {
+      if (agencyNameFromStore(id)) continue;
+      void agencyStore.hydrateAgencyById(id);
+    }
+  },
+  { immediate: true, deep: true }
+);
 
 watch(agencyFilterOptions, (rows) => {
   const availableIds = new Set((rows || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
@@ -3444,8 +3441,8 @@ const officeEventsInCell = (dayName, hour, minute = 0) => {
   return hits;
 };
 
-const officeTopEvent = (dayName, hour, officeIdFilter = null, roomIdFilter = null) => {
-  let hits = officeEventsInCell(dayName, hour);
+const officeTopEvent = (dayName, hour, officeIdFilter = null, roomIdFilter = null, minute = 0) => {
+  let hits = officeEventsInCell(dayName, hour, minute);
   if (officeIdFilter != null && Number(officeIdFilter) > 0) {
     hits = hits.filter((e) => Number(e?.buildingId || 0) === Number(officeIdFilter));
   }
@@ -3489,19 +3486,6 @@ const supervisionSessionsInCell = (dayName, hour, minute = 0) => {
       window.__supvDayMismatchLogOnce = window.__supvDayMismatchLogOnce || {};
       if (!window.__supvDayMismatchLogOnce[key]) {
         window.__supvDayMismatchLogOnce[key] = true;
-        debugLog({
-          hypothesisId: 'H4',
-          message: 'supervisionSessionsInCell:day-mismatch',
-          data: {
-            sessionId: ev?.id,
-            startAt: ev?.startAt,
-            startDateYmd: ev?.startDateYmd,
-            dateYmd,
-            computedSessionDay: sessionDay,
-            requestedDay: dayName,
-            weekStart: ws
-          }
-        });
       }
     }
     if (sessionDay !== dayName) continue;
@@ -6971,18 +6955,6 @@ const startAppVideoMeetingFromGrid = async (session) => {
     const tok = (data.token || data.data?.token || data.result?.token || '').trim();
     const rn = data.roomName || data.room_name || data.data?.roomName || `supervision-${sid}`;
     if (typeof window !== 'undefined') window.__supvDebugRunId = `run-${Date.now()}`;
-    debugLog({
-      hypothesisId: 'H5',
-      message: 'startAppVideoMeetingFromGrid:video-token-response',
-      data: {
-        sessionId: sid,
-        roomName: rn,
-        isSupervisor: !!data.isSupervisor,
-        roomMode: data.roomMode || null,
-        lobbyEnabledForSession: !!data.lobbyEnabledForSession,
-        sessionType: data.sessionType || null
-      }
-    });
     if (!tok) {
       console.warn('[ScheduleGrid] video-token empty:', { status: resp?.status, data });
       supvAppVideoError.value = data?.error?.message || data?.error || 'Video token was empty.';
@@ -7354,12 +7326,12 @@ const cancelSupvSession = async () => {
   }
 };
 
-const onCellBlockClick = (e, block, dayName, hour) => {
+const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
   const kind = String(block?.kind || '');
   e?.preventDefault?.();
   e?.stopPropagation?.();
   if (kind === 'ebusy') {
-    const stackDetails = buildStackDetailsForBlock(block, dayName, hour);
+    const stackDetails = buildStackDetailsForBlock(block, dayName, hour, minute);
     if (stackDetails) openStackDetailsModal(stackDetails);
     return;
   }
@@ -7370,7 +7342,7 @@ const onCellBlockClick = (e, block, dayName, hour) => {
   const roomIdFilter = ['oa', 'ot', 'ob', 'intake-ip', 'intake-vi'].includes(String(block?.kind || ''))
     ? Number(block?.roomId || 0) || null
     : null;
-  const officeTop = officeTopEvent(dayName, hour, officeId, roomIdFilter) || null;
+  const officeTop = officeTopEvent(dayName, hour, officeId, roomIdFilter, minute) || null;
   const roomId = Number(officeTop?.roomId || block?.buildingId || block?.roomId || 0) || 0;
   selectedActionSlots.value = [{
     key: actionSlotKey({ dateYmd, hour, roomId }),
@@ -7381,45 +7353,50 @@ const onCellBlockClick = (e, block, dayName, hour) => {
     slot: null
   }];
   lastSelectedActionKey.value = selectedActionSlots.value[0]?.key || '';
-  const stackDetails = buildStackDetailsForBlock(block, dayName, hour);
+  const stackDetails = buildStackDetailsForBlock(block, dayName, hour, minute);
   if (stackDetails) {
     openStackDetailsModal(stackDetails);
     return;
   }
   if (kind === 'sevt') {
-    const eventId = Number(block?.eventId || 0);
-    const events = scheduleEventsInCell(dayName, hour);
-    const targetEvent = eventId > 0
-      ? events.find((ev) => Number(ev?.id || 0) === eventId)
-      : events[0];
+    const bid = Number(block?.eventId || 0);
+    const bKind = String(block?.eventKind || '').trim().toUpperCase();
+    const events = scheduleEventsInCell(dayName, hour, minute);
+    let targetEvent = null;
+    if (bid > 0 && bKind) {
+      targetEvent = events.find(
+        (ev) => Number(ev?.id || 0) === bid && String(ev?.kind || '').trim().toUpperCase() === bKind
+      );
+    }
+    if (!targetEvent) {
+      targetEvent = bid > 0 ? events.find((ev) => Number(ev?.id || 0) === bid) : events[0];
+    }
+    if (!targetEvent) {
+      return;
+    }
     const targetKind = String(targetEvent?.kind || '').trim().toUpperCase();
-    if (targetEvent && ['TEAM_MEETING', 'HUDDLE'].includes(targetKind)) {
-      openStackDetailsModal({
-        title: `Meeting details — ${dayName} ${hourLabel(hour)}`,
-        items: [{
-          id: `sevt-single-${eventId || Date.now()}`,
-          label: String(targetEvent?.title || '').trim() || 'Meeting',
-          subLabel: targetEvent?.allDay ? 'All day' : formatRangeFromRaw(targetEvent?.startAt, targetEvent?.endAt),
-          link: String(targetEvent?.htmlLink || '').trim() || '',
-          appJoinUrl: String(targetEvent?.appJoinUrl || '').trim() || '',
-          eventId: Number(targetEvent?.id || 0) || null,
-          eventKind: targetKind,
-          recurrenceSeriesId: String(targetEvent?.recurrenceSeriesId || '').trim() || ''
-        }]
-      });
-      return;
-    }
-    const appJoinUrl = String(block?.appJoinUrl || '').trim();
-    if (appJoinUrl) {
-      window.location.href = appJoinUrl;
-      return;
-    }
-    const link = String(block?.link || '').trim();
-    if (link) window.open(link, '_blank', 'noreferrer');
+    const kindLabel = scheduleKindLabel(targetKind);
+    const detailText = buildScheduleEventDetailText(targetEvent);
+    openStackDetailsModal({
+      title: `${kindLabel} — ${dayName} ${hourLabel(hour)}`,
+      items: [{
+        id: `sevt-single-${targetKind}-${Number(targetEvent?.id || 0) || Date.now()}`,
+        label: String(targetEvent?.title || '').trim() || 'Schedule event',
+        subLabel: targetEvent?.allDay ? 'All day' : formatRangeFromRaw(targetEvent?.startAt, targetEvent?.endAt),
+        kindLabel,
+        detailText,
+        link: String(targetEvent?.htmlLink || '').trim() || '',
+        appJoinUrl: String(block?.appJoinUrl || targetEvent?.appJoinUrl || '').trim() || '',
+        meetLink: String(targetEvent?.meetLink || '').trim() || '',
+        eventId: Number(targetEvent?.id || 0) || null,
+        eventKind: targetKind,
+        recurrenceSeriesId: String(targetEvent?.recurrenceSeriesId || '').trim() || ''
+      }]
+    });
     return;
   }
   if (kind === 'gevt') {
-    const events = googleEventsInCell(dayName, hour);
+    const events = googleEventsInCell(dayName, hour, minute);
     const ev = events.find((e) => block?.key === `gevt-${String(e?.id || e?.summary || '')}` || e?.htmlLink === block?.link) || events[0];
     if (ev) {
       openGoogleEventModal(ev);
@@ -7734,10 +7711,136 @@ const formatRangeFromRaw = (startAt, endAt) => {
   return `${sLabel}-${eLabel}`;
 };
 
-const buildStackDetailsForBlock = (block, dayName, hour) => {
+const SCHEDULE_EVENT_KIND_LABELS = {
+  SKILL_BUILDERS_PROGRAM: 'Skill Builders program',
+  TEAM_MEETING: 'Team meeting',
+  HUDDLE: 'Huddle',
+  PERSONAL_EVENT: 'Personal',
+  HOLD: 'Hold',
+  INDIRECT_SERVICES: 'Indirect services',
+  AGENCY_MEETING: 'Agency meeting',
+  DOCUMENTATION: 'Documentation'
+};
+
+const scheduleKindLabel = (kindRaw) => {
+  const k = String(kindRaw || '').trim().toUpperCase();
+  if (SCHEDULE_EVENT_KIND_LABELS[k]) return SCHEDULE_EVENT_KIND_LABELS[k];
+  if (!k) return 'Schedule event';
+  return k
+    .toLowerCase()
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+};
+
+const formatSessionProviderName = (p) => {
+  const fn = String(p?.firstName || '').trim();
+  const ln = String(p?.lastName || '').trim();
+  const full = [fn, ln].filter(Boolean).join(' ');
+  if (full) return full;
+  const uid = Number(p?.userId || 0);
+  return uid > 0 ? `User ${uid}` : 'Unknown';
+};
+
+/** Resolve schedule row when numeric ids can collide (e.g. Skill Builders session id vs user schedule_event id). */
+const findScheduleEventByIdAndKind = (eventId, eventKind) => {
+  const rows = Array.isArray(summary.value?.scheduleEvents) ? summary.value.scheduleEvents : [];
+  const eid = Number(eventId || 0);
+  if (!eid) return null;
+  const k = String(eventKind || '').trim().toUpperCase();
+  if (k) {
+    const exact = rows.find(
+      (e) => Number(e?.id || 0) === eid && String(e?.kind || '').trim().toUpperCase() === k
+    );
+    if (exact) return exact;
+  }
+  return rows.find((e) => Number(e?.id || 0) === eid) || null;
+};
+
+/** MySQL TIME / "HH:MM:SS" → locale 12h string (matches Skill Builders event portal). */
+const formatSkillBuildersProgramWallTime = (t) => {
+  if (t == null || t === '') return '';
+  const s = String(t).trim();
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(s);
+  if (!m) return s;
+  const h = parseInt(m[1], 10);
+  const mi = parseInt(m[2], 10);
+  if (!Number.isFinite(h) || !Number.isFinite(mi)) return s;
+  const d = new Date(2000, 0, 1, h, mi, 0);
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+};
+
+const buildScheduleEventDetailText = (ev) => {
+  if (!ev) return '';
+  const lines = [];
+  const rc = String(ev?.reasonCode || '').trim();
+  if (rc) lines.push(`Reason code: ${rc}`);
+  if (ev?.isPrivate) lines.push('Marked private on your calendar');
+  const rf = String(ev?.recurrenceFrequency || '').trim();
+  if (rf && rf !== 'ONCE') lines.push(`Recurrence: ${rf}`);
+  const kind = String(ev?.kind || '').trim().toUpperCase();
+  if (kind === 'SKILL_BUILDERS_PROGRAM') {
+    const arr = formatSkillBuildersProgramWallTime(ev?.employeeReportTime);
+    const dep = formatSkillBuildersProgramWallTime(ev?.employeeDepartureTime);
+    if (arr && dep) {
+      lines.push(`Staff planned window: ${arr} – ${dep}`);
+    } else if (arr) {
+      lines.push(`Staff arrival / clock-in: ${arr}`);
+    } else if (dep) {
+      lines.push(`Staff departure: ${dep}`);
+    }
+    const assigned = Array.isArray(ev?.assignedSessionProviders) ? ev.assignedSessionProviders : [];
+    const roster = Array.isArray(ev?.groupRosterProviders) ? ev.groupRosterProviders : [];
+    if (assigned.length) {
+      lines.push('Working this session:');
+      for (const p of assigned) {
+        lines.push(`• ${formatSessionProviderName(p)}`);
+      }
+    } else if (roster.length) {
+      lines.push('Group roster (per-session “who is working” not set yet for this occurrence):');
+      for (const p of roster) {
+        lines.push(`• ${formatSessionProviderName(p)}`);
+      }
+    } else {
+      lines.push('No providers on this roster or per-session assignment.');
+    }
+  }
+  return lines.join('\n');
+};
+
+const stackItemHasAction = (item) => {
+  if (!item) return false;
+  if (item.googleEvent) return true;
+  if (Number(item.sessionId || 0) > 0) return true;
+  if (String(item.link || '').trim()) return true;
+  if (String(item.appJoinUrl || '').trim()) return true;
+  if (String(item.meetLink || '').trim()) return true;
+  const eid = Number(item.eventId || 0);
+  if (eid > 0) {
+    const ev = findScheduleEventByIdAndKind(eid, item.eventKind);
+    if (ev) {
+      if (String(ev.meetLink || '').trim()) return true;
+      if (String(ev.htmlLink || '').trim()) return true;
+      if (String(ev.appJoinUrl || '').trim()) return true;
+    }
+  }
+  return false;
+};
+
+const stackItemActionLabel = (item) => {
+  if (item?.googleEvent) return 'View in calendar';
+  if (Number(item?.sessionId || 0) > 0) return 'Open session';
+  if (String(item?.appJoinUrl || '').trim()) return 'Join';
+  if (String(item?.meetLink || '').trim()) return 'Open meeting link';
+  if (String(item?.link || '').trim()) return 'Open link';
+  return 'Open';
+};
+
+const buildStackDetailsForBlock = (block, dayName, hour, minute = 0) => {
   const kind = String(block?.kind || '');
   if (kind === 'supv') {
-    const sessions = supervisionSessionsInCell(dayName, hour);
+    const sessions = supervisionSessionsInCell(dayName, hour, minute);
     if (sessions.length <= 1) return null;
     return {
       title: `Supervision sessions — ${dayName} ${hourLabel(hour)}`,
@@ -7764,18 +7867,21 @@ const buildStackDetailsForBlock = (block, dayName, hour) => {
     };
   }
   if (kind === 'sevt' || kind === 'more') {
-    const events = scheduleEventsInCell(dayName, hour);
+    const events = scheduleEventsInCell(dayName, hour, minute);
     const titleText = String(block?.title || '').toLowerCase();
     const isScheduleOverflow = kind === 'sevt' || titleText.includes('schedule event');
     if (!isScheduleOverflow || events.length <= 1) return null;
     return {
       title: `Schedule events — ${dayName} ${hourLabel(hour)}`,
       items: events.map((ev, idx) => ({
-        id: `sevt-${String(ev?.id || ev?.googleEventId || idx)}`,
+        id: `sevt-${String(ev?.kind || 'evt').toUpperCase()}-${String(ev?.id || ev?.googleEventId || idx)}`,
         label: String(ev?.title || '').trim() || 'Schedule event',
         subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt),
+        kindLabel: scheduleKindLabel(String(ev?.kind || '').trim().toUpperCase()),
+        detailText: buildScheduleEventDetailText(ev),
         link: String(ev?.htmlLink || '').trim() || '',
         appJoinUrl: String(ev?.appJoinUrl || '').trim() || '',
+        meetLink: String(ev?.meetLink || '').trim() || '',
         eventId: Number(ev?.id || 0) || null,
         eventKind: String(ev?.kind || '').trim().toUpperCase() || '',
         recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || ''
@@ -7783,7 +7889,7 @@ const buildStackDetailsForBlock = (block, dayName, hour) => {
     };
   }
   if (kind === 'gevt' || kind === 'more') {
-    const events = googleEventsInCell(dayName, hour);
+    const events = googleEventsInCell(dayName, hour, minute);
     const titleText = String(block?.title || '').toLowerCase();
     const isGoogleOverflow = kind === 'gevt' || titleText.includes('google event');
     if (!isGoogleOverflow || events.length <= 1) return null;
@@ -7819,6 +7925,12 @@ const openStackDetailsItem = (item) => {
     openGoogleEventModal(item.googleEvent);
     return;
   }
+  const meetFromItem = String(item?.meetLink || '').trim();
+  if (meetFromItem) {
+    closeStackDetailsModal();
+    window.open(meetFromItem, '_blank', 'noreferrer');
+    return;
+  }
   const appJoinUrl = String(item?.appJoinUrl || '').trim();
   if (appJoinUrl) {
     closeStackDetailsModal();
@@ -7830,6 +7942,27 @@ const openStackDetailsItem = (item) => {
     window.open(link, '_blank', 'noreferrer');
     return;
   }
+  const eid = Number(item?.eventId || 0);
+  if (eid > 0) {
+    const ev = findScheduleEventByIdAndKind(eid, item?.eventKind);
+    const meet = String(ev?.meetLink || '').trim();
+    if (meet) {
+      closeStackDetailsModal();
+      window.open(meet, '_blank', 'noreferrer');
+      return;
+    }
+    const html = String(ev?.htmlLink || '').trim();
+    if (html) {
+      window.open(html, '_blank', 'noreferrer');
+      return;
+    }
+    const aj = String(ev?.appJoinUrl || '').trim();
+    if (aj) {
+      closeStackDetailsModal();
+      window.location.href = aj;
+      return;
+    }
+  }
   const sessionId = Number(item?.sessionId || 0);
   if (sessionId > 0) {
     closeStackDetailsModal();
@@ -7838,12 +7971,12 @@ const openStackDetailsItem = (item) => {
   }
 };
 
-const onCellBlockDoubleClick = (e, block, dayName, hour) => {
+const onCellBlockDoubleClick = (e, block, dayName, hour, minute = 0) => {
   e?.preventDefault?.();
   e?.stopPropagation?.();
   const kind = String(block?.kind || '');
   if (kind !== 'gevt') return;
-  const sessions = supervisionSessionsInCell(dayName, hour);
+  const sessions = supervisionSessionsInCell(dayName, hour, minute);
   const hasMeetSessionInCell = sessions.some((s) => String(s?.googleMeetLink || s?.joinUrl || '').trim());
   if (!hasMeetSessionInCell) return;
   const firstWithLink = sessions.find((s) => String(s?.joinUrl || s?.googleMeetLink || '').trim());
@@ -8432,6 +8565,30 @@ defineExpose({ resetToOpenFinder });
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.stack-details-static {
+  border: 1px solid var(--border);
+  background: var(--bg-card, #fff);
+  border-radius: 10px;
+  padding: 10px;
+}
+.stack-details-kind {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.stack-details-detail {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+.stack-details-open-btn {
+  align-self: flex-start;
 }
 .stack-details-activity-row {
   margin-left: 12px;

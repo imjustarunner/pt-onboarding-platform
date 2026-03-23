@@ -16,12 +16,15 @@ import { body } from 'express-validator';
 
 const router = express.Router();
 
-// All routes require authentication and admin role (admin or super_admin)
 router.use(authenticate);
+
+// Resolve a single icon by id for dashboards (rail cards, portals) — any logged-in user.
+// Listing/upload/mutate routes remain backoffice-only below.
+router.get('/:id', getIconById);
+
 router.use(requireBackofficeAdmin);
 
 router.get('/', getAllIcons);
-router.get('/:id', getIconById);
 
 // Upload route - multer must process form first, then validation
 router.post(

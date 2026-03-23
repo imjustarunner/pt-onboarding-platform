@@ -692,7 +692,8 @@
       <main :class="{ 'main-no-global-chrome': hideGlobalNavForSchoolStaff }">
         <!-- Keep legacy selector for non-super-admin users; super admins use the top-nav switcher -->
         <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff && !String(route.path || '').includes('/tickets')" />
-        <router-view :key="route.fullPath" />
+        <!-- Use path (not fullPath) so query-only updates don't destroy/recreate the page (avoids flash + repeated dashboard_view logs). -->
+        <router-view :key="route.path" />
       </main>
       <MomentumStickiesOverlay v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />
       <AddStickyFab v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />

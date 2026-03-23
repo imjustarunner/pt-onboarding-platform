@@ -279,23 +279,6 @@ if (typeof window !== 'undefined' && window.localStorage.getItem(DISPLAY_NAME_VI
   shareDisplayName.value = false;
 }
 
-function debugLog({ hypothesisId, message, data = {} }) {
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/fe6563d2-089e-457a-8c8f-9a4cae053f92', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '572cc7' },
-    body: JSON.stringify({
-      sessionId: '572cc7',
-      runId: (typeof window !== 'undefined' && window.__supvDebugRunId) || 'run-unknown',
-      hypothesisId,
-      location: 'frontend/src/components/supervision/SupervisionTwilioVideoRoom.vue',
-      message,
-      data,
-      timestamp: Date.now()
-    })
-  }).catch(() => {});
-  // #endregion
-}
 
 function myDisplayName() {
   if (!shareDisplayName.value) return 'Anonymous';
@@ -371,18 +354,6 @@ function setRemoteVideoEl(sid, el) {
         [sid]: trackKey
       };
     }
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H3',
-      message: 'setRemoteVideoEl:mounted',
-      data: {
-        sid,
-        hasTrackReady: !!track,
-        childCount: el?.childElementCount ?? 0,
-        alreadyAttached
-      }
-    });
-    // #endregion
     return;
   }
   delete remoteVideoEls.value[sid];
@@ -415,30 +386,7 @@ function attachRemoteAudioTrack(participantSid, track) {
     mediaEl.style.display = 'none';
     document.body.appendChild(mediaEl);
     remoteAudioElsByKey.value = { ...remoteAudioElsByKey.value, [key]: mediaEl };
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H15',
-      message: 'remote:audio-attached',
-      data: {
-        participantSid,
-        trackSid: safeTrack?.sid || null,
-        key
-      }
-    });
-    // #endregion
   } catch (e) {
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H15',
-      message: 'remote:audio-attach-error',
-      data: {
-        participantSid,
-        trackSid: safeTrack?.sid || null,
-        errorName: e?.name || null,
-        errorMessage: e?.message || null
-      }
-    });
-    // #endregion
   }
 }
 
@@ -495,34 +443,7 @@ function attachTrack(track, container) {
       mediaEl.muted = true;
     }
     container.appendChild(mediaEl);
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H2',
-      message: 'attachTrack:appended-media',
-      data: {
-        kind: track?.kind || null,
-        trackSid: track?.sid || null,
-        mediaTag: mediaEl?.tagName || null,
-        containerClass: container?.className || null,
-        containerChildren: container?.childElementCount ?? 0,
-        trackEnabled: typeof track?.isEnabled === 'boolean' ? track.isEnabled : null,
-        streamActive: mediaEl?.srcObject?.active ?? null
-      }
-    });
-    // #endregion
   } catch (e) {
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H7',
-      message: 'attachTrack:error',
-      data: {
-        kind: track?.kind || null,
-        trackSid: track?.sid || null,
-        errorName: e?.name || null,
-        errorMessage: e?.message || null
-      }
-    });
-    // #endregion
   }
 }
 
@@ -573,29 +494,8 @@ async function persistActivity(activityType, payload) {
   if (!base) return null;
   try {
     const resp = await api.post(base, { activityType, payload });
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H18',
-      message: 'activity:persist-success',
-      data: {
-        activityType,
-        hasId: !!(resp?.data?.id)
-      }
-    });
-    // #endregion
     return resp?.data?.id ?? null;
   } catch (e) {
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H18',
-      message: 'activity:persist-error',
-      data: {
-        activityType,
-        status: e?.response?.status || null,
-        errorMessage: e?.response?.data?.error?.message || e?.message || null
-      }
-    });
-    // #endregion
     console.warn('[SupervisionTwilioVideoRoom] Failed to persist activity:', e?.message);
     return null;
   }
@@ -719,27 +619,8 @@ function safeSendData(payload, context) {
   if (!dt) return false;
   try {
     dt.send(JSON.stringify(payload));
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H18',
-      message: 'dataTrack:send-success',
-      data: { context, type: payload?.type || null }
-    });
-    // #endregion
     return true;
   } catch (e) {
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H18',
-      message: 'dataTrack:send-error',
-      data: {
-        context,
-        type: payload?.type || null,
-        errorName: e?.name || null,
-        errorMessage: e?.message || null
-      }
-    });
-    // #endregion
     return false;
   }
 }
@@ -775,21 +656,6 @@ async function ensureLocalOutboundTracksHealthy(reason = 'unknown') {
   const la = localAudioTrack.value ? toRaw(localAudioTrack.value) : null;
   const lvEnded = !!(lv?.mediaStreamTrack?.readyState && lv.mediaStreamTrack.readyState !== 'live');
   const laEnded = !!(la?.mediaStreamTrack?.readyState && la.mediaStreamTrack.readyState !== 'live');
-  // #region agent log
-  debugLog({
-    hypothesisId: 'H16',
-    message: 'outbound:health-check',
-    data: {
-      reason,
-      cameraMuted: cameraMuted.value,
-      micMuted: micMuted.value,
-      hasVideoTrack: !!lv,
-      hasAudioTrack: !!la,
-      videoReadyState: lv?.mediaStreamTrack?.readyState || null,
-      audioReadyState: la?.mediaStreamTrack?.readyState || null
-    }
-  });
-  // #endregion
   try {
     if (!cameraMuted.value && (!lv || lvEnded)) {
       if (lv) {
@@ -802,13 +668,6 @@ async function ensureLocalOutboundTracksHealthy(reason = 'unknown') {
       cameraMuted.value = false;
       nextV.on('enabled', () => { cameraMuted.value = false; });
       nextV.on('disabled', () => { cameraMuted.value = true; });
-      // #region agent log
-      debugLog({
-        hypothesisId: 'H16',
-        message: 'outbound:video-republished',
-        data: { reason, readyState: nextV?.mediaStreamTrack?.readyState || null }
-      });
-      // #endregion
     }
     if (!micMuted.value && (!la || laEnded)) {
       if (la) {
@@ -821,44 +680,14 @@ async function ensureLocalOutboundTracksHealthy(reason = 'unknown') {
       micMuted.value = false;
       nextA.on('enabled', () => { micMuted.value = false; });
       nextA.on('disabled', () => { micMuted.value = true; });
-      // #region agent log
-      debugLog({
-        hypothesisId: 'H16',
-        message: 'outbound:audio-republished',
-        data: { reason, readyState: nextA?.mediaStreamTrack?.readyState || null }
-      });
-      // #endregion
     }
   } catch (e) {
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H16',
-      message: 'outbound:repair-error',
-      data: {
-        reason,
-        errorName: e?.name || null,
-        errorMessage: e?.message || null
-      }
-    });
-    // #endregion
   }
 }
 
 function sendChatMessage() {
   const text = String(chatInput.value || '').trim();
   const senderDisplayName = myDisplayName();
-  // #region agent log
-  debugLog({
-    hypothesisId: 'H18',
-    message: 'chat:send-attempt',
-    data: {
-      textLen: text.length,
-      hasDataTrack: !!localDataTrack.value,
-      panelOpen: chatPanelOpen.value,
-      activeTab: chatTab.value
-    }
-  });
-  // #endregion
   if (!text) return;
   const payload = { type: 'chat', text, senderDisplayName };
   safeSendData(payload, 'chat');
@@ -879,19 +708,6 @@ async function createPoll() {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  // #region agent log
-  debugLog({
-    hypothesisId: 'H18',
-    message: 'poll:create-attempt',
-    data: {
-      questionLen: question.length,
-      optionsCount: options.length,
-      hasDataTrack: !!localDataTrack.value,
-      isHost: props.isHost,
-      canCreatePoll: canCreatePoll.value
-    }
-  });
-  // #endregion
   if (!canCreatePoll.value || !question || !options.length) return;
   const id = await persistActivity('poll', { question, options });
   const payload = { type: 'poll', id: id || `poll-${Date.now()}`, question, options };
@@ -912,16 +728,6 @@ function votePoll(poll, optionIndex) {
 
 function submitQuestion() {
   const text = String(questionInput.value || '').trim();
-  // #region agent log
-  debugLog({
-    hypothesisId: 'H18',
-    message: 'qa:ask-attempt',
-    data: {
-      textLen: text.length,
-      hasDataTrack: !!localDataTrack.value
-    }
-  });
-  // #endregion
   if (!text) return;
   const id = `q-${Date.now()}`;
   const payload = { type: 'question', id, text };
@@ -952,24 +758,6 @@ function toggleAgendaPanel() {
 
 watch(chatPanelOpen, (open) => {
   if (open) chatUnreadCount.value = 0;
-  // #region agent log
-  const panelEl = typeof document !== 'undefined'
-    ? document.querySelector('.video-room-chat-panel')
-    : null;
-  const rect = panelEl?.getBoundingClientRect?.() || null;
-  debugLog({
-    hypothesisId: 'H17',
-    message: 'chat:panel-toggle',
-    data: {
-      open,
-      activeTab: chatTab.value,
-      viewportW: typeof window !== 'undefined' ? window.innerWidth : null,
-      viewportH: typeof window !== 'undefined' ? window.innerHeight : null,
-      panelW: rect ? Math.round(rect.width) : null,
-      panelH: rect ? Math.round(rect.height) : null
-    }
-  });
-  // #endregion
 });
 
 function isValidToken(t) {
@@ -984,16 +772,6 @@ async function connectRoom() {
     return;
   }
   try {
-    if (typeof window !== 'undefined') window.__supvDebugRunId = `run-${Date.now()}`;
-    debugLog({
-      hypothesisId: 'H1',
-      message: 'connectRoom:start',
-      data: {
-        roomName: props.roomName,
-        tokenLen: String(props.token || '').length,
-        hadExistingRoom: !!room.value
-      }
-    });
     if (room.value) {
       try { room.value.disconnect(); } catch { /* ignore */ }
       room.value = null;
@@ -1021,16 +799,6 @@ async function connectRoom() {
     } catch {
       micMuted.value = true;
     }
-    debugLog({
-      hypothesisId: 'H1',
-      message: 'connectRoom:initial-tracks',
-      data: {
-        hasInitialVideoTrack: !!initialVideoTrack,
-        hasInitialAudioTrack: !!initialAudioTrack,
-        cameraMuted: cameraMuted.value,
-        micMuted: micMuted.value
-      }
-    });
     const tracks = [chatDataTrack];
     if (initialVideoTrack) tracks.push(initialVideoTrack);
     if (initialAudioTrack) tracks.push(initialAudioTrack);
@@ -1052,17 +820,6 @@ async function connectRoom() {
     });
     room.value = markRaw(r);
     localParticipantSid.value = r.localParticipant?.sid ?? null;
-    debugLog({
-      hypothesisId: 'H2',
-      message: 'connectRoom:connected',
-      data: {
-        localParticipantSid: localParticipantSid.value,
-        localVideoPublications: r.localParticipant?.videoTracks?.size ?? 0,
-        localAudioPublications: r.localParticipant?.audioTracks?.size ?? 0,
-        remoteParticipantsCount: r.participants?.size ?? 0
-      }
-    });
-
     r.on('transcription', (ev) => {
       if (ev?.transcription && ev.partial_results === false) {
         transcriptLines.value = [...transcriptLines.value, ev.transcription];
@@ -1136,17 +893,6 @@ async function connectRoom() {
         ...remoteParticipants.value.filter((p) => p.sid !== participant.sid),
         { sid: participant.sid, identity: participant.identity }
       ];
-      // #region agent log
-      debugLog({
-        hypothesisId: 'H14',
-        message: 'participant:add',
-        data: {
-          sid: participant.sid,
-          identity: participant.identity,
-          remoteCount: remoteParticipants.value.length
-        }
-      });
-      // #endregion
       participant.tracks.forEach((pub) => {
         if (pub.track && pub.kind === 'video') {
           if (isScreenTrack(pub.track)) {
@@ -1181,31 +927,10 @@ async function connectRoom() {
               const trackKey = String(safeTrack?.sid || safeTrack?.name || '').trim() || 'video';
               remoteAttachedTrackSidBySid.value = { ...remoteAttachedTrackSidBySid.value, [participant.sid]: trackKey };
             }
-            debugLog({
-              hypothesisId: 'H3',
-              message: 'remote:trackSubscribed:video',
-              data: {
-                participantSid: participant.sid,
-                participantIdentity: participant.identity,
-                hasTargetEl: !!el,
-                trackName: String(track?.name || '')
-              }
-            });
           }
         }
         if (track.kind === 'audio') {
           attachRemoteAudioTrack(participant.sid, track);
-          // #region agent log
-          debugLog({
-            hypothesisId: 'H15',
-            message: 'remote:trackSubscribed:audio',
-            data: {
-              participantSid: participant.sid,
-              participantIdentity: participant.identity,
-              trackName: String(track?.name || '')
-            }
-          });
-          // #endregion
         }
       });
       participant.on('trackUnsubscribed', (track) => {
@@ -1273,17 +998,6 @@ async function connectRoom() {
       delete nextAttached[participant.sid];
       remoteAttachedTrackSidBySid.value = nextAttached;
       detachAllRemoteAudioForParticipant(participant.sid);
-      // #region agent log
-      debugLog({
-        hypothesisId: 'H14',
-        message: 'participant:disconnected',
-        data: {
-          sid: participant.sid,
-          identity: participant.identity,
-          remoteCount: remoteParticipants.value.length
-        }
-      });
-      // #endregion
     });
 
     r.on('disconnected', async () => {
@@ -1347,47 +1061,11 @@ async function toggleCamera() {
       cameraMuted.value = false;
       newTrack.on('enabled', () => { cameraMuted.value = false; });
       newTrack.on('disabled', () => { cameraMuted.value = true; });
-      // #region agent log
-      debugLog({
-        hypothesisId: 'H13',
-        message: 'camera:recreated-track',
-        data: {
-          reason,
-          trackReadyState: newTrack?.mediaStreamTrack?.readyState || null,
-          trackEnabled: typeof newTrack?.isEnabled === 'boolean' ? newTrack.isEnabled : null
-        }
-      });
-      // #endregion
       return newTrack;
     } catch (e) {
-      // #region agent log
-      debugLog({
-        hypothesisId: 'H13',
-        message: 'camera:recreate-error',
-        data: {
-          reason,
-          errorName: e?.name || null,
-          errorMessage: e?.message || null
-        }
-      });
-      // #endregion
       throw e;
     }
   };
-
-  // #region agent log
-  debugLog({
-    hypothesisId: 'H8',
-    message: 'toggleCamera:start',
-    data: {
-      hasTrack: !!track,
-      cameraMuted: cameraMuted.value,
-      trackEnabled: typeof safeTrack?.isEnabled === 'boolean' ? safeTrack.isEnabled : null,
-      trackReadyState: safeTrack?.mediaStreamTrack?.readyState || null,
-      isTrackEnded: !!isTrackEnded
-    }
-  });
-  // #endregion
   if (safeTrack) {
     try {
       if (isTrackEnded && cameraMuted.value) {
@@ -1401,28 +1079,7 @@ async function toggleCamera() {
         safeTrack.disable();
         cameraMuted.value = true;
       }
-      // #region agent log
-      debugLog({
-        hypothesisId: 'H8',
-        message: 'toggleCamera:existing-track-updated',
-        data: {
-          cameraMuted: cameraMuted.value,
-          trackEnabled: typeof safeTrack?.isEnabled === 'boolean' ? safeTrack.isEnabled : null,
-          trackReadyState: safeTrack?.mediaStreamTrack?.readyState || null
-        }
-      });
-      // #endregion
     } catch (e) {
-      // #region agent log
-      debugLog({
-        hypothesisId: 'H8',
-        message: 'toggleCamera:existing-track-error',
-        data: {
-          errorName: e?.name || null,
-          errorMessage: e?.message || null
-        }
-      });
-      // #endregion
     }
     return;
   }
@@ -1430,27 +1087,7 @@ async function toggleCamera() {
   try {
     error.value = '';
     const newTrack = await recreateCameraTrack('toggle-without-track');
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H8',
-      message: 'toggleCamera:new-track-published',
-      data: {
-        trackEnabled: typeof newTrack?.isEnabled === 'boolean' ? newTrack.isEnabled : null,
-        trackReadyState: newTrack?.mediaStreamTrack?.readyState || null
-      }
-    });
-    // #endregion
   } catch (e) {
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H8',
-      message: 'toggleCamera:error',
-      data: {
-        errorName: e?.name || null,
-        errorMessage: e?.message || null
-      }
-    });
-    // #endregion
     if (e?.name !== 'NotAllowedError') {
       error.value = e?.message || 'Could not access camera. Please check permissions.';
     }
@@ -1460,18 +1097,6 @@ async function toggleCamera() {
 async function toggleMic() {
   const track = localAudioTrack.value;
   const safeTrack = track ? toRaw(track) : null;
-  // #region agent log
-  debugLog({
-    hypothesisId: 'H9',
-    message: 'toggleMic:start',
-    data: {
-      hasTrack: !!track,
-      micMuted: micMuted.value,
-      trackEnabled: typeof safeTrack?.isEnabled === 'boolean' ? safeTrack.isEnabled : null,
-      trackReadyState: safeTrack?.mediaStreamTrack?.readyState || null
-    }
-  });
-  // #endregion
   if (safeTrack) {
     try {
       if (micMuted.value) {
@@ -1481,28 +1106,7 @@ async function toggleMic() {
         safeTrack.disable();
         micMuted.value = true;
       }
-      // #region agent log
-      debugLog({
-        hypothesisId: 'H9',
-        message: 'toggleMic:existing-track-updated',
-        data: {
-          micMuted: micMuted.value,
-          trackEnabled: typeof safeTrack?.isEnabled === 'boolean' ? safeTrack.isEnabled : null,
-          trackReadyState: safeTrack?.mediaStreamTrack?.readyState || null
-        }
-      });
-      // #endregion
     } catch (e) {
-      // #region agent log
-      debugLog({
-        hypothesisId: 'H9',
-        message: 'toggleMic:existing-track-error',
-        data: {
-          errorName: e?.name || null,
-          errorMessage: e?.message || null
-        }
-      });
-      // #endregion
     }
     return;
   }
@@ -1515,27 +1119,7 @@ async function toggleMic() {
     micMuted.value = false;
     newTrack.on('enabled', () => { micMuted.value = false; });
     newTrack.on('disabled', () => { micMuted.value = true; });
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H9',
-      message: 'toggleMic:new-track-published',
-      data: {
-        trackEnabled: typeof newTrack?.isEnabled === 'boolean' ? newTrack.isEnabled : null,
-        trackReadyState: newTrack?.mediaStreamTrack?.readyState || null
-      }
-    });
-    // #endregion
   } catch (e) {
-    // #region agent log
-    debugLog({
-      hypothesisId: 'H9',
-      message: 'toggleMic:error',
-      data: {
-        errorName: e?.name || null,
-        errorMessage: e?.message || null
-      }
-    });
-    // #endregion
     if (e?.name !== 'NotAllowedError') {
       error.value = e?.message || 'Could not access microphone. Please check permissions.';
     }
@@ -1569,28 +1153,7 @@ async function toggleScreenShare() {
         cameraMuted.value = false;
         recovered.on('enabled', () => { cameraMuted.value = false; });
         recovered.on('disabled', () => { cameraMuted.value = true; });
-        // #region agent log
-        debugLog({
-          hypothesisId: 'H13',
-          message: 'toggleScreenShare:recovered-local-camera',
-          data: {
-            priorReadyState: localReadyState,
-            newReadyState: recovered?.mediaStreamTrack?.readyState || null
-          }
-        });
-        // #endregion
       } catch (e) {
-        // #region agent log
-        debugLog({
-          hypothesisId: 'H13',
-          message: 'toggleScreenShare:recover-local-camera-error',
-          data: {
-            priorReadyState: localReadyState,
-            errorName: e?.name || null,
-            errorMessage: e?.message || null
-          }
-        });
-        // #endregion
       }
     }
     return;
@@ -1653,78 +1216,10 @@ watch(
 
 watch([localVideoTrack, localVideoEl, cameraMuted], ([track, el, muted], [prevTrack]) => {
   if (prevTrack && prevTrack !== track) detachTrack(prevTrack);
-  if (!track || !el) {
-    debugLog({
-      hypothesisId: 'H2',
-      message: 'local:watch-missing-track-or-el',
-      data: {
-        hasTrack: !!track,
-        hasEl: !!el,
-        muted
-      }
-    });
-  }
   if (!track || !el) return;
-  // #region agent log
-  debugLog({
-    hypothesisId: 'H2',
-    message: 'local:watch-attach-branch',
-    data: {
-      hasTrack: !!track,
-      hasEl: !!el,
-      muted,
-      trackSid: track?.sid || null,
-      trackEnabled: typeof track?.isEnabled === 'boolean' ? track.isEnabled : null
-    }
-  });
-  // #endregion
   if (muted) detachTrack(track);
   else attachTrack(track, el);
 }, { flush: 'post' });
-
-watch(localVideoEl, (el) => {
-  // #region agent log
-  debugLog({
-    hypothesisId: 'H10',
-    message: 'localVideoEl:changed',
-    data: {
-      hasEl: !!el,
-      childCount: el?.childElementCount ?? 0,
-      cameraMuted: cameraMuted.value,
-      hasTrack: !!localVideoTrack.value
-    }
-  });
-  // #endregion
-}, { flush: 'post' });
-
-watch([totalParticipants, gridSizeClass], ([count, grid]) => {
-  // #region agent log
-  debugLog({
-    hypothesisId: 'H11',
-    message: 'layout:grid-class',
-    data: {
-      totalParticipants: count,
-      gridClass: grid,
-      remoteParticipants: remoteParticipants.value.length
-    }
-  });
-  // #endregion
-}, { immediate: true });
-
-watch([() => remoteParticipants.value.length, localVideoTrack, cameraMuted], ([remoteCount, localTrack, camMuted]) => {
-  // #region agent log
-  debugLog({
-    hypothesisId: 'H12',
-    message: 'layout:placeholder-visibility',
-    data: {
-      remoteCount,
-      hasLocalTrack: !!localTrack,
-      cameraMuted: camMuted,
-      shouldShowWaitingTile: remoteCount === 0 && (!localTrack || camMuted)
-    }
-  });
-  // #endregion
-}, { immediate: true });
 
 watch([sharedScreenTrack, screenShareEl], ([track, el], [prevTrack]) => {
   if (prevTrack && prevTrack !== track) detachTrack(prevTrack);

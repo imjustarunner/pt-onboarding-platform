@@ -1766,35 +1766,47 @@ router.beforeEach(async (to, from, next) => {
   // This is what keeps the portal branded consistently across all authenticated pages.
   if (to.meta.organizationSlug) {
     const slug = to.params.organizationSlug;
-    const isProviderPlus = String(authStore.user?.role || '').toLowerCase() === 'provider_plus';
-    if (typeof slug === 'string' && slug && authStore.isAuthenticated && authStore.user && (isSupervisor(authStore.user) || isProviderPlus)) {
-      await agencyStore.fetchSuperviseePortalSlugs();
-    }
-    if (typeof slug === 'string' && slug) {
-      // Apply portal branding for all slug routes (public + authenticated).
-      // (Super admins can still view the portal with correct branding.)
-      try {
-        await brandingStore.fetchAgencyTheme(slug);
-      } catch (e) {
-        // best effort: do not block navigation
-      }
+    // Query-only updates (e.g. Skill Builders event portal hub cards set ?section=) must not re-run
+    // theme + org hydration — that caused repeated global loading and "stuck" section switches.
+    const queryOnlySameOrgRoute =
+      from.path &&
+      to.path === from.path &&
+      String(to.name || '') === String(from.name || '') &&
+      typeof slug === 'string' &&
+      slug &&
+      String(from.params.organizationSlug || '') === String(slug);
 
-      // Keep organization + agency stores aligned to the slug so the rest of the app
-      // (filters, permissions, agency-scoped data) stays consistent.
-      try {
-        const org = await organizationStore.fetchBySlug(slug);
-        if (org && authStore.isAuthenticated && authStore.user?.role !== 'super_admin') {
-          // IMPORTANT: Do NOT overwrite the user's current agency context just because they visited a public
-          // organization splash page. Only sync currentAgency when:
-          // - the route requires auth (they are entering a branded portal), OR
-          // - the user actually belongs to that organization (prevents “/school” prefix sticking).
-          const shouldSyncAgencyContext = !!to.meta.requiresAuth || userHasSlugAccess(slug, agencyStore, authStore);
-          if (shouldSyncAgencyContext) {
-            agencyStore.setCurrentAgency(org);
-          }
+    if (!queryOnlySameOrgRoute) {
+      const isProviderPlus = String(authStore.user?.role || '').toLowerCase() === 'provider_plus';
+      if (typeof slug === 'string' && slug && authStore.isAuthenticated && authStore.user && (isSupervisor(authStore.user) || isProviderPlus)) {
+        await agencyStore.fetchSuperviseePortalSlugs();
+      }
+      if (typeof slug === 'string' && slug) {
+        // Apply portal branding for all slug routes (public + authenticated).
+        // (Super admins can still view the portal with correct branding.)
+        try {
+          await brandingStore.fetchAgencyTheme(slug);
+        } catch (e) {
+          // best effort: do not block navigation
         }
-      } catch (e) {
-        // ignore
+
+        // Keep organization + agency stores aligned to the slug so the rest of the app
+        // (filters, permissions, agency-scoped data) stays consistent.
+        try {
+          const org = await organizationStore.fetchBySlug(slug);
+          if (org && authStore.isAuthenticated && authStore.user?.role !== 'super_admin') {
+            // IMPORTANT: Do NOT overwrite the user's current agency context just because they visited a public
+            // organization splash page. Only sync currentAgency when:
+            // - the route requires auth (they are entering a branded portal), OR
+            // - the user actually belongs to that organization (prevents “/school” prefix sticking).
+            const shouldSyncAgencyContext = !!to.meta.requiresAuth || userHasSlugAccess(slug, agencyStore, authStore);
+            if (shouldSyncAgencyContext) {
+              agencyStore.setCurrentAgency(org);
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
       }
     }
   }

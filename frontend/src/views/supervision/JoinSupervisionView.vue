@@ -120,30 +120,6 @@ async function fetchTokenAndJoin() {
     isSupervisor.value = !!data.isSupervisor;
     roomMode.value = String(data.roomMode || (String(rn || '').endsWith('-lobby') ? 'lobby' : 'main')).toLowerCase();
     lobbyEnabledForSession.value = !!data.lobbyEnabledForSession;
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/fe6563d2-089e-457a-8c8f-9a4cae053f92', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '572cc7' },
-      body: JSON.stringify({
-        sessionId: '572cc7',
-        runId: `run-${Date.now()}`,
-        hypothesisId: 'H6',
-        location: 'frontend/src/views/supervision/JoinSupervisionView.vue',
-        message: 'fetchTokenAndJoin:token-response',
-        data: {
-          sid,
-          status: resp?.status || null,
-          hasToken: !!tok,
-          tokenLen: Number(tok?.length || 0),
-          roomName: rn || null,
-          roomMode: roomMode.value,
-          lobbyEnabledForSession: lobbyEnabledForSession.value,
-          isSupervisor: isSupervisor.value
-        },
-        timestamp: Date.now()
-      })
-    }).catch(() => {});
-    // #endregion
     if (!tok) {
       console.warn('[JoinSupervisionView] video-token empty:', { status: resp?.status, data });
       const errMsg = data?.error?.message || data?.error || '';
@@ -157,25 +133,6 @@ async function fetchTokenAndJoin() {
       admissionPollInterval.value = setInterval(pollAdmissionStatus, 2000);
     }
   } catch (e) {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/fe6563d2-089e-457a-8c8f-9a4cae053f92', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '572cc7' },
-      body: JSON.stringify({
-        sessionId: '572cc7',
-        runId: `run-${Date.now()}`,
-        hypothesisId: 'H6',
-        location: 'frontend/src/views/supervision/JoinSupervisionView.vue',
-        message: 'fetchTokenAndJoin:error',
-        data: {
-          sid,
-          status: e?.response?.status || null,
-          errorMessage: e?.response?.data?.error?.message || e?.message || null
-        },
-        timestamp: Date.now()
-      })
-    }).catch(() => {});
-    // #endregion
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
   }
 }

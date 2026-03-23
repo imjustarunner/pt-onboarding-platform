@@ -2630,6 +2630,20 @@ export const getUserScheduleSummary = async (req, res, next) => {
       }
     }
 
+    // super_admin skips the shared-agency branch above; requested agencyId may be a parent org while
+    // provider_schedule_events and other rows use a child org id. If the provider has no membership
+    // matching agencyId, scope to their first org so the summary is not empty.
+    if (!isSelf && String(req.user?.role || '').toLowerCase() === 'super_admin') {
+      const targetAgencies = await User.getAgencies(providerId);
+      const targetIds = (targetAgencies || []).map((a) => Number(a.id)).filter((n) => Number.isFinite(n) && n > 0);
+      if (targetIds.length) {
+        const want = Number(agencyId || 0);
+        if (!want || !targetIds.includes(want)) {
+          agencyId = targetIds[0];
+        }
+      }
+    }
+
     const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const weekStart = startOfWeekIsoYmd(weekStartRaw);
     if (!weekStart) return res.status(400).json({ error: { message: 'weekStart must be YYYY-MM-DD' } });
@@ -3112,17 +3126,98 @@ export const getUserScheduleSummary = async (req, res, next) => {
 
     // 4d) Skill Builders — materialized program sessions for rostered providers (compare schedule / week view)
     try {
-      const [sbRows] = await pool.execute(
-        `SELECT s.id, s.starts_at, s.ends_at, ce.title AS event_title, sg.name AS skills_group_name
+      const sbParams = [agencyId, providerId, windowEnd, windowStart];
+      const sbSqlBase = `SELECT s.id, s.starts_at, s.ends_at, sg.id AS skills_group_id, ce.title AS event_title, sg.name AS skills_group_name
          FROM skill_builders_event_sessions s
          INNER JOIN skills_groups sg ON sg.id = s.skills_group_id AND sg.agency_id = ?
          INNER JOIN company_events ce ON ce.id = s.company_event_id
          INNER JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id AND sgp.provider_user_id = ?
          WHERE s.starts_at < ? AND s.ends_at > ?
          ORDER BY s.starts_at ASC, s.id ASC
-         LIMIT 400`,
-        [agencyId, providerId, windowEnd, windowStart]
-      );
+         LIMIT 400`;
+      let sbRows;
+      try {
+        const [rows] = await pool.execute(
+          `SELECT s.id, s.starts_at, s.ends_at, sg.id AS skills_group_id, ce.title AS event_title, sg.name AS skills_group_name,
+                  ce.employee_report_time, ce.employee_departure_time
+           FROM skill_builders_event_sessions s
+           INNER JOIN skills_groups sg ON sg.id = s.skills_group_id AND sg.agency_id = ?
+           INNER JOIN company_events ce ON ce.id = s.company_event_id
+           INNER JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id AND sgp.provider_user_id = ?
+           WHERE s.starts_at < ? AND s.ends_at > ?
+           ORDER BY s.starts_at ASC, s.id ASC
+           LIMIT 400`,
+          sbParams
+        );
+        sbRows = rows;
+      } catch (e) {
+        // Migration 586 (employee_report_time / employee_departure_time) may not be applied yet.
+        if (e?.errno === 1054 || e?.code === 'ER_BAD_FIELD_ERROR') {
+          const [rows] = await pool.execute(sbSqlBase, sbParams);
+          sbRows = rows;
+        } else {
+          throw e;
+        }
+      }
+      /** @type {Map<number, { userId: number, firstName: string, lastName: string }[]>} */
+      const sbProvidersBySession = new Map();
+      const sbSessionIds = (sbRows || [])
+        .map((row) => Number(row.id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+      if (sbSessionIds.length) {
+        try {
+          const ph = sbSessionIds.map(() => '?').join(',');
+          const [provRows] = await pool.execute(
+            `SELECT p.session_id, u.id AS user_id, u.first_name, u.last_name
+             FROM skill_builders_event_session_providers p
+             INNER JOIN users u ON u.id = p.provider_user_id
+             WHERE p.session_id IN (${ph})
+             ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+            sbSessionIds
+          );
+          for (const pr of provRows || []) {
+            const sid = Number(pr.session_id);
+            if (!sbProvidersBySession.has(sid)) sbProvidersBySession.set(sid, []);
+            sbProvidersBySession.get(sid).push({
+              userId: Number(pr.user_id),
+              firstName: String(pr.first_name || '').trim(),
+              lastName: String(pr.last_name || '').trim()
+            });
+          }
+        } catch (e) {
+          if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+        }
+      }
+      /** @type {Map<number, { userId: number, firstName: string, lastName: string }[]>} */
+      const sbRosterByGroup = new Map();
+      const sbGroupIds = [
+        ...new Set(
+          (sbRows || [])
+            .map((row) => Number(row.skills_group_id))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        )
+      ];
+      if (sbGroupIds.length) {
+        const gph = sbGroupIds.map(() => '?').join(',');
+        const [rosterRows] = await pool.execute(
+          `SELECT sgp.skills_group_id, u.id AS user_id, u.first_name, u.last_name
+           FROM skills_group_providers sgp
+           INNER JOIN users u ON u.id = sgp.provider_user_id
+           WHERE sgp.skills_group_id IN (${gph})
+           ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+          sbGroupIds
+        );
+        for (const rr of rosterRows || []) {
+          const gid = Number(rr.skills_group_id);
+          if (!sbRosterByGroup.has(gid)) sbRosterByGroup.set(gid, []);
+          sbRosterByGroup.get(gid).push({
+            userId: Number(rr.user_id),
+            firstName: String(rr.first_name || '').trim(),
+            lastName: String(rr.last_name || '').trim()
+          });
+        }
+      }
+      const sbWallTime = (v) => (v != null && v !== '' ? String(v).slice(0, 8) : null);
       for (const r of sbRows || []) {
         const startAtOut =
           toIsoUtcForSchedule(r.starts_at) || toMysqlDateTimeWall(r.starts_at) || r.starts_at || null;
@@ -3131,8 +3226,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const sgName = String(r.skills_group_name || '').trim();
         const evTitle = String(r.event_title || '').trim();
         const title = [sgName, evTitle].filter(Boolean).join(' · ') || 'Skill Builders program';
+        const sid = Number(r.id);
+        const skillsGroupId = Number(r.skills_group_id);
         scheduleEvents.push({
-          id: Number(r.id),
+          id: sid,
           agencyId: Number(agencyId),
           kind: 'SKILL_BUILDERS_PROGRAM',
           title,
@@ -3150,7 +3247,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
           googleEventId: null,
           htmlLink: null,
           meetLink: null,
-          appJoinUrl: null
+          appJoinUrl: null,
+          employeeReportTime: sbWallTime(r.employee_report_time),
+          employeeDepartureTime: sbWallTime(r.employee_departure_time),
+          assignedSessionProviders: sbProvidersBySession.get(sid) || [],
+          groupRosterProviders: Number.isFinite(skillsGroupId) && skillsGroupId > 0
+            ? sbRosterByGroup.get(skillsGroupId) || []
+            : []
         });
       }
     } catch (e) {
@@ -3280,33 +3383,6 @@ export const getUserScheduleSummary = async (req, res, next) => {
     } catch {
       // ignore
     }
-
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/fe6563d2-089e-457a-8c8f-9a4cae053f92', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '572cc7' },
-      body: JSON.stringify({
-        sessionId: '572cc7',
-        runId: `run-${Date.now()}`,
-        hypothesisId: 'H4',
-        location: 'backend/src/controllers/user.controller.js',
-        message: 'getUserScheduleSummary:supervision-payload',
-        data: {
-          providerId,
-          agencyId,
-          weekStart,
-          supervisionCount: Array.isArray(supervisionSessions) ? supervisionSessions.length : 0,
-          firstSessions: (Array.isArray(supervisionSessions) ? supervisionSessions.slice(0, 3) : []).map((s) => ({
-            id: s?.id,
-            startAt: s?.startAt,
-            endAt: s?.endAt,
-            startDateYmd: s?.startDateYmd
-          }))
-        },
-        timestamp: Date.now()
-      })
-    }).catch(() => {});
-    // #endregion
 
     res.json({
       ok: true,

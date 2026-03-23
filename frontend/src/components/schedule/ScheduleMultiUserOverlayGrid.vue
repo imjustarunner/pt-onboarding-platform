@@ -329,13 +329,18 @@ const load = async () => {
   }
 };
 
-// Defer load so dashboard/tab shell can render first (schedule loads in background)
+// Debounce: week + Google toggles + user list can update in the same tick and would otherwise fire multiple loads.
+let loadDebounceTimer = null;
 const deferredLoad = () => {
-  if (typeof requestIdleCallback !== 'undefined') {
-    requestIdleCallback(() => void load(), { timeout: 50 });
-  } else {
-    setTimeout(() => void load(), 0);
-  }
+  if (loadDebounceTimer) clearTimeout(loadDebounceTimer);
+  loadDebounceTimer = setTimeout(() => {
+    loadDebounceTimer = null;
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(() => void load(), { timeout: 50 });
+    } else {
+      setTimeout(() => void load(), 0);
+    }
+  }, 120);
 };
 watch([() => props.userIds, effectiveWeekStart, showGoogleBusy, showGoogleEvents, () => props.hideGoogleAndTherapyNotes, effectiveAgencyIds], deferredLoad, { deep: true, immediate: true });
 

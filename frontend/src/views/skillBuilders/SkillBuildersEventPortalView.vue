@@ -119,7 +119,6 @@
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
-              v-if="showScheduleSection"
               v-show="railActive === 'schedule'"
               rail-mode
               section-id="schedule"
@@ -772,8 +771,8 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, reactive } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { ref, computed, watch, reactive, nextTick } from 'vue';
+import { useRoute, useRouter, isNavigationFailure } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
@@ -880,15 +879,40 @@ const programDocumentsLibraryRoute = computed(() => {
   };
 });
 
-const showScheduleSection = computed(() => {
-  const d = detail.value;
-  if (!d) return false;
-  const cal = d.calendar;
-  const hasCal = !!(cal && (cal.googleCalendarUrl || cal.icsUrl));
-  return hasCal || !!d.skillsGroup;
-});
+/** Raw `section` from Vue Router only (no URL-bar fallback). */
+function sectionParamFromRoute() {
+  const raw = route.query.section;
+  if (Array.isArray(raw)) return String(raw[0] || '').trim();
+  return String(raw || '').trim();
+}
 
-const sectionQuery = computed(() => String(route.query.section || '').trim());
+/** Parse `section` from the real location bar (handles router/query desync). */
+function sectionParamFromUrl() {
+  if (typeof window === 'undefined') return '';
+  try {
+    return String(new URLSearchParams(window.location.search).get('section') || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Same-path `?section=` updates don't always re-run computeds in the same tick as `route.query`
+ * (and `window.location` is not reactive). Set this on click so hub/rail/panels update immediately.
+ */
+const optimisticSection = ref('');
+
+/** Prefer router query; if missing, use `?section=` from `location` so hub vs rail matches the visible URL. */
+const sectionQuery = computed(() => {
+  const o = optimisticSection.value;
+  const fromRoute = sectionParamFromRoute();
+  if (o) {
+    if (fromRoute === o) return fromRoute;
+    return o;
+  }
+  if (fromRoute) return fromRoute;
+  return sectionParamFromUrl();
+});
 
 /** No `?section=`, or `?section=home` → centered hub of cards; any other section → left rail + panel. */
 const dashHubMode = computed(() => {
@@ -896,7 +920,19 @@ const dashHubMode = computed(() => {
   return !q || q === 'home';
 });
 
-const railActive = ref('');
+/**
+ * Active section for rail + panels — derived from the URL and allowed rail ids.
+ * (The old ref + watch could stay empty while ?section= updated, so the hub hid but no panel showed.)
+ */
+const railActive = computed(() => {
+  const q = sectionQuery.value;
+  const items = eventRailItems.value;
+  if (!q) return '';
+  if (q === 'home') return 'home';
+  // While items are briefly empty (e.g. detail reload) keep URL-driven section so panels stay visible.
+  if (!items.length) return q;
+  return items.some((i) => String(i.id) === String(q)) ? q : '';
+});
 
 /** Uses My Dashboard / School Portal icon keys (agency overrides in branding). */
 function sectionIconUrl(sectionKey) {
@@ -981,14 +1017,50 @@ const eventRailItems = computed(() => {
   return items;
 });
 
-function selectRailSection(id) {
-  router.replace({ query: { ...route.query, section: id } });
+/** Keep the current path (params are already in it); only the query changes — avoids named-route param quirks. */
+function replaceEventPortalQuery(nextQuery) {
+  return router.replace({ path: route.path, query: nextQuery });
 }
 
-function openDashHub() {
+// When the address bar still has `?section=` but `route.query` lost it (org/bootstrap navigations, etc.), sync router state.
+watch(
+  () => route.fullPath,
+  () => {
+    const fromUrl = sectionParamFromUrl();
+    const routeS = sectionParamFromRoute();
+    if (fromUrl && !routeS) {
+      replaceEventPortalQuery({ ...route.query, section: fromUrl });
+    }
+  },
+  { flush: 'post', immediate: true }
+);
+
+async function openDashHub() {
+  optimisticSection.value = '';
   const next = { ...route.query };
   delete next.section;
-  router.replace({ query: next });
+  try {
+    await replaceEventPortalQuery(next);
+  } catch (e) {
+    if (!isNavigationFailure(e)) throw e;
+  } finally {
+    await nextTick();
+  }
+}
+
+async function selectRailSection(id) {
+  const section = String(id ?? '').trim();
+  optimisticSection.value = section;
+  try {
+    await replaceEventPortalQuery({ ...route.query, section });
+  } catch (e) {
+    if (!isNavigationFailure(e)) throw e;
+  } finally {
+    await nextTick();
+    if (sectionParamFromRoute() === section) {
+      optimisticSection.value = '';
+    }
+  }
 }
 
 const legacyRailSection = {
@@ -1004,28 +1076,19 @@ watch(
   () => [eventRailItems.value, sectionQuery.value],
   () => {
     const items = eventRailItems.value;
-    if (!items.length) return;
     const q = sectionQuery.value;
     const mapped = legacyRailSection[q];
     if (mapped && mapped !== q) {
-      router.replace({ query: { ...route.query, section: mapped } });
+      replaceEventPortalQuery({ ...route.query, section: mapped });
       return;
     }
-    if (!q) {
-      railActive.value = '';
-      return;
+    if (!items.length) return;
+    if (!q || q === 'home') return;
+    if (!items.some((i) => String(i.id) === String(q))) {
+      const next = { ...route.query };
+      delete next.section;
+      replaceEventPortalQuery(next);
     }
-    if (q === 'home') {
-      railActive.value = 'home';
-      return;
-    }
-    if (items.some((i) => i.id === q)) {
-      railActive.value = q;
-      return;
-    }
-    const next = { ...route.query };
-    delete next.section;
-    router.replace({ query: next });
   },
   { immediate: true }
 );
