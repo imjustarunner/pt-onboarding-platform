@@ -1002,7 +1002,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, unref } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, unref, nextTick } from 'vue';
 import { useAuthStore } from './store/auth';
 import { useBrandingStore } from './store/branding';
 import { useAgencyStore } from './store/agency';
@@ -1610,10 +1610,18 @@ const noteAidEnabled = computed(() => isTruthyFlag(currentAgencyFeatureFlags.val
 const canUseAgencyCampaigns = computed(() => {
   const enabled = isTruthyFlag(currentAgencyFeatureFlags.value?.agency_campaigns_enabled);
   if (!enabled) return false;
-  return isAdmin || user?.role === 'support' || user?.role === 'staff' || user?.role === 'super_admin' || user?.role === 'clinical_practice_assistant' || user?.role === 'provider_plus';
+  const r = user.value?.role;
+  return (
+    isAdmin.value ||
+    r === 'support' ||
+    r === 'staff' ||
+    r === 'super_admin' ||
+    r === 'clinical_practice_assistant' ||
+    r === 'provider_plus'
+  );
 });
 const canUseEngagementFeed = computed(() => {
-  const role = String(user?.role || '').toLowerCase();
+  const role = String(user.value?.role || '').toLowerCase();
   return (
     role === 'admin' ||
     role === 'support' ||
@@ -2577,7 +2585,8 @@ watch(isAuthenticated, (auth) => {
 }, { immediate: true });
 
 let communicationsCountsInterval = null;
-watch(showEngagementMenu, (enabled) => {
+/** Avoid `{ immediate: true }` here: it runs during setup() and has repeatedly hit TDZ with minified bundles. */
+function syncCommunicationsCountsWithEngagementMenu(enabled) {
   if (enabled) {
     void communicationsCountsStore.fetchCounts();
     if (communicationsCountsInterval) clearInterval(communicationsCountsInterval);
@@ -2586,7 +2595,8 @@ watch(showEngagementMenu, (enabled) => {
     if (communicationsCountsInterval) clearInterval(communicationsCountsInterval);
     communicationsCountsInterval = null;
   }
-}, { immediate: true });
+}
+watch(showEngagementMenu, syncCommunicationsCountsWithEngagementMenu);
 
 watch(() => route.path, (path) => {
   if (path && (path.includes('/admin/communications') || path.includes('/tickets'))) {
@@ -2658,6 +2668,9 @@ watch(() => route.params.organizationSlug, async (newSlug) => {
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick);
   router.afterEach(() => closeAllNavMenus());
+  void nextTick(() => {
+    syncCommunicationsCountsWithEngagementMenu(showEngagementMenu.value);
+  });
   const bootId = beginLoading('Loading…');
   try {
 

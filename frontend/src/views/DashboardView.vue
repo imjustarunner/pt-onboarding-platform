@@ -2758,8 +2758,7 @@ watch(
   () => [isSkillBuilderCoordinator.value, currentAgencyId.value, isOnboardingComplete.value],
   () => {
     loadSubCoordinatorProgramOrgs();
-  },
-  { immediate: true }
+  }
 );
 
 // Agency logo URL for preview mode
@@ -4106,6 +4105,7 @@ const loadMyCompanyEvents = async () => {
 };
 
 onMounted(async () => {
+  void loadSubCoordinatorProgramOrgs();
   if (!props.previewMode && authStore.isAuthenticated) {
     api.post('/auth/activity-log', { actionType: 'dashboard_view' }, { skipGlobalLoading: true }).catch(() => {});
   }
