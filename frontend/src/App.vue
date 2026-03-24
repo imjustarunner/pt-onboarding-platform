@@ -1629,6 +1629,10 @@ const canUseEngagementFeed = computed(() => {
 const canUseChats = computed(() => {
   return canUseEngagementFeed.value && hasCapability('canUseChat');
 });
+// Must be declared before showEngagementMenu (watch(..., { immediate: true }) evaluates it during setup).
+const canShowScheduleTopNav = computed(() => {
+  return isTrueAdmin.value && hasCapability('canJoinProgramEvents');
+});
 const showEngagementMenu = computed(() => {
   return (
     canUseEngagementFeed.value ||
@@ -1980,10 +1984,6 @@ const canShowAdminDashboardIcon = computed(() => {
   if (!u) return false;
   // Club managers are admins; they see the icon (route guard redirects /admin → /challenges)
   return isTrueAdmin.value;
-});
-
-const canShowScheduleTopNav = computed(() => {
-  return isTrueAdmin.value && hasCapability('canJoinProgramEvents');
 });
 
 const adminDashboardIconUrl = computed(() => {
