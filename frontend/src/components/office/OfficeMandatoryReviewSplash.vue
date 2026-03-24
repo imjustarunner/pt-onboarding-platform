@@ -215,7 +215,7 @@ async function load() {
   loadError.value = '';
   loadGateFromLs();
   try {
-    const { data } = await api.get('/office-schedule/me/mandatory-review');
+    const { data } = await api.get('/office-schedule/me/mandatory-review', { skipGlobalLoading: true });
     const list = Array.isArray(data?.items) ? data.items : [];
     if (list.length === 0) {
       clearGateStorage();
