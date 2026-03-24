@@ -84,10 +84,23 @@
         <p class="muted small">Shown in the hub header (theme). Upload or paste a URL.</p>
         <div class="pmp-upload-row">
           <input v-model="form.logoUrl" type="text" placeholder="/uploads/… or https://…" class="flex-grow" />
-          <label class="btn btn-secondary btn-sm pmp-file-btn">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="!!saving || !!uploadingTarget"
+            @click="triggerLogoUpload"
+          >
             {{ uploadingTarget === 'logo' ? '…' : 'Upload' }}
-            <input type="file" accept="image/*" class="sr-only" :disabled="!!saving || uploadingTarget" @change="onUploadLogo" />
-          </label>
+          </button>
+          <input
+            ref="logoFileInput"
+            type="file"
+            accept="image/*"
+            class="pmp-hidden-file"
+            tabindex="-1"
+            aria-hidden="true"
+            @change="onUploadLogo"
+          />
         </div>
         <div v-if="form.logoUrl" class="pmp-thumb"><img :src="form.logoUrl" alt="Logo preview" /></div>
       </div>
@@ -97,26 +110,42 @@
         <p class="muted small">Banner at the top of <code>/p/{{ form.slug || 'slug' }}</code>.</p>
         <div class="pmp-upload-row">
           <input v-model="form.heroImageUrl" type="text" placeholder="https://… or upload" class="flex-grow" />
-          <label class="btn btn-secondary btn-sm pmp-file-btn">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="!!saving || !!uploadingTarget"
+            @click="triggerHeroUpload"
+          >
             {{ uploadingTarget === 'hero' ? '…' : 'Upload' }}
-            <input type="file" accept="image/*" class="sr-only" :disabled="!!saving || uploadingTarget" @change="onUploadHero" />
-          </label>
+          </button>
+          <input
+            ref="heroFileInput"
+            type="file"
+            accept="image/*"
+            class="pmp-hidden-file"
+            tabindex="-1"
+            aria-hidden="true"
+            @change="onUploadHero"
+          />
         </div>
         <div v-if="form.heroImageUrl" class="pmp-thumb pmp-thumb-wide"><img :src="form.heroImageUrl" alt="Hero preview" /></div>
       </div>
 
       <div class="field">
         <span>Photo gallery</span>
-        <p class="muted small">Optional grid of images below the hero. Upload to append URLs.</p>
+        <p class="muted small">Optional grid of images below the hero. Upload one or more images (append to the list).</p>
         <div class="pmp-upload-row">
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="!!saving || uploadingTarget" @click="triggerGalleryUpload">
-            {{ uploadingTarget === 'gallery' ? '…' : 'Upload image' }}
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="!!saving || !!uploadingTarget" @click="triggerGalleryUpload">
+            {{ uploadingTarget === 'gallery' ? '…' : 'Upload images' }}
           </button>
           <input
             ref="galleryFileInput"
             type="file"
             accept="image/*"
-            class="sr-only"
+            multiple
+            class="pmp-hidden-file"
+            tabindex="-1"
+            aria-hidden="true"
             @change="onUploadGallery"
           />
         </div>
@@ -233,7 +262,17 @@ const pickAgencyId = ref(null);
 const pickSourceType = ref('agency');
 
 const uploadingTarget = ref('');
+const logoFileInput = ref(null);
+const heroFileInput = ref(null);
 const galleryFileInput = ref(null);
+
+function triggerLogoUpload() {
+  logoFileInput.value?.click();
+}
+
+function triggerHeroUpload() {
+  heroFileInput.value?.click();
+}
 
 /** Structured hub branding (merged into brandingJson on save). */
 const form = ref({
@@ -366,19 +405,22 @@ async function onUploadHero(e) {
 }
 
 function triggerGalleryUpload() {
-  galleryFileInput.value?.click?.();
+  galleryFileInput.value?.click();
 }
 
 async function onUploadGallery(e) {
-  const f = e.target.files?.[0];
-  e.target.value = '';
-  if (!f) return;
+  const input = e.target;
+  const files = input.files ? Array.from(input.files) : [];
+  input.value = '';
+  if (!files.length) return;
   uploadingTarget.value = 'gallery';
+  const cleaned = galleryUrls.value.map((u) => String(u || '').trim()).filter(Boolean);
   try {
-    const url = await postMarketingUpload(f);
-    const cleaned = galleryUrls.value.map((u) => String(u || '').trim()).filter(Boolean);
-    cleaned.push(url);
-    galleryUrls.value = cleaned.length ? cleaned : [url];
+    for (const f of files) {
+      const url = await postMarketingUpload(f);
+      cleaned.push(url);
+    }
+    galleryUrls.value = cleaned.length ? cleaned : [''];
   } catch (err) {
     saveError.value = err.response?.data?.error?.message || err.message || 'Upload failed';
   } finally {
@@ -679,10 +721,16 @@ onMounted(async () => {
   flex: 1;
   min-width: 180px;
 }
-.pmp-file-btn {
-  cursor: pointer;
-  position: relative;
-  margin: 0;
+/* Hidden but in DOM — not display:none so programmatic .click() opens the file picker reliably. */
+.pmp-hidden-file {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0.01px;
+  height: 0.01px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 .pmp-thumb {
   margin-top: 10px;
