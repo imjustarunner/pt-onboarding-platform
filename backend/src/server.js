@@ -1054,8 +1054,25 @@ if (!isBootstrap) {
     }
   };
 
+  const scheduleSkillBuildersSessionCloseout = async () => {
+    try {
+      const { runSkillBuildersSessionCloseout } = await import('./services/skillBuildersSessionCloseout.service.js');
+      const r = await runSkillBuildersSessionCloseout();
+      if (r?.ok && (Number(r.missedMarked) > 0 || Number(r.autoCheckouts) > 0)) {
+        console.log('[skill_builders_session_closeout]', r);
+      }
+    } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_FIELD_ERROR') {
+        console.warn('Skill Builders session closeout skipped. Run migration 606_skill_builders_session_closeout.sql');
+      } else {
+        console.error('Error in Skill Builders session closeout:', error);
+      }
+    }
+  };
+
   // Run immediately on startup (best-effort)
   scheduleOfficeScheduleWatchdog();
+  scheduleSkillBuildersSessionCloseout();
 
   // Program reminder schedules (runs every 5 minutes)
   const scheduleProgramReminders = async () => {
@@ -1183,4 +1200,6 @@ if (!isBootstrap) {
   setTimeout(() => {
     scheduleOfficeScheduleWatchdog();
     setInterval(scheduleOfficeScheduleWatchdog, 24 * 60 * 60 * 1000);
+    scheduleSkillBuildersSessionCloseout();
+    setInterval(scheduleSkillBuildersSessionCloseout, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight());

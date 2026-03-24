@@ -62,16 +62,127 @@
         <textarea v-model="form.heroSubtitle" rows="2" />
       </label>
       <label class="field">
-        <span>Hero image URL</span>
-        <input v-model="form.heroImageUrl" type="text" placeholder="https://..." />
+        <span>Partner line (optional)</span>
+        <input
+          v-model="form.partnerLine"
+          type="text"
+          placeholder="e.g. In partnership with Colorado Springs School District 11"
+        />
+        <span class="muted small">Small uppercase line above the hero — sets community context.</span>
       </label>
+      <label class="field">
+        <span>Parent intro (optional)</span>
+        <textarea
+          v-model="form.parentIntro"
+          rows="3"
+          placeholder="Short mobile-first message: locations, how to find closest site, what to expect."
+        />
+        <span class="muted small">Shown in the green highlight card. If empty, a sensible default is used.</span>
+      </label>
+      <div class="field pmp-assets">
+        <span>Logo</span>
+        <p class="muted small">Shown in the hub header (theme). Upload or paste a URL.</p>
+        <div class="pmp-upload-row">
+          <input v-model="form.logoUrl" type="text" placeholder="/uploads/… or https://…" class="flex-grow" />
+          <label class="btn btn-secondary btn-sm pmp-file-btn">
+            {{ uploadingTarget === 'logo' ? '…' : 'Upload' }}
+            <input type="file" accept="image/*" class="sr-only" :disabled="!!saving || uploadingTarget" @change="onUploadLogo" />
+          </label>
+        </div>
+        <div v-if="form.logoUrl" class="pmp-thumb"><img :src="form.logoUrl" alt="Logo preview" /></div>
+      </div>
+
+      <div class="field pmp-assets">
+        <span>Hero image</span>
+        <p class="muted small">Banner at the top of <code>/p/{{ form.slug || 'slug' }}</code>.</p>
+        <div class="pmp-upload-row">
+          <input v-model="form.heroImageUrl" type="text" placeholder="https://… or upload" class="flex-grow" />
+          <label class="btn btn-secondary btn-sm pmp-file-btn">
+            {{ uploadingTarget === 'hero' ? '…' : 'Upload' }}
+            <input type="file" accept="image/*" class="sr-only" :disabled="!!saving || uploadingTarget" @change="onUploadHero" />
+          </label>
+        </div>
+        <div v-if="form.heroImageUrl" class="pmp-thumb pmp-thumb-wide"><img :src="form.heroImageUrl" alt="Hero preview" /></div>
+      </div>
+
+      <div class="field">
+        <span>Photo gallery</span>
+        <p class="muted small">Optional grid of images below the hero. Upload to append URLs.</p>
+        <div class="pmp-upload-row">
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="!!saving || uploadingTarget" @click="triggerGalleryUpload">
+            {{ uploadingTarget === 'gallery' ? '…' : 'Upload image' }}
+          </button>
+          <input
+            ref="galleryFileInput"
+            type="file"
+            accept="image/*"
+            class="sr-only"
+            @change="onUploadGallery"
+          />
+        </div>
+        <ul class="pmp-gallery-list">
+          <li v-for="(url, gi) in galleryUrls" :key="`g-${gi}`" class="pmp-gallery-item">
+            <input v-model="galleryUrls[gi]" type="text" class="mono" placeholder="Image URL" />
+            <button type="button" class="btn btn-danger btn-sm" @click="removeGallery(gi)">Remove</button>
+          </li>
+        </ul>
+        <button type="button" class="btn btn-secondary btn-sm" @click="galleryUrls.push('')">Add URL row</button>
+      </div>
+
+      <div class="field">
+        <span>Primary navigation</span>
+        <p class="muted small">
+          Top links on the hub. Use internal paths like <code>/p/{{ form.slug || 'your-slug' }}/faq</code> for subpages, or
+          <code>https://…</code> for external sites.
+        </p>
+        <div v-for="(row, ni) in navRows" :key="`nav-${ni}`" class="pmp-row-grid">
+          <input v-model="row.label" type="text" placeholder="Label" />
+          <input v-model="row.href" type="text" placeholder="URL or path" class="mono" />
+          <button type="button" class="btn btn-danger btn-sm" @click="removeNav(ni)">×</button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="navRows.push({ label: '', href: '' })">Add link</button>
+      </div>
+
+      <div class="field">
+        <span>Subpages (markdown)</span>
+        <p class="muted small">
+          Each entry becomes <code>/p/{{ form.slug || 'slug' }}/:slug</code> with the body rendered as Markdown (great for FAQ,
+          policies, extra info).
+        </p>
+        <div v-for="(pg, pi) in contentPages" :key="`cp-${pi}`" class="pmp-subpage-card">
+          <div class="pmp-subpage-meta">
+            <label class="pmp-inline"
+              >URL slug <input v-model="pg.slug" type="text" placeholder="faq" class="mono"
+            /></label>
+            <label class="pmp-inline"
+              >Page title <input v-model="pg.title" type="text" placeholder="Frequently asked questions"
+            /></label>
+          </div>
+          <label class="pmp-inline full"
+            >Body (Markdown)
+            <textarea v-model="pg.body" rows="6" class="mono" placeholder="## Heading&#10;&#10;Your content…" />
+          </label>
+          <button type="button" class="btn btn-danger btn-sm" @click="removeContentPage(pi)">Remove page</button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="contentPages.push({ slug: '', title: '', body: '' })">
+          Add subpage
+        </button>
+      </div>
+
       <label class="field">
         <span>Metrics profile (optional, public)</span>
         <input v-model="form.metricsProfile" type="text" placeholder="hub_sources_summary or plottwistco_summary" />
       </label>
       <label class="field">
-        <span>Branding JSON</span>
-        <textarea v-model="form.brandingJsonText" rows="6" class="mono" placeholder='{"colorPalette":{"primary":"#4f46e5"}}' />
+        <span>Advanced branding (JSON)</span>
+        <p class="muted small">
+          Merged with logo / gallery / nav / subpages above on save. Optional hub blocks:
+          <code>programThemePrimary</code> (hex accent),
+          <code>ctaSection</code> (object to override copy, or <code>false</code> to hide the Medicaid / eligibility band),
+          <code>processSection</code> (object with <code>title</code> / <code>steps</code> array, or <code>false</code> to hide),
+          <code>whatWeOfferSection</code> (object: <code>title</code>, <code>summary</code>, <code>intro</code>, <code>expandLabel</code>, <code>collapseLabel</code>, <code>items</code> array of <code>{ title, body, imageUrl }</code>, or <code>false</code> to hide the collapsible block).
+        </p>
+        <textarea v-model="form.brandingJsonText" rows="6" class="mono" placeholder='{"programThemePrimary":"#a32623"}' />
       </label>
 
       <div class="field">
@@ -121,6 +232,10 @@ const editingId = ref(null);
 const pickAgencyId = ref(null);
 const pickSourceType = ref('agency');
 
+const uploadingTarget = ref('');
+const galleryFileInput = ref(null);
+
+/** Structured hub branding (merged into brandingJson on save). */
 const form = ref({
   slug: '',
   title: '',
@@ -129,10 +244,162 @@ const form = ref({
   heroTitle: '',
   heroSubtitle: '',
   heroImageUrl: '',
+  logoUrl: '',
+  partnerLine: '',
+  parentIntro: '',
   metricsProfile: '',
   brandingJsonText: '{}',
   sources: []
 });
+
+const galleryUrls = ref([]);
+const navRows = ref([{ label: '', href: '' }]);
+const contentPages = ref([{ slug: '', title: '', body: '' }]);
+
+function slugifySegment(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function mergeBrandingPayload() {
+  let advanced = {};
+  try {
+    advanced = JSON.parse(form.value.brandingJsonText || '{}');
+    if (!advanced || typeof advanced !== 'object' || Array.isArray(advanced)) advanced = {};
+  } catch {
+    advanced = {};
+  }
+  const out = { ...advanced };
+  const logo = String(form.value.logoUrl || '').trim();
+  if (logo) out.logoUrl = logo;
+  else delete out.logoUrl;
+
+  const gal = galleryUrls.value.map((u) => String(u || '').trim()).filter(Boolean);
+  if (gal.length) out.gallery = gal;
+  else delete out.gallery;
+
+  const nav = navRows.value
+    .map((r) => ({ label: String(r.label || '').trim(), href: String(r.href || '').trim() }))
+    .filter((r) => r.label && r.href);
+  if (nav.length) out.primaryNav = nav;
+  else delete out.primaryNav;
+
+  const subs = contentPages.value
+    .map((p) => ({
+      slug: slugifySegment(p.slug),
+      title: String(p.title || '').trim(),
+      body: String(p.body || '')
+    }))
+    .filter((p) => p.slug && p.title);
+  if (subs.length) out.contentPages = subs;
+  else delete out.contentPages;
+
+  const pl = String(form.value.partnerLine || '').trim();
+  if (pl) out.partnerLine = pl;
+  else delete out.partnerLine;
+
+  const pint = String(form.value.parentIntro || '').trim();
+  if (pint) out.parentIntro = pint;
+  else delete out.parentIntro;
+
+  return out;
+}
+
+function hydrateStructuredFromBranding(b) {
+  const branding = b && typeof b === 'object' ? b : {};
+  form.value.partnerLine = String(branding.partnerLine || '').trim();
+  form.value.parentIntro = String(branding.parentIntro || '').trim();
+  form.value.logoUrl = String(branding.logoUrl || '').trim();
+  galleryUrls.value = Array.isArray(branding.gallery) ? branding.gallery.map((u) => String(u || '').trim()) : [];
+  if (!galleryUrls.value.length) galleryUrls.value = [''];
+
+  const nav = Array.isArray(branding.primaryNav) ? branding.primaryNav : [];
+  navRows.value = nav.length
+    ? nav.map((r) => ({ label: String(r.label || ''), href: String(r.href || '') }))
+    : [{ label: '', href: '' }];
+
+  const cp = Array.isArray(branding.contentPages) ? branding.contentPages : [];
+  contentPages.value = cp.length
+    ? cp.map((p) => ({ slug: String(p.slug || ''), title: String(p.title || ''), body: String(p.body || '') }))
+    : [{ slug: '', title: '', body: '' }];
+}
+
+async function postMarketingUpload(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await api.post('/platform/public-marketing-pages/upload', fd, { skipGlobalLoading: true });
+  const url = res.data?.url;
+  if (!url) throw new Error('Upload did not return a URL');
+  return String(url).trim();
+}
+
+async function onUploadLogo(e) {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (!f) return;
+  uploadingTarget.value = 'logo';
+  try {
+    form.value.logoUrl = await postMarketingUpload(f);
+  } catch (err) {
+    saveError.value = err.response?.data?.error?.message || err.message || 'Upload failed';
+  } finally {
+    uploadingTarget.value = '';
+  }
+}
+
+async function onUploadHero(e) {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (!f) return;
+  uploadingTarget.value = 'hero';
+  try {
+    form.value.heroImageUrl = await postMarketingUpload(f);
+  } catch (err) {
+    saveError.value = err.response?.data?.error?.message || err.message || 'Upload failed';
+  } finally {
+    uploadingTarget.value = '';
+  }
+}
+
+function triggerGalleryUpload() {
+  galleryFileInput.value?.click?.();
+}
+
+async function onUploadGallery(e) {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (!f) return;
+  uploadingTarget.value = 'gallery';
+  try {
+    const url = await postMarketingUpload(f);
+    const cleaned = galleryUrls.value.map((u) => String(u || '').trim()).filter(Boolean);
+    cleaned.push(url);
+    galleryUrls.value = cleaned.length ? cleaned : [url];
+  } catch (err) {
+    saveError.value = err.response?.data?.error?.message || err.message || 'Upload failed';
+  } finally {
+    uploadingTarget.value = '';
+  }
+}
+
+function removeGallery(idx) {
+  galleryUrls.value.splice(idx, 1);
+  if (!galleryUrls.value.length) galleryUrls.value = [''];
+}
+
+function removeNav(idx) {
+  navRows.value.splice(idx, 1);
+  if (!navRows.value.length) navRows.value = [{ label: '', href: '' }];
+}
+
+function removeContentPage(idx) {
+  contentPages.value.splice(idx, 1);
+  if (!contentPages.value.length) contentPages.value = [{ slug: '', title: '', body: '' }];
+}
 
 function resetForm() {
   form.value = {
@@ -143,10 +410,16 @@ function resetForm() {
     heroTitle: '',
     heroSubtitle: '',
     heroImageUrl: '',
+    logoUrl: '',
+    partnerLine: '',
+    parentIntro: '',
     metricsProfile: '',
     brandingJsonText: '{}',
     sources: []
   };
+  galleryUrls.value = [''];
+  navRows.value = [{ label: '', href: '' }];
+  contentPages.value = [{ slug: '', title: '', body: '' }];
   pickAgencyId.value = null;
   pickSourceType.value = 'agency';
 }
@@ -190,6 +463,14 @@ function startCreate() {
 
 function edit(p) {
   editingId.value = p.id;
+  const b = p.brandingJson || {};
+  const advanced = { ...b };
+  delete advanced.logoUrl;
+  delete advanced.gallery;
+  delete advanced.primaryNav;
+  delete advanced.contentPages;
+  delete advanced.partnerLine;
+  delete advanced.parentIntro;
   form.value = {
     slug: p.slug,
     title: p.title || '',
@@ -198,8 +479,11 @@ function edit(p) {
     heroTitle: p.heroTitle || '',
     heroSubtitle: p.heroSubtitle || '',
     heroImageUrl: p.heroImageUrl || '',
+    logoUrl: '',
+    partnerLine: '',
+    parentIntro: '',
     metricsProfile: p.metricsProfile || '',
-    brandingJsonText: JSON.stringify(p.brandingJson || {}, null, 2),
+    brandingJsonText: JSON.stringify(advanced, null, 2),
     sources: (p.sources || []).map((s) => ({
       sourceType: s.sourceType || 'agency',
       sourceId: Number(s.sourceId),
@@ -207,6 +491,7 @@ function edit(p) {
       isActive: s.isActive !== false
     }))
   };
+  hydrateStructuredFromBranding(b);
   editorOpen.value = true;
   saveError.value = '';
 }
@@ -238,13 +523,8 @@ function sourceLabel(s) {
 
 async function save() {
   saveError.value = '';
-  let brandingJson = {};
-  try {
-    brandingJson = JSON.parse(form.value.brandingJsonText || '{}');
-  } catch {
-    saveError.value = 'Branding JSON is invalid.';
-    return;
-  }
+  const brandingJson = mergeBrandingPayload();
+
   const payload = {
     slug: form.value.slug.trim().toLowerCase(),
     title: form.value.title.trim(),
@@ -377,5 +657,96 @@ onMounted(async () => {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   background: #fff;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.pmp-assets .pmp-upload-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.pmp-assets .flex-grow {
+  flex: 1;
+  min-width: 180px;
+}
+.pmp-file-btn {
+  cursor: pointer;
+  position: relative;
+  margin: 0;
+}
+.pmp-thumb {
+  margin-top: 10px;
+  max-width: 160px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  background: #f8fafc;
+}
+.pmp-thumb-wide {
+  max-width: 420px;
+}
+.pmp-thumb img {
+  width: 100%;
+  display: block;
+  vertical-align: middle;
+}
+.pmp-gallery-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+}
+.pmp-gallery-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.pmp-gallery-item input {
+  flex: 1;
+  min-width: 0;
+}
+.pmp-row-grid {
+  display: grid;
+  grid-template-columns: 1fr 2fr auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.pmp-subpage-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pmp-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+}
+.pmp-inline.full {
+  grid-column: 1 / -1;
+}
+.pmp-span-2 {
+  grid-column: span 2;
+}
+.pmp-subpage-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: #f8fafc;
 }
 </style>

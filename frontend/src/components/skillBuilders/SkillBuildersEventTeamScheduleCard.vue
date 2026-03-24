@@ -3,7 +3,7 @@
     <div class="sbets-head">
       <h2 class="sbets-title">Team schedules</h2>
       <p class="sbets-desc muted">
-        View or edit recurring Skill Builder availability for providers on this event roster (6+ hrs/week).
+        View or edit availability: program session time plus additional blocks must total 6+ hrs/week.
       </p>
     </div>
     <div class="sbets-row">
@@ -85,6 +85,8 @@ const saving = ref(false);
 const editError = ref('');
 const previewBundle = ref(null);
 const weekStart = ref('');
+/** Minutes/week from all Skill Builders programs the provider is rostered on (server-computed). */
+const programCreditMinutes = ref(0);
 
 const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -115,10 +117,14 @@ const minutesForSkillBlock = (b) => {
 };
 
 const validationError = computed(() => {
-  const missingDepartFrom = (blocks.value || []).some((b) => !String(b?.departFrom || '').trim());
-  if (missingDepartFrom) return 'Every block needs “Departing from”.';
-  const mins = (blocks.value || []).reduce((sum, b) => sum + minutesForSkillBlock(b), 0);
-  if (mins < 360) return 'At least 6 hours/week of blocks required.';
+  const blockMins = (blocks.value || []).reduce((sum, b) => sum + minutesForSkillBlock(b), 0);
+  if (blockMins + programCreditMinutes.value < 360) {
+    return 'Program time plus blocks must be at least 6 hours/week.';
+  }
+  if (blockMins > 0) {
+    const missingDepartFrom = (blocks.value || []).some((b) => !String(b?.departFrom || '').trim());
+    if (missingDepartFrom) return 'Every block needs “Departing from”.';
+  }
   return '';
 });
 
@@ -177,11 +183,14 @@ async function load() {
     });
     const d = res.data || {};
     weekStart.value = d.weekStart || '';
+    programCreditMinutes.value = Number(d.programCreditMinutesPerWeek || 0);
     previewBundle.value = {
       skillBuilderBlocks: d.skillBuilderBlocks || [],
       meetings: d.meetings || [],
       assignedEvents: d.assignedEvents || [],
-      upcomingOpenEvents: d.upcomingOpenEvents || []
+      upcomingOpenEvents: d.upcomingOpenEvents || [],
+      programCreditHoursPerWeek: Number(d.programCreditHoursPerWeek || 0),
+      programCreditItems: Array.isArray(d.programCreditItems) ? d.programCreditItems : []
     };
     blocks.value = mapBlocksFromApi(d.skillBuilderBlocks);
   } catch (e) {
@@ -220,6 +229,7 @@ watch(
   () => {
     selectedId.value = 0;
     previewBundle.value = null;
+    programCreditMinutes.value = 0;
   }
 );
 </script>

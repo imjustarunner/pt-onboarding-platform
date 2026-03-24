@@ -4,7 +4,8 @@
       <div>
         <h1>Availability</h1>
         <p class="sbav-sub">
-          Submit and confirm your Skill Builder weekly availability (minimum 6 hours/week; confirm every two weeks).
+          Submit and confirm weekly availability: program session time plus additional blocks must total at least 6 hours/week
+          (confirm every two weeks).
         </p>
       </div>
       <div v-if="agencies.length > 1 || isSuperAdmin" class="sbav-agency-field">

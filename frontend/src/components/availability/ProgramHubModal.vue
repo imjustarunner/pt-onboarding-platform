@@ -65,7 +65,7 @@
             </template>
             <template v-else-if="mode === 'provider'">
               <p class="pch-muted">
-                Set and confirm your Skill Builder availability blocks (6+ hrs/week, biweekly confirmation).
+                Set and confirm availability: program session time plus additional blocks must total 6+ hrs/week (biweekly confirmation).
               </p>
               <div class="pch-inline-actions">
                 <button type="button" class="btn btn-primary btn-sm" @click="$emit('open-skill-builder-availability')">

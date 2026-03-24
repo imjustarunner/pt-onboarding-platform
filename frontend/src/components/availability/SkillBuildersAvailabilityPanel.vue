@@ -108,7 +108,7 @@
           </div>
           <div class="depart">
             <div>{{ r.departFrom }}</div>
-            <div class="muted small" v-if="r.departTime">Depart: {{ r.departTime }}</div>
+            <div class="muted small" v-if="r.departTimeLabel">Depart: {{ r.departTimeLabel }}</div>
           </div>
           <div class="status">
             <span class="badge" :class="r.isBooked ? 'badge-booked' : 'badge-available'">
@@ -313,6 +313,28 @@ const nextWeek = () => {
 
 const norm = (s) => String(s || '').trim().toLowerCase();
 
+/** Display HH:MM or HH:MM:SS as 12-hour (e.g. 3:00 PM). */
+function formatTime12FromHm(s) {
+  const raw = String(s || '').trim();
+  if (!raw) return '';
+  const m = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return raw;
+  let h = parseInt(m[1], 10);
+  const mi = parseInt(m[2], 10);
+  if (!Number.isFinite(h) || !Number.isFinite(mi)) return raw;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  let h12 = h % 12;
+  if (h12 === 0) h12 = 12;
+  return `${h12}:${String(mi).padStart(2, '0')} ${ampm}`;
+}
+
+function formatHmRange12(st, et) {
+  const a = String(st || '').slice(0, 5);
+  const b = String(et || '').slice(0, 5);
+  if (!a || !b) return '—';
+  return `${formatTime12FromHm(a)}–${formatTime12FromHm(b)}`;
+}
+
 const filteredProviders = computed(() => {
   const q = norm(search.value);
   if (!q) return providers.value || [];
@@ -331,6 +353,7 @@ const allBlocks = computed(() => {
       if (onlyAvailable.value && isBooked) continue;
       const st = String(b.startTime || '').slice(0, 5);
       const et = String(b.endTime || '').slice(0, 5);
+      const departRaw = String(b.departTime || '').trim();
       out.push({
         providerId: Number(p.id),
         dayOfWeek: String(b.dayOfWeek || ''),
@@ -338,9 +361,10 @@ const allBlocks = computed(() => {
         providerName: name,
         email: p.email || '',
         blockTypeLabel: String(b.blockType || '').replace(/_/g, ' '),
-        timeLabel: st && et ? `${st}–${et}` : '—',
+        timeLabel: st && et ? formatHmRange12(st, et) : '—',
         departFrom: String(b.departFrom || '').trim() || '—',
-        departTime: String(b.departTime || '').trim(),
+        departTime: departRaw,
+        departTimeLabel: departRaw ? formatTime12FromHm(departRaw) : '',
         isBooked
       });
     }

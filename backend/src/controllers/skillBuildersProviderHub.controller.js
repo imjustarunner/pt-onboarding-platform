@@ -17,6 +17,7 @@ import {
   replaceProviderSkillBuilderAvailabilityBlocks,
   upsertBiweeklySkillBuilderConfirmations
 } from '../services/skillBuilderAvailabilityBlocks.service.js';
+import { computeSkillBuilderProgramCreditMinutesPerWeek } from '../services/skillBuilderProgramCredit.service.js';
 import {
   fetchCompanyEventDetailForEdit,
   persistCompanyEventUpdate
@@ -575,12 +576,20 @@ async function fetchSkillBuilderWorkScheduleData(agencyId, providerUserId, weekS
     applicationStatus: r.application_status != null ? String(r.application_status) : null
   }));
 
+  const programCredit = await computeSkillBuilderProgramCreditMinutesPerWeek(pool, {
+    agencyId,
+    providerId: providerUserId
+  });
+
   return {
     weekStart,
     skillBuilderBlocks,
     meetings,
     assignedEvents: events,
-    upcomingOpenEvents: upcomingOpen
+    upcomingOpenEvents: upcomingOpen,
+    programCreditMinutesPerWeek: programCredit.totalMinutes,
+    programCreditHoursPerWeek: Math.round((programCredit.totalMinutes / 60) * 100) / 100,
+    programCreditItems: programCredit.items
   };
 }
 
@@ -661,12 +670,26 @@ export const putSkillBuilderEventProviderWorkSchedule = async (req, res, next) =
 
     const blocks = Array.isArray(req.body?.blocks) ? req.body.blocks : [];
     const normalizedBlocks = normalizeSkillBuilderBlocks(blocks);
-    if (normalizedBlocks.length === 0) {
-      return res.status(400).json({ error: { message: 'At least one availability block is required.' } });
+    const { totalMinutes: programMinutes } = await computeSkillBuilderProgramCreditMinutesPerWeek(pool, {
+      agencyId,
+      providerId: providerUserId
+    });
+    if (normalizedBlocks.length === 0 && programMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
+      return res.status(400).json({
+        error: {
+          message:
+            'Add at least one availability block, or the provider Skill Builders program bookings must total at least 6 hours per week.'
+        }
+      });
     }
     const totalMinutes = totalMinutesForSkillBuilderBlocks(normalizedBlocks);
-    if (totalMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
-      return res.status(400).json({ error: { message: 'Skill Builder availability must total at least 6 hours per week.' } });
+    if (totalMinutes + programMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
+      return res.status(400).json({
+        error: {
+          message:
+            'Availability blocks plus Skill Builders program session time must total at least 6 hours per week.'
+        }
+      });
     }
 
     conn = await pool.getConnection();
@@ -685,7 +708,9 @@ export const putSkillBuilderEventProviderWorkSchedule = async (req, res, next) =
       agencyId,
       eventId,
       providerUserId,
-      totalHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100,
+      totalHoursPerWeek: Math.round(((totalMinutes + programMinutes) / 60) * 100) / 100,
+      blockHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100,
+      programCreditHoursPerWeek: Math.round((programMinutes / 60) * 100) / 100,
       ...bundle
     });
   } catch (e) {
@@ -1608,16 +1633,34 @@ export const listSkillBuilderEventClientAttendance = async (req, res, next) => {
     if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'agencyId and event id required' } });
     const access = await assertEventAccess({ req, agencyId, eventId });
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
-    const [rows] = await pool.execute(
-      `SELECT a.id, a.session_id, a.client_id, a.check_in_at, a.check_out_at, a.checked_out_by_user_id,
-              a.signature_text, a.manual_entry, a.created_by_user_id, a.updated_by_user_id,
-              s.session_date, s.starts_at, s.ends_at
-       FROM skill_builders_client_session_attendance a
-       INNER JOIN skill_builders_event_sessions s ON s.id = a.session_id
-       WHERE s.company_event_id = ?
-       ORDER BY s.session_date ASC, a.client_id ASC`,
-      [eventId]
-    );
+    let rows = [];
+    try {
+      const [r] = await pool.execute(
+        `SELECT a.id, a.session_id, a.client_id, a.check_in_at, a.check_out_at, a.checked_out_by_user_id,
+                a.signature_text, a.manual_entry, a.created_by_user_id, a.updated_by_user_id,
+                a.missed_at, a.check_out_auto, a.auto_checkout_at,
+                s.session_date, s.starts_at, s.ends_at
+         FROM skill_builders_client_session_attendance a
+         INNER JOIN skill_builders_event_sessions s ON s.id = a.session_id
+         WHERE s.company_event_id = ?
+         ORDER BY s.session_date ASC, a.client_id ASC`,
+        [eventId]
+      );
+      rows = r || [];
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [r] = await pool.execute(
+        `SELECT a.id, a.session_id, a.client_id, a.check_in_at, a.check_out_at, a.checked_out_by_user_id,
+                a.signature_text, a.manual_entry, a.created_by_user_id, a.updated_by_user_id,
+                s.session_date, s.starts_at, s.ends_at
+         FROM skill_builders_client_session_attendance a
+         INNER JOIN skill_builders_event_sessions s ON s.id = a.session_id
+         WHERE s.company_event_id = ?
+         ORDER BY s.session_date ASC, a.client_id ASC`,
+        [eventId]
+      );
+      rows = r || [];
+    }
     const attendance = (rows || []).map((r) => ({
       id: Number(r.id),
       sessionId: Number(r.session_id),
@@ -1627,6 +1670,9 @@ export const listSkillBuilderEventClientAttendance = async (req, res, next) => {
       checkedOutByUserId: r.checked_out_by_user_id != null ? Number(r.checked_out_by_user_id) : null,
       signatureText: r.signature_text || null,
       manualEntry: !!(r.manual_entry === 1 || r.manual_entry === true),
+      missedAt: r.missed_at ?? null,
+      checkOutAuto: !!(r.check_out_auto === 1 || r.check_out_auto === true),
+      autoCheckoutAt: r.auto_checkout_at ?? null,
       sessionDate: r.session_date,
       startsAt: r.starts_at,
       endsAt: r.ends_at
@@ -1686,29 +1732,50 @@ export const putSkillBuilderClientSessionAttendance = async (req, res, next) => 
 
     conn = await pool.getConnection();
     await conn.beginTransaction();
-    await conn.execute(
-      `INSERT INTO skill_builders_client_session_attendance
-        (session_id, client_id, check_in_at, check_out_at, checked_out_by_user_id, signature_text, manual_entry, created_by_user_id, updated_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-        check_in_at = VALUES(check_in_at),
-        check_out_at = VALUES(check_out_at),
-        checked_out_by_user_id = VALUES(checked_out_by_user_id),
-        signature_text = VALUES(signature_text),
-        manual_entry = VALUES(manual_entry),
-        updated_by_user_id = VALUES(updated_by_user_id)`,
-      [
-        sessionId,
-        clientId,
-        checkInAt && Number.isFinite(checkInAt.getTime()) ? checkInAt : null,
-        checkOutAt && Number.isFinite(checkOutAt.getTime()) ? checkOutAt : null,
-        checkedOutByUserId,
-        signatureText,
-        manualEntry ? 1 : 0,
-        uid,
-        uid
-      ]
-    );
+    const params = [
+      sessionId,
+      clientId,
+      checkInAt && Number.isFinite(checkInAt.getTime()) ? checkInAt : null,
+      checkOutAt && Number.isFinite(checkOutAt.getTime()) ? checkOutAt : null,
+      checkedOutByUserId,
+      signatureText,
+      manualEntry ? 1 : 0,
+      uid,
+      uid
+    ];
+    try {
+      await conn.execute(
+        `INSERT INTO skill_builders_client_session_attendance
+          (session_id, client_id, check_in_at, check_out_at, checked_out_by_user_id, signature_text, manual_entry, created_by_user_id, updated_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+          check_in_at = VALUES(check_in_at),
+          check_out_at = VALUES(check_out_at),
+          checked_out_by_user_id = VALUES(checked_out_by_user_id),
+          signature_text = VALUES(signature_text),
+          manual_entry = VALUES(manual_entry),
+          updated_by_user_id = VALUES(updated_by_user_id),
+          missed_at = IF(VALUES(check_in_at) IS NOT NULL, NULL, missed_at),
+          check_out_auto = IF(VALUES(check_out_at) IS NOT NULL, 0, check_out_auto),
+          auto_checkout_at = IF(VALUES(check_out_at) IS NOT NULL, NULL, auto_checkout_at)`,
+        params
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      await conn.execute(
+        `INSERT INTO skill_builders_client_session_attendance
+          (session_id, client_id, check_in_at, check_out_at, checked_out_by_user_id, signature_text, manual_entry, created_by_user_id, updated_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+          check_in_at = VALUES(check_in_at),
+          check_out_at = VALUES(check_out_at),
+          checked_out_by_user_id = VALUES(checked_out_by_user_id),
+          signature_text = VALUES(signature_text),
+          manual_entry = VALUES(manual_entry),
+          updated_by_user_id = VALUES(updated_by_user_id)`,
+        params
+      );
+    }
     await conn.commit();
     res.json({ ok: true });
   } catch (e) {
@@ -2917,14 +2984,24 @@ export const getSkillBuilderSessionClinicalNotesBoard = async (req, res, next) =
     let attendanceRows = [];
     try {
       const [aRows] = await pool.execute(
-        `SELECT client_id, check_in_at, check_out_at
+        `SELECT client_id, check_in_at, check_out_at, missed_at, check_out_auto, auto_checkout_at
          FROM skill_builders_client_session_attendance
          WHERE session_id = ?`,
         [sessionId]
       );
       attendanceRows = aRows || [];
     } catch (ae) {
-      if (ae?.code !== 'ER_NO_SUCH_TABLE') throw ae;
+      if (ae?.code === 'ER_BAD_FIELD_ERROR') {
+        const [aRows] = await pool.execute(
+          `SELECT client_id, check_in_at, check_out_at
+           FROM skill_builders_client_session_attendance
+           WHERE session_id = ?`,
+          [sessionId]
+        );
+        attendanceRows = aRows || [];
+      } else if (ae?.code !== 'ER_NO_SUCH_TABLE') {
+        throw ae;
+      }
     }
     const attByClient = new Map((attendanceRows || []).map((r) => [Number(r.client_id), r]));
 
@@ -2945,7 +3022,14 @@ export const getSkillBuilderSessionClinicalNotesBoard = async (req, res, next) =
         authorUserId: hasNote && n.author_user_id != null ? Number(n.author_user_id) : null,
         noteUpdatedAt: hasNote ? n.updated_at : null,
         attendance: a
-          ? { checkInAt: a.check_in_at, checkOutAt: a.check_out_at, hasAttendance: true }
+          ? {
+              checkInAt: a.check_in_at,
+              checkOutAt: a.check_out_at,
+              missedAt: a.missed_at ?? null,
+              checkOutAuto: !!(a.check_out_auto === 1 || a.check_out_auto === true),
+              autoCheckoutAt: a.auto_checkout_at ?? null,
+              hasAttendance: true
+            }
           : { hasAttendance: false }
       };
     });

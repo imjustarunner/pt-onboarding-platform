@@ -25,7 +25,7 @@
 
       <div class="sb-modal-body">
         <div class="hint">
-          Maintain at least <strong>6 hours/week</strong> and confirm it <strong>every 2 weeks</strong> (current + next week).
+          Confirm <strong>every 2 weeks</strong> (current + next week). <strong>Program</strong> session time plus <strong>additional</strong> availability blocks must total at least <strong>6 hours/week</strong>.
         </div>
 
         <div v-if="error" class="error-box">{{ error }}</div>
@@ -53,7 +53,15 @@
 
             <div class="form">
               <div class="muted" style="margin-bottom: 10px;">
-                Current saved total: <strong>{{ pending.skillBuilder.totalHoursPerWeek }}</strong> hrs/week.
+                <div>
+                  Program sessions (count toward 6 hr): <strong>{{ skillBuilderProgramHours.toFixed(2) }}</strong> hrs/week
+                </div>
+                <div>
+                  Additional blocks: <strong>{{ skillBuilderBlockHours.toFixed(2) }}</strong> hrs/week
+                </div>
+                <div>
+                  <strong>Combined: {{ skillBuilderCombinedHours.toFixed(2) }}</strong> hrs/week (min 6.00)
+                </div>
               </div>
 
               <label class="lbl">Availability blocks</label>
@@ -132,6 +140,17 @@ const pending = reactive({
 
 const dayNames = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
+const skillBuilderProgramHours = computed(() => Number(pending.skillBuilder?.programCreditHoursPerWeek || 0));
+const skillBuilderBlockHours = computed(() => {
+  const sb = pending.skillBuilder;
+  if (!sb?.eligible) return 0;
+  if (sb.blockHoursPerWeek != null && sb.blockHoursPerWeek !== undefined) return Number(sb.blockHoursPerWeek);
+  const total = Number(sb.totalHoursPerWeek || 0);
+  const prog = Number(sb.programCreditHoursPerWeek || 0);
+  return Math.max(0, Math.round((total - prog) * 100) / 100);
+});
+const skillBuilderCombinedHours = computed(() => skillBuilderProgramHours.value + skillBuilderBlockHours.value);
+
 const skillBuilderForm = reactive({
   blocks: [
     { dayOfWeek: 'Monday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '', departFrom: '', departTime: '', isBooked: false },
@@ -173,10 +192,15 @@ const minutesForSkillBlock = (b) => {
 
 const skillBuilderValidationError = computed(() => {
   if (!pending.skillBuilder?.eligible) return '';
-  const missingDepartFrom = (skillBuilderForm.blocks || []).some((b) => !String(b?.departFrom || '').trim());
-  if (missingDepartFrom) return 'Skill Builders requires a “Departing from” value for every block.';
-  const mins = (skillBuilderForm.blocks || []).reduce((sum, b) => sum + minutesForSkillBlock(b), 0);
-  if (mins < 360) return 'Skill Builders requires at least 6 hours/week of direct time. Add more blocks.';
+  const programMins = Number(pending.skillBuilder?.programCreditMinutesPerWeek || 0);
+  const blockMins = (skillBuilderForm.blocks || []).reduce((sum, b) => sum + minutesForSkillBlock(b), 0);
+  if (blockMins + programMins < 360) {
+    return 'Combined program time and availability blocks must be at least 6 hours/week.';
+  }
+  if (blockMins > 0) {
+    const missingDepartFrom = (skillBuilderForm.blocks || []).some((b) => !String(b?.departFrom || '').trim());
+    if (missingDepartFrom) return 'Skill Builders requires a “Departing from” value for every availability block.';
+  }
   return '';
 });
 

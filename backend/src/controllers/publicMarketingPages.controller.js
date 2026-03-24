@@ -1,4 +1,7 @@
+import multer from 'multer';
+import path from 'path';
 import pool from '../config/database.js';
+import StorageService from '../services/storage.service.js';
 import {
   buildHubThemeResponse,
   computeHubScopedMetrics,
@@ -11,6 +14,16 @@ import {
   parseJsonObject,
   rankHubEventsByAddress
 } from '../services/publicMarketingHub.service.js';
+
+const uploadPublicMarketing = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/svg+xml', 'image/webp'];
+    if (allowedMimes.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Invalid file type. Only image files (PNG, JPEG, GIF, SVG, WebP) are allowed.'), false);
+  }
+});
 
 function mapPageOut(row, sources = null) {
   if (!row) return null;
@@ -89,6 +102,8 @@ export const getPublicMarketingPage = async (req, res, next) => {
         heroImageUrl: page.heroImageUrl || null,
         metricsEnabled: !!(page.metricsProfile && String(page.metricsProfile).trim()),
         seo: parseJsonObject(page.seoJson),
+        /** Public-safe hub customization (logo, gallery, nav, optional subpages — see admin). */
+        branding: parseJsonObject(page.brandingJson),
         sources: sources
           .filter((s) => s.isActive)
           .map((s) => ({
@@ -206,6 +221,40 @@ export const getPublicMarketingPageBookingHints = async (req, res, next) => {
     next(e);
   }
 };
+
+/**
+ * POST /api/platform/public-marketing-pages/upload
+ * Superadmin image upload → /uploads/public_marketing/… (use returned url in hero, branding JSON, etc.)
+ */
+export const uploadPublicMarketingPageAsset = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: { message: 'No file uploaded.' } });
+    }
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    const ext = path.extname(req.file.originalname) || '';
+    const filename = `hub-${uniqueSuffix}${ext}`;
+    const storageResult = await StorageService.savePublicMarketingAsset(
+      req.file.buffer,
+      filename,
+      req.file.mimetype
+    );
+    const filePath = storageResult.relativePath;
+    const publicRel = String(filePath || '').startsWith('uploads/')
+      ? String(filePath).substring('uploads/'.length)
+      : String(filePath || '');
+    res.json({
+      success: true,
+      path: filePath,
+      url: `/uploads/${publicRel}`,
+      filename
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const uploadPublicMarketingPageAssetMiddleware = uploadPublicMarketing.single('file');
 
 /** GET /api/platform/public-marketing-pages */
 export const listMarketingPagesAdmin = async (req, res, next) => {

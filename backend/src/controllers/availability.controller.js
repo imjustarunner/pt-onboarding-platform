@@ -20,6 +20,7 @@ import {
   replaceProviderSkillBuilderAvailabilityBlocks,
   upsertBiweeklySkillBuilderConfirmations
 } from '../services/skillBuilderAvailabilityBlocks.service.js';
+import { computeSkillBuilderProgramCreditMinutesPerWeek } from '../services/skillBuilderProgramCredit.service.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -663,14 +664,17 @@ export const getMyAvailabilityPending = async (req, res, next) => {
           departTime: b.depart_time ? String(b.depart_time).slice(0, 5) : '',
           isBooked: b.is_booked === true || b.is_booked === 1 || b.is_booked === '1'
         }));
-        // Compute hours/week
-        let totalMinutes = 0;
+        // Compute hours/week from saved blocks + Skill Builders program sessions (rostered events)
+        let blockMinutes = 0;
         for (const b of blockRows || []) {
           const t = String(b.block_type || '').toUpperCase();
-          if (t === 'AFTER_SCHOOL') totalMinutes += 90;
-          else if (t === 'WEEKEND') totalMinutes += 180;
-          else totalMinutes += minutesBetween(String(b.start_time || ''), String(b.end_time || ''));
+          if (t === 'AFTER_SCHOOL') blockMinutes += 90;
+          else if (t === 'WEEKEND') blockMinutes += 180;
+          else blockMinutes += minutesBetween(String(b.start_time || ''), String(b.end_time || ''));
         }
+        const { totalMinutes: programMinutes, items: programCreditItems } =
+          await computeSkillBuilderProgramCreditMinutesPerWeek(pool, { agencyId, providerId });
+        const effectiveMinutes = blockMinutes + programMinutes;
         const [confRows] = await pool.execute(
           `SELECT week_start_date, confirmed_at
            FROM provider_skill_builder_availability_confirmations
@@ -690,7 +694,11 @@ export const getMyAvailabilityPending = async (req, res, next) => {
         skillBuilder = {
           eligible: true,
           requiredHoursPerWeek: 6,
-          totalHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100,
+          blockHoursPerWeek: Math.round((blockMinutes / 60) * 100) / 100,
+          programCreditHoursPerWeek: Math.round((programMinutes / 60) * 100) / 100,
+          programCreditMinutesPerWeek: programMinutes,
+          totalHoursPerWeek: Math.round((effectiveMinutes / 60) * 100) / 100,
+          programCreditItems,
           confirmations,
           needsConfirmation: confirmations.some((c) => !c.confirmedAt),
           blocks
@@ -1178,13 +1186,27 @@ export const submitMySkillBuilderAvailability = async (req, res, next) => {
 
     const blocks = Array.isArray(req.body?.blocks) ? req.body.blocks : [];
     const normalizedBlocks = normalizeSkillBuilderBlocks(blocks);
-    if (normalizedBlocks.length === 0) {
-      return res.status(400).json({ error: { message: 'At least one availability block is required.' } });
+    const { totalMinutes: programMinutes } = await computeSkillBuilderProgramCreditMinutesPerWeek(pool, {
+      agencyId,
+      providerId
+    });
+    if (normalizedBlocks.length === 0 && programMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
+      return res.status(400).json({
+        error: {
+          message:
+            'Add at least one availability block, or your Skill Builders program bookings must already total at least 6 hours per week.'
+        }
+      });
     }
 
     const totalMinutes = totalMinutesForSkillBuilderBlocks(normalizedBlocks);
-    if (totalMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
-      return res.status(400).json({ error: { message: 'Skill Builder availability must total at least 6 hours per week.' } });
+    if (totalMinutes + programMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
+      return res.status(400).json({
+        error: {
+          message:
+            'Your availability blocks plus time booked on Skill Builders programs must total at least 6 hours per week.'
+        }
+      });
     }
 
     const cycleStart = startOfWeekMonday(new Date());
@@ -1205,7 +1227,9 @@ export const submitMySkillBuilderAvailability = async (req, res, next) => {
     res.json({
       ok: true,
       weekStartDates: [weekStart, nextWeekStart],
-      totalHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100
+      totalHoursPerWeek: Math.round(((totalMinutes + programMinutes) / 60) * 100) / 100,
+      blockHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100,
+      programCreditHoursPerWeek: Math.round((programMinutes / 60) * 100) / 100
     });
   } catch (e) {
     if (conn) {
@@ -1246,16 +1270,25 @@ export const confirmMySkillBuilderAvailability = async (req, res, next) => {
       throw e;
     }
 
-    let totalMinutes = 0;
+    let blockMinutes = 0;
     for (const b of rows) {
       const t = String(b.block_type || '').toUpperCase();
-      if (t === 'AFTER_SCHOOL') totalMinutes += 90;
-      else if (t === 'WEEKEND') totalMinutes += 180;
-      else totalMinutes += minutesBetween(String(b.start_time || ''), String(b.end_time || ''));
+      if (t === 'AFTER_SCHOOL') blockMinutes += 90;
+      else if (t === 'WEEKEND') blockMinutes += 180;
+      else blockMinutes += minutesBetween(String(b.start_time || ''), String(b.end_time || ''));
     }
 
-    if (totalMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
-      return res.status(400).json({ error: { message: 'Your saved Skill Builder availability is under 6 hours/week. Please update and submit your availability.' } });
+    const { totalMinutes: programMinutes } = await computeSkillBuilderProgramCreditMinutesPerWeek(pool, {
+      agencyId,
+      providerId
+    });
+    if (blockMinutes + programMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
+      return res.status(400).json({
+        error: {
+          message:
+            'Your saved availability plus Skill Builders program time is under 6 hours/week. Update blocks or ensure program sessions are on file.'
+        }
+      });
     }
 
     const cycleStart = startOfWeekMonday(new Date());
@@ -1295,7 +1328,11 @@ export const confirmMySkillBuilderAvailability = async (req, res, next) => {
     }
     await conn.commit();
 
-    res.json({ ok: true, weekStartDates, totalHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100 });
+    res.json({
+      ok: true,
+      weekStartDates,
+      totalHoursPerWeek: Math.round(((blockMinutes + programMinutes) / 60) * 100) / 100
+    });
   } catch (e) {
     if (conn) {
       try { await conn.rollback(); } catch { /* ignore */ }

@@ -81,39 +81,99 @@ class OfficeBookingPlan {
     bookingStartDate,
     activeUntilDate = null,
     bookedOccurrenceCount = null,
-    createdByUserId
+    createdByUserId,
+    bookingOrigin = 'user'
   }) {
     const start = String(bookingStartDate || '').slice(0, 10);
     const normalizedActiveUntilDate = normalizeActiveUntilDate({ bookingStartDate: start, activeUntilDate });
     const normalizedOccurrenceCount = Number.isInteger(Number(bookedOccurrenceCount)) && Number(bookedOccurrenceCount) > 0
       ? Number(bookedOccurrenceCount)
       : null;
+    const incomingOrigin = String(bookingOrigin || 'user').toLowerCase() === 'ehr_sync' ? 'ehr_sync' : 'user';
     const existing = await this.findActiveByAssignmentId(standingAssignmentId);
+
+    let effectiveOrigin = incomingOrigin;
+    if (incomingOrigin === 'ehr_sync' && existing?.id && String(existing.booking_origin || '').toLowerCase() === 'user') {
+      effectiveOrigin = 'user';
+    }
+
+    const preserveUserTs =
+      effectiveOrigin === 'user' && incomingOrigin === 'ehr_sync' && existing?.user_booking_confirmed_at
+        ? existing.user_booking_confirmed_at
+        : null;
+
     if (existing?.id) {
       try {
-        await pool.execute(
-          `UPDATE office_booking_plans
-           SET booked_frequency = ?,
-               booking_start_date = ?,
-               active_until_date = ?,
-               booked_occurrence_count = ?,
-               last_confirmed_at = CURRENT_TIMESTAMP,
-               updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-          [bookedFrequency, start, normalizedActiveUntilDate, normalizedOccurrenceCount, existing.id]
-        );
+        if (incomingOrigin === 'user') {
+          await pool.execute(
+            `UPDATE office_booking_plans
+             SET booked_frequency = ?,
+                 booking_start_date = ?,
+                 active_until_date = ?,
+                 booked_occurrence_count = ?,
+                 booking_origin = 'user',
+                 user_booking_confirmed_at = CURRENT_TIMESTAMP,
+                 last_confirmed_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [bookedFrequency, start, normalizedActiveUntilDate, normalizedOccurrenceCount, existing.id]
+          );
+        } else if (preserveUserTs) {
+          await pool.execute(
+            `UPDATE office_booking_plans
+             SET booked_frequency = ?,
+                 booking_start_date = ?,
+                 active_until_date = ?,
+                 booked_occurrence_count = ?,
+                 booking_origin = 'user',
+                 user_booking_confirmed_at = ?,
+                 last_confirmed_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [bookedFrequency, start, normalizedActiveUntilDate, normalizedOccurrenceCount, preserveUserTs, existing.id]
+          );
+        } else {
+          await pool.execute(
+            `UPDATE office_booking_plans
+             SET booked_frequency = ?,
+                 booking_start_date = ?,
+                 active_until_date = ?,
+                 booked_occurrence_count = ?,
+                 booking_origin = 'ehr_sync',
+                 user_booking_confirmed_at = NULL,
+                 last_confirmed_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [bookedFrequency, start, normalizedActiveUntilDate, normalizedOccurrenceCount, existing.id]
+          );
+        }
       } catch (e) {
         if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-        await pool.execute(
-          `UPDATE office_booking_plans
-           SET booked_frequency = ?,
-               booking_start_date = ?,
-               active_until_date = ?,
-               last_confirmed_at = CURRENT_TIMESTAMP,
-               updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-          [bookedFrequency, start, normalizedActiveUntilDate, existing.id]
-        );
+        try {
+          await pool.execute(
+            `UPDATE office_booking_plans
+             SET booked_frequency = ?,
+                 booking_start_date = ?,
+                 active_until_date = ?,
+                 booked_occurrence_count = ?,
+                 last_confirmed_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [bookedFrequency, start, normalizedActiveUntilDate, normalizedOccurrenceCount, existing.id]
+          );
+        } catch (e2) {
+          if (e2?.code !== 'ER_BAD_FIELD_ERROR') throw e2;
+          await pool.execute(
+            `UPDATE office_booking_plans
+             SET booked_frequency = ?,
+                 booking_start_date = ?,
+                 active_until_date = ?,
+                 last_confirmed_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [bookedFrequency, start, normalizedActiveUntilDate, existing.id]
+          );
+        }
       }
       const [rows] = await pool.execute(`SELECT * FROM office_booking_plans WHERE id = ? LIMIT 1`, [existing.id]);
       return rows?.[0] || null;
@@ -121,20 +181,39 @@ class OfficeBookingPlan {
 
     let result;
     try {
-      [result] = await pool.execute(
-        `INSERT INTO office_booking_plans
-           (standing_assignment_id, booked_frequency, booking_start_date, active_until_date, booked_occurrence_count, last_confirmed_at, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
-        [standingAssignmentId, bookedFrequency, start, normalizedActiveUntilDate, normalizedOccurrenceCount, createdByUserId]
-      );
+      if (incomingOrigin === 'user') {
+        [result] = await pool.execute(
+          `INSERT INTO office_booking_plans
+             (standing_assignment_id, booked_frequency, booking_start_date, active_until_date, booked_occurrence_count, last_confirmed_at, created_by_user_id, booking_origin, user_booking_confirmed_at)
+           VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, 'user', CURRENT_TIMESTAMP)`,
+          [standingAssignmentId, bookedFrequency, start, normalizedActiveUntilDate, normalizedOccurrenceCount, createdByUserId]
+        );
+      } else {
+        [result] = await pool.execute(
+          `INSERT INTO office_booking_plans
+             (standing_assignment_id, booked_frequency, booking_start_date, active_until_date, booked_occurrence_count, last_confirmed_at, created_by_user_id, booking_origin, user_booking_confirmed_at)
+           VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, 'ehr_sync', NULL)`,
+          [standingAssignmentId, bookedFrequency, start, normalizedActiveUntilDate, normalizedOccurrenceCount, createdByUserId]
+        );
+      }
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      [result] = await pool.execute(
-        `INSERT INTO office_booking_plans
-           (standing_assignment_id, booked_frequency, booking_start_date, active_until_date, last_confirmed_at, created_by_user_id)
-         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
-        [standingAssignmentId, bookedFrequency, start, normalizedActiveUntilDate, createdByUserId]
-      );
+      try {
+        [result] = await pool.execute(
+          `INSERT INTO office_booking_plans
+             (standing_assignment_id, booked_frequency, booking_start_date, active_until_date, booked_occurrence_count, last_confirmed_at, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
+          [standingAssignmentId, bookedFrequency, start, normalizedActiveUntilDate, normalizedOccurrenceCount, createdByUserId]
+        );
+      } catch (e2) {
+        if (e2?.code !== 'ER_BAD_FIELD_ERROR') throw e2;
+        [result] = await pool.execute(
+          `INSERT INTO office_booking_plans
+             (standing_assignment_id, booked_frequency, booking_start_date, active_until_date, last_confirmed_at, created_by_user_id)
+           VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
+          [standingAssignmentId, bookedFrequency, start, normalizedActiveUntilDate, createdByUserId]
+        );
+      }
     }
     const [rows] = await pool.execute(`SELECT * FROM office_booking_plans WHERE id = ? LIMIT 1`, [result.insertId]);
     return rows?.[0] || null;

@@ -859,6 +859,7 @@
           ×
         </button>
       </div>
+      <OfficeMandatoryReviewSplash v-if="showOfficeMandatorySplashHost" />
       </div>
     </div>
   </BrandingProvider>
@@ -896,6 +897,7 @@ import { useMomentumListAddon } from './composables/useMomentumListAddon';
 import { useReminderSnooze } from './composables/useReminderSnooze';
 import WeatherChip from './components/WeatherChip.vue';
 import SessionLockScreen from './components/SessionLockScreen.vue';
+import OfficeMandatoryReviewSplash from './components/office/OfficeMandatoryReviewSplash.vue';
 import { toUploadsUrl } from './utils/uploadsUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 
@@ -1291,6 +1293,24 @@ const hideGlobalNavForSchoolStaff = computed(() => {
   const role = String(user.value?.role || '').toLowerCase();
   // School staff should only use the School Portal UX (no global nav / personal dashboard).
   return role === 'school_staff';
+});
+
+/** Full-screen office booking / forfeit gate for clinical roles with pending assigned-available slots */
+const showOfficeMandatorySplashHost = computed(() => {
+  if (!isAuthenticated.value) return false;
+  if (pageLoading.value) return false;
+  if (hideGlobalNavForSchoolStaff.value) return false;
+  const role = String(user.value?.role || '').toLowerCase();
+  if (role === 'super_admin') return false;
+  const allow = new Set([
+    'provider',
+    'provider_plus',
+    'intern',
+    'intern_plus',
+    'supervisor',
+    'clinical_practice_assistant'
+  ]);
+  return allow.has(role);
 });
 
 const capabilities = computed(() => user.value?.capabilities || null);

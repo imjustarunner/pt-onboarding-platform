@@ -1,5 +1,5 @@
 <template>
-  <div class="pel-root" :style="rootFontStyle">
+  <div class="pel-root" :class="{ 'pel-root--hub': !!hubSlugNorm }" :style="rootFontStyle">
     <header class="pel-hero">
       <div class="pel-hero-inner">
         <p v-if="showMasthead" class="pel-eyebrow">Official registration</p>
@@ -17,7 +17,7 @@
     <template v-else>
       <section v-if="showDrivingDistanceCta && canUseNearest" class="pel-drive-cta-wrap">
         <button type="button" class="pel-btn pel-btn-drive" :disabled="nearestLoading" @click="openDriveModal">
-          Calculate closest driving distance to your home
+          {{ nearestCtaText }}
         </button>
         <p v-if="originSummary" class="pel-drive-summary">
           Sorted by driving distance from <strong>{{ originSummary }}</strong>.
@@ -36,13 +36,10 @@
         >
           <div class="pel-modal">
             <div class="pel-modal-head">
-              <h2 id="pel-drive-modal-title" class="pel-modal-title">Driving distance from your home</h2>
+              <h2 id="pel-drive-modal-title" class="pel-modal-title">{{ nearestModalTitleText }}</h2>
               <button type="button" class="pel-modal-close" aria-label="Close" @click="closeDriveModal">×</button>
             </div>
-            <p class="pel-modal-hint">
-              Enter your home address. We use Google Maps <strong>driving</strong> routes to each in-person venue
-              (event address and session locations) and sort events by shortest drive.
-            </p>
+            <p class="pel-modal-hint" v-html="nearestModalHintHtml" />
             <div class="pel-modal-row">
               <input
                 v-model="addressInput"
@@ -138,15 +135,30 @@
             </article>
           </li>
         </TransitionGroup>
-        <div v-if="!displayEvents.length" class="pel-empty-card" role="status">
-          <div class="pel-empty-icon" aria-hidden="true">📅</div>
-          <h2 class="pel-empty-title">No open programs right now</h2>
-          <p class="pel-empty-copy">
-            We are not accepting new sign-ups on this page at the moment. New sessions are added here as soon as they open.
-          </p>
-          <p class="pel-empty-hint muted">
-            Check back soon, or return to the main site for other ways to reach us.
-          </p>
+        <div v-if="!displayEvents.length" class="pel-empty-card" :class="{ 'pel-empty-card--hub': !!hubSlugNorm }" role="status">
+          <template v-if="hubSlugNorm">
+            <div class="pel-empty-visual pel-empty-visual--hub" aria-hidden="true" />
+            <p class="pel-empty-eyebrow">Coming up</p>
+            <h2 class="pel-empty-title">Programs will appear here</h2>
+            <p class="pel-empty-copy">
+              When summer sessions open for each school location, you’ll see them listed below — with dates, locations, and
+              registration. Use <strong>Find closest location</strong> once events are posted to match your home address to
+              the nearest site.
+            </p>
+            <p class="pel-empty-hint muted">
+              Bookmark this page and check back. Questions? Use the links your district or provider shared.
+            </p>
+          </template>
+          <template v-else>
+            <div class="pel-empty-icon" aria-hidden="true">📅</div>
+            <h2 class="pel-empty-title">No open programs right now</h2>
+            <p class="pel-empty-copy">
+              We are not accepting new sign-ups on this page at the moment. New sessions are added here as soon as they open.
+            </p>
+            <p class="pel-empty-hint muted">
+              Check back soon, or return to the main site for other ways to reach us.
+            </p>
+          </template>
           <RouterLink v-if="footerHomeSlug" class="pel-btn pel-btn-primary pel-empty-cta" :to="homePath">
             Back to portal home
           </RouterLink>
@@ -191,7 +203,13 @@ const props = defineProps({
   /** When set, show logo masthead + footer with link to `/{slug}`. */
   footerHomeSlug: { type: String, default: '' },
   /** Show “Official registration” masthead + footer (agency-branded public pages). */
-  showPublicShell: { type: Boolean, default: false }
+  showPublicShell: { type: Boolean, default: false },
+  /** Override main “find nearest” button label (e.g. public marketing hub parent copy). */
+  nearestCtaLabel: { type: String, default: '' },
+  /** Override modal title for nearest / driving distance. */
+  nearestModalTitle: { type: String, default: '' },
+  /** Override modal body (plain text; line breaks preserved). */
+  nearestModalHint: { type: String, default: '' }
 });
 
 const brandingStore = useBrandingStore();
@@ -233,6 +251,38 @@ const displayEvents = computed(() =>
 
 const nearestAgencySlug = computed(() => String(props.nearestAgencySlug || '').trim().toLowerCase());
 const hubSlugNorm = computed(() => String(props.hubSlug || '').trim().toLowerCase());
+
+const nearestCtaText = computed(() => {
+  const o = String(props.nearestCtaLabel || '').trim();
+  if (o) return o;
+  if (hubSlugNorm.value) return 'Find closest location to your home';
+  return 'Calculate closest driving distance to your home';
+});
+
+const nearestModalTitleText = computed(() => {
+  const o = String(props.nearestModalTitle || '').trim();
+  if (o) return o;
+  if (hubSlugNorm.value) return 'Closest program to your home';
+  return 'Driving distance from your home';
+});
+
+const nearestModalHintHtml = computed(() => {
+  const o = String(props.nearestModalHint || '').trim();
+  if (o) {
+    const br = o.replace(/\n/g, '<br />');
+    return DOMPurify.sanitize(br, { ALLOWED_TAGS: ['br'] });
+  }
+  if (hubSlugNorm.value) {
+    return DOMPurify.sanitize(
+      'Enter your home address. We use Google Maps <strong>driving</strong> routes to sort programs by shortest drive to each school or venue listed for summer sessions.',
+      { ALLOWED_TAGS: ['strong'] }
+    );
+  }
+  return DOMPurify.sanitize(
+    'Enter your home address. We use Google Maps <strong>driving</strong> routes to each in-person venue (event address and session locations) and sort events by shortest drive.',
+    { ALLOWED_TAGS: ['strong'] }
+  );
+});
 
 const canUseNearest = computed(() => {
   if (hubSlugNorm.value) return true;
@@ -556,6 +606,41 @@ function clearNearest() {
   text-decoration: none;
 }
 
+.pel-empty-card--hub {
+  position: relative;
+  overflow: hidden;
+}
+
+.pel-empty-visual--hub {
+  width: 100%;
+  max-width: 200px;
+  aspect-ratio: 1;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(163, 38, 35, 0.18) 0%, transparent 55%),
+    radial-gradient(circle at 70% 60%, rgba(180, 83, 9, 0.12) 0%, transparent 50%),
+    linear-gradient(145deg, #faf6f4 0%, #fef8f7 100%);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.pel-empty-eyebrow {
+  margin: 0 0 8px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #64748b;
+  text-align: center;
+}
+
+.pel-empty-card--hub .pel-empty-title {
+  font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
 .pel-drive-cta-wrap {
   max-width: min(48rem, 100%);
   margin: 0 auto;
@@ -658,6 +743,10 @@ function clearNearest() {
 .pel-input:focus {
   outline: 2px solid #818cf8;
   outline-offset: 0;
+}
+
+.pel-root--hub .pel-input:focus {
+  outline: 2px solid rgba(163, 38, 35, 0.45);
 }
 
 .pel-btn {
@@ -937,5 +1026,267 @@ function clearNearest() {
 
 .pel-footer-note {
   opacity: 0.9;
+}
+
+/* Public marketing hub: inherits --hub-* tokens from PublicMarketingHubView .pmh-page */
+.pel-root--hub {
+  min-height: auto;
+  background: transparent;
+  color: var(--hub-text, #111827);
+  font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, system-ui, sans-serif);
+}
+
+.pel-root--hub .pel-hero {
+  padding: clamp(8px, 2vw, 16px) 16px clamp(12px, 3vw, 20px);
+}
+
+.pel-root--hub .pel-hero::before {
+  display: none;
+}
+
+.pel-root--hub .pel-title {
+  font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, system-ui, sans-serif);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  font-size: clamp(1.6rem, 5.8vw, 2.05rem);
+  line-height: 1.12;
+  color: var(--hub-text, #111827);
+}
+
+.pel-root--hub .pel-subtitle {
+  color: var(--hub-text-muted, #4b5563);
+  line-height: 1.55;
+  font-family: var(--hub-font-body, Inter, system-ui, sans-serif);
+  font-weight: 500;
+}
+
+.pel-root--hub .pel-logo {
+  filter: none;
+}
+
+.pel-root--hub .pel-loading {
+  color: var(--hub-text-soft, #64748b);
+}
+
+.pel-root--hub .pel-error {
+  color: #b91c1c;
+}
+
+.pel-root--hub .pel-drive-summary {
+  color: var(--hub-text-muted, #4b5563);
+}
+
+.pel-root--hub .pel-chip {
+  background: rgba(163, 38, 35, 0.09);
+  color: var(--hub-link-dark, #7a1f1d);
+  border: 1px solid rgba(163, 38, 35, 0.22);
+  font-family: var(--hub-font-body, Inter, sans-serif);
+}
+
+.pel-root--hub .pel-card {
+  background: var(--hub-surface, #fff);
+  border: 1px solid var(--hub-border, rgba(15, 23, 42, 0.06));
+  border-radius: var(--hub-radius-lg, 20px);
+  box-shadow: var(--hub-shadow, 0 10px 25px -5px rgba(15, 23, 42, 0.07));
+  backdrop-filter: none;
+}
+
+.pel-root--hub .pel-card-title {
+  color: var(--hub-text, #111827);
+  font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, sans-serif);
+}
+
+.pel-root--hub .pel-badge-ready {
+  background: rgba(163, 38, 35, 0.1);
+  color: var(--hub-link-dark, #7a1f1d);
+  border: 1px solid rgba(163, 38, 35, 0.28);
+}
+
+.pel-root--hub .pel-when {
+  color: var(--hub-text-muted, #4b5563);
+  font-family: var(--hub-font-body, Inter, sans-serif);
+}
+
+.pel-root--hub .pel-age-range {
+  color: var(--hub-link-dark, #7a1f1d);
+}
+
+.pel-root--hub .pel-desc,
+.pel-root--hub .pel-extra {
+  color: var(--hub-text-muted, #4b5563);
+}
+
+.pel-root--hub .pel-venue {
+  background: #f8fafc;
+  border-color: var(--hub-border, rgba(15, 23, 42, 0.06));
+  border-radius: var(--hub-radius-md, 14px);
+}
+
+.pel-root--hub .pel-venue strong {
+  color: var(--hub-text, #111827);
+}
+
+.pel-root--hub .pel-address {
+  color: #334155;
+}
+
+.pel-root--hub .pel-maps-link {
+  color: var(--hub-link, #a32623);
+}
+
+.pel-root--hub .pel-session-locs li {
+  color: var(--hub-text-muted, #4b5563);
+}
+
+.pel-root--hub .pel-sess-label {
+  color: var(--hub-text, #111827);
+}
+
+.pel-root--hub .pel-distance {
+  color: var(--hub-link-dark, #7a1f1d);
+}
+
+.pel-root--hub .pel-splash {
+  color: var(--hub-text-muted, #4b5563);
+}
+
+.pel-root--hub .muted {
+  color: var(--hub-text-soft, #64748b);
+}
+
+.pel-root--hub .pel-empty-card {
+  background: var(--hub-surface, #fff);
+  border: 1px solid var(--hub-border, rgba(15, 23, 42, 0.06));
+  color: var(--hub-text-muted, #4b5563);
+  border-radius: var(--hub-radius-lg, 20px);
+  box-shadow: var(--hub-shadow, 0 10px 25px -5px rgba(15, 23, 42, 0.07));
+  padding: clamp(32px, 6vw, 44px) clamp(22px, 5vw, 32px);
+}
+
+.pel-root--hub .pel-empty-title {
+  font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, system-ui, sans-serif);
+  font-size: clamp(1.3rem, 4.2vw, 1.55rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--hub-text, #111827);
+}
+
+.pel-root--hub .pel-empty-copy {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--hub-text-muted, #4b5563);
+  font-family: var(--hub-font-body, Inter, sans-serif);
+}
+
+.pel-root--hub .pel-empty-copy strong {
+  color: var(--hub-text, #111827);
+  font-weight: 700;
+}
+
+.pel-root--hub .pel-empty-hint {
+  color: var(--hub-text-soft, #64748b);
+  font-family: var(--hub-font-body, Inter, sans-serif);
+}
+
+.pel-root--hub .pel-empty-eyebrow {
+  color: var(--hub-eyebrow, #64748b);
+  letter-spacing: 0.14em;
+  font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, sans-serif);
+}
+
+.pel-root--hub .pel-empty-visual--hub {
+  max-width: 200px;
+  aspect-ratio: 1;
+  margin: 0 auto 20px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 28% 28%, rgba(163, 38, 35, 0.16) 0%, transparent 52%),
+    radial-gradient(circle at 72% 38%, rgba(180, 83, 9, 0.11) 0%, transparent 52%),
+    radial-gradient(circle at 48% 72%, rgba(127, 29, 29, 0.09) 0%, transparent 48%),
+    linear-gradient(155deg, #faf6f4 0%, #fef3f2 42%, #f5f0ee 100%);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    var(--hub-shadow, 0 8px 24px rgba(15, 23, 42, 0.06));
+}
+
+.pel-root--hub .pel-btn-drive {
+  border-radius: var(--hub-radius-md, 14px);
+  background: linear-gradient(135deg, var(--hub-brand, #a32623) 0%, var(--hub-link-dark, #7a1f1d) 100%);
+  color: #fff;
+  font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, sans-serif);
+  box-shadow: 0 10px 25px -5px rgba(122, 31, 29, 0.32), 0 8px 10px -6px rgba(122, 31, 29, 0.18);
+}
+
+.pel-root--hub .pel-btn-drive:hover:not(:disabled) {
+  filter: brightness(1.03);
+}
+
+.pel-root--hub .pel-btn-primary {
+  border-radius: var(--hub-radius-md, 14px);
+  background: linear-gradient(135deg, var(--hub-brand, #a32623) 0%, var(--hub-link-dark, #7a1f1d) 100%);
+  color: #fff;
+  font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, sans-serif);
+  box-shadow: 0 8px 22px rgba(122, 31, 29, 0.28);
+}
+
+.pel-root--hub .pel-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.03);
+}
+
+.pel-root--hub .pel-modal-backdrop {
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(10px);
+}
+
+.pel-root--hub .pel-modal {
+  background: var(--hub-surface, #fff);
+  border: 1px solid var(--hub-border, rgba(15, 23, 42, 0.08));
+  border-radius: var(--hub-radius-lg, 20px);
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.16);
+}
+
+.pel-root--hub .pel-modal-title {
+  color: var(--hub-text, #111827);
+  font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, sans-serif);
+}
+
+.pel-root--hub .pel-modal-hint {
+  color: var(--hub-text-muted, #4b5563);
+  font-family: var(--hub-font-body, Inter, sans-serif);
+}
+
+.pel-root--hub .pel-modal-hint :deep(strong) {
+  color: var(--hub-text, #111827);
+}
+
+.pel-root--hub .pel-modal-close {
+  background: #f1f5f9;
+  color: #475569;
+  border-radius: var(--hub-radius-sm, 10px);
+}
+
+.pel-root--hub .pel-modal-close:hover {
+  background: #e2e8f0;
+}
+
+.pel-root--hub .pel-finder-err {
+  color: #b91c1c;
+}
+
+.pel-root--hub .pel-linkish {
+  color: var(--hub-link, #a32623);
+}
+
+.pel-root--hub .pel-btn-secondary {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: var(--hub-radius-sm, 10px);
+  font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, sans-serif);
+}
+
+.pel-root--hub .pel-btn-secondary:hover:not(:disabled) {
+  background: #e2e8f0;
 }
 </style>

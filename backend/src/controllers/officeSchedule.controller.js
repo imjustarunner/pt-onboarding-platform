@@ -14,7 +14,7 @@ import User from '../models/User.model.js';
 import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
 import OfficeScheduleMaterializer, { shouldBookOnDate } from '../services/officeScheduleMaterializer.service.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
-import ExternalBusyCalendarService from '../services/externalBusyCalendar.service.js';
+import { refreshLocationBookingsFromEhr } from '../services/officeScheduleEhrSync.service.js';
 import { getSchedulingBookingMetadata, validateSchedulingSelection } from '../services/schedulingTaxonomy.service.js';
 import { ensureAppointmentContext } from '../services/appointmentContext.service.js';
 
@@ -386,6 +386,47 @@ async function userHasBlockingExpiredCredential(userId) {
 
 const startOfWeekISO = OfficeScheduleMaterializer.startOfWeekISO;
 const addDays = OfficeScheduleMaterializer.addDays;
+
+function parseYmdPartsOfficeMandatory(dateStr) {
+  const raw = String(dateStr || '').slice(0, 10);
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]) };
+}
+
+function weekIndexFromAnchorOfficeMandatory(dateStr, anchorStr) {
+  const ap = parseYmdPartsOfficeMandatory(anchorStr);
+  const dp = parseYmdPartsOfficeMandatory(dateStr);
+  if (!ap || !dp) return 0;
+  const a = Date.UTC(ap.y, ap.mo - 1, ap.d);
+  const d = Date.UTC(dp.y, dp.mo - 1, dp.d);
+  const diffDays = Math.floor((d - a) / (1000 * 60 * 60 * 24));
+  return Math.floor(diffDays / 7);
+}
+
+function weekdayIndexFromYmdOfficeMandatory(ymd) {
+  const p = parseYmdPartsOfficeMandatory(ymd);
+  if (!p) return null;
+  return new Date(Date.UTC(p.y, p.mo - 1, p.d)).getUTCDay();
+}
+
+function computeSuggestedBookingStartDateMandatory(assignment) {
+  const today = new Date().toISOString().slice(0, 10);
+  const weekday = Number(assignment.weekday);
+  const freq = String(assignment.assigned_frequency || 'WEEKLY').toUpperCase();
+  const anchorRaw = assignment.available_since_date || assignment.created_at;
+  const anchor = String(anchorRaw || '').slice(0, 10);
+  const anchorUse = /^\d{4}-\d{2}-\d{2}$/.test(anchor) ? anchor : today;
+  for (let i = 0; i < 56; i += 1) {
+    const ymd = addDays(today, i);
+    const wd = weekdayIndexFromYmdOfficeMandatory(ymd);
+    if (wd !== weekday) continue;
+    if (freq !== 'BIWEEKLY') return ymd;
+    const wi = weekIndexFromAnchorOfficeMandatory(ymd, anchorUse);
+    if (wi % 2 === 0) return ymd;
+  }
+  return today;
+}
 
 export const listLocations = async (req, res, next) => {
   try {
@@ -1264,183 +1305,111 @@ export const refreshEhrAssignedRoomBookings = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
-    const officeTimeZone = isValidTimeZone(loc?.timezone) ? String(loc.timezone) : 'America/New_York';
-    const todayYmdProviderTz = localYmdInTz(new Date(), officeTimeZone);
-    const windowStartYmd = String(todayYmdProviderTz || new Date().toISOString().slice(0, 10)).slice(0, 10);
-    const windowEndYmdExclusive = addDays(windowStartYmd, 43); // 6 weeks + buffer to cover end boundary
-    const windowStartWall = `${windowStartYmd} 00:00:00`;
-    const windowEndWall = `${windowEndYmdExclusive} 00:00:00`;
-
-    // Materialize upcoming weeks first so recurring assignments have event rows to evaluate.
-    for (let i = 0; i <= 6; i += 1) {
-      // eslint-disable-next-line no-await-in-loop
-      await OfficeScheduleMaterializer.materializeWeek({
-        officeLocationId,
-        weekStartRaw: addDays(windowStartYmd, i * 7),
-        createdByUserId: req.user.id
-      });
-    }
-
-    const [assignedRows] = await pool.execute(
-      `SELECT
-         e.id,
-         e.start_at,
-         e.end_at,
-         e.room_id,
-         e.standing_assignment_id,
-         e.assigned_provider_id,
-         e.booked_provider_id,
-         e.slot_state,
-         e.status
-       FROM office_events e
-       WHERE e.office_location_id = ?
-         AND e.start_at >= ?
-         AND e.start_at < ?
-         AND UPPER(COALESCE(e.slot_state, '')) IN ('ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY')
-         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-       ORDER BY e.start_at ASC`,
-      [officeLocationId, windowStartWall, windowEndWall]
-    );
-
-    const events = (assignedRows || []).filter((r) => Number(r.assigned_provider_id || r.booked_provider_id || 0) > 0);
-    if (!events.length) {
-      return res.json({ ok: true, scannedAssigned: 0, bookedFromEhr: 0, touchedProviders: 0, bookingPlansReset: 0 });
-    }
-
-    const providerIds = Array.from(new Set(events.map((e) => Number(e.assigned_provider_id || e.booked_provider_id || 0)).filter((n) => Number.isInteger(n) && n > 0)));
-    const providerTimeZoneById = new Map();
-    const busyByProviderId = new Map();
-
-    for (const providerId of providerIds) {
-      // eslint-disable-next-line no-await-in-loop
-      const providerTimeZone = await resolveProviderTimeZone({ providerId, fallbackTimeZone: officeTimeZone });
-      providerTimeZoneById.set(providerId, providerTimeZone);
-
-      const startParts = parseMySqlDateTimeParts(windowStartWall);
-      const endParts = parseMySqlDateTimeParts(windowEndWall);
-      const timeMinIso = startParts
-        ? zonedWallTimeToUtc({ ...startParts, timeZone: providerTimeZone }).toISOString()
-        : `${windowStartYmd}T00:00:00Z`;
-      const timeMaxIso = endParts
-        ? zonedWallTimeToUtc({ ...endParts, timeZone: providerTimeZone }).toISOString()
-        : `${windowEndYmdExclusive}T00:00:00Z`;
-
-      // eslint-disable-next-line no-await-in-loop
-      const calendars = await UserExternalCalendar.listForUser({ userId: providerId, includeFeeds: true, activeOnly: true });
-      const feeds = [];
-      for (const c of calendars || []) {
-        for (const f of c?.feeds || []) {
-          const url = String(f?.icsUrl || '').trim();
-          if (url) feeds.push({ id: f.id, url });
-        }
-      }
-
-      let busy = [];
-      if (feeds.length) {
-        // eslint-disable-next-line no-await-in-loop
-        const r = await ExternalBusyCalendarService.getBusyForFeeds({
-          userId: providerId,
-          weekStart: windowStartYmd,
-          feeds,
-          timeMinIso,
-          timeMaxIso
-        });
-        if (r?.ok) busy.push(...(r.busy || []));
-      }
-
-      const provider = await User.findById(providerId);
-      const legacyIcsUrl = String(provider?.external_busy_ics_url || provider?.externalBusyIcsUrl || '').trim();
-      if (legacyIcsUrl) {
-        // eslint-disable-next-line no-await-in-loop
-        const r = await ExternalBusyCalendarService.getBusyForWeek({
-          userId: providerId,
-          weekStart: windowStartYmd,
-          icsUrl: legacyIcsUrl,
-          timeMinIso,
-          timeMaxIso
-        });
-        if (r?.ok) busy.push(...(r.busy || []));
-      }
-      busyByProviderId.set(providerId, busy);
-    }
-
-    const eventsToBook = [];
-    const planSeedByAssignmentId = new Map();
-    for (const e of events) {
-      const providerId = Number(e.assigned_provider_id || e.booked_provider_id || 0);
-      const providerTimeZone = providerTimeZoneById.get(providerId) || officeTimeZone;
-      const eventStartMs = utcMsForWallMySqlDateTime(e.start_at, providerTimeZone);
-      const eventEndMs = utcMsForWallMySqlDateTime(e.end_at, providerTimeZone);
-      if (!Number.isFinite(eventStartMs) || !Number.isFinite(eventEndMs)) continue;
-
-      const busy = busyByProviderId.get(providerId) || [];
-      const hasMatch = busy.some((b) => {
-        const bs = new Date(b.startAt).getTime();
-        const be = new Date(b.endAt).getTime();
-        return intervalsOverlap(eventStartMs, eventEndMs, bs, be);
-      });
-      if (!hasMatch) continue;
-      eventsToBook.push({ eventId: Number(e.id), providerId, standingAssignmentId: Number(e.standing_assignment_id || 0) || null, startAt: String(e.start_at || '').slice(0, 19) });
-      if (Number(e.standing_assignment_id || 0) > 0) {
-        const sid = Number(e.standing_assignment_id);
-        const existing = planSeedByAssignmentId.get(sid);
-        if (!existing || String(e.start_at) < String(existing.startAt)) {
-          planSeedByAssignmentId.set(sid, { startAt: String(e.start_at || '').slice(0, 10) });
-        }
-      }
-    }
-
-    let bookedFromEhr = 0;
-    for (const b of eventsToBook) {
-      // eslint-disable-next-line no-await-in-loop
-      await OfficeEvent.markBooked({ eventId: b.eventId, bookedProviderId: b.providerId });
-      bookedFromEhr += 1;
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: b.eventId });
-      } catch {
-        // best-effort mirror
-      }
-    }
-
-    let bookingPlansReset = 0;
-    const assignmentIds = Array.from(planSeedByAssignmentId.keys());
-    if (assignmentIds.length) {
-      const placeholders = assignmentIds.map(() => '?').join(',');
-      const [assignmentRows] = await pool.execute(
-        `SELECT id, assigned_frequency
-         FROM office_standing_assignments
-         WHERE id IN (${placeholders})`,
-        assignmentIds
-      );
-      const freqById = new Map((assignmentRows || []).map((r) => [Number(r.id), String(r.assigned_frequency || '').toUpperCase()]));
-      for (const sid of assignmentIds) {
-        const seed = planSeedByAssignmentId.get(sid);
-        if (!seed?.startAt) continue;
-        const bookedFrequency = freqById.get(sid) === 'BIWEEKLY' ? 'BIWEEKLY' : 'WEEKLY';
-        const activeUntilDate = addDays(seed.startAt, 42);
-        // eslint-disable-next-line no-await-in-loop
-        await OfficeBookingPlan.upsertActive({
-          standingAssignmentId: sid,
-          bookedFrequency,
-          bookingStartDate: seed.startAt,
-          activeUntilDate,
-          bookedOccurrenceCount: null,
-          createdByUserId: req.user.id
-        });
-        bookingPlansReset += 1;
-      }
-    }
-
-    return res.json({
-      ok: true,
+    const result = await refreshLocationBookingsFromEhr({
       officeLocationId,
-      scannedAssigned: events.length,
-      bookedFromEhr,
-      touchedProviders: providerIds.length,
-      bookingPlansReset,
-      windowStart: windowStartWall,
-      windowEnd: windowEndWall
+      actorUserId: req.user.id
+    });
+    return res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Slots the provider must resolve in-app: assigned AVAILABLE without an active booking plan,
+ * or TEMPORARY assignment nearing end (extension available).
+ */
+export const getMyMandatoryOfficeReview = async (req, res, next) => {
+  try {
+    const uid = req.user.id;
+    const blocked = await userHasBlockingExpiredCredential(uid);
+    if (blocked) {
+      return res.json({ blocking: false, items: [], reason: 'credential_blocked' });
+    }
+
+    let rows = [];
+    try {
+      const [r] = await pool.execute(
+        `SELECT osa.id AS standing_assignment_id,
+                osa.office_location_id,
+                osa.room_id,
+                osa.weekday,
+                osa.hour,
+                osa.assigned_frequency,
+                osa.availability_mode,
+                osa.available_since_date,
+                osa.created_at,
+                osa.temporary_until_date,
+                osa.temporary_extension_count,
+                ol.name AS office_name,
+                ol.timezone AS office_timezone,
+                r.name AS room_name,
+                r.label AS room_label
+         FROM office_standing_assignments osa
+         JOIN office_locations ol ON ol.id = osa.office_location_id
+         JOIN office_rooms r ON r.id = osa.room_id
+         WHERE osa.provider_id = ?
+           AND osa.is_active = TRUE
+           AND EXISTS (
+             SELECT 1 FROM office_location_agencies ola
+             JOIN user_agencies ua ON ua.agency_id = ola.agency_id AND ua.user_id = ?
+             WHERE ola.office_location_id = osa.office_location_id
+           )
+           AND (
+             (osa.availability_mode = 'AVAILABLE' AND NOT EXISTS (
+               SELECT 1 FROM office_booking_plans bp
+               WHERE bp.standing_assignment_id = osa.id AND bp.is_active = TRUE
+                 AND (bp.active_until_date IS NULL OR bp.active_until_date >= CURDATE())
+             ))
+             OR
+             (osa.availability_mode = 'TEMPORARY'
+               AND osa.temporary_until_date IS NOT NULL
+               AND osa.temporary_until_date <= DATE_ADD(CURDATE(), INTERVAL 14 DAY)
+               AND (osa.temporary_extension_count IS NULL OR osa.temporary_extension_count < 2))
+           )`,
+        [uid, uid]
+      );
+      rows = r || [];
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') {
+        return res.json({ blocking: false, items: [], reason: 'tables_missing' });
+      }
+      throw e;
+    }
+
+    const items = (rows || []).map((row) => {
+      const mode = String(row.availability_mode || '').toUpperCase();
+      const reason =
+        mode === 'TEMPORARY' && row.temporary_until_date
+          ? 'temporary_expiring'
+          : 'needs_booking';
+      const suggestedBookingStartDate = computeSuggestedBookingStartDateMandatory({
+        weekday: row.weekday,
+        assigned_frequency: row.assigned_frequency,
+        available_since_date: row.available_since_date,
+        created_at: row.created_at
+      });
+      return {
+        standingAssignmentId: Number(row.standing_assignment_id),
+        officeLocationId: Number(row.office_location_id),
+        roomId: Number(row.room_id),
+        officeName: String(row.office_name || '').trim() || 'Office',
+        roomLabel: String(row.room_label || row.room_name || '').trim() || 'Room',
+        officeTimezone: String(row.office_timezone || 'America/New_York'),
+        weekday: Number(row.weekday),
+        hour: Number(row.hour),
+        assignedFrequency: String(row.assigned_frequency || 'WEEKLY').toUpperCase(),
+        availabilityMode: mode,
+        reason,
+        temporaryUntilDate: row.temporary_until_date ? String(row.temporary_until_date).slice(0, 10) : null,
+        extensionsUsed: Number(row.temporary_extension_count || 0),
+        suggestedBookingStartDate
+      };
+    });
+
+    res.json({
+      blocking: items.length > 0,
+      items
     });
   } catch (e) {
     next(e);

@@ -357,21 +357,40 @@ export const getGuardianSkillBuilderEventDetail = async (req, res, next) => {
       const childIds = myChildren.map((x) => Number(x.clientId)).filter((n) => n > 0);
       if (childIds.length) {
         const ph = childIds.map(() => '?').join(',');
-        const [attRows] = await pool.execute(
-          `SELECT a.client_id, a.session_id, a.check_in_at, a.check_out_at, a.signature_text, s.session_date
-           FROM skill_builders_client_session_attendance a
-           INNER JOIN skill_builders_event_sessions s ON s.id = a.session_id
-           WHERE s.company_event_id = ? AND a.client_id IN (${ph})
-           ORDER BY s.session_date DESC, a.client_id ASC`,
-          [eidNum, ...childIds]
-        );
+        let attRows = [];
+        try {
+          const [ar] = await pool.execute(
+            `SELECT a.client_id, a.session_id, a.check_in_at, a.check_out_at, a.signature_text,
+                    a.missed_at, a.check_out_auto, a.auto_checkout_at, s.session_date
+             FROM skill_builders_client_session_attendance a
+             INNER JOIN skill_builders_event_sessions s ON s.id = a.session_id
+             WHERE s.company_event_id = ? AND a.client_id IN (${ph})
+             ORDER BY s.session_date DESC, a.client_id ASC`,
+            [eidNum, ...childIds]
+          );
+          attRows = ar || [];
+        } catch (ae) {
+          if (ae?.code !== 'ER_BAD_FIELD_ERROR') throw ae;
+          const [ar] = await pool.execute(
+            `SELECT a.client_id, a.session_id, a.check_in_at, a.check_out_at, a.signature_text, s.session_date
+             FROM skill_builders_client_session_attendance a
+             INNER JOIN skill_builders_event_sessions s ON s.id = a.session_id
+             WHERE s.company_event_id = ? AND a.client_id IN (${ph})
+             ORDER BY s.session_date DESC, a.client_id ASC`,
+            [eidNum, ...childIds]
+          );
+          attRows = ar || [];
+        }
         clientAttendance = (attRows || []).map((r) => ({
           clientId: Number(r.client_id),
           sessionId: Number(r.session_id),
           sessionDate: r.session_date,
           checkInAt: r.check_in_at,
           checkOutAt: r.check_out_at,
-          signatureText: r.signature_text || null
+          signatureText: r.signature_text || null,
+          missedAt: r.missed_at ?? null,
+          checkOutAuto: !!(r.check_out_auto === 1 || r.check_out_auto === true),
+          autoCheckoutAt: r.auto_checkout_at ?? null
         }));
       }
     } catch (e) {

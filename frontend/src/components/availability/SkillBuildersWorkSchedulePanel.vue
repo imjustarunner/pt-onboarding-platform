@@ -3,6 +3,21 @@
     <div v-if="loading" class="muted">Loading work schedule…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <template v-else>
+      <section v-if="Number(data.programCreditHoursPerWeek) > 0" class="sbws-section">
+        <h3 class="sbws-h">Program time (counts toward 6 hr/week)</h3>
+        <p class="muted small">
+          About <strong>{{ Number(data.programCreditHoursPerWeek).toFixed(2) }}</strong> hrs/week from your Skill Builders
+          program meetings (session start→end; if times are missing, 1.5× the event’s direct hours).
+        </p>
+        <ul v-if="data.programCreditItems?.length" class="sbws-list">
+          <li v-for="(it, i) in data.programCreditItems" :key="`pc-${i}`">
+            {{ it.eventTitle || it.skillsGroupName || 'Program' }}
+            <span class="muted"> · {{ it.weekday }} {{ formatHm(it.startTime) }}–{{ formatHm(it.endTime) }}</span>
+            <span class="muted"> · ~{{ (it.minutes / 60).toFixed(2) }} hr</span>
+          </li>
+        </ul>
+      </section>
+
       <section class="sbws-section">
         <h3 class="sbws-h">Skill Builder availability blocks</h3>
         <ul v-if="data.skillBuilderBlocks?.length" class="sbws-list">
@@ -130,7 +145,9 @@ const data = ref({
   skillBuilderBlocks: [],
   meetings: [],
   assignedEvents: [],
-  upcomingOpenEvents: []
+  upcomingOpenEvents: [],
+  programCreditHoursPerWeek: 0,
+  programCreditItems: []
 });
 
 function formatHm(t) {
@@ -157,7 +174,9 @@ function applyInlineData() {
     skillBuilderBlocks: v.skillBuilderBlocks || [],
     meetings: v.meetings || [],
     assignedEvents: v.assignedEvents || [],
-    upcomingOpenEvents: props.hideUpcomingOpen ? [] : v.upcomingOpenEvents || []
+    upcomingOpenEvents: props.hideUpcomingOpen ? [] : v.upcomingOpenEvents || [],
+    programCreditHoursPerWeek: Number(v.programCreditHoursPerWeek || 0),
+    programCreditItems: Array.isArray(v.programCreditItems) ? v.programCreditItems : []
   };
   loading.value = false;
   error.value = '';
@@ -208,7 +227,9 @@ async function load() {
       skillBuilderBlocks: res.data?.skillBuilderBlocks || [],
       meetings: res.data?.meetings || [],
       assignedEvents: res.data?.assignedEvents || [],
-      upcomingOpenEvents: res.data?.upcomingOpenEvents || []
+      upcomingOpenEvents: res.data?.upcomingOpenEvents || [],
+      programCreditHoursPerWeek: Number(res.data?.programCreditHoursPerWeek || 0),
+      programCreditItems: Array.isArray(res.data?.programCreditItems) ? res.data.programCreditItems : []
     };
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load';
@@ -216,7 +237,9 @@ async function load() {
       skillBuilderBlocks: [],
       meetings: [],
       assignedEvents: [],
-      upcomingOpenEvents: []
+      upcomingOpenEvents: [],
+      programCreditHoursPerWeek: 0,
+      programCreditItems: []
     };
   } finally {
     loading.value = false;

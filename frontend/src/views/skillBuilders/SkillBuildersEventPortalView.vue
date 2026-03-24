@@ -361,8 +361,12 @@
                           <template v-if="attendanceRowsForClient(c.id).length">
                             <div v-for="row in attendanceRowsForClient(c.id)" :key="`att-${row.sessionId}-${row.clientId}`">
                               {{ formatSessionDateDisplay(row.sessionDate) }}
-                              <span v-if="row.checkInAt"> · In {{ formatPostTime(row.checkInAt) }}</span>
-                              <span v-if="row.checkOutAt"> · Out {{ formatPostTime(row.checkOutAt) }}</span>
+                              <span v-if="row.missedAt && !row.checkInAt"> · Missed</span>
+                              <template v-else>
+                                <span v-if="row.checkInAt"> · In {{ formatPostTime(row.checkInAt) }}</span>
+                                <span v-if="row.checkOutAt"> · Out {{ formatPostTime(row.checkOutAt) }}</span>
+                                <span v-if="row.checkOutAuto && row.checkOutAt" class="muted"> (auto)</span>
+                              </template>
                               <span v-if="row.signatureText"> · Signature on file</span>
                             </div>
                           </template>

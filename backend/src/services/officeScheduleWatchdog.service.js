@@ -3,6 +3,10 @@ import NotificationEvent from '../models/NotificationEvent.model.js';
 import { createNotificationAndDispatch } from './notificationDispatcher.service.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
 import GoogleCalendarService from './googleCalendar.service.js';
+import {
+  refreshAllLocationsFromEhr,
+  downgradeBookedWithoutExternalOverlap
+} from './officeScheduleEhrSync.service.js';
 
 export class OfficeScheduleWatchdogService {
   static async syncBookedToGoogle({ horizonDays = 28 } = {}) {
@@ -168,6 +172,9 @@ export class OfficeScheduleWatchdogService {
   static async autoForfeitStaleAvailableSlots() {
     // Forfeit assigned_available slots that have been available (unbooked) for 6 weeks.
     // Condition: active standing assignment, AVAILABLE, available_since_date <= today-42, no active booking plan.
+    // Stale = unbooked (no active plan) for 42+ days. Anchor is the later of "went available"
+    // and "last confirmed keep-available" so 2-week confirmations reset the clock (same idea
+    // as materializer confirmAnchor) and we do not forfeit slots that were only stale on available_since_date.
     const [rows] = await pool.execute(
       `SELECT
          osa.id AS standing_assignment_id,
@@ -181,7 +188,10 @@ export class OfficeScheduleWatchdogService {
        WHERE osa.is_active = TRUE
          AND osa.availability_mode = 'AVAILABLE'
          AND osa.available_since_date IS NOT NULL
-         AND osa.available_since_date <= DATE_SUB(CURDATE(), INTERVAL 42 DAY)
+         AND GREATEST(
+           osa.available_since_date,
+           COALESCE(DATE(osa.last_two_week_confirmed_at), '1970-01-01')
+         ) <= DATE_SUB(CURDATE(), INTERVAL 42 DAY)
          AND bp.id IS NULL`
     );
 
@@ -232,6 +242,14 @@ export class OfficeScheduleWatchdogService {
   }
 
   static async run() {
+    let ehrRefresh = null;
+    try {
+      // Match Therapy Notes / ICS busy blocks to assigned office slots → mark booked (same as admin refresh).
+      ehrRefresh = await refreshAllLocationsFromEhr({ actorUserId: 1 });
+    } catch (e) {
+      ehrRefresh = { ok: false, reason: 'exception', error: String(e?.message || e) };
+    }
+
     const confirms = await this.emitSixWeekBookingConfirmReminders();
     const forfeits = await this.autoForfeitStaleAvailableSlots();
     let googleSync = null;
@@ -241,7 +259,15 @@ export class OfficeScheduleWatchdogService {
       // Never block watchdog on calendar sync failures.
       googleSync = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
-    return { ok: true, confirms, forfeits, googleSync };
+
+    let ehrTnDowngrade = null;
+    try {
+      ehrTnDowngrade = await downgradeBookedWithoutExternalOverlap({ actorUserId: 1 });
+    } catch (e) {
+      ehrTnDowngrade = { ok: false, reason: 'exception', error: String(e?.message || e) };
+    }
+
+    return { ok: true, ehrRefresh, confirms, forfeits, googleSync, ehrTnDowngrade };
   }
 }
 

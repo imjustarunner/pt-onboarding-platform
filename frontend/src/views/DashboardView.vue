@@ -1129,7 +1129,7 @@
     <SkillBuilderAvailabilityModal
       v-if="showSkillBuilderModal"
       :agency-id="currentAgencyId"
-      :lock-open="isSkillBuilderConfirmRequired"
+      :lock-open="isSkillBuilderForceModalRequired"
       @close="showSkillBuilderModal = false"
       @confirmed="onSkillBuilderConfirmed"
     />
@@ -1381,6 +1381,9 @@ const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
 const clientsNeedsAttentionCount = ref(0);
 const providerPendingClientsCount = ref(0);
 const showSkillBuilderModal = ref(false);
+/** Set from GET /availability/me/pending — biweekly window missing confirmation */
+const skillBuilderPendingLoaded = ref(false);
+const skillBuilderBiweeklyNeedsConfirmation = ref(false);
 const programHubOpen = ref(false);
 const programHubOrg = ref(null); // { id, name } | null
 /** When opening from ?programHub=1 — e.g. `documents` for Program documents */
@@ -1553,31 +1556,6 @@ const canShowBudgetSubmitExpenses = computed(() => {
   const deptIds = Array.isArray(authStore.user?.departmentAgencyIds) ? authStore.user.departmentAgencyIds : [];
   return currentAgencyId.value && deptIds.includes(Number(currentAgencyId.value));
 });
-
-const onSkillBuilderConfirmed = () => {
-  // Modal refreshes user; if requirement cleared, close it.
-  if (!isSkillBuilderConfirmRequired.value) {
-    showSkillBuilderModal.value = false;
-  }
-};
-
-watch(
-  isSkillBuilderConfirmRequired,
-  (required) => {
-    if (props.previewMode) return;
-    if (!required) return;
-    if (!isSkillBuilderEligible.value) return;
-    showSkillBuilderModal.value = true;
-    // Bring the user to the scheduling surface where the button normally lives.
-    activeTab.value = 'my_schedule';
-    try {
-      router.replace({ query: { ...route.query, tab: 'my_schedule' } });
-    } catch {
-      // ignore
-    }
-  },
-  { immediate: true }
-);
 
 const openLastPaycheckModal = ({ payrollPeriodId } = {}) => {
   const agencyId = Number(currentAgencyId.value || 0);
@@ -2796,6 +2774,108 @@ const filteredTabs = computed(() => {
 });
 
 const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
+
+/** Admin “confirm next login” OR biweekly cycle missing confirmation (pending API). */
+const isSkillBuilderForceModalRequired = computed(() => {
+  if (props.previewMode) return false;
+  if (isSchoolStaff.value) return false;
+  if (!isOnboardingComplete.value) return false;
+  if (!isSkillBuilderEligible.value) return false;
+  if (isSkillBuilderConfirmRequired.value) return true;
+  return skillBuilderPendingLoaded.value && skillBuilderBiweeklyNeedsConfirmation.value;
+});
+
+async function loadSkillBuilderBiweeklyPendingState() {
+  if (props.previewMode) {
+    skillBuilderPendingLoaded.value = true;
+    skillBuilderBiweeklyNeedsConfirmation.value = false;
+    return;
+  }
+  if (isSchoolStaff.value) {
+    skillBuilderPendingLoaded.value = true;
+    skillBuilderBiweeklyNeedsConfirmation.value = false;
+    return;
+  }
+  if (!isOnboardingComplete.value) {
+    skillBuilderPendingLoaded.value = true;
+    skillBuilderBiweeklyNeedsConfirmation.value = false;
+    return;
+  }
+  if (!authStore.user?.id) {
+    skillBuilderPendingLoaded.value = false;
+    skillBuilderBiweeklyNeedsConfirmation.value = false;
+    return;
+  }
+  const u = authStore.user || {};
+  const eligible =
+    u.skill_builder_eligible === true || u.skill_builder_eligible === 1 || u.skill_builder_eligible === '1';
+  if (!eligible) {
+    skillBuilderPendingLoaded.value = true;
+    skillBuilderBiweeklyNeedsConfirmation.value = false;
+    return;
+  }
+  const agencyId = currentAgencyId.value;
+  if (!agencyId) {
+    skillBuilderPendingLoaded.value = true;
+    skillBuilderBiweeklyNeedsConfirmation.value = false;
+    return;
+  }
+  try {
+    const resp = await api.get('/availability/me/pending', {
+      params: { agencyId: Number(agencyId) },
+      skipGlobalLoading: true
+    });
+    const sb = resp.data?.skillBuilder;
+    skillBuilderPendingLoaded.value = true;
+    skillBuilderBiweeklyNeedsConfirmation.value = !!(sb?.eligible && sb?.needsConfirmation);
+  } catch {
+    skillBuilderPendingLoaded.value = true;
+    skillBuilderBiweeklyNeedsConfirmation.value = false;
+  }
+}
+
+function onSkillBuilderConfirmed() {
+  return loadSkillBuilderBiweeklyPendingState().then(() => {
+    if (!isSkillBuilderForceModalRequired.value) {
+      showSkillBuilderModal.value = false;
+    }
+  });
+}
+
+watch(
+  isSkillBuilderForceModalRequired,
+  (force) => {
+    if (props.previewMode) return;
+    if (force) {
+      if (!isSkillBuilderEligible.value) return;
+      showSkillBuilderModal.value = true;
+      activeTab.value = 'my_schedule';
+      try {
+        router.replace({ query: { ...route.query, tab: 'my_schedule' } });
+      } catch {
+        // ignore
+      }
+    } else if (showSkillBuilderModal.value) {
+      showSkillBuilderModal.value = false;
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  [currentAgencyId, () => authStore.user?.id, () => authStore.user?.skill_builder_eligible, isOnboardingComplete],
+  () => {
+    loadSkillBuilderBiweeklyPendingState();
+  },
+  { immediate: true }
+);
+
+function handleSkillBuilderBiweeklyVisibility() {
+  if (document.visibilityState === 'visible') {
+    loadSkillBuilderBiweeklyPendingState();
+  }
+}
+
 const OFFICE_STAFF_ROLES = ['staff', 'admin', 'support', 'clinical_practice_assistant', 'supervisor'];
 const isOfficeStaff = computed(() => OFFICE_STAFF_ROLES.includes(String(authStore.user?.role || '').trim().toLowerCase()));
 const isAgencyDashboardContext = computed(() => {
@@ -4096,6 +4176,7 @@ onMounted(async () => {
   document.addEventListener('pointerdown', handleDocumentPointerDown);
   document.addEventListener('keydown', handleDocumentKeydown);
   document.addEventListener('fullscreenchange', updateScheduleFullscreenState);
+  document.addEventListener('visibilitychange', handleSkillBuilderBiweeklyVisibility);
   supervisionPromptTimer = setInterval(() => {
     loadSupervisionPrompts();
     loadPresenterAssignments();
@@ -4215,6 +4296,7 @@ onUnmounted(() => {
   document.removeEventListener('pointerdown', handleDocumentPointerDown);
   document.removeEventListener('keydown', handleDocumentKeydown);
   document.removeEventListener('fullscreenchange', updateScheduleFullscreenState);
+  document.removeEventListener('visibilitychange', handleSkillBuilderBiweeklyVisibility);
   if (supervisionPromptTimer) clearInterval(supervisionPromptTimer);
 });
 </script>

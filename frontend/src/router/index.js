@@ -11,6 +11,7 @@ import { hasProviderMobileAccess } from '../utils/providerMobileAccess';
 import { isLikelyMobileViewport, isStandalonePwa } from '../utils/pwa';
 import { getSchoolStaffWaiverStatus } from '../utils/schoolStaffWaiverGate';
 import api from '../services/api';
+import { officeMandatoryBlocking } from '../utils/officeMandatoryGate';
 
 const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff', 'provider_plus'];
 /** Matches Directory “Programs & events” access (nav + dedicated page). */
@@ -110,6 +111,13 @@ const routes = [
     name: 'SchoolFinder',
     component: () => import('../views/school/SchoolFinderView.vue'),
     meta: { requiresGuest: false }
+  },
+  // Public marketing hub — optional markdown subpages (must be before single-segment /p/:hubSlug).
+  {
+    path: '/p/:hubSlug/:subPageSlug',
+    name: 'PublicMarketingHubSubPage',
+    component: () => import('../views/public/PublicMarketingHubSubPageView.vue'),
+    meta: { requiresGuest: false, publicMarketingHub: true }
   },
   // Public marketing hub — namespace /p/:hubSlug (multi-agency events + hub branding). Must stay before /:organizationSlug.
   {
@@ -1707,6 +1715,15 @@ const hasSubCoordinatorAccess = (userLike) => {
 };
 
 router.beforeEach(async (to, from, next) => {
+  if (officeMandatoryBlocking.value) {
+    const path = String(to.path || '');
+    if (path === '/login' || path.endsWith('/login') || path.includes('/logout')) {
+      return next();
+    }
+    if (to.fullPath === from.fullPath) return next();
+    return next(false);
+  }
+
   const authStore = useAuthStore();
   const brandingStore = useBrandingStore();
   const agencyStore = useAgencyStore();

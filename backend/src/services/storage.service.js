@@ -417,6 +417,31 @@ class StorageService {
   }
 
   /**
+   * Public marketing hub images (superadmin-managed; served like other uploads).
+   */
+  static async savePublicMarketingAsset(fileBuffer, filename, contentType = 'image/png') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `uploads/public_marketing/${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: contentType,
+      metadata: {
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return {
+      path: key,
+      key: key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
    * Save a beta feedback screenshot to GCS
    * @param {number} feedbackId - Beta feedback submission ID
    * @param {Buffer} fileBuffer - File content as buffer
