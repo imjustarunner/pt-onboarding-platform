@@ -1,49 +1,85 @@
 <template>
   <div class="school-splash" :style="{ background: loginBackground }">
-    <div class="splash-container">
-      <!-- Organization Branding Header -->
-      <div class="splash-header">
-        <BrandingLogo size="large" class="splash-logo" />
-        <h1 v-if="organizationName" class="organization-name">{{ organizationName }}</h1>
-
-        <div v-if="schoolName || schoolLogoUrl" class="school-affiliation">
-          <div class="school-affiliation-label">School</div>
-          <div class="school-affiliation-row">
-            <img v-if="schoolLogoUrl" :src="schoolLogoUrl" class="school-logo" :alt="schoolName || 'School logo'" />
-            <div v-if="schoolName" class="school-name">{{ schoolName }}</div>
-          </div>
-        </div>
+    <!-- Avoid flash: don’t paint splash cards until we know school vs agency portal -->
+    <div v-if="splashPhase === 'loading'" class="splash-loading" role="status" aria-live="polite">
+      <div class="splash-loading-inner">
+        <div class="splash-spinner" aria-hidden="true" />
+        <p class="splash-loading-text">Loading portal…</p>
       </div>
-
-      <!-- Action Options -->
-      <div class="action-cards">
-        <!-- Option 1: Digital Link -->
-        <div class="action-card" @click="openIntakeLink">
-          <div class="action-icon">🔗</div>
-          <h3>{{ digitalLinkTitle }}</h3>
-          <p>{{ digitalLinkSubtitle }}</p>
-          <span class="action-note">Open link</span>
-        </div>
-
-        <!-- Option 2: School Staff Login -->
-        <div class="action-card" @click="showLoginModal = true">
-          <div class="action-icon">🔐</div>
-          <h3>School Staff Login</h3>
-          <p>Access your portal</p>
-        </div>
-      </div>
-      <div v-if="intakeLinkError" class="error-message">{{ intakeLinkError }}</div>
     </div>
 
-    <!-- Staff Login Modal -->
-    <StaffLoginModal
-      v-if="showLoginModal"
-      :organization-slug="organizationSlug"
-      @close="showLoginModal = false"
-      @login-success="handleLoginSuccess"
-    />
+    <template v-else>
+      <div class="splash-container">
+        <div class="splash-header">
+          <BrandingLogo size="large" class="splash-logo" />
+          <h1 v-if="organizationName" class="organization-name">{{ organizationName }}</h1>
+          <p v-if="splashPhase === 'portal'" class="splash-tagline">
+            Choose an option below. Public sign-up links work without logging in.
+          </p>
 
-    <PoweredByFooter />
+          <div v-if="splashPhase === 'school' && (schoolName || schoolLogoUrl)" class="school-affiliation">
+            <div class="school-affiliation-label">School</div>
+            <div class="school-affiliation-row">
+              <img v-if="schoolLogoUrl" :src="schoolLogoUrl" class="school-logo" :alt="schoolName || 'School logo'" />
+              <div v-if="schoolName" class="school-name">{{ schoolName }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- School portal -->
+        <div v-if="splashPhase === 'school'" class="action-cards action-cards-3">
+          <div class="action-card" @click="openIntakeLink">
+            <div class="action-icon">🔗</div>
+            <h3>{{ digitalLinkTitle }}</h3>
+            <p>{{ digitalLinkSubtitle }}</p>
+            <span class="action-note">Opens in a new tab — share with families</span>
+          </div>
+
+          <div class="action-card" @click="showLoginModal = true">
+            <div class="action-icon">🔐</div>
+            <h3>School staff login</h3>
+            <p>Access your portal, referrals, and tools</p>
+            <span class="action-note">Email can be remembered on this device</span>
+          </div>
+
+          <div class="action-card" @click="goReferralUpload">
+            <div class="action-icon">📤</div>
+            <h3>Upload referral packet</h3>
+            <p>Submit a PDF or images (sign in with your school account)</p>
+            <span class="action-note">Same as the school upload page</span>
+          </div>
+        </div>
+
+        <!-- Agency / program / learning (no redirect to login — stops splash “flash”) -->
+        <div v-else-if="splashPhase === 'portal'" class="action-cards">
+          <div class="action-card" @click="goPublicEvents">
+            <div class="action-icon">📅</div>
+            <h3>Public programs &amp; events</h3>
+            <p>Open registrations and schedules we publish for the community</p>
+            <span class="action-note">No login required</span>
+          </div>
+
+          <div class="action-card" @click="goStaffLogin">
+            <div class="action-icon">🔐</div>
+            <h3>Staff sign in</h3>
+            <p>Providers, admins, and school staff use the branded login page</p>
+            <span class="action-note">Username can be remembered on this device</span>
+          </div>
+        </div>
+
+        <div v-if="splashPhase === 'school' && intakeLinkError" class="error-message">{{ intakeLinkError }}</div>
+      </div>
+
+      <StaffLoginModal
+        v-if="showLoginModal && splashPhase === 'school'"
+        :organization-slug="organizationSlug"
+        :parent-organization-slug="staffLoginParentSlug"
+        @close="showLoginModal = false"
+        @login-success="handleLoginSuccess"
+      />
+
+      <PoweredByFooter />
+    </template>
   </div>
 </template>
 
@@ -58,6 +94,7 @@ import BrandingLogo from '../../components/BrandingLogo.vue';
 import StaffLoginModal from '../../components/school/StaffLoginModal.vue';
 import PoweredByFooter from '../../components/PoweredByFooter.vue';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { buildOrgLoginPath } from '../../utils/orgLoginPath';
 
 const route = useRoute();
 const router = useRouter();
@@ -69,7 +106,18 @@ const intakeLinkLoading = ref(false);
 const intakeLinkError = ref('');
 const intakeLink = ref(null);
 
+/** loading | school | portal — portal = agency/program/etc. (no auto-redirect to login) */
+const splashPhase = ref('loading');
+
 const organizationSlug = computed(() => route.params.organizationSlug);
+
+/** Parent agency segment for URLs like /itsco/rudy/login (host resolve or API parent_slug). */
+const staffLoginParentSlug = computed(() => {
+  const org = organizationStore.currentOrganization || organizationStore.organizationContext || null;
+  const fromOrg = org?.parent_slug || org?.parentSlug || null;
+  if (fromOrg) return String(fromOrg).trim().toLowerCase();
+  return String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
+});
 
 const organizationName = computed(() => {
   return organizationStore.organizationContext?.name || 
@@ -140,44 +188,65 @@ const openIntakeLink = async () => {
 
 const handleLoginSuccess = () => {
   showLoginModal.value = false;
-  // Redirect to school portal dashboard
   router.push(`/${organizationSlug.value}/dashboard`);
 };
 
+function goPublicEvents() {
+  const slug = organizationSlug.value;
+  if (!slug) return;
+  router.push(`/${slug}/events`);
+}
+
+function goStaffLogin() {
+  const slug = organizationSlug.value;
+  if (!slug) return;
+  router.push(
+    buildOrgLoginPath(
+      slug,
+      staffLoginParentSlug.value,
+      String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null
+    )
+  );
+}
+
+function goReferralUpload() {
+  const slug = organizationSlug.value;
+  if (!slug) return;
+  router.push(`/${slug}/upload`);
+}
+
 onMounted(async () => {
-  // Load organization context by slug
-  if (organizationSlug.value) {
-    const org = await organizationStore.fetchBySlug(organizationSlug.value);
-    
-    if (!org) {
-      // Organization not found, redirect to platform login
-      // Keep the slug if we have one so the login page stays branded
-      // (and avoids dropping to the platform login on transient API/CORS failures).
-      router.push(organizationSlug.value ? `/${organizationSlug.value}/login` : '/login');
-      return;
-    }
+  const slug = organizationSlug.value;
+  splashPhase.value = 'loading';
 
-    // Fetch login-theme to determine organization type (and support future branding needs)
-    // If this is NOT a school, redirect to the org login page.
-    try {
-      const themeRes = await api.get(`/agencies/portal/${organizationSlug.value}/login-theme`);
-      const orgType = themeRes.data?.agency?.organizationType || org.organization_type || 'agency';
-      if (orgType !== 'school') {
-        router.push(`/${organizationSlug.value}/login`);
-        return;
-      }
-    } catch (e) {
-      // If login-theme fails, fall back to org.organization_type from slug lookup
-      const orgType = org.organization_type || 'agency';
-      if (orgType !== 'school') {
-        router.push(`/${organizationSlug.value}/login`);
-        return;
-      }
-    }
+  if (!slug) {
+    splashPhase.value = 'portal';
+    return;
+  }
 
-    // If this IS a school, apply portal theme so splash is fully branded
-    await brandingStore.fetchAgencyTheme(organizationSlug.value);
+  const org = await organizationStore.fetchBySlug(slug);
+  if (!org) {
+    const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
+    router.push(buildOrgLoginPath(slug, hostImplied, hostImplied));
+    return;
+  }
+
+  let orgType = org.organization_type || 'agency';
+  try {
+    const themeRes = await api.get(`/agencies/portal/${slug}/login-theme`);
+    orgType = themeRes.data?.agency?.organizationType || orgType;
+  } catch {
+    orgType = org.organization_type || 'agency';
+  }
+
+  await brandingStore.fetchAgencyTheme(slug);
+
+  const normalized = String(orgType || '').toLowerCase();
+  if (normalized === 'school') {
+    splashPhase.value = 'school';
     await loadIntakeLink();
+  } else {
+    splashPhase.value = 'portal';
   }
 });
 </script>
@@ -215,6 +284,52 @@ onMounted(async () => {
   font-weight: 700;
   color: var(--header-text-color, #fff);
   margin: 0;
+}
+
+.splash-tagline {
+  margin: 12px auto 0;
+  max-width: 520px;
+  font-size: 16px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.splash-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 50vh;
+}
+
+.splash-loading-inner {
+  text-align: center;
+}
+
+.splash-spinner {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 16px;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: rgba(255, 255, 255, 0.95);
+  border-radius: 50%;
+  animation: splash-spin 0.75s linear infinite;
+}
+
+.splash-loading-text {
+  margin: 0;
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+@keyframes splash-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.action-cards-3 {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .school-affiliation {

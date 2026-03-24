@@ -15,6 +15,8 @@
         <h3 class="sbpd-card-title">Upload PDFs to this program</h3>
         <p class="pch-muted small sbpd-card-desc">
           This is where files are added. Optional title helps you pick the right file when attaching to a date/session.
+          Use <strong>Activities</strong> on each PDF to define what can be checked in Clinical Aid when that file is the
+          session curriculum.
         </p>
         <label class="sbpd-label">Title (shown in attach menus)</label>
         <input
@@ -66,6 +68,7 @@
                   <span class="sbpd-lib-name">{{ docDisplayLabel(d) }}</span>
                   <span v-if="d.displayTitle" class="sbpd-lib-file muted small">{{ d.originalFilename }}</span>
                   <div class="sbpd-lib-row-actions">
+                    <button type="button" class="btn btn-link btn-sm" @click="openLibraryActivities(d)">Activities</button>
                     <button type="button" class="btn btn-link btn-sm" @click="startEditTitle(d)">Rename</button>
                     <button
                       type="button"
@@ -125,7 +128,19 @@
               >
                 {{ attachBusy ? 'Attaching…' : 'Attach to session' }}
               </button>
+              <button
+                v-if="selectedSessionId"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="activitiesModalOpen = true"
+              >
+                View activities
+              </button>
             </div>
+            <p v-if="selectedSessionId" class="pch-muted small sbpd-act-hint">
+              Session activities define the checklist for Clinical Aid (H2014). Only activities you check are included in the
+              generated note.
+            </p>
             <p v-if="attachFlash" class="sbpd-flash sbpd-flash-ok" role="status">{{ attachFlash }}</p>
             <p v-if="attachError" class="sbpd-flash pch-error">{{ attachError }}</p>
           </template>
@@ -137,12 +152,35 @@
         </p>
       </section>
     </template>
+
+    <SkillBuildersSessionActivitiesModal
+      :show="libraryActivitiesModalOpen && libraryActivitiesDocId > 0"
+      :agency-id="agencyNum"
+      :program-organization-id="orgNum"
+      :program-document-id="libraryActivitiesDocId"
+      :document-label="libraryActivitiesDocLabel"
+      :can-manage="canManageSessionActivities"
+      @close="closeLibraryActivities"
+    />
+    <SkillBuildersSessionActivitiesModal
+      :show="activitiesModalOpen && !!selectedSessionId && !!selectedEventId"
+      :agency-id="agencyNum"
+      :event-id="Number(selectedEventId) || 0"
+      :session-id="Number(selectedSessionId) || 0"
+      :session-label="activitiesSessionLabelText"
+      :can-manage="canManageSessionActivities"
+      @close="activitiesModalOpen = false"
+    />
   </div>
 </template>
 
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
+import SkillBuildersSessionActivitiesModal from '../skillBuilders/SkillBuildersSessionActivitiesModal.vue';
+
+const authStore = useAuthStore();
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
@@ -175,6 +213,23 @@ const selectedLibraryId = ref(null);
 const attachBusy = ref(false);
 const attachFlash = ref('');
 const attachError = ref('');
+const activitiesModalOpen = ref(false);
+const libraryActivitiesModalOpen = ref(false);
+const libraryActivitiesDocId = ref(0);
+const libraryActivitiesDocLabel = ref('');
+
+const canManageSessionActivities = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  if (['super_admin', 'admin', 'staff', 'support'].includes(r)) return true;
+  if (
+    authStore.user?.has_skill_builder_coordinator_access === true ||
+    authStore.user?.has_skill_builder_coordinator_access === 1 ||
+    String(authStore.user?.has_skill_builder_coordinator_access || '').toLowerCase() === 'true'
+  ) {
+    return true;
+  }
+  return ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'].includes(r);
+});
 
 /** All sessions for the selected event, ordered by calendar date then start time (multiple slots per day stay distinct). */
 const sortedSessions = computed(() => {
@@ -398,6 +453,24 @@ function formatSessionLabel(s) {
     return `${s.sessionLabel} · ${datePart} · ${timePart}`;
   }
   return `${datePart} · ${timePart}`;
+}
+
+const activitiesSessionLabelText = computed(() => {
+  const sid = selectedSessionId.value;
+  const s = sortedSessions.value.find((x) => Number(x.id) === Number(sid));
+  return s ? formatSessionLabel(s) : '';
+});
+
+function openLibraryActivities(d) {
+  libraryActivitiesDocId.value = Number(d?.id) || 0;
+  libraryActivitiesDocLabel.value = docDisplayLabel(d);
+  libraryActivitiesModalOpen.value = true;
+}
+
+function closeLibraryActivities() {
+  libraryActivitiesModalOpen.value = false;
+  libraryActivitiesDocId.value = 0;
+  libraryActivitiesDocLabel.value = '';
 }
 
 async function attachToSession() {

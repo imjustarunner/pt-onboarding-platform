@@ -148,6 +148,31 @@
         <small class="hint">When registration is eligible, guardians can see this event in the portal catalog (after migration 583).</small>
       </div>
 
+      <div class="form-group">
+        <label class="lbl">Public registration page</label>
+        <small class="hint" style="display: block; margin-bottom: 8px;">
+          Listed on the agency public events page when the event is registration-eligible and has an active Smart
+          Registration link for this event.
+        </small>
+        <label class="lbl" style="font-weight: 500;">Hero image URL</label>
+        <input v-model.trim="draft.publicHeroImageUrl" class="input" type="url" placeholder="https://…" />
+        <label class="lbl" style="font-weight: 500; margin-top: 8px;">Extra public details</label>
+        <textarea v-model.trim="draft.publicListingDetails" class="input" rows="2" placeholder="Plain text for families" />
+        <div class="grid" style="margin-top: 8px;">
+          <div class="form-group">
+            <label class="lbl">In person on public page</label>
+            <select v-model="draft.inPersonPublic" class="input">
+              <option :value="false">No</option>
+              <option :value="true">Yes</option>
+            </select>
+          </div>
+        </div>
+        <div v-if="draft.inPersonPublic" class="form-group">
+          <label class="lbl">Venue address</label>
+          <textarea v-model.trim="draft.publicLocationAddress" class="input" rows="2" placeholder="Full address" />
+        </div>
+      </div>
+
       <div class="voting-block">
         <strong>RSVP / voting</strong>
         <div class="grid" style="margin-top: 8px;">
@@ -418,7 +443,11 @@ const emptyDraft = () => ({
   skillBuilderDirectHours: null,
   registrationEligible: false,
   medicaidEligible: false,
-  cashEligible: false
+  cashEligible: false,
+  publicHeroImageUrl: '',
+  publicListingDetails: '',
+  inPersonPublic: false,
+  publicLocationAddress: ''
 });
 
 const draft = ref(emptyDraft());
@@ -610,7 +639,11 @@ const editEvent = (event) => {
         : null,
     registrationEligible: !!event.registrationEligible,
     medicaidEligible: !!event.medicaidEligible,
-    cashEligible: !!event.cashEligible
+    cashEligible: !!event.cashEligible,
+    publicHeroImageUrl: String(event.publicHeroImageUrl || '').trim(),
+    publicListingDetails: String(event.publicListingDetails || '').trim(),
+    inPersonPublic: !!event.inPersonPublic,
+    publicLocationAddress: String(event.publicLocationAddress || '').trim()
   };
 };
 
@@ -697,7 +730,13 @@ const saveEvent = async () => {
           : null,
       registrationEligible: !!draft.value.registrationEligible,
       medicaidEligible: !!draft.value.medicaidEligible,
-      cashEligible: !!draft.value.cashEligible
+      cashEligible: !!draft.value.cashEligible,
+      publicHeroImageUrl: String(draft.value.publicHeroImageUrl || '').trim() || null,
+      publicListingDetails: String(draft.value.publicListingDetails || '').trim() || null,
+      inPersonPublic: !!draft.value.inPersonPublic,
+      publicLocationAddress: draft.value.inPersonPublic
+        ? String(draft.value.publicLocationAddress || '').trim() || null
+        : null
     };
     if (draft.value.id) {
       await api.put(`/agencies/${props.agencyId}/company-events/${draft.value.id}`, payload);

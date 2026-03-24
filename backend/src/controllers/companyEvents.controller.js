@@ -13,7 +13,9 @@ import {
   computeNextOccurrence
 } from '../services/companyEvents.service.js';
 import { backfillSkillsGroupCompanyEvents } from '../services/skillBuildersGroupEventBackfill.service.js';
+import { syncIntegratedSkillsGroupAfterCompanyEventSave } from '../services/skillBuildersEventSessions.service.js';
 import KioskModel from '../models/Kiosk.model.js';
+import { geocodeAddressWithGoogle } from '../services/googleGeocode.service.js';
 
 const DEFAULT_RSVP_OPTIONS = [
   { key: '1', label: 'Yes' },
@@ -235,7 +237,27 @@ function mapEventRow(row, req, opts = {}) {
       row.virtual_sessions_enabled === undefined || row.virtual_sessions_enabled === null
         ? true
         : !!(row.virtual_sessions_enabled === 1 || row.virtual_sessions_enabled === true),
-    kioskEventPinSet: !!(row.kiosk_event_pin_hash && String(row.kiosk_event_pin_hash).trim())
+    kioskEventPinSet: !!(row.kiosk_event_pin_hash && String(row.kiosk_event_pin_hash).trim()),
+    publicHeroImageUrl: row.public_hero_image_url ? String(row.public_hero_image_url).trim() : '',
+    publicListingDetails: row.public_listing_details ? String(row.public_listing_details) : '',
+    inPersonPublic: !!(row.in_person_public === 1 || row.in_person_public === true),
+    publicLocationAddress: row.public_location_address ? String(row.public_location_address) : '',
+    publicLocationLat: (() => {
+      const n = Number(row.public_location_lat);
+      return Number.isFinite(n) ? n : null;
+    })(),
+    publicLocationLng: (() => {
+      const n = Number(row.public_location_lng);
+      return Number.isFinite(n) ? n : null;
+    })(),
+    publicAgeMin: (() => {
+      const n = Number(row.public_age_min);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    })(),
+    publicAgeMax: (() => {
+      const n = Number(row.public_age_max);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    })()
   };
   const nextOccurrence = computeNextOccurrence(base);
   const calendarSource = nextOccurrence || { startsAt, endsAt };
@@ -364,6 +386,30 @@ function parseEventPayload(body = {}) {
   const medicaidEligible = triBool(body.medicaidEligible ?? body.medicaid_eligible, false);
   const cashEligible = triBool(body.cashEligible ?? body.cash_eligible, false);
 
+  const publicHeroImageUrl = String(body.publicHeroImageUrl ?? body.public_hero_image_url ?? '')
+    .trim()
+    .slice(0, 2048);
+  const publicListingDetails = String(body.publicListingDetails ?? body.public_listing_details ?? '')
+    .trim()
+    .slice(0, 20000);
+  const inPersonPublic = triBool(body.inPersonPublic ?? body.in_person_public, false);
+  let publicLocationAddress = String(body.publicLocationAddress ?? body.public_location_address ?? '')
+    .trim()
+    .slice(0, 2000);
+  if (!inPersonPublic) publicLocationAddress = '';
+
+  const parseOptionalAge = (raw) => {
+    if (raw === undefined || raw === null || raw === '') return null;
+    const n = parseInt(String(raw).trim(), 10);
+    if (!Number.isFinite(n) || n < 0 || n > 120) return null;
+    return n;
+  };
+  const publicAgeMin = parseOptionalAge(body.publicAgeMin ?? body.public_age_min);
+  const publicAgeMax = parseOptionalAge(body.publicAgeMax ?? body.public_age_max);
+  if (publicAgeMin != null && publicAgeMax != null && publicAgeMin > publicAgeMax) {
+    return { error: 'Minimum age cannot be greater than maximum age' };
+  }
+
   const parseWallTime = (raw) => {
     if (raw === undefined || raw === null || raw === '') return null;
     const s = String(raw).trim();
@@ -447,6 +493,12 @@ function parseEventPayload(body = {}) {
     registrationEligible,
     medicaidEligible,
     cashEligible,
+    publicHeroImageUrl: publicHeroImageUrl || null,
+    publicListingDetails: publicListingDetails || null,
+    inPersonPublic,
+    publicLocationAddress: publicLocationAddress || null,
+    publicAgeMin,
+    publicAgeMax,
     clientCheckInDisplayTime,
     clientCheckOutDisplayTime,
     employeeReportTime,
@@ -454,6 +506,31 @@ function parseEventPayload(body = {}) {
     virtualSessionsEnabled,
     kioskPinOutcome
   };
+}
+
+async function resolvePublicListingGeocode({
+  inPersonPublic,
+  publicLocationAddress,
+  prevAddress = null,
+  prevLat = null,
+  prevLng = null
+}) {
+  if (!inPersonPublic || !String(publicLocationAddress || '').trim()) {
+    return { lat: null, lng: null };
+  }
+  const addr = String(publicLocationAddress).trim();
+  const prev = String(prevAddress || '').trim();
+  const lat0 = Number(prevLat);
+  const lng0 = Number(prevLng);
+  if (addr === prev && Number.isFinite(lat0) && Number.isFinite(lng0)) {
+    return { lat: lat0, lng: lng0 };
+  }
+  try {
+    const g = await geocodeAddressWithGoogle({ addressText: addr, countryCode: 'US' });
+    return { lat: g.latitude, lng: g.longitude };
+  } catch {
+    return { lat: null, lng: null };
+  }
 }
 
 /**
@@ -1084,10 +1161,15 @@ export const createCompanyEvent = async (req, res, next) => {
       createKioskPinHash = parsed.kioskPinOutcome.hash;
     }
 
+    const createGeo = await resolvePublicListingGeocode({
+      inPersonPublic: parsed.inPersonPublic,
+      publicLocationAddress: parsed.publicLocationAddress
+    });
+
     const [insertResult] = await pool.execute(
       `INSERT INTO company_events
-       (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, kiosk_event_pin_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, kiosk_event_pin_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
         organizationIdForRow,
@@ -1097,6 +1179,14 @@ export const createCompanyEvent = async (req, res, next) => {
         parsed.description || null,
         parsed.eventType || null,
         parsed.splashContent || null,
+        parsed.publicHeroImageUrl,
+        parsed.publicListingDetails,
+        parsed.inPersonPublic ? 1 : 0,
+        parsed.publicLocationAddress,
+        createGeo.lat != null ? createGeo.lat : null,
+        createGeo.lng != null ? createGeo.lng : null,
+        parsed.publicAgeMin != null ? parsed.publicAgeMin : null,
+        parsed.publicAgeMax != null ? parsed.publicAgeMax : null,
         parsed.startsAt,
         parsed.endsAt,
         parsed.timezone,
@@ -1171,9 +1261,17 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
     nextKioskPinHash = parsed.kioskPinOutcome.hash;
   }
 
+  const geo = await resolvePublicListingGeocode({
+    inPersonPublic: parsed.inPersonPublic,
+    publicLocationAddress: parsed.publicLocationAddress,
+    prevAddress: existing.public_location_address,
+    prevLat: existing.public_location_lat,
+    prevLng: existing.public_location_lng
+  });
+
   await pool.execute(
     `UPDATE company_events
-     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?
+     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?
      WHERE id = ? AND agency_id = ?`,
     [
       userId,
@@ -1182,6 +1280,14 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
       parsed.description || null,
       parsed.eventType || null,
       parsed.splashContent || null,
+      parsed.publicHeroImageUrl,
+      parsed.publicListingDetails,
+      parsed.inPersonPublic ? 1 : 0,
+      parsed.publicLocationAddress,
+      geo.lat != null ? geo.lat : null,
+      geo.lng != null ? geo.lng : null,
+      parsed.publicAgeMin != null ? parsed.publicAgeMin : null,
+      parsed.publicAgeMax != null ? parsed.publicAgeMax : null,
       parsed.startsAt,
       parsed.endsAt,
       parsed.timezone,
@@ -1207,6 +1313,24 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
     ]
   );
   await setEventAudience(eventId, parsed.audience);
+
+  try {
+    await syncIntegratedSkillsGroupAfterCompanyEventSave(pool, agencyId, eventId);
+  } catch (syncErr) {
+    console.error('[persistCompanyEventUpdate] Skill Builders session sync failed', {
+      agencyId,
+      eventId,
+      message: syncErr?.message
+    });
+    return {
+      error: {
+        status: Number(syncErr?.statusCode) === 400 ? 400 : 500,
+        message:
+          syncErr?.message ||
+          'Event was saved but Skill Builders sessions (materials / schedule) could not be rebuilt. Try saving again or contact support.'
+      }
+    };
+  }
 
   const row = await loadEventByIdForAgency(eventId, agencyId);
   const event = mapEventRow(row || {}, req);

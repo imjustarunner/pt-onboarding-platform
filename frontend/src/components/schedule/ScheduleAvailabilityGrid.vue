@@ -95,6 +95,21 @@
             >
               Google titles
             </button>
+
+            <button
+              v-if="externalCalendarsAvailable.length"
+              type="button"
+              class="sched-pill"
+              :class="{ on: !hideExternalIcsTitles }"
+              role="switch"
+              :aria-checked="String(!hideExternalIcsTitles)"
+              :disabled="loading || !showExternalBusy"
+              title="Show or hide ICS event titles on Therapy Notes busy blocks (when the feed includes titles)"
+              @click="hideExternalIcsTitles = !hideExternalIcsTitles"
+              data-tour="my-schedule-ehr-titles-toggle"
+            >
+              Therapy Notes titles
+            </button>
           </template>
 
           <button
@@ -297,6 +312,17 @@
           <div class="sched-calendars-actions">
             <button type="button" class="sched-chip" :disabled="loading || !externalCalendarsAvailable.length" @click="selectAllExternalCalendars">All</button>
             <button type="button" class="sched-chip" :disabled="loading || !externalCalendarsAvailable.length" @click="clearExternalCalendars">None</button>
+            <button
+              v-if="showExternalBusy && externalCalendarsAvailable.length"
+              type="button"
+              class="sched-chip"
+              :class="{ on: hideExternalIcsTitles }"
+              :disabled="loading"
+              title="Hide event titles from ICS feeds (busy times stay visible)"
+              @click="hideExternalIcsTitles = !hideExternalIcsTitles"
+            >
+              {{ hideExternalIcsTitles ? 'ICS titles off' : 'ICS titles on' }}
+            </button>
           </div>
           <button
             v-for="c in externalCalendarsAvailable"
@@ -1414,6 +1440,11 @@
                 <div v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</div>
                 <div v-if="item.detailText" class="stack-details-detail">{{ item.detailText }}</div>
               </div>
+              <div v-if="item.therapyNoteAid" class="stack-details-actions" style="margin-top: 8px;">
+                <button type="button" class="btn btn-primary btn-sm" @click.stop="openTherapyNoteAid(item)">
+                  Open Note Aid
+                </button>
+              </div>
               <button
                 v-if="stackItemHasAction(item)"
                 class="btn btn-secondary btn-sm stack-details-open-btn"
@@ -1805,10 +1836,27 @@ const scheduleWrapVars = computed(() => ({
 
 const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const SUNDAY_FIRST_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-/** weekStart is always Monday; Sunday = day before = -1 */
+// Must be declared before dayIdxFromWeekStartMonday (same block) so the helper never closes over a TDZ binding.
+const weekStartsOnLocal = ref(
+  typeof window !== 'undefined' && window.localStorage.getItem('schedule.weekStartsOn') === 'sunday'
+    ? 'sunday'
+    : 'monday'
+);
+const effectiveWeekStartsOn = computed(() => {
+  if (props.mode === 'self') return weekStartsOnLocal.value === 'sunday' ? 'sunday' : 'monday';
+  return String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? 'sunday' : 'monday';
+});
+const orderedDays = computed(() => (effectiveWeekStartsOn.value === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
+/**
+ * Anchor `weekStart` YMD is always Monday. Use the same column order as `orderedDays` so headers/cells
+ * cannot drift from `effectiveWeekStartsOn` (avoids stale closure / evaluation-order bugs in HMR).
+ */
 const dayIdxFromWeekStartMonday = (dayName) => {
   const idx = ALL_DAYS.indexOf(String(dayName || ''));
-  return idx < 0 ? 0 : (idx + 1) % 7 - 1;
+  if (idx < 0) return 0;
+  const sunFirst = orderedDays.value.length > 0 && orderedDays.value[0] === 'Sunday';
+  if (sunFirst) return idx === 6 ? -1 : idx;
+  return idx;
 };
 
 // Club context: runners start early. Main view 5–22 (5 AM–10 PM); expand to full 0–23.
@@ -1838,24 +1886,24 @@ const showGoogleEvents = ref(false);
 const showExternalBusy = ref(true);
 const showOfficeOverlay = ref(true);
 const showQuarterDetail = ref(false);
+/** When true, external ICS blocks stay visible but SUMMARY/titles are not shown (generic labels only). */
+const hideExternalIcsTitles = ref(false);
 const selectedExternalCalendarIds = ref([]); // populated from available list once loaded
+const selectedExternalCalendarIdSet = computed(
+  () =>
+    new Set(
+      (selectedExternalCalendarIds.value || [])
+        .map((v) => Number(v))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    )
+);
 let schedMouseUpHandler = null;
 const hideWeekend = ref(props.mode === 'self');
-const weekStartsOnLocal = ref(
-  typeof window !== 'undefined' && window.localStorage.getItem('schedule.weekStartsOn') === 'sunday'
-    ? 'sunday'
-    : 'monday'
-);
 const focusedDays = ref([]);
 const rowHeightMode = ref('normal');
 const initializedOverlayDefaults = ref(false);
 
 const viewMode = ref('open_finder'); // 'open_finder' | 'office_layout' (office_layout implemented later)
-
-const effectiveWeekStartsOn = computed(() => {
-  if (props.mode === 'self') return weekStartsOnLocal.value === 'sunday' ? 'sunday' : 'monday';
-  return String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? 'sunday' : 'monday';
-});
 
 const toggleWeekStartsOn = () => {
   if (props.mode !== 'self') return;
@@ -1937,6 +1985,7 @@ const saveOverlayPrefs = () => {
       showGoogleEvents: !!showGoogleEvents.value,
       showExternalBusy: !!showExternalBusy.value,
       showOfficeOverlay: !!showOfficeOverlay.value,
+      hideExternalIcsTitles: !!hideExternalIcsTitles.value,
       selectedExternalCalendarIds: coerceIdArray(selectedExternalCalendarIds.value),
       hideWeekend: !!hideWeekend.value,
       viewMode: String(viewMode.value || 'open_finder'),
@@ -2107,6 +2156,7 @@ try {
       normalizeGoogleOverlayMode('events');
       showExternalBusy.value = saved.showExternalBusy !== undefined ? !!saved.showExternalBusy : true;
       showOfficeOverlay.value = saved.showOfficeOverlay !== undefined ? !!saved.showOfficeOverlay : true;
+      hideExternalIcsTitles.value = !!saved.hideExternalIcsTitles;
       selectedExternalCalendarIds.value = coerceIdArray(saved.selectedExternalCalendarIds);
       const dedicatedHideWeekend = loadHideWeekendPref();
       hideWeekend.value = dedicatedHideWeekend !== null
@@ -2177,7 +2227,6 @@ onUnmounted(() => {
   }
 });
 
-const orderedDays = computed(() => (effectiveWeekStartsOn.value === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
 const focusableDays = computed(() => {
   if (hideWeekend.value) return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   return orderedDays.value.slice();
@@ -2327,7 +2376,8 @@ const weekdayFromYmd = (ymd) => {
 
 const dayDateLabel = (dayName) => {
   if (ALL_DAYS.indexOf(String(dayName || '')) < 0) return '';
-  const ymd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
+  const dayIdx = dayIdxFromWeekStartMonday(dayName);
+  const ymd = addDaysYmd(weekStart.value, dayIdx);
   // Use noon to avoid DST edge-cases around midnight.
   const d = new Date(`${ymd}T12:00:00`);
   if (Number.isNaN(d.getTime())) return ymd;
@@ -2887,7 +2937,7 @@ watch(externalCalendarsAvailable, (next) => {
 });
 
 // Persist overlay/view settings (provider UX only).
-watch([showGoogleBusy, showGoogleEvents, showExternalBusy, showOfficeOverlay, selectedExternalCalendarIds, hideWeekend, viewMode], () => {
+watch([showGoogleBusy, showGoogleEvents, showExternalBusy, showOfficeOverlay, hideExternalIcsTitles, selectedExternalCalendarIds, hideWeekend, viewMode], () => {
   if (props.mode !== 'self' || !overlayPrefsLoaded.value) return;
   saveOverlayPrefs();
 }, { deep: true });
@@ -3144,6 +3194,16 @@ const quarterClockLabel = (raw) => {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 };
 
+/** Clock label for this schedule cell (15- or 60-min), used for Therapy Notes / ebusy titles and row prefixes. */
+const slotClockLabel = (dayName, hour, minute = 0) => {
+  const ws = summary.value?.weekStart || weekStart.value;
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return '';
+  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
+  if (Number.isNaN(cellStart.getTime())) return '';
+  return cellStart.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+};
+
 const quarterTimingFromRange = (startRaw, endRaw) => {
   const s = quarterClockLabel(startRaw);
   const e = quarterClockLabel(endRaw);
@@ -3338,8 +3398,10 @@ const googleEventTitle = (ev, dayName, hour) => {
 const hasExternalBusy = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return false;
+  const sel = selectedExternalCalendarIdSet.value;
   const cals = Array.isArray(s.externalCalendars) ? s.externalCalendars : [];
   for (const c of cals) {
+    if (sel.size && !sel.has(Number(c?.id))) continue;
     if (hasBusyIntervals(c?.busy || [], dayName, hour, weekStart.value, minute)) return true;
   }
   return false;
@@ -3532,49 +3594,87 @@ const officeTitle = (dayName, hour, topEvent = null) => {
   return `${label}${agencySuffix(ids)} — ${bld} • ${room} — ${dayName} ${hourLabel(hour)}`;
 };
 const googleBusyTitle = (dayName, hour) => `Google busy — ${dayName} ${hourLabel(hour)}`;
+const externalIcsEventsInCell = (dayName, hour, minute = 0) => {
+  const s = summary.value;
+  if (!s) return [];
+  const ws = weekStart.value;
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return [];
+  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:${pad2(minute)}:00`);
+  const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
+  const sel = selectedExternalCalendarIdSet.value;
+  const cals = Array.isArray(s.externalCalendars) ? s.externalCalendars : [];
+  const hits = [];
+  for (const c of cals) {
+    if (sel.size && !sel.has(Number(c?.id))) continue;
+    const calLabel = String(c?.label || '').trim() || 'Calendar';
+    const raw = Array.isArray(c?.events) && c.events.length ? c.events : (Array.isArray(c?.busy) ? c.busy : []);
+    for (const ev of raw) {
+      const st = new Date(ev.startAt);
+      const en = new Date(ev.endAt);
+      if (Number.isNaN(st.getTime()) || Number.isNaN(en.getTime())) continue;
+      if (!(en > cellStart && st < cellEnd)) continue;
+      hits.push({
+        calendarLabel: calLabel,
+        summary: String(ev?.summary || '').trim(),
+        startAt: ev.startAt,
+        endAt: ev.endAt
+      });
+    }
+  }
+  hits.sort((a, b) => String(a.startAt).localeCompare(String(b.startAt)));
+  return hits;
+};
+
 const externalBusyLabels = (dayName, hour) => {
   const s = summary.value;
   if (!s) return [];
+  const sel = selectedExternalCalendarIdSet.value;
   const cals = Array.isArray(s.externalCalendars) ? s.externalCalendars : [];
   const labels = [];
   for (const c of cals) {
+    if (sel.size && !sel.has(Number(c?.id))) continue;
     const label = String(c?.label || '').trim();
     if (!label) continue;
     if (hasBusyIntervals(c?.busy || [], dayName, hour, weekStart.value)) labels.push(label);
   }
   return labels;
 };
-const externalBusyTitle = (dayName, hour) => {
+const externalBusyTitle = (dayName, hour, minute = 0) => {
   const labels = externalBusyLabels(dayName, hour);
-  const suffix = labels.length ? ` (${labels.join(', ')})` : '';
-  return `Therapy Notes busy${suffix} — ${dayName} ${hourLabel(hour)}`;
-};
-
-const firstExternalBusyQuarter = (dayName, hour) => {
-  const s = summary.value;
-  if (!s) return '';
-  const cals = Array.isArray(s.externalCalendars) ? s.externalCalendars : [];
-  const ws = s.weekStart || weekStart.value;
-  if (ALL_DAYS.indexOf(String(dayName)) < 0) return '';
-  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
-  const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
-  const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
-  let earliest = null;
-  for (const cal of cals) {
-    for (const b of cal?.busy || []) {
-      const st = parseLocalDateTime(b?.startAt);
-      const en = parseLocalDateTime(b?.endAt);
-      if (!st || !en) continue;
-      if (!(en > cellStart && st < cellEnd)) continue;
-      if (!earliest || st < earliest) earliest = st;
+  const labelSuffix = labels.length ? ` (${labels.join(', ')})` : '';
+  const timeLabel = showQuarterDetail.value ? slotClockLabel(dayName, hour, minute) : hourLabel(hour);
+  if (!hideExternalIcsTitles.value) {
+    const hits = externalIcsEventsInCell(dayName, hour, minute);
+    const summaries = [...new Set(hits.map((h) => h.summary).filter(Boolean))];
+    if (summaries.length === 1) {
+      return `${summaries[0]}${labelSuffix} — ${dayName} ${timeLabel}`;
+    }
+    if (summaries.length > 1) {
+      const joined = summaries.join('; ');
+      const clipped = joined.length > 100 ? `${joined.slice(0, 100)}…` : joined;
+      return `${clipped}${labelSuffix} — ${dayName} ${timeLabel}`;
     }
   }
-  return earliest ? quarterClockLabel(earliest) : '';
+  return `Therapy Notes busy${labelSuffix} — ${dayName} ${timeLabel}`;
 };
 
-const externalBusyShortLabel = (dayName, hour) => {
+const externalBusyShortLabel = (dayName, hour, minute = 0) => {
   const labels = externalBusyLabels(dayName, hour);
-  const prefix = showQuarterDetail.value ? firstExternalBusyQuarter(dayName, hour) : '';
+  const prefix = showQuarterDetail.value ? slotClockLabel(dayName, hour, minute) : '';
+  if (!hideExternalIcsTitles.value) {
+    const hits = externalIcsEventsInCell(dayName, hour, minute);
+    const summaries = [...new Set(hits.map((h) => h.summary).filter(Boolean))];
+    if (summaries.length) {
+      const singleDayFocused = visibleDays.value.length === 1;
+      let text =
+        singleDayFocused || summaries.length === 1
+          ? summaries[0]
+          : `${summaries[0]}+${summaries.length - 1}`;
+      if (text.length > 28) text = `${text.slice(0, 28)}…`;
+      return prefix ? `${prefix} ${text}` : text;
+    }
+  }
   if (!labels.length) return prefix ? `${prefix} Busy` : 'Busy';
   const singleDayFocused = visibleDays.value.length === 1;
   const base = singleDayFocused
@@ -3765,8 +3865,8 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     blocks.push({
       key: 'ebusy',
       kind: 'ebusy',
-      shortLabel: showLabel ? externalBusyShortLabel(dayName, hour) : '',
-      title: externalBusyTitle(dayName, hour),
+      shortLabel: showLabel ? externalBusyShortLabel(dayName, hour, minute) : '',
+      title: externalBusyTitle(dayName, hour, minute),
       segmentClass
     });
   }
@@ -5867,6 +5967,17 @@ const toProviderNoteAidPath = () => {
   return m?.[1] ? `/${m[1]}/admin/note-aid` : '/admin/note-aid';
 };
 
+const openTherapyNoteAid = (item) => {
+  if (!item?.therapyNoteAid) return;
+  const q = new URLSearchParams();
+  if (item.therapyStartAt) q.set('therapyStartAt', String(item.therapyStartAt));
+  if (item.therapyEndAt) q.set('therapyEndAt', String(item.therapyEndAt));
+  if (item.therapySummary) q.set('therapySummary', String(item.therapySummary));
+  if (item.therapyCalendarLabel) q.set('therapyCalendarLabel', String(item.therapyCalendarLabel));
+  q.set('therapySource', 'therapy_notes');
+  window.location.href = `${toProviderNoteAidPath()}?${q.toString()}`;
+};
+
 const openNoteAidFromContext = (launchIntent = 'note') => {
   const ctx = modalContext.value || {};
   const officeEventId = Number(ctx.officeEventId || 0);
@@ -7905,10 +8016,29 @@ const buildStackDetailsForBlock = (block, dayName, hour, minute = 0) => {
     };
   }
   if (kind === 'ebusy') {
+    const timeSuffix = showQuarterDetail.value ? slotClockLabel(dayName, hour, minute) : hourLabel(hour);
+    if (!hideExternalIcsTitles.value) {
+      const events = externalIcsEventsInCell(dayName, hour, minute);
+      if (events.length >= 1) {
+        return {
+          title: `External calendar busy — ${dayName} ${timeSuffix}`,
+          items: events.map((ev, idx) => ({
+            id: `eics-${idx}`,
+            label: String(ev.summary || '').trim() || ev.calendarLabel || 'Busy',
+            subLabel: formatRangeFromRaw(ev.startAt, ev.endAt),
+            therapyNoteAid: true,
+            therapyStartAt: ev.startAt,
+            therapyEndAt: ev.endAt,
+            therapySummary: String(ev.summary || '').trim(),
+            therapyCalendarLabel: String(ev.calendarLabel || '').trim()
+          }))
+        };
+      }
+    }
     const labels = externalBusyLabels(dayName, hour);
     if (!labels.length) return null;
     return {
-      title: `Therapy Notes busy sources — ${dayName} ${hourLabel(hour)}`,
+      title: `Therapy Notes busy sources — ${dayName} ${timeSuffix}`,
       items: labels.map((label, idx) => ({
         id: `ebusy-${idx}`,
         label: String(label || '').trim(),

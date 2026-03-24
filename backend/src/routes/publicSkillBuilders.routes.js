@@ -1,9 +1,13 @@
 import express from 'express';
+import { publicGeocodeLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
   getPublicSkillBuildersProgramMeta,
   listPublicAgencyEvents,
+  listPublicProgramEventsByPortalSlug,
   listPublicProgramEventsByProgramSlug,
-  listPublicSkillBuildersProgramEvents
+  listPublicSkillBuildersProgramEvents,
+  rankPublicAgencyEventsByAddress,
+  rankPublicProgramPortalEventsByAddress
 } from '../controllers/skillBuildersPublic.controller.js';
 import {
   getSkillBuildersEventKioskMeta,
@@ -18,7 +22,14 @@ import {
 const router = express.Router();
 
 router.get('/agency/:slug/events', listPublicAgencyEvents);
+router.post('/agency/:slug/events/nearest', publicGeocodeLimiter, rankPublicAgencyEventsByAddress);
 router.get('/agency/:slug/programs/:programSlug/events', listPublicProgramEventsByProgramSlug);
+router.get('/portal/:portalSlug/programs/:programSlug/events', listPublicProgramEventsByPortalSlug);
+router.post(
+  '/portal/:portalSlug/programs/:programSlug/events/nearest',
+  publicGeocodeLimiter,
+  rankPublicProgramPortalEventsByAddress
+);
 router.get('/agency/:slug/skill-builders-program', getPublicSkillBuildersProgramMeta);
 router.get('/agency/:slug/skill-builders/events', listPublicSkillBuildersProgramEvents);
 

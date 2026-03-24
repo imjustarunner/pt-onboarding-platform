@@ -1,6 +1,11 @@
 import express from 'express';
 import { getLatestReferralPacketDraft, submitReferralPacketDraft, uploadReferralPacket } from '../controllers/referralUpload.controller.js';
 import { duplicateOrganization, getOrganizationAffiliation, applyAffiliatedAgencyBranding } from '../controllers/organization.controller.js';
+import {
+  approveOrganizationAffiliationRequest,
+  listAffiliationRequestsForOrganization,
+  rejectOrganizationAffiliationRequest
+} from '../controllers/organizationAffiliationRequests.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 import { body } from 'express-validator';
 
@@ -28,6 +33,11 @@ router.post(
 
 // GET /api/organizations/:id/affiliation
 router.get('/:id/affiliation', authenticate, requireBackofficeAdmin, getOrganizationAffiliation);
+
+// Organization-consented multi-agency affiliation (program/school/learning/clinical child org)
+router.get('/:organizationId/affiliation-requests', authenticate, listAffiliationRequestsForOrganization);
+router.post('/:organizationId/affiliation-requests/:requestId/approve', authenticate, approveOrganizationAffiliationRequest);
+router.post('/:organizationId/affiliation-requests/:requestId/reject', authenticate, rejectOrganizationAffiliationRequest);
 
 // POST /api/organizations/:id/apply-affiliated-agency-branding
 router.post('/:id/apply-affiliated-agency-branding', authenticate, requireBackofficeAdmin, applyAffiliatedAgencyBranding);

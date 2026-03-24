@@ -5047,11 +5047,21 @@ export const getSchoolIntakeLink = async (req, res, next) => {
   try {
     const orgId = parseInt(req.params.organizationId, 10);
     if (!orgId) return res.status(400).json({ error: { message: 'organizationId is required' } });
-    const links = await IntakeLink.findByScope({ scopeType: 'school', organizationId: orgId, programId: null });
+    const org = await Agency.findById(orgId);
+    if (!org) return res.status(404).json({ error: { message: 'Organization not found' } });
+    const orgType = String(org.organization_type || 'school').toLowerCase();
+    if (!['school', 'program', 'learning'].includes(orgType)) {
+      return res.status(400).json({
+        error: { message: 'Intake links are only available for school, program, or learning organizations' }
+      });
+    }
+    // Same scope rules as GET /school-portal/:organizationId/intake-links (affiliated digital forms card).
+    const scopeType = orgType === 'program' ? 'program' : 'school';
+    const links = await IntakeLink.findByScope({ scopeType, organizationId: orgId, programId: null });
     const activeLinks = (links || []).filter((l) => !!l?.is_active);
     const link = activeLinks[0] || null;
     if (!activeLinks.length) return res.status(404).json({ error: { message: 'No intake link configured for school' } });
-    res.json({ link, links: activeLinks });
+    res.json({ link, links: activeLinks, scopeType, organizationId: orgId });
   } catch (error) {
     next(error);
   }

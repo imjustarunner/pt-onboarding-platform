@@ -74,25 +74,31 @@ H2014 Billing Manual for Skill Development & Community Support
 You must use only content provided by the facilitator and reference activities or skill domains from the official program materials. Maintain clarity, consistency, and clinical relevance without speculation or added interpretation.
 
 Output Format (Progress Note Template)
-You must organize the output into three clearly titled sections as follows:
+You must organize the output into four clearly titled sections, in this exact order. Match the depth and clinical tone of the “Approved and Verified Examples” style used for H2014 skill-building documentation (substantive objective narrative; interventions listed separately).
 
 1. Symptom Description and Subjective Report
-Describe emotional, behavioral, or social challenges observed or verbalized during the session.
+Use 2–4 sentences. Describe emotional, behavioral, or social challenges observed or verbalized during the session.
 Use quotes or paraphrased statements if provided.
 Reflect how symptoms or experiences indicate a need for continued services.
 Do not mention client’s name, age, or specific diagnosis.
 You may refer to the condition as “diagnosis” or “symptoms.”
 
 2. Objective Content
-Begin with: “Client consented to services, participating in the Skill Development Program.”
-Describe the session number (e.g., “Session 5”), the domain focus, and session activities.
-Include how the session addressed relevant skills or themes (from the session materials).
-Use specific clinical and educational terminology when describing group work, facilitation methods, or therapeutic tools.
-Mention observable behaviors, participation level, and response to group activity or discussion.
+This section must be substantive and detailed (at least 6 sentences), not generic.
+Begin with this exact opening sentence: Client consented to services, participating in the Skill Development Program.
+Then describe: session number or week when inferable from materials; domain focus (Personal Development, Emotional Well-Being, Interpersonal Skills as applicable); the PERFORMED ACTIVITIES named in the user input; how curriculum or session materials were used; facilitation methods (group discussion, modeling, rehearsal, psycho-education, etc.); observable behaviors; participation level; and the client’s response to activities or discussion.
+Use objective language (e.g., stated, demonstrated, engaged, explored, assessed, addressed, supported, reflected, processed, encouraged, participated).
+Tie content to the curriculum excerpt and clinician summary when provided.
+Do not duplicate the “Interventions Used” list here—describe what occurred; save discrete intervention labels for section 3.
 Do not mention age, names, or off-topic content.
 
-3. Plan
-State what will happen in the next session or what the client will work on.
+3. Interventions Used
+List interventions actually applied in this session, drawn only from this approved list (comma-separated, no invented modalities):
+Active Listening, Assertiveness Training, Behavioral Intervention, Boundary Development, Cognitive Challenging, Cognitive Refocusing, Cognitive Reframing, Cognitive Restructuring, Communication Skills, Community Support, Compliance Issues, Conflict Resolution Strategies, DBT, Emotional Awareness, Empathetic Responses, Exploration of Boundaries, Exploration of Coping Patterns, Exploration of Emotions, Exploration of Relationship Patterns, Exploration of Safety Planning, Exploration of Self Care, Exposure Therapy, Gratitude Practices, Guided Imagery, Interactive Feedback, Interpersonal Resolutions, Journaling, Mindfulness Training, Physical Wellness Planning, Preventative Services, Progressive Muscle Relaxation, Psycho-Education, Rapport Building, Relaxation/Deep Breathing, Review of Treatment Plan/Progress, Role-Play/Behavioral Rehearsal, Skill Development, Social Skills Training, Solution Collaboration, SPT Observational Statements, Structured Problem Solving, Supportive Reflection, Symptom Management, Synergetic Play Therapy, Time Management Training, Unconditional Positive Regard, Visualization Techniques.
+If the facilitator described an approach that maps to one of these labels, use the label; otherwise omit it.
+
+4. Plan
+Use 2–3 sentences. State what will happen in the next session or what the client will work on.
 Keep this forward-focused but tied to the current session’s outcomes or themes.
 Do not include formal treatment plan goals or diagnostic interventions.
 
@@ -683,11 +689,31 @@ export const CLINICAL_NOTE_AGENT_TOOLS = [
     description: '12-week Skill Builder group progress note.',
     category: baseCategory,
     systemPrompt: AGENT_PROMPTS.H2014_GROUP,
-    outputInstructions: 'Return the note only, no preamble.',
+    outputInstructions: [
+      'Return the progress note only—no preamble, no closing commentary.',
+      'CRITICAL: Use exactly four sections in this order. Each section MUST start with a new line in this pattern: the section number, a period, a space, then the section title wrapped in double asterisks, then a blank line, then the body.',
+      'Example (structure only):',
+      '1. **Symptom Description and Subjective Report**',
+      '',
+      '(body paragraphs)',
+      '',
+      '2. **Objective Content**',
+      '',
+      '(body paragraphs)',
+      '',
+      '3. **Interventions Used**',
+      '',
+      '(comma-separated labels from the approved list)',
+      '',
+      '4. **Plan**',
+      '',
+      '(body paragraphs)',
+      'Do not merge sections. Do not use one heading such as "Output" for the whole note. Every section title must match the four titles above (including spelling).'
+    ].join('\n'),
     includeKnowledgeBase: true,
     kbFolders: ['shared', 'H2014_group'],
     temperature: 0.2,
-    maxOutputTokens: 1400
+    maxOutputTokens: 2400
   },
   {
     id: 'clinical_h2014_individual',

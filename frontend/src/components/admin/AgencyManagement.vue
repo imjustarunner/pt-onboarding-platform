@@ -912,6 +912,66 @@
               Turn off to use this organization's own logo/colors/theme.
             </small>
           </div>
+
+          <div
+            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'program'"
+            class="form-group"
+            style="padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt); margin-top: 12px;"
+          >
+            <label style="display: flex; align-items: center; gap: 10px; margin: 0;">
+              <input v-model="agencyForm.themeSettings.usePublicEventsOwnBranding" type="checkbox" />
+              <span><strong>Public Skill Builders events — use program branding</strong></span>
+            </label>
+            <small class="hint" style="display: block; margin-top: 8px;">
+              For <code>/programs/…/events</code> on this program’s portal slug, use this program’s logo and colors when turned on, or automatically when the program is linked to more than one agency.
+              Other portal pages keep using affiliated agency branding (per the option above).
+            </small>
+          </div>
+
+          <div
+            v-if="editingAgency && affiliationRequestsPanelVisible"
+            class="form-group"
+            style="padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt); margin-top: 12px;"
+          >
+            <h4 style="margin: 0 0 8px 0;">Partner agency link requests</h4>
+            <p class="hint" style="margin: 0 0 10px 0;">
+              Another agency must request access before it can be linked to this organization. Approve or reject here.
+            </p>
+            <div v-if="affiliationRequestsLoading" class="muted">Loading…</div>
+            <div v-else-if="affiliationRequestsError" class="error">{{ affiliationRequestsError }}</div>
+            <ul v-else-if="affiliationRequests.length" class="affiliation-req-list" style="list-style: none; padding: 0; margin: 0;">
+              <li
+                v-for="r in affiliationRequests"
+                :key="r.id"
+                style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border);"
+              >
+                <div>
+                  <strong>{{ r.requesting_agency_name }}</strong>
+                  <span class="muted mono" style="margin-left: 8px;">{{ r.requesting_agency_slug }}</span>
+                  <div class="muted-small">{{ r.status }}</div>
+                </div>
+                <div v-if="r.status === 'pending'" style="display: flex; gap: 8px;">
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    :disabled="affiliationActionId === r.id"
+                    @click="approveAffiliationRequestRow(r)"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="affiliationActionId === r.id"
+                    @click="rejectAffiliationRequestRow(r)"
+                  >
+                    Reject
+                  </button>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="muted">No affiliation requests.</p>
+          </div>
           </div>
 
           <div
@@ -3614,6 +3674,81 @@ const duplicateForm = ref({
   portalUrl: ''
 });
 const applyingAffiliatedBranding = ref(false);
+const affiliationRequests = ref([]);
+const affiliationRequestsLoading = ref(false);
+const affiliationRequestsError = ref('');
+const affiliationActionId = ref(null);
+
+const affiliationRequestsPanelVisible = computed(() => {
+  if (!editingAgency.value?.id) return false;
+  const t = String(
+    editingAgency.value.organization_type || editingAgency.value.organizationType || ''
+  ).toLowerCase();
+  return ['school', 'program', 'learning', 'clinical'].includes(t);
+});
+
+async function loadAffiliationRequestsForEditor() {
+  affiliationRequestsError.value = '';
+  const a = editingAgency.value;
+  const id = a?.id;
+  const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+  if (!id || !['school', 'program', 'learning', 'clinical'].includes(t)) {
+    affiliationRequests.value = [];
+    return;
+  }
+  affiliationRequestsLoading.value = true;
+  try {
+    const res = await api.get(`/organizations/${id}/affiliation-requests`);
+    affiliationRequests.value = Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    affiliationRequests.value = [];
+    affiliationRequestsError.value =
+      e.response?.data?.error?.message || e.message || 'Failed to load affiliation requests';
+  } finally {
+    affiliationRequestsLoading.value = false;
+  }
+}
+
+async function approveAffiliationRequestRow(row) {
+  const orgId = editingAgency.value?.id;
+  if (!orgId || !row?.id) return;
+  affiliationActionId.value = row.id;
+  affiliationRequestsError.value = '';
+  try {
+    await api.post(`/organizations/${orgId}/affiliation-requests/${row.id}/approve`);
+    await loadAffiliationRequestsForEditor();
+  } catch (e) {
+    affiliationRequestsError.value =
+      e.response?.data?.error?.message || e.message || 'Could not approve request';
+  } finally {
+    affiliationActionId.value = null;
+  }
+}
+
+async function rejectAffiliationRequestRow(row) {
+  const orgId = editingAgency.value?.id;
+  if (!orgId || !row?.id) return;
+  affiliationActionId.value = row.id;
+  affiliationRequestsError.value = '';
+  try {
+    await api.post(`/organizations/${orgId}/affiliation-requests/${row.id}/reject`);
+    await loadAffiliationRequestsForEditor();
+  } catch (e) {
+    affiliationRequestsError.value =
+      e.response?.data?.error?.message || e.message || 'Could not reject request';
+  } finally {
+    affiliationActionId.value = null;
+  }
+}
+
+watch(
+  () => editingAgency.value?.id,
+  () => {
+    loadAffiliationRequestsForEditor();
+  },
+  { immediate: true }
+);
+
 const selectedAgency = ref(null);
 const selectedUserId = ref('');
 const selectedSupportUserId = ref('');
@@ -5473,7 +5608,8 @@ const defaultAgencyForm = () => ({
   themeSettings: {
     fontFamily: '',
     loginBackground: '',
-    useAffiliatedAgencyBranding: true
+    useAffiliatedAgencyBranding: true,
+    usePublicEventsOwnBranding: false
   },
   terminologySettings: {
     peopleOpsTerm: '',
@@ -6824,7 +6960,11 @@ const editAgency = async (agency) => {
         String(agency.organization_type || agency.organizationType || 'agency').toLowerCase()
       )
         ? (themeSettings.useAffiliatedAgencyBranding !== false)
-        : false
+        : false,
+      usePublicEventsOwnBranding:
+        String(agency.organization_type || agency.organizationType || 'agency').toLowerCase() === 'program'
+          ? themeSettings.usePublicEventsOwnBranding === true
+          : false
     },
     terminologySettings: {
       peopleOpsTerm: terminology.peopleOpsTerm || '',
@@ -7453,6 +7593,10 @@ const saveAgency = async () => {
     }
     if (['school', 'program', 'learning'].includes(String(agencyForm.value.organizationType || 'agency').toLowerCase())) {
       themeSettings.useAffiliatedAgencyBranding = agencyForm.value.themeSettings?.useAffiliatedAgencyBranding !== false;
+    }
+    if (String(agencyForm.value.organizationType || 'agency').toLowerCase() === 'program') {
+      themeSettings.usePublicEventsOwnBranding =
+        agencyForm.value.themeSettings?.usePublicEventsOwnBranding === true;
     }
 
     const retentionPolicyRaw = agencyForm.value.intakeRetentionPolicy || null;

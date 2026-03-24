@@ -18,18 +18,22 @@ export function getRememberedLogin() {
     const username = normalizeUsername(parsed?.username);
     const orgSlug = normalizeOrgSlug(parsed?.orgSlug);
     if (!username || !orgSlug) return null;
-    return { username, orgSlug };
+    const parentOrgSlug = normalizeOrgSlug(parsed?.parentOrgSlug) || null;
+    return { username, orgSlug, parentOrgSlug };
   } catch {
     return null;
   }
 }
 
-export function setRememberedLogin({ username, orgSlug } = {}) {
+export function setRememberedLogin({ username, orgSlug, parentOrgSlug = null } = {}) {
   try {
     const u = normalizeUsername(username);
     const s = normalizeOrgSlug(orgSlug);
     if (!u || !s) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ username: u, orgSlug: s, ts: Date.now() }));
+    const parent = normalizeOrgSlug(parentOrgSlug) || null;
+    const payload = { username: u, orgSlug: s, ts: Date.now() };
+    if (parent) payload.parentOrgSlug = parent;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch {
     // ignore
   }
@@ -51,18 +55,22 @@ export function getRememberedGoogleLogin() {
     const username = normalizeUsername(parsed?.username);
     const orgSlug = normalizeOrgSlug(parsed?.orgSlug);
     if (!username || !orgSlug) return null;
-    return { username, orgSlug };
+    const parentOrgSlug = normalizeOrgSlug(parsed?.parentOrgSlug) || null;
+    return { username, orgSlug, parentOrgSlug };
   } catch {
     return null;
   }
 }
 
-export function setRememberedGoogleLogin({ username, orgSlug } = {}) {
+export function setRememberedGoogleLogin({ username, orgSlug, parentOrgSlug = null } = {}) {
   try {
     const u = normalizeUsername(username);
     const s = normalizeOrgSlug(orgSlug);
     if (!u || !s) return;
-    localStorage.setItem(GOOGLE_SSO_STORAGE_KEY, JSON.stringify({ username: u, orgSlug: s, ts: Date.now() }));
+    const parent = normalizeOrgSlug(parentOrgSlug) || null;
+    const payload = { username: u, orgSlug: s, ts: Date.now() };
+    if (parent) payload.parentOrgSlug = parent;
+    localStorage.setItem(GOOGLE_SSO_STORAGE_KEY, JSON.stringify(payload));
   } catch {
     // ignore
   }
@@ -76,18 +84,22 @@ export function getRememberedSchoolStaffPasswordLogin() {
     const username = normalizeUsername(parsed?.username);
     const orgSlug = normalizeOrgSlug(parsed?.orgSlug);
     if (!username || !orgSlug) return null;
-    return { username, orgSlug };
+    const parentOrgSlug = normalizeOrgSlug(parsed?.parentOrgSlug) || null;
+    return { username, orgSlug, parentOrgSlug };
   } catch {
     return null;
   }
 }
 
-export function setRememberedSchoolStaffPasswordLogin({ username, orgSlug } = {}) {
+export function setRememberedSchoolStaffPasswordLogin({ username, orgSlug, parentOrgSlug = null } = {}) {
   try {
     const u = normalizeUsername(username);
     const s = normalizeOrgSlug(orgSlug);
     if (!u || !s) return;
-    localStorage.setItem(SCHOOL_STAFF_PASSWORD_LOGIN_KEY, JSON.stringify({ username: u, orgSlug: s, ts: Date.now() }));
+    const parent = normalizeOrgSlug(parentOrgSlug) || null;
+    const payload = { username: u, orgSlug: s, ts: Date.now() };
+    if (parent) payload.parentOrgSlug = parent;
+    localStorage.setItem(SCHOOL_STAFF_PASSWORD_LOGIN_KEY, JSON.stringify(payload));
   } catch {
     // ignore
   }

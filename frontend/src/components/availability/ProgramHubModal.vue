@@ -19,7 +19,10 @@
           @click="openSection(item.id)"
         >
           <div class="pch-hub-card-top">
-            <span class="pch-hub-icon" aria-hidden="true">{{ item.icon }}</span>
+            <span v-if="item.iconUrl" class="pch-hub-icon pch-hub-icon-img">
+              <img :src="item.iconUrl" alt="" class="pch-hub-icon-img-el" />
+            </span>
+            <span v-else class="pch-hub-icon" aria-hidden="true">{{ item.icon }}</span>
             <span class="pch-hub-card-label">{{ item.label }}</span>
           </div>
           <p class="pch-hub-card-desc">{{ item.description }}</p>
@@ -171,6 +174,9 @@
           <div v-show="activeSection === 'clients'" class="pch-panel">
             <SkillBuildersClientManagementPanel v-if="coordinatorAgencyId" :agency-id="coordinatorAgencyId" />
           </div>
+          <div v-show="activeSection === 'clinical_notes'" class="pch-panel">
+            <SkillBuildersClinicalNotesHubPanel v-if="coordinatorAgencyId" :agency-id="coordinatorAgencyId" />
+          </div>
         </div>
       </div>
     </div>
@@ -186,6 +192,8 @@ import SkillBuildersAvailabilityPanel from './SkillBuildersAvailabilityPanel.vue
 import SkillBuildersWorkSchedulePanel from './SkillBuildersWorkSchedulePanel.vue';
 import SkillBuildersClientManagementPanel from './SkillBuildersClientManagementPanel.vue';
 import SkillBuildersProgramDocumentsPanel from './SkillBuildersProgramDocumentsPanel.vue';
+import SkillBuildersClinicalNotesHubPanel from '../skillBuilders/SkillBuildersClinicalNotesHubPanel.vue';
+import { useBrandingStore } from '../../store/branding';
 
 const props = defineProps({
   mode: { type: String, default: 'coordinator' }, // 'coordinator' | 'provider'
@@ -201,6 +209,7 @@ defineEmits(['close', 'open-skill-builder-availability']);
 const router = useRouter();
 const route = useRoute();
 const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
 
 const titleId = `pch-title-${Math.random().toString(36).slice(2, 9)}`;
 /** null = hub (pick a section); otherwise section id */
@@ -270,6 +279,17 @@ const sectionItems = computed(() => {
       shortLabel: 'Clients',
       icon: '👥',
       description: 'Master list of Skill Builders (skills) clients across the agency.'
+    });
+  }
+  if (coordinatorAgencyId.value) {
+    const supIcon = brandingStore.getDashboardCardIconUrl('supervision', coordinatorAgencyId.value);
+    base.push({
+      id: 'clinical_notes',
+      label: 'Clinical Notes',
+      shortLabel: 'Notes',
+      icon: supIcon ? '' : '📝',
+      iconUrl: supIcon || '',
+      description: 'Your Skill Builders clinical notes across events (copy before expiry).'
     });
   }
   return base;
@@ -610,6 +630,12 @@ watch(
 .pch-hub-icon {
   font-size: 1.5rem;
   line-height: 1;
+}
+.pch-hub-icon-img-el {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  display: block;
 }
 .pch-hub-card-label {
   font-weight: 700;

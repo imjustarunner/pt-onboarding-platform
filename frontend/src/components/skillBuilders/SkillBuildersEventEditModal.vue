@@ -353,6 +353,70 @@
             </div>
 
             <div class="sb-ce-section">
+              <strong>Public registration page</strong>
+              <p class="muted small sb-ce-pattern-lead">
+                Shown on the agency public events listing when this event is registration-eligible and has an active
+                Smart Registration intake link locked to this event.
+              </p>
+              <div class="form-group">
+                <label class="sb-ce-lbl">Hero image URL</label>
+                <input v-model.trim="draft.publicHeroImageUrl" class="input" type="url" placeholder="https://…" />
+              </div>
+              <div class="form-group">
+                <label class="sb-ce-lbl">Extra public details</label>
+                <textarea
+                  v-model.trim="draft.publicListingDetails"
+                  class="input"
+                  rows="3"
+                  placeholder="What families should know (logistics, what to bring, links as plain text)…"
+                />
+              </div>
+              <div class="form-group">
+                <label class="sb-ce-lbl">In person (show venue on public page)</label>
+                <select v-model="draft.inPersonPublic" class="input">
+                  <option :value="false">No</option>
+                  <option :value="true">Yes</option>
+                </select>
+              </div>
+              <div v-if="draft.inPersonPublic" class="form-group">
+                <label class="sb-ce-lbl">Venue address</label>
+                <textarea
+                  v-model.trim="draft.publicLocationAddress"
+                  class="input"
+                  rows="2"
+                  placeholder="Full address for maps and driving-distance search"
+                />
+              </div>
+              <div class="sb-ce-grid sb-ce-grid-tight">
+                <div class="form-group">
+                  <label class="sb-ce-lbl">Public listing — minimum age</label>
+                  <input
+                    v-model.trim="draft.publicAgeMin"
+                    class="input"
+                    type="text"
+                    inputmode="numeric"
+                    placeholder="Any (leave blank)"
+                    maxlength="3"
+                  />
+                </div>
+                <div class="form-group">
+                  <label class="sb-ce-lbl">Public listing — maximum age</label>
+                  <input
+                    v-model.trim="draft.publicAgeMax"
+                    class="input"
+                    type="text"
+                    inputmode="numeric"
+                    placeholder="Any (leave blank)"
+                    maxlength="3"
+                  />
+                </div>
+              </div>
+              <p class="muted small sb-ce-pattern-lead" style="margin-top: -4px;">
+                Shown on public event pages. Leave both blank for “any age.”
+              </p>
+            </div>
+
+            <div class="sb-ce-section">
               <strong>RSVP / voting</strong>
               <div class="sb-ce-grid sb-ce-grid-tight">
                 <div class="form-group">
@@ -553,6 +617,12 @@ function emptyDraft() {
     registrationEligible: false,
     medicaidEligible: false,
     cashEligible: false,
+    publicHeroImageUrl: '',
+    publicListingDetails: '',
+    inPersonPublic: false,
+    publicLocationAddress: '',
+    publicAgeMin: '',
+    publicAgeMax: '',
     clientCheckInDisplayTime: '',
     clientCheckOutDisplayTime: '',
     employeeReportTime: '',
@@ -761,6 +831,14 @@ function populateFromEvent(event) {
     registrationEligible: !!event.registrationEligible,
     medicaidEligible: !!event.medicaidEligible,
     cashEligible: !!event.cashEligible,
+    publicHeroImageUrl: String(event.publicHeroImageUrl || '').trim(),
+    publicListingDetails: String(event.publicListingDetails || '').trim(),
+    inPersonPublic: !!event.inPersonPublic,
+    publicLocationAddress: String(event.publicLocationAddress || '').trim(),
+    publicAgeMin:
+      event.publicAgeMin != null && event.publicAgeMin !== '' ? String(Number(event.publicAgeMin)) : '',
+    publicAgeMax:
+      event.publicAgeMax != null && event.publicAgeMax !== '' ? String(Number(event.publicAgeMax)) : '',
     clientCheckInDisplayTime: wallTimeToInput(event.clientCheckInDisplayTime),
     clientCheckOutDisplayTime: wallTimeToInput(event.clientCheckOutDisplayTime),
     employeeReportTime: wallTimeToInput(event.employeeReportTime),
@@ -952,6 +1030,14 @@ async function save() {
     formError.value = 'End time must be after start time.';
     return;
   }
+  const pam = parseInt(String(draft.value.publicAgeMin || '').trim(), 10);
+  const pax = parseInt(String(draft.value.publicAgeMax || '').trim(), 10);
+  const hasMin = Number.isFinite(pam) && pam >= 0;
+  const hasMax = Number.isFinite(pax) && pax >= 0;
+  if (hasMin && hasMax && pam > pax) {
+    formError.value = 'Minimum age cannot be greater than maximum age.';
+    return;
+  }
   let votingClosedAt = null;
   if (draft.value.votingClosedAtLocal) {
     votingClosedAt = datetimeLocalInZoneToIso(draft.value.votingClosedAtLocal, tz);
@@ -1010,6 +1096,24 @@ async function save() {
       registrationEligible: !!draft.value.registrationEligible,
       medicaidEligible: !!draft.value.medicaidEligible,
       cashEligible: !!draft.value.cashEligible,
+      publicHeroImageUrl: String(draft.value.publicHeroImageUrl || '').trim() || null,
+      publicListingDetails: String(draft.value.publicListingDetails || '').trim() || null,
+      inPersonPublic: !!draft.value.inPersonPublic,
+      publicLocationAddress: draft.value.inPersonPublic
+        ? String(draft.value.publicLocationAddress || '').trim() || null
+        : null,
+      publicAgeMin: (() => {
+        const s = String(draft.value.publicAgeMin || '').trim();
+        if (!s) return null;
+        const n = parseInt(s, 10);
+        return Number.isFinite(n) && n >= 0 && n <= 120 ? n : null;
+      })(),
+      publicAgeMax: (() => {
+        const s = String(draft.value.publicAgeMax || '').trim();
+        if (!s) return null;
+        const n = parseInt(s, 10);
+        return Number.isFinite(n) && n >= 0 && n <= 120 ? n : null;
+      })(),
       clientCheckInDisplayTime: draft.value.clientCheckInDisplayTime || null,
       clientCheckOutDisplayTime: draft.value.clientCheckOutDisplayTime || null,
       employeeReportTime: draft.value.employeeReportTime || null,

@@ -1,3 +1,5 @@
+import { buildOrgLoginPath } from './orgLoginPath';
+
 /**
  * Utility to determine the appropriate login URL based on user's organization membership
  * 
@@ -135,21 +137,30 @@ export function getLoginUrl(user = null, userAgencies = null) {
 
   // User has exactly 1 organization - check for slug or portal_url
   const org = organizations[0];
-  
-  // Priority 1: Use slug (new standard)
-  const slug = org?.slug;
-  if (slug && slug.trim()) {
-    return `/${slug}/login`;
-  }
-  
-  // Priority 2: Fall back to portal_url (legacy support)
-  const portalUrl = org?.portal_url || org?.portalUrl;
-  if (portalUrl && portalUrl.trim()) {
-    return `/${portalUrl}/login`;
+
+  const portalSegment = String(org?.slug || org?.portal_url || org?.portalUrl || '')
+    .trim()
+    .toLowerCase();
+  if (!portalSegment) {
+    return '/login';
   }
 
-  // Organization exists but no slug or portal_url, use platform login
-  return '/login';
+  const hostParent = String(getCurrentPortalSlugFromHostCache() || '')
+    .trim()
+    .toLowerCase();
+  // Host already ≡ /{agency} on the main domain — URLs stay flat (e.g. app.itsco.health/rudy/login).
+  if (hostParent) {
+    return `/${portalSegment}/login`;
+  }
+
+  const parentFromOrg = String(org?.parent_slug || org?.parentSlug || '')
+    .trim()
+    .toLowerCase();
+  if (parentFromOrg && parentFromOrg !== portalSegment) {
+    return buildOrgLoginPath(portalSegment, parentFromOrg, null);
+  }
+
+  return `/${portalSegment}/login`;
 }
 
 /**

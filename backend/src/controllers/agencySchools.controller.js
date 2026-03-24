@@ -2,6 +2,7 @@ import { validationResult } from 'express-validator';
 import Agency from '../models/Agency.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import OrganizationAffiliationRequest from '../models/OrganizationAffiliationRequest.model.js';
 
 function safeInt(v) {
   const n = parseInt(v, 10);
@@ -17,6 +18,12 @@ function isMissingSchemaError(e) {
 
 function makeInClausePlaceholders(count) {
   return Array.from({ length: count }, () => '?').join(',');
+}
+
+function isMissingAffiliationRequestsTableError(e) {
+  const code = e?.code || '';
+  const msg = String(e?.message || '');
+  return code === 'ER_NO_SUCH_TABLE' || msg.includes('organization_affiliation_requests');
 }
 
 export const listAgencySchools = async (req, res, next) => {
@@ -72,6 +79,38 @@ export const linkAgencySchool = async (req, res, next) => {
     const allowedOrgTypes = ['school', 'program', 'learning', 'clinical'];
     if (!allowedOrgTypes.includes(orgType)) {
       return res.status(400).json({ error: { message: `Provided organization must be one of: ${allowedOrgTypes.join(', ')}` } });
+    }
+
+    const aId = parseInt(agencyId, 10);
+    const schoolOrgId = parseInt(schoolOrganizationId, 10);
+    const activating = isActive !== undefined ? !!isActive : true;
+
+    if (activating && req.user?.role !== 'super_admin') {
+      try {
+        const parentCount = await OrganizationAffiliation.countActiveParentAgencies(schoolOrgId);
+        const alreadyLinked = await OrganizationAffiliation.hasActiveAffiliation(aId, schoolOrgId);
+        if (parentCount >= 1 && !alreadyLinked) {
+          let approved = false;
+          try {
+            approved = await OrganizationAffiliationRequest.hasApprovedRequest(schoolOrgId, aId);
+          } catch (e) {
+            if (!isMissingAffiliationRequestsTableError(e)) throw e;
+            // Table not migrated yet — keep legacy behavior (no consent gate).
+            approved = true;
+          }
+          if (!approved) {
+            return res.status(403).json({
+              error: {
+                message:
+                  'This organization must approve your agency before it can be linked. Submit an affiliation request from Billing, or ask a super admin to link the organization.',
+                code: 'AFFILIATION_CONSENT_REQUIRED'
+              }
+            });
+          }
+        }
+      } catch (e) {
+        if (!isMissingAffiliationRequestsTableError(e)) throw e;
+      }
     }
 
     const linked = await AgencySchool.upsert({

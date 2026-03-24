@@ -1,15 +1,144 @@
 <template>
   <div class="login-page">
     <div class="login-container" :style="{ background: loginBackground }">
-      <div class="login-card">
-        <div class="login-logo">
+      <div class="login-card" :class="{ 'login-card--wide': intakesPanelOpen && showIntakesTrigger }">
+        <div
+          v-if="loginParentBranding && (loginParentBranding.name || loginParentBranding.logoUrl)"
+          class="login-dual-brand"
+        >
+          <div class="login-dual-brand__col">
+            <span class="login-dual-brand__label">Service partner</span>
+            <img
+              v-if="loginParentBranding.logoUrl"
+              :src="loginParentBranding.logoUrl"
+              alt=""
+              class="login-dual-brand__logo"
+              @error="handleLogoError"
+            />
+            <div v-if="loginParentBranding.name" class="login-dual-brand__name">{{ loginParentBranding.name }}</div>
+          </div>
+          <div class="login-dual-brand__divider" aria-hidden="true" />
+          <div class="login-dual-brand__col">
+            <span class="login-dual-brand__label">School</span>
+            <img
+              v-if="displayLogoUrl"
+              :src="displayLogoUrl"
+              alt=""
+              class="login-dual-brand__logo"
+              @error="handleLogoError"
+            />
+            <div v-if="loginTheme?.agency?.name" class="login-dual-brand__name">{{ loginTheme.agency.name }}</div>
+          </div>
+        </div>
+        <div v-else class="login-logo">
           <img :src="displayLogoUrl" alt="Logo" class="logo-image" @error="handleLogoError" v-if="displayLogoUrl" />
         </div>
-        <h2>{{ displayTitle }}</h2>
-        <p class="subtitle">Sign in to continue</p>
+        <h2 v-if="loginParentBranding">{{ portalLoginHeadline }}</h2>
+        <h2 v-else>{{ displayTitle }}</h2>
+        <p v-if="loginParentBranding" class="subtitle">{{ portalLoginSubtitle }}</p>
+        <p v-else class="subtitle">{{ defaultLoginSubtitle }}</p>
         
         <div v-if="error" class="error" v-html="formatError(error)"></div>
         <div v-if="verifiedSuccess" class="success">{{ verifiedSuccess }}</div>
+
+        <div v-if="showIntakesTrigger" class="intakes-trigger-row">
+          <button
+            type="button"
+            class="btn btn-secondary intakes-trigger-btn"
+            :disabled="!portalOrganizationIdForIntake"
+            @click="intakesPanelOpen = !intakesPanelOpen"
+          >
+            {{ intakesPanelOpen ? 'Hide intakes' : 'Display intakes' }}
+          </button>
+          <p v-if="!portalOrganizationIdForIntake" class="staff-intake-panel__muted intakes-trigger-hint">
+            Intake links load after this page finishes loading.
+          </p>
+        </div>
+
+        <section
+          v-if="showIntakesTrigger && intakesPanelOpen"
+          class="staff-intake-panel staff-intake-panel--standalone"
+          aria-labelledby="staff-intake-heading"
+        >
+          <h3 id="staff-intake-heading" class="staff-intake-panel__title">Family digital intake</h3>
+          <p class="staff-intake-panel__lead">
+            English and Spanish intakes (same as your School Portal). Share links or QR codes with families — no sign-in required here.
+          </p>
+          <div v-if="staffIntakeLoading" class="staff-intake-panel__muted">Loading intake forms…</div>
+          <p v-else-if="staffIntakeError" class="staff-intake-panel__err">{{ staffIntakeError }}</p>
+          <div v-else class="staff-intake-grid">
+            <div v-if="staffIntakeEn" class="staff-intake-card">
+              <div class="staff-intake-card__badge">English</div>
+              <img
+                v-if="staffIntakeQr.en"
+                :src="staffIntakeQr.en"
+                alt="QR code — English intake"
+                class="staff-intake-card__qr"
+              />
+              <p class="staff-intake-card__title">{{ staffIntakeEn.title || 'English intake' }}</p>
+              <div class="staff-intake-card__actions">
+                <button
+                  type="button"
+                  class="btn btn-secondary staff-intake-btn"
+                  :disabled="!staffIntakeUrl(staffIntakeEn) || staffIntakeUrl(staffIntakeEn) === '#'"
+                  @click="copyStaffIntakeUrl(staffIntakeEn, 'en')"
+                >
+                  {{ intakeCopyHint.en || 'Copy link' }}
+                </button>
+                <a
+                  v-if="staffIntakeUrl(staffIntakeEn) !== '#'"
+                  :href="staffIntakeUrl(staffIntakeEn)"
+                  class="btn btn-secondary staff-intake-btn"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >Open</a>
+                <span
+                  v-else
+                  class="btn btn-secondary staff-intake-btn"
+                  style="opacity: 0.45; pointer-events: none; cursor: not-allowed"
+                >Open</span>
+              </div>
+            </div>
+            <div v-if="staffIntakeEs" class="staff-intake-card">
+              <div class="staff-intake-card__badge">Español</div>
+              <img
+                v-if="staffIntakeQr.es"
+                :src="staffIntakeQr.es"
+                alt="QR code — Spanish intake"
+                class="staff-intake-card__qr"
+              />
+              <p class="staff-intake-card__title">{{ staffIntakeEs.title || 'Spanish intake' }}</p>
+              <div class="staff-intake-card__actions">
+                <button
+                  type="button"
+                  class="btn btn-secondary staff-intake-btn"
+                  :disabled="!staffIntakeUrl(staffIntakeEs) || staffIntakeUrl(staffIntakeEs) === '#'"
+                  @click="copyStaffIntakeUrl(staffIntakeEs, 'es')"
+                >
+                  {{ intakeCopyHint.es || 'Copy link' }}
+                </button>
+                <a
+                  v-if="staffIntakeUrl(staffIntakeEs) !== '#'"
+                  :href="staffIntakeUrl(staffIntakeEs)"
+                  class="btn btn-secondary staff-intake-btn"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >Open</a>
+                <span
+                  v-else
+                  class="btn btn-secondary staff-intake-btn"
+                  style="opacity: 0.45; pointer-events: none; cursor: not-allowed"
+                >Open</span>
+              </div>
+            </div>
+            <p
+              v-if="!staffIntakeEn && !staffIntakeEs"
+              class="staff-intake-panel__empty"
+            >
+              No active English or Spanish intake is configured yet. Your administrator can publish them under Intake links for this school or program.
+            </p>
+          </div>
+        </section>
 
         <button
           v-if="showRememberedGoogleButton"
@@ -24,44 +153,49 @@
         </button>
 
         <form @submit.prevent="handleSubmit" class="login-form">
-          <div class="form-group">
-            <label for="username">Username</label>
-            <input
-              id="username"
-              name="username"
-              v-model="username"
-              type="text"
-              required
-              placeholder="Enter your username"
-              autocomplete="username"
-              :disabled="loading || verifying"
-              @input="onUsernameInput"
-              @blur="maybeVerify"
-            />
-          </div>
+          <div
+            class="login-credentials-wrap"
+            :class="{ 'login-credentials-wrap--school-split': schoolPortalCredentialsRow }"
+          >
+            <div class="form-group login-credentials-username">
+              <label for="username">Username</label>
+              <input
+                id="username"
+                name="username"
+                v-model="username"
+                type="text"
+                required
+                placeholder="Enter your username"
+                autocomplete="username"
+                :disabled="loading || verifying"
+                @input="onUsernameInput"
+                @blur="maybeVerify"
+              />
+            </div>
 
-          <div v-if="needsOrgChoice" class="form-group">
-            <label for="orgChoice">Choose your organization</label>
-            <select id="orgChoice" v-model="selectedOrgSlug" :disabled="verifying || loading" required>
-              <option disabled value="">Select an organization</option>
-              <option v-for="o in orgOptions" :key="o.portal_url || o.slug || o.id" :value="(o.portal_url || o.slug || '').toLowerCase()">
-                {{ o.name }}{{ o.organization_type ? ` (${o.organization_type})` : '' }}
-              </option>
-            </select>
-          </div>
-          
-          <div v-if="showPassword && !needsOrgChoice" class="form-group">
-            <label for="password">Password</label>
-            <input
-              id="password"
-              name="password"
-              v-model="password"
-              type="password"
-              required
-              placeholder="Enter your password"
-              autocomplete="current-password"
-              :disabled="loading"
-            />
+            <div v-if="needsOrgChoice" class="form-group login-credentials-org">
+              <label for="orgChoice">Choose your organization</label>
+              <select id="orgChoice" v-model="selectedOrgSlug" :disabled="verifying || loading" required>
+                <option disabled value="">Select an organization</option>
+                <option v-for="o in orgOptions" :key="o.portal_url || o.slug || o.id" :value="(o.portal_url || o.slug || '').toLowerCase()">
+                  {{ o.name }}{{ o.organization_type ? ` (${o.organization_type})` : '' }}
+                </option>
+              </select>
+            </div>
+
+            <div v-if="showPassword && !needsOrgChoice" class="form-group login-credentials-password">
+              <label for="password">Password</label>
+              <input
+                id="password"
+                name="password"
+                v-model="password"
+                type="password"
+                required
+                placeholder="Enter your password"
+                autocomplete="current-password"
+                :disabled="loading"
+              />
+            </div>
           </div>
 
           <div v-if="!needsOrgChoice" class="remember-row">
@@ -216,6 +350,9 @@ import {
   setRememberedSchoolStaffPasswordLogin,
   clearRememberedSchoolStaffPasswordLogin
 } from '../utils/loginRemember';
+import { buildOrgLoginPath } from '../utils/orgLoginPath';
+import { buildPublicIntakeUrl } from '../utils/publicIntakeUrl';
+import QRCode from 'qrcode';
 
 // Removed hardcoded credentials for security
 const router = useRouter();
@@ -230,7 +367,25 @@ const loginSlug = computed(() => {
   if (route.meta?.agencySlug && route.params?.agencySlug) return route.params.agencySlug;
   return null;
 });
+/** Present on /:parentOrgSlug/:organizationSlug/login (e.g. itsco + rudy). */
+const parentOrgSlug = computed(() => {
+  if (route.meta?.parentOrgSlug && route.params?.parentOrgSlug) {
+    const p = String(route.params.parentOrgSlug || '').trim().toLowerCase();
+    return p || null;
+  }
+  return null;
+});
 const isOrgLogin = computed(() => !!loginSlug.value);
+
+function resolveParentForNestedLogin(resolvedChildSlug) {
+  if (parentOrgSlug.value) return parentOrgSlug.value;
+  if (isOrgLogin.value && loginSlug.value) {
+    const cur = String(loginSlug.value).trim().toLowerCase();
+    const rs = String(resolvedChildSlug || '').trim().toLowerCase();
+    if (cur && rs && cur !== rs) return cur;
+  }
+  return String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
+}
 
 const clubManagerSignupPath = computed(() =>
   loginSlug.value ? `/${loginSlug.value}/signup/club-manager` : '/signup/club-manager'
@@ -250,6 +405,14 @@ const showClubLinks = computed(() => !!loginTheme.value?.agency?.showClubLinks);
 const loginTheme = ref(null);
 const loadingTheme = ref(false);
 
+/** Raw list from GET /public-intake/school/:id (we only surface EN + ES in the UI). */
+const staffIntakeLinks = ref([]);
+const staffIntakeLoading = ref(false);
+const staffIntakeError = ref('');
+const staffIntakeQr = ref({ en: '', es: '' });
+const intakeCopyHint = ref({ en: '', es: '' });
+const intakesPanelOpen = ref(false);
+
 // Logo and title for agency login
 const displayLogoUrl = computed(() => {
   if (isOrgLogin.value && loginTheme.value?.agency?.logoUrl) {
@@ -260,8 +423,22 @@ const displayLogoUrl = computed(() => {
   return brandingStore.displayLogoUrl;
 });
 
+const SCHOOL_PORTAL_ORG_TYPES = ['school', 'program', 'learning'];
+
+const isSchoolPortalOrg = computed(() =>
+  SCHOOL_PORTAL_ORG_TYPES.includes(String(loginTheme.value?.agency?.organizationType || '').toLowerCase())
+);
+
+/** Username + password on one row for School Portal after verify (inputs stay mounted — no focus loss). */
+const schoolPortalCredentialsRow = computed(
+  () => isSchoolPortalOrg.value && showPassword.value && !needsOrgChoice.value
+);
+
 const displayTitle = computed(() => {
   if (isOrgLogin.value && loginTheme.value?.agency?.name) {
+    if (isSchoolPortalOrg.value) {
+      return `${loginTheme.value.agency.name} — School Portal`;
+    }
     const term = brandingStore.peopleOpsTerm || 'People Operations';
     return `${loginTheme.value.agency.name} ${term}`;
   }
@@ -272,6 +449,32 @@ const displayTitle = computed(() => {
   }
   return `${agencyName} ${term}`;
 });
+
+const loginParentBranding = computed(() => loginTheme.value?.agency?.parentBranding || null);
+
+/** Dual-brand header: school sites use “School Portal”, not “Staff …”. */
+const portalLoginHeadline = computed(() => {
+  if (isSchoolPortalOrg.value) return 'School Portal';
+  const term = String(brandingStore.peopleOpsTerm || 'People Operations').trim();
+  return `Staff ${term}`;
+});
+
+const portalLoginSubtitle = computed(() => {
+  const school = String(loginTheme.value?.agency?.name || '').trim();
+  const partner = String(loginParentBranding.value?.name || '').trim();
+  if (isSchoolPortalOrg.value) {
+    if (school && partner) return `${school} · in partnership with ${partner}`;
+    if (school) return 'Sign in to your School Portal';
+    return 'Sign in to continue';
+  }
+  if (school && partner) return `${school} · in partnership with ${partner}`;
+  if (school) return `${school} · Sign in below`;
+  return 'Sign in to continue';
+});
+
+const defaultLoginSubtitle = computed(() =>
+  isOrgLogin.value && isSchoolPortalOrg.value ? 'Sign in to your School Portal' : 'Sign in to continue'
+);
 
 const loginBackground = computed(() => {
   if (isOrgLogin.value && loginTheme.value?.agency?.themeSettings?.loginBackground) {
@@ -299,7 +502,19 @@ const fetchLoginTheme = async (portalUrl) => {
     const canonical = (data?.agency?.canonicalLoginSlug || '').toString().trim().toLowerCase();
     const current = (portalUrl || '').toString().trim().toLowerCase();
     if (canonical && current && canonical !== current) {
-      router.replace({ path: `/${canonical}/login`, query: route.query });
+      if (canonical === 'ssc') {
+        router.replace({ path: '/ssc/login', query: route.query });
+      } else {
+        const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
+        router.replace({
+          path: buildOrgLoginPath(
+            canonical,
+            parentOrgSlug.value || hostImplied || null,
+            hostImplied
+          ),
+          query: route.query
+        });
+      }
       return;
     }
 
@@ -327,6 +542,66 @@ onMounted(async () => {
     verifiedSuccess.value = 'Email verified. You can now log in and create your club.';
     const { verified, ...rest } = route.query || {};
     router.replace({ path: route.path, query: rest });
+  }
+
+  // Platform /login only: jump straight to remembered portal slug so school staff see /{portal}/login
+  // (branded) instead of a flash of generic login. Same storage as "Remember username" + identify snap.
+  if (
+    !isOrgLogin.value &&
+    !String(route.query?.u || '').trim() &&
+    !route.query?.error &&
+    route.query?.verified !== '1'
+  ) {
+    let rememberedPortal = getRememberedLogin();
+    if (!rememberedPortal?.username || !rememberedPortal?.orgSlug) {
+      rememberedPortal = getRememberedSchoolStaffPasswordLogin();
+    }
+    const uMem = String(rememberedPortal?.username || '').trim();
+    const slugMem = String(rememberedPortal?.orgSlug || '').trim().toLowerCase();
+    if (uMem && slugMem) {
+      const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
+      const parentMem = rememberedPortal.parentOrgSlug || hostImplied || null;
+      await router.replace({
+        path: buildOrgLoginPath(slugMem, parentMem, hostImplied),
+        query: { ...route.query, u: uMem }
+      });
+      return;
+    }
+  }
+
+  // Partner hub at /:partner/login (e.g. /itsco/login): remembered nested school portal is /partner/school/login.
+  // Without this, isOrgLogin is true here so the platform /login shortcut above never runs, and return visits
+  // would stay on the hub instead of opening the school login with username prefilled + verify.
+  if (
+    isOrgLogin.value &&
+    loginSlug.value &&
+    !String(route.query?.u || '').trim() &&
+    !route.query?.error &&
+    route.query?.verified !== '1'
+  ) {
+    const hubSlug = String(loginSlug.value).trim().toLowerCase();
+    let rememberedPortal = getRememberedLogin();
+    if (!rememberedPortal?.username || !rememberedPortal?.orgSlug) {
+      rememberedPortal = getRememberedSchoolStaffPasswordLogin();
+    }
+    const uMem = String(rememberedPortal?.username || '').trim();
+    const schoolSlug = String(rememberedPortal?.orgSlug || '').trim().toLowerCase();
+    const parentMem = String(rememberedPortal?.parentOrgSlug || '').trim().toLowerCase() || null;
+    if (uMem && schoolSlug && parentMem && parentMem === hubSlug && schoolSlug !== hubSlug) {
+      const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
+      try {
+        sessionStorage.setItem('__pt_login_pending_username__', uMem);
+        sessionStorage.setItem('__pt_login_pending_verify__', '1');
+        sessionStorage.setItem('__pt_login_pending_remember__', '1');
+      } catch {
+        // ignore
+      }
+      await router.replace({
+        path: buildOrgLoginPath(schoolSlug, parentMem, hostImplied),
+        query: { ...route.query, u: uMem }
+      });
+      return;
+    }
   }
 
   if (isOrgLogin.value && loginSlug.value) {
@@ -407,21 +682,25 @@ onMounted(async () => {
   }
 });
 
-// If the slug changes while this view is mounted, refresh the login theme
-watch(loginSlug, async (newSlug, oldSlug) => {
-  if (newSlug && newSlug !== oldSlug) {
-    await fetchLoginTheme(newSlug);
-  }
-  if (!newSlug && oldSlug) {
-    loginTheme.value = null;
-    // Returning to /login: keep portal branding on portal hosts; otherwise clear.
-    if (!brandingStore.portalHostPortalUrl) {
-      brandingStore.clearPortalTheme();
-    } else {
-      await brandingStore.initializePortalTheme();
+// If the org slug or parent path changes while this view is mounted, refresh the login theme
+watch(
+  () => [loginSlug.value, parentOrgSlug.value],
+  async (newPair, oldPair) => {
+    const [newSlug, newParent] = newPair || [];
+    const [oldSlug, oldParent] = oldPair || [];
+    if (newSlug && (newSlug !== oldSlug || newParent !== oldParent)) {
+      await fetchLoginTheme(newSlug);
+    }
+    if (!newSlug && oldSlug) {
+      loginTheme.value = null;
+      if (!brandingStore.portalHostPortalUrl) {
+        brandingStore.clearPortalTheme();
+      } else {
+        await brandingStore.initializePortalTheme();
+      }
     }
   }
-});
+);
 
 const username = ref('');
 const password = ref('');
@@ -461,6 +740,111 @@ const showRememberedGoogleButton = computed(() => {
   if (showPassword.value || needsOrgChoice.value) return false;
   return !!rememberedGoogleLogin.value?.orgSlug;
 });
+
+const portalOrganizationIdForIntake = computed(() => {
+  const id = loginTheme.value?.agency?.portalOrganizationId;
+  const n = Number(id);
+  return Number.isFinite(n) && n > 0 ? n : null;
+});
+
+/** School/program/learning org login: show public intakes before sign-in (no password step required). */
+const showIntakesTrigger = computed(() => {
+  const t = String(loginTheme.value?.agency?.organizationType || '').toLowerCase();
+  return (
+    isOrgLogin.value &&
+    !needsOrgChoice.value &&
+    SCHOOL_PORTAL_ORG_TYPES.includes(t)
+  );
+});
+
+function pickStaffIntakeForLang(links, langPrefix) {
+  const pref = String(langPrefix || '').toLowerCase();
+  return (links || []).find((l) => String(l?.language_code || 'en').toLowerCase().startsWith(pref)) || null;
+}
+
+const staffIntakeEn = computed(() => pickStaffIntakeForLang(staffIntakeLinks.value, 'en'));
+const staffIntakeEs = computed(() => pickStaffIntakeForLang(staffIntakeLinks.value, 'es'));
+
+function staffIntakeUrl(link) {
+  const k = String(link?.public_key || '').trim();
+  return k ? buildPublicIntakeUrl(k) : '#';
+}
+
+async function loadStaffIntakeLinks() {
+  const id = portalOrganizationIdForIntake.value;
+  if (!id) return;
+  staffIntakeLoading.value = true;
+  staffIntakeError.value = '';
+  try {
+    const resp = await api.get(`/public-intake/school/${id}`, { skipGlobalLoading: true, skipAuthRedirect: true });
+    const links = Array.isArray(resp.data?.links) ? resp.data.links : resp.data?.link ? [resp.data.link] : [];
+    staffIntakeLinks.value = links;
+    staffIntakeQr.value = { en: '', es: '' };
+    const en = pickStaffIntakeForLang(links, 'en');
+    const es = pickStaffIntakeForLang(links, 'es');
+    if (en?.public_key) {
+      const url = buildPublicIntakeUrl(en.public_key);
+      staffIntakeQr.value.en = await QRCode.toDataURL(url, {
+        width: 216,
+        margin: 1,
+        color: { dark: '#1f2937', light: '#ffffffff' }
+      });
+    }
+    if (es?.public_key) {
+      const url = buildPublicIntakeUrl(es.public_key);
+      staffIntakeQr.value.es = await QRCode.toDataURL(url, {
+        width: 216,
+        margin: 1,
+        color: { dark: '#1f2937', light: '#ffffffff' }
+      });
+    }
+  } catch (e) {
+    staffIntakeLinks.value = [];
+    staffIntakeQr.value = { en: '', es: '' };
+    const st = e?.response?.status;
+    if (st !== 404) {
+      staffIntakeError.value = e?.response?.data?.error?.message || 'Could not load intake links.';
+    }
+  } finally {
+    staffIntakeLoading.value = false;
+  }
+}
+
+async function copyStaffIntakeUrl(link, slot) {
+  const url = staffIntakeUrl(link);
+  if (!url || url === '#') return;
+  const key = slot === 'es' ? 'es' : 'en';
+  try {
+    await navigator.clipboard.writeText(url);
+    intakeCopyHint.value = { ...intakeCopyHint.value, [key]: 'Copied!' };
+    setTimeout(() => {
+      intakeCopyHint.value = { ...intakeCopyHint.value, [key]: '' };
+    }, 2200);
+  } catch {
+    intakeCopyHint.value = { ...intakeCopyHint.value, [key]: 'Copy failed' };
+    setTimeout(() => {
+      intakeCopyHint.value = { ...intakeCopyHint.value, [key]: '' };
+    }, 2200);
+  }
+}
+
+watch(
+  () => [intakesPanelOpen.value, portalOrganizationIdForIntake.value],
+  ([open, id]) => {
+    if (open && id) loadStaffIntakeLinks();
+  }
+);
+
+watch(
+  () => [loginSlug.value, parentOrgSlug.value],
+  () => {
+    intakesPanelOpen.value = false;
+    staffIntakeLinks.value = [];
+    staffIntakeQr.value = { en: '', es: '' };
+    intakeCopyHint.value = { en: '', es: '' };
+    staffIntakeError.value = '';
+  }
+);
 
 const continueWithGoogle = () => {
   if (!loginSlug.value) return;
@@ -559,6 +943,14 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     } else if (resolvedSlug) {
       // If this verification indicates we should be on a different branded login, route there.
       if (!current || current !== resolvedSlug) {
+        // Persist before navigation so return visits open /{parent}/{school}/login (e.g. /itsco/rudy/login).
+        if (rememberLogin.value && resolvedSlug) {
+          setRememberedLogin({
+            username: u,
+            orgSlug: resolvedSlug,
+            parentOrgSlug: resolveParentForNestedLogin(resolvedSlug)
+          });
+        }
         try {
           sessionStorage.setItem('__pt_login_pending_username__', u);
           sessionStorage.setItem('__pt_login_pending_verify__', '1');
@@ -566,16 +958,23 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
         } catch {
           // ignore
         }
-        await router.replace({ path: `/${resolvedSlug}/login`, query: { u } });
+        const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
+        await router.replace({
+          path: buildOrgLoginPath(resolvedSlug, resolveParentForNestedLogin(resolvedSlug), hostImplied),
+          query: { u }
+        });
         return;
       }
     }
 
-    // Persist preference for future platform logins (opt-in).
-    if (!isOrgLogin.value && rememberLogin.value && resolvedSlug) {
-      setRememberedLogin({ username: u, orgSlug: resolvedSlug });
-    } else if (!isOrgLogin.value && !rememberLogin.value && reason === 'remembered') {
-      // User unchecked remember but we arrived from a remembered redirect; clear it.
+    // Remember username + portal path (works from platform /login and org pages like /itsco/login).
+    if (rememberLogin.value && resolvedSlug) {
+      setRememberedLogin({
+        username: u,
+        orgSlug: resolvedSlug,
+        parentOrgSlug: resolveParentForNestedLogin(resolvedSlug)
+      });
+    } else if (!rememberLogin.value && reason === 'remembered') {
       clearRememberedLogin();
     }
 
@@ -644,7 +1043,8 @@ const handleLogin = async () => {
     if (isSchoolStaffPasswordFlow && rememberLogin.value) {
       setRememberedSchoolStaffPasswordLogin({
         username: String(username.value || '').trim(),
-        orgSlug: currentOrgSlug
+        orgSlug: currentOrgSlug,
+        parentOrgSlug: parentOrgSlug.value || null
       });
     } else if (isSchoolStaffPasswordFlow && !rememberLogin.value) {
       clearRememberedSchoolStaffPasswordLogin(currentOrgSlug);
@@ -897,15 +1297,206 @@ const handleLogoError = (event) => {
 
 .login-card {
   background: white;
-  padding: 40px;
+  padding: 24px 22px;
   border-radius: 10px;
   box-shadow: 0 10px 40px rgba(0,0,0,0.2);
   width: 100%;
   max-width: 400px;
 }
 
+.login-card--wide {
+  max-width: 640px;
+}
+
+.intakes-trigger-row {
+  margin: 0 0 10px;
+}
+
+.intakes-trigger-btn {
+  width: 100%;
+}
+
+.intakes-trigger-hint {
+  margin: 8px 0 0;
+  text-align: center;
+}
+
+.staff-intake-panel--standalone {
+  margin-bottom: 12px;
+}
+
+.login-dual-brand {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  margin-bottom: 14px;
+  padding: 10px 10px;
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+}
+
+.login-dual-brand__col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.login-dual-brand__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #64748b);
+  margin-bottom: 4px;
+}
+
+.login-dual-brand__logo {
+  max-height: 48px;
+  width: auto;
+  max-width: 120px;
+  object-fit: contain;
+  margin-bottom: 4px;
+}
+
+.login-dual-brand__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  line-height: 1.35;
+}
+
+.login-dual-brand__divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border, #e5e7eb);
+  margin: 0 4px;
+  min-height: 56px;
+}
+
+.staff-intake-panel {
+  margin: 12px 0 4px;
+  padding: 12px 12px;
+  background: #f8fafc;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  text-align: left;
+}
+
+.staff-intake-panel__title {
+  margin: 0 0 4px 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+
+.staff-intake-panel__lead {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary, #64748b);
+}
+
+.staff-intake-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.staff-intake-card {
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.staff-intake-card__badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--primary-color, var(--primary, #166534));
+  margin-bottom: 8px;
+}
+
+.staff-intake-card__qr {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+  margin-bottom: 8px;
+}
+
+.staff-intake-card__title {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+  line-height: 1.35;
+}
+
+.staff-intake-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  width: 100%;
+}
+
+.staff-intake-btn {
+  width: auto;
+  min-width: 88px;
+  margin: 0 !important;
+  padding: 8px 12px;
+  font-size: 13px;
+  text-align: center;
+  text-decoration: none;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.staff-intake-panel__muted,
+.staff-intake-panel__empty {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.staff-intake-panel__err {
+  font-size: 13px;
+  color: var(--error, #b91c1c);
+  margin: 0;
+}
+
+@media (max-width: 560px) {
+  .staff-intake-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .login-dual-brand {
+    flex-direction: column;
+  }
+
+  .login-dual-brand__divider {
+    width: 100%;
+    height: 1px;
+    min-height: 0;
+    margin: 8px 0;
+  }
+}
+
 .login-logo {
-  margin-bottom: 30px;
+  margin-bottom: 16px;
   text-align: center;
   display: flex;
   justify-content: center;
@@ -922,27 +1513,70 @@ const handleLogoError = (event) => {
 
 .login-card h2 {
   text-align: center;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
+  margin-top: 0;
   color: var(--primary-color, var(--primary, #C69A2B));
   font-weight: 700;
   letter-spacing: -0.02em;
-  font-size: 28px;
+  font-size: 24px;
   font-family: var(--agency-font-family, var(--font-body));
 }
 
 .subtitle {
   text-align: center;
   color: var(--text-secondary);
-  margin-bottom: 30px;
+  margin-bottom: 14px;
+  margin-top: 0;
+  font-size: 14px;
+  line-height: 1.35;
 }
 
 .login-form {
-  margin-bottom: 20px;
+  margin-bottom: 12px;
+}
+
+.login-credentials-wrap {
+  margin-bottom: 0;
+}
+
+/* School / program / learning: username + password on one row after verify */
+.login-credentials-wrap--school-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 0;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.login-credentials-wrap--school-split .login-credentials-username,
+.login-credentials-wrap--school-split .login-credentials-password {
+  margin-bottom: 0;
+}
+
+/* Tighter than global .form-group (24px) for this screen */
+.login-form .form-group {
+  margin-bottom: 12px;
+}
+
+.login-form .form-group label {
+  margin-bottom: 5px;
+  font-size: 13px;
+}
+
+.login-form .form-group input,
+.login-form .form-group select {
+  padding: 10px 12px;
+  font-size: 15px;
+}
+
+.login-form .login-credentials-username input#username {
+  font-size: 14px;
 }
 
 .remember-row {
-  margin-top: 6px;
-  margin-bottom: 2px;
+  margin-top: 2px;
+  margin-bottom: 0;
 }
 
 .remember-me {
@@ -962,10 +1596,10 @@ const handleLogoError = (event) => {
 .error {
   color: var(--error, #dc2626);
   background-color: #fee2e2;
-  padding: 12px 16px;
+  padding: 10px 12px;
   border-radius: 6px;
-  margin-bottom: 20px;
-  font-size: 14px;
+  margin-bottom: 12px;
+  font-size: 13px;
   line-height: 1.5;
   word-wrap: break-word;
 }
@@ -985,12 +1619,12 @@ const handleLogoError = (event) => {
 
 .btn {
   width: 100%;
-  margin-top: 10px;
+  margin-top: 6px;
 }
 
 .google-quick-login {
-  margin-bottom: 12px;
-  padding: 12px 16px;
+  margin-bottom: 8px;
+  padding: 10px 14px;
   font-size: 15px;
   line-height: 1.4;
   font-weight: 500;
@@ -1034,8 +1668,8 @@ const handleLogoError = (event) => {
   justify-content: center;
   align-items: center;
   gap: 0;
-  margin: 15px 0;
-  font-size: 14px;
+  margin: 10px 0 0;
+  font-size: 13px;
 }
 
 .help-link {
@@ -1140,10 +1774,11 @@ const handleLogoError = (event) => {
 .success {
   color: #065f46;
   background: #d1fae5;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: 6px;
-  margin-top: 10px;
-  font-size: 14px;
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 13px;
 }
 
 .debug {

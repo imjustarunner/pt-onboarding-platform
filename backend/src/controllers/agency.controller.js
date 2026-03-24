@@ -1032,6 +1032,10 @@ export const getThemeByPortalUrl = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Agency not found' } });
     }
 
+    const pageContext = String(req.query.pageContext || req.query.brandingContext || '')
+      .trim()
+      .toLowerCase();
+
     // If this portal belongs to a school/program/learning/affiliation org, brand it using the linked
     // parent agency by default, unless the child org explicitly opts out.
     // Affiliations (clubs) default to Summit Stats platform agency branding; never fall back to generic platform.
@@ -1060,7 +1064,28 @@ export const getThemeByPortalUrl = async (req, res, next) => {
       true
     );
     let brandingOrg = agency;
-    if (['school', 'program', 'learning', 'affiliation'].includes(orgType) && useAffiliatedAgencyBranding) {
+    let usePortalOrgForPublicEvents = false;
+    if (
+      pageContext === 'public_events' &&
+      ['school', 'program', 'learning'].includes(orgType)
+    ) {
+      let parentCount = 1;
+      try {
+        parentCount = await OrganizationAffiliation.countActiveParentAgencies(agency.id);
+      } catch {
+        parentCount = 1;
+      }
+      const explicitPublicEventsBranding = normalizeBool(orgThemeSettings.usePublicEventsOwnBranding, false);
+      if (parentCount >= 2 || explicitPublicEventsBranding === true) {
+        usePortalOrgForPublicEvents = true;
+        brandingOrg = agency;
+      }
+    }
+    if (
+      !usePortalOrgForPublicEvents &&
+      ['school', 'program', 'learning', 'affiliation'].includes(orgType) &&
+      useAffiliatedAgencyBranding
+    ) {
       const linkedAgencyId =
         (await OrganizationAffiliation.getActiveAgencyIdForOrganization(agency.id)) ||
         (orgType !== 'affiliation' ? await AgencySchool.getActiveAgencyIdForSchool(agency.id) : null); // legacy fallback (schools only)
@@ -1109,7 +1134,8 @@ export const getThemeByPortalUrl = async (req, res, next) => {
       logoUrl,
       themeSettings: themeSettings || {},
       terminologySettings: terminologySettings || {},
-      agencyName: brandingOrg.name
+      agencyName: brandingOrg.name,
+      publicEventsOwnBranding: usePortalOrgForPublicEvents
     });
   } catch (error) {
     next(error);
@@ -1157,15 +1183,21 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
       orgThemeSettings.useAffiliatedAgencyBranding,
       true
     );
-    let brandingOrg = agency;
-    if (['school', 'program', 'learning'].includes(orgType) && useAffiliatedAgencyBranding) {
+    let linkedParentForChild = null;
+    if (['school', 'program', 'learning'].includes(orgType)) {
       const linkedAgencyId =
         (await OrganizationAffiliation.getActiveAgencyIdForOrganization(agency.id)) ||
-        (await AgencySchool.getActiveAgencyIdForSchool(agency.id)); // legacy fallback
+        (await AgencySchool.getActiveAgencyIdForSchool(agency.id)) ||
+        null;
       if (linkedAgencyId) {
-        const linkedAgency = await Agency.findById(linkedAgencyId);
-        if (linkedAgency) brandingOrg = linkedAgency;
+        const la = await Agency.findById(linkedAgencyId);
+        if (la) linkedParentForChild = la;
       }
+    }
+
+    let brandingOrg = agency;
+    if (['school', 'program', 'learning'].includes(orgType) && useAffiliatedAgencyBranding) {
+      if (linkedParentForChild) brandingOrg = linkedParentForChild;
     } else if (orgType === 'affiliation' && useAffiliatedAgencyBranding) {
       const linkedAgencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(agency.id);
       if (linkedAgencyId) {
@@ -1195,15 +1227,37 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
       return cleaned;
     };
 
-    // Get agency logo URL (priority: logo_path > icon_file_path > logo_url)
-    let agencyLogoUrl = brandingOrg.logo_url;
-    if (brandingOrg.logo_path) {
-      const cleaned = normalizeUploadsPath(brandingOrg.logo_path);
-      agencyLogoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : brandingOrg.logo_url;
-    } else if (brandingOrg.icon_file_path) {
-      const cleaned = normalizeUploadsPath(brandingOrg.icon_file_path);
-      agencyLogoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : brandingOrg.logo_url;
-    }
+    const resolveLogoUrl = (row) => {
+      if (!row) return null;
+      if (row.logo_path) {
+        const cleaned = normalizeUploadsPath(row.logo_path);
+        return cleaned ? `${baseUrl}/uploads/${cleaned}` : row.logo_url || null;
+      }
+      if (row.icon_file_path) {
+        const cleaned = normalizeUploadsPath(row.icon_file_path);
+        return cleaned ? `${baseUrl}/uploads/${cleaned}` : row.logo_url || null;
+      }
+      return row.logo_url || null;
+    };
+
+    const parentBrandingLogoUrl = resolveLogoUrl(brandingOrg);
+
+    // Child portals (school/program/learning): login page shows the portal org identity (e.g. "Rudy")
+    // even when colors/theme inherit from the affiliated agency (ITSCO). Otherwise nested /itsco/rudy/login
+    // looks like the parent login.
+    const portalChildTypes = ['school', 'program', 'learning'];
+    const isChildPortal = portalChildTypes.includes(orgType);
+    const portalOrgLogoUrl = isChildPortal ? resolveLogoUrl(agency) : null;
+    const loginLogoUrl = portalOrgLogoUrl || parentBrandingLogoUrl;
+    const loginDisplayName = isChildPortal ? agency.name || brandingOrg.name : brandingOrg.name;
+
+    const parentBranding =
+      isChildPortal && linkedParentForChild && Number(linkedParentForChild.id) !== Number(agency.id)
+        ? {
+            name: String(linkedParentForChild.name || '').trim() || null,
+            logoUrl: resolveLogoUrl(linkedParentForChild)
+          }
+        : null;
 
     // Get platform logo URL
     let platformLogoUrl = null;
@@ -1237,14 +1291,15 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
       agency: {
         brandingAgencyId: brandingOrg.id,
         portalOrganizationId: agency.id,
-        name: brandingOrg.name,
+        name: loginDisplayName,
         // Preserve the portal org type so frontend can enforce school portal behavior.
         organizationType: agency.organization_type || 'agency',
         showClubLinks,
         canonicalLoginSlug: canonicalLoginSlug || undefined,
-        logoUrl: agencyLogoUrl,
+        logoUrl: loginLogoUrl,
         colorPalette: colorPalette || {},
-        themeSettings: themeSettings || {}
+        themeSettings: themeSettings || {},
+        ...(parentBranding ? { parentBranding } : {})
       },
       platform: {
         organizationName: platformBranding.organization_name || '',

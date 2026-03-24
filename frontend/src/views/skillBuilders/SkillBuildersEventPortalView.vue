@@ -268,106 +268,111 @@
               :icon-url="sectionIconUrl('clients')"
               :badge="`${detail.clients?.length || 0}`"
             >
-              <p class="muted small sbep-card-lead">Clients on this program roster — attendance and clinical session notes.</p>
-              <ul class="sbep-list sbep-roster-list">
-                <li v-for="c in detail.clients || []" :key="c.id" class="sbep-client-li">
-                  <div>
-                    <router-link
-                      v-if="rosterClientLinkTo(c)"
-                      :to="rosterClientLinkTo(c)"
-                      class="sbep-roster-client-link"
-                    >
-                      <strong>{{ clientLabelForRow(c) }}</strong>
-                    </router-link>
-                    <strong v-else>{{ clientLabelForRow(c) }}</strong>
-                    <span
-                      v-if="c.documentStatus || c.paperworkStatusLabel"
-                      class="muted small"
-                    >
-                      · Docs: {{ c.paperworkStatusLabel || c.documentStatus || '—' }}
-                    </span>
-                  </div>
-                  <ul v-if="attendanceRowsForClient(c.id).length" class="sbep-client-att-sub muted small">
-                    <li v-for="row in attendanceRowsForClient(c.id)" :key="`att-${row.sessionId}-${row.clientId}`">
-                      {{ formatSessionDateDisplay(row.sessionDate) }}
-                      <span v-if="row.checkInAt"> · In {{ formatPostTime(row.checkInAt) }}</span>
-                      <span v-if="row.checkOutAt"> · Out {{ formatPostTime(row.checkOutAt) }}</span>
-                      <span v-if="row.signatureText"> · Signature on file</span>
-                    </li>
-                  </ul>
-                </li>
-              </ul>
+              <p class="muted small sbep-card-lead">
+                Clients on this program roster — mark attendance here. H2014 session notes and copy-aid notes live under
+                <strong>Clinical Aid</strong> (same list style as the program hub Notes tab).
+              </p>
 
-              <div v-if="canEditClientAttendance && sessions.length" class="sbep-client-mgmt-grid">
-                <div class="sbep-client-mgmt-col sbep-client-mgmt-attendance">
-                  <p class="sbep-subh">Attendance</p>
-                  <label class="sbep-label">Session</label>
-                  <select v-model.number="clientAttSessionId" class="input sbep-kiosk-field">
-                    <option v-for="s in sessions" :key="`ca-s-${s.id}`" :value="s.id">
-                      {{ formatSessionKioskLabel(s) }}
-                    </option>
-                  </select>
-                  <div class="sbep-client-att-picker">
-                    <div class="sbep-client-att-picker-head">
-                      <span class="sbep-label sbep-label-inline">Clients</span>
-                      <div class="sbep-client-att-picker-actions">
-                        <button type="button" class="btn btn-link btn-sm" @click="selectAllClientsForAttendance">
-                          Select all
-                        </button>
-                        <button type="button" class="btn btn-link btn-sm" @click="clearClientsForAttendance">Clear</button>
-                      </div>
+              <div v-if="canEditClientAttendance && sessions.length" class="sbep-client-mgmt-session-bar">
+                <label class="sbep-label">Session</label>
+                <select v-model.number="clientAttSessionId" class="input sbep-kiosk-field">
+                  <option v-for="s in sessions" :key="`ca-s-${s.id}`" :value="s.id">
+                    {{ formatSessionKioskLabel(s) }}
+                  </option>
+                </select>
+              </div>
+
+              <div v-if="canEditClientAttendance && sessions.length" class="sbep-client-mgmt-attendance-only">
+                <p class="sbep-subh">Attendance</p>
+                <div class="sbep-client-att-picker">
+                  <div class="sbep-client-att-picker-head">
+                    <span class="sbep-label sbep-label-inline">Clients</span>
+                    <div class="sbep-client-att-picker-actions">
+                      <button type="button" class="btn btn-link btn-sm" @click="selectAllClientsForAttendance">
+                        Select all
+                      </button>
+                      <button type="button" class="btn btn-link btn-sm" @click="clearClientsForAttendance">Clear</button>
                     </div>
-                    <div class="sbep-client-att-checkboxes" role="group" aria-label="Clients to mark attended">
-                      <label v-for="c in detail.clients || []" :key="`ca-c-${c.id}`" class="sbep-client-att-row">
-                        <input v-model="clientAttSelectedClientIds" type="checkbox" :value="Number(c.id)" />
-                        <span>{{ clientLabelForRow(c) }}</span>
-                      </label>
-                    </div>
-                    <p v-if="!(detail.clients || []).length" class="muted small">No clients on this roster.</p>
                   </div>
-                  <p class="muted small sbep-manual-att-times-note">
-                    Time in / time out use the <strong>session date</strong> from above; defaults match this session’s start
-                    and end times.
-                  </p>
-                  <label class="sbep-label">Time in</label>
-                  <input v-model="clientAttTimeIn" type="time" class="input sbep-kiosk-field" />
-                  <label class="sbep-label">Time out</label>
-                  <input v-model="clientAttTimeOut" type="time" class="input sbep-kiosk-field" />
-                  <label class="sbep-label">Signature / attestation (optional)</label>
-                  <input v-model="clientAttSig" class="input sbep-kiosk-field" maxlength="512" placeholder="Typed name or short note" />
-                  <div class="sbep-inline-actions">
-                    <button
-                      type="button"
-                      class="btn btn-primary btn-sm"
-                      :disabled="clientAttSaving || !clientAttSessionId || !clientAttSelectedClientIds.length"
-                      @click="saveClientAttendance"
-                    >
-                      {{
-                        clientAttSaving
-                          ? 'Saving…'
-                          : `Save attendance${clientAttSelectedCount ? ` (${clientAttSelectedCount})` : ''}`
-                      }}
-                    </button>
+                  <div class="sbep-client-att-checkboxes" role="group" aria-label="Clients to mark attended">
+                    <label v-for="c in detail.clients || []" :key="`ca-c-${c.id}`" class="sbep-client-att-row">
+                      <input v-model="clientAttSelectedClientIds" type="checkbox" :value="Number(c.id)" />
+                      <span>{{ clientLabelForRow(c) }}</span>
+                    </label>
                   </div>
+                  <p v-if="!(detail.clients || []).length" class="muted small">No clients on this roster.</p>
                 </div>
-                <div v-if="agencyId && eventId" class="sbep-client-mgmt-col sbep-client-mgmt-clinical">
-                  <SkillBuildersClientManagementClinicalPanel
-                    :agency-id="agencyId"
-                    :event-id="eventId"
-                    :sessions="sessions"
-                    :session-id="clientAttSessionId"
-                    :clients="detail.clients || []"
-                    :viewer-caps="viewerCaps"
-                    :format-session-label="formatSessionKioskLabel"
-                    :client-label-for-row="clientLabelForRow"
-                    @update:session-id="(v) => (clientAttSessionId = v)"
-                    @refresh-sessions="loadSessions"
-                  />
+                <p class="muted small sbep-manual-att-times-note">
+                  Time in / time out use the <strong>session date</strong> from above; defaults match this session’s start
+                  and end times.
+                </p>
+                <label class="sbep-label">Time in</label>
+                <input v-model="clientAttTimeIn" type="time" class="input sbep-kiosk-field" />
+                <label class="sbep-label">Time out</label>
+                <input v-model="clientAttTimeOut" type="time" class="input sbep-kiosk-field" />
+                <label class="sbep-label">Signature / attestation (optional)</label>
+                <input v-model="clientAttSig" class="input sbep-kiosk-field" maxlength="512" placeholder="Typed name or short note" />
+                <div class="sbep-inline-actions">
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    :disabled="clientAttSaving || !clientAttSessionId || !clientAttSelectedClientIds.length"
+                    @click="saveClientAttendance"
+                  >
+                    {{
+                      clientAttSaving
+                        ? 'Saving…'
+                        : `Save attendance${clientAttSelectedCount ? ` (${clientAttSelectedCount})` : ''}`
+                    }}
+                  </button>
                 </div>
               </div>
               <p v-else-if="canEditClientAttendance && !sessions.length" class="muted small">
                 Session dates are still loading or none were generated for this program window.
               </p>
+
+              <div v-if="(detail.clients || []).length" class="sbep-roster-summary-block">
+                <p class="sbep-subh sbep-roster-summary-heading">Roster &amp; attendance</p>
+                <div class="sbep-roster-table-wrap">
+                  <table class="sbep-roster-table">
+                    <thead>
+                      <tr>
+                        <th>Client</th>
+                        <th>Docs</th>
+                        <th>Attendance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="c in detail.clients || []" :key="`rs-${c.id}`">
+                        <td>
+                          <router-link
+                            v-if="rosterClientLinkTo(c)"
+                            :to="rosterClientLinkTo(c)"
+                            class="sbep-roster-client-link"
+                          >
+                            {{ clientLabelForRow(c) }}
+                          </router-link>
+                          <template v-else>{{ clientLabelForRow(c) }}</template>
+                        </td>
+                        <td class="sbep-roster-docs">
+                          {{ c.paperworkStatusLabel || c.documentStatus || '—' }}
+                        </td>
+                        <td class="sbep-roster-att muted small">
+                          <template v-if="attendanceRowsForClient(c.id).length">
+                            <div v-for="row in attendanceRowsForClient(c.id)" :key="`att-${row.sessionId}-${row.clientId}`">
+                              {{ formatSessionDateDisplay(row.sessionDate) }}
+                              <span v-if="row.checkInAt"> · In {{ formatPostTime(row.checkInAt) }}</span>
+                              <span v-if="row.checkOutAt"> · Out {{ formatPostTime(row.checkOutAt) }}</span>
+                              <span v-if="row.signatureText"> · Signature on file</span>
+                            </div>
+                          </template>
+                          <span v-else class="sbep-roster-missing">—</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
@@ -386,6 +391,32 @@
                 :format-session-label="formatSessionKioskLabel"
                 :viewer-caps="viewerCaps"
                 :program-documents-library-route="programDocumentsLibraryRoute"
+                @refresh-sessions="loadSessions"
+              />
+            </SkillBuildersEventDashboardSection>
+
+            <SkillBuildersEventDashboardSection
+              v-if="detail.skillsGroup && clinicalNotesEnabled"
+              v-show="railActive === 'clinical_notes'"
+              rail-mode
+              section-id="clinical_notes"
+              title="Clinical Aid"
+              :icon-url="sectionIconUrl('clinical_notes')"
+            >
+              <p class="muted small sbep-card-lead">
+                H2014 copy-aid notes for this event (encrypted; expire after 14 days — warning in the last 2 days). Matches the
+                program hub <strong>Notes</strong> tab.
+              </p>
+              <SkillBuildersClinicalNotesHubPanel
+                v-if="agencyId && eventId"
+                :agency-id="agencyId"
+                :event-id="eventId"
+                :event-title="clinicalNotesContextEventTitle"
+                :sessions="sessions"
+                :clients="detail?.clients || []"
+                :viewer-caps="viewerCaps"
+                :format-session-label="formatSessionKioskLabel"
+                :client-label-for-row="clientLabelForRow"
                 @refresh-sessions="loadSessions"
               />
             </SkillBuildersEventDashboardSection>
@@ -779,10 +810,10 @@ import api from '../../services/api';
 import SkillBuildersEventPortalLayout from '../../components/skillBuilders/SkillBuildersEventPortalLayout.vue';
 import SkillBuildersEventDashboardSection from '../../components/skillBuilders/SkillBuildersEventDashboardSection.vue';
 import SkillBuildersWorkSchedulePanel from '../../components/availability/SkillBuildersWorkSchedulePanel.vue';
-import SkillBuildersClientManagementClinicalPanel from '../../components/skillBuilders/SkillBuildersClientManagementClinicalPanel.vue';
 import SkillBuildersSessionCurriculumMaterials from '../../components/skillBuilders/SkillBuildersSessionCurriculumMaterials.vue';
 import SkillBuildersEventEditModal from '../../components/skillBuilders/SkillBuildersEventEditModal.vue';
 import SkillBuildersEventProvidersGrid from '../../components/skillBuilders/SkillBuildersEventProvidersGrid.vue';
+import SkillBuildersClinicalNotesHubPanel from '../../components/skillBuilders/SkillBuildersClinicalNotesHubPanel.vue';
 import { useBrandingStore } from '../../store/branding';
 
 const route = useRoute();
@@ -843,6 +874,26 @@ const registrationPayerLines = computed(() => {
 
 const crumbProgramLabel = computed(() => detail.value?.programPortal?.name || '');
 
+const clinicalNotesEnabled = computed(() => {
+  const raw = agencyStore.currentAgency?.feature_flags;
+  let flags = {};
+  if (raw && typeof raw === 'object') flags = raw;
+  else if (typeof raw === 'string') {
+    try {
+      flags = JSON.parse(raw) || {};
+    } catch {
+      flags = {};
+    }
+  }
+  return !!(flags.noteAidEnabled || flags.clinicalNoteGeneratorEnabled);
+});
+
+/** Shown in Clinical Aid hub + H2014 curriculum context (event title or skills group name). */
+const clinicalNotesContextEventTitle = computed(() => {
+  const d = detail.value;
+  return String(d?.event?.title || d?.skillsGroup?.name || '').trim();
+});
+
 const viewerCaps = computed(() => {
   const v = detail.value?.viewerCapabilities;
   if (v && typeof v === 'object') {
@@ -902,6 +953,14 @@ function sectionParamFromUrl() {
  */
 const optimisticSection = ref('');
 
+watch(
+  () => String(route.query.section || '').trim(),
+  (sec) => {
+    if (sec === 'clinical_notes') optimisticSection.value = 'clinical_notes';
+  },
+  { immediate: true }
+);
+
 /** Prefer router query; if missing, use `?section=` from `location` so hub vs rail matches the visible URL. */
 const sectionQuery = computed(() => {
   const o = optimisticSection.value;
@@ -939,6 +998,9 @@ function sectionIconUrl(sectionKey) {
   if (sectionKey === 'providers') {
     const school = brandingStore.getSchoolPortalCardIconUrl('providers');
     return school || brandingStore.getDashboardCardIconUrl('staff');
+  }
+  if (sectionKey === 'clinical_notes') {
+    return brandingStore.getDashboardCardIconUrl('supervision', agencyId.value);
   }
   const map = {
     home: 'my',
@@ -987,6 +1049,15 @@ const eventRailItems = computed(() => {
 
   const nCli = (d.clients || []).length;
   push('clients', 'Client Management', 'Clients', 'clients', nCli > 0);
+
+  const role = String(authStore.user?.role || '').toLowerCase();
+  const isGuardianPortalUser = role === 'guardian' || role === 'client_guardian';
+  const showClinicalAidCard =
+    !isGuardianPortalUser &&
+    clinicalNotesEnabled.value &&
+    !!d.skillsGroup &&
+    !!(v.isAssignedProvider || v.canManageTeamSchedules || v.canManageCompanyEvent);
+  push('clinical_notes', 'Clinical Aid', 'Aid', 'clinical_notes', showClinicalAidCard);
 
   push('materials', 'Materials', 'Materials', 'materials', true);
 
@@ -2575,20 +2646,53 @@ watch(
   padding-top: 0;
   border-top: none;
 }
-.sbep-client-mgmt-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 20px;
-  margin-top: 16px;
-  align-items: start;
+.sbep-client-mgmt-session-bar {
+  margin: 4px 0 14px;
+  max-width: min(100%, 420px);
 }
-@media (min-width: 900px) {
-  .sbep-client-mgmt-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
+.sbep-roster-summary-block {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border, #e2e8f0);
 }
-.sbep-client-mgmt-col {
-  min-width: 0;
+.sbep-roster-summary-heading {
+  margin-bottom: 8px;
+}
+.sbep-client-mgmt-attendance-only {
+  margin-top: 0;
+  max-width: min(100%, 520px);
+}
+.sbep-roster-table-wrap {
+  overflow: auto;
+  margin-top: 6px;
+}
+.sbep-roster-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.sbep-roster-table th,
+.sbep-roster-table td {
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  padding: 8px 8px 8px 0;
+  text-align: left;
+  vertical-align: top;
+}
+.sbep-roster-table th {
+  font-weight: 700;
+  color: var(--text-secondary, #64748b);
+  font-size: 0.82rem;
+}
+.sbep-roster-docs {
+  color: var(--primary, #0f766e);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.sbep-roster-att {
+  line-height: 1.45;
+}
+.sbep-roster-missing {
+  opacity: 0.45;
 }
 .sbep-subh {
   margin: 0 0 10px;

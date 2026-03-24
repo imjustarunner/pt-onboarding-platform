@@ -75,6 +75,20 @@ export const publicIntakeLimiter = rateLimit({
   },
 });
 
+/** Public “nearest event” geocoding (Google) — keep strict in production. */
+export const publicGeocodeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isDevelopment ? 120 : 25,
+  message: { error: { message: 'Too many location lookups, please try again later' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const slug = String(req.params?.slug || '').trim().toLowerCase();
+    const ip = getClientIpAddress(req) || req.ip || 'unknown';
+    return slug ? `public-geo:${slug}:${ip}` : `public-geo:${ip}`;
+  },
+});
+
 // Club manager signup (public, anti-abuse).
 export const signupLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -93,4 +107,18 @@ export const recoveryLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => `recovery:${req.ip}`,
+});
+
+/** Public marketing hub aggregate metrics — allowlisted SQL only; still rate-limit per slug + IP. */
+export const publicMarketingPageMetricsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isDevelopment ? 120 : 40,
+  message: { error: { message: 'Too many requests, please try again later' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const slug = String(req.params?.slug || '').trim().toLowerCase();
+    const ip = getClientIpAddress(req) || req.ip || 'unknown';
+    return slug ? `hub-metrics:${slug}:${ip}` : `hub-metrics:${ip}`;
+  }
 });

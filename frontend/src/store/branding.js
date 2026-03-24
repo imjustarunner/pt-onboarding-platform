@@ -188,7 +188,7 @@ export const useBrandingStore = defineStore('branding', () => {
   };
   
   // Fetch agency theme by portal URL
-  const fetchAgencyTheme = async (portalUrl) => {
+  const fetchAgencyTheme = async (portalUrl, options = {}) => {
     if (!portalUrl) {
       portalAgency.value = null;
       portalTheme.value = null;
@@ -196,7 +196,10 @@ export const useBrandingStore = defineStore('branding', () => {
     }
     
     try {
+      const pageContext = String(options.pageContext || '').trim().toLowerCase();
+      const params = pageContext ? { pageContext } : {};
       const response = await api.get(`/agencies/portal/${portalUrl}/theme`, {
+        params,
         skipGlobalLoading: true,
         timeout: 15000
       });
@@ -220,6 +223,40 @@ export const useBrandingStore = defineStore('branding', () => {
       portalTheme.value = null;
     }
   };
+
+  /** Public marketing hub (/p/:slug) — theme from `/public/marketing-pages/:slug/theme`. */
+  const fetchPublicMarketingHubTheme = async (hubSlug) => {
+    const s = String(hubSlug || '').trim().toLowerCase();
+    if (!s) {
+      portalAgency.value = null;
+      portalTheme.value = null;
+      return;
+    }
+    try {
+      const response = await api.get(`/public/marketing-pages/${encodeURIComponent(s)}/theme`, {
+        params: {},
+        skipGlobalLoading: true,
+        skipAuthRedirect: true,
+        timeout: 15000
+      });
+      portalTheme.value = response.data;
+      portalAgency.value = {
+        name: response.data.agencyName,
+        colorPalette: response.data.colorPalette || {},
+        logoUrl: response.data.logoUrl,
+        themeSettings: response.data.themeSettings || {},
+        terminologySettings: response.data.terminologySettings || {}
+      };
+      applyTheme(response.data);
+    } catch (err) {
+      const status = Number(err?.response?.status || 0);
+      if (import.meta.env.DEV && status !== 401 && status !== 403) {
+        console.error('Failed to fetch public marketing hub theme:', err);
+      }
+      portalAgency.value = null;
+      portalTheme.value = null;
+    }
+  };
   
   // Apply theme to CSS variables
   const applyTheme = (themeData) => {
@@ -228,7 +265,7 @@ export const useBrandingStore = defineStore('branding', () => {
     const themeSettings = themeData.themeSettings || {};
     const brandingAgencyId = themeData.brandingAgencyId || themeData.agencyId || null;
     
-    // Apply colors
+    // Apply colors (accent falls back to primary so glows/buttons match when agencies only set one brand color)
     if (colorPalette.primary) {
       root.style.setProperty('--agency-primary-color', colorPalette.primary);
     }
@@ -237,6 +274,8 @@ export const useBrandingStore = defineStore('branding', () => {
     }
     if (colorPalette.accent) {
       root.style.setProperty('--agency-accent-color', colorPalette.accent);
+    } else if (colorPalette.primary) {
+      root.style.setProperty('--agency-accent-color', colorPalette.primary);
     }
     
     // Apply fonts
@@ -1053,6 +1092,7 @@ export const useBrandingStore = defineStore('branding', () => {
     loginBackground,
     fontFamily,
     fetchAgencyTheme,
+    fetchPublicMarketingHubTheme,
     initializePortalTheme,
     applyTheme,
     setPortalThemeData,

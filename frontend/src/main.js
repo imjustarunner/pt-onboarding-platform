@@ -148,12 +148,14 @@ async function bootstrap() {
     new Promise((r) => setTimeout(r, PORTAL_THEME_TIMEOUT_MS))
   ]).catch(() => {});
 
-  // Fallback for slug-based login (e.g. /itsco/login): when host-based resolve fails (e.g. custom
-  // domain with API on different host), preload theme from path slug so branding shows correctly.
-  const slugMatch = path.match(/^\/([a-z0-9-]+)\/login$/i);
-  if (slugMatch && !brandingStore.portalHostPortalUrl && !brandingStore.portalAgency) {
-    const slug = slugMatch[1].toLowerCase();
-    brandingStore.fetchAgencyTheme(slug).catch(() => {});
+  // Fallback for slug-based login (e.g. /itsco/login or /itsco/rudy/login): when host-based resolve
+  // fails, preload theme from the portal segment so branding shows correctly.
+  const nestedLoginMatch = path.match(/^\/[a-z0-9-]+\/([a-z0-9-]+)\/login$/i);
+  const flatLoginMatch = path.match(/^\/([a-z0-9-]+)\/login$/i);
+  const slugForTheme =
+    nestedLoginMatch?.[1]?.toLowerCase() || (!nestedLoginMatch && flatLoginMatch?.[1]?.toLowerCase()) || '';
+  if (slugForTheme && !brandingStore.portalHostPortalUrl && !brandingStore.portalAgency) {
+    brandingStore.fetchAgencyTheme(slugForTheme).catch(() => {});
   }
 
   const isPlatformLogin = isLogin && !brandingStore.portalHostPortalUrl;

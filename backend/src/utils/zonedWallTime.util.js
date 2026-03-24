@@ -51,3 +51,36 @@ export function zonedWallTimeToUtc({ year, month, day, hour, minute, second = 0,
   }
   return guess;
 }
+
+/**
+ * Calendar YYYY-MM-DD for an instant in a given IANA zone (matches skills_groups.start_date / end_date semantics).
+ * @param {Date|string|number} date
+ * @param {string} timeZone
+ * @returns {string|null}
+ */
+export function utcDateToZonedYmd(date, timeZone) {
+  if (date == null) return null;
+  const d = date instanceof Date ? date : new Date(date);
+  if (!Number.isFinite(d.getTime())) return null;
+  const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : 'America/New_York';
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    const parts = dtf.formatToParts(d);
+    const map = {};
+    for (const p of parts) {
+      if (p.type !== 'literal') map[p.type] = p.value;
+    }
+    const y = map.year;
+    const m = map.month;
+    const day = map.day;
+    if (!y || !m || !day) return null;
+    return `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  } catch {
+    return null;
+  }
+}

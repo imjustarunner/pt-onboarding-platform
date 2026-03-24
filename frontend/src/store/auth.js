@@ -220,8 +220,15 @@ export const useAuthStore = defineStore('auth', () => {
           const slug = typeof current?.params?.organizationSlug === 'string'
             ? String(current.params.organizationSlug).trim().toLowerCase()
             : '';
+          const parentSlug = typeof current?.params?.parentOrgSlug === 'string'
+            ? String(current.params.parentOrgSlug).trim().toLowerCase()
+            : '';
           if (slug) {
-            loginUrl = `/${slug}/login`;
+            const { buildOrgLoginPath } = await import('../utils/orgLoginPath');
+            const { useBrandingStore } = await import('./branding');
+            const brandingStore = useBrandingStore();
+            const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
+            loginUrl = buildOrgLoginPath(slug, parentSlug || null, hostImplied);
           }
         } catch {
           // Ignore and fall back below.

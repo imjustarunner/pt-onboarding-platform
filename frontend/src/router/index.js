@@ -5,6 +5,7 @@ import { useAgencyStore } from '../store/agency';
 import { useOrganizationStore } from '../store/organization';
 import { getDashboardRoute } from '../utils/router';
 import { getLoginUrl } from '../utils/loginRedirect';
+import { buildOrgLoginPath } from '../utils/orgLoginPath';
 import { isSupervisor } from '../utils/helpers';
 import { hasProviderMobileAccess } from '../utils/providerMobileAccess';
 import { isLikelyMobileViewport, isStandalonePwa } from '../utils/pwa';
@@ -110,6 +111,13 @@ const routes = [
     component: () => import('../views/school/SchoolFinderView.vue'),
     meta: { requiresGuest: false }
   },
+  // Public marketing hub — namespace /p/:hubSlug (multi-agency events + hub branding). Must stay before /:organizationSlug.
+  {
+    path: '/p/:hubSlug',
+    name: 'PublicMarketingHub',
+    component: () => import('../views/public/PublicMarketingHubView.vue'),
+    meta: { requiresGuest: false, publicMarketingHub: true }
+  },
   {
     path: '/intake/:publicKey',
     name: 'PublicIntakeSigning',
@@ -147,7 +155,7 @@ const routes = [
     path: '/open-events/:agencySlug',
     name: 'PublicAgencyEventsOpen',
     component: () => import('../views/public/PublicAgencyEventsView.vue'),
-    meta: { requiresGuest: false }
+    meta: { requiresGuest: false, publicAgencyEventsOpen: true }
   },
   {
     path: '/open-events/:agencySlug/skill-builders',
@@ -171,7 +179,7 @@ const routes = [
     path: '/:organizationSlug/programs/:programSlug/events',
     name: 'PublicProgramEvents',
     component: () => import('../views/public/PublicSkillBuildersProgramEventsView.vue'),
-    meta: { requiresGuest: false, organizationSlug: true }
+    meta: { requiresGuest: false, organizationSlug: true, publicSkillBuildersEventsBranding: true }
   },
   {
     path: '/:organizationSlug/kiosk',
@@ -185,6 +193,13 @@ const routes = [
     component: () => import('../views/public/PublicSkillBuildersEventKioskStationView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
+  // Short public URL: /{agencySlug}/events (same data as /open-events/{agencySlug})
+  {
+    path: '/:organizationSlug/events',
+    name: 'PublicAgencyEventsBranded',
+    component: () => import('../views/public/PublicAgencyEventsView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true, publicAgencyEventsBranding: true }
+  },
   // Organization-specific routes (supports Agency, School, Program, Learning)
   // School splash page (public, no auth required)
   {
@@ -192,6 +207,13 @@ const routes = [
     name: 'OrganizationSplash',
     component: () => import('../views/school/SchoolSplashView.vue'),
     meta: { requiresGuest: false, organizationSlug: true } // Allow both guests and authenticated users
+  },
+  // Child portal login under agency path: /itsco/rudy/login (matches before flat /:slug/login).
+  {
+    path: '/:parentOrgSlug/:organizationSlug/login',
+    name: 'ParentOrganizationLogin',
+    component: () => import('../views/LoginView.vue'),
+    meta: { requiresGuest: true, organizationSlug: true, parentOrgSlug: true }
   },
   {
     path: '/:organizationSlug/login',
@@ -1178,6 +1200,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['super_admin'] }
   },
   {
+    path: '/admin/public-marketing-pages',
+    name: 'PublicMarketingPagesAdmin',
+    component: () => import('../views/admin/PublicMarketingPagesAdminView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['super_admin'] }
+  },
+  {
     path: '/admin/management-team',
     name: 'AgencyManagementTeam',
     component: () => import('../views/admin/AgencyManagementTeamView.vue'),
@@ -1762,6 +1790,30 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
+  // Public marketing hub: apply hub theme (not org slug theme).
+  if (to.meta.publicMarketingHub) {
+    const hubSlug = String(to.params.hubSlug || '').trim();
+    if (hubSlug) {
+      try {
+        await brandingStore.fetchPublicMarketingHubTheme(hubSlug);
+      } catch {
+        // best effort
+      }
+    }
+  }
+
+  // Public agency-wide events (/open-events/:agencySlug) — same theme as /:slug/events (not organizationSlug-based).
+  if (to.meta.publicAgencyEventsOpen) {
+    const s = String(to.params.agencySlug || '').trim();
+    if (s) {
+      try {
+        await brandingStore.fetchAgencyTheme(s, { pageContext: 'public_events' });
+      } catch {
+        // best effort
+      }
+    }
+  }
+
   // On slug-prefixed routes, load org context + apply branding.
   // This is what keeps the portal branded consistently across all authenticated pages.
   if (to.meta.organizationSlug) {
@@ -1785,7 +1837,11 @@ router.beforeEach(async (to, from, next) => {
         // Apply portal branding for all slug routes (public + authenticated).
         // (Super admins can still view the portal with correct branding.)
         try {
-          await brandingStore.fetchAgencyTheme(slug);
+          const pageContext =
+            to.meta.publicSkillBuildersEventsBranding || to.meta.publicAgencyEventsBranding
+              ? 'public_events'
+              : undefined;
+          await brandingStore.fetchAgencyTheme(slug, pageContext ? { pageContext } : {});
         } catch (e) {
           // best effort: do not block navigation
         }
@@ -2036,7 +2092,13 @@ router.beforeEach(async (to, from, next) => {
       (to.meta.organizationSlug && typeof to.params.organizationSlug === 'string' && to.params.organizationSlug) ||
       null;
     if (slug) {
-      next(`/${slug}/login${redirectQuery}`);
+      const parent =
+        to.meta.parentOrgSlug && typeof to.params.parentOrgSlug === 'string'
+          ? to.params.parentOrgSlug
+          : null;
+      const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
+      const loginPath = buildOrgLoginPath(slug, parent, hostImplied);
+      next(`${loginPath}${redirectQuery}`);
       return;
     }
     // Otherwise, redirect based on stored agencies/user role.

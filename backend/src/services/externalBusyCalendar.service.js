@@ -16,6 +16,16 @@ function sha1HexShort(input) {
   }
 }
 
+function sanitizeIcsSummary(raw) {
+  if (raw == null) return '';
+  const s = String(raw)
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!s) return '';
+  return s.slice(0, 200);
+}
+
 function clampBusyToWindow(busy, timeMinIso, timeMaxIso) {
   const min = new Date(timeMinIso);
   const max = new Date(timeMaxIso);
@@ -29,7 +39,12 @@ function clampBusyToWindow(busy, timeMinIso, timeMaxIso) {
     if (e <= min || s >= max) continue;
     const start = s < min ? min : s;
     const end = e > max ? max : e;
-    if (end > start) out.push({ startAt: start.toISOString(), endAt: end.toISOString() });
+    if (end > start) {
+      const row = { startAt: start.toISOString(), endAt: end.toISOString() };
+      const summ = sanitizeIcsSummary(b.summary);
+      if (summ) row.summary = summ;
+      out.push(row);
+    }
   }
   return out;
 }
@@ -128,7 +143,10 @@ export class ExternalBusyCalendarService {
       if (!start || !end) continue;
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
       if (end <= start) continue;
-      busy.push({ startAt: start.toISOString(), endAt: end.toISOString() });
+      const summ = sanitizeIcsSummary(ev.summary ?? ev.SUMMARY);
+      const row = { startAt: start.toISOString(), endAt: end.toISOString() };
+      if (summ) row.summary = summ;
+      busy.push(row);
     }
 
     // Sort for stability
@@ -138,34 +156,36 @@ export class ExternalBusyCalendarService {
 
   static async getBusyForWeek({ userId, weekStart, icsUrl, timeMinIso, timeMaxIso, ttlMs = 10 * 60 * 1000 }) {
     const uid = Number(userId || 0);
-    if (!uid) return { ok: false, reason: 'invalid_user_id', busy: [] };
+    if (!uid) return { ok: false, reason: 'invalid_user_id', busy: [], events: [] };
     const url = String(icsUrl || '').trim();
-    if (!url) return { ok: true, busy: [] };
+    if (!url) return { ok: true, busy: [], events: [] };
 
     const key = this.cacheKey({ userId: uid, weekStart });
     const cached = this.getCached(key);
     if (cached) {
-      return { ok: true, busy: clampBusyToWindow(cached, timeMinIso, timeMaxIso) };
+      const clamped = clampBusyToWindow(cached, timeMinIso, timeMaxIso);
+      return { ok: true, busy: clamped, events: clamped };
     }
 
     try {
       const rawBusy = await this.fetchAndParseIcsBusy({ icsUrl: url });
       this.setCached(key, rawBusy, ttlMs);
-      return { ok: true, busy: clampBusyToWindow(rawBusy, timeMinIso, timeMaxIso) };
+      const clamped = clampBusyToWindow(rawBusy, timeMinIso, timeMaxIso);
+      return { ok: true, busy: clamped, events: clamped };
     } catch (e) {
-      return { ok: false, reason: 'fetch_or_parse_failed', error: String(e?.message || e), busy: [] };
+      return { ok: false, reason: 'fetch_or_parse_failed', error: String(e?.message || e), busy: [], events: [] };
     }
   }
 
   static async getBusyForFeeds({ userId, weekStart, feeds, timeMinIso, timeMaxIso, ttlMs = 10 * 60 * 1000 }) {
     const uid = Number(userId || 0);
-    if (!uid) return { ok: false, reason: 'invalid_user_id', busy: [] };
+    if (!uid) return { ok: false, reason: 'invalid_user_id', busy: [], events: [] };
     const list = Array.isArray(feeds) ? feeds : [];
     const urls = list
       .map((f) => String(f?.url || f?.icsUrl || '').trim())
       .filter(Boolean)
       .slice(0, 20); // hard cap to protect server
-    if (urls.length === 0) return { ok: true, busy: [] };
+    if (urls.length === 0) return { ok: true, busy: [], events: [] };
 
     const all = [];
     const errors = [];
@@ -186,11 +206,18 @@ export class ExternalBusyCalendarService {
     }
 
     const clamped = clampBusyToWindow(all, timeMinIso, timeMaxIso);
+    clamped.sort((a, b) => String(a.startAt).localeCompare(String(b.startAt)));
     const merged = mergeBusyIntervals(clamped);
     if (merged.length === 0 && errors.length === urls.length) {
-      return { ok: false, reason: 'all_feeds_failed', error: errors[0] || 'Failed to fetch feeds', busy: [] };
+      return {
+        ok: false,
+        reason: 'all_feeds_failed',
+        error: errors[0] || 'Failed to fetch feeds',
+        busy: [],
+        events: []
+      };
     }
-    return { ok: true, busy: merged };
+    return { ok: true, busy: merged, events: clamped };
   }
 }
 

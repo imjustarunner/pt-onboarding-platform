@@ -88,7 +88,8 @@ async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, user = null, s
   return (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(activeAgencyId, 10));
 }
 
-export async function assertSchoolPortalAccess(req, schoolId) {
+export async function assertSchoolPortalAccess(req, schoolId, options = {}) {
+  const allowClinical = !!options.allowClinical;
   const sid = parseInt(String(schoolId || ''), 10);
   if (!sid) {
     const e = new Error('Invalid schoolId');
@@ -105,7 +106,7 @@ export async function assertSchoolPortalAccess(req, schoolId) {
     throw e;
   }
   const orgType = String(org.organization_type || 'agency').toLowerCase();
-  const allowedTypes = ['school', 'program', 'learning'];
+  const allowedTypes = allowClinical ? ['school', 'program', 'learning', 'clinical'] : ['school', 'program', 'learning'];
   if (!allowedTypes.includes(orgType)) {
     const e = new Error(`This endpoint is only available for organizations of type: ${allowedTypes.join(', ')}`);
     e.statusCode = 400;

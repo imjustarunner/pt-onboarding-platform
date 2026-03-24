@@ -128,6 +128,8 @@ import publicProviderAvailabilityRoutes from './routes/publicProviderAvailabilit
 import publicSchoolsRoutes from './routes/publicSchools.routes.js';
 import skillBuildersProviderHubRoutes from './routes/skillBuildersProviderHub.routes.js';
 import publicSkillBuildersRoutes from './routes/publicSkillBuilders.routes.js';
+import publicMarketingPagesRoutes from './routes/publicMarketingPages.routes.js';
+import publicMarketingPagesAdminRoutes from './routes/publicMarketingPagesAdmin.routes.js';
 import agentsRoutes from './routes/agents.routes.js';
 import clinicalNoteGeneratorRoutes from './routes/clinicalNoteGenerator.routes.js';
 import complianceCornerRoutes from './routes/complianceCorner.routes.js';
@@ -521,6 +523,7 @@ app.use('/api/health-check', healthCheckRoutes);
 app.use('/api/public/provider-availability', publicProviderAvailabilityRoutes);
 app.use('/api/public/schools', publicSchoolsRoutes);
 app.use('/api/public/skill-builders', publicSkillBuildersRoutes);
+app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
 
 // Club manager email verification (public, no auth) - mount before auth to avoid any auth middleware
 app.get('/api/auth/verify-club-manager-email', verifyClubManagerEmail);
@@ -578,6 +581,7 @@ app.use('/api/icons', iconRoutes);
 app.use('/api/logos', logoRoutes);
 app.use('/api/icon-templates', iconTemplateRoutes);
 app.use('/api/platform-branding', platformBrandingRoutes);
+app.use('/api/platform/public-marketing-pages', publicMarketingPagesAdminRoutes);
 app.use('/api/beta-feedback', betaFeedbackRoutes);
 app.use('/api/platform-retention-settings', platformRetentionSettingsRoutes);
 app.use('/api/onboarding-packages', onboardingPackageRoutes);

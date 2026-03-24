@@ -109,6 +109,14 @@ const emit = defineEmits(['update:weekStartYmd']);
 const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const SUNDAY_FIRST_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const orderedDays = computed(() => (String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));
+/** Match visible column order (`orderedDays`) so Sunday date aligns with the first column (Sun vs Mon). */
+const dayIdxFromWeekStartMonday = (dayName) => {
+  const idx = ALL_DAYS.indexOf(String(dayName || ''));
+  if (idx < 0) return 0;
+  const sunFirst = orderedDays.value.length > 0 && orderedDays.value[0] === 'Sunday';
+  if (sunFirst) return idx === 6 ? -1 : idx;
+  return idx;
+};
 
 // Club context (runners): main view 5–22, expand to full 0–23
 const showAllHours = ref(false);
@@ -157,8 +165,8 @@ const shiftWeek = (deltaDays) => {
 const goToToday = () => emit('update:weekStartYmd', startOfWeekMondayYmd(todayYmd()));
 
 const isTodayDay = (dayName) => {
-  const idx = ALL_DAYS.indexOf(String(dayName || ''));
-  if (idx < 0) return false;
+  if (ALL_DAYS.indexOf(String(dayName || '')) < 0) return false;
+  const idx = dayIdxFromWeekStartMonday(dayName);
   const ymd = addDaysYmd(effectiveWeekStart.value, idx);
   return ymd === todayYmd();
 };
@@ -355,7 +363,7 @@ const weekTitle = computed(() => {
 });
 
 const dayDateLabel = (dayName) => {
-  const idx = ALL_DAYS.indexOf(String(dayName));
+  const idx = dayIdxFromWeekStartMonday(dayName);
   const ymd = addDaysYmd(effectiveWeekStart.value, idx);
   try {
     const d = new Date(`${ymd}T00:00:00`);
@@ -394,9 +402,8 @@ const overlapsHour = (startHHMM, endHHMM, hour) => {
 };
 
 const hasBusyIntervals = (busyList, dayName, hour, ws) => {
-  const dayIdx = ALL_DAYS.indexOf(String(dayName));
-  if (dayIdx < 0) return false;
-  const cellDate = addDaysYmd(ws, dayIdx);
+  if (ALL_DAYS.indexOf(String(dayName)) < 0) return false;
+  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
   const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
   const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
   for (const b of busyList || []) {
@@ -430,7 +437,7 @@ const eventBlocksForUserCell = (uid, dayName, hour) => {
   }
 
   // office (state)
-  const cellDate = addDaysYmd(ws, ALL_DAYS.indexOf(dayName));
+  const cellDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
   const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
   const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
   const officeHits = (s.officeEvents || []).filter((e) => {
@@ -529,8 +536,7 @@ const eventBlocksForUserCell = (uid, dayName, hour) => {
       const st = parseMaybeDate(ev.startAt);
       const en = parseMaybeDate(ev.endAt);
       if (!st || !en) continue;
-      const idx = ALL_DAYS.indexOf(dayName);
-      const dayDate = addDaysYmd(ws, idx);
+      const dayDate = addDaysYmd(ws, dayIdxFromWeekStartMonday(dayName));
       const cs = new Date(`${dayDate}T${pad2(hour)}:00:00`);
       const ce = new Date(`${dayDate}T${pad2(Number(hour) + 1)}:00:00`);
       if (!(en > cs && st < ce)) continue;

@@ -196,12 +196,44 @@ export async function getDecryptedCurriculumTextForSession(sessionId) {
   return decryptSbClinicalPayload(row.extracted_text_enc);
 }
 
+function splitH2014GroupOutputToSections(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return { Output: '' };
+  const sections = {};
+
+  // Primary: "1. **Section Title**\n" + body (matches Note Aid output instructions)
+  const reBold = /\n?(\d+)\.\s*\*\*([^*]+)\*\*\s*\n([\s\S]*?)(?=\n\d+\.\s*\*\*|\s*$)/g;
+  let m;
+  while ((m = reBold.exec(text)) !== null) {
+    const title = String(m[2] || '').trim();
+    const body = String(m[3] || '').trim();
+    if (title && body) sections[title] = body;
+  }
+  if (Object.keys(sections).length) return sections;
+
+  // Fallback: numbered plain headings without ** (some model outputs)
+  const rePlain = /\n?(\d+)\.\s*([^\n]+)\n+([\s\S]*?)(?=\n\d+\.\s+[^\n]+\n|$)/g;
+  while ((m = rePlain.exec(`${text}\n`)) !== null) {
+    const title = String(m[2] || '')
+      .trim()
+      .replace(/\*\*/g, '');
+    const body = String(m[3] || '').trim();
+    if (!title || !body) continue;
+    if (/^output$/i.test(title)) continue;
+    sections[title] = body;
+  }
+  if (Object.keys(sections).length) return sections;
+
+  return { Output: text };
+}
+
 export async function generateH2014SessionClinicalNote({
   agencyId,
   curriculumText,
   clinicianSummaryText,
   programLabel,
-  revisionInstruction
+  revisionInstruction,
+  activityLabels = null
 }) {
   const na = await requireNoteAidEnabledForAgency(agencyId);
   if (!na.ok) {
@@ -219,8 +251,18 @@ export async function generateH2014SessionClinicalNote({
 
   const summary = String(clinicianSummaryText || '').trim().slice(0, 12000);
   const cur = String(curriculumText || '').trim().slice(0, MAX_EXTRACT_CHARS);
+  const labels = Array.isArray(activityLabels) ? activityLabels.map((s) => String(s || '').trim()).filter(Boolean) : [];
+  const activityLine =
+    labels.length > 0
+      ? [
+          `PERFORMED ACTIVITIES (authoritative list): ${labels.join('; ')}.`,
+          'Write the clinical note ONLY in reference to these activities. Do not describe, name, or imply any other structured activity, game, or lesson.',
+          'If the clinician summary mentions something that is not in the list above, do not present it as an activity that was run; omit it or describe only neutral observations without inventing curriculum.'
+        ].join('\n')
+      : '';
   const inputText = [
     programLabel ? `Program / group: ${programLabel}` : '',
+    activityLine,
     '',
     'Curriculum of the day (reference; do not copy verbatim unless appropriate for the note):',
     cur || '(No curriculum text extracted — rely on clinician summary and knowledge base.)',
@@ -271,11 +313,17 @@ export async function generateH2014SessionClinicalNote({
   });
 
   const rawOut = String(text || '').trim();
-  const sections = rawOut ? { Output: rawOut } : {};
+  const sections = rawOut ? splitH2014GroupOutputToSections(rawOut) : {};
 
   const outputObj = {
     sections,
-    meta: { toolId: TOOL_ID, model: modelName, latencyMs }
+    meta: {
+      toolId: TOOL_ID,
+      model: modelName,
+      latencyMs,
+      /** Preserved for superadmin/UI regenerate without retyping the summary. */
+      clinicianSummaryText: summary
+    }
   };
 
   return { outputObj, plainText: String(text || '').trim() };
@@ -283,7 +331,8 @@ export async function generateH2014SessionClinicalNote({
 
 export async function listClinicalNotesForSession({ sessionId, companyEventId }) {
   const [rows] = await pool.execute(
-    `SELECT id, client_id, author_user_id, created_at, updated_at
+    `SELECT id, client_id, author_user_id, created_at, updated_at,
+            expires_at AS expiresAt, client_note_status AS clientNoteStatus
      FROM skill_builders_session_clinical_notes
      WHERE session_id = ? AND company_event_id = ?`,
     [sessionId, companyEventId]
@@ -308,10 +357,18 @@ export async function upsertClinicalNote({
   clientId,
   authorUserId,
   outputObj,
-  plainText
+  plainText,
+  selectedActivityIds = null,
+  clientNoteStatus = 'completed'
 }) {
   const bodyEnc = encryptSbClinicalPayload(plainText || JSON.stringify(outputObj?.sections || outputObj));
   const outEnc = encryptSbClinicalPayload(JSON.stringify(outputObj ?? {}));
+  const actJson =
+    Array.isArray(selectedActivityIds) && selectedActivityIds.length
+      ? JSON.stringify(selectedActivityIds.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))
+      : null;
+  const status =
+    clientNoteStatus === 'missed' ? 'missed' : clientNoteStatus === 'note_needed' ? 'note_needed' : 'completed';
   const [existing] = await pool.execute(
     `SELECT id FROM skill_builders_session_clinical_notes WHERE session_id = ? AND client_id = ? LIMIT 1`,
     [sessionId, clientId]
@@ -319,19 +376,34 @@ export async function upsertClinicalNote({
   if (existing?.[0]?.id) {
     await pool.execute(
       `UPDATE skill_builders_session_clinical_notes
-       SET note_body_enc = ?, output_json_enc = ?, author_user_id = ?, updated_at = CURRENT_TIMESTAMP
+       SET note_body_enc = ?, output_json_enc = ?, author_user_id = ?,
+           selected_activity_ids_json = ?, client_note_status = ?,
+           expires_at = COALESCE(expires_at, DATE_ADD(NOW(), INTERVAL 14 DAY)),
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [bodyEnc, outEnc, authorUserId, existing[0].id]
+      [bodyEnc, outEnc, authorUserId, actJson, status, existing[0].id]
     );
     return Number(existing[0].id);
   }
   const [ins] = await pool.execute(
     `INSERT INTO skill_builders_session_clinical_notes
-     (agency_id, company_event_id, session_id, client_id, author_user_id, note_body_enc, output_json_enc)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [agencyId, companyEventId, sessionId, clientId, authorUserId, bodyEnc, outEnc]
+     (agency_id, company_event_id, session_id, client_id, author_user_id, note_body_enc, output_json_enc,
+      expires_at, selected_activity_ids_json, client_note_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 14 DAY), ?, ?)`,
+    [agencyId, companyEventId, sessionId, clientId, authorUserId, bodyEnc, outEnc, actJson, status]
   );
   return Number(ins.insertId);
+}
+
+function parseSelectedActivityIdsFromRow(row) {
+  const raw = row?.selected_activity_ids_json;
+  if (raw == null || raw === '') return [];
+  try {
+    const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(arr) ? arr.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0) : [];
+  } catch {
+    return [];
+  }
 }
 
 export function decryptClinicalNoteRow(row) {
@@ -350,8 +422,11 @@ export function decryptClinicalNoteRow(row) {
     authorUserId: Number(row.author_user_id),
     plainText: plain,
     outputJson,
+    selectedActivityIds: parseSelectedActivityIdsFromRow(row),
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    expiresAt: row.expires_at || null,
+    clientNoteStatus: row.client_note_status || 'note_needed'
   };
 }
 
@@ -359,6 +434,15 @@ export async function deleteClinicalNotesForSession({ sessionId, companyEventId 
   const [r] = await pool.execute(
     `DELETE FROM skill_builders_session_clinical_notes WHERE session_id = ? AND company_event_id = ?`,
     [sessionId, companyEventId]
+  );
+  return Number(r?.affectedRows || 0);
+}
+
+/** Delete a single encrypted note row for this session/client (provider may delete own note; staff may delete any). */
+export async function deleteClinicalNoteForSessionClient({ sessionId, clientId, companyEventId }) {
+  const [r] = await pool.execute(
+    `DELETE FROM skill_builders_session_clinical_notes WHERE session_id = ? AND client_id = ? AND company_event_id = ?`,
+    [sessionId, clientId, companyEventId]
   );
   return Number(r?.affectedRows || 0);
 }
@@ -400,6 +484,23 @@ export async function runSkillBuildersClinicalRetention({ limitRows = 500 } = {}
   let deletedNotes = 0;
   let deletedCurr = 0;
   const batch = clampRetentionBatchLimit(limitRows);
+
+  try {
+    const [expired] = await pool.execute(
+      `SELECT id FROM skill_builders_session_clinical_notes
+       WHERE expires_at IS NOT NULL AND expires_at < NOW()
+       LIMIT ${batch}`,
+      []
+    );
+    const expIds = (expired || []).map((r) => Number(r.id)).filter((x) => x > 0);
+    if (expIds.length) {
+      const ph = expIds.map(() => '?').join(',');
+      const [dr] = await pool.execute(`DELETE FROM skill_builders_session_clinical_notes WHERE id IN (${ph})`, expIds);
+      deletedNotes += Number(dr?.affectedRows || 0);
+    }
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+  }
 
   try {
     const [noteRows] = await pool.execute(

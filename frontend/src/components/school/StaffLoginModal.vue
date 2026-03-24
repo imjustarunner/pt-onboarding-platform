@@ -32,6 +32,13 @@
             />
           </div>
 
+          <div class="form-group form-group-inline">
+            <label class="checkbox-label">
+              <input v-model="rememberEmail" type="checkbox" />
+              <span>Remember email on this device</span>
+            </label>
+          </div>
+
           <div v-if="error" class="error-message">
             {{ error }}
           </div>
@@ -52,16 +59,26 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
+import {
+  getRememberedSchoolStaffPasswordLogin,
+  setRememberedSchoolStaffPasswordLogin,
+  clearRememberedSchoolStaffPasswordLogin,
+} from '../../utils/loginRemember';
 
 const props = defineProps({
   organizationSlug: {
     type: String,
     required: true
+  },
+  /** Agency segment for canonical URLs like /itsco/rudy/login (optional). */
+  parentOrganizationSlug: {
+    type: String,
+    default: null
   }
 });
 
@@ -75,6 +92,16 @@ const email = ref('');
 const password = ref('');
 const loggingIn = ref(false);
 const error = ref('');
+const rememberEmail = ref(true);
+
+onMounted(() => {
+  const slug = String(props.organizationSlug || '').trim().toLowerCase();
+  const remembered = getRememberedSchoolStaffPasswordLogin();
+  if (remembered && remembered.orgSlug === slug) {
+    email.value = remembered.username;
+    rememberEmail.value = true;
+  }
+});
 
 const handleLogin = async () => {
   if (!email.value || !password.value) {
@@ -111,6 +138,16 @@ const handleLogin = async () => {
       error.value = 'You are not authorized to access this organization';
       authStore.clearAuth();
       return;
+    }
+
+    if (rememberEmail.value) {
+      setRememberedSchoolStaffPasswordLogin({
+        username: String(email.value || '').trim(),
+        orgSlug: props.organizationSlug,
+        parentOrgSlug: props.parentOrganizationSlug || null
+      });
+    } else {
+      clearRememberedSchoolStaffPasswordLogin(props.organizationSlug);
     }
 
     // Check if this is a school organization and user should go to school portal
@@ -198,6 +235,26 @@ const handleLogin = async () => {
 
 .login-form {
   width: 100%;
+}
+
+.form-group-inline {
+  margin-bottom: 16px;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-label input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
 }
 
 .form-group {

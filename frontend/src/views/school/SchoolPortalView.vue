@@ -86,7 +86,7 @@
                         ? 'School staff'
                         : portalMode === 'messages'
                           ? 'Messages'
-                          : 'School portal'
+                          : 'School Portal'
             }}
           </div>
         </div>
@@ -175,7 +175,7 @@
           v-if="portalMode !== 'home'"
           class="nav-rail"
           :class="{ locked: waiverGateLocked }"
-          aria-label="School portal navigation"
+          aria-label="School Portal navigation"
           data-tour="school-nav-rail"
         >
           <button data-tour="school-nav-home" class="nav-item" type="button" @click="setPortalMode('home')" :class="{ active: portalMode === 'home' }">

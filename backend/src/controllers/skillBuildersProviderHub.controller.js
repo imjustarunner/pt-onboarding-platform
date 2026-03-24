@@ -33,6 +33,7 @@ import {
   curriculumStorageKey,
   deleteCurriculumForSession,
   deleteClinicalNotesForSession,
+  deleteClinicalNoteForSessionClient,
   decryptClinicalNoteRow,
   generateH2014SessionClinicalNote,
   getClinicalNoteBySessionClient,
@@ -46,6 +47,15 @@ import {
   upsertClinicalNote,
   upsertCurriculumRecord
 } from '../services/skillBuildersSessionClinical.service.js';
+import {
+  listActivityOptionsForSkillsGroup,
+  listActivityOptionsForProgramDocument,
+  resolveActivityOptionsForClinicalSession,
+  createActivityOption,
+  updateActivityOptionById,
+  deleteActivityOptionById,
+  getActivityOptionById
+} from '../services/skillBuildersActivityOptions.service.js';
 
 const curriculumUpload = multer({
   storage: multer.memoryStorage(),
@@ -2813,9 +2823,146 @@ export const listSkillBuilderSessionClinicalNotes = async (req, res, next) => {
         id: Number(r.id),
         clientId: Number(r.client_id),
         authorUserId: Number(r.author_user_id),
+        clientNoteStatus: String(r.clientNoteStatus || r.client_note_status || 'note_needed'),
         createdAt: r.created_at,
         updatedAt: r.updated_at
       }))
+    });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Run migration 589' } });
+    }
+    next(e);
+  }
+};
+
+/**
+ * GET /api/skill-builders/events/:eventId/sessions/:sessionId/clinical-notes-board?agencyId=
+ * Roster × note status × optional attendance for one occurrence (program hub "By session" view).
+ */
+export const getSkillBuilderSessionClinicalNotesBoard = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    if (!agencyId || !eventId || !sessionId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and session id required' } });
+    }
+    const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const [sRows] = await pool.execute(
+      `SELECT s.id, s.session_date AS sessionDate, s.starts_at AS sessionStartsAt, s.ends_at AS sessionEndsAt,
+              s.modality, s.location_label AS locationLabel, s.join_url AS joinUrl
+       FROM skill_builders_event_sessions s
+       INNER JOIN company_events ce ON ce.id = s.company_event_id AND ce.agency_id = ?
+       WHERE s.id = ? AND s.company_event_id = ?
+       LIMIT 1`,
+      [agencyId, sessionId, eventId]
+    );
+    const sess = sRows?.[0];
+    if (!sess) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const [sgRows] = await pool.execute(
+      `SELECT sg.id FROM skills_groups sg WHERE sg.company_event_id = ? AND sg.agency_id = ? LIMIT 1`,
+      [eventId, agencyId]
+    );
+    const sgId = sgRows?.[0]?.id;
+
+    const userId = parsePositiveInt(req.user?.id);
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const coord = await getSkillBuilderCoordinatorAccess(userId);
+    const rosterRestrict = !staffLike && !coord;
+
+    const docCompleteClause = `
+         AND COALESCE(c.skill_builders_intake_complete, 0) = 1
+         AND COALESCE(c.skill_builders_treatment_plan_complete, 0) = 1`;
+
+    let rosterRows = [];
+    if (sgId) {
+      const rosterSql = rosterRestrict
+        ? `SELECT c.id, c.initials, c.identifier_code
+           FROM skills_group_clients sgc
+           JOIN clients c ON c.id = sgc.client_id
+           WHERE sgc.skills_group_id = ?
+             AND (sgc.active_for_providers = 1 OR sgc.active_for_providers IS TRUE)
+             ${docCompleteClause}
+           ORDER BY c.initials ASC
+           LIMIT 200`
+        : `SELECT c.id, c.initials, c.identifier_code
+           FROM skills_group_clients sgc
+           JOIN clients c ON c.id = sgc.client_id
+           WHERE sgc.skills_group_id = ?
+             ${docCompleteClause}
+           ORDER BY c.initials ASC
+           LIMIT 200`;
+      const [rR] = await pool.execute(rosterSql, [sgId]);
+      rosterRows = rR || [];
+    }
+
+    let noteRows = [];
+    try {
+      const [nR] = await pool.execute(
+        `SELECT client_id, id, client_note_status, author_user_id, updated_at
+         FROM skill_builders_session_clinical_notes
+         WHERE session_id = ? AND company_event_id = ? AND agency_id = ?`,
+        [sessionId, eventId, agencyId]
+      );
+      noteRows = nR || [];
+    } catch (ne) {
+      if (ne?.code !== 'ER_NO_SUCH_TABLE') throw ne;
+    }
+    const noteByClient = new Map((noteRows || []).map((r) => [Number(r.client_id), r]));
+
+    let attendanceRows = [];
+    try {
+      const [aRows] = await pool.execute(
+        `SELECT client_id, check_in_at, check_out_at
+         FROM skill_builders_client_session_attendance
+         WHERE session_id = ?`,
+        [sessionId]
+      );
+      attendanceRows = aRows || [];
+    } catch (ae) {
+      if (ae?.code !== 'ER_NO_SUCH_TABLE') throw ae;
+    }
+    const attByClient = new Map((attendanceRows || []).map((r) => [Number(r.client_id), r]));
+
+    const evRow = access.row;
+    const eventTitle = evRow?.title != null ? String(evRow.title) : '';
+
+    const clients = (rosterRows || []).map((c) => {
+      const cid = Number(c.id);
+      const n = noteByClient.get(cid);
+      const a = attByClient.get(cid);
+      const hasNote = !!n;
+      return {
+        clientId: cid,
+        initials: c.initials || null,
+        identifierCode: c.identifier_code || null,
+        clientNoteStatus: hasNote ? String(n.client_note_status || 'note_needed') : 'none',
+        noteId: hasNote ? Number(n.id) : null,
+        authorUserId: hasNote && n.author_user_id != null ? Number(n.author_user_id) : null,
+        noteUpdatedAt: hasNote ? n.updated_at : null,
+        attendance: a
+          ? { checkInAt: a.check_in_at, checkOutAt: a.check_out_at, hasAttendance: true }
+          : { hasAttendance: false }
+      };
+    });
+
+    res.json({
+      ok: true,
+      eventTitle,
+      session: {
+        id: sessionId,
+        sessionDate: sess.sessionDate,
+        sessionStartsAt: sess.sessionStartsAt,
+        sessionEndsAt: sess.sessionEndsAt,
+        modality: sess.modality || null,
+        locationLabel: sess.locationLabel ?? sess.location_label ?? null,
+        joinUrl: sess.joinUrl ?? sess.join_url ?? null
+      },
+      clients
     });
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE') {
@@ -2846,7 +2993,16 @@ export const getSkillBuilderSessionClinicalNote = async (req, res, next) => {
   }
 };
 
-/** PUT /api/skill-builders/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId — save manual text */
+function sectionsObjectToPlainText(sections) {
+  if (!sections || typeof sections !== 'object') return '';
+  return Object.entries(sections)
+    .filter(([k]) => String(k).toLowerCase() !== 'meta')
+    .map(([k, v]) => `${k}\n${String(v ?? '')}`)
+    .join('\n\n')
+    .trim();
+}
+
+/** PUT /api/skill-builders/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId — save manual text or structured sections */
 export const putSkillBuilderSessionClinicalNoteManual = async (req, res, next) => {
   try {
     const agencyId = parsePositiveInt(req.body?.agencyId);
@@ -2861,17 +3017,50 @@ export const putSkillBuilderSessionClinicalNoteManual = async (req, res, next) =
     if (!(await clientOnEventRoster(clientId, eventId, agencyId))) {
       return res.status(400).json({ error: { message: 'Client is not on this event roster' } });
     }
-    const text = String(req.body?.plainText || '').trim();
-    if (!text) return res.status(400).json({ error: { message: 'plainText is required' } });
-    const out = { sections: { Output: text }, meta: { manual: true } };
+    const sectionsRaw = req.body?.sections;
+    const hasSections =
+      sectionsRaw &&
+      typeof sectionsRaw === 'object' &&
+      !Array.isArray(sectionsRaw) &&
+      Object.keys(sectionsRaw).length > 0;
+
+    const existingRow = await getClinicalNoteBySessionClient({ sessionId, clientId, companyEventId: eventId });
+    let prevMeta = {};
+    if (existingRow) {
+      const prevNote = decryptClinicalNoteRow(existingRow);
+      const m = prevNote?.outputJson?.meta;
+      if (m && typeof m === 'object') prevMeta = { ...m };
+    }
+
+    let plainText = String(req.body?.plainText || '').trim();
+    let outputObj;
+
+    if (hasSections) {
+      const sections = {};
+      for (const [k, v] of Object.entries(sectionsRaw)) {
+        if (String(k).toLowerCase() === 'meta') continue;
+        sections[k] = String(v ?? '');
+      }
+      if (!Object.keys(sections).length) {
+        return res.status(400).json({ error: { message: 'sections must include at least one heading' } });
+      }
+      outputObj = { sections, meta: { ...prevMeta, manual: true } };
+      if (!plainText) plainText = sectionsObjectToPlainText(sections);
+    } else {
+      if (!plainText) return res.status(400).json({ error: { message: 'plainText is required' } });
+      outputObj = { sections: { Output: plainText }, meta: { ...prevMeta, manual: true } };
+    }
+
+    if (!plainText) return res.status(400).json({ error: { message: 'plainText is required' } });
+
     const id = await upsertClinicalNote({
       agencyId,
       companyEventId: eventId,
       sessionId,
       clientId,
       authorUserId: req.user.id,
-      outputObj: out,
-      plainText: text
+      outputObj,
+      plainText
     });
     res.json({ ok: true, id });
   } catch (e) {
@@ -2899,10 +3088,27 @@ export const postSkillBuilderSessionClinicalNoteGenerate = async (req, res, next
     }
 
     const [sgRow] = await pool.execute(
-      `SELECT sg.name, sg.organization_id FROM skills_groups sg WHERE sg.company_event_id = ? AND sg.agency_id = ? LIMIT 1`,
+      `SELECT sg.id AS skills_group_id, sg.name, sg.organization_id FROM skills_groups sg WHERE sg.company_event_id = ? AND sg.agency_id = ? LIMIT 1`,
       [eventId, agencyId]
     );
     const programLabel = sgRow?.[0]?.name ? String(sgRow[0].name).trim().slice(0, 120) : null;
+    const skillsGroupId = parsePositiveInt(sgRow?.[0]?.skills_group_id);
+    const activityOptions = skillsGroupId ? await resolveActivityOptionsForClinicalSession({ skillsGroupId, sessionId }) : [];
+    const activeOptions = activityOptions.filter((o) => o.isActive);
+    const rawAct = req.body?.activityIds ?? req.body?.activityOptionIds;
+    const activityIdsRaw = Array.isArray(rawAct) ? rawAct : [];
+    const activityIds = activityIdsRaw.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0);
+    const allowedIds = new Set(activeOptions.map((o) => o.id));
+    const filteredActivityIds = activityIds.filter((id) => allowedIds.has(id));
+    if (activeOptions.length && !filteredActivityIds.length) {
+      return res.status(400).json({
+        error: {
+          message:
+            'Select at least one activity completed for this session (Program documents → View activities for this session, or Materials → Activities per session).'
+        }
+      });
+    }
+    const activityLabels = activeOptions.filter((o) => filteredActivityIds.includes(o.id)).map((o) => o.label);
 
     let curriculumText = await getDecryptedCurriculumTextForSession(sessionId);
     const paste = req.body?.curriculumPaste != null ? String(req.body.curriculumPaste).trim().slice(0, 50000) : '';
@@ -2921,7 +3127,8 @@ export const postSkillBuilderSessionClinicalNoteGenerate = async (req, res, next
       curriculumText,
       clinicianSummaryText,
       programLabel,
-      revisionInstruction
+      revisionInstruction,
+      activityLabels: activityLabels.length ? activityLabels : null
     });
 
     const id = await upsertClinicalNote({
@@ -2931,7 +3138,9 @@ export const postSkillBuilderSessionClinicalNoteGenerate = async (req, res, next
       clientId,
       authorUserId: req.user.id,
       outputObj,
-      plainText
+      plainText,
+      selectedActivityIds: filteredActivityIds.length ? filteredActivityIds : null,
+      clientNoteStatus: 'completed'
     });
 
     res.json({ ok: true, id, note: decryptClinicalNoteRow(await getClinicalNoteBySessionClient({ sessionId, clientId, companyEventId: eventId })) });
@@ -2962,6 +3171,457 @@ export const deleteSkillBuilderSessionClinicalNotes = async (req, res, next) => 
     const n = await deleteClinicalNotesForSession({ sessionId, companyEventId: eventId });
     res.json({ ok: true, deletedCount: n });
   } catch (e) {
+    next(e);
+  }
+};
+
+/** DELETE /api/skill-builders/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId — remove one note (restart draft) */
+export const deleteSkillBuilderSessionClinicalNoteForClient = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId ?? req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const clientId = parsePositiveInt(req.params.clientId);
+    if (!agencyId || !eventId || !sessionId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, session id, and client id required' } });
+    }
+    const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const row = await getClinicalNoteBySessionClient({ sessionId, clientId, companyEventId: eventId });
+    if (!row) return res.status(404).json({ error: { message: 'Note not found' } });
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const uid = parsePositiveInt(req.user?.id);
+    if (!staffLike && Number(row.author_user_id) !== Number(uid)) {
+      return res.status(403).json({ error: { message: 'Not authorized to delete this note' } });
+    }
+    const n = await deleteClinicalNoteForSessionClient({ sessionId, clientId, companyEventId: eventId });
+    res.json({ ok: true, deletedCount: n });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** Staff, coordinator, or assigned provider on the event (same as session curriculum uploads). */
+async function assertActivityOptionsManageAccess(req, agencyId, eventId) {
+  return canManageSessionCurriculum(req, agencyId, eventId);
+}
+
+/**
+ * Option row may be group/session scoped or tied to a program library PDF (program_document_id).
+ */
+async function assertActivityOptionWriteAccess(req, agencyId, eventId, optionRow) {
+  if (!optionRow) return { error: { status: 404, message: 'Activity not found' } };
+  if (optionRow.program_document_id != null) {
+    const pdid = Number(optionRow.program_document_id);
+    const [docs] = await pool.execute(
+      `SELECT program_organization_id FROM skill_builders_event_program_documents WHERE id = ? AND agency_id = ? LIMIT 1`,
+      [pdid, agencyId]
+    );
+    const docProgOrg = parsePositiveInt(docs?.[0]?.program_organization_id);
+    if (!docProgOrg) return { error: { status: 403, message: 'Not authorized' } };
+    const eventProgOrg = await fetchProgramOrganizationIdForCompanyEvent(agencyId, eventId);
+    if (!Number.isFinite(eventProgOrg) || eventProgOrg <= 0 || Number(eventProgOrg) !== docProgOrg) {
+      return { error: { status: 403, message: 'Activity belongs to a different program library' } };
+    }
+    return assertActivityOptionsManageAccess(req, agencyId, eventId);
+  }
+  const access = await assertActivityOptionsManageAccess(req, agencyId, eventId);
+  if (access.error) return access;
+  const [r] = await pool.execute(
+    `SELECT id FROM skills_groups WHERE company_event_id = ? AND agency_id = ? LIMIT 1`,
+    [eventId, agencyId]
+  );
+  const sgId = parsePositiveInt(r?.[0]?.id);
+  if (!sgId || Number(optionRow.skills_group_id) !== sgId) {
+    return { error: { status: 403, message: 'Activity does not belong to this event' } };
+  }
+  return { ok: true };
+}
+
+/** GET /api/skill-builders/events/:eventId/activity-options?agencyId=&sessionId= */
+export const listSkillBuilderActivityOptionsForEvent = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.query.sessionId);
+    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'agencyId and event id required' } });
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const [r] = await pool.execute(
+      `SELECT id FROM skills_groups WHERE company_event_id = ? AND agency_id = ? LIMIT 1`,
+      [eventId, agencyId]
+    );
+    const sgId = parsePositiveInt(r?.[0]?.id);
+    if (!sgId) return res.json({ ok: true, options: [] });
+    const sid = Number.isFinite(sessionId) && sessionId > 0 ? sessionId : null;
+    const options =
+      sid != null
+        ? await resolveActivityOptionsForClinicalSession({ skillsGroupId: sgId, sessionId: sid })
+        : await listActivityOptionsForSkillsGroup(sgId, null);
+    res.json({ ok: true, options });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true, options: [] });
+    next(e);
+  }
+};
+
+/** POST /api/skill-builders/events/:eventId/activity-options — body: { agencyId, label, sessionId? } */
+export const postSkillBuilderActivityOption = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const label = String(req.body?.label || '').trim();
+    const sessionId = parsePositiveInt(req.body?.sessionId);
+    if (!agencyId || !eventId || !label) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and label required' } });
+    }
+    const access = await assertActivityOptionsManageAccess(req, agencyId, eventId);
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const [r] = await pool.execute(
+      `SELECT id FROM skills_groups WHERE company_event_id = ? AND agency_id = ? LIMIT 1`,
+      [eventId, agencyId]
+    );
+    const sgId = parsePositiveInt(r?.[0]?.id);
+    if (!sgId) return res.status(400).json({ error: { message: 'Skills group not found for this event' } });
+    const sid = Number.isFinite(sessionId) && sessionId > 0 ? sessionId : null;
+    const id = await createActivityOption({ skillsGroupId: sgId, label, sessionId: sid });
+    res.json({ ok: true, id });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** PATCH /api/skill-builders/events/:eventId/activity-options/:optionId */
+export const patchSkillBuilderActivityOption = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const optionId = parsePositiveInt(req.params.optionId);
+    if (!agencyId || !eventId || !optionId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and option id required' } });
+    }
+    const row = await getActivityOptionById(optionId);
+    const gate = await assertActivityOptionWriteAccess(req, agencyId, eventId, row);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+    const n = await updateActivityOptionById(optionId, {
+      label: req.body?.label,
+      sortOrder: req.body?.sortOrder,
+      isActive: req.body?.isActive
+    });
+    res.json({ ok: true, updated: n });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** DELETE /api/skill-builders/events/:eventId/activity-options/:optionId */
+export const deleteSkillBuilderActivityOption = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const optionId = parsePositiveInt(req.params.optionId);
+    if (!agencyId || !eventId || !optionId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and option id required' } });
+    }
+    const row = await getActivityOptionById(optionId);
+    const gate = await assertActivityOptionWriteAccess(req, agencyId, eventId, row);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+    const n = await deleteActivityOptionById(optionId);
+    res.json({ ok: true, deleted: n });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/skill-builders/program-organizations/:programOrganizationId/program-documents/:documentId/activity-options */
+export const listSkillBuilderProgramDocumentActivityOptions = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const programOrganizationId = parsePositiveInt(req.params.programOrganizationId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    if (!agencyId || !programOrganizationId || !documentId) {
+      return res.status(400).json({ error: { message: 'agencyId, program organization id, and document id required' } });
+    }
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+    const [dr] = await pool.execute(
+      `SELECT id FROM skill_builders_event_program_documents WHERE id = ? AND agency_id = ? AND program_organization_id = ? LIMIT 1`,
+      [documentId, agencyId, programOrganizationId]
+    );
+    if (!dr?.[0]) return res.status(404).json({ error: { message: 'Document not found' } });
+    const options = await listActivityOptionsForProgramDocument(documentId);
+    res.json({ ok: true, options });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.json({ ok: true, options: [] });
+    }
+    next(e);
+  }
+};
+
+/** POST /api/skill-builders/program-organizations/:programOrganizationId/program-documents/:documentId/activity-options */
+export const postSkillBuilderProgramDocumentActivityOption = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const programOrganizationId = parsePositiveInt(req.params.programOrganizationId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    const label = String(req.body?.label || '').trim();
+    if (!agencyId || !programOrganizationId || !documentId || !label) {
+      return res.status(400).json({ error: { message: 'agencyId, document id, and label required' } });
+    }
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+    const [dr] = await pool.execute(
+      `SELECT id FROM skill_builders_event_program_documents WHERE id = ? AND agency_id = ? AND program_organization_id = ? LIMIT 1`,
+      [documentId, agencyId, programOrganizationId]
+    );
+    if (!dr?.[0]) return res.status(404).json({ error: { message: 'Document not found' } });
+    const id = await createActivityOption({ programDocumentId: documentId, label });
+    res.json({ ok: true, id });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** PATCH .../program-documents/:documentId/activity-options/:optionId */
+export const patchSkillBuilderProgramDocumentActivityOption = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const programOrganizationId = parsePositiveInt(req.params.programOrganizationId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    const optionId = parsePositiveInt(req.params.optionId);
+    if (!agencyId || !programOrganizationId || !documentId || !optionId) {
+      return res.status(400).json({ error: { message: 'Missing required ids' } });
+    }
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+    const row = await getActivityOptionById(optionId);
+    if (!row || Number(row.program_document_id) !== documentId) {
+      return res.status(404).json({ error: { message: 'Activity not found' } });
+    }
+    const n = await updateActivityOptionById(optionId, {
+      label: req.body?.label,
+      sortOrder: req.body?.sortOrder,
+      isActive: req.body?.isActive
+    });
+    res.json({ ok: true, updated: n });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** DELETE .../program-documents/:documentId/activity-options/:optionId */
+export const deleteSkillBuilderProgramDocumentActivityOption = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const programOrganizationId = parsePositiveInt(req.params.programOrganizationId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    const optionId = parsePositiveInt(req.params.optionId);
+    if (!agencyId || !programOrganizationId || !documentId || !optionId) {
+      return res.status(400).json({ error: { message: 'Missing required ids' } });
+    }
+    const gate = await assertProgramDocumentsAccess(req, agencyId, programOrganizationId);
+    if (gate.error) return res.status(gate.error.status).json({ error: { message: gate.error.message } });
+    const row = await getActivityOptionById(optionId);
+    if (!row || Number(row.program_document_id) !== documentId) {
+      return res.status(404).json({ error: { message: 'Activity not found' } });
+    }
+    const n = await deleteActivityOptionById(optionId);
+    res.json({ ok: true, deleted: n });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/skill-builders/me/clinical-notes — rows for program hub / Clinical Notes card.
+ * Providers: own notes only. Staff-like roles: all notes for the agency.
+ * Optional attendance rows without a note yet (same session/client) when status is pending-like.
+ *
+ * Query: eventId?, limit?, queueScope=due|all, statusFilter=pending|all|completed|missed|note_needed,
+ *        sortBy=sessionDate|updatedAt|eventTitle|status|client, sortDir=asc|desc,
+ *        includeAttendanceGaps=0|1 (default 1; ignored when statusFilter is completed or missed)
+ */
+export const listMySkillBuilderClinicalNotesIndex = async (req, res, next) => {
+  const noteSelect = `SELECT n.id, n.company_event_id AS companyEventId, n.session_id AS sessionId, n.client_id AS clientId,
+       n.author_user_id AS authorUserId, n.created_at AS createdAt, n.updated_at AS updatedAt,
+       n.expires_at AS expiresAt, n.client_note_status AS clientNoteStatus,
+       ce.title AS eventTitle, s.session_date AS sessionDate, s.starts_at AS sessionStartsAt,
+       c.initials AS clientInitials, c.identifier_code AS clientIdentifierCode,
+       'note' AS rowKind
+FROM skill_builders_session_clinical_notes n
+INNER JOIN company_events ce ON ce.id = n.company_event_id AND ce.agency_id = n.agency_id
+INNER JOIN skill_builders_event_sessions s ON s.id = n.session_id
+INNER JOIN clients c ON c.id = n.client_id AND c.agency_id = n.agency_id`;
+
+  const gapSelect = `SELECT NULL AS id, s.company_event_id AS companyEventId, s.id AS sessionId, a.client_id AS clientId,
+       NULL AS authorUserId, a.created_at AS createdAt, COALESCE(a.updated_at, s.starts_at) AS updatedAt,
+       NULL AS expiresAt, 'note_needed' AS clientNoteStatus,
+       ce.title AS eventTitle, s.session_date AS sessionDate, s.starts_at AS sessionStartsAt,
+       c.initials AS clientInitials, c.identifier_code AS clientIdentifierCode,
+       'attendance_gap' AS rowKind
+FROM skill_builders_client_session_attendance a
+INNER JOIN skill_builders_event_sessions s ON s.id = a.session_id
+INNER JOIN company_events ce ON ce.id = s.company_event_id AND ce.agency_id = ?
+LEFT JOIN skill_builders_session_clinical_notes n
+  ON n.session_id = a.session_id AND n.client_id = a.client_id AND n.agency_id = ce.agency_id
+INNER JOIN clients c ON c.id = a.client_id AND c.agency_id = ce.agency_id
+WHERE n.id IS NULL`;
+
+  const sortMergedNotes = (rows, sortBy, sortDir) => {
+    const key = String(sortBy || 'sessionDate');
+    const dir = String(sortDir || 'asc').toLowerCase() === 'desc' ? -1 : 1;
+    const val = (r) => {
+      if (key === 'sessionDate') return String(r.sessionDate || '');
+      if (key === 'updatedAt') return String(r.updatedAt || '');
+      if (key === 'eventTitle') return String(r.eventTitle || '').toLowerCase();
+      if (key === 'status') return String(r.clientNoteStatus || '').toLowerCase();
+      if (key === 'client') {
+        return String(r.clientInitials || r.clientIdentifierCode || r.clientId || '').toLowerCase();
+      }
+      return String(r.sessionDate || '');
+    };
+    return [...rows].sort((a, b) => {
+      const va = val(a);
+      const vb = val(b);
+      if (va < vb) return -1 * dir;
+      if (va > vb) return 1 * dir;
+      return (Number(a.sessionId) - Number(b.sessionId)) * dir || (Number(a.clientId) - Number(b.clientId)) * dir;
+    });
+  };
+
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId required' } });
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized' } });
+    }
+    const uid = parsePositiveInt(req.user?.id);
+    if (!uid) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const limitSafe = Math.min(500, Math.max(1, parsePositiveInt(req.query.limit) || 200));
+    const filterEventId = parsePositiveInt(req.query.eventId);
+
+    const queueScope = String(req.query.queueScope || 'due').toLowerCase() === 'all' ? 'all' : 'due';
+    const statusFilterRaw = String(req.query.statusFilter || 'pending').toLowerCase();
+    const sortByRaw = String(req.query.sortBy || 'sessionDate').toLowerCase();
+    const sortDir = String(req.query.sortDir || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc';
+    const mapSortKey = {
+      sessiondate: 'sessionDate',
+      updatedat: 'updatedAt',
+      eventtitle: 'eventTitle',
+      status: 'status',
+      client: 'client'
+    };
+    const sortKey = mapSortKey[sortByRaw.replace(/_/g, '')] || 'sessionDate';
+
+    let includeGaps = !['0', 'false', 'no'].includes(String(req.query.includeAttendanceGaps || '').toLowerCase());
+    /* "all" must still allow attendance-gap rows (note not filed yet); forcing gaps off made the list look "completed only". */
+    if (statusFilterRaw === 'completed') includeGaps = false;
+    if (statusFilterRaw === 'missed') includeGaps = false;
+
+    const statusClause = () => {
+      if (statusFilterRaw === 'all') return '';
+      if (statusFilterRaw === 'completed') return ` AND n.client_note_status = 'completed'`;
+      if (statusFilterRaw === 'missed') return ` AND n.client_note_status = 'missed'`;
+      if (statusFilterRaw === 'note_needed') return ` AND n.client_note_status = 'note_needed'`;
+      return ` AND n.client_note_status IN ('note_needed','missed')`;
+    };
+
+    const dateClause = () => {
+      if (queueScope === 'all') return '';
+      return ` AND DATE(s.session_date) <= CURDATE()`;
+    };
+
+    const buildNoteWhere = (params) => {
+      let sql = `${noteSelect} WHERE n.agency_id = ?`;
+      params.push(agencyId);
+      sql += statusClause();
+      sql += dateClause();
+      if (staffLike && filterEventId) {
+        sql += ` AND n.company_event_id = ?`;
+        params.push(filterEventId);
+      } else if (staffLike && !filterEventId) {
+        /* ok */
+      } else if (!staffLike && filterEventId) {
+        sql += ` AND n.author_user_id = ? AND n.company_event_id = ?`;
+        params.push(uid, filterEventId);
+      } else {
+        sql += ` AND n.author_user_id = ?`;
+        params.push(uid);
+      }
+      return sql;
+    };
+
+    const params = [];
+    const noteSql = buildNoteWhere(params);
+    const [noteRowsRaw] = await pool.execute(noteSql, params);
+
+    let gapRowsRaw = [];
+    if (includeGaps) {
+      try {
+        const gParams = [agencyId];
+        let gSql = `${gapSelect}`;
+        gSql += dateClause();
+        if (filterEventId) {
+          gSql += ` AND s.company_event_id = ?`;
+          gParams.push(filterEventId);
+        }
+        if (!staffLike) {
+          gSql += ` AND (
+            EXISTS (SELECT 1 FROM skill_builders_event_session_providers sp WHERE sp.session_id = s.id AND sp.provider_user_id = ?)
+            OR EXISTS (
+              SELECT 1 FROM skills_group_providers sgp
+              INNER JOIN skills_group_clients sgc ON sgc.skills_group_id = sgp.skills_group_id AND sgc.client_id = a.client_id
+              WHERE sgp.skills_group_id = s.skills_group_id AND sgp.provider_user_id = ?
+            )
+          )`;
+          gParams.push(uid, uid);
+        }
+        const [g] = await pool.execute(gSql, gParams);
+        gapRowsRaw = g || [];
+      } catch (ge) {
+        if (ge?.code !== 'ER_NO_SUCH_TABLE') throw ge;
+      }
+    }
+
+    const mapRow = (r) => ({
+      id: r.id != null ? Number(r.id) : null,
+      companyEventId: Number(r.companyEventId),
+      sessionId: Number(r.sessionId),
+      clientId: Number(r.clientId),
+      authorUserId: r.authorUserId != null ? Number(r.authorUserId) : null,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      expiresAt: r.expiresAt,
+      clientNoteStatus: r.clientNoteStatus,
+      eventTitle: r.eventTitle,
+      sessionDate: r.sessionDate,
+      sessionStartsAt: r.sessionStartsAt,
+      clientInitials: r.clientInitials || null,
+      clientIdentifierCode: r.clientIdentifierCode || null,
+      rowKind: r.rowKind || 'note'
+    });
+
+    const noteRows = (noteRowsRaw || []).map(mapRow);
+    const gapRows = (gapRowsRaw || []).map(mapRow);
+
+    const mergedMap = new Map();
+    for (const r of gapRows) {
+      mergedMap.set(`${r.sessionId}:${r.clientId}`, r);
+    }
+    for (const r of noteRows) {
+      mergedMap.set(`${r.sessionId}:${r.clientId}`, r);
+    }
+    let merged = [...mergedMap.values()];
+    merged = sortMergedNotes(merged, sortKey, sortDir);
+    merged = merged.slice(0, limitSafe);
+
+    res.json({ ok: true, notes: merged });
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR' || e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.json({ ok: true, notes: [] });
+    }
     next(e);
   }
 };

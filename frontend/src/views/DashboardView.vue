@@ -1145,7 +1145,8 @@
       v-if="skillBuildersProviderHubOpen && currentAgencyId"
       mode="provider"
       :agency-id="currentAgencyId"
-      @close="skillBuildersProviderHubOpen = false"
+      :initial-section="skillBuildersHubInitialSection"
+      @close="closeSkillBuildersProviderHub"
       @open-skill-builder-availability="openSkillBuilderAvailabilityFromHub"
     />
     <LastPaycheckModal
@@ -1385,6 +1386,13 @@ const programHubOrg = ref(null); // { id, name } | null
 /** When opening from ?programHub=1 — e.g. `documents` for Program documents */
 const programHubInitialSection = ref(null);
 const skillBuildersProviderHubOpen = ref(false);
+/** When opening Skill Builders hub from Clinical Aid card, jump to Clinical Notes section. */
+const skillBuildersHubInitialSection = ref(null);
+
+function closeSkillBuildersProviderHub() {
+  skillBuildersProviderHubOpen.value = false;
+  skillBuildersHubInitialSection.value = null;
+}
 
 function closeProgramHub() {
   programHubOpen.value = false;
@@ -2988,6 +2996,20 @@ const dashboardCards = computed(() => {
             description: 'Availability, events, and Skill Builders work schedule.'
           });
         }
+        if (
+          isSkillBuilderEligible.value &&
+          !isClubContext.value &&
+          clinicalNoteGeneratorEnabledForAgency.value
+        ) {
+          cards.push({
+            id: 'clinical_aid',
+            label: 'Clinical Aid',
+            kind: 'content',
+            badgeCount: 0,
+            iconUrl: brandingStore.getDashboardCardIconUrl('supervision', iconOrg),
+            description: 'H2014 group notes: Skill Builders program hub or event portal (Client management).'
+          });
+        }
       }
       // Show Tools & Aids for eligible roles. Privileged roles (admin/super_admin/support) always see it
       // even when no agency is selected; others require the feature flag on current agency.
@@ -3340,6 +3362,12 @@ const handleCardClick = (card) => {
     return;
   }
   if (card.id === 'skill_builders_provider_hub') {
+    skillBuildersHubInitialSection.value = null;
+    skillBuildersProviderHubOpen.value = true;
+    return;
+  }
+  if (card.id === 'clinical_aid') {
+    skillBuildersHubInitialSection.value = 'clinical_notes';
     skillBuildersProviderHubOpen.value = true;
     return;
   }
@@ -4821,7 +4849,9 @@ h1 {
 }
 .dashboard-rail.rail-collapsed .rail-card {
   padding: 8px 6px;
+  display: flex;
   justify-content: center;
+  align-items: center;
   border-left-width: 2px;
   position: relative;
 }
@@ -4897,10 +4927,13 @@ h1 {
   padding: 10px 12px;
   cursor: pointer;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
-  display: flex;
+  /* Grid: title cluster + CTA as two max-content columns — tight gap, no stretched middle */
+  display: grid;
+  grid-template-columns: minmax(0, max-content) max-content;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: start;
+  column-gap: 6px;
+  row-gap: 0;
 }
 [data-theme="dark"] .rail-card {
   background: rgba(37, 40, 44, 0.75);
@@ -4944,6 +4977,7 @@ h1 {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .rail-card-icon {
@@ -4990,9 +5024,10 @@ h1 {
 .rail-card-meta {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .rail-card-badge {

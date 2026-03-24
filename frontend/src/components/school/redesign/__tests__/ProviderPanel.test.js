@@ -17,7 +17,10 @@ describe('ProviderPanel', () => {
 
     const chip = wrapper.find('button.chip');
     await chip.trigger('click');
-    expect(wrapper.emitted('open-client')?.[0]?.[0]).toMatchObject({ id: 1 });
+    expect(wrapper.emitted('open-client')?.[0]?.[0]).toMatchObject({
+      client: { id: 1, initials: 'ABCDEF' },
+      navigationClientIds: [1]
+    });
   });
 });
 

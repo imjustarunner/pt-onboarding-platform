@@ -367,6 +367,19 @@ gcloud sql connect onboarding-mysql --user=root
 5. ✅ Enable Cloud Armor for DDoS protection
 6. ✅ Regular security updates for dependencies
 
+## Public marketing hubs and custom domains (e.g. plottwistco.com)
+
+**Hub URLs:** After migration `598_public_marketing_pages.sql`, superadmins configure pages in-app at **Admin → Public marketing pages** (`/admin/public-marketing-pages`). Public URLs are **`/p/:hubSlug`** on whichever host serves the Vue app.
+
+**Custom domain checklist:**
+
+1. **DNS** — Point `plottwistco.com` (and `www` if desired) to your frontend (Cloud Run load balancer, Firebase Hosting, etc.).
+2. **TLS** — Provision a managed certificate for the domain on that frontend service.
+3. **Frontend `VITE_API_URL`** — Build the SPA with the **absolute** API origin your browser should call (e.g. `https://api.plottwistco.com/api` or a path on the same host). Relative `/api` only works when the API is reverse-proxied on the **same** origin as the SPA.
+4. **Backend CORS** — Add `https://plottwistco.com` (and `https://www.plottwistco.com` if used) to the backend allowed origins so `withCredentials` requests succeed.
+5. **Cookies / auth** — If you rely on cookie sessions across subdomains, set cookie `Domain` and `SameSite` appropriately (often `SameSite=None; Secure` for cross-site API hosts). Public hub pages use **no auth**; logged-in staff using the same build on the custom domain need this aligned.
+6. **Public metrics** — Hub pages can expose allowlisted aggregates via `GET /api/public/marketing-pages/:slug/metrics` when `metrics_profile` is set (`hub_sources_summary` or `plottwistco_summary`). Rate limits apply; do not treat as confidential—review counts for compliance before enabling.
+
 ## Next Steps
 
 - Set up monitoring with Cloud Monitoring

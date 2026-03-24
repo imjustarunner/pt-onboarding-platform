@@ -3352,6 +3352,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
             id: c.id,
             label: c.label,
             busy: r?.ok ? (r.busy || []) : [],
+            events: r?.ok ? (r.events || r.busy || []) : [],
             ok: r?.ok !== false,
             error: r?.ok ? null : (r?.error || r?.reason || 'Failed to fetch calendar feed')
           });

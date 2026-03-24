@@ -767,6 +767,41 @@
           </tbody>
         </table>
       </div>
+
+      <div v-if="currentAgencyId" class="card">
+        <h3>Organization link requests</h3>
+        <p class="muted">
+          To link a school or program that already belongs to another agency, the organization must approve your request first.
+          After they approve, use “Link School” again.
+        </p>
+        <div v-if="affiliationOutgoingLoading" class="muted">Loading…</div>
+        <div v-else-if="affiliationOutgoingError" class="error">{{ affiliationOutgoingError }}</div>
+        <ul v-else-if="affiliationOutgoingRequests.length" class="table" style="list-style: none; padding: 0; margin: 0;">
+          <li
+            v-for="r in affiliationOutgoingRequests"
+            :key="r.id"
+            style="padding: 8px 0; border-bottom: 1px solid var(--border);"
+          >
+            <strong>{{ r.organization_name }}</strong>
+            <span class="mono muted" style="margin-left: 8px;">{{ r.organization_slug }}</span>
+            — <span class="pill" :class="r.status === 'pending' ? 'pill-warn' : 'pill-off'">{{ r.status }}</span>
+          </li>
+        </ul>
+        <p v-else class="muted">No outgoing requests.</p>
+        <p v-if="affiliationConsentHint" class="hint" style="margin-top: 12px;">
+          {{ affiliationConsentHint }}
+          <button
+            v-if="pendingAffiliationOrgId"
+            type="button"
+            class="btn btn-secondary"
+            style="margin-left: 8px;"
+            :disabled="requestingAffiliation"
+            @click="submitAffiliationRequestForPendingOrg"
+          >
+            {{ requestingAffiliation ? 'Submitting…' : 'Request approval' }}
+          </button>
+        </p>
+      </div>
     </div>
   </div>
 </template>
@@ -936,6 +971,12 @@ const error = ref('');
 
 const linking = ref(false);
 const unlinkingId = ref(null);
+const affiliationOutgoingRequests = ref([]);
+const affiliationOutgoingLoading = ref(false);
+const affiliationOutgoingError = ref('');
+const affiliationConsentHint = ref('');
+const pendingAffiliationOrgId = ref(null);
+const requestingAffiliation = ref(false);
 
 const money = (cents) => {
   const v = Number(cents || 0) / 100;
@@ -1413,9 +1454,50 @@ const loadAvailableSchools = async () => {
   availableSchools.value = res.data || [];
 };
 
+const loadAffiliationOutgoing = async () => {
+  affiliationOutgoingError.value = '';
+  if (!currentAgencyId.value) {
+    affiliationOutgoingRequests.value = [];
+    return;
+  }
+  affiliationOutgoingLoading.value = true;
+  try {
+    const res = await api.get(`/agencies/${currentAgencyId.value}/organization-affiliation-requests`);
+    affiliationOutgoingRequests.value = Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    affiliationOutgoingRequests.value = [];
+    affiliationOutgoingError.value =
+      e?.response?.data?.error?.message || e.message || 'Failed to load affiliation requests';
+  } finally {
+    affiliationOutgoingLoading.value = false;
+  }
+};
+
+const submitAffiliationRequestForPendingOrg = async () => {
+  const aid = currentAgencyId.value;
+  const oid = pendingAffiliationOrgId.value;
+  if (!aid || !oid) return;
+  requestingAffiliation.value = true;
+  affiliationConsentHint.value = '';
+  try {
+    await api.post(`/agencies/${aid}/organization-affiliation-requests`, { organizationId: oid });
+    pendingAffiliationOrgId.value = null;
+    await loadAffiliationOutgoing();
+    affiliationConsentHint.value =
+      'Request sent. When the organization approves, return here and click Link School again.';
+  } catch (e) {
+    affiliationConsentHint.value =
+      e?.response?.data?.error?.message || e.message || 'Could not submit affiliation request';
+  } finally {
+    requestingAffiliation.value = false;
+  }
+};
+
 const linkSelectedSchool = async () => {
   if (!currentAgencyId.value || !selectedSchoolId.value) return;
   error.value = '';
+  affiliationConsentHint.value = '';
+  pendingAffiliationOrgId.value = null;
   linking.value = true;
   try {
     await api.post(`/agencies/${currentAgencyId.value}/schools`, {
@@ -1425,7 +1507,16 @@ const linkSelectedSchool = async () => {
     selectedSchoolId.value = '';
     await loadLinkedSchools();
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Failed to link school';
+    const code = e?.response?.data?.error?.code;
+    const orgId = parseInt(selectedSchoolId.value, 10);
+    if (code === 'AFFILIATION_CONSENT_REQUIRED' && orgId) {
+      pendingAffiliationOrgId.value = orgId;
+      affiliationConsentHint.value =
+        'This organization must approve your agency before it can be linked. Submit a request, then link again after approval.';
+      error.value = '';
+    } else {
+      error.value = e?.response?.data?.error?.message || 'Failed to link school';
+    }
   } finally {
     linking.value = false;
   }
@@ -1484,6 +1575,7 @@ onMounted(async () => {
     loadInvoices(),
     loadAvailableSchools(),
     loadLinkedSchools(),
+    loadAffiliationOutgoing(),
     ...(isSuperAdmin.value ? [loadPlatformQboStatus()] : [])
   ]);
 });
@@ -1503,6 +1595,7 @@ watch(currentAgencyId, async (newId, oldId) => {
     loadInvoices(),
     loadAvailableSchools(),
     loadLinkedSchools(),
+    loadAffiliationOutgoing(),
     ...(isSuperAdmin.value ? [loadPlatformQboStatus()] : [])
   ]);
 });

@@ -50,6 +50,31 @@ export async function resolveAffiliatedProgramOrganizationIdBySlug(conn, agencyI
 }
 
 /**
+ * Resolve a program organization by portal slug under any active parent affiliation.
+ * Used when the URL’s first segment is the program’s own slug (multi-parent safe).
+ */
+export async function resolveAffiliatedProgramOrganizationIdBySlugAnyParent(conn, programSlug) {
+  const slug = String(programSlug || '')
+    .trim()
+    .toLowerCase();
+  if (!slug) return null;
+  const [rows] = await conn.execute(
+    `SELECT child.id
+     FROM organization_affiliations oa
+     JOIN agencies child ON child.id = oa.organization_id
+     WHERE oa.is_active = TRUE
+       AND (child.is_archived = FALSE OR child.is_archived IS NULL)
+       AND (child.is_active = TRUE OR child.is_active IS NULL)
+       AND LOWER(COALESCE(child.organization_type, '')) = 'program'
+       AND LOWER(TRIM(child.slug)) = ?
+     ORDER BY child.id ASC
+     LIMIT 1`,
+    [slug]
+  );
+  return rows?.[0]?.id ? Number(rows[0].id) : null;
+}
+
+/**
  * Skills group DATE columns may be NULL, or MySQL zero dates (0000-00-00) which must not be sent to company_events.
  * @returns {string|null} YYYY-MM-DD or null
  */

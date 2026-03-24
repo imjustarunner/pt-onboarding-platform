@@ -51,6 +51,7 @@
             <th>Session</th>
             <th>Curriculum</th>
             <th>From library</th>
+            <th>Activities</th>
             <th />
           </tr>
         </thead>
@@ -84,6 +85,9 @@
                 <span v-else class="muted small">Upload a PDF to the library above, or open the program document library.</span>
               </template>
               <span v-else class="muted small">—</span>
+            </td>
+            <td class="sbep-mat-curr-activities">
+              <button type="button" class="btn btn-secondary btn-sm" @click="openActivitiesModal(s)">View activities</button>
             </td>
             <td class="sbep-mat-curr-actions">
               <input
@@ -136,12 +140,24 @@
         </tbody>
       </table>
     </div>
+
+    <SkillBuildersSessionActivitiesModal
+      :show="activitiesModalOpen"
+      :agency-id="agencyId"
+      :event-id="eventId"
+      :session-id="activitiesSessionId"
+      :session-label="activitiesModalSessionLabel"
+      :can-manage="canManageActivities"
+      @close="activitiesModalOpen = false"
+      @updated="emit('refresh-sessions')"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, reactive, watch } from 'vue';
 import api from '../../services/api';
+import SkillBuildersSessionActivitiesModal from './SkillBuildersSessionActivitiesModal.vue';
 
 const props = defineProps({
   agencyId: { type: Number, required: true },
@@ -244,6 +260,25 @@ const canManage = computed(() => {
   const v = props.viewerCaps;
   return !!(v?.isAssignedProvider || v?.canManageTeamSchedules || v?.canManageCompanyEvent);
 });
+
+const canManageActivities = computed(() => {
+  const v = props.viewerCaps;
+  return !!(v?.canManageTeamSchedules || v?.canManageCompanyEvent || v?.isAssignedProvider);
+});
+
+const activitiesModalOpen = ref(false);
+const activitiesSessionId = ref(0);
+
+const activitiesModalSessionLabel = computed(() => {
+  const sid = activitiesSessionId.value;
+  const s = (props.sessions || []).find((x) => Number(x.id) === Number(sid));
+  return s ? props.formatSessionLabel(s) : '';
+});
+
+function openActivitiesModal(s) {
+  activitiesSessionId.value = Number(s.id);
+  activitiesModalOpen.value = true;
+}
 
 function setFileInputRef(sessionId, el) {
   if (el && el instanceof HTMLInputElement) {

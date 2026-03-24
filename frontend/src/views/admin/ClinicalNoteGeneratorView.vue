@@ -13,6 +13,17 @@
       <div class="muted">⚠️ Privacy Notice: This draft will be permanently deleted in 7 days.</div>
     </div>
 
+    <div v-if="canUseTool && therapyContext" class="content-card" style="margin-bottom: 12px; padding: 12px 14px;">
+      <strong>Therapy Notes context</strong>
+      <div class="muted small" style="margin-top: 6px;">
+        <span v-if="therapyContext.therapySummary">{{ therapyContext.therapySummary }}</span>
+        <span v-if="therapyContext.therapyCalendarLabel"> · {{ therapyContext.therapyCalendarLabel }}</span>
+      </div>
+      <p class="muted small" style="margin: 8px 0 0 0;">
+        Opened from your calendar overlay. Approve to clinical records is only available when you launch Note Aid from a booked office slot with a client.
+      </p>
+    </div>
+
     <div v-if="!canUseTool" class="content-card">
       <div class="empty-state">
         <strong>Not available</strong>
@@ -50,9 +61,9 @@
 
       <div class="row">
         <div class="col">
-          <label class="label">Service Code</label>
+          <label class="label">Note type (service code)</label>
           <select v-model="selectedServiceCode" class="input" :disabled="autoSelectCode || forceAutoSelect">
-            <option value="" disabled>Select a service code</option>
+            <option value="" disabled>Select a note type</option>
             <option v-for="code in serviceCodeOptions" :key="code" :value="code">{{ serviceCodeOptionLabel(code) }}</option>
             <option v-if="canUseOtherCode" value="__other__">Other (enter code)</option>
           </select>
@@ -300,21 +311,41 @@
           <div class="muted">Generated sections will appear here as separate cards.</div>
         </div>
         <div v-else class="cards">
-          <div v-for="[title, text] in sectionEntries" :key="title" class="note-card">
+          <div v-for="[title, text] in mergedSectionEntries" :key="title" class="note-card">
             <div class="note-card-header">
               <div class="note-card-title">{{ title }}</div>
+              <button
+                class="icon-btn"
+                type="button"
+                @click="toggleSectionEdit(title)"
+              >
+                {{ sectionEditing[title] ? 'Done' : 'Edit' }}
+              </button>
               <button class="icon-btn" type="button" :disabled="!text" @click="copyText(text)">
                 Copy
               </button>
             </div>
-            <pre class="note-card-body">{{ text }}</pre>
+            <textarea
+              v-if="sectionEditing[title]"
+              v-model="sectionOverrides[title]"
+              class="textarea note-card-body"
+              rows="8"
+              style="font-family: inherit;"
+            />
+            <pre v-else class="note-card-body">{{ text }}</pre>
           </div>
         </div>
         <div class="actions">
           <button class="btn btn-secondary btn-sm" type="button" :disabled="generating || !String(inputText || '').trim()" @click="generateNote">
             {{ generating ? 'Regenerating…' : 'Retry with same transcript' }}
           </button>
-          <button class="btn btn-primary btn-sm" type="button" :disabled="!sectionEntries.length || approvingNote" @click="approveNoteOutput">
+          <button
+            v-if="canApproveToClinicalRecord"
+            class="btn btn-primary btn-sm"
+            type="button"
+            :disabled="!mergedSectionEntries.length || approvingNote"
+            @click="approveNoteOutput"
+          >
             {{ approvingNote ? 'Approving…' : 'Approve note output' }}
           </button>
           <span v-if="copied" class="hint">Copied.</span>
@@ -432,7 +463,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { useRoute } from 'vue-router';
@@ -464,6 +495,22 @@ const bookingContext = computed(() => {
     serviceCode
   };
 });
+
+/** Therapy Notes / ICS launch — no office booking; copy-only (no Approve to clinical record). */
+const therapyContext = computed(() => {
+  const src = String(route.query?.therapySource || route.query?.therapy_source || '').trim().toLowerCase();
+  if (src !== 'therapy_notes') return null;
+  return {
+    therapyStartAt: String(route.query?.therapyStartAt || route.query?.therapy_start_at || '').trim(),
+    therapyEndAt: String(route.query?.therapyEndAt || route.query?.therapy_end_at || '').trim(),
+    therapySummary: String(route.query?.therapySummary || route.query?.therapy_summary || '').trim(),
+    therapyCalendarLabel: String(route.query?.therapyCalendarLabel || route.query?.therapy_calendar_label || '').trim()
+  };
+});
+
+const canApproveToClinicalRecord = computed(
+  () => !!(bookingContext.value?.officeEventId && bookingContext.value?.clientId)
+);
 const retentionClientId = computed(() => Number(bookingContext.value?.clientId || 0) || null);
 const retentionOfficeEventId = computed(() => Number(bookingContext.value?.officeEventId || 0) || null);
 const launchIntent = computed(() => String(route.query?.launchIntent || route.query?.launch_intent || '').trim().toLowerCase());
@@ -525,6 +572,7 @@ const inputText = ref('');
 const autoSelectCode = ref(false);
 const forceAutoSelect = computed(() => String(derivedTier.value || '') === 'unknown');
 const bookingPrefillApplied = ref(false);
+const therapyPrefillApplied = ref(false);
 const clientPresentInRecording = ref(true);
 const clientConsentOnFile = ref('');
 const clientConsentTaskId = ref(null);
@@ -658,6 +706,57 @@ const serviceCodeOptionLabel = (code) => {
   const normalized = String(code || '').trim().toUpperCase();
   const desc = serviceCodeDescription(normalized);
   return desc ? `${normalized} — ${desc}` : normalized;
+};
+
+const formatTherapyRangeLine = (startRaw, endRaw) => {
+  try {
+    const a = startRaw ? new Date(startRaw) : null;
+    const b = endRaw ? new Date(endRaw) : null;
+    if (a && !Number.isNaN(a.getTime()) && b && !Number.isNaN(b.getTime())) {
+      return `${a.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} – ${b.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
+    }
+    if (a && !Number.isNaN(a.getTime())) return a.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  } catch {
+    // ignore
+  }
+  return '';
+};
+
+const applyTherapyContextPrefill = () => {
+  if (therapyPrefillApplied.value) return;
+  const t = therapyContext.value;
+  if (!t) {
+    therapyPrefillApplied.value = true;
+    return;
+  }
+  const start = t.therapyStartAt;
+  if (start) {
+    try {
+      const d = new Date(start);
+      if (!Number.isNaN(d.getTime())) {
+        dateOfService.value = d.toISOString().slice(0, 10);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  const summary = t.therapySummary || '';
+  if (summary) {
+    const forTherapy = summary.match(/^([^\s]+)\s+for\s+therapy/i);
+    const initialsMatch = forTherapy ? forTherapy[1] : summary.match(/^([A-Za-z]{2,8})\b/);
+    if (initialsMatch && String(initialsMatch[1]).length <= 16) {
+      initials.value = String(initialsMatch[1]).slice(0, 16);
+    }
+  }
+  const rangeLine = formatTherapyRangeLine(t.therapyStartAt, t.therapyEndAt);
+  const lines = [];
+  if (summary) lines.push(`Therapy Notes session: ${summary}`);
+  if (rangeLine) lines.push(`When: ${rangeLine}`);
+  if (t.therapyCalendarLabel) lines.push(`Calendar: ${t.therapyCalendarLabel}`);
+  if (lines.length && !String(inputText.value || '').trim()) {
+    inputText.value = lines.join('\n');
+  }
+  therapyPrefillApplied.value = true;
 };
 
 const applyBookingContextPrefill = () => {
@@ -899,6 +998,33 @@ const sectionEntries = computed(() => {
     return [title, compacted || text];
   });
 });
+
+const sectionOverrides = reactive({});
+const sectionEditing = reactive({});
+
+const mergedSectionEntries = computed(() =>
+  sectionEntries.value.map(([title, base]) => {
+    const text = Object.prototype.hasOwnProperty.call(sectionOverrides, title) ? sectionOverrides[title] : base;
+    return [title, text];
+  })
+);
+
+watch(outputObj, () => {
+  Object.keys(sectionOverrides).forEach((k) => delete sectionOverrides[k]);
+  Object.keys(sectionEditing).forEach((k) => delete sectionEditing[k]);
+});
+
+const toggleSectionEdit = (title) => {
+  const t = String(title || '');
+  const next = !sectionEditing[t];
+  sectionEditing[t] = next;
+  if (next) {
+    const base = sectionEntries.value.find(([x]) => x === t)?.[1] ?? '';
+    if (!Object.prototype.hasOwnProperty.call(sectionOverrides, t)) {
+      sectionOverrides[t] = base;
+    }
+  }
+};
 
 const generationLogicSummary = computed(() => {
   const meta = outputObj.value?.meta || {};
@@ -1393,7 +1519,7 @@ const generateNote = async () => {
 };
 
 const buildApprovedPayloadText = () => {
-  const sections = Object.fromEntries(sectionEntries.value || []);
+  const sections = Object.fromEntries(mergedSectionEntries.value || []);
   if (!sections || Object.keys(sections).length === 0) return '';
   return JSON.stringify(
     {
@@ -1424,7 +1550,7 @@ const ensureClinicalSessionForApproval = async () => {
 };
 
 const approveNoteOutput = async () => {
-  if (!sectionEntries.value.length) return;
+  if (!mergedSectionEntries.value.length) return;
   if (approvingNote.value) return;
   const ok = window.confirm('Approve this note and clear transcript/audio from this form?');
   if (!ok) return;
@@ -1563,6 +1689,7 @@ onMounted(async () => {
     await loadContext();
     await loadPrograms();
     applyBookingContextPrefill();
+    applyTherapyContextPrefill();
   }
 
   autosaveTimer = window.setInterval(() => {
@@ -1573,13 +1700,16 @@ onMounted(async () => {
 watch([serviceCodeOptions, forceAutoSelect, canUseTool], () => {
   if (!canUseTool.value) return;
   applyBookingContextPrefill();
+  applyTherapyContextPrefill();
 });
 
 watch(() => route.query, () => {
   bookingPrefillApplied.value = false;
+  therapyPrefillApplied.value = false;
   recordSessionIntentHandled.value = false;
   if (!canUseTool.value) return;
   applyBookingContextPrefill();
+  applyTherapyContextPrefill();
 }, { deep: true });
 
 watch([canUseTool, isRecordSessionIntent], ([enabled, recordIntent]) => {
@@ -1618,12 +1748,14 @@ watch([currentAgencyId, clinicalNoteGeneratorEnabled], async () => {
   audioDurationSeconds.value = 0;
   outputObj.value = null;
   bookingPrefillApplied.value = false;
+  therapyPrefillApplied.value = false;
   recordSessionModalOpen.value = false;
   recordSessionIntentHandled.value = false;
   if (canUseTool.value) {
     await loadContext();
     await loadPrograms();
     applyBookingContextPrefill();
+    applyTherapyContextPrefill();
     if (showRecent.value) await loadRecent();
   }
 });

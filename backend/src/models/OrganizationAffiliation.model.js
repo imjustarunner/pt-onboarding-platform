@@ -73,6 +73,31 @@ class OrganizationAffiliation {
     return result.affectedRows || 0;
   }
 
+  static async countActiveParentAgencies(organizationId) {
+    const orgId = parseInt(organizationId, 10);
+    if (!orgId) return 0;
+    const [rows] = await pool.execute(
+      `SELECT COUNT(DISTINCT agency_id) AS c
+       FROM organization_affiliations
+       WHERE organization_id = ? AND is_active = TRUE`,
+      [orgId]
+    );
+    return Number(rows?.[0]?.c) || 0;
+  }
+
+  static async hasActiveAffiliation(agencyId, organizationId) {
+    const aId = parseInt(agencyId, 10);
+    const oId = parseInt(organizationId, 10);
+    if (!aId || !oId) return false;
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM organization_affiliations
+       WHERE agency_id = ? AND organization_id = ? AND is_active = TRUE
+       LIMIT 1`,
+      [aId, oId]
+    );
+    return !!(rows && rows[0]);
+  }
+
   static async upsert({ agencyId, organizationId, isActive = true }) {
     const aId = parseInt(agencyId, 10);
     const oId = parseInt(organizationId, 10);

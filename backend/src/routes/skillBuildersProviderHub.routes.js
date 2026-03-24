@@ -40,10 +40,21 @@ import {
   patchSkillBuilderProgramOrganizationProgramDocument,
   postSkillBuilderSessionCurriculumFromLibrary,
   listSkillBuilderSessionClinicalNotes,
+  getSkillBuilderSessionClinicalNotesBoard,
   getSkillBuilderSessionClinicalNote,
   putSkillBuilderSessionClinicalNoteManual,
   postSkillBuilderSessionClinicalNoteGenerate,
-  deleteSkillBuilderSessionClinicalNotes
+  deleteSkillBuilderSessionClinicalNotes,
+  deleteSkillBuilderSessionClinicalNoteForClient,
+  listSkillBuilderActivityOptionsForEvent,
+  postSkillBuilderActivityOption,
+  patchSkillBuilderActivityOption,
+  deleteSkillBuilderActivityOption,
+  listMySkillBuilderClinicalNotesIndex,
+  listSkillBuilderProgramDocumentActivityOptions,
+  postSkillBuilderProgramDocumentActivityOption,
+  patchSkillBuilderProgramDocumentActivityOption,
+  deleteSkillBuilderProgramDocumentActivityOption
 } from '../controllers/skillBuildersProviderHub.controller.js';
 import {
   listMasterSkillBuilderClients,
@@ -69,6 +80,7 @@ router.get('/me/upcoming-events', listUpcomingSkillBuilderEventsForApply);
 router.post('/me/applications', applyToSkillBuilderEvent);
 router.get('/me/clients', listMySkillBuilderEventClients);
 router.get('/me/work-schedule', getMySkillBuilderWorkSchedule);
+router.get('/me/clinical-notes', listMySkillBuilderClinicalNotesIndex);
 
 router.get('/program-organizations/:programOrganizationId/program-documents', listSkillBuilderProgramOrganizationDocuments);
 router.post('/program-organizations/:programOrganizationId/program-documents', ...postSkillBuilderProgramOrganizationProgramDocument);
@@ -79,6 +91,22 @@ router.delete(
 router.patch(
   '/program-organizations/:programOrganizationId/program-documents/:documentId',
   patchSkillBuilderProgramOrganizationProgramDocument
+);
+router.get(
+  '/program-organizations/:programOrganizationId/program-documents/:documentId/activity-options',
+  listSkillBuilderProgramDocumentActivityOptions
+);
+router.post(
+  '/program-organizations/:programOrganizationId/program-documents/:documentId/activity-options',
+  postSkillBuilderProgramDocumentActivityOption
+);
+router.patch(
+  '/program-organizations/:programOrganizationId/program-documents/:documentId/activity-options/:optionId',
+  patchSkillBuilderProgramDocumentActivityOption
+);
+router.delete(
+  '/program-organizations/:programOrganizationId/program-documents/:documentId/activity-options/:optionId',
+  deleteSkillBuilderProgramDocumentActivityOption
 );
 
 router.get('/events/directory', listSkillBuildersEventsDirectory);
@@ -109,13 +137,22 @@ router.post('/events/:eventId/sessions/:sessionId/curriculum', ...postSkillBuild
 router.get('/events/:eventId/sessions/:sessionId/curriculum', getSkillBuilderSessionCurriculumFile);
 router.delete('/events/:eventId/sessions/:sessionId/curriculum', deleteSkillBuilderSessionCurriculum);
 router.get('/events/:eventId/sessions/:sessionId/clinical-notes', listSkillBuilderSessionClinicalNotes);
+router.get('/events/:eventId/sessions/:sessionId/clinical-notes-board', getSkillBuilderSessionClinicalNotesBoard);
 router.get('/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId', getSkillBuilderSessionClinicalNote);
 router.put('/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId', putSkillBuilderSessionClinicalNoteManual);
 router.post(
   '/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId/generate',
   postSkillBuilderSessionClinicalNoteGenerate
 );
+router.delete(
+  '/events/:eventId/sessions/:sessionId/clinical-notes/clients/:clientId',
+  deleteSkillBuilderSessionClinicalNoteForClient
+);
 router.delete('/events/:eventId/sessions/:sessionId/clinical-notes', deleteSkillBuilderSessionClinicalNotes);
+router.get('/events/:eventId/activity-options', listSkillBuilderActivityOptionsForEvent);
+router.post('/events/:eventId/activity-options', postSkillBuilderActivityOption);
+router.patch('/events/:eventId/activity-options/:optionId', patchSkillBuilderActivityOption);
+router.delete('/events/:eventId/activity-options/:optionId', deleteSkillBuilderActivityOption);
 router.put('/events/:eventId/sessions/:sessionId/providers', putSkillBuilderEventSessionProviders);
 router.put('/events/:eventId/sessions/:sessionId/client-attendance', putSkillBuilderClientSessionAttendance);
 router.get('/events/:eventId/attendance/providers', listSkillBuilderEventProviderAttendance);

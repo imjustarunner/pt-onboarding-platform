@@ -312,6 +312,17 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'public_marketing_pages',
+    title: 'Public marketing pages',
+    description: 'Multi-agency public hubs at /p/:slug',
+    to: '/admin/public-marketing-pages',
+    emoji: '🌐',
+    iconKey: 'manage_agencies',
+    category: 'Platform',
+    roles: ['super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'manage_clients',
     title: 'Manage Clients',
     description: 'Create and manage clients',

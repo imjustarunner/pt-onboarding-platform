@@ -256,6 +256,40 @@
               <label>Program ID (optional)</label>
               <input v-model.number="form.programId" type="number" />
             </div>
+            <div
+              v-if="form.formType === 'smart_registration'"
+              class="form-group"
+              style="grid-column: 1 / -1"
+            >
+              <label>Agency (for company event picker)</label>
+              <select
+                v-model.number="companyEventsPickerAgencyId"
+                :disabled="!agencyList.length"
+                @change="fetchCompanyEventsForPicker"
+              >
+                <option :value="null">Select agency</option>
+                <option v-for="a in agencyList" :key="a.id" :value="a.id">{{ a.name }}</option>
+              </select>
+              <small class="form-help">Used only to list events when locking this link to one Skill Builders / company event.</small>
+            </div>
+            <div
+              v-if="form.formType === 'smart_registration'"
+              class="form-group"
+              style="grid-column: 1 / -1"
+            >
+              <label>Lock to company event (optional)</label>
+              <select v-model.number="form.companyEventId" :disabled="companyEventsPickerLoading">
+                <option :value="null">None — use registration step (catalog or manual options)</option>
+                <option v-for="e in companyEventsPickerOptions" :key="e.id" :value="e.id">
+                  {{ e.title || `Event ${e.id}` }} (starts {{ formatCompanyEventPickerLabel(e) }})
+                </option>
+              </select>
+              <small class="form-help">
+                When set, signers register only for this event (catalog narrows; picker may hide). For a
+                <strong>Register</strong> button on the public <code>/open-events/…</code> page, keep this link
+                <strong>active</strong>, form type Smart Registration, and the same event selected here.
+              </small>
+            </div>
             <div class="form-group">
               <label>Active</label>
               <select v-model="form.isActive">
@@ -951,6 +985,7 @@ const form = reactive({
   scopeType: 'school',
   organizationId: null,
   programId: null,
+  companyEventId: null,
   jobDescriptionId: null,
   requiresAssignment: true,
   isActive: true,
@@ -997,6 +1032,11 @@ const shiftProgramDetailsById = ref({});
 const loadingShiftProgramDetailsById = reactive({});
 const shiftSlotsBySiteId = ref({});
 const loadingShiftSlotsBySite = reactive({});
+
+/** Agency used to load company events for optional `company_event_id` on smart_registration links. */
+const companyEventsPickerAgencyId = ref(null);
+const companyEventsPickerOptions = ref([]);
+const companyEventsPickerLoading = ref(false);
 
 const organizationsForScope = computed(() => {
   const type = form.scopeType;
@@ -1092,6 +1132,81 @@ const fetchJobDescriptions = async () => {
   }
 };
 
+const formatCompanyEventPickerLabel = (e) => {
+  const raw = e?.startsAt || e?.starts_at;
+  if (!raw) return '—';
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return '—';
+  try {
+    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  } catch {
+    return '—';
+  }
+};
+
+const fetchCompanyEventsForPicker = async () => {
+  const aid = Number(companyEventsPickerAgencyId.value || 0) || null;
+  if (!aid) {
+    companyEventsPickerOptions.value = [];
+    return;
+  }
+  companyEventsPickerLoading.value = true;
+  try {
+    const r = await api.get(`/agencies/${aid}/company-events`);
+    const list = Array.isArray(r.data) ? r.data : [];
+    companyEventsPickerOptions.value = list
+      .filter((ev) => ev && ev.id)
+      .map((ev) => ({
+        id: Number(ev.id),
+        title: String(ev.title || '').trim(),
+        startsAt: ev.startsAt || ev.starts_at || null
+      }));
+  } catch {
+    companyEventsPickerOptions.value = [];
+  } finally {
+    companyEventsPickerLoading.value = false;
+  }
+};
+
+/** Resolve which agency owns the event so the picker can load options when editing. */
+const hydrateCompanyEventPickerForEdit = async (companyEventId) => {
+  const cid = companyEventId ? Number(companyEventId) : null;
+  if (!cid) {
+    if (!companyEventsPickerAgencyId.value && agencyList.value[0]?.id) {
+      companyEventsPickerAgencyId.value = agencyList.value[0].id;
+    }
+    await fetchCompanyEventsForPicker();
+    return;
+  }
+  let foundAgencyId = null;
+  for (const a of agencyList.value) {
+    try {
+      const r = await api.get(`/agencies/${a.id}/company-events`);
+      const list = Array.isArray(r.data) ? r.data : [];
+      if (list.some((ev) => Number(ev.id) === cid)) {
+        foundAgencyId = a.id;
+        break;
+      }
+    } catch {
+      /* try next agency */
+    }
+  }
+  companyEventsPickerAgencyId.value =
+    foundAgencyId || companyEventsPickerAgencyId.value || agencyList.value[0]?.id || null;
+  await fetchCompanyEventsForPicker();
+};
+
+watch(
+  () => form.formType,
+  (ft) => {
+    if (ft !== 'smart_registration') return;
+    if (!companyEventsPickerAgencyId.value && agencyList.value[0]?.id) {
+      companyEventsPickerAgencyId.value = agencyList.value[0].id;
+      void fetchCompanyEventsForPicker();
+    }
+  }
+);
+
 const resetForm = () => {
   form.title = '';
   form.description = '';
@@ -1100,6 +1215,7 @@ const resetForm = () => {
   form.scopeType = 'school';
   form.organizationId = null;
   form.programId = null;
+  form.companyEventId = null;
   form.jobDescriptionId = null;
   form.requiresAssignment = true;
   form.isActive = true;
@@ -1120,6 +1236,9 @@ const resetForm = () => {
   form.intakeSteps = [];
   formError.value = '';
   editingId.value = null;
+  companyEventsPickerAgencyId.value = null;
+  companyEventsPickerOptions.value = [];
+  companyEventsPickerLoading.value = false;
 };
 
 const draftStorageKey = computed(() =>
@@ -1136,6 +1255,7 @@ const serializeDraft = () => ({
     scopeType: form.scopeType,
     organizationId: form.organizationId,
     programId: form.programId,
+    companyEventId: form.companyEventId,
     jobDescriptionId: form.jobDescriptionId,
     requiresAssignment: form.requiresAssignment,
     isActive: form.isActive,
@@ -1180,6 +1300,7 @@ const applyDraft = (draft) => {
   form.scopeType = data.scopeType || 'school';
   form.organizationId = data.organizationId ?? null;
   form.programId = data.programId ?? null;
+  form.companyEventId = data.companyEventId ?? null;
   form.jobDescriptionId = data.jobDescriptionId ?? null;
   form.requiresAssignment = data.requiresAssignment ?? true;
   form.isActive = data.isActive ?? true;
@@ -1402,6 +1523,7 @@ const editLink = (link) => {
   form.scopeType = link.scope_type || 'school';
   form.organizationId = link.organization_id || null;
   form.programId = link.program_id || null;
+  form.companyEventId = link.company_event_id ? Number(link.company_event_id) : null;
   form.jobDescriptionId = link.job_description_id || null;
   form.requiresAssignment = link.requires_assignment !== false;
   form.isActive = !!link.is_active;
@@ -1468,6 +1590,9 @@ const editLink = (link) => {
   showForm.value = true;
   if (form.formType === 'job_application' && form.organizationId) {
     fetchJobDescriptions();
+  }
+  if (form.formType === 'smart_registration') {
+    void hydrateCompanyEventPickerForEdit(link.company_event_id || null);
   }
 };
 
@@ -1586,6 +1711,8 @@ const save = async () => {
     if (form.scopeType === 'program' && form.programId) {
       payload.programId = form.programId;
     }
+    payload.companyEventId =
+      form.formType === 'smart_registration' ? (form.companyEventId ? Number(form.companyEventId) : null) : null;
     if (editingId.value) {
       await api.put(`/intake-links/${editingId.value}`, payload);
     } else {
