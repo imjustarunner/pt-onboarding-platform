@@ -1,4 +1,3 @@
-import { geocodeAddressWithGoogle } from './googleGeocode.service.js';
 import { drivingDistancesFromOrigin } from './googleDistanceMatrix.service.js';
 
 /**
@@ -17,6 +16,7 @@ export const PUBLIC_EVENT_SELECT = `ce.id, ce.title, ce.description, ce.splash_c
        ce.public_hero_image_url, ce.public_listing_details, ce.in_person_public,
        ce.public_location_address, ce.public_location_lat, ce.public_location_lng,
        ce.public_age_min, ce.public_age_max,
+       ce.public_session_label, ce.public_session_date_range,
        ce.starts_at, ce.ends_at, ce.timezone, ce.registration_eligible, ce.agency_id AS owning_agency_id,
        (SELECT il.public_key FROM intake_links il
         WHERE il.company_event_id = ce.id
@@ -54,7 +54,9 @@ export function formatPublicEvent(row, sessionLocations = []) {
     registrationEligible: !!(row.registration_eligible === 1 || row.registration_eligible === true),
     registrationPublicKey: regKey || null,
     publicAgeMin,
-    publicAgeMax
+    publicAgeMax,
+    publicSessionLabel: row.public_session_label ? String(row.public_session_label).trim() : null,
+    publicSessionDateRange: row.public_session_date_range ? String(row.public_session_date_range).trim() : null
   };
   if (Number.isFinite(owningAgencyIdRaw) && owningAgencyIdRaw > 0) {
     out.owningAgencyId = owningAgencyIdRaw;
@@ -179,26 +181,35 @@ export async function loadPublicAgencyHubEventRows(conn, agencyId, programOrgIds
   return hydratePublicRows(conn, rows || []);
 }
 
+function matrixOriginParams(origin) {
+  if (!origin || typeof origin !== 'object') {
+    const err = new Error('Invalid origin');
+    err.code = 'MAPS_ORIGIN_INVALID';
+    throw err;
+  }
+  const lat = origin.latitude != null ? Number(origin.latitude) : NaN;
+  const lng = origin.longitude != null ? Number(origin.longitude) : NaN;
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return { originLat: lat, originLng: lng };
+  }
+  const addr = String(origin.addressText || '').trim();
+  if (addr) {
+    return { originAddress: addr };
+  }
+  const err = new Error('Invalid origin: provide latitude/longitude or addressText');
+  err.code = 'MAPS_ORIGIN_INVALID';
+  throw err;
+}
+
 /**
  * Sort public events by shortest **driving** distance (Google Distance Matrix) from `origin` to the nearest
- * in-person venue (main public address or session locations). Requires GOOGLE_MAPS_API_KEY with Distance Matrix enabled.
+ * in-person venue (main public address or session locations). Uses Distance Matrix only (same API family as
+ * school mileage); no Geocoding API. Requires GOOGLE_MAPS_API_KEY with Distance Matrix enabled.
+ *
+ * @param {Array} events
+ * @param {{ latitude: number, longitude: number } | { addressText: string }} origin
  */
-export async function attachDistanceScoresToPublicEvents(events, origin, addrGeoCache = new Map()) {
-  async function coordsForString(addrText) {
-    const key = String(addrText || '').trim().toLowerCase();
-    if (!key) return null;
-    if (addrGeoCache.has(key)) return addrGeoCache.get(key);
-    try {
-      const g = await geocodeAddressWithGoogle({ addressText: key, countryCode: 'US' });
-      const o = { lat: g.latitude, lng: g.longitude };
-      addrGeoCache.set(key, o);
-      return o;
-    } catch {
-      addrGeoCache.set(key, null);
-      return null;
-    }
-  }
-
+export async function attachDistanceScoresToPublicEvents(events, origin, _addrGeoCache = new Map()) {
   const matrixEntries = [];
   for (const ev of events) {
     const eid = ev.id;
@@ -212,25 +223,20 @@ export async function attachDistanceScoresToPublicEvents(events, origin, addrGeo
         label: ev.publicLocationAddress || 'Venue'
       });
     } else if (ev.inPersonPublic && ev.publicLocationAddress) {
-      const c = await coordsForString(ev.publicLocationAddress);
-      if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng)) {
-        const key = `e${eid}_v${v++}`;
-        matrixEntries.push({
-          key,
-          destination: `${c.lat},${c.lng}`,
-          eventId: eid,
-          label: String(ev.publicLocationAddress).trim()
-        });
-      }
-    }
-    for (const s of ev.sessionLocations || []) {
-      if (!s?.address) continue;
-      const c = await coordsForString(s.address);
-      if (!c || !Number.isFinite(c.lat) || !Number.isFinite(c.lng)) continue;
       const key = `e${eid}_v${v++}`;
       matrixEntries.push({
         key,
-        destination: `${c.lat},${c.lng}`,
+        destination: String(ev.publicLocationAddress).trim(),
+        eventId: eid,
+        label: String(ev.publicLocationAddress).trim()
+      });
+    }
+    for (const s of ev.sessionLocations || []) {
+      if (!s?.address) continue;
+      const key = `e${eid}_v${v++}`;
+      matrixEntries.push({
+        key,
+        destination: String(s.address).trim(),
         eventId: eid,
         label: s.label ? String(s.label).trim() : String(s.address).trim()
       });
@@ -249,8 +255,7 @@ export async function attachDistanceScoresToPublicEvents(events, origin, addrGeo
   }
 
   const dm = await drivingDistancesFromOrigin({
-    originLat: origin.latitude,
-    originLng: origin.longitude,
+    ...matrixOriginParams(origin),
     entries: matrixEntries.map(({ key, destination }) => ({ key, destination }))
   });
 

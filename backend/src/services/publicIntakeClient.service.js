@@ -90,6 +90,7 @@ class PublicIntakeClientService {
       : (payload?.client ? [payload.client] : []);
 
     const createdClients = [];
+    const createGuardian = !!link.create_guardian;
     for (const clientPayload of rawClients) {
       const firstName = String(clientPayload?.firstName || '').trim();
       const lastName = String(clientPayload?.lastName || '').trim();
@@ -124,7 +125,8 @@ class PublicIntakeClientService {
         client_status_id: clientStatusId,
         client_type: clientType,
         source: 'PUBLIC_INTAKE_LINK',
-        created_by_user_id: null
+        created_by_user_id: null,
+        ...(createGuardian ? { guardian_portal_enabled: true } : {})
       });
 
       await seedClientAffiliations({
@@ -148,7 +150,6 @@ class PublicIntakeClientService {
 
     let guardianUser = null;
     let newGuardianTemporaryPassword = null;
-    const createGuardian = !!link.create_guardian;
     if (createGuardian) {
       const guardianPayload = payload?.guardian || {};
       const email = String(guardianPayload.email || '').trim();
@@ -187,7 +188,7 @@ class PublicIntakeClientService {
           clientId: client.id,
           guardianUserId: guardianUser.id,
           relationshipTitle: guardianPayload.relationship || 'Guardian',
-          accessEnabled: false,
+          accessEnabled: true,
           permissionsJson: { intakeLink: link.id },
           createdByUserId: null
         });

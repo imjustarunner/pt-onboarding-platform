@@ -1,13 +1,26 @@
 import axios from 'axios';
 import config from '../config/config.js';
 
+/** Distance Matrix joins multiple places with `|`; strip pipes from free-text places. */
+function sanitizePlaceSegment(s) {
+  return String(s || '').trim().replace(/\|/g, ' ');
+}
+
 /**
  * Driving distances/durations from one origin to many destinations (Google Distance Matrix API).
- * @param {{ originLat: number, originLng: number, entries: Array<{ key: string, destination: string }> }} params
- *   Each destination should be "lat,lng" (recommended) or an address string without pipe characters.
+ * Same surface as school mileage (`googleDistance.service.js`): coordinates or address strings.
+ *
+ * @param {{
+ *   originLat?: number,
+ *   originLng?: number,
+ *   originAddress?: string,
+ *   entries: Array<{ key: string, destination: string }>
+ * }} params
+ *   Origin: either finite `originLat` + `originLng`, or non-empty `originAddress`.
+ *   Each destination should be "lat,lng" or an address string (pipes sanitized).
  * @returns {Map<string, { ok: boolean, meters?: number, durationSeconds?: number, durationText?: string, status?: string }>}
  */
-export async function drivingDistancesFromOrigin({ originLat, originLng, entries }) {
+export async function drivingDistancesFromOrigin({ originLat, originLng, originAddress, entries }) {
   const apiKey = config.googleMaps?.apiKey || null;
   if (!apiKey) {
     const err = new Error('GOOGLE_MAPS_API_KEY is not configured');
@@ -15,10 +28,17 @@ export async function drivingDistancesFromOrigin({ originLat, originLng, entries
     throw err;
   }
 
-  if (!Number.isFinite(originLat) || !Number.isFinite(originLng)) {
-    const err = new Error('Invalid origin coordinates');
-    err.code = 'MAPS_ORIGIN_INVALID';
-    throw err;
+  let origin;
+  if (Number.isFinite(Number(originLat)) && Number.isFinite(Number(originLng))) {
+    origin = `${Number(originLat)},${Number(originLng)}`;
+  } else {
+    const oa = sanitizePlaceSegment(originAddress);
+    if (!oa) {
+      const err = new Error('Invalid origin: provide originLat/originLng or originAddress');
+      err.code = 'MAPS_ORIGIN_INVALID';
+      throw err;
+    }
+    origin = oa;
   }
 
   const list = Array.isArray(entries) ? entries.filter((e) => e && e.key && e.destination) : [];
@@ -26,11 +46,16 @@ export async function drivingDistancesFromOrigin({ originLat, originLng, entries
   if (!list.length) return results;
 
   const BATCH_SIZE = 25;
-  const origin = `${originLat},${originLng}`;
 
   for (let i = 0; i < list.length; i += BATCH_SIZE) {
     const batch = list.slice(i, i + BATCH_SIZE);
-    const destinationsParam = batch.map((b) => String(b.destination).trim()).join('|');
+    const destinationsParam = batch
+      .map((b) => {
+        const d = String(b.destination).trim();
+        if (/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(d)) return d;
+        return sanitizePlaceSegment(d);
+      })
+      .join('|');
 
     const resp = await axios.get('https://maps.googleapis.com/maps/api/distancematrix/json', {
       params: {

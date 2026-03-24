@@ -10,6 +10,13 @@
       <div class="pmh-sub-body" v-html="renderedBody" />
     </article>
     <div v-else class="pmh-fatal">This page is not available.</div>
+
+    <footer v-if="!error && !loading" class="pmh-sub-foot">
+      <div class="pmh-sub-foot-inner">
+        <router-link class="pmh-sub-foot-login" to="/login">Staff login</router-link>
+        <PoweredByFooter variant="embedded" />
+      </div>
+    </footer>
   </div>
 </template>
 
@@ -19,6 +26,10 @@ import { marked } from 'marked';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { useBrandingStore } from '../../store/branding';
+import PoweredByFooter from '../../components/PoweredByFooter.vue';
+
+const brandingStore = useBrandingStore();
 
 const route = useRoute();
 const hubSlug = computed(() => String(route.params.hubSlug || '').trim().toLowerCase());
@@ -58,10 +69,13 @@ async function loadPage() {
   loading.value = true;
   error.value = '';
   try {
-    const res = await api.get(`/public/marketing-pages/${encodeURIComponent(slug)}`, {
-      skipGlobalLoading: true,
-      skipAuthRedirect: true
-    });
+    const [res] = await Promise.all([
+      api.get(`/public/marketing-pages/${encodeURIComponent(slug)}`, {
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      }),
+      brandingStore.fetchPlatformBranding()
+    ]);
     pageMeta.value = res.data?.page || null;
     const pages = pageMeta.value?.branding?.contentPages;
     const found =
@@ -159,5 +173,39 @@ watch([hubSlug, subPageSlug], () => loadPage());
   color: #991b1b;
   background: #fef2f2;
   font-size: 1rem;
+}
+
+.pmh-sub-foot {
+  max-width: 44rem;
+  margin: 28px auto 0;
+  padding: 0 16px 32px;
+}
+
+.pmh-sub-foot-inner {
+  padding: 20px 22px 16px;
+  text-align: center;
+  background: var(--hub-surface);
+  border: 1px solid var(--hub-border);
+  border-radius: var(--hub-radius-lg);
+  box-shadow: var(--hub-shadow);
+}
+
+.pmh-sub-foot-login {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-family: var(--hub-font-display);
+  color: var(--hub-link);
+  text-decoration: none;
+}
+.pmh-sub-foot-login:hover {
+  text-decoration: underline;
+}
+
+.pmh-sub-foot :deep(.powered-by-text),
+.pmh-sub-foot :deep(.powered-by-name),
+.pmh-sub-foot :deep(.legal-link) {
+  color: var(--hub-text-muted);
 }
 </style>

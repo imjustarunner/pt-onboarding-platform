@@ -278,6 +278,42 @@
       </div>
 
       <div class="field">
+        <span>Eligibility / “school site” block (Medicaid messaging)</span>
+        <p class="muted small">
+          The red-accent card (“Interested in learning more?”, “Choose your school site”, etc.). Override copy in Advanced branding
+          JSON under <code>ctaSection</code>, or set <code>ctaSection: false</code> to remove it entirely.
+        </p>
+        <label class="pmp-check-row">
+          <input v-model="ctaEmbedInOfferExpanded" type="checkbox" />
+          <span>Show at the bottom of «Show more info» (under the four offer cards)</span>
+        </label>
+        <label class="pmp-check-row">
+          <input v-model="ctaHideStandaloneBand" type="checkbox" />
+          <span>Hide the duplicate stand-alone section on the page</span>
+        </label>
+        <p class="muted small">
+          Recommended: keep both boxes checked so visitors see this block only after expanding Show more info. Uncheck “Hide the
+          duplicate…” if you disabled “What we offer” or want the card visible without expanding.
+        </p>
+      </div>
+
+      <div class="field">
+        <span>Extra links inside «Show more info» (new tab)</span>
+        <p class="muted small">
+          For legacy site pages: each row is a title and full URL; links open in a new window and appear below the eligibility block
+          when Show more info is expanded.
+        </p>
+        <div v-for="(row, ei) in offerExpandedLinkRows" :key="`oel-${ei}`" class="pmp-row-grid">
+          <input v-model="row.title" type="text" placeholder="Title" />
+          <input v-model="row.href" type="text" placeholder="https://…" class="mono" />
+          <button type="button" class="btn btn-danger btn-sm" @click="removeOfferExpandedLink(ei)">×</button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="offerExpandedLinkRows.push({ title: '', href: '' })">
+          Add link
+        </button>
+      </div>
+
+      <div class="field">
         <span>Subpages (markdown)</span>
         <p class="muted small">
           Each entry becomes <code>/p/{{ form.slug || 'slug' }}/:slug</code> with the body rendered as Markdown (great for FAQ,
@@ -316,6 +352,8 @@
           <code>processSection</code> (object with <code>title</code> / <code>steps</code> array, or <code>false</code> to hide),
           <code>whatWeOfferSection</code> (collapsible block: <code>title</code>, <code>summary</code>, <code>intro</code>, <code>items</code>,
           <code>offerBlockImages</code> (this page’s Placeholder 1–4 image paths; or use pickers above); or <code>false</code> to hide),
+          <code>offerExpandedExternalLinks</code> (array of <code>{ title, href }</code>; use the form above—opens in new tab),
+          <code>ctaSection.embedInOfferExpanded</code> / <code>hideStandaloneCtaBand</code> (use checkboxes above),
           <code>heroVideoUrl</code> (use the Hero video field above; it merges here on save).
         </p>
         <textarea v-model="form.brandingJsonText" rows="6" class="mono" placeholder='{"programThemePrimary":"#a32623"}' />
@@ -465,6 +503,11 @@ function placeholdersUsingGalleryRow(gi) {
 }
 const navRows = ref([{ label: '', href: '' }]);
 const contentPages = ref([{ slug: '', title: '', body: '' }]);
+/** CTA (Medicaid / school site) placement — merged into branding.ctaSection on save. */
+const ctaEmbedInOfferExpanded = ref(true);
+const ctaHideStandaloneBand = ref(true);
+/** Shown at bottom of expanded “What we offer”; each link opens in a new tab. */
+const offerExpandedLinkRows = ref([{ title: '', href: '' }]);
 
 function resolvedGalleryImageSrc(raw) {
   const s = String(raw || '').trim();
@@ -578,6 +621,24 @@ function mergeBrandingPayload() {
     else delete out.whatWeOfferSection;
   }
 
+  const extLinks = offerExpandedLinkRows.value
+    .map((r) => ({ title: String(r.title || '').trim(), href: String(r.href || '').trim() }))
+    .filter((r) => r.title && r.href);
+  if (extLinks.length) out.offerExpandedExternalLinks = extLinks;
+  else delete out.offerExpandedExternalLinks;
+
+  if (out.ctaSection === false) {
+    /* explicit hide — do not inject placement flags */
+  } else {
+    const prev =
+      typeof out.ctaSection === 'object' && out.ctaSection && !Array.isArray(out.ctaSection) ? { ...out.ctaSection } : {};
+    out.ctaSection = {
+      ...prev,
+      embedInOfferExpanded: ctaEmbedInOfferExpanded.value !== false,
+      hideStandaloneCtaBand: ctaHideStandaloneBand.value === true
+    };
+  }
+
   return out;
 }
 
@@ -601,6 +662,11 @@ function hydrateStructuredFromBranding(b) {
   contentPages.value = cp.length
     ? cp.map((p) => ({ slug: String(p.slug || ''), title: String(p.title || ''), body: String(p.body || '') }))
     : [{ slug: '', title: '', body: '' }];
+
+  const oe = Array.isArray(branding.offerExpandedExternalLinks) ? branding.offerExpandedExternalLinks : [];
+  offerExpandedLinkRows.value = oe.length
+    ? oe.map((r) => ({ title: String(r.title || ''), href: String(r.href || '') }))
+    : [{ title: '', href: '' }];
 }
 
 async function postMarketingUpload(file) {
@@ -704,6 +770,11 @@ function removeNav(idx) {
   if (!navRows.value.length) navRows.value = [{ label: '', href: '' }];
 }
 
+function removeOfferExpandedLink(idx) {
+  offerExpandedLinkRows.value.splice(idx, 1);
+  if (!offerExpandedLinkRows.value.length) offerExpandedLinkRows.value = [{ title: '', href: '' }];
+}
+
 function removeContentPage(idx) {
   contentPages.value.splice(idx, 1);
   if (!contentPages.value.length) contentPages.value = [{ slug: '', title: '', body: '' }];
@@ -730,6 +801,9 @@ function resetForm() {
   offerBlockImages.value = ['', '', '', ''];
   navRows.value = [{ label: '', href: '' }];
   contentPages.value = [{ slug: '', title: '', body: '' }];
+  ctaEmbedInOfferExpanded.value = true;
+  ctaHideStandaloneBand.value = true;
+  offerExpandedLinkRows.value = [{ title: '', href: '' }];
   pickAgencyId.value = null;
   pickSourceType.value = 'agency';
 }
@@ -782,6 +856,23 @@ function edit(p) {
   delete advanced.partnerLine;
   delete advanced.parentIntro;
   delete advanced.heroVideoUrl;
+  delete advanced.offerExpandedExternalLinks;
+
+  if (advanced.ctaSection === false) {
+    ctaEmbedInOfferExpanded.value = true;
+    ctaHideStandaloneBand.value = true;
+  } else if (advanced.ctaSection && typeof advanced.ctaSection === 'object' && !Array.isArray(advanced.ctaSection)) {
+    const cta0 = advanced.ctaSection;
+    ctaEmbedInOfferExpanded.value = cta0.embedInOfferExpanded !== false;
+    ctaHideStandaloneBand.value = cta0.hideStandaloneCtaBand === true;
+    const { embedInOfferExpanded: _e, hideStandaloneCtaBand: _h, ...ctaRest } = cta0;
+    if (Object.keys(ctaRest).length) advanced.ctaSection = ctaRest;
+    else delete advanced.ctaSection;
+  } else {
+    ctaEmbedInOfferExpanded.value = true;
+    ctaHideStandaloneBand.value = true;
+  }
+
   const w0 = advanced.whatWeOfferSection;
   if (w0 && typeof w0 === 'object' && !Array.isArray(w0)) {
     const obi = Array.isArray(w0.offerBlockImages) ? w0.offerBlockImages.map((x) => String(x || '').trim()) : [];
@@ -892,6 +983,19 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.pmp-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 8px 0;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+.pmp-check-row input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
 .pmp-head h1 {
   margin: 0 0 8px;
 }

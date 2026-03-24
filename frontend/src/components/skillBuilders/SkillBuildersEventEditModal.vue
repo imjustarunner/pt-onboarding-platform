@@ -419,6 +419,28 @@
               <p class="muted small sb-ce-pattern-lead" style="margin-top: -4px;">
                 Shown on public event pages. Leave both blank for “any age.”
               </p>
+              <div class="form-group">
+                <label class="sb-ce-lbl">Session label (public)</label>
+                <input
+                  v-model.trim="draft.publicSessionLabel"
+                  class="input"
+                  maxlength="128"
+                  placeholder="e.g. Session 1"
+                />
+                <p class="muted small sb-ce-pattern-lead" style="margin-top: 4px;">
+                  Families see this on marketing hub listings. Use the same label across sites to enable “show all Session 1
+                  locations.”
+                </p>
+              </div>
+              <div class="form-group">
+                <label class="sb-ce-lbl">Session date range (public)</label>
+                <input
+                  v-model.trim="draft.publicSessionDateRange"
+                  class="input"
+                  maxlength="255"
+                  placeholder="e.g. June 1 – June 12, 2026"
+                />
+              </div>
             </div>
 
             <div class="sb-ce-section">
@@ -628,6 +650,8 @@ function emptyDraft() {
     publicLocationAddress: '',
     publicAgeMin: '',
     publicAgeMax: '',
+    publicSessionLabel: '',
+    publicSessionDateRange: '',
     clientCheckInDisplayTime: '',
     clientCheckOutDisplayTime: '',
     employeeReportTime: '',
@@ -844,6 +868,8 @@ function populateFromEvent(event) {
       event.publicAgeMin != null && event.publicAgeMin !== '' ? String(Number(event.publicAgeMin)) : '',
     publicAgeMax:
       event.publicAgeMax != null && event.publicAgeMax !== '' ? String(Number(event.publicAgeMax)) : '',
+    publicSessionLabel: String(event.publicSessionLabel || '').trim(),
+    publicSessionDateRange: String(event.publicSessionDateRange || '').trim(),
     clientCheckInDisplayTime: wallTimeToInput(event.clientCheckInDisplayTime),
     clientCheckOutDisplayTime: wallTimeToInput(event.clientCheckOutDisplayTime),
     employeeReportTime: wallTimeToInput(event.employeeReportTime),
@@ -1119,6 +1145,8 @@ async function save() {
         const n = parseInt(s, 10);
         return Number.isFinite(n) && n >= 0 && n <= 120 ? n : null;
       })(),
+      publicSessionLabel: String(draft.value.publicSessionLabel || '').trim().slice(0, 128) || null,
+      publicSessionDateRange: String(draft.value.publicSessionDateRange || '').trim().slice(0, 255) || null,
       clientCheckInDisplayTime: draft.value.clientCheckInDisplayTime || null,
       clientCheckOutDisplayTime: draft.value.clientCheckOutDisplayTime || null,
       employeeReportTime: draft.value.employeeReportTime || null,

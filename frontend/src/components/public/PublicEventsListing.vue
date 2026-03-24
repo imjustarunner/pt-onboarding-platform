@@ -22,32 +22,13 @@
     <div v-if="loading" class="pel-loading">Loading…</div>
     <div v-else-if="error" class="pel-error">{{ error }}</div>
     <template v-else>
-      <section v-if="showDrivingDistanceCta && canUseNearest" class="pel-drive-cta-wrap">
-        <button type="button" class="pel-btn pel-btn-drive" :disabled="nearestLoading" @click="openDriveModal">
-          {{ nearestCtaText }}
-        </button>
-        <p v-if="originSummary" class="pel-drive-summary">
-          Sorted by driving distance from <strong>{{ originSummary }}</strong>.
-          <button type="button" class="pel-linkish" @click="clearNearest">Use date order</button>
-        </p>
-      </section>
-
-      <Teleport to="body">
-        <div
-          v-if="driveModalOpen"
-          class="pel-modal-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="pel-drive-modal-title"
-          @click.self="closeDriveModal"
-        >
-          <div class="pel-modal">
-            <div class="pel-modal-head">
-              <h2 id="pel-drive-modal-title" class="pel-modal-title">{{ nearestModalTitleText }}</h2>
-              <button type="button" class="pel-modal-close" aria-label="Close" @click="closeDriveModal">×</button>
-            </div>
-            <p class="pel-modal-hint" v-html="nearestModalHintHtml" />
-            <div class="pel-modal-row">
+      <div class="pel-events">
+        <section v-if="showDrivingDistanceCta && canUseNearest" class="pel-nearest-inline pel-nearest-inline--above-list">
+          <div class="pel-nearest-inner">
+            <div class="pel-nearest-icon" aria-hidden="true">📍</div>
+            <h2 class="pel-nearest-heading">Enter your address to see which event is closest to your home</h2>
+            <p class="pel-nearest-sub muted">{{ nearestInlineSubtext }}</p>
+            <div class="pel-nearest-controls">
               <input
                 v-model="addressInput"
                 class="pel-input"
@@ -58,25 +39,126 @@
                 aria-label="Your home address"
                 @keydown.enter.prevent="runNearest"
               />
-            </div>
-            <div class="pel-modal-actions">
-              <button type="button" class="pel-btn pel-btn-secondary" @click="closeDriveModal">Cancel</button>
               <button type="button" class="pel-btn pel-btn-primary" :disabled="nearestLoading" @click="runNearest">
-                {{ nearestLoading ? 'Calculating…' : 'Calculate' }}
+                {{ nearestLoading ? 'Calculating…' : 'Find' }}
               </button>
             </div>
+            <p v-if="originSummary" class="pel-drive-summary pel-drive-summary--inline">
+              Sorted by driving distance from <strong>{{ originSummary }}</strong>.
+              <button type="button" class="pel-linkish" @click="clearNearest">Use date order</button>
+            </p>
             <p v-if="nearestError" class="pel-finder-err">{{ nearestError }}</p>
           </div>
-        </div>
-      </Teleport>
+        </section>
 
-      <div class="pel-events">
+        <div
+          v-if="hubSlugNorm && (hubAgencyFilterId != null || sessionLabelFilter || distinctHubPartners.length > 1)"
+          class="pel-hub-filter-bar"
+        >
+          <p v-if="distinctHubPartners.length > 1" class="pel-hub-filter-lead muted">
+            Tap an agency logo to see only that agency&rsquo;s locations.
+          </p>
+          <div v-if="distinctHubPartners.length > 1" class="pel-hub-logo-row">
+            <button
+              v-for="p in distinctHubPartners"
+              :key="`hpf-${p.sourceAgencyId}`"
+              type="button"
+              class="pel-agency-logo-btn pel-agency-logo-btn--bar"
+              :class="{ 'pel-agency-logo-btn--active': hubAgencyFilterId === p.sourceAgencyId }"
+              :aria-label="`Filter events to ${p.sourceAgencyName} only`"
+              @click="toggleAgencyFilter(p.sourceAgencyId)"
+            >
+              <span class="pel-agency-logo-tip">{{ agencyFilterTipBar(p) }}</span>
+              <img
+                v-if="p.sourceAgencyLogoUrl"
+                :src="p.sourceAgencyLogoUrl"
+                :alt="`${p.sourceAgencyName} logo`"
+                loading="lazy"
+              />
+              <span v-else class="pel-agency-fallback">{{ agencyInitials(p.sourceAgencyName) }}</span>
+            </button>
+          </div>
+          <div v-if="hubAgencyFilterId != null || sessionLabelFilter" class="pel-filter-active-row">
+            <span v-if="hubAgencyFilterId != null" class="pel-filter-pill">
+              Agency filter on
+              <button type="button" class="pel-linkish" @click="clearAgencyFilter">Show all agencies</button>
+            </span>
+            <span v-if="sessionLabelFilter" class="pel-filter-pill">
+              {{ sessionLabelFilter }}
+              <button type="button" class="pel-linkish" @click="clearSessionFilter">Clear session filter</button>
+            </span>
+          </div>
+        </div>
+
         <TransitionGroup name="pel-card" tag="ul" class="pel-list">
           <li v-for="(ev, idx) in displayEvents" :key="ev.id" class="pel-item" :style="{ '--stagger': idx }">
             <article class="pel-card">
-              <div v-if="ev.publicHeroImageUrl" class="pel-media">
-                <img :src="ev.publicHeroImageUrl" :alt="''" loading="lazy" />
+              <div v-if="showHubSourceChips && hubPartnerEntries(ev).length" class="pel-card-agency-logos">
+                <button
+                  v-for="(p, pi) in hubPartnerEntries(ev)"
+                  :key="`pl-${ev.id}-${pi}`"
+                  type="button"
+                  class="pel-agency-logo-btn"
+                  :class="{ 'pel-agency-logo-btn--active': hubAgencyFilterId === p.sourceAgencyId }"
+                  :aria-label="`Filter events to ${p.sourceAgencyName} only`"
+                  @click="toggleAgencyFilter(p.sourceAgencyId)"
+                >
+                  <span class="pel-agency-logo-tip">{{ agencyFilterTipCard(p) }}</span>
+                  <img
+                    v-if="p.sourceAgencyLogoUrl"
+                    :src="p.sourceAgencyLogoUrl"
+                    :alt="`${p.sourceAgencyName} logo`"
+                    loading="lazy"
+                  />
+                  <span v-else class="pel-agency-fallback">{{ agencyInitials(p.sourceAgencyName) }}</span>
+                </button>
               </div>
+
+              <div class="pel-card-condensed">
+                <a
+                  v-if="ev.publicHeroImageUrl && primaryMapsQuery(ev)"
+                  :href="googleMapsSearchUrl(primaryMapsQuery(ev))"
+                  class="pel-thumb-maps"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  :aria-label="`Open ${locationDisplayName(ev)} in Maps`"
+                >
+                  <img :src="ev.publicHeroImageUrl" :alt="locationDisplayName(ev)" loading="lazy" />
+                </a>
+                <div v-else-if="ev.publicHeroImageUrl" class="pel-thumb-maps pel-thumb-maps--static">
+                  <img :src="ev.publicHeroImageUrl" :alt="locationDisplayName(ev)" loading="lazy" />
+                </div>
+                <div class="pel-condensed-main">
+                  <div class="pel-condensed-line">
+                    <span class="pel-loc-name">{{ locationDisplayName(ev) }}</span>
+                    <template v-if="drivingDistanceDisplay(ev) != null">
+                      <span class="pel-loc-sep" aria-hidden="true"> — </span>
+                      <span class="pel-loc-dist">{{ formatDistanceMi(drivingDistanceDisplay(ev)) }} miles</span>
+                    </template>
+                    <a
+                      class="pel-btn pel-btn-primary pel-btn-register-inline"
+                      :href="registrationUrl(ev.registrationPublicKey)"
+                    >
+                      Register now
+                    </a>
+                  </div>
+                  <p v-if="ev.publicSessionLabel || ev.publicSessionDateRange" class="pel-session-public">
+                    <strong v-if="ev.publicSessionLabel">{{ ev.publicSessionLabel }}</strong>
+                    <span v-if="ev.publicSessionDateRange" class="muted">
+                      <template v-if="ev.publicSessionLabel"> · </template>{{ ev.publicSessionDateRange }}
+                    </span>
+                    <button
+                      v-if="ev.publicSessionLabel"
+                      type="button"
+                      class="pel-sess-filter-btn"
+                      @click="setSessionFilter(ev.publicSessionLabel)"
+                    >
+                      Show all {{ ev.publicSessionLabel }} locations
+                    </button>
+                  </p>
+                </div>
+              </div>
+
               <div class="pel-card-body">
                 <div class="pel-card-head">
                   <h2 class="pel-card-title">{{ ev.title }}</h2>
@@ -96,7 +178,12 @@
                   class="pel-venue"
                 >
                   <strong>In person</strong>
-                  <p class="pel-address">{{ ev.publicLocationAddress }}</p>
+                  <a
+                    class="pel-address pel-address-link"
+                    :href="googleMapsSearchUrl(ev.publicLocationAddress)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{{ ev.publicLocationAddress }}</a>
                   <a
                     class="pel-maps-link"
                     :href="googleMapsSearchUrl(ev.publicLocationAddress)"
@@ -109,7 +196,12 @@
                 <ul v-if="sessionAddresses(ev).length" class="pel-session-locs">
                   <li v-for="(row, i) in sessionAddresses(ev)" :key="`sl-${ev.id}-${i}`">
                     <span v-if="row.label" class="pel-sess-label">{{ row.label }}</span>
-                    <span class="pel-address">{{ row.address }}</span>
+                    <a
+                      class="pel-address pel-address-link"
+                      :href="googleMapsSearchUrl(row.address)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >{{ row.address }}</a>
                     <a
                       class="pel-maps-link"
                       :href="googleMapsSearchUrl(row.address)"
@@ -133,11 +225,6 @@
                   class="pel-splash"
                   v-html="sanitizedSplash(ev)"
                 />
-                <div class="pel-actions">
-                  <a class="pel-btn pel-btn-primary" :href="registrationUrl(ev.registrationPublicKey)">
-                    Register
-                  </a>
-                </div>
               </div>
             </article>
           </li>
@@ -148,9 +235,9 @@
             <p class="pel-empty-eyebrow">Coming up</p>
             <h2 class="pel-empty-title">Programs will appear here</h2>
             <p class="pel-empty-copy">
-              When summer sessions open for each school location, you’ll see them listed below — with dates, locations, and
-              registration. Use <strong>Find closest location</strong> once events are posted to match your home address to
-              the nearest site.
+              When summer sessions open for each school location, you&rsquo;ll see them listed below — with dates, locations, and
+              registration. Use the <strong>address search</strong> above to sort by driving distance from your home once events
+              are posted.
             </p>
             <p class="pel-empty-hint muted">
               Bookmark this page and check back. Questions? Use the links your district or provider shared.
@@ -252,49 +339,63 @@ const nearestLoading = ref(false);
 const nearestError = ref('');
 const originSummary = ref('');
 const rankedEvents = ref(null);
-const driveModalOpen = ref(false);
+/** Hub only: filter listing to one source agency (logo click). */
+const hubAgencyFilterId = ref(null);
+/** Filter events sharing the same public session label. */
+const sessionLabelFilter = ref('');
 
-const displayEvents = computed(() =>
-  Array.isArray(rankedEvents.value) ? rankedEvents.value : props.events
+const baseEventList = computed(() =>
+  Array.isArray(rankedEvents.value) ? rankedEvents.value : props.events || []
 );
+
+const displayEvents = computed(() => {
+  let list = [...(baseEventList.value || [])];
+  const aid = hubAgencyFilterId.value;
+  if (aid != null && Number(aid) > 0) {
+    list = list.filter((ev) =>
+      (Array.isArray(ev.hubSourcePartners) ? ev.hubSourcePartners : []).some(
+        (p) => Number(p.sourceAgencyId) === Number(aid)
+      )
+    );
+  }
+  const sl = String(sessionLabelFilter.value || '').trim();
+  if (sl) {
+    list = list.filter((ev) => String(ev.publicSessionLabel || '').trim() === sl);
+  }
+  return list;
+});
 
 const nearestAgencySlug = computed(() => String(props.nearestAgencySlug || '').trim().toLowerCase());
 const hubSlugNorm = computed(() => String(props.hubSlug || '').trim().toLowerCase());
+
+const distinctHubPartners = computed(() => {
+  if (!hubSlugNorm.value) return [];
+  const map = new Map();
+  for (const ev of props.events || []) {
+    for (const p of hubPartnerEntries(ev)) {
+      const id = Number(p.sourceAgencyId);
+      if (!id) continue;
+      if (!map.has(id)) map.set(id, { ...p, sourceAgencyId: id });
+    }
+  }
+  return [...map.values()].sort((a, b) =>
+    String(a.sourceAgencyName || '').localeCompare(String(b.sourceAgencyName || ''), undefined, {
+      sensitivity: 'base'
+    })
+  );
+});
 
 const showHubTitle = computed(
   () => !(props.suppressPageTitle === true && !!hubSlugNorm.value) && String(props.pageTitle || '').trim()
 );
 
-const nearestCtaText = computed(() => {
-  const o = String(props.nearestCtaLabel || '').trim();
-  if (o) return o;
-  if (hubSlugNorm.value) return 'Find closest location to your home';
-  return 'Calculate closest driving distance to your home';
-});
-
-const nearestModalTitleText = computed(() => {
-  const o = String(props.nearestModalTitle || '').trim();
-  if (o) return o;
-  if (hubSlugNorm.value) return 'Closest program to your home';
-  return 'Driving distance from your home';
-});
-
-const nearestModalHintHtml = computed(() => {
+const nearestInlineSubtext = computed(() => {
   const o = String(props.nearestModalHint || '').trim();
-  if (o) {
-    const br = o.replace(/\n/g, '<br />');
-    return DOMPurify.sanitize(br, { ALLOWED_TAGS: ['br'] });
-  }
+  if (o) return o.split('\n')[0].replace(/<[^>]+>/g, '').trim().slice(0, 220);
   if (hubSlugNorm.value) {
-    return DOMPurify.sanitize(
-      'Enter your home address. We use Google Maps <strong>driving</strong> routes to sort programs by shortest drive to each school or venue listed for summer sessions.',
-      { ALLOWED_TAGS: ['strong'] }
-    );
+    return 'We use Google Maps driving routes to sort programs by shortest drive to each listed school or venue.';
   }
-  return DOMPurify.sanitize(
-    'Enter your home address. We use Google Maps <strong>driving</strong> routes to each in-person venue (event address and session locations) and sort events by shortest drive.',
-    { ALLOWED_TAGS: ['strong'] }
-  );
+  return 'We use Google Maps driving routes to each in-person venue and sort events by shortest drive.';
 });
 
 const canUseNearest = computed(() => {
@@ -305,16 +406,18 @@ const canUseNearest = computed(() => {
   return !!nearestAgencySlug.value;
 });
 
-const showDrivingDistanceCta = computed(
-  () =>
-    canUseNearest.value &&
-    (props.events || []).some((ev) => {
-      if (!ev?.inPersonPublic) return false;
-      if (ev.publicLocationLat != null && ev.publicLocationLng != null) return true;
-      const sessions = Array.isArray(ev.sessionLocations) ? ev.sessionLocations : [];
-      return sessions.some((s) => String(s?.address || '').trim());
-    })
-);
+const showDrivingDistanceCta = computed(() => {
+  if (!canUseNearest.value) return false;
+  // Marketing hub: always show address search (backend geocodes text addresses; useful when only one event or coords not saved yet)
+  if (hubSlugNorm.value) return true;
+  return (props.events || []).some((ev) => {
+    if (!ev?.inPersonPublic) return false;
+    if (ev.publicLocationLat != null && ev.publicLocationLng != null) return true;
+    if (String(ev.publicLocationAddress || '').trim()) return true;
+    const sessions = Array.isArray(ev.sessionLocations) ? ev.sessionLocations : [];
+    return sessions.some((s) => String(s?.address || '').trim());
+  });
+});
 
 watch(
   () => props.events,
@@ -322,17 +425,78 @@ watch(
     rankedEvents.value = null;
     nearestError.value = '';
     originSummary.value = '';
+    hubAgencyFilterId.value = null;
+    sessionLabelFilter.value = '';
   }
 );
 
-function openDriveModal() {
-  nearestError.value = '';
-  driveModalOpen.value = true;
+function hubPartnerEntries(ev) {
+  const raw = ev?.hubSourcePartners;
+  if (!Array.isArray(raw) || !raw.length) return [];
+  return raw;
 }
 
-function closeDriveModal() {
-  if (nearestLoading.value) return;
-  driveModalOpen.value = false;
+function toggleAgencyFilter(id) {
+  const n = Number(id);
+  if (!Number.isFinite(n) || n <= 0) return;
+  hubAgencyFilterId.value = hubAgencyFilterId.value === n ? null : n;
+}
+
+function clearAgencyFilter() {
+  hubAgencyFilterId.value = null;
+}
+
+function setSessionFilter(label) {
+  sessionLabelFilter.value = String(label || '').trim();
+}
+
+function clearSessionFilter() {
+  sessionLabelFilter.value = '';
+}
+
+function agencyInitials(name) {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function agencyFilterTipBar(p) {
+  const n = String(p?.sourceAgencyName || '').trim() || 'this agency';
+  return `Show events from ${n}`;
+}
+
+function agencyFilterTipCard(p) {
+  const n = String(p?.sourceAgencyName || '').trim() || 'this agency';
+  return `Show only ${n}`;
+}
+
+function primaryMapsQuery(ev) {
+  if (ev?.inPersonPublic && ev?.publicLocationAddress) return String(ev.publicLocationAddress).trim();
+  const sessions = sessionAddresses(ev);
+  if (sessions[0]?.address) return String(sessions[0].address).trim();
+  return '';
+}
+
+function locationDisplayName(ev) {
+  if (ev?.nearestVenueLabel && drivingDistanceDisplay(ev) != null) {
+    return String(ev.nearestVenueLabel).trim();
+  }
+  const addr = String(ev?.publicLocationAddress || '').trim();
+  if (addr) {
+    const first = addr.split(',')[0].trim();
+    if (first) return first;
+  }
+  const sessions = sessionAddresses(ev);
+  if (sessions[0]?.label) return String(sessions[0].label).trim();
+  if (sessions[0]?.address) {
+    const f = String(sessions[0].address).split(',')[0].trim();
+    if (f) return f;
+  }
+  return String(ev?.title || 'Program').trim();
 }
 
 function formatWhen(ev) {
@@ -427,7 +591,6 @@ async function runNearest() {
     const res = await api.post(url, { address: addr }, { skipGlobalLoading: true });
     rankedEvents.value = Array.isArray(res.data?.events) ? res.data.events : [];
     originSummary.value = String(res.data?.origin?.formattedAddress || addr).trim();
-    driveModalOpen.value = false;
   } catch (e) {
     rankedEvents.value = null;
     nearestError.value = e.response?.data?.error?.message || e.message || 'Could not calculate driving distances.';
@@ -1107,6 +1270,7 @@ function clearNearest() {
   border-radius: var(--hub-radius-lg, 20px);
   box-shadow: var(--hub-shadow, 0 10px 25px -5px rgba(15, 23, 42, 0.07));
   backdrop-filter: none;
+  overflow: visible;
 }
 
 .pel-root--hub .pel-card-title {
@@ -1306,5 +1470,383 @@ function clearNearest() {
 
 .pel-root--hub .pel-btn-secondary:hover:not(:disabled) {
   background: #e2e8f0;
+}
+
+/* Inline address search (above event list on hub) */
+.pel-nearest-inline {
+  max-width: min(40rem, 100%);
+  margin: 0 auto;
+  padding: 0 16px clamp(28px, 6vw, 48px);
+  width: 100%;
+}
+
+.pel-nearest-inline--above-list {
+  padding-top: 0;
+  padding-bottom: clamp(12px, 3vw, 20px);
+  margin-bottom: clamp(8px, 2vw, 16px);
+}
+
+.pel-nearest-inner {
+  text-align: center;
+  padding: clamp(20px, 4vw, 28px) clamp(18px, 3vw, 24px);
+  border-radius: 20px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(199, 210, 254, 0.22);
+  backdrop-filter: blur(8px);
+}
+
+.pel-nearest-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 12px;
+  border-radius: 14px;
+  background: rgba(244, 114, 182, 0.15);
+  font-size: 1.35rem;
+}
+
+.pel-nearest-heading {
+  margin: 0 0 10px;
+  font-size: clamp(1.05rem, 3.2vw, 1.2rem);
+  font-weight: 800;
+  line-height: 1.35;
+  color: #fff;
+}
+
+.pel-nearest-sub {
+  margin: 0 0 16px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  max-width: 32rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.pel-nearest-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  align-items: stretch;
+}
+
+.pel-nearest-controls .pel-input {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.pel-nearest-controls .pel-btn {
+  flex: 0 0 auto;
+  min-width: 120px;
+}
+
+.pel-drive-summary--inline {
+  margin-top: 14px;
+}
+
+.pel-hub-filter-bar {
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.35);
+  border: 1px solid rgba(199, 210, 254, 0.15);
+  overflow: visible;
+}
+
+.pel-hub-filter-lead {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.pel-hub-logo-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 8px;
+  overflow: visible;
+}
+
+.pel-filter-active-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: #c7d2fe;
+}
+
+.pel-filter-pill {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.pel-card-agency-logos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px 0;
+  justify-content: flex-end;
+  overflow: visible;
+  position: relative;
+  z-index: 2;
+}
+
+.pel-agency-logo-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  overflow: visible;
+  flex-shrink: 0;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.pel-agency-logo-tip {
+  position: absolute;
+  z-index: 40;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translate3d(-50%, 6px, 0);
+  padding: 7px 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  text-align: center;
+  color: #f8fafc;
+  white-space: normal;
+  max-width: min(220px, 72vw);
+  hyphens: auto;
+  background: linear-gradient(155deg, #334155 0%, #0f172a 100%);
+  border-radius: 10px;
+  box-shadow:
+    0 10px 28px rgba(15, 23, 42, 0.38),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.07s ease-out,
+    transform 0.07s ease-out,
+    visibility 0s linear 0.08s;
+}
+
+.pel-agency-logo-tip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -7px;
+  border: 7px solid transparent;
+  border-top-color: #0f172a;
+}
+
+.pel-agency-logo-btn:hover .pel-agency-logo-tip,
+.pel-agency-logo-btn:focus-visible .pel-agency-logo-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate3d(-50%, 0, 0);
+  transition:
+    opacity 0.06s ease-out,
+    transform 0.06s ease-out,
+    visibility 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pel-agency-logo-tip,
+  .pel-agency-logo-btn:hover .pel-agency-logo-tip,
+  .pel-agency-logo-btn:focus-visible .pel-agency-logo-tip {
+    transition: none;
+  }
+}
+
+.pel-agency-logo-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(165, 180, 252, 0.5);
+}
+
+.pel-agency-logo-btn--active {
+  border-color: #a5b4fc;
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.35);
+}
+
+.pel-agency-logo-btn img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.pel-agency-logo-btn--bar {
+  width: 48px;
+  height: 48px;
+}
+
+.pel-agency-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #e2e8f0;
+}
+
+.pel-card-condensed {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(199, 210, 254, 0.12);
+}
+
+.pel-thumb-maps {
+  flex-shrink: 0;
+  width: 88px;
+  height: 88px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(199, 210, 254, 0.25);
+  align-self: center;
+}
+
+.pel-thumb-maps img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pel-thumb-maps--static {
+  pointer-events: none;
+}
+
+.pel-condensed-main {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.pel-condensed-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.pel-loc-name {
+  font-weight: 800;
+  font-size: 1rem;
+  color: #fff;
+}
+
+.pel-loc-dist {
+  font-weight: 700;
+  color: #c7d2fe;
+  font-size: 0.95rem;
+}
+
+.pel-btn-register-inline {
+  margin-left: auto;
+  min-height: 40px;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  border-radius: 10px;
+}
+
+.pel-session-public {
+  margin: 10px 0 0;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: #e2e8f0;
+}
+
+.pel-sess-filter-btn {
+  display: block;
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #a5b4fc;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.pel-address-link {
+  color: inherit;
+  text-decoration: underline;
+  display: inline;
+}
+
+.pel-address-link:hover {
+  color: #a5b4fc;
+}
+
+/* Hub light theme */
+.pel-root--hub .pel-nearest-inner {
+  background: var(--hub-surface, #fff);
+  border: 1px solid var(--hub-border, rgba(15, 23, 42, 0.08));
+  box-shadow: var(--hub-shadow, 0 10px 25px -5px rgba(15, 23, 42, 0.07));
+}
+
+.pel-root--hub .pel-nearest-heading {
+  color: var(--hub-text, #111827);
+  font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, sans-serif);
+}
+
+.pel-root--hub .pel-nearest-sub {
+  color: var(--hub-text-muted, #4b5563);
+}
+
+.pel-root--hub .pel-hub-filter-bar {
+  background: var(--hub-surface-muted, #fafafa);
+  border-color: var(--hub-border, rgba(15, 23, 42, 0.06));
+}
+
+.pel-root--hub .pel-filter-active-row {
+  color: var(--hub-text-muted, #4b5563);
+}
+
+.pel-root--hub .pel-loc-name {
+  color: var(--hub-text, #111827);
+}
+
+.pel-root--hub .pel-loc-dist {
+  color: var(--hub-text-muted, #4b5563);
+}
+
+.pel-root--hub .pel-session-public {
+  color: var(--hub-text, #111827);
+}
+
+.pel-root--hub .pel-card-condensed {
+  border-bottom-color: var(--hub-border, rgba(15, 23, 42, 0.06));
+}
+
+.pel-root--hub .pel-agency-logo-btn {
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.pel-root--hub .pel-agency-fallback {
+  color: var(--hub-text-muted, #64748b);
 }
 </style>

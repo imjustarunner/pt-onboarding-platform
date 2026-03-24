@@ -258,7 +258,9 @@ function mapEventRow(row, req, opts = {}) {
     publicAgeMax: (() => {
       const n = Number(row.public_age_max);
       return Number.isFinite(n) && n >= 0 ? n : null;
-    })()
+    })(),
+    publicSessionLabel: row.public_session_label ? String(row.public_session_label).trim() : '',
+    publicSessionDateRange: row.public_session_date_range ? String(row.public_session_date_range).trim() : ''
   };
   const nextOccurrence = computeNextOccurrence(base);
   const calendarSource = nextOccurrence || { startsAt, endsAt };
@@ -411,6 +413,13 @@ function parseEventPayload(body = {}) {
     return { error: 'Minimum age cannot be greater than maximum age' };
   }
 
+  const publicSessionLabel = String(body.publicSessionLabel ?? body.public_session_label ?? '')
+    .trim()
+    .slice(0, 128);
+  const publicSessionDateRange = String(body.publicSessionDateRange ?? body.public_session_date_range ?? '')
+    .trim()
+    .slice(0, 255);
+
   const parseWallTime = (raw) => {
     if (raw === undefined || raw === null || raw === '') return null;
     const s = String(raw).trim();
@@ -500,6 +509,8 @@ function parseEventPayload(body = {}) {
     publicLocationAddress: publicLocationAddress || null,
     publicAgeMin,
     publicAgeMax,
+    publicSessionLabel: publicSessionLabel || null,
+    publicSessionDateRange: publicSessionDateRange || null,
     clientCheckInDisplayTime,
     clientCheckOutDisplayTime,
     employeeReportTime,
@@ -1160,8 +1171,8 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
 
   const [insertResult] = await pool.execute(
     `INSERT INTO company_events
-     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, kiosk_event_pin_hash)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, public_session_label, public_session_date_range, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, kiosk_event_pin_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       agencyId,
       organizationIdForRow,
@@ -1179,6 +1190,8 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
       createGeo.lng != null ? createGeo.lng : null,
       parsed.publicAgeMin != null ? parsed.publicAgeMin : null,
       parsed.publicAgeMax != null ? parsed.publicAgeMax : null,
+      parsed.publicSessionLabel,
+      parsed.publicSessionDateRange,
       parsed.startsAt,
       parsed.endsAt,
       parsed.timezone,
@@ -1354,7 +1367,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
 
   await pool.execute(
     `UPDATE company_events
-     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?
+     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, public_session_label = ?, public_session_date_range = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?
      WHERE id = ? AND agency_id = ?`,
     [
       userId,
@@ -1371,6 +1384,8 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
       geo.lng != null ? geo.lng : null,
       parsed.publicAgeMin != null ? parsed.publicAgeMin : null,
       parsed.publicAgeMax != null ? parsed.publicAgeMax : null,
+      parsed.publicSessionLabel,
+      parsed.publicSessionDateRange,
       parsed.startsAt,
       parsed.endsAt,
       parsed.timezone,

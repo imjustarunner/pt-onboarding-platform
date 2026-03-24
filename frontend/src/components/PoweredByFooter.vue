@@ -1,5 +1,5 @@
 <template>
-  <div v-if="showFooter" class="powered-by-footer">
+  <div v-if="showFooter" class="powered-by-footer" :class="{ 'powered-by-footer--embedded': variant === 'embedded' }">
     <div v-if="showPoweredBy && (platformOrgName || platformLogoUrl)" class="powered-by-content">
       <span class="powered-by-text">Platform powered by</span>
       <img
@@ -25,6 +25,15 @@
 import { computed } from 'vue';
 import { useBrandingStore } from '../store/branding';
 import { toUploadsUrl } from '../utils/uploadsUrl';
+
+defineProps({
+  /** Compact layout for public marketing hub / embedded footers */
+  variant: {
+    type: String,
+    default: 'default',
+    validator: (v) => v === 'default' || v === 'embedded'
+  }
+});
 
 const brandingStore = useBrandingStore();
 const showPoweredBy = computed(() => brandingStore.showPoweredBy);
@@ -134,6 +143,22 @@ const handleLogoError = (event) => {
 .legal-sep {
   margin: 0 8px;
   color: var(--text-secondary, #94a3b8);
+}
+
+.powered-by-footer--embedded {
+  margin-top: 0;
+  padding: 10px 8px 4px;
+  border-top: none;
+  background: transparent;
+}
+
+.powered-by-footer--embedded .powered-by-content {
+  font-size: 11px;
+}
+
+.powered-by-footer--embedded .legal-links {
+  margin-top: 6px;
+  font-size: 11px;
 }
 </style>
 

@@ -1,5 +1,4 @@
 import pool from '../config/database.js';
-import { geocodeAddressWithGoogle } from '../services/googleGeocode.service.js';
 import {
   attachDistanceScoresToPublicEvents,
   loadPublicAgencyEventRows,
@@ -168,7 +167,7 @@ export const listPublicAgencyEvents = async (req, res, next) => {
 
 /**
  * POST /api/public/skill-builders/agency/:slug/events/nearest
- * Body: { address: string } — geocodes home address; returns events sorted by **driving** distance (Google Distance Matrix).
+ * Body: { address: string } — uses home address with **driving** distance (Google Distance Matrix; same API as school mileage).
  */
 export const rankPublicAgencyEventsByAddress = async (req, res, next) => {
   try {
@@ -184,16 +183,7 @@ export const rankPublicAgencyEventsByAddress = async (req, res, next) => {
     const agencyId = orgs?.[0]?.id ? Number(orgs[0].id) : null;
     if (!agencyId) return res.status(404).json({ error: { message: 'Agency not found' } });
 
-    let origin;
-    try {
-      origin = await geocodeAddressWithGoogle({ addressText: address, countryCode: 'US' });
-    } catch (err) {
-      const code = err?.code || '';
-      if (code === 'MAPS_KEY_MISSING') {
-        return res.status(503).json({ error: { message: 'Location search is not configured.' } });
-      }
-      return res.status(400).json({ error: { message: err?.message || 'Could not find that address.' } });
-    }
+    const origin = { addressText: address };
 
     const conn = await pool.getConnection();
     try {
@@ -210,9 +200,9 @@ export const rankPublicAgencyEventsByAddress = async (req, res, next) => {
         agencyId,
         distanceMode: 'driving',
         origin: {
-          latitude: origin.latitude,
-          longitude: origin.longitude,
-          formattedAddress: origin.formattedAddress || null
+          latitude: null,
+          longitude: null,
+          formattedAddress: address
         },
         events: scored
       });
@@ -318,16 +308,7 @@ export const rankPublicProgramPortalEventsByAddress = async (req, res, next) => 
     }
     if (!address) return res.status(400).json({ error: { message: 'address is required' } });
 
-    let origin;
-    try {
-      origin = await geocodeAddressWithGoogle({ addressText: address, countryCode: 'US' });
-    } catch (err) {
-      const code = err?.code || '';
-      if (code === 'MAPS_KEY_MISSING') {
-        return res.status(503).json({ error: { message: 'Location search is not configured.' } });
-      }
-      return res.status(400).json({ error: { message: err?.message || 'Could not find that address.' } });
-    }
+    const origin = { addressText: address };
 
     const conn = await pool.getConnection();
     try {
@@ -351,9 +332,9 @@ export const rankPublicProgramPortalEventsByAddress = async (req, res, next) => 
         agencyId,
         distanceMode: 'driving',
         origin: {
-          latitude: origin.latitude,
-          longitude: origin.longitude,
-          formattedAddress: origin.formattedAddress || null
+          latitude: null,
+          longitude: null,
+          formattedAddress: address
         },
         events: scored
       });

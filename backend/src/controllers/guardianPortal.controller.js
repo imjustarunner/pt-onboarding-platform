@@ -213,7 +213,8 @@ export const listGuardianSkillBuilderEvents = async (req, res, next) => {
               c.id AS client_id,
               c.initials AS client_initials,
               sch.name AS school_name,
-              sch.slug AS school_slug
+              sch.slug AS school_slug,
+              sgc.created_at AS enrolled_at
        FROM clients c
        INNER JOIN skills_group_clients sgc ON sgc.client_id = c.id
        INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id AND sg.agency_id = c.agency_id
@@ -236,7 +237,8 @@ export const listGuardianSkillBuilderEvents = async (req, res, next) => {
       clientId: Number(r.client_id),
       clientInitials: r.client_initials,
       schoolName: r.school_name,
-      schoolSlug: r.school_slug
+      schoolSlug: r.school_slug,
+      enrolledAt: r.enrolled_at || null
     }));
 
     res.json({ ok: true, events });

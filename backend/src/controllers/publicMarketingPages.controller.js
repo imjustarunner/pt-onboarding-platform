@@ -6,9 +6,10 @@ import {
   buildHubThemeResponse,
   computeHubScopedMetrics,
   getMarketingPageRowBySlug,
+  hubRequestBaseUrl,
   isValidHubSlug,
   listSourcesForPage,
-  loadBookingHintsForHub,
+  loadHubFooterPartners,
   loadHubPublicEvents,
   normalizeSlug,
   parseJsonObject,
@@ -154,7 +155,8 @@ export const getPublicMarketingPageEvents = async (req, res, next) => {
     const sources = await listSourcesForPage(page.id);
     const conn = await pool.getConnection();
     try {
-      const events = await loadHubPublicEvents(conn, sources);
+      const baseUrl = hubRequestBaseUrl(req);
+      const events = await loadHubPublicEvents(conn, sources, { baseUrl });
       res.json({
         ok: true,
         hubSlug: String(page.slug || '').toLowerCase(),
@@ -213,7 +215,7 @@ export const getPublicMarketingPageMetrics = async (req, res, next) => {
   }
 };
 
-/** GET /api/public/marketing-pages/:slug/booking-hints */
+/** GET /api/public/marketing-pages/:slug/booking-hints — footer partners (agencies, logos, websites, optional provider finder). */
 export const getPublicMarketingPageBookingHints = async (req, res, next) => {
   try {
     const slug = String(req.params.slug || '').trim().toLowerCase();
@@ -222,12 +224,13 @@ export const getPublicMarketingPageBookingHints = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Page not found' } });
     }
     const sources = await listSourcesForPage(page.id);
-    const bookingHints = await loadBookingHintsForHub(sources);
+    const baseUrl = hubRequestBaseUrl(req);
+    const footerPartners = await loadHubFooterPartners(sources, baseUrl);
     res.json({
       ok: true,
       hubSlug: slug,
       pageType: page.pageType || 'event_hub',
-      bookingHints
+      footerPartners
     });
   } catch (e) {
     next(e);

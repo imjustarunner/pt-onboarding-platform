@@ -174,24 +174,53 @@
                   <p class="pmh-offer-item-body">{{ it.body }}</p>
                 </article>
               </div>
+
+              <div v-if="ctaEmbedInOfferExpanded && ctaSectionResolved" class="pmh-offer-cta-wrap" :style="programThemeStyle">
+                <div class="pmh-cta-band pmh-cta-band--in-offer">
+                  <p v-if="ctaSectionResolved.eyebrow" class="pmh-cta-eyebrow">{{ ctaSectionResolved.eyebrow }}</p>
+                  <h2 class="pmh-cta-title">{{ ctaSectionResolved.title }}</h2>
+                  <p v-if="ctaSectionResolved.subtitle" class="pmh-cta-subtitle">{{ ctaSectionResolved.subtitle }}</p>
+                  <p class="pmh-cta-body">{{ ctaSectionResolved.body }}</p>
+                  <p v-if="ctaSectionResolved.disclaimer" class="pmh-cta-disclaimer">{{ ctaSectionResolved.disclaimer }}</p>
+                  <div class="pmh-cta-actions">
+                    <div v-if="ctaSectionResolved.partnerBadgeUrl" class="pmh-cta-badge-img-wrap">
+                      <img
+                        class="pmh-cta-badge-img"
+                        :src="ctaSectionResolved.partnerBadgeUrl"
+                        alt="Partner or Medicaid program"
+                        loading="lazy"
+                      />
+                    </div>
+                    <div v-else-if="ctaSectionResolved.showPartnerPlaceholder" class="pmh-cta-partner-ph">
+                      <span class="pmh-cta-partner-ph-line">Medicaid accepted</span>
+                      <span class="pmh-cta-partner-ph-sub">Add ctaSection.partnerBadgeUrl in branding JSON to show your partner logo.</span>
+                    </div>
+                    <div class="pmh-cta-btn-wrap">
+                      <component :is="ctaPrimaryTag" class="pmh-cta-primary" v-bind="ctaPrimaryBind">
+                        {{ ctaSectionResolved.primaryLabel }}
+                      </component>
+                      <div v-if="ctaSectionResolved.showLimitedBadge" class="pmh-cta-seal" aria-hidden="true">
+                        <span class="pmh-cta-seal-text">{{ ctaSectionResolved.limitedBadgeText }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="offerExpandedExternalLinks.length" class="pmh-offer-external-links">
+                <h3 class="pmh-offer-external-title">More resources</h3>
+                <ul class="pmh-offer-external-list">
+                  <li v-for="(lnk, li) in offerExpandedExternalLinks" :key="`oel-${li}`">
+                    <a class="pmh-offer-external-a" :href="lnk.href" target="_blank" rel="noopener noreferrer">{{
+                      lnk.title
+                    }}</a>
+                  </li>
+                </ul>
+              </div>
             </div>
           </Transition>
         </div>
       </section>
-
-      <nav v-if="primaryNav.length" class="pmh-nav" aria-label="Page links">
-        <template v-for="(item, i) in primaryNav" :key="`nav-${i}`">
-          <a
-            v-if="isExternalNavHref(item.href)"
-            class="pmh-nav-link"
-            :href="String(item.href).trim()"
-            target="_blank"
-            rel="noopener noreferrer"
-            >{{ item.label }}</a
-          >
-          <router-link v-else class="pmh-nav-link" :to="String(item.href).trim()">{{ item.label }}</router-link>
-        </template>
-      </nav>
 
       <section
         v-if="galleryStripUrls.length"
@@ -215,7 +244,7 @@
       </section>
 
       <!-- Built-in narrative blocks (override or disable via branding JSON: ctaSection, processSection). -->
-      <section v-if="ctaSectionResolved" class="pmh-cta-band" :style="programThemeStyle">
+      <section v-if="ctaSectionResolved && ctaShowStandaloneBand" class="pmh-cta-band" :style="programThemeStyle">
         <p v-if="ctaSectionResolved.eyebrow" class="pmh-cta-eyebrow">{{ ctaSectionResolved.eyebrow }}</p>
         <h2 class="pmh-cta-title">{{ ctaSectionResolved.title }}</h2>
         <p v-if="ctaSectionResolved.subtitle" class="pmh-cta-subtitle">{{ ctaSectionResolved.subtitle }}</p>
@@ -281,27 +310,6 @@
         />
       </div>
 
-      <section v-if="bookingHints.length" class="pmh-section pmh-booking">
-        <div class="pmh-section-inner">
-          <h2 class="pmh-h2">Provider scheduling (optional)</h2>
-          <p class="pmh-muted">
-            <strong>Registering for a program or event</strong> is done through the <strong>registration link</strong> on each
-            listing above—those links are tied directly to that program’s events (or a specific event).
-          </p>
-          <p class="pmh-muted pmh-booking-sep">
-            The links below are <strong>different</strong>: they go to <strong>provider availability</strong> (finding a therapist
-            or ongoing scheduling), not event registration. If an organization enables this, you may need an access key from them
-            (append <code>?key=…</code> to the URL they give you, or use their full invitation link).
-          </p>
-          <ul class="pmh-booking-list">
-            <li v-for="h in bookingHints" :key="h.agencyId">
-              <router-link class="pmh-link" :to="{ path: `/find-provider/${h.agencyId}` }">{{ h.agencyName }}</router-link>
-              <span v-if="!h.publicAvailabilityEnabled" class="pmh-muted"> — provider availability not enabled</span>
-            </li>
-          </ul>
-        </div>
-      </section>
-
       <section v-if="metricsBlock" class="pmh-section pmh-metrics">
         <div class="pmh-section-inner">
           <h2 class="pmh-h2">At a glance</h2>
@@ -322,6 +330,74 @@
           </dl>
         </div>
       </section>
+
+      <footer v-if="!error" class="pmh-footer">
+        <div class="pmh-footer-inner">
+          <nav
+            v-if="primaryNav.length"
+            class="pmh-footer-nav"
+            :class="{ 'pmh-footer-nav--divider': footerPartners.length > 0 }"
+            aria-label="Page links"
+          >
+            <template v-for="(item, i) in primaryNav" :key="`fnav-${i}`">
+              <a
+                v-if="isExternalNavHref(item.href)"
+                class="pmh-footer-nav-link"
+                :href="String(item.href).trim()"
+                target="_blank"
+                rel="noopener noreferrer"
+                >{{ item.label }}</a
+              >
+              <router-link v-else class="pmh-footer-nav-link" :to="String(item.href).trim()">{{ item.label }}</router-link>
+            </template>
+          </nav>
+
+          <div v-if="footerPartners.length" class="pmh-footer-partners-block">
+            <h2 class="pmh-footer-heading">Participating agencies</h2>
+            <p class="pmh-footer-lead">
+              Event registration is through each listing above. Links here are agency sites and optional provider availability.
+            </p>
+            <ul class="pmh-footer-partner-list">
+              <li v-for="p in footerPartners" :key="`fp-${p.agencyId}`" class="pmh-footer-partner-card">
+                <div class="pmh-footer-partner-logo-wrap">
+                  <img
+                    v-if="p.logoUrl"
+                    class="pmh-footer-partner-logo"
+                    :src="p.logoUrl"
+                    :alt="`${p.agencyName} logo`"
+                    loading="lazy"
+                  />
+                  <span v-else class="pmh-footer-partner-initials" aria-hidden="true">{{ agencyFooterInitials(p.agencyName) }}</span>
+                </div>
+                <div class="pmh-footer-partner-meta">
+                  <span class="pmh-footer-partner-name">{{ p.agencyName }}</span>
+                  <div class="pmh-footer-partner-links">
+                    <a
+                      v-if="p.websiteUrl"
+                      class="pmh-footer-link"
+                      :href="p.websiteUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      >Main website</a
+                    >
+                    <router-link v-if="p.publicAvailabilityEnabled" class="pmh-footer-link" :to="p.findProviderPath">
+                      Provider availability
+                    </router-link>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <div
+            class="pmh-footer-system"
+            :class="{ 'pmh-footer-system--divider': primaryNav.length > 0 || footerPartners.length > 0 }"
+          >
+            <router-link class="pmh-footer-meta-link" to="/login">Staff login</router-link>
+            <PoweredByFooter variant="embedded" />
+          </div>
+        </div>
+      </footer>
     </div>
   </div>
 </template>
@@ -330,11 +406,14 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
+import { useBrandingStore } from '../../store/branding';
 import api from '../../services/api';
+import PoweredByFooter from '../../components/PoweredByFooter.vue';
 import PublicEventsListing from '../../components/public/PublicEventsListing.vue';
 import { hubGalleryPoolUrls, hubGalleryStripUrls } from '../../utils/publicMarketingHubGallery';
 
 const authStore = useAuthStore();
+const brandingStore = useBrandingStore();
 const route = useRoute();
 const hubSlug = computed(() => String(route.params.hubSlug || '').trim().toLowerCase());
 
@@ -344,7 +423,7 @@ const loading = ref(true);
 const error = ref('');
 const pageMeta = ref(null);
 const events = ref([]);
-const bookingHints = ref([]);
+const footerPartners = ref([]);
 const metricsBlock = ref(null);
 const offerExpanded = ref(false);
 
@@ -440,6 +519,16 @@ const primaryNav = computed(() => {
     }))
     .filter((x) => x.label && x.href);
 });
+
+function agencyFooterInitials(name) {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
 
 const galleryStripUrls = computed(() => hubGalleryStripUrls(hubBranding.value.gallery));
 
@@ -630,6 +719,39 @@ const ctaSectionResolved = computed(() => {
   return { ...DEFAULT_CTA_SECTION, ...o };
 });
 
+/** Eligibility / Medicaid CTA inside expanded “What we offer” (default on when that section exists). */
+const ctaEmbedInOfferExpanded = computed(() => {
+  if (!ctaSectionResolved.value || !whatWeOfferResolved.value) return false;
+  const o = hubBranding.value.ctaSection;
+  if (o && typeof o === 'object' && 'embedInOfferExpanded' in o) {
+    return o.embedInOfferExpanded !== false;
+  }
+  return true;
+});
+
+/** Separate CTA band on the page (default off when “What we offer” exists, to avoid duplicate). */
+const ctaShowStandaloneBand = computed(() => {
+  if (!ctaSectionResolved.value) return false;
+  if (!whatWeOfferResolved.value) return true;
+  const o = hubBranding.value.ctaSection;
+  if (o && typeof o === 'object' && 'hideStandaloneCtaBand' in o) {
+    return o.hideStandaloneCtaBand !== true;
+  }
+  return false;
+});
+
+/** Title + URL rows from admin; links always open in a new tab. */
+const offerExpandedExternalLinks = computed(() => {
+  const raw = hubBranding.value.offerExpandedExternalLinks;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((x) => ({
+      title: String(x?.title || '').trim(),
+      href: String(x?.href || '').trim()
+    }))
+    .filter((x) => x.title && x.href);
+});
+
 const processSectionResolved = computed(() => {
   const b = hubBranding.value;
   if (b.processSection === false) return null;
@@ -651,7 +773,7 @@ const heroProcessCinemaEnabled = computed(() => {
 
 const heroCinemaScrollDurationSec = computed(() => {
   const n = processSectionResolved.value?.steps?.length || 0;
-  return Math.min(140, Math.max(28, 20 + n * 6));
+  return Math.min(60, Math.max(14, 10 + n * 3));
 });
 
 const ctaPrimaryTag = computed(() => {
@@ -704,11 +826,12 @@ async function loadAll() {
       api.get(`/public/marketing-pages/${encodeURIComponent(slug)}/booking-hints`, {
         skipGlobalLoading: true,
         skipAuthRedirect: true
-      })
+      }),
+      brandingStore.fetchPlatformBranding()
     ]);
     pageMeta.value = pageRes.data?.page || null;
     events.value = Array.isArray(evRes.data?.events) ? evRes.data.events : [];
-    bookingHints.value = Array.isArray(bookRes.data?.bookingHints) ? bookRes.data.bookingHints : [];
+    footerPartners.value = Array.isArray(bookRes.data?.footerPartners) ? bookRes.data.footerPartners : [];
 
     if (pageMeta.value?.metricsEnabled) {
       try {
@@ -727,7 +850,7 @@ async function loadAll() {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load page.';
     pageMeta.value = null;
     events.value = [];
-    bookingHints.value = [];
+    footerPartners.value = [];
   } finally {
     loading.value = false;
   }
@@ -1181,8 +1304,22 @@ watch(hubSlug, () => {
   line-height: 1.5;
 }
 
-.pmh-nav {
-  padding: 10px 18px 14px;
+.pmh-footer {
+  margin-top: 20px;
+  padding: 0 16px 28px;
+}
+
+.pmh-footer-inner {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 22px 20px 24px;
+  background: var(--hub-surface);
+  border: 1px solid var(--hub-border);
+  border-radius: var(--hub-radius-lg);
+  box-shadow: var(--hub-shadow);
+}
+
+.pmh-footer-nav {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -1190,7 +1327,13 @@ watch(hubSlug, () => {
   justify-content: center;
 }
 
-.pmh-nav-link {
+.pmh-footer-nav--divider {
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--hub-border);
+}
+
+.pmh-footer-nav-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1200,17 +1343,148 @@ watch(hubSlug, () => {
   font-weight: 700;
   font-family: var(--hub-font-display);
   color: var(--hub-link-dark);
-  background: var(--hub-surface);
+  background: #f8fafc;
   border: 1px solid rgba(163, 38, 35, 0.22);
   border-radius: var(--hub-radius-md);
   text-decoration: none;
-  box-shadow: var(--hub-shadow);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
-.pmh-nav-link:hover {
+.pmh-footer-nav-link:hover {
   background: #fff;
-  box-shadow: 0 12px 28px rgba(163, 38, 35, 0.12);
+  box-shadow: 0 8px 20px rgba(163, 38, 35, 0.1);
   transform: translateY(-1px);
+}
+
+.pmh-footer-heading {
+  margin: 0 0 8px;
+  font-size: 1.125rem;
+  font-weight: 800;
+  font-family: var(--hub-font-display);
+  color: var(--hub-text);
+  text-align: center;
+  letter-spacing: -0.02em;
+}
+
+.pmh-footer-lead {
+  margin: 0 0 18px;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--hub-text-muted);
+  text-align: center;
+}
+
+.pmh-footer-partner-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pmh-footer-partner-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px solid var(--hub-border);
+  border-radius: var(--hub-radius-md);
+}
+
+.pmh-footer-partner-logo-wrap {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--hub-radius-sm);
+  background: #fff;
+  border: 1px solid var(--hub-border);
+  overflow: hidden;
+}
+
+.pmh-footer-partner-logo {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.pmh-footer-partner-initials {
+  font-size: 0.75rem;
+  font-weight: 800;
+  font-family: var(--hub-font-display);
+  color: var(--hub-link-dark);
+}
+
+.pmh-footer-partner-meta {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pmh-footer-partner-name {
+  font-weight: 800;
+  font-family: var(--hub-font-display);
+  font-size: 0.9375rem;
+  color: var(--hub-text);
+  line-height: 1.3;
+}
+
+.pmh-footer-partner-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.pmh-footer-link {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--hub-link);
+  text-decoration: none;
+}
+.pmh-footer-link:hover {
+  text-decoration: underline;
+}
+
+.pmh-footer-system {
+  text-align: center;
+  padding-top: 6px;
+}
+
+.pmh-footer-system--divider {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--hub-border);
+}
+
+.pmh-footer-meta-link {
+  display: inline-block;
+  margin-bottom: 4px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-family: var(--hub-font-display);
+  color: var(--hub-link-dark);
+  text-decoration: none;
+}
+.pmh-footer-meta-link:hover {
+  text-decoration: underline;
+  color: var(--hub-link);
+}
+
+.pmh-footer-system :deep(.powered-by-footer--embedded) {
+  color: var(--hub-text-muted);
+}
+
+.pmh-footer-system :deep(.powered-by-text),
+.pmh-footer-system :deep(.powered-by-name),
+.pmh-footer-system :deep(.legal-link) {
+  color: var(--hub-text-muted);
 }
 
 .pmh-gallery-section {
@@ -1355,6 +1629,53 @@ watch(hubSlug, () => {
   margin-top: 20px;
   padding-top: 4px;
   border-top: 1px solid var(--hub-border);
+}
+
+.pmh-offer-cta-wrap {
+  margin-top: 28px;
+  padding-top: 8px;
+}
+
+.pmh-cta-band--in-offer {
+  margin: 0;
+  text-align: center;
+  border-top: 4px solid var(--pmh-program-primary, var(--hub-brand));
+}
+
+.pmh-offer-external-links {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--hub-border);
+}
+
+.pmh-offer-external-title {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  font-weight: 800;
+  font-family: var(--hub-font-display);
+  color: var(--hub-text);
+  text-align: center;
+  letter-spacing: -0.02em;
+}
+
+.pmh-offer-external-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+.pmh-offer-external-a {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--hub-link);
+  text-decoration: none;
+}
+.pmh-offer-external-a:hover {
+  text-decoration: underline;
 }
 
 .pmh-offer-intro {
@@ -1755,17 +2076,6 @@ watch(hubSlug, () => {
   opacity: 0.95;
 }
 
-.pmh-booking-list {
-  margin: 0;
-  padding-left: 1.2rem;
-  color: var(--hub-text-muted);
-}
-
-.pmh-link {
-  color: var(--hub-link);
-  font-weight: 700;
-}
-
 .pmh-metrics-grid {
   display: grid;
   gap: 12px;
@@ -1803,7 +2113,7 @@ watch(hubSlug, () => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pmh-nav-link:hover {
+  .pmh-footer-nav-link:hover {
     transform: none;
   }
 }

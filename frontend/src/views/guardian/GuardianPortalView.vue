@@ -34,6 +34,7 @@
                 v-for="g in sbUpcomingGrouped"
                 :key="g.companyEventId"
                 class="sb-g-card"
+                :class="{ 'sb-g-card--pulse': sbCardShouldPulse(g) }"
                 :to="guardianEventLink(g.companyEventId)"
               >
                 <div class="sb-g-title">{{ g.title }}</div>
@@ -67,6 +68,21 @@
           <div class="top-card-desc">
             Upcoming sessions and announcements will show here. (Coming soon)
           </div>
+        </div>
+        <div v-if="sbUpcomingGrouped.length" class="top-card top-card--full">
+          <div class="top-card-title">Your event registrations</div>
+          <p class="top-card-desc" style="margin-bottom: 12px;">
+            Skill Builders programs your children are enrolled in — same events as the cards above, with registration dates.
+          </p>
+          <ul class="reg-events-summary">
+            <li v-for="g in sbUpcomingGrouped" :key="`sum-${g.companyEventId}`" class="reg-events-summary-item">
+              <router-link class="reg-events-summary-link" :to="guardianEventLink(g.companyEventId)">
+                <span class="re-title">{{ g.title }}</span>
+                <span class="re-meta muted">{{ g.schoolName || 'School' }} · {{ childLabels(g) }}</span>
+                <span v-if="g.enrolledAt" class="re-enrolled muted small">Registered {{ formatEnrolledAt(g.enrolledAt) }}</span>
+              </router-link>
+            </li>
+          </ul>
         </div>
       </div>
 
@@ -519,6 +535,34 @@ function guardianEventLink(eventId) {
   return `/guardian/skill-builders/event/${id}`;
 }
 
+const highlightEventId = computed(() => {
+  const n = Number(route.query.highlight || 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+});
+
+function formatEnrolledAt(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (!Number.isFinite(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { dateStyle: 'medium' });
+  } catch {
+    return '';
+  }
+}
+
+function isRecentlyEnrolledGroup(g) {
+  if (!g?.enrolledAt) return false;
+  const t = new Date(g.enrolledAt).getTime();
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t < 48 * 60 * 60 * 1000;
+}
+
+function sbCardShouldPulse(g) {
+  if (highlightEventId.value && highlightEventId.value === g.companyEventId) return true;
+  return isRecentlyEnrolledGroup(g);
+}
+
 const sbGrouped = computed(() => {
   const map = new Map();
   for (const e of sbEvents.value || []) {
@@ -533,8 +577,16 @@ const sbGrouped = computed(() => {
         endsAt: e.endsAt,
         schoolName: e.schoolName,
         schoolSlug: e.schoolSlug,
+        enrolledAt: e.enrolledAt || null,
         children: []
       });
+    } else {
+      const row = map.get(id);
+      const next = e.enrolledAt ? new Date(e.enrolledAt).getTime() : 0;
+      const cur = row.enrolledAt ? new Date(row.enrolledAt).getTime() : 0;
+      if (Number.isFinite(next) && (!Number.isFinite(cur) || next > cur)) {
+        row.enrolledAt = e.enrolledAt;
+      }
     }
     map.get(id).children.push({ clientId: e.clientId, initials: e.clientInitials });
   }
@@ -944,6 +996,71 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.top-card--full {
+  grid-column: 1 / -1;
+}
+
+.reg-events-summary {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reg-events-summary-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  text-decoration: none;
+  color: inherit;
+  background: var(--bg-alt);
+  transition: border-color 0.15s ease;
+}
+
+.reg-events-summary-link:hover {
+  border-color: var(--primary);
+}
+
+.re-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.re-meta {
+  font-size: 12px;
+}
+
+.re-enrolled {
+  font-size: 11px;
+}
+
+@keyframes sb-card-pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.12);
+  }
+}
+
+.sb-g-card--pulse {
+  animation: sb-card-pulse-glow 2s ease-in-out infinite;
+  border-color: var(--primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-g-card--pulse {
+    animation: none;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+  }
 }
 .sb-g-cards {
   display: flex;

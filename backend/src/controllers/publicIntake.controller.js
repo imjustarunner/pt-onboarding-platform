@@ -537,7 +537,7 @@ const persistClientDateOfBirthIfMissing = async ({ clientId, dateOfBirth }) => {
     [dob, cid]
   );
 };
-const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {} }) => {
+const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {}, accessEnabled = false }) => {
   const cid = Number(clientId || 0);
   if (!cid) return null;
   const email = String(profile?.email || '').trim().toLowerCase();
@@ -563,10 +563,17 @@ const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {} }) 
     guardianUserId: Number(guardianUser.id),
     relationshipType: 'guardian',
     relationshipTitle: String(profile?.relationship || 'Guardian').trim() || 'Guardian',
-    accessEnabled: false,
+    accessEnabled: !!accessEnabled,
     permissionsJson: { intakeLinkGuardianProfile: true },
     createdByUserId: null
   });
+  if (accessEnabled) {
+    try {
+      await pool.execute(`UPDATE clients SET guardian_portal_enabled = 1 WHERE id = ?`, [cid]);
+    } catch (e) {
+      console.error('[publicIntake] guardian_portal_enabled update failed', { clientId: cid, message: e?.message });
+    }
+  }
   return guardianUser;
 };
 const BASE_CONSENT_TTL_MS = 60 * 60 * 1000; // 1 hour to complete once started
@@ -3642,7 +3649,8 @@ export const finalizePublicIntake = async (req, res, next) => {
         if (guardianProfile?.email) {
           await ensureGuardianAccountLinkedForClient({
             clientId: boundClient.id,
-            profile: guardianProfile
+            profile: guardianProfile,
+            accessEnabled: false
           });
         }
       } catch (persistErr) {
@@ -4546,7 +4554,8 @@ export const finalizePublicIntake = async (req, res, next) => {
         if (guardianProfile?.email) {
           await ensureGuardianAccountLinkedForClient({
             clientId,
-            profile: guardianProfile
+            profile: guardianProfile,
+            accessEnabled: !!link.create_guardian
           });
         }
       } catch (persistErr) {
@@ -5070,7 +5079,8 @@ export const submitPublicIntake = async (req, res, next) => {
         if (guardianProfile?.email) {
           await ensureGuardianAccountLinkedForClient({
             clientId,
-            profile: guardianProfile
+            profile: guardianProfile,
+            accessEnabled: !!link.create_guardian
           });
         }
       } catch (persistErr) {

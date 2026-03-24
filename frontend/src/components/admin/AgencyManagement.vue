@@ -2252,6 +2252,16 @@
             />
             <small>CSS gradient or image URL for login page background</small>
           </div>
+
+          <div class="form-group">
+            <label>Public marketing website URL</label>
+            <input
+              v-model="agencyForm.themeSettings.publicWebsiteUrl"
+              type="url"
+              placeholder="https://www.example.org"
+            />
+            <small>Shown on public marketing hub footers for this agency (parent agency when the row is a program).</small>
+          </div>
           
           <div class="form-group">
             <ToggleSwitch v-model="agencyForm.isActive" label="Active" />
@@ -5608,6 +5618,7 @@ const defaultAgencyForm = () => ({
   themeSettings: {
     fontFamily: '',
     loginBackground: '',
+    publicWebsiteUrl: '',
     useAffiliatedAgencyBranding: true,
     usePublicEventsOwnBranding: false
   },
@@ -6956,6 +6967,7 @@ const editAgency = async (agency) => {
     themeSettings: {
       fontFamily: themeSettings.fontFamily || '',
       loginBackground: themeSettings.loginBackground || '',
+      publicWebsiteUrl: themeSettings.publicWebsiteUrl || '',
       useAffiliatedAgencyBranding: ['school', 'program', 'learning'].includes(
         String(agency.organization_type || agency.organizationType || 'agency').toLowerCase()
       )
@@ -7590,6 +7602,9 @@ const saveAgency = async () => {
     }
     if (agencyForm.value.themeSettings?.loginBackground) {
       themeSettings.loginBackground = agencyForm.value.themeSettings.loginBackground;
+    }
+    if (agencyForm.value.themeSettings?.publicWebsiteUrl?.trim()) {
+      themeSettings.publicWebsiteUrl = agencyForm.value.themeSettings.publicWebsiteUrl.trim();
     }
     if (['school', 'program', 'learning'].includes(String(agencyForm.value.organizationType || 'agency').toLowerCase())) {
       themeSettings.useAffiliatedAgencyBranding = agencyForm.value.themeSettings?.useAffiliatedAgencyBranding !== false;
