@@ -1,12 +1,19 @@
 <template>
-  <div class="pel-root" :class="{ 'pel-root--hub': !!hubSlugNorm }" :style="rootFontStyle">
+  <div
+    class="pel-root"
+    :class="{
+      'pel-root--hub': !!hubSlugNorm,
+      'pel-root--hub-suppress-title': suppressPageTitle && !!hubSlugNorm
+    }"
+    :style="rootFontStyle"
+  >
     <header class="pel-hero">
       <div class="pel-hero-inner">
         <p v-if="showMasthead" class="pel-eyebrow">Official registration</p>
         <div v-if="headerLogoUrl" class="pel-logo-wrap">
           <img class="pel-logo" :src="headerLogoUrl" :alt="headerLogoAlt" loading="eager" />
         </div>
-        <h1 class="pel-title">{{ pageTitle }}</h1>
+        <h1 v-if="showHubTitle" class="pel-title">{{ pageTitle }}</h1>
         <p v-if="pageSubtitle" class="pel-subtitle">{{ pageSubtitle }}</p>
         <div v-if="showMasthead" class="pel-hero-rule" aria-hidden="true" />
       </div>
@@ -200,6 +207,8 @@ const props = defineProps({
   hubSlug: { type: String, default: '' },
   /** Show partner agency chips when events include `hubSourcePartners` (marketing hub). */
   showHubSourceChips: { type: Boolean, default: false },
+  /** When true with hubSlug, hide the duplicate page title (hub shell shows its own h1). */
+  suppressPageTitle: { type: Boolean, default: false },
   /** When set, show logo masthead + footer with link to `/{slug}`. */
   footerHomeSlug: { type: String, default: '' },
   /** Show “Official registration” masthead + footer (agency-branded public pages). */
@@ -251,6 +260,10 @@ const displayEvents = computed(() =>
 
 const nearestAgencySlug = computed(() => String(props.nearestAgencySlug || '').trim().toLowerCase());
 const hubSlugNorm = computed(() => String(props.hubSlug || '').trim().toLowerCase());
+
+const showHubTitle = computed(
+  () => !(props.suppressPageTitle === true && !!hubSlugNorm.value) && String(props.pageTitle || '').trim()
+);
 
 const nearestCtaText = computed(() => {
   const o = String(props.nearestCtaLabel || '').trim();
@@ -1038,6 +1051,11 @@ function clearNearest() {
 
 .pel-root--hub .pel-hero {
   padding: clamp(8px, 2vw, 16px) 16px clamp(12px, 3vw, 20px);
+}
+
+.pel-root--hub-suppress-title .pel-hero {
+  padding-top: clamp(4px, 1vw, 10px);
+  padding-bottom: clamp(8px, 2vw, 14px);
 }
 
 .pel-root--hub .pel-hero::before {

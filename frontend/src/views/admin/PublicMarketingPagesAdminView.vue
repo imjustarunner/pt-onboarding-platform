@@ -131,6 +131,47 @@
         <div v-if="form.heroImageUrl" class="pmp-thumb pmp-thumb-wide"><img :src="form.heroImageUrl" alt="Hero preview" /></div>
       </div>
 
+      <div class="field pmp-assets">
+        <span>Hero video (optional)</span>
+        <p class="muted small">
+          Plays below the hero image. <strong>Upload</strong> a short MP4, WebM, or MOV (about 20MB max), or paste a direct file URL / YouTube link.
+        </p>
+        <div class="pmp-upload-row">
+          <input
+            v-model="form.heroVideoUrl"
+            type="text"
+            placeholder="https://… or upload"
+            class="flex-grow"
+          />
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="!!saving || !!uploadingTarget"
+            @click="triggerHeroVideoUpload"
+          >
+            {{ uploadingTarget === 'heroVideo' ? '…' : 'Upload video' }}
+          </button>
+          <input
+            ref="heroVideoFileInput"
+            type="file"
+            accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"
+            class="pmp-hidden-file"
+            tabindex="-1"
+            aria-hidden="true"
+            @change="onUploadHeroVideo"
+          />
+        </div>
+        <video
+          v-if="isLikelyDirectVideoUrl(form.heroVideoUrl)"
+          class="pmp-video-preview"
+          :src="form.heroVideoUrl"
+          controls
+          muted
+          playsinline
+          preload="metadata"
+        />
+      </div>
+
       <div class="field">
         <span>Photo gallery</span>
         <p class="muted small">Optional grid of images below the hero. Upload one or more images (append to the list).</p>
@@ -209,7 +250,8 @@
           <code>programThemePrimary</code> (hex accent),
           <code>ctaSection</code> (object to override copy, or <code>false</code> to hide the Medicaid / eligibility band),
           <code>processSection</code> (object with <code>title</code> / <code>steps</code> array, or <code>false</code> to hide),
-          <code>whatWeOfferSection</code> (object: <code>title</code>, <code>summary</code>, <code>intro</code>, <code>expandLabel</code>, <code>collapseLabel</code>, <code>items</code> array of <code>{ title, body, imageUrl }</code>, or <code>false</code> to hide the collapsible block).
+          <code>whatWeOfferSection</code> (collapsible block: <code>title</code>, <code>summary</code>, <code>intro</code>, <code>items</code>, or <code>false</code>),
+          <code>heroVideoUrl</code> (use the Hero video field above; it merges here on save).
         </p>
         <textarea v-model="form.brandingJsonText" rows="6" class="mono" placeholder='{"programThemePrimary":"#a32623"}' />
       </label>
@@ -265,6 +307,7 @@ const uploadingTarget = ref('');
 const logoFileInput = ref(null);
 const heroFileInput = ref(null);
 const galleryFileInput = ref(null);
+const heroVideoFileInput = ref(null);
 
 function triggerLogoUpload() {
   logoFileInput.value?.click();
@@ -272,6 +315,17 @@ function triggerLogoUpload() {
 
 function triggerHeroUpload() {
   heroFileInput.value?.click();
+}
+
+function triggerHeroVideoUpload() {
+  heroVideoFileInput.value?.click();
+}
+
+function isLikelyDirectVideoUrl(u) {
+  const s = String(u || '').trim().toLowerCase();
+  if (!s) return false;
+  if (/youtube\.com|youtu\.be/.test(s)) return false;
+  return s.endsWith('.mp4') || s.endsWith('.webm') || s.endsWith('.mov') || s.includes('/uploads/');
 }
 
 /** Structured hub branding (merged into brandingJson on save). */
@@ -283,6 +337,7 @@ const form = ref({
   heroTitle: '',
   heroSubtitle: '',
   heroImageUrl: '',
+  heroVideoUrl: '',
   logoUrl: '',
   partnerLine: '',
   parentIntro: '',
@@ -345,6 +400,10 @@ function mergeBrandingPayload() {
   if (pint) out.parentIntro = pint;
   else delete out.parentIntro;
 
+  const hv = String(form.value.heroVideoUrl || '').trim();
+  if (hv) out.heroVideoUrl = hv;
+  else delete out.heroVideoUrl;
+
   return out;
 }
 
@@ -353,6 +412,7 @@ function hydrateStructuredFromBranding(b) {
   form.value.partnerLine = String(branding.partnerLine || '').trim();
   form.value.parentIntro = String(branding.parentIntro || '').trim();
   form.value.logoUrl = String(branding.logoUrl || '').trim();
+  form.value.heroVideoUrl = String(branding.heroVideoUrl || '').trim();
   galleryUrls.value = Array.isArray(branding.gallery) ? branding.gallery.map((u) => String(u || '').trim()) : [];
   if (!galleryUrls.value.length) galleryUrls.value = [''];
 
@@ -371,6 +431,15 @@ async function postMarketingUpload(file) {
   const fd = new FormData();
   fd.append('file', file);
   const res = await api.post('/platform/public-marketing-pages/upload', fd, { skipGlobalLoading: true });
+  const url = res.data?.url;
+  if (!url) throw new Error('Upload did not return a URL');
+  return String(url).trim();
+}
+
+async function postMarketingVideoUpload(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await api.post('/platform/public-marketing-pages/upload-video', fd, { skipGlobalLoading: true });
   const url = res.data?.url;
   if (!url) throw new Error('Upload did not return a URL');
   return String(url).trim();
@@ -399,6 +468,20 @@ async function onUploadHero(e) {
     form.value.heroImageUrl = await postMarketingUpload(f);
   } catch (err) {
     saveError.value = err.response?.data?.error?.message || err.message || 'Upload failed';
+  } finally {
+    uploadingTarget.value = '';
+  }
+}
+
+async function onUploadHeroVideo(e) {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (!f) return;
+  uploadingTarget.value = 'heroVideo';
+  try {
+    form.value.heroVideoUrl = await postMarketingVideoUpload(f);
+  } catch (err) {
+    saveError.value = err.response?.data?.error?.message || err.message || 'Video upload failed';
   } finally {
     uploadingTarget.value = '';
   }
@@ -452,6 +535,7 @@ function resetForm() {
     heroTitle: '',
     heroSubtitle: '',
     heroImageUrl: '',
+    heroVideoUrl: '',
     logoUrl: '',
     partnerLine: '',
     parentIntro: '',
@@ -513,6 +597,7 @@ function edit(p) {
   delete advanced.contentPages;
   delete advanced.partnerLine;
   delete advanced.parentIntro;
+  delete advanced.heroVideoUrl;
   form.value = {
     slug: p.slug,
     title: p.title || '',
@@ -521,6 +606,7 @@ function edit(p) {
     heroTitle: p.heroTitle || '',
     heroSubtitle: p.heroSubtitle || '',
     heroImageUrl: p.heroImageUrl || '',
+    heroVideoUrl: '',
     logoUrl: '',
     partnerLine: '',
     parentIntro: '',
@@ -747,6 +833,17 @@ onMounted(async () => {
   width: 100%;
   display: block;
   vertical-align: middle;
+}
+
+.pmp-video-preview {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  max-height: 220px;
+  margin-top: 10px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #0f172a;
 }
 .pmp-gallery-list {
   list-style: none;

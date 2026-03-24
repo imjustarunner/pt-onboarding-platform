@@ -19,8 +19,15 @@
       </div>
 
       <header class="pmh-header">
-        <div v-if="logoUrl" class="pmh-logo-row">
-          <img class="pmh-logo" :src="logoUrl" :alt="`${displayHeadline} logo`" loading="eager" />
+        <div class="pmh-brand-row">
+          <img
+            v-if="logoUrl"
+            class="pmh-logo"
+            :src="logoUrl"
+            :alt="`${displayHeadline} logo`"
+            loading="eager"
+          />
+          <h1 class="pmh-headline">{{ displayHeadline }}</h1>
         </div>
         <p v-if="partnerLine" class="pmh-partner">
           <span class="pmh-partner-dot" />
@@ -28,6 +35,28 @@
         </p>
         <div v-if="heroImageUrl" class="pmh-hero-media">
           <img :src="heroImageUrl" :alt="displayHeadline" loading="lazy" />
+        </div>
+        <div v-if="heroVideoUrl" class="pmh-hero-media pmh-hero-media--video">
+          <iframe
+            v-if="heroVideoYoutubeEmbed"
+            class="pmh-hero-iframe"
+            :src="heroVideoYoutubeEmbed"
+            title="Program video"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowfullscreen
+            loading="lazy"
+          />
+          <video
+            v-else
+            class="pmh-hero-video"
+            :src="heroVideoUrl"
+            muted
+            playsinline
+            loop
+            autoplay
+            controls
+            preload="metadata"
+          />
         </div>
         <div v-if="parentIntroResolved" class="pmh-intro-card">
           <div class="pmh-intro-icon" aria-hidden="true">
@@ -169,6 +198,7 @@
           :error="''"
           :hub-slug="hubSlug"
           :show-hub-source-chips="true"
+          :suppress-page-title="true"
           :nearest-cta-label="nearestCtaLabel"
           :nearest-modal-title="nearestModalTitle"
           :nearest-modal-hint="nearestModalHint"
@@ -306,6 +336,32 @@ const galleryImages = computed(() => {
 });
 
 const logoUrl = computed(() => String(hubBranding.value.logoUrl || '').trim());
+
+const heroVideoUrl = computed(() => String(hubBranding.value.heroVideoUrl || '').trim());
+
+function youtubeEmbedFromUrl(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  try {
+    if (s.includes('youtube.com/embed/')) {
+      const href = /^https?:/i.test(s) ? s : s.startsWith('//') ? `https:${s}` : `https://${s}`;
+      const u = new URL(href);
+      if (!u.searchParams.has('mute')) u.searchParams.set('mute', '1');
+      return u.toString();
+    }
+  } catch {
+    /* fall through */
+  }
+  let id = '';
+  const watchMatch = s.match(/[?&]v=([^&\s#]+)/);
+  if (watchMatch) id = watchMatch[1];
+  const shortMatch = s.match(/youtu\.be\/([^?\s#]+)/);
+  if (shortMatch) id = shortMatch[1];
+  if (!id) return '';
+  return `https://www.youtube.com/embed/${id}?rel=0&mute=1`;
+}
+
+const heroVideoYoutubeEmbed = computed(() => youtubeEmbedFromUrl(heroVideoUrl.value));
 
 /** Brick accent for CTA strip + process band; override with branding.programThemePrimary. */
 const programThemeStyle = computed(() => {
@@ -629,18 +685,36 @@ watch(hubSlug, () => {
   padding: max(16px, env(safe-area-inset-top, 16px)) 18px 0;
 }
 
-.pmh-logo-row {
+.pmh-brand-row {
   display: flex;
-  justify-content: center;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14px 16px;
   margin-bottom: 14px;
+  flex-wrap: wrap;
 }
 
 .pmh-logo {
-  max-height: 56px;
-  max-width: min(100%, 280px);
+  flex-shrink: 0;
+  max-height: 52px;
+  max-width: min(42vw, 200px);
   width: auto;
   height: auto;
   object-fit: contain;
+}
+
+.pmh-headline {
+  margin: 0;
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-size: clamp(1.35rem, 4.8vw, 1.85rem);
+  font-weight: 800;
+  font-family: var(--hub-font-display);
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+  color: var(--hub-text);
+  text-align: left;
 }
 
 .pmh-partner {
@@ -685,9 +759,31 @@ watch(hubSlug, () => {
 
 .pmh-hero-media img {
   width: 100%;
-  max-height: min(52vh, 340px);
+  max-height: min(40vh, 280px);
   object-fit: cover;
+  /* Anchor toward top so group photos keep heads in frame */
+  object-position: center 8%;
   display: block;
+}
+
+.pmh-hero-media + .pmh-hero-media--video {
+  margin-top: 12px;
+}
+
+.pmh-hero-video {
+  width: 100%;
+  max-height: min(48vh, 320px);
+  display: block;
+  background: #0f172a;
+}
+
+.pmh-hero-iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: min(52vh, 360px);
+  border: 0;
+  display: block;
+  background: #0f172a;
 }
 
 .pmh-intro-card {

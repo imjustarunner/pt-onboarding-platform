@@ -25,6 +25,18 @@ const uploadPublicMarketing = multer({
   }
 });
 
+/** Short hero clips only — separate route so image uploads keep an 8MB cap. */
+const MARKETING_VIDEO_MAX_BYTES = 20 * 1024 * 1024;
+const uploadPublicMarketingVideo = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MARKETING_VIDEO_MAX_BYTES },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = ['video/mp4', 'video/webm', 'video/quicktime'];
+    if (allowedMimes.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Invalid file type. Use MP4, WebM, or MOV (QuickTime).'), false);
+  }
+});
+
 function mapPageOut(row, sources = null) {
   if (!row) return null;
   return {
@@ -224,7 +236,8 @@ export const getPublicMarketingPageBookingHints = async (req, res, next) => {
 
 /**
  * POST /api/platform/public-marketing-pages/upload
- * Superadmin image upload → /uploads/public_marketing/… (use returned url in hero, branding JSON, etc.)
+ * POST /api/platform/public-marketing-pages/upload-video
+ * Superadmin upload → /uploads/public_marketing/… (images up to 8MB; videos up to 20MB on upload-video)
  */
 export const uploadPublicMarketingPageAsset = async (req, res, next) => {
   try {
@@ -233,7 +246,8 @@ export const uploadPublicMarketingPageAsset = async (req, res, next) => {
     }
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
     const ext = path.extname(req.file.originalname) || '';
-    const filename = `hub-${uniqueSuffix}${ext}`;
+    const isVideo = String(req.file.mimetype || '').startsWith('video/');
+    const filename = `${isVideo ? 'hub-vid' : 'hub'}-${uniqueSuffix}${ext}`;
     const storageResult = await StorageService.savePublicMarketingAsset(
       req.file.buffer,
       filename,
@@ -255,6 +269,7 @@ export const uploadPublicMarketingPageAsset = async (req, res, next) => {
 };
 
 export const uploadPublicMarketingPageAssetMiddleware = uploadPublicMarketing.single('file');
+export const uploadPublicMarketingPageVideoMiddleware = uploadPublicMarketingVideo.single('file');
 
 /** GET /api/platform/public-marketing-pages */
 export const listMarketingPagesAdmin = async (req, res, next) => {

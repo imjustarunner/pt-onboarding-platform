@@ -6,13 +6,15 @@ import {
   listMarketingPagesAdmin,
   updateMarketingPageAdmin,
   uploadPublicMarketingPageAsset,
-  uploadPublicMarketingPageAssetMiddleware
+  uploadPublicMarketingPageAssetMiddleware,
+  uploadPublicMarketingPageVideoMiddleware
 } from '../controllers/publicMarketingPages.controller.js';
 
 const router = express.Router();
 
 router.use(authenticate, requireSuperAdmin);
 router.post('/upload', uploadPublicMarketingPageAssetMiddleware, uploadPublicMarketingPageAsset);
+router.post('/upload-video', uploadPublicMarketingPageVideoMiddleware, uploadPublicMarketingPageAsset);
 router.get('/', listMarketingPagesAdmin);
 router.post('/', createMarketingPageAdmin);
 router.put('/:id', updateMarketingPageAdmin);
