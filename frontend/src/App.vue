@@ -899,6 +899,7 @@ import WeatherChip from './components/WeatherChip.vue';
 import SessionLockScreen from './components/SessionLockScreen.vue';
 import OfficeMandatoryReviewSplash from './components/office/OfficeMandatoryReviewSplash.vue';
 import { toUploadsUrl } from './utils/uploadsUrl';
+import { buildSuperadminAgencyBrandUrl, buildSuperadminPlatformBrandUrl } from './utils/brandSwitchUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 
 const authStore = useAuthStore();
@@ -1206,9 +1207,23 @@ const selectAgencyBrand = async (a) => {
   try {
     closeBrandMenu();
     if (!a) return;
-    agencyStore.setCurrentAgency(a);
-    const slug = a.slug || a.portal_url;
+    let full = a;
+    if (brandingStore.isSuperAdmin) {
+      const hydrated = await agencyStore.hydrateAgencyById(a.id);
+      if (hydrated) full = hydrated;
+    }
+    agencyStore.setCurrentAgency(full);
+    const slug = full.slug || full.portal_url;
     if (!slug) return;
+
+    // Superadmin: jump to that agency’s real app host (custom_domain) when configured, so URL/cookies/theme match.
+    if (brandingStore.isSuperAdmin) {
+      const jump = buildSuperadminAgencyBrandUrl(full, route);
+      if (jump) {
+        window.location.assign(jump);
+        return;
+      }
+    }
     pushWithSlug(slug);
   } catch {
     // ignore
@@ -1218,6 +1233,15 @@ const selectAgencyBrand = async (a) => {
 const selectPlatformBrand = async () => {
   closeBrandMenu();
   agencyStore.setCurrentAgency(null);
+
+  if (brandingStore.isSuperAdmin) {
+    const jump = buildSuperadminPlatformBrandUrl(route);
+    if (jump) {
+      window.location.assign(jump);
+      return;
+    }
+  }
+
   stripSlug();
 
   // Ensure super admins still have agency options after returning to Platform.
