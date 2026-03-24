@@ -327,6 +327,11 @@
 
             <div class="sb-ce-section">
               <strong>Guardian registration catalog</strong>
+              <p class="muted small sb-ce-pattern-lead">
+                Set <strong>Registration eligible</strong> to <strong>Yes</strong> for the event to appear on public marketing
+                hubs and public program listings (you still need an active <strong>Smart Registration</strong> intake link locked
+                to this event).
+              </p>
               <div class="sb-ce-grid sb-ce-grid-tight">
                 <div class="form-group">
                   <label class="sb-ce-lbl">Registration eligible</label>

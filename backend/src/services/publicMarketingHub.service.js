@@ -1,9 +1,9 @@
 import pool from '../config/database.js';
 import { checkPublicAvailabilityGate } from './publicAvailabilityGate.service.js';
-import { resolveSkillBuildersProgramOrganizationId } from './skillBuildersSkillsGroup.service.js';
+import { listAffiliatedProgramOrganizationIds } from './skillBuildersSkillsGroup.service.js';
 import {
   attachDistanceScoresToPublicEvents,
-  loadPublicProgramEventRows,
+  loadPublicAgencyHubEventRows,
   loadPublicProgramEventRowsMerged,
   respondNearestDistanceError
 } from './skillBuildersPublicEvents.service.js';
@@ -85,8 +85,7 @@ export async function loadHubPublicEvents(conn, sources) {
     let meta = { sourceAgencyId: sid, sourceAgencyName: '', sourceAgencySlug: '' };
 
     if (st === 'agency') {
-      const programOrgId = await resolveSkillBuildersProgramOrganizationId(conn, sid);
-      if (!programOrgId) continue;
+      const programOrgIds = await listAffiliatedProgramOrganizationIds(conn, sid);
       const [agRows] = await conn.execute(
         `SELECT id, name, slug FROM agencies WHERE id = ? LIMIT 1`,
         [sid]
@@ -94,7 +93,7 @@ export async function loadHubPublicEvents(conn, sources) {
       const ag = agRows?.[0];
       meta.sourceAgencyName = String(ag?.name || '').trim() || `Agency ${sid}`;
       meta.sourceAgencySlug = String(ag?.slug || '').trim().toLowerCase() || '';
-      batch = await loadPublicProgramEventRows(conn, sid, programOrgId);
+      batch = await loadPublicAgencyHubEventRows(conn, sid, programOrgIds);
     } else if (st === 'organization') {
       const [orgRows] = await conn.execute(
         `SELECT id, name, slug FROM agencies WHERE id = ? LIMIT 1`,

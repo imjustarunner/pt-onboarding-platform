@@ -24,6 +24,28 @@ export async function resolveSkillBuildersProgramOrganizationId(conn, agencyId) 
 }
 
 /**
+ * All active affiliated program organizations under an agency (any program name).
+ * Public marketing hubs use this so listed events are not limited to a program literally named "Skill Builders".
+ */
+export async function listAffiliatedProgramOrganizationIds(conn, agencyId) {
+  const aid = Number(agencyId);
+  if (!Number.isFinite(aid) || aid <= 0) return [];
+  const [rows] = await conn.execute(
+    `SELECT child.id
+     FROM organization_affiliations oa
+     JOIN agencies child ON child.id = oa.organization_id
+     WHERE oa.agency_id = ?
+       AND oa.is_active = TRUE
+       AND (child.is_archived = FALSE OR child.is_archived IS NULL)
+       AND (child.is_active = TRUE OR child.is_active IS NULL)
+       AND LOWER(COALESCE(child.organization_type, '')) = 'program'
+     ORDER BY child.id ASC`,
+    [aid]
+  );
+  return (rows || []).map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0);
+}
+
+/**
  * Resolve an affiliated program organization under an agency by its portal slug (agencies.slug).
  */
 export async function resolveAffiliatedProgramOrganizationIdBySlug(conn, agencyId, programSlug) {

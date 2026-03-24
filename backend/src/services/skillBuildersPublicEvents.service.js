@@ -149,6 +149,33 @@ export async function loadPublicProgramEventRowsMerged(conn, programOrgId) {
 }
 
 /**
+ * Public marketing hub when the source is an agency: events for that agency scoped to affiliated program org(s).
+ * If no program orgs are affiliated, falls back to all agency events that pass the public registration gate.
+ */
+export async function loadPublicAgencyHubEventRows(conn, agencyId, programOrgIds) {
+  const aid = Number(agencyId);
+  if (!Number.isFinite(aid) || aid <= 0) return [];
+  const ids = [...new Set((programOrgIds || []).map((id) => Number(id)).filter((n) => n > 0))];
+  if (!ids.length) {
+    return loadPublicAgencyEventRows(conn, aid);
+  }
+  const ph = ids.map(() => '?').join(', ');
+  const [rows] = await conn.execute(
+    `SELECT ${PUBLIC_EVENT_SELECT}
+     FROM company_events ce
+     WHERE ce.agency_id = ?
+       AND ce.organization_id IN (${ph})
+       AND (ce.is_active = TRUE OR ce.is_active IS NULL)
+       AND ce.ends_at >= NOW()
+       AND ${PUBLIC_REGISTRATION_SQL}
+     ORDER BY ce.starts_at ASC
+     LIMIT 150`,
+    [aid, ...ids]
+  );
+  return hydratePublicRows(conn, rows || []);
+}
+
+/**
  * Sort public events by shortest **driving** distance (Google Distance Matrix) from `origin` to the nearest
  * in-person venue (main public address or session locations). Requires GOOGLE_MAPS_API_KEY with Distance Matrix enabled.
  */
