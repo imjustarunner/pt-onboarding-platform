@@ -203,13 +203,19 @@
                 Dedicated Smart ROI flow. This is the standard school ROI and is built independently per school. It stays school-scoped and does not create clients.
               </small>
               <small v-if="form.formType === 'smart_registration'" class="form-help">
-                Registration-first flow for events, programs, and classes. This can create participant records for new people while also supporting existing participants. Use Questions/Registration/Document steps to standardize entry and acceptance.
+                Lighter, registration-first flows (e.g. cash-only or brief events): one company event per link, minimal paperwork.
+                For full intake <em>and</em> event enrollment, use <strong>Intake</strong> and add a Registration step instead.
               </small>
               <small v-if="form.formType === 'job_application'" class="form-help">
                 Each job gets its own link. Applicants upload resume, cover letter, etc. Documents land in Submitted Documents.
               </small>
               <small v-if="form.formType === 'medical_records_request'" class="form-help">
                 View-only form. Documents land in Submitted Documents and cannot be assigned to a client.
+              </small>
+              <small v-if="form.formType === 'intake'" class="form-help">
+                Default school/agency intake with client creation and documents. Add a <strong>Registration</strong> step to enroll
+                into one company event at the same time — same event binding and returning-client shortcuts as Smart Registration,
+                with your full questions and packet.
               </small>
             </div>
             <div v-if="form.formType === 'job_application'" class="form-group">
@@ -257,7 +263,7 @@
               <input v-model.number="form.programId" type="number" />
             </div>
             <div
-              v-if="form.formType === 'smart_registration'"
+              v-if="registrationFlowAdmin"
               class="form-group"
               style="grid-column: 1 / -1"
             >
@@ -273,21 +279,26 @@
               <small class="form-help">Used only to list events when locking this link to one Skill Builders / company event.</small>
             </div>
             <div
-              v-if="form.formType === 'smart_registration'"
+              v-if="registrationFlowAdmin"
               class="form-group"
               style="grid-column: 1 / -1"
             >
-              <label>Lock to company event (optional)</label>
-              <select v-model.number="form.companyEventId" :disabled="companyEventsPickerLoading">
-                <option :value="null">None — use registration step (catalog or manual options)</option>
+              <label>Company event (required)</label>
+              <select
+                v-model.number="form.companyEventId"
+                :disabled="companyEventsPickerLoading"
+                required
+              >
+                <option :value="null" disabled>Select the event this URL enrolls into</option>
                 <option v-for="e in companyEventsPickerOptions" :key="e.id" :value="e.id">
                   {{ e.title || `Event ${e.id}` }} (starts {{ formatCompanyEventPickerLabel(e) }})
                 </option>
               </select>
               <small class="form-help">
-                When set, signers register only for this event (catalog narrows; picker may hide). For a
-                <strong>Register</strong> button on the public <code>/open-events/…</code> page, keep this link
-                <strong>active</strong>, form type Smart Registration, and the same event selected here.
+                Each registration-capable URL enrolls into one company event. Use <strong>Intake</strong> + Registration for full
+                paperwork plus event enrollment; use <strong>Smart Registration</strong> alone for shorter flows. For returning
+                families, use step visibility on <strong>questions</strong>, <strong>documents</strong>, and <strong>uploads</strong>. For
+                <strong>Register</strong> on <code>/open-events/…</code>, keep this link <strong>active</strong> with the same event.
               </small>
             </div>
             <div class="form-group">
@@ -489,7 +500,7 @@
                       Required
                     </label>
                   </div>
-                  <div v-if="form.formType === 'smart_registration'" class="form-group" style="grid-column: 1 / -1;">
+                  <div v-if="registrationFlowAdmin" class="form-group" style="grid-column: 1 / -1;">
                     <label>Show this upload step</label>
                     <select v-model="step.visibility">
                       <option value="always">Always</option>
@@ -556,7 +567,7 @@
                       placeholder="e.g., Check each box if you agree with the statement on that line. You may uncheck any you do not agree with."
                     ></textarea>
                   </div>
-                  <div v-if="form.formType === 'smart_registration'" class="form-group" style="grid-column: 1 / -1;">
+                  <div v-if="registrationFlowAdmin" class="form-group" style="grid-column: 1 / -1;">
                     <label>Show this document step</label>
                     <select v-model="step.visibility">
                       <option value="always">Always</option>
@@ -574,7 +585,7 @@
                       No template dropdown is required for this step.
                     </div>
                   </div>
-                  <div v-if="form.formType === 'smart_registration'" class="form-group" style="grid-column: 1 / -1;">
+                  <div v-if="registrationFlowAdmin" class="form-group" style="grid-column: 1 / -1;">
                     <label>Show this School ROI step</label>
                     <select v-model="step.visibility">
                       <option value="always">Always</option>
@@ -585,6 +596,25 @@
                 </div>
 
                 <div v-else-if="step.type === 'registration'" class="form-grid">
+                  <div
+                    v-if="registrationFlowAdmin"
+                    class="form-group"
+                    style="grid-column: 1 / -1; padding: 10px 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;"
+                  >
+                    <strong style="display: block; margin-bottom: 6px;">Choosing a real company / Skill Builders event</strong>
+                    <span class="muted" style="font-size: 13px; line-height: 1.45;">
+                      There is no Agency → Program → Event cascade here. Use one of these:
+                      <br />
+                      <strong>1)</strong> Set <strong>Source type</strong> to <strong>Agency catalog (public)</strong> — signers pick from
+                      live events on <em>this link&rsquo;s agency</em> that are marked registration-eligible and still open.
+                      <br />
+                      <strong>2)</strong> Or, in link settings, choose the required <strong>company event</strong> (after picking the agency).
+                      The catalog and enrollment use that event.
+                      <br />
+                      <strong>Programs</strong> = affiliated program <em>organizations</em> (e.g. D11 Summer), not a specific dated
+                      event — use schedule blocks / copy for timing unless you use the catalog or lock.
+                    </span>
+                  </div>
                   <div class="form-group">
                     <label>Step title</label>
                     <input v-model="step.label" type="text" placeholder="e.g., Registration Selection" />
@@ -593,15 +623,24 @@
                     <label>Description (optional)</label>
                     <input v-model="step.description" type="text" placeholder="e.g., Choose one or more options below" />
                   </div>
+                  <div v-if="registrationFlowAdmin" class="form-group" style="grid-column: 1 / -1;">
+                    <label>Registration step</label>
+                    <p class="form-help" style="margin: 0 0 8px;">
+                      Always shown for everyone: they start a session like other intakes and are enrolled into the link&rsquo;s
+                      company event. Use <strong>Show this … step</strong> on <strong>questions</strong>, <strong>documents</strong>, and
+                      <strong>upload</strong> steps to hide redundant signing or fields for <em>existing</em> clients (profile already has
+                      that data); new clients still complete those steps.
+                    </p>
+                  </div>
                   <div class="form-group">
                     <label>Source type</label>
                     <select v-model="step.sourceType" @change="onRegistrationSourceTypeChange(step)">
-                      <option value="manual">Manual options</option>
-                      <option value="program">Programs</option>
+                      <option value="manual">Manual options (labels only; not tied to DB events)</option>
+                      <option value="program">Programs (affiliated program orgs)</option>
                       <option value="program_event">Program events (shift sites &amp; slots)</option>
-                      <option value="class">Classes</option>
-                      <option value="event">Events (framed)</option>
-                      <option value="agency_catalog">Agency catalog (public)</option>
+                      <option value="class">Classes (learning)</option>
+                      <option value="event">Manual options + event id field (advanced; prefer catalog or lock)</option>
+                      <option value="agency_catalog">Agency catalog (public) — recommended for real events</option>
                     </select>
                   </div>
                   <div class="form-group">
@@ -829,12 +868,15 @@
                     </div>
                   </div>
                   <div v-if="step.sourceType === 'agency_catalog'" class="muted" style="grid-column: 1 / -1;">
-                    Registrants choose from your agency&rsquo;s live catalog (Skill Builders events and registration-eligible classes). Options load automatically; nothing to configure here.
+                    With the catalog, signers see registration-eligible items for the agency. Smart registration links also
+                    require a <strong>company event</strong> in link settings: the API and enrollment use that event (catalog
+                    options narrow to it when set).
                   </div>
                   <div class="form-group" v-if="step.sourceType === 'manual' || step.sourceType === 'event'" style="grid-column: 1 / -1;">
                     <label>Options</label>
                     <div v-if="step.sourceType === 'event'" class="muted" style="margin-bottom: 8px;">
-                      Event entities are framed but may not be fully active yet; use manual event options for now.
+                      For a normal public event flow, use <strong>Agency catalog (public)</strong> and set the link&rsquo;s
+                      <strong>company event</strong>. Use this only if you are entering options by hand and optional numeric event ids (advanced).
                     </div>
                     <div class="option-list">
                       <div v-for="(opt, oIdx) in step.options" :key="opt.id || oIdx" class="option-row">
@@ -852,7 +894,7 @@
                 </div>
 
                 <div v-else-if="step.type === 'questions'" class="question-builder">
-                  <div v-if="form.formType === 'smart_registration'" class="form-group" style="margin-bottom: 12px;">
+                  <div v-if="registrationFlowAdmin" class="form-group" style="margin-bottom: 12px;">
                     <label>Show this questions step</label>
                     <select v-model="step.visibility">
                       <option value="always">Always</option>
@@ -883,7 +925,7 @@
                           <input v-model="field.required" type="checkbox" :disabled="field.type === 'info'" />
                           Required
                         </label>
-                        <select v-if="form.formType === 'smart_registration'" v-model="field.visibility" title="Field visibility">
+                        <select v-if="registrationFlowAdmin" v-model="field.visibility" title="Field visibility">
                           <option value="always">Always show</option>
                           <option value="new_client_only">New clients only</option>
                         </select>
@@ -917,7 +959,7 @@
                             placeholder="Equals value (e.g., yes)"
                           />
                         </div>
-                        <div v-if="form.formType === 'smart_registration'" class="condition-row">
+                        <div v-if="registrationFlowAdmin" class="condition-row">
                           <button
                             class="btn btn-xs btn-secondary"
                             type="button"
@@ -1037,6 +1079,16 @@ const form = reactive({
   intakeFieldsText: '',
   intakeSteps: []
 });
+
+const formHasRegistrationStep = computed(() =>
+  (Array.isArray(form.intakeSteps) ? form.intakeSteps : []).some(
+    (s) => String(s?.type || '').trim().toLowerCase() === 'registration'
+  )
+);
+/** Smart Registration, or Intake that includes a Registration step (full paperwork + event enrollment). */
+const registrationFlowAdmin = computed(
+  () => form.formType === 'smart_registration' || (form.formType === 'intake' && formHasRegistrationStep.value)
+);
 
 const quickScope = ref('school');
 const quickOrganizationId = ref(null);
@@ -1227,16 +1279,13 @@ const hydrateCompanyEventPickerForEdit = async (companyEventId) => {
   await fetchCompanyEventsForPicker();
 };
 
-watch(
-  () => form.formType,
-  (ft) => {
-    if (ft !== 'smart_registration') return;
-    if (!companyEventsPickerAgencyId.value && agencyList.value[0]?.id) {
-      companyEventsPickerAgencyId.value = agencyList.value[0].id;
-      void fetchCompanyEventsForPicker();
-    }
+watch(registrationFlowAdmin, (on) => {
+  if (!on) return;
+  if (!companyEventsPickerAgencyId.value && agencyList.value[0]?.id) {
+    companyEventsPickerAgencyId.value = agencyList.value[0].id;
+    void fetchCompanyEventsForPicker();
   }
-);
+});
 
 const resetForm = () => {
   form.title = '';
@@ -1362,7 +1411,9 @@ const applyDraft = (draft) => {
     ? data.allowedDocumentTemplateIds
     : [];
   form.intakeFieldsText = data.intakeFieldsText || '';
-  form.intakeSteps = sanitizeSteps(Array.isArray(data.intakeSteps) ? data.intakeSteps : []);
+  form.intakeSteps = sanitizeSteps(Array.isArray(data.intakeSteps) ? data.intakeSteps : [], {
+    formType: data.formType ?? form.formType
+  });
   form.intakeSteps.forEach((step) => {
     if (step?.type !== 'registration') return;
     if (step.sourceType === 'class') {
@@ -1460,6 +1511,9 @@ watch(() => form.formType, (newVal) => {
     form.createClient = true;
     form.createGuardian = true;
     form.requiresAssignment = false;
+    (form.intakeSteps || []).forEach((s) => {
+      if (s?.type === 'registration') s.visibility = 'always';
+    });
   }
   if (newVal === 'smart_school_roi') {
     form.scopeType = 'school';
@@ -1467,6 +1521,13 @@ watch(() => form.formType, (newVal) => {
     form.createGuardian = false;
     form.requiresAssignment = false;
   }
+});
+
+watch(formHasRegistrationStep, (has) => {
+  if (!has || form.formType !== 'intake') return;
+  (form.intakeSteps || []).forEach((s) => {
+    if (s?.type === 'registration') s.visibility = 'always';
+  });
 });
 
 watch(showForm, (open) => {
@@ -1622,23 +1683,28 @@ const editLink = (link) => {
   if (form.formType === 'job_application' && form.organizationId) {
     fetchJobDescriptions();
   }
-  if (form.formType === 'smart_registration') {
-    void hydrateCompanyEventPickerForEdit(link.company_event_id || null);
-  }
+  void nextTick(() => {
+    if (registrationFlowAdmin.value) {
+      void hydrateCompanyEventPickerForEdit(link.company_event_id || null);
+    }
+  });
 };
 
 const applyFieldTemplate = (template) => {
   if (!template?.fields_json) return;
   form.intakeFieldsText = JSON.stringify(template.fields_json, null, 2);
   if (!form.intakeSteps.length) {
-    form.intakeSteps = sanitizeSteps([
-      {
-        id: createId('step'),
-        type: 'questions',
-        visibility: 'always',
-        fields: template.fields_json || []
-      }
-    ]);
+    form.intakeSteps = sanitizeSteps(
+      [
+        {
+          id: createId('step'),
+          type: 'questions',
+          visibility: 'always',
+          fields: template.fields_json || []
+        }
+      ],
+      { formType: form.formType }
+    );
   }
 };
 
@@ -1689,6 +1755,11 @@ const save = async () => {
   try {
     saving.value = true;
     formError.value = '';
+    if (registrationFlowAdmin.value && !form.companyEventId) {
+      formError.value =
+        'Choose the company event for this link. Registration-capable URLs (Smart Registration or Intake with a Registration step) must be tied to one program event.';
+      return;
+    }
     const selectedTemplateIds = form.allowAllDocuments
       ? selectableTemplates.value.map((t) => t.id)
       : form.allowedDocumentTemplateIds;
@@ -1742,8 +1813,9 @@ const save = async () => {
     if (form.scopeType === 'program' && form.programId) {
       payload.programId = form.programId;
     }
-    payload.companyEventId =
-      form.formType === 'smart_registration' ? (form.companyEventId ? Number(form.companyEventId) : null) : null;
+    payload.companyEventId = registrationFlowAdmin.value
+      ? (form.companyEventId ? Number(form.companyEventId) : null)
+      : null;
     if (editingId.value) {
       await api.put(`/intake-links/${editingId.value}`, payload);
     } else {
@@ -1930,7 +2002,8 @@ const orderedAllowedTemplates = computed(() => {
     .filter(Boolean);
 });
 
-const sanitizeSteps = (steps) => {
+const sanitizeSteps = (steps, { formType } = {}) => {
+  const formTypeKey = String(formType || '').trim().toLowerCase();
   const raw = Array.isArray(steps) ? steps : [];
   return raw
     .filter((s) => s && typeof s === 'object')
@@ -1972,6 +2045,17 @@ const sanitizeSteps = (steps) => {
       } else if (next.type === 'registration') {
         next.label = String(next.label || '').trim() || 'Registration';
         next.description = String(next.description || '').trim();
+        const rawHasRegistrationStep = raw.some(
+          (x) => String(x?.type || '').trim().toLowerCase() === 'registration'
+        );
+        const forceRegAlways =
+          formTypeKey === 'smart_registration'
+          || (formTypeKey === 'intake' && rawHasRegistrationStep);
+        next.visibility = forceRegAlways
+          ? 'always'
+          : (['always', 'new_client_only', 'existing_client_only'].includes(String(next.visibility || '').trim())
+            ? String(next.visibility).trim()
+            : 'always');
         next.participantMode = ['any', 'existing_only', 'new_only'].includes(String(next.participantMode || ''))
           ? String(next.participantMode)
           : 'any';
@@ -2101,8 +2185,9 @@ const getStepFields = (step) => {
 };
 
 const normalizeIntakeSteps = (link) => {
+  const ft = link?.form_type || link?.formType;
   if (Array.isArray(link?.intake_steps) && link.intake_steps.length) {
-    return sanitizeSteps(link.intake_steps);
+    return sanitizeSteps(link.intake_steps, { formType: ft });
   }
   const steps = [];
   if (Array.isArray(link?.intake_fields) && link.intake_fields.length) {
@@ -2112,7 +2197,7 @@ const normalizeIntakeSteps = (link) => {
   docIds.forEach((id) =>
     steps.push({ id: createId('step'), type: 'document', templateId: id, checkboxDisclaimer: '' })
   );
-  return sanitizeSteps(steps);
+  return sanitizeSteps(steps, { formType: ft });
 };
 
 const addStep = (type, options = {}) => {
@@ -2123,6 +2208,7 @@ const addStep = (type, options = {}) => {
   } else if (type === 'registration') {
     step.label = 'Registration';
     step.description = '';
+    step.visibility = 'always';
     step.participantMode = 'any';
     step.existingLookupField = 'email';
     step.defaultVideoUrl = '';
@@ -2190,7 +2276,7 @@ const removeStep = (idx) => {
 };
 
 const moveStep = (idx, dir) => {
-  form.intakeSteps = sanitizeSteps(form.intakeSteps);
+  form.intakeSteps = sanitizeSteps(form.intakeSteps, { formType: form.formType });
   const next = idx + dir;
   if (next < 0 || next >= form.intakeSteps.length) return;
   const copy = [...form.intakeSteps];
@@ -2796,7 +2882,7 @@ const removeOption = (field, idx) => {
 };
 
 const buildPayloadFromSteps = (selectedTemplateIds = []) => {
-  const intakeSteps = sanitizeSteps(form.intakeSteps).map((step) => ({ ...step }));
+  const intakeSteps = sanitizeSteps(form.intakeSteps, { formType: form.formType }).map((step) => ({ ...step }));
   intakeSteps.forEach((step) => {
     if (step?.type === 'registration') {
       refreshRegistrationStepOptions(step);

@@ -19,43 +19,83 @@ export async function learningClassOrgIdsForAgency(agencyId) {
 /**
  * Registration-eligible company events and learning classes for an agency (non-PHI catalog).
  * @param {number} agencyId
+ * @param {{ lockedCompanyEventId?: number|null }} [options]
  * @returns {Promise<Array<{ kind: string, id: number, title: string, summary: string, startsAt, endsAt, enrollmentOpensAt, enrollmentClosesAt, medicaidEligible: boolean, cashEligible: boolean }>>}
  */
-export async function fetchRegistrationCatalogItems(agencyId) {
+export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
   const aid = Number(agencyId);
   if (!aid) return [];
 
+  const lockedId = Number(options.lockedCompanyEventId || 0) || null;
   const items = [];
 
   try {
-    const [evRows] = await pool.execute(
-      `SELECT id, title, description, starts_at, ends_at,
-              registration_eligible, medicaid_eligible, cash_eligible
-       FROM company_events
-       WHERE agency_id = ?
-         AND (is_active = 1 OR is_active IS NULL)
-         AND registration_eligible = 1
-         AND (ends_at IS NULL OR ends_at >= NOW())
-       ORDER BY starts_at ASC
-       LIMIT 200`,
-      [aid]
-    );
-    for (const r of evRows || []) {
-      items.push({
-        kind: 'company_event',
-        id: Number(r.id),
-        title: r.title || `Event ${r.id}`,
-        summary: r.description ? String(r.description).slice(0, 240) : '',
-        startsAt: r.starts_at,
-        endsAt: r.ends_at,
-        enrollmentOpensAt: null,
-        enrollmentClosesAt: null,
-        medicaidEligible: !!(r.medicaid_eligible === 1 || r.medicaid_eligible === true),
-        cashEligible: !!(r.cash_eligible === 1 || r.cash_eligible === true)
-      });
+    if (lockedId) {
+      const [evRows] = await pool.execute(
+        `SELECT id, title, description, starts_at, ends_at,
+                registration_eligible, medicaid_eligible, cash_eligible
+         FROM company_events
+         WHERE agency_id = ?
+           AND id = ?
+           AND (is_active = 1 OR is_active IS NULL)
+           AND registration_eligible = 1
+           AND (ends_at IS NULL OR ends_at >= NOW())
+         LIMIT 1`,
+        [aid, lockedId]
+      );
+      for (const r of evRows || []) {
+        items.push({
+          kind: 'company_event',
+          id: Number(r.id),
+          title: r.title || `Event ${r.id}`,
+          summary: r.description ? String(r.description).slice(0, 240) : '',
+          startsAt: r.starts_at,
+          endsAt: r.ends_at,
+          enrollmentOpensAt: null,
+          enrollmentClosesAt: null,
+          medicaidEligible: !!(r.medicaid_eligible === 1 || r.medicaid_eligible === true),
+          cashEligible: !!(r.cash_eligible === 1 || r.cash_eligible === true)
+        });
+      }
+    } else {
+      const [evRows] = await pool.execute(
+        `SELECT id, title, description, starts_at, ends_at,
+                registration_eligible, medicaid_eligible, cash_eligible
+         FROM company_events
+         WHERE agency_id = ?
+           AND (is_active = 1 OR is_active IS NULL)
+           AND registration_eligible = 1
+           AND (ends_at IS NULL OR ends_at >= NOW())
+         ORDER BY starts_at ASC
+         LIMIT 200`,
+        [aid]
+      );
+      for (const r of evRows || []) {
+        items.push({
+          kind: 'company_event',
+          id: Number(r.id),
+          title: r.title || `Event ${r.id}`,
+          summary: r.description ? String(r.description).slice(0, 240) : '',
+          startsAt: r.starts_at,
+          endsAt: r.ends_at,
+          enrollmentOpensAt: null,
+          enrollmentClosesAt: null,
+          medicaidEligible: !!(r.medicaid_eligible === 1 || r.medicaid_eligible === true),
+          cashEligible: !!(r.cash_eligible === 1 || r.cash_eligible === true)
+        });
+      }
     }
   } catch (err) {
     if (!String(err?.message || '').includes('Unknown column') && err?.code !== 'ER_BAD_FIELD_ERROR') throw err;
+  }
+
+  if (lockedId) {
+    items.sort((a, b) => {
+      const ta = new Date(a.startsAt || a.enrollmentOpensAt || 0).getTime();
+      const tb = new Date(b.startsAt || b.enrollmentOpensAt || 0).getTime();
+      return (Number.isFinite(ta) ? ta : 0) - (Number.isFinite(tb) ? tb : 0);
+    });
+    return items;
   }
 
   try {

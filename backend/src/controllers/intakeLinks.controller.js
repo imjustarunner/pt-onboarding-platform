@@ -3,7 +3,66 @@ import crypto from 'crypto';
 import IntakeLink from '../models/IntakeLink.model.js';
 import User from '../models/User.model.js';
 import HiringJobDescription from '../models/HiringJobDescription.model.js';
+import AgencySchool from '../models/AgencySchool.model.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import pool from '../config/database.js';
+
+async function resolveAgencyIdForIntakeLink({ scopeType, organizationId, createdByUserId }) {
+  const scope = String(scopeType || 'agency');
+  const orgId = organizationId ? Number(organizationId) : null;
+  if (scope === 'agency') {
+    if (orgId) return orgId;
+    if (createdByUserId) {
+      const agencies = await User.getAgencies(createdByUserId);
+      const list = agencies || [];
+      const agency = list.find((a) => String(a.organization_type || 'agency') === 'agency') || list[0];
+      return agency?.id ? Number(agency.id) : null;
+    }
+    return null;
+  }
+  if (!orgId) return null;
+  if (scope === 'school') {
+    const aid = await AgencySchool.getActiveAgencyIdForSchool(orgId);
+    if (aid) return Number(aid);
+  }
+  const aid = await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId);
+  return aid ? Number(aid) : null;
+}
+
+async function assertSmartRegistrationCompanyEvent({ companyEventId, scopeType, organizationId, createdByUserId }) {
+  const ceid = companyEventId ? Number(companyEventId) : null;
+  if (!ceid) {
+    return {
+      ok: false,
+      message:
+        'A company event is required when using Smart Registration or Intake with a Registration step. Each public URL must enroll participants in one specific program event.'
+    };
+  }
+  const agencyId = await resolveAgencyIdForIntakeLink({ scopeType, organizationId, createdByUserId });
+  if (!agencyId) {
+    return {
+      ok: false,
+      message:
+        'Set scope and organization (or agency) so the selected company event can be validated against the correct agency.'
+    };
+  }
+  try {
+    const [rows] = await pool.execute(
+      'SELECT id, agency_id FROM company_events WHERE id = ? LIMIT 1',
+      [ceid]
+    );
+    if (!rows?.length) return { ok: false, message: 'Company event not found.' };
+    if (Number(rows[0].agency_id) !== Number(agencyId)) {
+      return {
+        ok: false,
+        message: 'That company event does not belong to this link’s agency. Choose an event under the resolved agency for this scope.'
+      };
+    }
+  } catch (e) {
+    return { ok: false, message: e?.message || 'Failed to validate company event.' };
+  }
+  return { ok: true };
+}
 
 const parseJsonField = (raw) => {
   if (raw === null || raw === undefined || raw === '') return null;
@@ -13,6 +72,20 @@ const parseJsonField = (raw) => {
   } catch {
     return null;
   }
+};
+
+const registrationStepInSteps = (steps) => {
+  let arr = steps;
+  if (arr == null) return false;
+  if (typeof arr === 'string') {
+    try {
+      arr = JSON.parse(arr);
+    } catch {
+      return false;
+    }
+  }
+  if (!Array.isArray(arr)) return false;
+  return arr.some((s) => String(s?.type || '').trim().toLowerCase() === 'registration');
 };
 
 const isSuperAdmin = (role) => String(role || '').toLowerCase() === 'super_admin';
@@ -132,6 +205,19 @@ export const createIntakeLink = async (req, res, next) => {
       if (!organizationId) return res.status(400).json({ error: { message: 'Agency is required for medical records forms' } });
     }
     const companyEventId = req.body.companyEventId ? asNumberOrNull(req.body.companyEventId) : null;
+    const intakeStepsPreview = parseJsonField(req.body.intakeSteps);
+    const requiresCompanyEventForRegistration =
+      formType === 'smart_registration'
+      || (formType === 'intake' && registrationStepInSteps(intakeStepsPreview));
+    if (requiresCompanyEventForRegistration) {
+      const chk = await assertSmartRegistrationCompanyEvent({
+        companyEventId,
+        scopeType,
+        organizationId: effectiveOrgId,
+        createdByUserId: req.user?.id
+      });
+      if (!chk.ok) return res.status(400).json({ error: { message: chk.message } });
+    }
     const link = await IntakeLink.create({
       publicKey,
       title: req.body.title || null,
@@ -265,6 +351,28 @@ export const updateIntakeLink = async (req, res, next) => {
       }
     }
 
+    const mergedScopeType = scopeType || existing.scope_type || 'agency';
+    const mergedOrganizationId =
+      req.body.organizationId !== undefined ? resolvedOrganizationId : asNumberOrNull(existing.organization_id);
+    const mergedCompanyEventId =
+      req.body.companyEventId !== undefined
+        ? asNumberOrNull(req.body.companyEventId)
+        : asNumberOrNull(existing.company_event_id);
+    const mergedIntakeStepsForReg =
+      req.body.intakeSteps !== undefined ? parseJsonField(req.body.intakeSteps) : existing.intake_steps;
+    const mergedRequiresCompanyEvent =
+      effectiveFormType === 'smart_registration'
+      || (effectiveFormType === 'intake' && registrationStepInSteps(mergedIntakeStepsForReg));
+    if (mergedRequiresCompanyEvent) {
+      const chk = await assertSmartRegistrationCompanyEvent({
+        companyEventId: mergedCompanyEventId,
+        scopeType: mergedScopeType,
+        organizationId: mergedOrganizationId,
+        createdByUserId: existing.created_by_user_id || req.user?.id
+      });
+      if (!chk.ok) return res.status(400).json({ error: { message: chk.message } });
+    }
+
     const updates = {
       title: req.body.title ?? null,
       description: req.body.description ?? null,
@@ -344,6 +452,26 @@ export const duplicateIntakeLink = async (req, res, next) => {
       const userOrgIds = await getUserOrganizationIds(req.user?.id);
       if (!canAccessLink({ link: existing, userOrgIds, userId: req.user?.id })) {
         return res.status(403).json({ error: { message: 'Access denied for this intake link.' } });
+      }
+    }
+
+    const duplicateRequiresCompanyEvent =
+      String(existing.form_type || '').toLowerCase() === 'smart_registration'
+      || (String(existing.form_type || '').toLowerCase() === 'intake'
+        && registrationStepInSteps(existing.intake_steps));
+    if (duplicateRequiresCompanyEvent) {
+      const chk = await assertSmartRegistrationCompanyEvent({
+        companyEventId: asNumberOrNull(existing.company_event_id),
+        scopeType: existing.scope_type || 'agency',
+        organizationId: asNumberOrNull(existing.organization_id),
+        createdByUserId: existing.created_by_user_id || req.user?.id
+      });
+      if (!chk.ok) {
+        return res.status(400).json({
+          error: {
+            message: `${chk.message} Set a company event on the original link (or change its form type) before duplicating.`
+          }
+        });
       }
     }
 

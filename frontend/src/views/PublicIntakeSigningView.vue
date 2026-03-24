@@ -132,13 +132,13 @@
               :class="{ 'input-error': !!consentErrors.guardianEmail }"
             />
             <div v-if="consentErrors.guardianEmail" class="error-text">{{ consentErrors.guardianEmail }}</div>
-            <div v-if="isSmartRegistration && registrationAccountLookupChecked && registrationAccountExists" class="muted" style="margin-top:4px;">
-              Existing account found. Registration will use a simplified returning-user path.
+            <div v-if="usesRegistrationFeatures && registrationAccountLookupChecked && registrationAccountExists" class="muted" style="margin-top:4px;">
+              Existing account found. This form will use a shorter path for returning users.
             </div>
-            <div v-else-if="isSmartRegistration && registrationAccountLookupChecked && !registrationAccountExists" class="muted" style="margin-top:4px;">
-              No existing account found. Registration will include new-account questions.
+            <div v-else-if="usesRegistrationFeatures && registrationAccountLookupChecked && !registrationAccountExists" class="muted" style="margin-top:4px;">
+              No existing account found. You will complete the full new-user steps.
             </div>
-            <div v-if="isSmartRegistration && isExistingClientByMatch" class="muted" style="margin-top:4px;">
+            <div v-if="usesRegistrationFeatures && isExistingClientByMatch" class="muted" style="margin-top:4px;">
               Existing client record matched for this school (initials + affiliation). Some steps may be shortened.
             </div>
           </div>
@@ -1107,10 +1107,14 @@ const hasRegistrationStep = computed(() =>
 const FLOW_STEP_VISIBILITY = new Set(['always', 'new_client_only', 'existing_client_only']);
 
 const flowSteps = computed(() => {
+  const forceRegistrationStepVisible = usesRegistrationFeatures.value;
   const isExisting =
     String(intakeResponses.submission?.registration_client_match || '').trim().toLowerCase() === 'existing';
   const stepVisible = (s) => {
     if (!s) return true;
+    // Registration (event / enrollment) is always part of the session for smart registration — same as starting other intakes.
+    // "Skip for existing" applies to questions, documents, and uploads via their visibility, not by hiding registration.
+    if (forceRegistrationStepVisible && s.type === 'registration') return true;
     const vis = (String(s.visibility ?? '').trim().toLowerCase() || 'always');
     if (!FLOW_STEP_VISIBILITY.has(vis) || vis === 'always') return true;
     if (vis === 'new_client_only') return !isExisting;
@@ -1171,7 +1175,7 @@ const filterRegistrationOptionsByLinkedEvent = (options) => {
     ['company_event', 'event'].includes(String(o.entityType || '').toLowerCase())
     && Number(o.entityId) === lockId
   );
-  return narrowed.length ? narrowed : options;
+  return narrowed.length ? narrowed : [];
 };
 
 const currentRegistrationOptions = computed(() => {
@@ -1802,6 +1806,12 @@ const requiresOrganizationId = computed(
 );
 const isSmartSchoolRoi = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi');
 const isSmartRegistration = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_registration');
+/** Catalog, account lookup, client match, enrollment — Smart Registration or Intake that includes a Registration step. */
+const usesRegistrationFeatures = computed(
+  () =>
+    isSmartRegistration.value
+    || (String(link.value?.form_type || '').toLowerCase() === 'intake' && hasRegistrationStep.value)
+);
 const isExistingClientByMatch = computed(() =>
   String(intakeResponses.submission?.registration_client_match || '').trim().toLowerCase() === 'existing'
 );
@@ -3052,7 +3062,7 @@ const applyRegistrationAccountState = (exists) => {
 
 const lookupRegistrationAccount = async (emailRaw) => {
   const email = String(emailRaw || '').trim().toLowerCase();
-  if (!isSmartRegistration.value || !email || !email.includes('@')) {
+  if (!usesRegistrationFeatures.value || !email || !email.includes('@')) {
     registrationAccountLookupChecked.value = false;
     registrationAccountExists.value = false;
     return;
@@ -3084,7 +3094,7 @@ watch(guardianFirstName, (val) => {
 });
 watch(guardianEmail, (val) => {
   if (String(val || '').trim()) consentErrors.guardianEmail = '';
-  if (!isSmartRegistration.value) return;
+  if (!usesRegistrationFeatures.value) return;
   if (registrationLookupTimer) clearTimeout(registrationLookupTimer);
   const email = String(val || '').trim();
   if (!email || !email.includes('@')) {
@@ -3096,7 +3106,7 @@ watch(guardianEmail, (val) => {
     lookupRegistrationAccount(email);
   }, 350);
 });
-watch(isSmartRegistration, (val) => {
+watch(usesRegistrationFeatures, (val) => {
   if (!val) return;
   applyRegistrationAccountState(false);
   const email = String(guardianEmail.value || '').trim();
@@ -3273,7 +3283,7 @@ const completeUploadStep = async () => {
 };
 
 const loadAgencyRegistrationCatalog = async () => {
-  if (!isSmartRegistration.value || !publicKey) return;
+  if (!usesRegistrationFeatures.value || !publicKey) return;
   try {
     const r = await api.get(`/public-intake/${publicKey}/registration-catalog`);
     agencyRegistrationCatalog.value = Array.isArray(r.data?.items) ? r.data.items : [];

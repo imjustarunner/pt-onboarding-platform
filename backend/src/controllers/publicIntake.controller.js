@@ -78,6 +78,31 @@ const findDateLikeValue = (obj = {}) => {
   }
   return null;
 };
+const parseLinkIntakeSteps = (link) => {
+  const raw = link?.intake_steps;
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+/** Smart registration, or standard intake that includes a Registration step (full paperwork + event enrollment). */
+const linkSupportsPublicRegistrationFeatures = (link) => {
+  const ft = String(link?.form_type || '').trim().toLowerCase();
+  if (ft === 'smart_registration') return true;
+  if (ft !== 'intake') return false;
+  return parseLinkIntakeSteps(link).some(
+    (s) => String(s?.type || '').trim().toLowerCase() === 'registration'
+  );
+};
+
 const normalizeRegistrationSelections = (intakeData = null) => {
   const fromSubmission = intakeData?.responses?.submission?.registrationSelections;
   const raw = Array.isArray(fromSubmission) ? fromSubmission : [];
@@ -106,6 +131,29 @@ const registrationEntityType = (selection) => {
   if (t === 'event') return 'company_event';
   return t;
 };
+/** When the link is pinned to one company event, ensure enrollment still runs if selections are missing from the payload (defense in depth). Registration is always shown in the smart registration UI. */
+const mergeLockedCompanyEventSelection = (selections, link, intakeData) => {
+  const lockedId = Number(link?.company_event_id || 0) || null;
+  const list = Array.isArray(selections) ? selections : [];
+  if (!lockedId) return list;
+  const hasLocked = list.some(
+    (s) => registrationEntityType(s) === 'company_event' && Number(s.entityId) === lockedId
+  );
+  if (hasLocked) return list;
+  const globalPayer = extractRegistrationPayerType(intakeData);
+  const withoutConflictingEvents = list.filter((s) => registrationEntityType(s) !== 'company_event');
+  return [
+    {
+      entityType: 'company_event',
+      entityId: lockedId,
+      sourceProgramId: null,
+      sourceSiteId: null,
+      scheduleBlocks: [],
+      payerType: globalPayer || null
+    },
+    ...withoutConflictingEvents
+  ];
+};
 const deriveRegistrationSlotDate = ({ selection = {}, intakeData = null, payload = null } = {}) => {
   const blocks = Array.isArray(selection?.scheduleBlocks) ? selection.scheduleBlocks : [];
   for (const block of blocks) {
@@ -126,15 +174,24 @@ const enrollSmartRegistrationSelections = async ({
   clientIds = [],
   guardianUserId = null
 } = {}) => {
-  const selections = normalizeRegistrationSelections(intakeData);
-  const result = {
+  const emptyRegistrationResult = () => ({
     attempted: false,
-    selectionCount: selections.length,
+    selectionCount: 0,
     classEnrollments: 0,
     programAssignments: 0,
     programEventSignups: 0,
     companyEventEnrollments: 0,
     errors: []
+  });
+  // School ROI, job apps, intake without a Registration step, etc. do not run enrollment here.
+  if (!linkSupportsPublicRegistrationFeatures(link)) {
+    return emptyRegistrationResult();
+  }
+  let selections = normalizeRegistrationSelections(intakeData);
+  selections = mergeLockedCompanyEventSelection(selections, link, intakeData);
+  const result = {
+    ...emptyRegistrationResult(),
+    selectionCount: selections.length
   };
   if (!selections.length) return result;
   result.attempted = true;
@@ -1119,7 +1176,7 @@ async function computePublicIntakeClientMatch({ link, intakeData = null, payload
     registration_client_match: 'new',
     registration_matched_client_id: null
   };
-  if (String(link?.form_type || '').trim().toLowerCase() !== 'smart_registration') return base;
+  if (!linkSupportsPublicRegistrationFeatures(link)) return base;
   const orgId = Number(
     payload?.organizationId
       || intakeData?.responses?.submission?.organizationId
@@ -2142,8 +2199,8 @@ const extractRegistrationClientMatchFromIntakeData = (intakeData) => {
   return '';
 };
 
-const isIntakeStepVisibleForClientMatch = (step, registrationClientMatch, formType) => {
-  if (String(formType || '').toLowerCase() !== 'smart_registration') return true;
+const isIntakeStepVisibleForClientMatch = (step, registrationClientMatch, link) => {
+  if (!linkSupportsPublicRegistrationFeatures(link)) return true;
   // Missing / blank / unknown visibility → same as always (existing intakes without this field keep full flow).
   const vis = (String(step?.visibility ?? '').trim().toLowerCase() || 'always');
   if (!INTAKE_STEP_VISIBILITY.has(vis) || vis === 'always') return true;
@@ -2162,12 +2219,11 @@ const filterPacketDocumentTemplates = (link, allAllowedTemplates, intakeData) =>
     return (allAllowedTemplates || []).slice();
   }
   const match = extractRegistrationClientMatchFromIntakeData(intakeData);
-  const formType = link?.form_type;
   const ordered = [];
   const seen = new Set();
   for (const step of steps) {
     if (String(step?.type || '').trim().toLowerCase() !== 'document') continue;
-    if (!isIntakeStepVisibleForClientMatch(step, match, formType)) continue;
+    if (!isIntakeStepVisibleForClientMatch(step, match, link)) continue;
     const tid = Number(step.templateId);
     if (!Number.isFinite(tid) || tid <= 0 || !byId.has(tid)) continue;
     if (seen.has(tid)) continue;
@@ -2524,7 +2580,7 @@ export const createPublicConsent = async (req, res, next) => {
     const intakeData = req.body?.intakeData || null;
     let effectiveIntakeData = intakeData;
     let clientMatchPayload = null;
-    if (effectiveIntakeData && String(link.form_type || '').trim().toLowerCase() === 'smart_registration') {
+    if (effectiveIntakeData && linkSupportsPublicRegistrationFeatures(link)) {
       const matchPatch = await computePublicIntakeClientMatch({
         link,
         intakeData: effectiveIntakeData,
@@ -2667,7 +2723,7 @@ export const getPublicIntakeStatus = async (req, res, next) => {
     const sub = intakeData?.responses?.submission && typeof intakeData.responses.submission === 'object'
       ? intakeData.responses.submission
       : {};
-    const registrationCompletion = String(link.form_type || '').trim().toLowerCase() === 'smart_registration'
+    const registrationCompletion = linkSupportsPublicRegistrationFeatures(link)
       ? {
           newGuardianAccount: !!sub.registration_completion_new_guardian,
           loginEmail: sub.registration_completion_login_email || null,
@@ -2698,7 +2754,7 @@ export const getPublicIntakeRegistrationCatalog = async (req, res, next) => {
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
-    if (String(link.form_type || '').trim().toLowerCase() !== 'smart_registration') {
+    if (!linkSupportsPublicRegistrationFeatures(link)) {
       return res.status(403).json({ error: { message: 'Registration catalog is not available for this link.' } });
     }
     const { agency } = await resolveIntakeOrgContext(link);
@@ -2706,7 +2762,8 @@ export const getPublicIntakeRegistrationCatalog = async (req, res, next) => {
     if (!agencyId) {
       return res.status(400).json({ error: { message: 'Unable to resolve agency for catalog.' } });
     }
-    const items = await fetchRegistrationCatalogItems(agencyId);
+    const lockedCompanyEventId = Number(link.company_event_id || 0) || null;
+    const items = await fetchRegistrationCatalogItems(agencyId, { lockedCompanyEventId });
     res.json({
       items: (items || []).map((row) => ({
         kind: row.kind,
@@ -2733,8 +2790,10 @@ export const matchPublicIntakeClient = async (req, res, next) => {
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
-    if (String(link.form_type || '').trim().toLowerCase() !== 'smart_registration') {
-      return res.status(403).json({ error: { message: 'Client match is only available for smart registration links.' } });
+    if (!linkSupportsPublicRegistrationFeatures(link)) {
+      return res.status(403).json({
+        error: { message: 'Client match is only available for smart registration or intake links that include a Registration step.' }
+      });
     }
     const intakeData = req.body?.intakeData || null;
     const match = await computePublicIntakeClientMatch({
@@ -2789,11 +2848,11 @@ export const lookupPublicRegistrationAccount = async (req, res, next) => {
     if (!link || !link.is_active) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
-    if (String(link.form_type || '').toLowerCase() !== 'smart_registration') {
+    if (!linkSupportsPublicRegistrationFeatures(link)) {
       return res.json({
         exists: false,
         accountState: 'new',
-        message: 'Account lookup is only enabled for smart registration links.'
+        message: 'Account lookup is only enabled for registration-capable links (smart registration or intake with a Registration step).'
       });
     }
     const email = String(req.query?.email || '').trim().toLowerCase();
@@ -4373,7 +4432,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           }
           const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
           const portalLoginUrl = portalBase ? `${portalBase}/login` : '';
-          const isSmartReg = String(link.form_type || '').trim().toLowerCase() === 'smart_registration';
+          const regFlow = linkSupportsPublicRegistrationFeatures(link);
           const packetEmail = await resolvePacketCompletionEmailContent({
             link,
             agencyId: link?.agency_id || agency?.id || null,
@@ -4385,7 +4444,7 @@ export const finalizePublicIntake = async (req, res, next) => {
             downloadUrl,
             expiresInDays: 7,
             registrationLoginEmail: updatedSubmission.signer_email || '',
-            registrationTempPassword: isSmartReg && link.create_guardian ? (newGuardianTemporaryPassword || '') : '',
+            registrationTempPassword: regFlow && link.create_guardian ? (newGuardianTemporaryPassword || '') : '',
             portalLoginUrl,
             registrationEventSummary
           });
@@ -4441,7 +4500,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       }
     }
 
-    if (String(link.form_type || '').trim().toLowerCase() === 'smart_registration' && link.create_guardian) {
+    if (linkSupportsPublicRegistrationFeatures(link) && link.create_guardian) {
       try {
         const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
         const merged = mergeIntakeSubmissionPatch(intakeData, {
@@ -4905,7 +4964,7 @@ export const submitPublicIntake = async (req, res, next) => {
         }
         const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
         const portalLoginUrl = portalBase ? `${portalBase}/login` : '';
-        const isSmartReg = String(link.form_type || '').trim().toLowerCase() === 'smart_registration';
+        const regFlowEmail = linkSupportsPublicRegistrationFeatures(link);
         const packetEmail = await resolvePacketCompletionEmailContent({
           link,
           agencyId: link?.agency_id || agency?.id || null,
@@ -4917,7 +4976,7 @@ export const submitPublicIntake = async (req, res, next) => {
           downloadUrl,
           expiresInDays: 7,
           registrationLoginEmail: updatedSubmission.signer_email || '',
-          registrationTempPassword: isSmartReg && link.create_guardian ? (newGuardianTemporaryPassword || '') : '',
+          registrationTempPassword: regFlowEmail && link.create_guardian ? (newGuardianTemporaryPassword || '') : '',
           portalLoginUrl,
           registrationEventSummary
         });
@@ -4969,7 +5028,7 @@ export const submitPublicIntake = async (req, res, next) => {
       }
     }
 
-    if (String(link.form_type || '').trim().toLowerCase() === 'smart_registration' && link.create_guardian) {
+    if (linkSupportsPublicRegistrationFeatures(link) && link.create_guardian) {
       try {
         const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
         const merged = mergeIntakeSubmissionPatch(intakeData, {

@@ -9,6 +9,26 @@ import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
 import { resolvePaperworkStatusId, seedClientAffiliations, seedClientPaperworkItems } from '../utils/clientProvisioning.js';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 
+const linkHasRegistrationIntakeStep = (link) => {
+  const raw = link?.intake_steps;
+  let steps = raw;
+  if (!steps) return false;
+  if (typeof steps === 'string') {
+    try {
+      steps = JSON.parse(steps);
+    } catch {
+      return false;
+    }
+  }
+  if (!Array.isArray(steps)) return false;
+  return steps.some((s) => String(s?.type || '').trim().toLowerCase() === 'registration');
+};
+
+const usesExtendedRegistrationTempPasswordWindow = (link) => {
+  const ft = String(link?.form_type || '').trim().toLowerCase();
+  return ft === 'smart_registration' || (ft === 'intake' && linkHasRegistrationIntakeStep(link));
+};
+
 export const deriveInitials = (fullName) => {
   const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return 'TBD';
@@ -157,8 +177,7 @@ class PublicIntakeClientService {
           status: 'PENDING_SETUP'
         });
 
-        const isSmartRegistration = String(link.form_type || '').trim().toLowerCase() === 'smart_registration';
-        const tempHours = isSmartRegistration ? 72 : 48;
+        const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
         await User.setTemporaryPassword(guardianUser.id, tempPassword, tempHours);
         newGuardianTemporaryPassword = tempPassword;
       }
