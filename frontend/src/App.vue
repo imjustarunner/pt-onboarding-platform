@@ -203,6 +203,73 @@
                         >Availability</router-link>
                       </div>
                     </div>
+                    <div class="nav-dropdown-group nav-dropdown-group-collapsible">
+                      <button
+                        type="button"
+                        class="nav-dropdown-group-trigger"
+                        :aria-expanded="directoryPublicLinksNavExpanded ? 'true' : 'false'"
+                        @click.stop="toggleDirectoryPublicLinksNav"
+                      >
+                        <span>Public links</span>
+                        <span class="nav-dropdown-group-caret" :class="{ open: directoryPublicLinksNavExpanded }" aria-hidden="true">▸</span>
+                      </button>
+                      <div v-show="directoryPublicLinksNavExpanded" class="nav-dropdown-group-items directory-public-links-items">
+                        <div v-if="directoryPublicLinksLoading" class="nav-dropdown-muted">Loading…</div>
+                        <template v-else>
+                          <div v-if="directoryPublicLinksError" class="nav-dropdown-error">{{ directoryPublicLinksError }}</div>
+                          <template v-else>
+                            <template v-if="directoryPublicLinksData.intakeLinks.length">
+                              <div class="nav-dropdown-group-label">Digital forms</div>
+                              <a
+                                v-for="row in directoryPublicLinksData.intakeLinks"
+                                :key="'intake-' + row.id"
+                                class="nav-dropdown-external-link"
+                                :href="buildPublicIntakeUrl(row.publicKey)"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                @click.stop
+                              >
+                                {{ row.title }}
+                                <span class="nav-dropdown-external-hint">{{ intakeFormDirectoryLabel(row.formType) }}</span>
+                              </a>
+                            </template>
+                            <template v-if="directoryPublicLinksData.marketingHubs.length">
+                              <div class="nav-dropdown-group-label">Marketing hubs</div>
+                              <a
+                                v-for="hub in directoryPublicLinksData.marketingHubs"
+                                :key="'hub-' + hub.slug"
+                                class="nav-dropdown-external-link"
+                                :href="marketingHubPublicUrl(hub.slug)"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                @click.stop
+                              >
+                                {{ hub.title }}
+                              </a>
+                            </template>
+                            <template v-if="directoryPublicLinksData.providerFinder">
+                              <div class="nav-dropdown-group-label">Provider availability</div>
+                              <a
+                                class="nav-dropdown-external-link"
+                                :href="directoryPublicLinksData.providerFinder.url"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                @click.stop
+                              >
+                                {{ directoryPublicLinksData.providerFinder.label }}
+                              </a>
+                            </template>
+                            <div
+                              v-if="!hasDirectoryPublicLinkRows && !directoryPublicLinksError"
+                              class="nav-dropdown-muted"
+                            >
+                              No active public links for your access.
+                            </div>
+                          </template>
+                          <router-link :to="orgTo('/admin/intake-links')" @click.stop>Manage digital forms</router-link>
+                        </template>
+                      </div>
+                    </div>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=school')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >School Overview</router-link>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Program Overview</router-link>
                     <router-link :to="orgTo('/admin/school-portals')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Show All School Portals</router-link>
@@ -562,6 +629,74 @@
                 </template>
               </div>
 
+              <div class="mobile-nav-group mobile-nav-group-collapsible">
+                <button
+                  type="button"
+                  class="mobile-nav-group-trigger"
+                  :aria-expanded="directoryPublicLinksNavExpanded ? 'true' : 'false'"
+                  @click="toggleDirectoryPublicLinksNav"
+                >
+                  <span>Public links</span>
+                  <span class="mobile-nav-group-caret" :class="{ open: directoryPublicLinksNavExpanded }" aria-hidden="true">▸</span>
+                </button>
+                <template v-if="directoryPublicLinksNavExpanded">
+                  <div v-if="directoryPublicLinksLoading" class="mobile-nav-link mobile-nav-sublink nav-dropdown-muted">Loading…</div>
+                  <template v-else>
+                    <div v-if="directoryPublicLinksError" class="mobile-nav-link mobile-nav-sublink nav-dropdown-error">{{ directoryPublicLinksError }}</div>
+                    <template v-else>
+                      <div v-if="directoryPublicLinksData.intakeLinks.length" class="nav-dropdown-group-label mobile-nav-sublabel">Digital forms</div>
+                      <a
+                        v-for="row in directoryPublicLinksData.intakeLinks"
+                        :key="'m-intake-' + row.id"
+                        class="mobile-nav-link mobile-nav-sublink nav-dropdown-external-link"
+                        :href="buildPublicIntakeUrl(row.publicKey)"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        @click="closeMobileMenu"
+                      >
+                        {{ row.title }}
+                        <span class="nav-dropdown-external-hint">{{ intakeFormDirectoryLabel(row.formType) }}</span>
+                      </a>
+                      <div v-if="directoryPublicLinksData.marketingHubs.length" class="nav-dropdown-group-label mobile-nav-sublabel">Marketing hubs</div>
+                      <a
+                        v-for="hub in directoryPublicLinksData.marketingHubs"
+                        :key="'m-hub-' + hub.slug"
+                        class="mobile-nav-link mobile-nav-sublink nav-dropdown-external-link"
+                        :href="marketingHubPublicUrl(hub.slug)"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        @click="closeMobileMenu"
+                      >
+                        {{ hub.title }}
+                      </a>
+                      <template v-if="directoryPublicLinksData.providerFinder">
+                        <div class="nav-dropdown-group-label mobile-nav-sublabel">Provider availability</div>
+                        <a
+                          class="mobile-nav-link mobile-nav-sublink nav-dropdown-external-link"
+                          :href="directoryPublicLinksData.providerFinder.url"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          @click="closeMobileMenu"
+                        >
+                          {{ directoryPublicLinksData.providerFinder.label }}
+                        </a>
+                      </template>
+                      <div
+                        v-if="!hasDirectoryPublicLinkRows && !directoryPublicLinksError"
+                        class="mobile-nav-link mobile-nav-sublink nav-dropdown-muted"
+                      >
+                        No active public links for your access.
+                      </div>
+                    </template>
+                    <router-link
+                      :to="orgTo('/admin/intake-links')"
+                      class="mobile-nav-link mobile-nav-sublink"
+                      @click="closeMobileMenu"
+                    >Manage digital forms</router-link>
+                  </template>
+                </template>
+              </div>
+
               <router-link
                 :to="orgTo('/admin/modules')"
                 v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')"
@@ -881,6 +1016,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
 import api from './services/api';
+import { buildPublicIntakeUrl } from './utils/publicIntakeUrl';
 import AgencySelector from './components/AgencySelector.vue';
 import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
 import BrandingProvider from './components/BrandingProvider.vue';
@@ -1024,6 +1160,14 @@ const directoryMenuOpen = ref(false);
 /** Collapsible subgroups under Directory (desktop dropdown + mobile sidebar). */
 const directorySchedulesNavExpanded = ref(false);
 const directorySkillBuildersNavExpanded = ref(false);
+const directoryPublicLinksNavExpanded = ref(false);
+const directoryPublicLinksLoading = ref(false);
+const directoryPublicLinksError = ref('');
+const directoryPublicLinksData = ref({
+  intakeLinks: [],
+  marketingHubs: [],
+  providerFinder: null
+});
 const managementMenuOpen = ref(false);
 const engagementMenuOpen = ref(false);
 
@@ -1130,8 +1274,13 @@ function applyDirectorySubgroupStateFromRoute() {
   const p = route.path || '';
   const inSchedules = /\/schedule(\/|$)/.test(p) || /\/buildings/.test(p);
   const inSkillBuilders = p.includes('skill-builders');
+  const inPublicLinks =
+    p.includes('/intake/') ||
+    p.includes('/find-provider') ||
+    /\/p\/[^/]+/.test(p);
   directorySchedulesNavExpanded.value = inSchedules;
   directorySkillBuildersNavExpanded.value = inSkillBuilders;
+  directoryPublicLinksNavExpanded.value = inPublicLinks;
 }
 
 const toggleDirectoryMenu = () => {
@@ -1140,6 +1289,13 @@ const toggleDirectoryMenu = () => {
   directoryMenuOpen.value = next;
   if (next) {
     applyDirectorySubgroupStateFromRoute();
+  }
+};
+
+const toggleDirectoryPublicLinksNav = () => {
+  directoryPublicLinksNavExpanded.value = !directoryPublicLinksNavExpanded.value;
+  if (directoryPublicLinksNavExpanded.value) {
+    loadDirectoryPublicLinks();
   }
 };
 const toggleManagementMenu = () => {
@@ -1521,6 +1677,69 @@ const schoolClientsAgencyId = computed(() => {
   const source = user.value?.role === 'super_admin' ? (agencyStore.agencies || []) : (agencyStore.userAgencies || []);
   const firstAgency = source.find((a) => String(a?.organization_type || a?.organizationType || 'agency').toLowerCase() === 'agency');
   return firstAgency?.id ? Number(firstAgency.id) : null;
+});
+
+const hasDirectoryPublicLinkRows = computed(() => {
+  const d = directoryPublicLinksData.value;
+  return (
+    (d.intakeLinks?.length || 0) > 0 ||
+    (d.marketingHubs?.length || 0) > 0 ||
+    !!d.providerFinder
+  );
+});
+
+const intakeFormDirectoryLabel = (formType) => {
+  const ft = String(formType || 'intake').toLowerCase();
+  const map = {
+    intake: 'Intake',
+    public_form: 'Public form',
+    job_application: 'Job application',
+    medical_records_request: 'Medical records',
+    smart_school_roi: 'Smart school ROI',
+    smart_registration: 'Smart registration'
+  };
+  return map[ft] || ft;
+};
+
+const marketingHubPublicUrl = (slug) => {
+  const s = String(slug || '').trim().toLowerCase();
+  if (!s) return '#';
+  const origin = String(typeof window !== 'undefined' ? window.location?.origin || '' : '')
+    .replace(/\/$/, '');
+  return `${origin}/p/${encodeURIComponent(s)}`;
+};
+
+const loadDirectoryPublicLinks = async () => {
+  directoryPublicLinksLoading.value = true;
+  directoryPublicLinksError.value = '';
+  try {
+    const aid = schoolClientsAgencyId.value || currentAgencyId.value;
+    const params = {};
+    if (aid) params.agencyId = aid;
+    const { data } = await api.get('/directory/public-links', { params, skipGlobalLoading: true });
+    directoryPublicLinksData.value = {
+      intakeLinks: data?.intakeLinks || [],
+      marketingHubs: data?.marketingHubs || [],
+      providerFinder: data?.providerFinder || null
+    };
+  } catch (e) {
+    directoryPublicLinksError.value = e.response?.data?.error?.message || 'Failed to load public links';
+    directoryPublicLinksData.value = { intakeLinks: [], marketingHubs: [], providerFinder: null };
+  } finally {
+    directoryPublicLinksLoading.value = false;
+  }
+};
+
+watch([schoolClientsAgencyId, currentAgencyId], () => {
+  if (directoryPublicLinksNavExpanded.value) {
+    loadDirectoryPublicLinks();
+  }
+});
+
+watch(directoryMenuOpen, (open) => {
+  if (open && directoryPublicLinksNavExpanded.value) {
+    loadDirectoryPublicLinks();
+  }
 });
 
 const canSeePayrollManagement = computed(() => {
@@ -2894,6 +3113,43 @@ onUnmounted(() => {
 .nav-dropdown-group-items a {
   padding-left: 10px;
   font-size: 15px;
+}
+
+.directory-public-links-items .nav-dropdown-group-label:first-of-type {
+  padding-top: 2px;
+}
+.nav-dropdown-muted {
+  font-size: 14px;
+  color: var(--text-secondary, #64748b);
+  padding: 6px 10px;
+}
+.nav-dropdown-error {
+  font-size: 14px;
+  color: #b91c1c;
+  padding: 6px 10px;
+}
+.nav-dropdown-external-link {
+  display: block;
+  padding: 6px 10px;
+  padding-left: 10px;
+  font-size: 15px;
+  color: var(--text-primary);
+  text-decoration: none;
+  border-radius: 8px;
+}
+.nav-dropdown-external-link:hover {
+  background: #f8fafc;
+}
+.nav-dropdown-external-hint {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.72;
+  margin-top: 2px;
+}
+.mobile-nav-sublabel.nav-dropdown-group-label {
+  padding: 10px 12px 4px 20px;
+  margin: 0;
 }
 
 .brand-menu-title {

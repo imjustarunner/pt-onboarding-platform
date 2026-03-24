@@ -176,7 +176,8 @@
         <span>Photo library (this marketing page only)</span>
         <p class="muted small">
           Upload or paste URLs here for <strong>this hub</strong> only. These files are the pool you attach to each
-          <strong>image placeholder</strong> below (and the optional strip of thumbnails on the public page). For
+          <strong>image placeholder</strong> below and the optional <strong>public photo gallery</strong> (fading slideshow).
+          Uncheck <strong>Show in public photo gallery</strong> to keep an image only for placeholders / auto-fill. For
           <strong>Auto</strong> placeholders, images fill in upload order when a card has no explicit image.
         </p>
         <p class="muted small pmp-pattern-note">
@@ -199,7 +200,7 @@
           />
         </div>
         <ul class="pmp-gallery-list">
-          <li v-for="(url, gi) in galleryUrls" :key="`g-${gi}`" class="pmp-gallery-item">
+          <li v-for="(entry, gi) in galleryEntries" :key="`g-${gi}`" class="pmp-gallery-item">
             <button
               v-if="galleryRowHasImage(gi)"
               type="button"
@@ -207,10 +208,10 @@
               :title="'View larger'"
               @click="openGalleryPreview(gi)"
             >
-              <img :src="resolvedGalleryImageSrc(galleryUrls[gi])" alt="" loading="lazy" />
+              <img :src="resolvedGalleryImageSrc(entry.url)" alt="" loading="lazy" />
             </button>
             <div v-else class="pmp-gallery-thumb pmp-gallery-thumb--empty" aria-hidden="true" />
-            <input v-model="galleryUrls[gi]" type="text" class="mono" placeholder="Image URL" />
+            <input v-model="entry.url" type="text" class="mono" placeholder="Image URL" />
             <button
               type="button"
               class="btn btn-secondary btn-sm"
@@ -220,6 +221,10 @@
               View
             </button>
             <button type="button" class="btn btn-danger btn-sm" @click="removeGallery(gi)">Remove</button>
+            <label class="pmp-gallery-strip-label">
+              <input v-model="entry.showInGallery" type="checkbox" />
+              <span>Show in public photo gallery</span>
+            </label>
             <div v-if="placeholdersUsingGalleryRow(gi).length" class="pmp-gallery-ph-badges">
               <span
                 v-for="n in placeholdersUsingGalleryRow(gi)"
@@ -231,7 +236,7 @@
             </div>
           </li>
         </ul>
-        <button type="button" class="btn btn-secondary btn-sm" @click="galleryUrls.push('')">Add URL row</button>
+        <button type="button" class="btn btn-secondary btn-sm" @click="addGalleryRow">Add URL row</button>
       </div>
 
       <div class="field">
@@ -246,12 +251,12 @@
             <select v-model="offerBlockImages[bi - 1]" class="filters-input pmp-offer-block-select">
               <option value="">— Auto (use next library image in order) —</option>
               <option
-                v-for="(url, gi) in galleryUrls"
+                v-for="(entry, gi) in galleryEntries"
                 :key="`obopt-${bi}-${gi}`"
-                :value="String(url || '').trim()"
-                :disabled="!String(url || '').trim()"
+                :value="String(entry.url || '').trim()"
+                :disabled="!String(entry.url || '').trim()"
               >
-                Library {{ gi + 1 }} — {{ shortGalleryLabel(url) }}
+                Library {{ gi + 1 }} — {{ shortGalleryLabel(entry.url) }}
               </option>
             </select>
           </label>
@@ -360,7 +365,7 @@
           <div class="pmp-gallery-lightbox-img-wrap">
             <img
               v-if="galleryPreviewIndex !== null && galleryRowHasImage(galleryPreviewIndex)"
-              :src="resolvedGalleryImageSrc(galleryUrls[galleryPreviewIndex])"
+              :src="resolvedGalleryImageSrc(galleryEntries[galleryPreviewIndex]?.url)"
               alt="Gallery image"
             />
           </div>
@@ -380,6 +385,7 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { parseHubGalleryFromBranding } from '../../utils/publicMarketingHubGallery';
 
 const pages = ref([]);
 const agencyOptions = ref([]);
@@ -435,7 +441,7 @@ const form = ref({
   sources: []
 });
 
-const galleryUrls = ref([]);
+const galleryEntries = ref([{ url: '', showInGallery: true }]);
 /** Hub “What we offer” cards 1–4: gallery URL per slot, or '' for auto-order fallback. */
 const offerBlockImages = ref(['', '', '', '']);
 const galleryPreviewIndex = ref(null);
@@ -449,7 +455,7 @@ function shortGalleryLabel(url) {
 
 /** Which placeholder slots (1-based) use this library row’s URL on this page. */
 function placeholdersUsingGalleryRow(gi) {
-  const url = String(galleryUrls.value[gi] || '').trim();
+  const url = String(galleryEntries.value[gi]?.url || '').trim();
   if (!url) return [];
   const nums = [];
   for (let i = 0; i < offerBlockImages.value.length; i++) {
@@ -467,7 +473,11 @@ function resolvedGalleryImageSrc(raw) {
 }
 
 function galleryRowHasImage(gi) {
-  return Boolean(String(galleryUrls.value[gi] || '').trim());
+  return Boolean(String(galleryEntries.value[gi]?.url || '').trim());
+}
+
+function addGalleryRow() {
+  galleryEntries.value.push({ url: '', showInGallery: true });
 }
 
 function openGalleryPreview(gi) {
@@ -517,9 +527,15 @@ function mergeBrandingPayload() {
   if (logo) out.logoUrl = logo;
   else delete out.logoUrl;
 
-  const gal = galleryUrls.value.map((u) => String(u || '').trim()).filter(Boolean);
-  if (gal.length) out.gallery = gal;
-  else delete out.gallery;
+  const rows = galleryEntries.value
+    .map((e) => ({
+      url: String(e.url || '').trim(),
+      showInGallery: e.showInGallery !== false
+    }))
+    .filter((e) => e.url);
+  if (rows.length) {
+    out.gallery = rows.map((r) => (r.showInGallery === false ? { url: r.url, showInGallery: false } : r.url));
+  } else delete out.gallery;
 
   const nav = navRows.value
     .map((r) => ({ label: String(r.label || '').trim(), href: String(r.href || '').trim() }))
@@ -571,8 +587,10 @@ function hydrateStructuredFromBranding(b) {
   form.value.parentIntro = String(branding.parentIntro || '').trim();
   form.value.logoUrl = String(branding.logoUrl || '').trim();
   form.value.heroVideoUrl = String(branding.heroVideoUrl || '').trim();
-  galleryUrls.value = Array.isArray(branding.gallery) ? branding.gallery.map((u) => String(u || '').trim()) : [];
-  if (!galleryUrls.value.length) galleryUrls.value = [''];
+  const parsed = parseHubGalleryFromBranding(branding.gallery);
+  galleryEntries.value = parsed.length
+    ? parsed.map((e) => ({ url: e.url, showInGallery: e.showInGallery !== false }))
+    : [{ url: '', showInGallery: true }];
 
   const nav = Array.isArray(branding.primaryNav) ? branding.primaryNav : [];
   navRows.value = nav.length
@@ -655,13 +673,13 @@ async function onUploadGallery(e) {
   input.value = '';
   if (!files.length) return;
   uploadingTarget.value = 'gallery';
-  const cleaned = galleryUrls.value.map((u) => String(u || '').trim()).filter(Boolean);
+  const kept = galleryEntries.value.filter((ent) => String(ent.url || '').trim());
   try {
     for (const f of files) {
       const url = await postMarketingUpload(f);
-      cleaned.push(url);
+      kept.push({ url, showInGallery: true });
     }
-    galleryUrls.value = cleaned.length ? cleaned : [''];
+    galleryEntries.value = kept.length ? kept : [{ url: '', showInGallery: true }];
   } catch (err) {
     saveError.value = err.response?.data?.error?.message || err.message || 'Upload failed';
   } finally {
@@ -670,8 +688,8 @@ async function onUploadGallery(e) {
 }
 
 function removeGallery(idx) {
-  galleryUrls.value.splice(idx, 1);
-  if (!galleryUrls.value.length) galleryUrls.value = [''];
+  galleryEntries.value.splice(idx, 1);
+  if (!galleryEntries.value.length) galleryEntries.value = [{ url: '', showInGallery: true }];
 }
 
 function deleteFromGalleryPreview() {
@@ -708,7 +726,7 @@ function resetForm() {
     brandingJsonText: '{}',
     sources: []
   };
-  galleryUrls.value = [''];
+  galleryEntries.value = [{ url: '', showInGallery: true }];
   offerBlockImages.value = ['', '', '', ''];
   navRows.value = [{ label: '', href: '' }];
   contentPages.value = [{ slug: '', title: '', body: '' }];
@@ -1033,6 +1051,22 @@ onMounted(async () => {
   align-items: center;
   margin-bottom: 8px;
 }
+.pmp-gallery-strip-label {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 0 64px;
+  font-size: 0.8125rem;
+  color: #475569;
+  cursor: pointer;
+  user-select: none;
+}
+.pmp-gallery-strip-label input {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: auto;
+}
 .pmp-gallery-ph-badges {
   flex: 1 1 100%;
   display: flex;
@@ -1064,6 +1098,9 @@ onMounted(async () => {
 }
 @media (max-width: 520px) {
   .pmp-gallery-ph-badges {
+    margin-left: 0;
+  }
+  .pmp-gallery-strip-label {
     margin-left: 0;
   }
 }

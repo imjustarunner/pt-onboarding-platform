@@ -193,16 +193,26 @@
         </template>
       </nav>
 
-      <div v-if="galleryImages.length" class="pmh-gallery">
-        <img
-          v-for="(src, gi) in galleryImages"
-          :key="`g-${gi}`"
-          class="pmh-gallery-img"
-          :src="src"
-          :alt="`Photo ${gi + 1}`"
-          loading="lazy"
-        />
-      </div>
+      <section
+        v-if="galleryStripUrls.length"
+        class="pmh-gallery-section"
+        aria-label="Photo gallery"
+      >
+        <div class="pmh-gallery pmh-gallery--slideshow">
+          <div class="pmh-gallery-slides">
+            <img
+              v-for="(src, gi) in galleryStripUrls"
+              :key="`g-${gi}-${src}`"
+              class="pmh-gallery-slide"
+              :class="{ 'pmh-gallery-slide--active': gi === gallerySlideIndex }"
+              :src="src"
+              :alt="`Photo ${gi + 1} of ${galleryStripUrls.length}`"
+              loading="lazy"
+              decoding="async"
+            />
+          </div>
+        </div>
+      </section>
 
       <!-- Built-in narrative blocks (override or disable via branding JSON: ctaSection, processSection). -->
       <section v-if="ctaSectionResolved" class="pmh-cta-band" :style="programThemeStyle">
@@ -273,15 +283,20 @@
 
       <section v-if="bookingHints.length" class="pmh-section pmh-booking">
         <div class="pmh-section-inner">
-          <h2 class="pmh-h2">Request a provider</h2>
+          <h2 class="pmh-h2">Provider scheduling (optional)</h2>
           <p class="pmh-muted">
-            Each organization may offer public booking. You need the access key from them to complete scheduling (append
-            <code>?key=…</code> to the link they provide, or use their full invitation URL).
+            <strong>Registering for a program or event</strong> is done through the <strong>registration link</strong> on each
+            listing above—those links are tied directly to that program’s events (or a specific event).
+          </p>
+          <p class="pmh-muted pmh-booking-sep">
+            The links below are <strong>different</strong>: they go to <strong>provider availability</strong> (finding a therapist
+            or ongoing scheduling), not event registration. If an organization enables this, you may need an access key from them
+            (append <code>?key=…</code> to the URL they give you, or use their full invitation link).
           </p>
           <ul class="pmh-booking-list">
             <li v-for="h in bookingHints" :key="h.agencyId">
               <router-link class="pmh-link" :to="{ path: `/find-provider/${h.agencyId}` }">{{ h.agencyName }}</router-link>
-              <span v-if="!h.publicAvailabilityEnabled" class="pmh-muted"> — public booking not enabled</span>
+              <span v-if="!h.publicAvailabilityEnabled" class="pmh-muted"> — provider availability not enabled</span>
             </li>
           </ul>
         </div>
@@ -312,11 +327,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import PublicEventsListing from '../../components/public/PublicEventsListing.vue';
+import { hubGalleryPoolUrls, hubGalleryStripUrls } from '../../utils/publicMarketingHubGallery';
 
 const authStore = useAuthStore();
 const route = useRoute();
@@ -331,6 +347,36 @@ const events = ref([]);
 const bookingHints = ref([]);
 const metricsBlock = ref(null);
 const offerExpanded = ref(false);
+
+const gallerySlideIndex = ref(0);
+let gallerySlideshowTimer = null;
+
+function clearGallerySlideshowTimer() {
+  if (gallerySlideshowTimer) {
+    clearInterval(gallerySlideshowTimer);
+    gallerySlideshowTimer = null;
+  }
+}
+
+function startGallerySlideshow() {
+  clearGallerySlideshowTimer();
+  const urls = galleryStripUrls.value;
+  if (urls.length <= 1) {
+    gallerySlideIndex.value = 0;
+    return;
+  }
+  const reduced =
+    typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+  if (reduced) {
+    gallerySlideIndex.value = 0;
+    return;
+  }
+  gallerySlideshowTimer = setInterval(() => {
+    const n = galleryStripUrls.value.length;
+    if (n < 2) return;
+    gallerySlideIndex.value = (gallerySlideIndex.value + 1) % n;
+  }, 5000);
+}
 
 const heroTitle = computed(() => pageMeta.value?.heroTitle || '');
 const heroImageUrl = computed(() => pageMeta.value?.heroImageUrl || '');
@@ -395,10 +441,19 @@ const primaryNav = computed(() => {
     .filter((x) => x.label && x.href);
 });
 
-const galleryImages = computed(() => {
-  const g = hubBranding.value.gallery;
-  if (!Array.isArray(g)) return [];
-  return g.map((s) => String(s).trim()).filter(Boolean);
+const galleryStripUrls = computed(() => hubGalleryStripUrls(hubBranding.value.gallery));
+
+watch(
+  galleryStripUrls,
+  () => {
+    gallerySlideIndex.value = 0;
+    startGallerySlideshow();
+  },
+  { immediate: true }
+);
+
+onUnmounted(() => {
+  clearGallerySlideshowTimer();
 });
 
 const logoUrl = computed(() => String(hubBranding.value.logoUrl || '').trim());
@@ -562,9 +617,7 @@ const whatWeOfferResolved = computed(() => {
       .filter((x) => x.title && x.body);
     if (mapped.length) items = mapped;
   }
-  const galleryUrls = (Array.isArray(b.gallery) ? b.gallery : [])
-    .map((s) => String(s).trim())
-    .filter(Boolean);
+  const galleryUrls = hubGalleryPoolUrls(Array.isArray(b.gallery) ? b.gallery : []);
   const blockImages = Array.isArray(o.offerBlockImages) ? o.offerBlockImages : [];
   const itemsResolved = offerItemsWithGalleryFallback(items, galleryUrls, blockImages);
   return { ...DEFAULT_WHAT_WE_OFFER, ...o, items: itemsResolved };
@@ -1160,20 +1213,45 @@ watch(hubSlug, () => {
   transform: translateY(-1px);
 }
 
-.pmh-gallery {
-  padding: 4px 16px 12px;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 8px;
+.pmh-gallery-section {
+  padding: 4px 16px 16px;
 }
 
-.pmh-gallery-img {
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-  border-radius: var(--hub-radius-sm);
-  display: block;
+.pmh-gallery--slideshow {
+  max-width: min(960px, 100%);
+  margin: 0 auto;
+}
+
+.pmh-gallery-slides {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--hub-radius-md);
+  overflow: hidden;
   border: 1px solid var(--hub-border);
+  background: var(--hub-surface);
+  box-shadow: var(--hub-shadow);
+}
+
+.pmh-gallery-slide {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 1.1s ease-in-out;
+  pointer-events: none;
+}
+
+.pmh-gallery-slide--active {
+  opacity: 1;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pmh-gallery-slide {
+    transition: none;
+  }
 }
 
 .pmh-offer {

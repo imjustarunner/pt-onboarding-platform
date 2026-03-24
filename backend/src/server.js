@@ -69,6 +69,7 @@ import referralOcrRoutes from './routes/referralOcr.routes.js';
 import referralPacketDraftRoutes from './routes/referralPacketDraft.routes.js';
 import publicIntakeRoutes from './routes/publicIntake.routes.js';
 import intakeLinksRoutes from './routes/intakeLinks.routes.js';
+import directoryRoutes from './routes/directory.routes.js';
 import intakeFieldTemplatesRoutes from './routes/intakeFieldTemplates.routes.js';
 import unassignedDocumentsRoutes from './routes/unassignedDocuments.routes.js';
 import schoolPortalRoutes from './routes/schoolPortal.routes.js';
@@ -605,6 +606,7 @@ app.use('/api/referrals', referralOcrRoutes);
 app.use('/api/referral-packet-drafts', referralPacketDraftRoutes);
 app.use('/api/public-intake', publicIntakeRoutes);
 app.use('/api/intake-links', intakeLinksRoutes);
+app.use('/api/directory', directoryRoutes);
 app.use('/api/intake-field-templates', intakeFieldTemplatesRoutes);
 app.use('/api/unassigned-documents', unassignedDocumentsRoutes);
 app.use('/api/school-portal', schoolPortalRoutes); // School portal routes (restricted client views)
