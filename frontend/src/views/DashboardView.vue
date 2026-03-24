@@ -2847,32 +2847,28 @@ function onSkillBuilderConfirmed() {
   });
 }
 
-watch(
-  isSkillBuilderForceModalRequired,
-  (force) => {
-    if (props.previewMode) return;
-    if (force) {
-      if (!isSkillBuilderEligible.value) return;
-      showSkillBuilderModal.value = true;
-      activeTab.value = 'my_schedule';
-      try {
-        router.replace({ query: { ...route.query, tab: 'my_schedule' } });
-      } catch {
-        // ignore
-      }
-    } else if (showSkillBuilderModal.value) {
-      showSkillBuilderModal.value = false;
+function syncSkillBuilderForceModal(force) {
+  if (props.previewMode) return;
+  if (force) {
+    if (!isSkillBuilderEligible.value) return;
+    showSkillBuilderModal.value = true;
+    activeTab.value = 'my_schedule';
+    try {
+      router.replace({ query: { ...route.query, tab: 'my_schedule' } });
+    } catch {
+      // ignore
     }
-  },
-  { immediate: true }
-);
+  } else if (showSkillBuilderModal.value) {
+    showSkillBuilderModal.value = false;
+  }
+}
+watch(isSkillBuilderForceModalRequired, syncSkillBuilderForceModal);
 
 watch(
   [currentAgencyId, () => authStore.user?.id, () => authStore.user?.skill_builder_eligible, isOnboardingComplete],
   () => {
     loadSkillBuilderBiweeklyPendingState();
-  },
-  { immediate: true }
+  }
 );
 
 function handleSkillBuilderBiweeklyVisibility() {
@@ -3897,21 +3893,19 @@ watch(() => [route.query?.tab, route.query?.my, route.query?.scheduleMode, route
 });
 
 /** Legacy query ?sbPrograms=1 → dedicated Programs & events page. */
-watch(
-  () => String(route.query?.sbPrograms || ''),
-  (sb) => {
-    if (props.previewMode) return;
-    if (sb !== '1') return;
-    if (!skillBuildersProgramsPickerRoleOk.value) {
-      const q = { ...route.query };
-      delete q.sbPrograms;
-      router.replace({ query: q }).catch(() => {});
-      return;
-    }
-    goSkillBuildersProgramsPage();
-  },
-  { immediate: true }
-);
+function syncSbProgramsQuery() {
+  const sb = String(route.query?.sbPrograms || '');
+  if (props.previewMode) return;
+  if (sb !== '1') return;
+  if (!skillBuildersProgramsPickerRoleOk.value) {
+    const q = { ...route.query };
+    delete q.sbPrograms;
+    router.replace({ query: q }).catch(() => {});
+    return;
+  }
+  goSkillBuildersProgramsPage();
+}
+watch(() => String(route.query?.sbPrograms || ''), syncSbProgramsQuery);
 
 /** ?programHub=1&programHubOrgId=&programHubSection=documents — open coordinator Skill Builders hub (e.g. from event portal). */
 function applyProgramHubQuery() {
@@ -3943,19 +3937,18 @@ watch(
   ],
   () => {
     applyProgramHubQuery();
-  },
-  { immediate: true }
+  }
 );
 
-// Club context: reset myTab if it's one of the hidden tabs (credentials, payroll, compensation)
-watch([isClubContext, () => myTab.value], () => {
+function syncClubContextTabs() {
   if (!isClubContext.value) return;
   const hidden = ['credentials', 'payroll', 'compensation'];
   if (hidden.includes(myTab.value)) {
     myTab.value = 'account';
     if (!props.previewMode) router.replace({ query: { ...route.query, tab: 'my', my: 'account' } });
   }
-}, { immediate: true });
+}
+watch([isClubContext, () => myTab.value], syncClubContextTabs);
 
 watch([
   scheduleViewMode,
@@ -4105,7 +4098,18 @@ const loadMyCompanyEvents = async () => {
 };
 
 onMounted(async () => {
-  void loadSubCoordinatorProgramOrgs();
+  // Run initial syncs that were previously `{ immediate: true }` watchers.
+  // Deferring to nextTick prevents TDZ crashes in minified bundles.
+  void nextTick(() => {
+    loadSubCoordinatorProgramOrgs();
+    syncSkillBuilderForceModal(isSkillBuilderForceModalRequired.value);
+    loadSkillBuilderBiweeklyPendingState();
+    syncSbProgramsQuery();
+    applyProgramHubQuery();
+    syncClubContextTabs();
+    applyScheduleStageThemeIntent();
+  });
+
   if (!props.previewMode && authStore.isAuthenticated) {
     api.post('/auth/activity-log', { actionType: 'dashboard_view' }, { skipGlobalLoading: true }).catch(() => {});
   }
@@ -4215,7 +4219,7 @@ onMounted(async () => {
 watch(activeTab, updateRailCollapsedMode);
 watch(isDarkMode, () => {
   applyScheduleStageThemeIntent();
-}, { immediate: true });
+});
 
 // If available cards change (role/status), keep activeTab on a valid content card.
 watch(dashboardCards, () => {
@@ -4241,21 +4245,19 @@ watch([currentAgencyId, isOnboardingComplete], async () => {
   ]);
 });
 
-// When Submit tab is shown, ensure assigned schools are loaded (for In-School Claims visibility).
 watch(activeTab, (tab) => {
   if (tab === 'submit' && !props.previewMode && currentAgencyId.value) {
     loadMyAssignedSchools();
   }
-}, { immediate: true });
+});
 
-// Supervisor: load supervisees for schedule sorting/selection.
 watch([activeTab, currentAgencyId, () => authStore.user?.id], async () => {
   if (props.previewMode) return;
   if (activeTab.value !== 'my_schedule') return;
   if (!isOnboardingComplete.value) return;
   if (!isSupervisor(authStore.user)) return;
   await fetchSuperviseesForSchedule();
-}, { immediate: true });
+});
 
 watch(scheduleViewMode, (m) => {
   if (m === 'supervisee' || m === 'employees') myScheduleViewAsUserId.value = 0;
@@ -4276,8 +4278,7 @@ watch(
     if (!sid || !list.some((s) => Number(s.id) === sid)) {
       selectedEmployeeDirectoryId.value = list[0].id;
     }
-  },
-  { immediate: true }
+  }
 );
 
 // Admin/staff/provider_plus: directory for “view as” schedule search.
@@ -4287,7 +4288,7 @@ watch([activeTab, currentAgencyId, () => authStore.user?.id, canPickEmployeeSche
   if (!isOnboardingComplete.value) return;
   if (!canPickEmployeeSchedule.value) return;
   await fetchUsersForEmployeeSchedulePicker();
-}, { immediate: true });
+});
 
 watch([employeeSchedulePickerOptions, myScheduleViewAsUserId, currentAgencyId, employeeSchedulePickerLoading], () => {
   const id = Number(myScheduleViewAsUserId.value || 0);

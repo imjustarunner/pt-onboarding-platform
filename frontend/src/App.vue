@@ -1108,7 +1108,7 @@ const navBrandLogoUrl = computed(() => {
   return brandingStore.displayLogoUrl;
 });
 
-watch(globalLoading, (isOn) => {
+function syncPageLoading(isOn) {
   if (isOn) {
     loadingStartedAt = Date.now();
     pageLoading.value = true;
@@ -1117,10 +1117,10 @@ watch(globalLoading, (isOn) => {
   const elapsed = Date.now() - loadingStartedAt;
   const wait = Math.max(0, LOADER_MIN_MS - elapsed);
   window.setTimeout(() => {
-    // Re-check in case loading restarted during the min-delay window.
     if (!globalLoading.value) pageLoading.value = false;
   }, wait);
-}, { immediate: true });
+}
+watch(globalLoading, syncPageLoading);
 
 // ---- Superadmin viewport preview (Desktop/Tablet/Mobile) ----
 const PREVIEW_STORAGE_KEY = 'superadminPreviewViewport';
@@ -1166,10 +1166,9 @@ const onPreviewUpdated = (e) => {
   }
 };
 
-// Keep preview attributes in sync (and reset to desktop for non-superadmins).
 watch(effectivePreviewViewport, (next) => {
   applyPreviewToDocument(next);
-}, { immediate: true });
+});
 
 // ---- Brand switcher + nav dropdowns (top-nav) ----
 const brandMenuOpen = ref(false);
@@ -2176,8 +2175,7 @@ const fetchBuildingsPendingCounts = async () => {
   }
 };
 
-// Start/stop activity tracking based on authentication status
-watch(isAuthenticated, (authenticated) => {
+function syncAuthenticatedSideEffects(authenticated) {
   if (authenticated) {
     startActivityTracking({ force: true });
     fetchBuildingsPendingCounts();
@@ -2189,21 +2187,22 @@ watch(isAuthenticated, (authenticated) => {
     if (buildingsPendingInterval) clearInterval(buildingsPendingInterval);
     buildingsPendingInterval = null;
   }
-}, { immediate: true });
+}
+watch(isAuthenticated, syncAuthenticatedSideEffects);
 
+function syncSchoolClientsPending([authenticated, showBadge, agencyId]) {
+  if (schoolClientsPendingInterval) clearInterval(schoolClientsPendingInterval);
+  schoolClientsPendingInterval = null;
+  if (authenticated && showBadge && agencyId) {
+    fetchSchoolClientsPendingCount();
+    schoolClientsPendingInterval = setInterval(fetchSchoolClientsPendingCount, 2 * 60 * 1000);
+    return;
+  }
+  schoolClientsPendingCount.value = 0;
+}
 watch(
   [isAuthenticated, showSchoolClientsPendingBadge, schoolClientsAgencyId],
-  ([authenticated, showBadge, agencyId]) => {
-    if (schoolClientsPendingInterval) clearInterval(schoolClientsPendingInterval);
-    schoolClientsPendingInterval = null;
-    if (authenticated && showBadge && agencyId) {
-      fetchSchoolClientsPendingCount();
-      schoolClientsPendingInterval = setInterval(fetchSchoolClientsPendingCount, 2 * 60 * 1000);
-      return;
-    }
-    schoolClientsPendingCount.value = 0;
-  },
-  { immediate: true }
+  syncSchoolClientsPending
 );
 
 watch(sessionSettingsKey, () => {
@@ -2558,7 +2557,7 @@ const fetchNotificationsCounts = async () => {
   }
 };
 
-watch(shouldFetchNotificationsCounts, (enabled) => {
+function syncNotificationsCounts(enabled) {
   if (enabled) {
     fetchNotificationsCounts();
     if (notificationsInterval) clearInterval(notificationsInterval);
@@ -2570,9 +2569,10 @@ watch(shouldFetchNotificationsCounts, (enabled) => {
     if (notificationsInterval) clearInterval(notificationsInterval);
     notificationsInterval = null;
   }
-}, { immediate: true });
+}
+watch(shouldFetchNotificationsCounts, syncNotificationsCounts);
 
-watch(isAuthenticated, (auth) => {
+function syncJoinPrompts(auth) {
   if (auth) {
     fetchJoinPrompts();
     if (joinReminderPollInterval) clearInterval(joinReminderPollInterval);
@@ -2582,7 +2582,8 @@ watch(isAuthenticated, (auth) => {
     if (joinReminderPollInterval) clearInterval(joinReminderPollInterval);
     joinReminderPollInterval = null;
   }
-}, { immediate: true });
+}
+watch(isAuthenticated, syncJoinPrompts);
 
 let communicationsCountsInterval = null;
 /** Avoid `{ immediate: true }` here: it runs during setup() and has repeatedly hit TDZ with minified bundles. */
@@ -2656,21 +2657,38 @@ watch(notificationsUnreadCount, (next, prev) => {
   });
 });
 
-// Watch for route changes to load organization context
 watch(() => route.params.organizationSlug, async (newSlug) => {
   if (newSlug) {
     await organizationStore.fetchBySlug(newSlug);
   } else if (!newSlug) {
     organizationStore.clearOrganization();
   }
-}, { immediate: true });
+});
 
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick);
   router.afterEach(() => closeAllNavMenus());
+
+  // Run all initial syncs that were previously `{ immediate: true }` watchers.
+  // Deferring to nextTick guarantees every setup() declaration is fully initialized,
+  // preventing TDZ crashes in minified bundles.
   void nextTick(() => {
+    syncPageLoading(globalLoading.value);
+    applyPreviewToDocument(effectivePreviewViewport.value);
+    syncAuthenticatedSideEffects(isAuthenticated.value);
+    syncSchoolClientsPending([isAuthenticated.value, showSchoolClientsPendingBadge.value, schoolClientsAgencyId.value]);
+    syncNotificationsCounts(shouldFetchNotificationsCounts.value);
+    syncJoinPrompts(isAuthenticated.value);
     syncCommunicationsCountsWithEngagementMenu(showEngagementMenu.value);
+    // Organization context from route
+    const slug = route.params.organizationSlug;
+    if (slug) {
+      organizationStore.fetchBySlug(slug);
+    } else {
+      organizationStore.clearOrganization();
+    }
   });
+
   const bootId = beginLoading('Loading…');
   try {
 
