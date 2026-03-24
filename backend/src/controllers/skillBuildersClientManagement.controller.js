@@ -124,10 +124,12 @@ export const listCoordinatorSkillBuilderCompanyEvents = async (req, res, next) =
     }
     const [rows] = await pool.execute(
       `SELECT DISTINCT ce.id, ce.title, ce.starts_at, ce.ends_at,
-              sg.name AS skills_group_name, sch.name AS school_name
+              sg.name AS skills_group_name, sch.name AS school_name,
+              LOWER(TRIM(prog.slug)) AS program_portal_slug
        FROM company_events ce
        LEFT JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
        LEFT JOIN agencies sch ON sch.id = sg.organization_id
+       LEFT JOIN agencies prog ON prog.id = ce.organization_id
        WHERE ce.agency_id = ?
        ${searchSql}
        ORDER BY ce.starts_at DESC
@@ -142,7 +144,11 @@ export const listCoordinatorSkillBuilderCompanyEvents = async (req, res, next) =
         startsAt: r.starts_at,
         endsAt: r.ends_at,
         skillsGroupName: r.skills_group_name || '',
-        schoolName: r.school_name || ''
+        schoolName: r.school_name || '',
+        programPortalSlug:
+          r.program_portal_slug != null && String(r.program_portal_slug).trim()
+            ? String(r.program_portal_slug).trim().toLowerCase()
+            : null
       }))
     });
   } catch (e) {

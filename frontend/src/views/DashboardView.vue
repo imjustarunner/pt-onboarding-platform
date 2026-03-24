@@ -1138,6 +1138,7 @@
       :agency-id="currentAgencyId"
       :organization-id="programHubOrg.id"
       :organization-name="programHubOrg.name"
+      :organization-portal-slug="programHubOrgPortalSlug"
       :initial-section="programHubInitialSection"
       @close="closeProgramHub"
     />
@@ -1386,6 +1387,11 @@ const skillBuilderPendingLoaded = ref(false);
 const skillBuilderBiweeklyNeedsConfirmation = ref(false);
 const programHubOpen = ref(false);
 const programHubOrg = ref(null); // { id, name } | null
+const programHubOrgPortalSlug = computed(() => {
+  const o = programHubOrg.value;
+  if (!o) return '';
+  return String(o.slug || o.portal_url || o.portalUrl || '').trim();
+});
 /** When opening from ?programHub=1 — e.g. `documents` for Program documents */
 const programHubInitialSection = ref(null);
 const skillBuildersProviderHubOpen = ref(false);
@@ -3308,7 +3314,7 @@ const dashboardCards = computed(() => {
           kind: 'modal',
           programOrganizationId: oid,
           badgeCount: 0,
-          iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', orgOverride),
+          iconUrl: programPortalRailIconUrl(org),
           description: `Availability, events, and work schedule for ${name}.`
         });
       }

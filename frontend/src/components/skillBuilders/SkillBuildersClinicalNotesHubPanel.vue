@@ -1214,7 +1214,8 @@ async function openNoteModal(row) {
     modalPortalLoading.value = false;
   }
 
-  const slug = orgSlug();
+  const fromRow = String(row?.programPortalSlug || '').trim().toLowerCase();
+  const slug = fromRow || orgSlug();
   const eid = Number(row?.companyEventId || 0);
   const sid = Number(row?.sessionId || 0);
   const cid = Number(row?.clientId || 0);

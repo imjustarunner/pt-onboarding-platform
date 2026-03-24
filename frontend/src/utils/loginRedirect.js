@@ -272,6 +272,10 @@ export function getLoginUrlForRedirect(user = null, userAgencies = null, opts = 
     return `${base}${sep}timeout=true`;
   };
 
+  if (String(user?.role || '').toLowerCase() === 'super_admin') {
+    return withTimeout('/login');
+  }
+
   const pathSlug = getCurrentPortalSlugFromPath();
   if (pathSlug) {
     const role = String(user?.role || '').toLowerCase();

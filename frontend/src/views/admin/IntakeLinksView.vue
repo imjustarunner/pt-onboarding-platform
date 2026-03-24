@@ -598,7 +598,7 @@
                     <select v-model="step.sourceType" @change="onRegistrationSourceTypeChange(step)">
                       <option value="manual">Manual options</option>
                       <option value="program">Programs</option>
-                      <option value="program_event">Program events</option>
+                      <option value="program_event">Program events (shift sites &amp; slots)</option>
                       <option value="class">Classes</option>
                       <option value="event">Events (framed)</option>
                       <option value="agency_catalog">Agency catalog (public)</option>
@@ -684,6 +684,10 @@
                     />
                   </div>
                   <div class="form-group" v-if="step.sourceType === 'program'" style="grid-column: 1 / -1;">
+                    <p class="muted" style="margin: 0 0 10px;">
+                      Affiliated <strong>program organizations</strong> on your account (e.g. D11 Summer, Skill Builders). Use this
+                      for portal-style programs; pair with schedule blocks below as needed.
+                    </p>
                     <label>Programs</label>
                     <div class="template-list" v-if="programOrganizations.length">
                       <label v-for="org in programOrganizations" :key="`reg_prog_${org.id}`" class="template-item">
@@ -699,6 +703,11 @@
                     <div v-else class="muted">No program organizations found.</div>
                   </div>
                   <div class="form-group" v-if="step.sourceType === 'program_event'" style="grid-column: 1 / -1;">
+                    <p class="muted" style="margin: 0 0 10px;">
+                      Uses <strong>shift programs</strong> (Programs hub: sites and weekly slots). This is not the same as
+                      affiliated <strong>program organizations</strong> (e.g. D11 Summer). For those, use source type
+                      <strong>Programs</strong> or <strong>Agency catalog (public)</strong> for published company events.
+                    </p>
                     <label>Agency</label>
                     <select
                       v-model.number="step.sourceConfig.programEventAgencyId"
@@ -710,13 +719,13 @@
                       </option>
                     </select>
                     <div class="form-group" style="margin-top:8px;">
-                      <label>Program</label>
+                      <label>Shift program</label>
                       <select
                         v-model.number="step.sourceConfig.programEventProgramId"
                         :disabled="!step.sourceConfig.programEventAgencyId"
                         @change="onRegistrationProgramEventProgramChange(step)"
                       >
-                        <option :value="null">Select program</option>
+                        <option :value="null">Select shift program</option>
                         <option
                           v-for="prog in getShiftProgramsForAgency(step.sourceConfig.programEventAgencyId)"
                           :key="`reg_prog_event_program_${prog.id}`"
@@ -725,6 +734,26 @@
                           {{ prog.name }}
                         </option>
                       </select>
+                      <p
+                        v-if="step.sourceConfig.programEventAgencyId && shiftProgramsErrorByAgencyId[step.sourceConfig.programEventAgencyId]"
+                        class="form-help"
+                        style="color: #b45309; margin-top: 6px;"
+                      >
+                        {{ shiftProgramsErrorByAgencyId[step.sourceConfig.programEventAgencyId] }}
+                      </p>
+                      <p
+                        v-else-if="
+                          step.sourceConfig.programEventAgencyId &&
+                          !loadingShiftProgramsByAgency[step.sourceConfig.programEventAgencyId] &&
+                          !getShiftProgramsForAgency(step.sourceConfig.programEventAgencyId).length
+                        "
+                        class="muted"
+                        style="margin-top: 6px;"
+                      >
+                        No shift programs returned. Enable <strong>Shift programs</strong> on the agency (feature flags) and
+                        create programs under Programs / shift scheduling, or switch source type to <strong>Programs</strong> for
+                        affiliated program orgs.
+                      </p>
                     </div>
                     <div class="form-group" style="margin-top:8px;">
                       <label>Site</label>
@@ -1027,6 +1056,8 @@ const learningClassesByOrganization = ref({});
 const loadingLearningClassesForOrganization = reactive({});
 const classDetailsById = ref({});
 const shiftProgramsByAgencyId = ref({});
+/** API error per agency (e.g. shift programs feature off) — empty list alone was silent. */
+const shiftProgramsErrorByAgencyId = reactive({});
 const loadingShiftProgramsByAgency = reactive({});
 const shiftProgramDetailsById = ref({});
 const loadingShiftProgramDetailsById = reactive({});
@@ -2400,12 +2431,16 @@ const loadShiftProgramsForAgency = async (agencyId) => {
   if (!id) return [];
   if (Array.isArray(shiftProgramsByAgencyId.value?.[id])) return shiftProgramsByAgencyId.value[id];
   loadingShiftProgramsByAgency[id] = true;
+  shiftProgramsErrorByAgencyId[id] = '';
   try {
     const r = await api.get(`/shift-programs/agencies/${id}/programs`);
     const rows = Array.isArray(r.data) ? r.data : [];
     shiftProgramsByAgencyId.value = { ...shiftProgramsByAgencyId.value, [id]: rows };
+    shiftProgramsErrorByAgencyId[id] = '';
     return rows;
-  } catch {
+  } catch (e) {
+    const msg = e?.response?.data?.error?.message || e?.message || '';
+    shiftProgramsErrorByAgencyId[id] = msg || 'Could not load shift programs.';
     shiftProgramsByAgencyId.value = { ...shiftProgramsByAgencyId.value, [id]: [] };
     return [];
   } finally {

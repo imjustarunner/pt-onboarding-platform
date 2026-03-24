@@ -299,11 +299,13 @@ export const listMyAssignedSkillBuilderEvents = async (req, res, next) => {
               sg.id AS skills_group_id,
               sg.name AS skills_group_name,
               school.id AS school_organization_id,
-              school.name AS school_name
+              school.name AS school_name,
+              LOWER(TRIM(prog.slug)) AS program_portal_slug
        FROM skills_group_providers sgp
        INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id AND sg.agency_id = ?
        INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = sg.agency_id
        INNER JOIN agencies school ON school.id = sg.organization_id
+       LEFT JOIN agencies prog ON prog.id = ce.organization_id
        WHERE sgp.provider_user_id = ?
          AND (ce.is_active = TRUE OR ce.is_active IS NULL)
        ORDER BY ce.starts_at DESC, ce.id DESC
@@ -315,7 +317,11 @@ export const listMyAssignedSkillBuilderEvents = async (req, res, next) => {
       skillsGroupId: Number(r.skills_group_id),
       skillsGroupName: r.skills_group_name || '',
       schoolOrganizationId: Number(r.school_organization_id),
-      schoolName: r.school_name || ''
+      schoolName: r.school_name || '',
+      programPortalSlug:
+        r.program_portal_slug != null && String(r.program_portal_slug).trim()
+          ? String(r.program_portal_slug).trim().toLowerCase()
+          : null
     }));
     res.json({ ok: true, events });
   } catch (e) {
@@ -348,10 +354,12 @@ export const listUpcomingSkillBuilderEventsForApply = async (req, res, next) => 
                 school.id AS school_organization_id,
                 school.name AS school_name,
                 sgp.provider_user_id AS already_assigned,
-                app.status AS application_status
+                app.status AS application_status,
+                LOWER(TRIM(prog.slug)) AS program_portal_slug
          FROM company_events ce
          INNER JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
          INNER JOIN agencies school ON school.id = sg.organization_id
+         LEFT JOIN agencies prog ON prog.id = ce.organization_id
          LEFT JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id AND sgp.provider_user_id = ?
          LEFT JOIN company_event_provider_applications app
            ON app.company_event_id = ce.id AND app.user_id = ? AND app.status IN ('pending','approved')
@@ -370,7 +378,11 @@ export const listUpcomingSkillBuilderEventsForApply = async (req, res, next) => 
         skillsGroupName: r.skills_group_name || '',
         schoolOrganizationId: Number(r.school_organization_id),
         schoolName: r.school_name || '',
-        applicationStatus: r.application_status || null
+        applicationStatus: r.application_status || null,
+        programPortalSlug:
+          r.program_portal_slug != null && String(r.program_portal_slug).trim()
+            ? String(r.program_portal_slug).trim().toLowerCase()
+            : null
       }));
       res.json({ ok: true, events });
     } finally {
@@ -741,31 +753,56 @@ async function assertEventDiscussionAccess({ req, agencyId, eventId }) {
 
 async function assertEventAccess({ req, agencyId, eventId }) {
   const userId = parsePositiveInt(req.user?.id);
-  const [evRows] = await pool.execute(
-    `SELECT ce.*, sg.id AS skills_group_id
-     FROM company_events ce
-     LEFT JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
-     WHERE ce.id = ? AND ce.agency_id = ?
-     LIMIT 1`,
-    [eventId, agencyId]
-  );
-  const ev = evRows?.[0];
+  const eid = parsePositiveInt(eventId);
+  const aid = parsePositiveInt(agencyId);
+  if (!eid) return { error: { status: 400, message: 'Event id required' } };
+
+  let ev;
+  if (aid) {
+    const [evRows] = await pool.execute(
+      `SELECT ce.*, sg.id AS skills_group_id
+       FROM company_events ce
+       LEFT JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
+       WHERE ce.id = ? AND ce.agency_id = ?
+       LIMIT 1`,
+      [eid, aid]
+    );
+    ev = evRows?.[0];
+  } else {
+    const [evRows] = await pool.execute(
+      `SELECT ce.*, sg.id AS skills_group_id
+       FROM company_events ce
+       LEFT JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
+       WHERE ce.id = ?
+       LIMIT 1`,
+      [eid]
+    );
+    ev = evRows?.[0];
+  }
+
   if (!ev) return { error: { status: 404, message: 'Event not found' } };
-  if (!(await userHasAgencyAccess(req, agencyId))) {
+
+  const billingAgencyId = Number(ev.agency_id);
+  if (!Number.isFinite(billingAgencyId) || billingAgencyId <= 0) {
+    return { error: { status: 404, message: 'Event not found' } };
+  }
+
+  if (!(await userHasAgencyAccess(req, billingAgencyId))) {
     return { error: { status: 403, message: 'Not authorized for this agency' } };
   }
-  if (ev.skills_group_id && (await isAgencyStaffLikeForSkillBuilders(req, agencyId))) {
+
+  if (ev.skills_group_id && (await isAgencyStaffLikeForSkillBuilders(req, billingAgencyId))) {
     return { ok: true, row: ev };
   }
   const coord = await getSkillBuilderCoordinatorAccess(userId);
-  if (coord && Number(ev.agency_id) === agencyId) return { ok: true, row: ev };
+  if (coord && Number(ev.agency_id) === billingAgencyId) return { ok: true, row: ev };
 
   const [sgp] = await pool.execute(
     `SELECT 1 FROM skills_group_providers sgp
      INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id
      WHERE sg.company_event_id = ? AND sgp.provider_user_id = ?
      LIMIT 1`,
-    [eventId, userId]
+    [eid, userId]
   );
   if (sgp?.[0]) return { ok: true, row: ev };
   return { error: { status: 403, message: 'Not assigned to this event' } };
@@ -894,17 +931,15 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
     const sbCoord = await getSkillBuilderCoordinatorAccess(userId);
     const eligible = await getSkillBuilderEligibility(userId);
 
-    const conn = await pool.getConnection();
-    let programOrgId = null;
-    try {
-      const program = await resolveProgramOrg(conn, agencyId);
-      programOrgId = program?.id || null;
-    } finally {
-      conn.release();
-    }
-    if (!programOrgId) {
-      return res.json({ ok: true, scope: 'none', events: [] });
-    }
+    const programOrgInClause = `
+         AND ce.organization_id IN (
+           SELECT oa.organization_id
+           FROM organization_affiliations oa
+           INNER JOIN agencies ch ON ch.id = oa.organization_id
+           WHERE oa.agency_id = ?
+             AND oa.is_active = TRUE
+             AND LOWER(COALESCE(ch.organization_type, '')) = 'program'
+         )`;
 
     let scope = 'provider';
     let rows = [];
@@ -921,15 +956,17 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
                 sg.organization_id AS school_organization_id,
                 sch.name AS school_name,
                 sch.logo_url AS school_logo_url,
-                sch.logo_path AS school_logo_path
+                sch.logo_path AS school_logo_path,
+                LOWER(TRIM(prog.slug)) AS program_portal_slug
          FROM company_events ce
          INNER JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
          INNER JOIN agencies sch ON sch.id = sg.organization_id
+         LEFT JOIN agencies prog ON prog.id = ce.organization_id
          WHERE ce.agency_id = ?
-           AND ce.organization_id = ?
+           ${programOrgInClause}
          ORDER BY (ce.ends_at < NOW()) ASC, ce.ends_at DESC, ce.id DESC
          LIMIT 400`,
-        [agencyId, programOrgId]
+        [agencyId, agencyId]
       );
       rows = r || [];
     } else if (eligible) {
@@ -944,16 +981,25 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
                 sg.organization_id AS school_organization_id,
                 sch.name AS school_name,
                 sch.logo_url AS school_logo_url,
-                sch.logo_path AS school_logo_path
+                sch.logo_path AS school_logo_path,
+                LOWER(TRIM(prog.slug)) AS program_portal_slug
          FROM skills_group_providers sgp
          INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id AND sg.agency_id = ?
          INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = sg.agency_id
          INNER JOIN agencies sch ON sch.id = sg.organization_id
+         LEFT JOIN agencies prog ON prog.id = ce.organization_id
          WHERE sgp.provider_user_id = ?
-           AND ce.organization_id = ?
+           AND ce.organization_id IN (
+             SELECT oa.organization_id
+             FROM organization_affiliations oa
+             INNER JOIN agencies ch ON ch.id = oa.organization_id
+             WHERE oa.agency_id = ?
+               AND oa.is_active = TRUE
+               AND LOWER(COALESCE(ch.organization_type, '')) = 'program'
+           )
          ORDER BY (ce.ends_at < NOW()) ASC, ce.ends_at DESC, ce.id DESC
          LIMIT 300`,
-        [agencyId, userId, programOrgId]
+        [agencyId, userId, agencyId]
       );
       rows = r || [];
     } else {
@@ -1002,6 +1048,9 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
       const endsMs = new Date(row.ends_at || 0).getTime();
       const isPast = Number.isFinite(endsMs) && endsMs < nowMs;
       const wset = weekMap.get(sgId) || new Set();
+      const pslug = row.program_portal_slug != null && String(row.program_portal_slug).trim()
+        ? String(row.program_portal_slug).trim().toLowerCase()
+        : null;
       return {
         companyEventId: Number(row.id),
         title: row.title,
@@ -1011,6 +1060,7 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
         schoolName: row.school_name || '',
         schoolLogoUrl: row.school_logo_url || null,
         schoolLogoPath: row.school_logo_path || null,
+        programPortalSlug: pslug,
         startsAt: row.starts_at,
         endsAt: row.ends_at,
         isActive: !!(row.is_active === true || row.is_active === 1),
@@ -1026,14 +1076,16 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
   }
 };
 
-/** GET /api/skill-builders/events/:eventId/detail?agencyId= */
+/** GET /api/skill-builders/events/:eventId/detail?agencyId= — agencyId optional; resolved from the event when omitted (program-portal URLs). */
 export const getSkillBuilderEventDetail = async (req, res, next) => {
   try {
-    const agencyId = parsePositiveInt(req.query.agencyId);
+    const agencyIdParam = parsePositiveInt(req.query.agencyId);
     const eventId = parsePositiveInt(req.params.eventId);
-    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'agencyId and event id required' } });
-    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (!eventId) return res.status(400).json({ error: { message: 'Event id required' } });
+    const access = await assertEventAccess({ req, agencyId: agencyIdParam, eventId });
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const billingAgencyId = Number(access.row.agency_id);
 
     const [sgRows] = await pool.execute(
       `SELECT sg.*, school.name AS school_name, school.id AS school_id, school.slug AS school_slug
@@ -1041,13 +1093,13 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
        INNER JOIN agencies school ON school.id = sg.organization_id
        WHERE sg.company_event_id = ? AND sg.agency_id = ?
        LIMIT 1`,
-      [eventId, agencyId]
+      [eventId, billingAgencyId]
     );
     const sg = sgRows?.[0] || null;
 
     const providers = sg?.id ? await fetchSkillBuildersGroupProvidersForPortal(sg.id) : [];
     const userId = parsePositiveInt(req.user?.id);
-    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, billingAgencyId);
     const coord = await getSkillBuilderCoordinatorAccess(userId);
     const rosterRestrict = !staffLike && !coord;
 
@@ -1126,7 +1178,7 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
       }));
     }
 
-    const canonWin = await getCanonicalSkillsGroupWindowIfLegacy(agencyId, eventId, {
+    const canonWin = await getCanonicalSkillsGroupWindowIfLegacy(billingAgencyId, eventId, {
       eventType: evRow.event_type,
       timezone: evRow.timezone,
       startsAt: evRow.starts_at
@@ -1142,7 +1194,7 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
 
     const calendar = buildSkillBuilderPortalCalendar(evRowForDisplay);
     const canManageCompanyEvent = staffLike || coord;
-    const canManageTeamSchedules = await canManageTeamSchedulesForAgency(req, agencyId);
+    const canManageTeamSchedules = await canManageTeamSchedulesForAgency(req, billingAgencyId);
     const roleLower = String(req.user?.role || '').toLowerCase();
     const canPostEventDiscussion = roleLower !== 'school_staff';
 

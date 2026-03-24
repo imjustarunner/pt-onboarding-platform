@@ -441,6 +441,81 @@ async function canAccessSkillBuilderAdmin(req) {
   return canManageAvailability(req.user?.role) || (await getSkillBuilderCoordinatorAccess(req.user?.id));
 }
 
+/**
+ * Affiliated orgs under an agency (for Skill Builders scope), including branding fields
+ * so dashboards can show per-program icons (master org icon, program overview icon, logos).
+ */
+async function loadAffiliatedOrganizationsWithBranding(agencyId) {
+  let hasIconId = false;
+  let hasProgramOverviewIcon = false;
+  let hasLogoPath = false;
+  try {
+    const [cols] = await pool.execute(
+      "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('icon_id','program_overview_icon_id','logo_path')"
+    );
+    const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+    hasIconId = names.has('icon_id');
+    hasProgramOverviewIcon = names.has('program_overview_icon_id');
+    hasLogoPath = names.has('logo_path');
+  } catch {
+    hasIconId = false;
+    hasProgramOverviewIcon = false;
+    hasLogoPath = false;
+  }
+
+  let selectSql =
+    'child.id, child.name, child.organization_type, child.slug, child.logo_url';
+  if (hasLogoPath) selectSql += ', child.logo_path';
+  if (hasIconId) {
+    selectSql += ', master_i.file_path AS icon_file_path, master_i.id AS icon_id';
+  }
+  if (hasProgramOverviewIcon) {
+    selectSql += ', pov_i.file_path AS program_overview_icon_path, pov_i.id AS program_overview_icon_id';
+  }
+
+  const joins = [
+    hasIconId ? 'LEFT JOIN icons master_i ON child.icon_id = master_i.id' : null,
+    hasProgramOverviewIcon ? 'LEFT JOIN icons pov_i ON child.program_overview_icon_id = pov_i.id' : null
+  ]
+    .filter(Boolean)
+    .join('\n       ');
+
+  const [rows] = await pool.execute(
+    `SELECT ${selectSql}
+     FROM organization_affiliations oa
+     JOIN agencies child ON child.id = oa.organization_id
+     ${joins}
+     WHERE oa.agency_id = ?
+       AND oa.is_active = TRUE
+       AND (child.is_archived = FALSE OR child.is_archived IS NULL)
+       AND (child.is_active = TRUE OR child.is_active IS NULL)
+     ORDER BY child.name ASC, child.id ASC`,
+    [agencyId]
+  );
+
+  return (rows || []).map((r) => {
+    const base = {
+      id: Number(r.id),
+      name: String(r.name || '').trim() || `Organization ${r.id}`,
+      organizationType: String(r.organization_type || 'school').toLowerCase(),
+      slug: r.slug != null && String(r.slug).trim() ? String(r.slug).trim().toLowerCase() : null,
+      logo_url: r.logo_url != null ? String(r.logo_url) : null
+    };
+    if (hasLogoPath) base.logo_path = r.logo_path != null ? String(r.logo_path) : null;
+    if (hasIconId) {
+      base.icon_file_path = r.icon_file_path != null ? String(r.icon_file_path) : null;
+      base.icon_id = r.icon_id != null ? Number(r.icon_id) : null;
+    }
+    if (hasProgramOverviewIcon) {
+      base.program_overview_icon_path =
+        r.program_overview_icon_path != null ? String(r.program_overview_icon_path) : null;
+      base.program_overview_icon_id =
+        r.program_overview_icon_id != null ? Number(r.program_overview_icon_id) : null;
+    }
+    return base;
+  });
+}
+
 export const listSkillBuildersScopeOptions = async (req, res, next) => {
   try {
     const allowed = await canAccessSkillBuilderAdmin(req);
@@ -519,22 +594,7 @@ export const listSkillBuildersScopeOptions = async (req, res, next) => {
 
     let organizations = [];
     if (agencyId) {
-      const [rows] = await pool.execute(
-        `SELECT child.id, child.name, child.organization_type
-         FROM organization_affiliations oa
-         JOIN agencies child ON child.id = oa.organization_id
-         WHERE oa.agency_id = ?
-           AND oa.is_active = TRUE
-           AND (child.is_archived = FALSE OR child.is_archived IS NULL)
-           AND (child.is_active = TRUE OR child.is_active IS NULL)
-         ORDER BY child.name ASC, child.id ASC`,
-        [agencyId]
-      );
-      organizations = (rows || []).map((r) => ({
-        id: Number(r.id),
-        name: String(r.name || '').trim() || `Organization ${r.id}`,
-        organizationType: String(r.organization_type || 'school').toLowerCase()
-      }));
+      organizations = await loadAffiliatedOrganizationsWithBranding(agencyId);
     }
 
     res.json({

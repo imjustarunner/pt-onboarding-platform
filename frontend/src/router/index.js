@@ -4,7 +4,7 @@ import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
 import { useOrganizationStore } from '../store/organization';
 import { getDashboardRoute } from '../utils/router';
-import { getLoginUrl } from '../utils/loginRedirect';
+import { getLoginUrl, getCurrentPortalSlugFromHostCache } from '../utils/loginRedirect';
 import { buildOrgLoginPath } from '../utils/orgLoginPath';
 import { isSupervisor } from '../utils/helpers';
 import { hasProviderMobileAccess } from '../utils/providerMobileAccess';
@@ -1888,13 +1888,26 @@ router.beforeEach(async (to, from, next) => {
       }
       if (typeof slug === 'string' && slug) {
         // Apply portal branding for all slug routes (public + authenticated).
-        // (Super admins can still view the portal with correct branding.)
+        // On a dedicated app host (e.g. app.itsco.health ≡ agency itsco), super_admins touring
+        // /itsco/... paths should not re-fetch the same portal theme every navigation — it causes
+        // visible header/logo flicker vs paths without the redundant slug prefix.
         try {
           const pageContext =
             to.meta.publicSkillBuildersEventsBranding || to.meta.publicAgencyEventsBranding
               ? 'public_events'
               : undefined;
-          await brandingStore.fetchAgencyTheme(slug, pageContext ? { pageContext } : {});
+          const isSuperAdmin = String(authStore.user?.role || '').toLowerCase() === 'super_admin';
+          const hostPortal = String(
+            brandingStore.portalHostPortalUrl || getCurrentPortalSlugFromHostCache() || ''
+          )
+            .trim()
+            .toLowerCase();
+          const slugNorm = String(slug).trim().toLowerCase();
+          const skipRedundantTheme =
+            authStore.isAuthenticated && isSuperAdmin && hostPortal && slugNorm === hostPortal;
+          if (!skipRedundantTheme) {
+            await brandingStore.fetchAgencyTheme(slug, pageContext ? { pageContext } : {});
+          }
         } catch (e) {
           // best effort: do not block navigation
         }
@@ -2149,7 +2162,12 @@ router.beforeEach(async (to, from, next) => {
         to.meta.parentOrgSlug && typeof to.params.parentOrgSlug === 'string'
           ? to.params.parentOrgSlug
           : null;
-      const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
+      const hostImplied =
+        String(
+          brandingStore.portalHostPortalUrl || getCurrentPortalSlugFromHostCache() || ''
+        )
+          .trim()
+          .toLowerCase() || null;
       const loginPath = buildOrgLoginPath(slug, parent, hostImplied);
       next(`${loginPath}${redirectQuery}`);
       return;

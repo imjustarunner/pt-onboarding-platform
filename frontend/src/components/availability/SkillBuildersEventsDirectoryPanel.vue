@@ -48,7 +48,7 @@
           type="button"
           class="btn btn-primary btn-sm sbes-go"
           :disabled="!selectedEventId"
-          @click="openPortal(selectedEventId)"
+          @click="openPortalFromSelect()"
         >
           Open event portal
         </button>
@@ -79,7 +79,7 @@
               :key="`up-${e.companyEventId}`"
               type="button"
               class="sbes-card"
-              @click="openPortal(e.companyEventId)"
+              @click="openPortal(e)"
             >
               <div class="sbes-card-logo">
                 <img
@@ -114,7 +114,7 @@
               :key="`past-${e.companyEventId}`"
               type="button"
               class="sbes-card sbes-card-past"
-              @click="openPortal(e.companyEventId)"
+              @click="openPortal(e)"
             >
               <div class="sbes-card-logo">
                 <div class="sbes-card-logo-fallback">{{ schoolInitials(e.schoolName) }}</div>
@@ -175,10 +175,24 @@ function orgSlug() {
   );
 }
 
-function openPortal(eventId) {
-  const slug = orgSlug();
-  if (!slug || !eventId) return;
-  router.push(`/${slug}/skill-builders/event/${eventId}`);
+function openPortal(eventOrId) {
+  let id;
+  let slugFromEvent = '';
+  if (eventOrId && typeof eventOrId === 'object' && eventOrId.companyEventId != null) {
+    id = Number(eventOrId.companyEventId);
+    slugFromEvent = String(eventOrId.programPortalSlug || '').trim().toLowerCase();
+  } else {
+    id = Number(eventOrId);
+    const ev = (events.value || []).find((x) => Number(x.companyEventId) === id);
+    if (ev) slugFromEvent = String(ev.programPortalSlug || '').trim().toLowerCase();
+  }
+  const slug = slugFromEvent || orgSlug();
+  if (!slug || !Number.isFinite(id) || id <= 0) return;
+  router.push(`/${slug}/skill-builders/event/${id}`);
+}
+
+function openPortalFromSelect() {
+  openPortal(selectedEventId.value);
 }
 
 function onLogoError(schoolOrganizationId) {

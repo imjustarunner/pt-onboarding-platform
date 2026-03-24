@@ -7,7 +7,7 @@
         <SkillBuildersEventPortalLayout
           :title="detail.event?.title || 'Skill Builders event'"
           :subtitle="headerSubtitle"
-          kicker="Program event · Skill Builders"
+          :kicker="portalKicker"
         >
           <template #actions>
             <nav v-if="crumbProgramLabel" class="sbep-crumb muted" aria-label="Breadcrumb">
@@ -207,7 +207,7 @@
                 <p v-else class="muted">No materialized sessions in range.</p>
               </div>
 
-              <div v-if="detail.skillsGroup && agencyId && eventId" class="sbep-sched-block">
+              <div v-if="detail.skillsGroup && eventBillingAgencyId && eventId" class="sbep-sched-block">
                 <p class="sbep-subh">Session curriculum (PDFs)</p>
                 <p class="muted small sbep-card-lead">
                   Program library PDFs attach per session — same tools as <strong>Materials</strong>. Open Materials to
@@ -387,8 +387,8 @@
               :icon-url="sectionIconUrl('materials')"
             >
               <SkillBuildersSessionCurriculumMaterials
-                v-if="agencyId && eventId"
-                :agency-id="agencyId"
+                v-if="eventBillingAgencyId && eventId"
+                :agency-id="eventBillingAgencyId"
                 :event-id="eventId"
                 :sessions="sessions"
                 :sessions-loading="sessionsLoading"
@@ -412,8 +412,8 @@
                 program hub <strong>Notes</strong> tab.
               </p>
               <SkillBuildersClinicalNotesHubPanel
-                v-if="agencyId && eventId"
-                :agency-id="agencyId"
+                v-if="eventBillingAgencyId && eventId"
+                :agency-id="eventBillingAgencyId"
                 :event-id="eventId"
                 :event-title="clinicalNotesContextEventTitle"
                 :sessions="sessions"
@@ -672,7 +672,7 @@
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
-              v-if="viewerCaps.isAssignedProvider && agencyId"
+              v-if="viewerCaps.isAssignedProvider && eventBillingAgencyId"
               v-show="railActive === 'my-work'"
               rail-mode
               section-id="my-work"
@@ -681,7 +681,7 @@
             >
               <p class="muted small sbep-card-lead">Your Skill Builder availability, group meetings, and assigned program events.</p>
               <SkillBuildersWorkSchedulePanel
-                :agency-id="agencyId"
+                :agency-id="eventBillingAgencyId"
                 :highlight-event-id="eventId"
                 :program-session-summaries="sessionsForWorkSchedulePanel"
                 mode="provider"
@@ -792,11 +792,11 @@
           </div>
         </SkillBuildersEventPortalLayout>
         <SkillBuildersEventEditModal
-          v-if="agencyId && eventId"
+          v-if="eventBillingAgencyId && eventId"
           v-model="editEventModalOpen"
-          :agency-id="agencyId"
+          :agency-id="eventBillingAgencyId"
           :event-id="eventId"
-          :portal-slug="String(route.params.organizationSlug || '')"
+          :portal-slug="String(detail?.programPortal?.slug || route.params.organizationSlug || '')"
           :can-edit-program-week-pattern="viewerCaps.canManageTeamSchedules"
           @saved="loadDetail"
         />
@@ -844,8 +844,24 @@ const sessionStaffFlash = ref('');
 let sessionStaffFlashTimer = null;
 
 const eventId = computed(() => Number(route.params.eventId));
-const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0));
 const organizationSlug = computed(() => String(route.params.organizationSlug || '').trim());
+
+/** Billing/parent agency id for Skill Builders APIs (not the program portal org from the URL). */
+const eventBillingAgencyId = computed(() => {
+  const fromDetail = Number(detail.value?.event?.agencyId || 0);
+  if (fromDetail > 0) return fromDetail;
+  const t = String(
+    agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || ''
+  ).toLowerCase();
+  if (t === 'program' || t === 'school' || t === 'learning') return 0;
+  return Number(agencyStore.currentAgency?.id || 0);
+});
+
+const portalKicker = computed(() => {
+  const name = String(detail.value?.programPortal?.name || '').trim();
+  if (name) return `Program event · ${name}`;
+  return 'Program event · Skill Builders';
+});
 
 const programEventsHref = computed(() => {
   const ag = detail.value?.agencyPortalSlug;
@@ -1004,7 +1020,7 @@ function sectionIconUrl(sectionKey) {
     return school || brandingStore.getDashboardCardIconUrl('staff');
   }
   if (sectionKey === 'clinical_notes') {
-    return brandingStore.getDashboardCardIconUrl('supervision', agencyId.value);
+    return brandingStore.getDashboardCardIconUrl('supervision', eventBillingAgencyId.value);
   }
   const map = {
     home: 'my',
@@ -1073,7 +1089,7 @@ const eventRailItems = computed(() => {
     push('work-schedule', 'Event Assignments', 'Assign', 'work-schedule', true);
   }
 
-  if (v.isAssignedProvider && agencyId.value) {
+  if (v.isAssignedProvider && eventBillingAgencyId.value) {
     push('my-work', 'My work schedule', 'My work', 'my-work', true);
   }
   if (v.isAssignedProvider || v.canManageTeamSchedules) {
@@ -1315,7 +1331,7 @@ function syncSessionStaffDraft() {
 }
 
 async function saveSessionStaff(sessionId) {
-  if (!agencyId.value || !eventId.value) return;
+  if (!eventBillingAgencyId.value || !eventId.value) return;
   sessionStaffSavingId.value = sessionId;
   try {
     const raw = sessionStaffDraft[sessionId];
@@ -1324,7 +1340,7 @@ async function saveSessionStaff(sessionId) {
       : [];
     const res = await api.put(
       `/skill-builders/events/${eventId.value}/sessions/${sessionId}/providers`,
-      { agencyId: agencyId.value, providerUserIds },
+      { agencyId: eventBillingAgencyId.value, providerUserIds },
       { skipGlobalLoading: true }
     );
     const next = res.data?.assignedProviders;
@@ -1364,7 +1380,7 @@ function ymdAddDays(ymd, delta) {
 
 async function loadSessions() {
   sessionsLoadError.value = '';
-  if (!agencyId.value || !eventId.value || !detail.value?.skillsGroup) {
+  if (!eventBillingAgencyId.value || !eventId.value || !detail.value?.skillsGroup) {
     sessions.value = [];
     sessionsLoadAttempted.value = false;
     return;
@@ -1380,7 +1396,7 @@ async function loadSessions() {
     if (/^\d{4}-\d{2}-\d{2}$/.test(sd) && sd < from) from = sd;
     if (/^\d{4}-\d{2}-\d{2}$/.test(ed) && ed > to) to = ed;
     const res = await api.get(`/skill-builders/events/${eventId.value}/sessions`, {
-      params: { agencyId: agencyId.value, from, to },
+      params: { agencyId: eventBillingAgencyId.value, from, to },
       skipGlobalLoading: true
     });
     sessions.value = Array.isArray(res.data?.sessions) ? res.data.sessions : [];
@@ -1547,13 +1563,14 @@ const scheduleHubHref = computed(() => {
 });
 
 const skillBuildersEventsOverlayHref = computed(() => {
-  const s = organizationSlug.value;
+  const s =
+    String(detail.value?.agencyPortalSlug || '').trim() || String(organizationSlug.value || '').trim();
   if (!s || !canOpenSkillBuildersEventsOverlay.value) return null;
   return `/${s}/admin/skill-builders-program-events`;
 });
 
 const canEditEventInPortal = computed(
-  () => !!detail.value?.canManageCompanyEvent && agencyId.value > 0 && eventId.value > 0
+  () => !!detail.value?.canManageCompanyEvent && eventBillingAgencyId.value > 0 && eventId.value > 0
 );
 
 const copyHint = ref('');
@@ -1761,15 +1778,15 @@ async function copyShareBlurb() {
 }
 
 async function loadAttendance() {
-  if (!agencyId.value || !eventId.value) return;
+  if (!eventBillingAgencyId.value || !eventId.value) return;
   try {
     const [pr, cr] = await Promise.all([
       api.get(`/skill-builders/events/${eventId.value}/attendance/providers`, {
-        params: { agencyId: agencyId.value },
+        params: { agencyId: eventBillingAgencyId.value },
         skipGlobalLoading: true
       }),
       api.get(`/skill-builders/events/${eventId.value}/attendance/clients`, {
-        params: { agencyId: agencyId.value },
+        params: { agencyId: eventBillingAgencyId.value },
         skipGlobalLoading: true
       })
     ]);
@@ -1851,12 +1868,12 @@ async function saveClientAttendance() {
   const clientIds = clientAttSelectedClientIds.value
     .map((id) => Number(id))
     .filter((id) => Number.isFinite(id) && id > 0);
-  if (!agencyId.value || !eventId.value || !clientAttSessionId.value || !clientIds.length) return;
+  if (!eventBillingAgencyId.value || !eventId.value || !clientAttSessionId.value || !clientIds.length) return;
   clientAttSaving.value = true;
   try {
     const sess = sessions.value.find((x) => Number(x.id) === Number(clientAttSessionId.value));
     const base = {
-      agencyId: agencyId.value,
+      agencyId: eventBillingAgencyId.value,
       manualEntry: true
     };
     if (sess?.sessionDate && clientAttTimeIn.value) {
@@ -1897,14 +1914,14 @@ async function saveClientAttendance() {
 }
 
 async function loadDetail() {
-  if (!agencyId.value || !eventId.value) return;
+  if (!eventId.value) return;
   loading.value = true;
   error.value = '';
   try {
-    const res = await api.get(`/skill-builders/events/${eventId.value}/detail`, {
-      params: { agencyId: agencyId.value },
-      skipGlobalLoading: true
-    });
+    const params = { skipGlobalLoading: true };
+    const bid = eventBillingAgencyId.value;
+    if (bid > 0) params.agencyId = bid;
+    const res = await api.get(`/skill-builders/events/${eventId.value}/detail`, params);
     detail.value = res.data;
     await loadSessions();
     await loadAttendance();
@@ -1918,11 +1935,11 @@ async function loadDetail() {
 }
 
 async function clockIn() {
-  if (!agencyId.value || !eventId.value) return;
+  if (!eventBillingAgencyId.value || !eventId.value) return;
   clockBusy.value = true;
   clockMessage.value = '';
   try {
-    const body = { agencyId: agencyId.value };
+    const body = { agencyId: eventBillingAgencyId.value };
     if (kioskSessionId.value) body.sessionId = kioskSessionId.value;
     if (kioskClientId.value) body.clientId = kioskClientId.value;
     await api.post(`/skill-builders/events/${eventId.value}/kiosk/clock-in`, body, { skipGlobalLoading: true });
@@ -1936,13 +1953,13 @@ async function clockIn() {
 }
 
 async function clockOut() {
-  if (!agencyId.value || !eventId.value) return;
+  if (!eventBillingAgencyId.value || !eventId.value) return;
   clockBusy.value = true;
   clockMessage.value = '';
   try {
     const res = await api.post(
       `/skill-builders/events/${eventId.value}/kiosk/clock-out`,
-      { agencyId: agencyId.value },
+      { agencyId: eventBillingAgencyId.value },
       { skipGlobalLoading: true }
     );
     const d = res.data?.directHours;
@@ -1965,12 +1982,12 @@ async function clockOut() {
 }
 
 async function ensureChatAndLoad() {
-  if (!agencyId.value || !eventId.value) return;
+  if (!eventBillingAgencyId.value || !eventId.value) return;
   chatLoading.value = true;
   chatError.value = '';
   try {
     const r = await api.get(`/skill-builders/events/${eventId.value}/chat-thread`, {
-      params: { agencyId: agencyId.value },
+      params: { agencyId: eventBillingAgencyId.value },
       skipGlobalLoading: true
     });
     chatThreadId.value = r.data?.threadId ? Number(r.data.threadId) : null;
@@ -2010,7 +2027,7 @@ async function sendChat() {
 }
 
 watch(
-  () => [agencyId.value, eventId.value],
+  () => [eventId.value, route.params.organizationSlug],
   () => {
     kioskSessionId.value = 0;
     kioskClientId.value = 0;
@@ -2024,6 +2041,21 @@ watch(
     ensureChatAndLoad();
   },
   { immediate: true }
+);
+
+watch(
+  () => [detail.value?.programPortal?.slug, route.params.organizationSlug, eventId.value],
+  () => {
+    const ps = String(detail.value?.programPortal?.slug || '').trim().toLowerCase();
+    const cur = String(route.params.organizationSlug || '').trim().toLowerCase();
+    if (!ps || !eventId.value || ps === cur) return;
+    router.replace({
+      name: 'SkillBuildersEventPortal',
+      params: { organizationSlug: ps, eventId: String(eventId.value) },
+      query: route.query
+    });
+  },
+  { flush: 'post' }
 );
 
 watch(

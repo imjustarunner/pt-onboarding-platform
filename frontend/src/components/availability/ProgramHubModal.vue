@@ -183,7 +183,7 @@
               <h3 class="pch-events-sub">Assigned</h3>
               <ul v-if="assignedEvents.length" class="pch-event-list">
                 <li v-for="ev in assignedEvents" :key="`a-${ev.id}`" class="pch-event-item">
-                  <button type="button" class="pch-event-open" @click="goEventPortal(ev.id)">
+                  <button type="button" class="pch-event-open" @click="goEventPortal(ev.id, ev)">
                     <div class="pch-event-title">{{ ev.title }}</div>
                     <div class="pch-muted pch-event-dates">{{ formatEventDateRange(ev) }} · {{ ev.schoolName }}</div>
                     <span class="pch-cta">Event portal →</span>
@@ -198,7 +198,7 @@
                   <div class="pch-event-title">{{ ev.title }}</div>
                   <div class="pch-muted pch-event-dates">{{ formatEventDateRange(ev) }} · {{ ev.schoolName }}</div>
                   <div class="pch-row-actions">
-                    <button type="button" class="btn btn-secondary btn-sm" @click="goEventPortal(ev.id)">Details</button>
+                    <button type="button" class="btn btn-secondary btn-sm" @click="goEventPortal(ev.id, ev)">Details</button>
                     <button
                       v-if="!ev.applicationStatus || ev.applicationStatus === 'withdrawn'"
                       type="button"
@@ -257,6 +257,8 @@ const props = defineProps({
   agencyId: { type: [Number, String, null], default: null },
   organizationId: { type: [Number, String, null], default: null },
   organizationName: { type: String, default: '' },
+  /** Coordinator: program portal slug for `/:slug/skill-builders/event/:id` links. */
+  organizationPortalSlug: { type: String, default: '' },
   /** When set (e.g. `documents`), open this section instead of the hub grid. */
   initialSection: { type: String, default: null }
 });
@@ -462,9 +464,18 @@ function orgSlug() {
   );
 }
 
-function goEventPortal(eventId) {
-  const slug = orgSlug();
-  if (slug) router.push(`/${slug}/skill-builders/event/${eventId}`);
+function eventPortalSlug() {
+  const fromProp = String(props.organizationPortalSlug || '').trim().toLowerCase();
+  if (props.mode === 'coordinator' && fromProp) return fromProp;
+  return String(orgSlug() || '').trim().toLowerCase();
+}
+
+function goEventPortal(eventId, ev = null) {
+  const fromEv =
+    ev && ev.programPortalSlug ? String(ev.programPortalSlug).trim().toLowerCase() : '';
+  const slug = fromEv || eventPortalSlug();
+  const id = Number(eventId);
+  if (slug && Number.isFinite(id) && id > 0) router.push(`/${slug}/skill-builders/event/${id}`);
 }
 
 async function loadProgramContext() {

@@ -66,7 +66,7 @@
             :key="`ae-${ev.id}`"
             :class="{ 'sbws-highlight': highlightEventIdNum > 0 && Number(ev.id) === highlightEventIdNum }"
           >
-            <button type="button" class="sbws-event-link" @click="goEventPortal(ev.id)">
+            <button type="button" class="sbws-event-link" @click="goEventPortal(ev)">
               <strong>{{ ev.title }}</strong>
               <div class="muted">{{ formatWhen(ev.startsAt, ev.endsAt) }} · {{ ev.schoolName }}</div>
               <span class="sbws-cta">Open event portal →</span>
@@ -84,7 +84,7 @@
         </p>
         <ul v-if="data.upcomingOpenEvents?.length" class="sbws-list sbws-list-events">
           <li v-for="ev in data.upcomingOpenEvents" :key="`up-${ev.id}`" class="sbws-up-row">
-            <button type="button" class="sbws-event-link" @click="goEventPortal(ev.id)">
+            <button type="button" class="sbws-event-link" @click="goEventPortal(ev)">
               <strong>{{ ev.title }}</strong>
               <div class="muted">{{ formatWhen(ev.startsAt, ev.endsAt) }} · {{ ev.schoolName }}</div>
               <span class="sbws-cta">Open event portal →</span>
@@ -190,10 +190,14 @@ function orgSlug() {
   );
 }
 
-function goEventPortal(eventId) {
-  const id = Number(eventId);
+function goEventPortal(ev) {
+  const id = Number(ev?.id ?? ev);
   if (!Number.isFinite(id) || id <= 0) return;
-  const slug = orgSlug();
+  const fromEv =
+    ev && typeof ev === 'object' && ev.programPortalSlug
+      ? String(ev.programPortalSlug).trim().toLowerCase()
+      : '';
+  const slug = fromEv || orgSlug();
   if (slug) router.push(`/${slug}/skill-builders/event/${id}`);
 }
 

@@ -213,6 +213,9 @@ export const useAuthStore = defineStore('auth', () => {
       // Redirect to branded login when possible.
       // Prefer the current route slug so users stay in the same portal context on logout.
       let loginUrl = options.redirectTo || null;
+      if (!loginUrl && String(currentUser?.role || '').toLowerCase() === 'super_admin') {
+        loginUrl = '/login';
+      }
       if (!loginUrl) {
         try {
           const { default: router } = await import('../router');
@@ -225,9 +228,15 @@ export const useAuthStore = defineStore('auth', () => {
             : '';
           if (slug) {
             const { buildOrgLoginPath } = await import('../utils/orgLoginPath');
+            const { getCurrentPortalSlugFromHostCache } = await import('../utils/loginRedirect');
             const { useBrandingStore } = await import('./branding');
             const brandingStore = useBrandingStore();
-            const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
+            const hostImplied =
+              String(
+                brandingStore.portalHostPortalUrl || getCurrentPortalSlugFromHostCache() || ''
+              )
+                .trim()
+                .toLowerCase() || null;
             loginUrl = buildOrgLoginPath(slug, parentSlug || null, hostImplied);
           }
         } catch {
