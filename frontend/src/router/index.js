@@ -1836,9 +1836,11 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
-  // Prevent stale org branding “flash” when going to platform login
+  // Prevent stale org branding “flash” when going to platform login — but custom app hosts
+  // (app.client.com) resolve portal from host; don't clear theme while cache/resolve still applies.
   if (to.path === '/login') {
-    if (!brandingStore.portalHostPortalUrl) {
+    const hostCachedPortal = getCurrentPortalSlugFromHostCache();
+    if (!brandingStore.portalHostPortalUrl && !hostCachedPortal) {
       brandingStore.clearPortalTheme();
     }
   }

@@ -148,6 +148,20 @@ async function bootstrap() {
     new Promise((r) => setTimeout(r, PORTAL_THEME_TIMEOUT_MS))
   ]).catch(() => {});
 
+  // Flat /login on a dedicated app host (e.g. app.itsco.health) depends on GET /agencies/resolve.
+  // The short race above must not decide "platform login" before resolve finishes — that cleared host
+  // cache and forced PlotTwist default branding on timeout redirects.
+  if (isLogin && !brandingStore.portalHostPortalUrl) {
+    try {
+      await Promise.race([
+        portalThemeInit,
+        new Promise((r) => setTimeout(r, 12000))
+      ]);
+    } catch {
+      /* ignore */
+    }
+  }
+
   // Fallback for slug-based login (e.g. /itsco/login or /itsco/rudy/login): when host-based resolve
   // fails, preload theme from the portal segment so branding shows correctly.
   const nestedLoginMatch = path.match(/^\/[a-z0-9-]+\/([a-z0-9-]+)\/login$/i);
@@ -165,9 +179,9 @@ async function bootstrap() {
     agencyStore.setCurrentAgency(null);
   }
   if (isPlatformLogin) {
-    // Ensure stale org theme/agency context doesn't affect the platform login.
+    // Drop stale org CSS variables only. Do NOT clearPortalHostOverride here — it wipes
+    // __pt_portal_host__:* cache and breaks custom-domain /login (e.g. app.itsco.health) branding.
     brandingStore.clearPortalTheme();
-    brandingStore.clearPortalHostOverride();
   }
 
   // Always fetch platform branding early so /login renders correctly immediately.
