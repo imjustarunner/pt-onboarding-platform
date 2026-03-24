@@ -1,6 +1,6 @@
 <template>
   <div v-if="showFooter" class="powered-by-footer" :class="{ 'powered-by-footer--embedded': variant === 'embedded' }">
-    <div v-if="showPoweredBy && (platformOrgName || platformLogoUrl)" class="powered-by-content">
+    <div v-if="includePoweredBy && showPoweredBy && (platformOrgName || platformLogoUrl)" class="powered-by-content">
       <span class="powered-by-text">Platform powered by</span>
       <img
         v-if="platformLogoUrl"
@@ -11,7 +11,7 @@
       />
       <span v-if="platformOrgName" class="powered-by-name">{{ platformOrgName }}</span>
     </div>
-    <div v-if="privacyPolicyUrl || termsUrl || platformHipaaUrl" class="legal-links">
+    <div v-if="includeLegal && (privacyPolicyUrl || termsUrl || platformHipaaUrl)" class="legal-links">
       <a v-if="privacyPolicyUrl" :href="privacyPolicyUrl" target="_blank" rel="noopener noreferrer" class="legal-link">Privacy Policy</a>
       <span v-if="privacyPolicyUrl && (termsUrl || platformHipaaUrl)" class="legal-sep">|</span>
       <a v-if="termsUrl" :href="termsUrl" target="_blank" rel="noopener noreferrer" class="legal-link">Terms</a>
@@ -26,12 +26,22 @@ import { computed } from 'vue';
 import { useBrandingStore } from '../store/branding';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 
-defineProps({
+const props = defineProps({
   /** Compact layout for public marketing hub / embedded footers */
   variant: {
     type: String,
     default: 'default',
     validator: (v) => v === 'default' || v === 'embedded'
+  },
+  /** When false, omit “Platform powered by” (e.g. hub footer shows legal separately). */
+  includePoweredBy: {
+    type: Boolean,
+    default: true
+  },
+  /** When false, omit Privacy / Terms / HIPAA row. */
+  includeLegal: {
+    type: Boolean,
+    default: true
   }
 });
 
@@ -42,12 +52,14 @@ const showPoweredBy = computed(() => brandingStore.showPoweredBy);
 const privacyPolicyUrl = computed(() => brandingStore.platformBranding?.privacy_policy_url?.trim() || null);
 const termsUrl = computed(() => brandingStore.platformBranding?.terms_url?.trim() || null);
 const platformHipaaUrl = computed(() => brandingStore.platformBranding?.platform_hipaa_url?.trim() || null);
-const showFooter = computed(() =>
-  (showPoweredBy.value && (platformOrgName.value || platformLogoUrl.value))
-  || privacyPolicyUrl.value
-  || termsUrl.value
-  || platformHipaaUrl.value
-);
+const showFooter = computed(() => {
+  const powered =
+    props.includePoweredBy && showPoweredBy.value && (platformOrgName.value || platformLogoUrl.value);
+  const legal =
+    props.includeLegal &&
+    (privacyPolicyUrl.value || termsUrl.value || platformHipaaUrl.value);
+  return Boolean(powered || legal);
+});
 
 // Get platform organization name and logo from branding store
 const platformOrgName = computed(() => {

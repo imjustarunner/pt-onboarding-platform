@@ -830,6 +830,7 @@
         <!-- Use path (not fullPath) so query-only updates don't destroy/recreate the page (avoids flash + repeated dashboard_view logs). -->
         <router-view :key="route.path" />
       </main>
+      <PublicTranslateWidget v-if="showPublicTranslateWidget" />
       <MomentumStickiesOverlay v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />
       <AddStickyFab v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />
       <AddToStickyContextMenu v-if="isAuthenticated && momentumListEnabled" />
@@ -1034,6 +1035,12 @@ import { useReminderSnooze } from './composables/useReminderSnooze';
 import WeatherChip from './components/WeatherChip.vue';
 import SessionLockScreen from './components/SessionLockScreen.vue';
 import OfficeMandatoryReviewSplash from './components/office/OfficeMandatoryReviewSplash.vue';
+import PublicTranslateWidget from './components/public/PublicTranslateWidget.vue';
+import {
+  shouldShowPublicTranslate,
+  clearGoogleTranslateCookie,
+  isGoogleTranslateSpanishActive
+} from './utils/publicTranslateWidget.js';
 import { toUploadsUrl } from './utils/uploadsUrl';
 import { buildSuperadminAgencyBrandUrl, buildSuperadminPlatformBrandUrl } from './utils/brandSwitchUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
@@ -1051,11 +1058,22 @@ const organizationStore = useOrganizationStore();
 const tutorialStore = useTutorialStore();
 const builderStore = useSuperadminBuilderStore();
 const notificationStore = useNotificationStore();
+/** Declared before engagement-menu computeds that watch unread count (avoids TDZ when showEngagementMenu is evaluated early). */
+const notificationsUnreadCount = computed(() => Number(notificationStore.unreadCount || 0));
 const communicationsCountsStore = useCommunicationsCountsStore();
 const sessionLockStore = useSessionLockStore();
 const userPreferencesStore = useUserPreferencesStore();
 const router = useRouter();
 const route = useRoute();
+const showPublicTranslateWidget = computed(() => shouldShowPublicTranslate(route));
+
+watch(showPublicTranslateWidget, (show) => {
+  if (show) return;
+  if (!isGoogleTranslateSpanishActive()) return;
+  clearGoogleTranslateCookie();
+  window.location.reload();
+});
+
 const mobileMenuOpen = ref(false);
 
 // Global loading overlay (tracks API calls + navigation + icon preloads)
@@ -2187,7 +2205,6 @@ watch(sessionSettingsKey, () => {
 });
 
 // ---- Obnoxious notifications badge (admin/support) ----
-const notificationsUnreadCount = computed(() => Number(notificationStore.unreadCount || 0));
 const communicationsPendingCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
 const communicationsOpenTicketsCount = computed(() => Number(communicationsCountsStore.openTicketsCount || 0));
 const communicationsTotalAttentionCount = computed(

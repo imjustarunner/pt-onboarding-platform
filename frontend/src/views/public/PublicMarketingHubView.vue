@@ -330,15 +330,12 @@
           </dl>
         </div>
       </section>
+    </div>
 
-      <footer v-if="!error" class="pmh-footer">
-        <div class="pmh-footer-inner">
-          <nav
-            v-if="primaryNav.length"
-            class="pmh-footer-nav"
-            :class="{ 'pmh-footer-nav--divider': footerPartners.length > 0 }"
-            aria-label="Page links"
-          >
+    <footer v-if="!error" class="pmh-footer">
+      <div class="pmh-footer-inner">
+        <div class="pmh-footer-main">
+          <nav class="pmh-footer-nav-col pmh-footer-nav" aria-label="Page links and staff login">
             <template v-for="(item, i) in primaryNav" :key="`fnav-${i}`">
               <a
                 v-if="isExternalNavHref(item.href)"
@@ -346,17 +343,29 @@
                 :href="String(item.href).trim()"
                 target="_blank"
                 rel="noopener noreferrer"
-                >{{ item.label }}</a
               >
-              <router-link v-else class="pmh-footer-nav-link" :to="String(item.href).trim()">{{ item.label }}</router-link>
+                <span class="pmh-footer-nav-link-inner">
+                  <span class="pmh-footer-nav-emoji" aria-hidden="true">{{ primaryNavEmoji(item.label) }}</span>
+                  <span>{{ item.label }}</span>
+                </span>
+              </a>
+              <router-link v-else class="pmh-footer-nav-link" :to="String(item.href).trim()">
+                <span class="pmh-footer-nav-link-inner">
+                  <span class="pmh-footer-nav-emoji" aria-hidden="true">{{ primaryNavEmoji(item.label) }}</span>
+                  <span>{{ item.label }}</span>
+                </span>
+              </router-link>
             </template>
+            <router-link class="pmh-footer-nav-link" to="/login">
+              <span class="pmh-footer-nav-link-inner">
+                <span class="pmh-footer-nav-emoji" aria-hidden="true">🔐</span>
+                <span>Staff login</span>
+              </span>
+            </router-link>
           </nav>
 
           <div v-if="footerPartners.length" class="pmh-footer-partners-block">
             <h2 class="pmh-footer-heading">Participating agencies</h2>
-            <p class="pmh-footer-lead">
-              Event registration is through each listing above. Links here are agency sites and optional provider availability.
-            </p>
             <ul class="pmh-footer-partner-list">
               <li v-for="p in footerPartners" :key="`fp-${p.agencyId}`" class="pmh-footer-partner-card">
                 <div class="pmh-footer-partner-logo-wrap">
@@ -388,17 +397,16 @@
               </li>
             </ul>
           </div>
+        </div>
 
-          <div
-            class="pmh-footer-system"
-            :class="{ 'pmh-footer-system--divider': primaryNav.length > 0 || footerPartners.length > 0 }"
-          >
-            <router-link class="pmh-footer-meta-link" to="/login">Staff login</router-link>
-            <PoweredByFooter variant="embedded" />
+        <div class="pmh-footer-tail">
+          <PoweredByFooter variant="embedded" :include-legal="false" class="pmh-footer-powered-slot" />
+          <div class="pmh-footer-legal-centered">
+            <PoweredByFooter variant="embedded" :include-powered-by="false" />
           </div>
         </div>
-      </footer>
-    </div>
+      </div>
+    </footer>
   </div>
 </template>
 
@@ -528,6 +536,21 @@ function agencyFooterInitials(name) {
   if (!parts.length) return '?';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/** Decorative emoji for primary nav buttons (matches common hub labels; fallback for custom titles). */
+function primaryNavEmoji(label) {
+  const s = String(label || '')
+    .toLowerCase()
+    .replace(/f\.a\.q\.?/g, 'faq');
+  if (/\bfaq\b|questions?\b/.test(s)) return '❓';
+  if (/\bcrisis\b|emergency|hotline|988|suicide|lifeline/.test(s)) return '🆘';
+  if (/\bresources?\b|library|guides?|learn|reading/.test(s)) return '📚';
+  if (/\bcontact\b|call\b|phone|reach\s*us/.test(s)) return '📞';
+  if (/\bevents?\b|calendar|schedule\b/.test(s)) return '📅';
+  if (/\babout\b|our\s+story|who\s+we/.test(s)) return 'ℹ️';
+  if (/\bhome\b|\bhub\b/.test(s)) return '🏠';
+  return '🔗';
 }
 
 const galleryStripUrls = computed(() => hubGalleryStripUrls(hubBranding.value.gallery));
@@ -1305,18 +1328,37 @@ watch(hubSlug, () => {
 }
 
 .pmh-footer {
-  margin-top: 20px;
+  position: relative;
+  z-index: 1;
+  margin-top: 24px;
+  width: 100%;
   padding: 0 16px 28px;
 }
 
 .pmh-footer-inner {
   max-width: 40rem;
   margin: 0 auto;
-  padding: 22px 20px 24px;
+  padding: 22px 20px 20px;
   background: var(--hub-surface);
   border: 1px solid var(--hub-border);
   border-radius: var(--hub-radius-lg);
   box-shadow: var(--hub-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.pmh-footer-main {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.pmh-footer-main .pmh-footer-partners-block {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--hub-border);
 }
 
 .pmh-footer-nav {
@@ -1327,18 +1369,12 @@ watch(hubSlug, () => {
   justify-content: center;
 }
 
-.pmh-footer-nav--divider {
-  padding-bottom: 20px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--hub-border);
-}
-
 .pmh-footer-nav-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 48px;
-  padding: 0 18px;
+  padding: 0 14px 0 12px;
   font-size: 0.9375rem;
   font-weight: 700;
   font-family: var(--hub-font-display);
@@ -1349,6 +1385,28 @@ watch(hubSlug, () => {
   text-decoration: none;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
+
+.pmh-footer-nav-link-inner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.pmh-footer-nav-emoji {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  font-size: 1.05rem;
+  line-height: 1;
+  border-radius: var(--hub-radius-sm);
+  background: linear-gradient(145deg, rgba(163, 38, 35, 0.14), rgba(163, 38, 35, 0.05));
+  border: 1px solid rgba(163, 38, 35, 0.2);
+}
+
 .pmh-footer-nav-link:hover {
   background: #fff;
   box-shadow: 0 8px 20px rgba(163, 38, 35, 0.1);
@@ -1356,21 +1414,13 @@ watch(hubSlug, () => {
 }
 
 .pmh-footer-heading {
-  margin: 0 0 8px;
+  margin: 0 0 12px;
   font-size: 1.125rem;
   font-weight: 800;
   font-family: var(--hub-font-display);
   color: var(--hub-text);
   text-align: center;
   letter-spacing: -0.02em;
-}
-
-.pmh-footer-lead {
-  margin: 0 0 18px;
-  font-size: 0.8125rem;
-  line-height: 1.55;
-  color: var(--hub-text-muted);
-  text-align: center;
 }
 
 .pmh-footer-partner-list {
@@ -1452,39 +1502,51 @@ watch(hubSlug, () => {
   text-decoration: underline;
 }
 
-.pmh-footer-system {
-  text-align: center;
-  padding-top: 6px;
-}
-
-.pmh-footer-system--divider {
-  margin-top: 20px;
-  padding-top: 20px;
+.pmh-footer-tail {
+  margin-top: 22px;
+  padding-top: 18px;
   border-top: 1px solid var(--hub-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
 }
 
-.pmh-footer-meta-link {
-  display: inline-block;
-  margin-bottom: 4px;
-  font-size: 0.875rem;
-  font-weight: 700;
-  font-family: var(--hub-font-display);
-  color: var(--hub-link-dark);
-  text-decoration: none;
-}
-.pmh-footer-meta-link:hover {
-  text-decoration: underline;
-  color: var(--hub-link);
+.pmh-footer-powered-slot {
+  width: 100%;
 }
 
-.pmh-footer-system :deep(.powered-by-footer--embedded) {
+.pmh-footer-tail :deep(.powered-by-footer--embedded) {
+  margin: 0;
+  padding: 0;
   color: var(--hub-text-muted);
 }
 
-.pmh-footer-system :deep(.powered-by-text),
-.pmh-footer-system :deep(.powered-by-name),
-.pmh-footer-system :deep(.legal-link) {
+.pmh-footer-tail :deep(.powered-by-content) {
+  justify-content: center;
+}
+
+.pmh-footer-tail :deep(.powered-by-text),
+.pmh-footer-tail :deep(.powered-by-name),
+.pmh-footer-tail :deep(.legal-link) {
   color: var(--hub-text-muted);
+}
+
+.pmh-footer-legal-centered {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.pmh-footer-legal-centered :deep(.powered-by-footer--embedded) {
+  margin: 0;
+  padding: 0;
+}
+
+.pmh-footer-legal-centered :deep(.legal-links) {
+  margin-top: 0;
+  text-align: center;
 }
 
 .pmh-gallery-section {
@@ -2109,6 +2171,60 @@ watch(hubSlug, () => {
 @media (min-width: 640px) {
   .pmh-shell {
     max-width: 48rem;
+  }
+}
+
+/* Full-width footer bar on large screens: main row + centered tail; phone stays stacked. */
+@media (min-width: 960px) {
+  .pmh-footer {
+    padding: 0 0 max(28px, env(safe-area-inset-bottom));
+    margin-top: 32px;
+  }
+
+  .pmh-footer-inner {
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 28px max(40px, env(safe-area-inset-left)) 24px max(40px, env(safe-area-inset-right));
+    border-radius: var(--hub-radius-lg) var(--hub-radius-lg) 0 0;
+    border-bottom: none;
+    box-shadow: 0 -8px 32px rgba(15, 23, 42, 0.06);
+  }
+
+  .pmh-footer-main {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 40px;
+  }
+
+  .pmh-footer-main .pmh-footer-partners-block {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+    border-left: 1px solid var(--hub-border);
+    padding-left: 40px;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .pmh-footer-nav {
+    flex: 0 1 auto;
+    max-width: min(100%, 26rem);
+    justify-content: flex-start;
+  }
+
+  .pmh-footer-heading {
+    text-align: left;
+  }
+
+  .pmh-footer-partner-list {
+    align-items: stretch;
+  }
+
+  .pmh-footer-tail {
+    margin-top: 24px;
+    padding-top: 20px;
   }
 }
 
