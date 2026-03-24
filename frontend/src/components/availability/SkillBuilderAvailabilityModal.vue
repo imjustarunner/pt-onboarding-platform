@@ -350,7 +350,8 @@ const confirmSkillBuilder = async () => {
     const weekStartDates = pending.cycle?.weekStartDates || null;
     await api.post('/availability/me/skill-builder/confirm', {
       ...buildParams(),
-      weekStartDates
+      weekStartDates,
+      blocks: blocksForApiSubmit()
     });
     await refresh();
 

@@ -1343,42 +1343,68 @@ export const confirmMySkillBuilderAvailability = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Skill Builder availability is not enabled for your account.' } });
     }
 
-    // Confirm requires existing saved availability meeting the minimum.
-    let rows = [];
-    try {
-      const [blockRows] = await pool.execute(
-        `SELECT block_type, start_time, end_time
-         FROM provider_skill_builder_availability
-         WHERE agency_id = ? AND provider_id = ?`,
-        [agencyId, providerId]
-      );
-      rows = blockRows || [];
-    } catch (e) {
-      if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
-        return res.status(400).json({ error: { message: 'Skill Builder availability tables are not available yet. Run migrations.' } });
-      }
-      throw e;
-    }
-
-    let blockMinutes = 0;
-    for (const b of rows) {
-      const t = String(b.block_type || '').toUpperCase();
-      if (t === 'AFTER_SCHOOL') blockMinutes += 90;
-      else if (t === 'WEEKEND') blockMinutes += 180;
-      else blockMinutes += minutesBetween(String(b.start_time || ''), String(b.end_time || ''));
+    const rawBlocks = Array.isArray(req.body?.blocks) ? req.body.blocks : [];
+    const normalizedFromRequest =
+      rawBlocks.length > 0 ? normalizeSkillBuilderBlocks(rawBlocks) : null;
+    if (rawBlocks.length > 0 && (!normalizedFromRequest || normalizedFromRequest.length === 0)) {
+      return res.status(400).json({
+        error: {
+          message:
+            'No valid availability blocks could be read. Check weekday, block type, and “Departing from” on each row.'
+        }
+      });
     }
 
     const { totalMinutes: programMinutes } = await computeSkillBuilderProgramCreditMinutesPerWeek(pool, {
       agencyId,
       providerId
     });
-    if (blockMinutes + programMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
-      return res.status(400).json({
-        error: {
-          message:
-            'Your saved availability plus Skill Builders program time is under 6 hours/week. Update blocks or ensure program sessions are on file.'
+
+    let blockMinutes = 0;
+
+    if (normalizedFromRequest && normalizedFromRequest.length > 0) {
+      blockMinutes = totalMinutesForSkillBuilderBlocks(normalizedFromRequest);
+      if (blockMinutes + programMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
+        return res.status(400).json({
+          error: {
+            message:
+              'Your availability blocks plus time booked on Skill Builders programs must total at least 6 hours per week.'
+          }
+        });
+      }
+    } else {
+      // No blocks in request: require already-saved rows meeting the minimum (legacy one-step confirm).
+      let rows = [];
+      try {
+        const [blockRows] = await pool.execute(
+          `SELECT block_type, start_time, end_time
+           FROM provider_skill_builder_availability
+           WHERE agency_id = ? AND provider_id = ?`,
+          [agencyId, providerId]
+        );
+        rows = blockRows || [];
+      } catch (e) {
+        if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+          return res.status(400).json({ error: { message: 'Skill Builder availability tables are not available yet. Run migrations.' } });
         }
-      });
+        throw e;
+      }
+
+      for (const b of rows) {
+        const t = String(b.block_type || '').toUpperCase();
+        if (t === 'AFTER_SCHOOL') blockMinutes += 90;
+        else if (t === 'WEEKEND') blockMinutes += 180;
+        else blockMinutes += minutesBetween(String(b.start_time || ''), String(b.end_time || ''));
+      }
+
+      if (blockMinutes + programMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
+        return res.status(400).json({
+          error: {
+            message:
+              'Your saved availability plus Skill Builders program time is under 6 hours/week. Save your blocks first, or use Confirm with your current form data.'
+          }
+        });
+      }
     }
 
     const cycleStart = startOfWeekMonday(new Date());
@@ -1395,6 +1421,13 @@ export const confirmMySkillBuilderAvailability = async (req, res, next) => {
 
     conn = await pool.getConnection();
     await conn.beginTransaction();
+    if (normalizedFromRequest && normalizedFromRequest.length > 0) {
+      await replaceProviderSkillBuilderAvailabilityBlocks(conn, {
+        agencyId,
+        providerId,
+        normalizedBlocks: normalizedFromRequest
+      });
+    }
     for (const wk of weekStartDates) {
       // eslint-disable-next-line no-await-in-loop
       await conn.execute(

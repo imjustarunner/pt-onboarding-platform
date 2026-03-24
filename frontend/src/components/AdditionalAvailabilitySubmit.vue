@@ -560,7 +560,11 @@ const confirmSkillBuilder = async () => {
     saving.value = true;
     error.value = '';
     const weekStartDates = pending.cycle?.weekStartDates || null;
-    await api.post('/availability/me/skill-builder/confirm', { agencyId: props.agencyId, weekStartDates });
+    await api.post('/availability/me/skill-builder/confirm', {
+      agencyId: props.agencyId,
+      weekStartDates,
+      blocks: blocksForApiSubmit()
+    });
     await refresh();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to confirm Skill Builder availability';
