@@ -57,6 +57,17 @@ function toYmd(d) {
   return new Date(d).toISOString().slice(0, 10);
 }
 
+/** mysql2 returns MySQL DATE as a JS Date; String(date) is locale text, not YYYY-MM-DD. */
+function sqlDateValueToYmd(v) {
+  if (v == null || v === '') return '';
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return toYmd(v);
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return toYmd(d);
+  return '';
+}
+
 function startOfWeekMonday(dateLike) {
   const d = new Date(dateLike || Date.now());
   const day = d.getDay(); // 0=Sun..6=Sat
@@ -770,7 +781,7 @@ export const getMyAvailabilityPending = async (req, res, next) => {
         );
         const byWeek = new Map();
         for (const r of confRows || []) {
-          const wk = String(r.week_start_date || '').slice(0, 10);
+          const wk = sqlDateValueToYmd(r.week_start_date);
           byWeek.set(wk, r.confirmed_at || null);
         }
         const confirmations = [
@@ -3878,7 +3889,7 @@ export const searchAvailability = async (req, res, next) => {
     for (const r of skillBuilderConfirmRows || []) {
       const pid = Number(r.provider_id);
       if (!skillBuilderByProvider.has(pid)) {
-        const wk = String(r.week_start_date || '').slice(0, 10);
+        const wk = sqlDateValueToYmd(r.week_start_date);
         skillBuilderByProvider.set(pid, {
           providerId: pid,
           providerName: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
