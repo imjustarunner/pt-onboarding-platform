@@ -1,5 +1,92 @@
 import { buildOrgLoginPath } from './orgLoginPath';
 
+function coalesceOrgs(user, userAgencies) {
+  let orgs = userAgencies;
+  if (!Array.isArray(orgs) || !orgs.length) orgs = user?.agencies;
+  if (!Array.isArray(orgs) || !orgs.length) {
+    try {
+      const raw = localStorage.getItem('userAgencies');
+      if (raw) orgs = JSON.parse(raw);
+    } catch {
+      orgs = [];
+    }
+  }
+  return Array.isArray(orgs) ? orgs : [];
+}
+
+function portalSlugOf(o) {
+  return String(o?.slug || o?.portal_url || o?.portalUrl || '').trim().toLowerCase();
+}
+
+function orgType(o) {
+  return String(o?.organization_type || o?.organizationType || '').toLowerCase();
+}
+
+function isPortalChildType(t) {
+  return t === 'school' || t === 'program' || t === 'learning';
+}
+
+/**
+ * Login path from user + agencies (timeout / logout) — agency bucket for staff/admin, nested school path for school_staff.
+ */
+function resolveLoginPathFromUserAgencies(user, userAgencies, hostImplied) {
+  if (!user) return null;
+  const role = String(user.role || '').toLowerCase();
+  if (role === 'super_admin') return '/login';
+
+  const orgs = coalesceOrgs(user, userAgencies);
+  if (orgs.length > 1) return '/login';
+
+  if (orgs.length === 1) {
+    const o = orgs[0];
+    const t = orgType(o);
+    const slug = portalSlugOf(o);
+    const parent = String(o.parent_slug || o.parentSlug || '').trim().toLowerCase();
+
+    if (role === 'school_staff') {
+      if (!slug) return '/login';
+      return buildOrgLoginPath(slug, parent || null, hostImplied);
+    }
+
+    if (isPortalChildType(t)) {
+      if (parent) return hostImplied && parent === hostImplied ? '/login' : `/${parent}/login`;
+      if (slug) return hostImplied && slug === hostImplied ? '/login' : `/${slug}/login`;
+      return '/login';
+    }
+
+    if (!slug) return '/login';
+    if (hostImplied && hostImplied === slug) return '/login';
+    return `/${slug}/login`;
+  }
+
+  return null;
+}
+
+function resolveLoginPathFromStoredAgency(user, hostImplied) {
+  try {
+    const raw = localStorage.getItem('currentAgency');
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    const role = String(user?.role || '').toLowerCase();
+    const t = orgType(o);
+    const slug = portalSlugOf(o);
+    const parent = String(o.parent_slug || o.parentSlug || '').trim().toLowerCase();
+
+    if (role === 'school_staff' && slug) {
+      return buildOrgLoginPath(slug, parent || null, hostImplied);
+    }
+    if (role !== 'school_staff' && isPortalChildType(t) && parent) {
+      return hostImplied && parent === hostImplied ? '/login' : `/${parent}/login`;
+    }
+    if (slug) {
+      return hostImplied && slug === hostImplied ? '/login' : `/${slug}/login`;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 /**
  * Utility to determine the appropriate login URL based on user's organization membership
  * 
@@ -148,8 +235,11 @@ export function getLoginUrl(user = null, userAgencies = null) {
   const hostParent = String(getCurrentPortalSlugFromHostCache() || '')
     .trim()
     .toLowerCase();
-  // Host already ≡ /{agency} on the main domain — URLs stay flat (e.g. app.itsco.health/rudy/login).
+  // Host already identifies the agency bucket — paths stay flat (no /itsco/ prefix on app.itsco.health).
   if (hostParent) {
+    if (hostParent === portalSegment) {
+      return '/login';
+    }
     return `/${portalSegment}/login`;
   }
 
@@ -172,23 +262,51 @@ export function getLoginUrl(user = null, userAgencies = null) {
  * @returns {string} Login URL path
  */
 export function getLoginUrlForRedirect(user = null, userAgencies = null, opts = {}) {
-  const slug = getCurrentPortalSlugFromPath();
-  if (slug) {
-    const base = `/${slug}/login`;
-    return opts.timeout ? `${base}?timeout=true` : base;
+  const hostImplied = String(getCurrentPortalSlugFromHostCache() || '').trim().toLowerCase() || null;
+  const withTimeout = (base) => {
+    if (!opts?.timeout) return base;
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}timeout=true`;
+  };
+
+  const pathSlug = getCurrentPortalSlugFromPath();
+  if (pathSlug) {
+    const role = String(user?.role || '').toLowerCase();
+    const orgs = coalesceOrgs(user, userAgencies);
+    if (user && role !== 'school_staff' && orgs.length) {
+      const match = orgs.find((o) => portalSlugOf(o) === pathSlug.toLowerCase());
+      const t = orgType(match);
+      if (match && isPortalChildType(t)) {
+        const parent = String(match.parent_slug || match.parentSlug || '').trim().toLowerCase();
+        if (parent) {
+          const base = hostImplied && parent === hostImplied ? '/login' : `/${parent}/login`;
+          return withTimeout(base);
+        }
+      }
+    }
+    if (hostImplied && pathSlug.toLowerCase() === hostImplied) {
+      return withTimeout('/login');
+    }
+    return withTimeout(`/${pathSlug}/login`);
   }
-  const hostCachedSlug = getCurrentPortalSlugFromHostCache();
-  if (hostCachedSlug) {
-    const base = `/${hostCachedSlug}/login`;
-    return opts.timeout ? `${base}?timeout=true` : base;
+
+  if (hostImplied) {
+    return withTimeout('/login');
   }
+
+  let resolved = resolveLoginPathFromUserAgencies(user, userAgencies, hostImplied);
+  if (resolved) return withTimeout(resolved);
+
+  resolved = resolveLoginPathFromStoredAgency(user, hostImplied);
+  if (resolved) return withTimeout(resolved);
+
   const storedSlug = getCurrentPortalSlugFromStorage();
   if (storedSlug) {
-    const base = `/${storedSlug}/login`;
-    return opts.timeout ? `${base}?timeout=true` : base;
+    return withTimeout(`/${String(storedSlug).trim()}/login`);
   }
+
   const base = getLoginUrl(user, userAgencies);
-  return opts.timeout ? `${base}${base.includes('?') ? '&' : '?'}timeout=true` : base;
+  return withTimeout(base);
 }
 
 /**

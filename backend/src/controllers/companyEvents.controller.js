@@ -16,6 +16,7 @@ import { backfillSkillsGroupCompanyEvents } from '../services/skillBuildersGroup
 import { syncIntegratedSkillsGroupAfterCompanyEventSave } from '../services/skillBuildersEventSessions.service.js';
 import KioskModel from '../models/Kiosk.model.js';
 import { geocodeAddressWithGoogle } from '../services/googleGeocode.service.js';
+import { ProviderAvailabilityService } from '../services/providerAvailability.service.js';
 
 const DEFAULT_RSVP_OPTIONS = [
   { key: '1', label: 'Yes' },
@@ -1129,6 +1130,80 @@ export const listCompanyEventAudienceOptions = async (req, res, next) => {
   }
 };
 
+/**
+ * Insert company_events + audience. `parsed` must be a successful parseEventPayload result (no .error).
+ * @returns {Promise<{ error: string } | { event: object, eventId: number }>}
+ */
+async function createCompanyEventCore(req, agencyId, userId, parsed) {
+  let organizationIdForRow = null;
+  if (parsed.organizationId) {
+    const v = await validateAffiliatedOrganizationForEvent(agencyId, parsed.organizationId);
+    if (v.error) return { error: v.error };
+    organizationIdForRow = v.organizationId;
+  }
+
+  let createKioskPinHash = null;
+  if (parsed.kioskPinOutcome?.mode === 'set') {
+    const uq = await assertKioskEventPinUnique(pool, {
+      agencyId,
+      eventId: 0,
+      pinHash: parsed.kioskPinOutcome.hash
+    });
+    if (uq.error) return { error: uq.error, httpStatus: 409 };
+    createKioskPinHash = parsed.kioskPinOutcome.hash;
+  }
+
+  const createGeo = await resolvePublicListingGeocode({
+    inPersonPublic: parsed.inPersonPublic,
+    publicLocationAddress: parsed.publicLocationAddress
+  });
+
+  const [insertResult] = await pool.execute(
+    `INSERT INTO company_events
+     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, kiosk_event_pin_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      agencyId,
+      organizationIdForRow,
+      userId,
+      userId,
+      parsed.title,
+      parsed.description || null,
+      parsed.eventType || null,
+      parsed.splashContent || null,
+      parsed.publicHeroImageUrl,
+      parsed.publicListingDetails,
+      parsed.inPersonPublic ? 1 : 0,
+      parsed.publicLocationAddress,
+      createGeo.lat != null ? createGeo.lat : null,
+      createGeo.lng != null ? createGeo.lng : null,
+      parsed.publicAgeMin != null ? parsed.publicAgeMin : null,
+      parsed.publicAgeMax != null ? parsed.publicAgeMax : null,
+      parsed.startsAt,
+      parsed.endsAt,
+      parsed.timezone,
+      JSON.stringify(parsed.recurrence),
+      parsed.isActive ? 1 : 0,
+      parsed.rsvpMode || 'none',
+      JSON.stringify(parsed.votingConfig),
+      JSON.stringify(parsed.reminderConfig),
+      parsed.votingClosedAt || null,
+      parsed.smsCode,
+      parsed.skillBuilderDirectHours,
+      parsed.registrationEligible ? 1 : 0,
+      parsed.medicaidEligible ? 1 : 0,
+      parsed.cashEligible ? 1 : 0,
+      createKioskPinHash
+    ]
+  );
+  const eventId = Number(insertResult.insertId);
+  await setEventAudience(eventId, parsed.audience);
+
+  const row = await loadEventByIdForAgency(eventId, agencyId);
+  const event = mapEventRow(row || {}, req);
+  return { event, eventId };
+}
+
 export const createCompanyEvent = async (req, res, next) => {
   try {
     const agencyId = parsePositiveInt(req.params.id);
@@ -1143,74 +1218,82 @@ export const createCompanyEvent = async (req, res, next) => {
     const parsed = parseEventPayload(req.body || {});
     if (parsed.error) return res.status(400).json({ error: { message: parsed.error } });
 
-    let organizationIdForRow = null;
-    if (parsed.organizationId) {
-      const v = await validateAffiliatedOrganizationForEvent(agencyId, parsed.organizationId);
-      if (v.error) return res.status(400).json({ error: { message: v.error } });
-      organizationIdForRow = v.organizationId;
+    const result = await createCompanyEventCore(req, agencyId, userId, parsed);
+    if (result.error) {
+      return res.status(result.httpStatus || 400).json({ error: { message: result.error } });
     }
+    const audience = await getAudienceForEvent(result.eventId);
+    res.status(201).json({ ...result.event, audience, responseSummary: [] });
+  } catch (error) {
+    next(error);
+  }
+};
 
-    let createKioskPinHash = null;
-    if (parsed.kioskPinOutcome?.mode === 'set') {
-      const uq = await assertKioskEventPinUnique(pool, {
-        agencyId,
-        eventId: 0,
-        pinHash: parsed.kioskPinOutcome.hash
+/**
+ * Program hub: create a company event scoped to an affiliated program org (not from school skills_groups).
+ * Sub-coordinators may use this; integrated Skill Builders school events stay on the school/backfill flow.
+ */
+export const postProgramCompanyEventForCoordinator = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId ?? req.query?.agencyId);
+    const organizationId = parsePositiveInt(req.body?.organizationId ?? req.query?.organizationId);
+    if (!agencyId || !organizationId) {
+      return res.status(400).json({ error: { message: 'agencyId and organizationId are required' } });
+    }
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+    const isCoord = await getSkillBuilderCoordinatorAccess(req.user?.id);
+    const isStaff = userCanManageCompanyEvents(req);
+    if (!isCoord && !isStaff) {
+      return res.status(403).json({
+        error: { message: 'Sub-coordinator or admin/staff access required' }
       });
-      if (uq.error) return res.status(409).json({ error: { message: uq.error } });
-      createKioskPinHash = parsed.kioskPinOutcome.hash;
     }
 
-    const createGeo = await resolvePublicListingGeocode({
-      inPersonPublic: parsed.inPersonPublic,
-      publicLocationAddress: parsed.publicLocationAddress
-    });
+    const aff = await validateAffiliatedOrganizationForEvent(agencyId, organizationId);
+    if (aff.error) return res.status(400).json({ error: { message: aff.error } });
 
-    const [insertResult] = await pool.execute(
-      `INSERT INTO company_events
-       (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, kiosk_event_pin_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        agencyId,
-        organizationIdForRow,
-        userId,
-        userId,
-        parsed.title,
-        parsed.description || null,
-        parsed.eventType || null,
-        parsed.splashContent || null,
-        parsed.publicHeroImageUrl,
-        parsed.publicListingDetails,
-        parsed.inPersonPublic ? 1 : 0,
-        parsed.publicLocationAddress,
-        createGeo.lat != null ? createGeo.lat : null,
-        createGeo.lng != null ? createGeo.lng : null,
-        parsed.publicAgeMin != null ? parsed.publicAgeMin : null,
-        parsed.publicAgeMax != null ? parsed.publicAgeMax : null,
-        parsed.startsAt,
-        parsed.endsAt,
-        parsed.timezone,
-        JSON.stringify(parsed.recurrence),
-        parsed.isActive ? 1 : 0,
-        parsed.rsvpMode || 'none',
-        JSON.stringify(parsed.votingConfig),
-        JSON.stringify(parsed.reminderConfig),
-        parsed.votingClosedAt || null,
-        parsed.smsCode,
-        parsed.skillBuilderDirectHours,
-        parsed.registrationEligible ? 1 : 0,
-        parsed.medicaidEligible ? 1 : 0,
-        parsed.cashEligible ? 1 : 0,
-        createKioskPinHash
-      ]
-    );
-    const eventId = Number(insertResult.insertId);
-    await setEventAudience(eventId, parsed.audience);
+    let timezone = String(req.body?.timezone || '').trim();
+    if (!timezone) {
+      try {
+        timezone = await ProviderAvailabilityService.resolveAgencyTimeZone({ agencyId });
+      } catch {
+        timezone = '';
+      }
+    }
+    if (!timezone) timezone = 'America/New_York';
 
-    const row = await loadEventByIdForAgency(eventId, agencyId);
-    const event = mapEventRow(row || {}, req);
-    const audience = await getAudienceForEvent(eventId);
-    res.status(201).json({ ...event, audience, responseSummary: [] });
+    const mergedBody = {
+      title: req.body?.title,
+      description: req.body?.description,
+      startsAt: req.body?.startsAt ?? req.body?.starts_at,
+      endsAt: req.body?.endsAt ?? req.body?.ends_at,
+      timezone,
+      organizationId: aff.organizationId,
+      eventType: 'company_event',
+      recurrence: { frequency: 'none' },
+      rsvpMode: 'none',
+      audience: {}
+    };
+    const parsed = parseEventPayload(mergedBody);
+    if (parsed.error) return res.status(400).json({ error: { message: parsed.error } });
+    if (String(parsed.eventType || '').toLowerCase() === 'skills_group') {
+      return res.status(400).json({
+        error: {
+          message:
+            'School-integrated Skill Builders events must be created from school groups or the “Create events from school groups” action on the Skill Builders program.'
+        }
+      });
+    }
+
+    const userId = parsePositiveInt(req.user?.id);
+    const result = await createCompanyEventCore(req, agencyId, userId, parsed);
+    if (result.error) {
+      return res.status(result.httpStatus || 400).json({ error: { message: result.error } });
+    }
+    const audience = await getAudienceForEvent(result.eventId);
+    res.status(201).json({ ...result.event, audience, responseSummary: [] });
   } catch (error) {
     next(error);
   }

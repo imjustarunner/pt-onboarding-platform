@@ -866,7 +866,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, unref } from 'vue';
 import { useAuthStore } from './store/auth';
 import { useBrandingStore } from './store/branding';
 import { useAgencyStore } from './store/agency';
@@ -1153,6 +1153,10 @@ const toggleEngagementMenu = () => {
 };
 
 const pushWithSlug = (slug) => {
+  const slugNorm = String(slug || '').trim().toLowerCase();
+  const hostPortal = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase();
+  const flatHost = Boolean(hostPortal && slugNorm && hostPortal === slugNorm);
+
   const full = route.fullPath || '/';
   const [pathPart, queryPart] = String(full).split('?');
   const currentSlug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : null;
@@ -1164,8 +1168,20 @@ const pushWithSlug = (slug) => {
     else if (nextPath.startsWith(`${oldPrefix}/`)) nextPath = `/${slug}${nextPath.slice(oldPrefix.length)}`;
     else nextPath = `/${slug}${nextPath}`;
   } else {
-    // Prefix current route with the selected agency slug
     nextPath = `/${slug}${nextPath}`;
+  }
+
+  if (flatHost) {
+    const p = `/${slug}`;
+    if (nextPath === p) nextPath = '/';
+    else if (nextPath.startsWith(`${p}/`)) {
+      const tail = nextPath.slice(p.length) || '/';
+      if (tail === '/provider-mobile' || tail.startsWith('/provider-mobile/')) {
+        nextPath = `${p}${tail}`;
+      } else {
+        nextPath = tail;
+      }
+    }
   }
 
   router.push(queryPart ? `${nextPath}?${queryPart}` : nextPath);
@@ -1721,32 +1737,77 @@ const adminDashboardIconUrl = computed(() => {
   return brandingStore.displayLogoUrl || null;
 });
 
-const activeOrganizationSlug = computed(() => {
-  const slugFromRoute = route.params.organizationSlug;
-  if (typeof slugFromRoute === 'string' && slugFromRoute) return slugFromRoute;
-  // Super admins should not be implicitly forced into an agency context via persisted currentAgency.
-  if (String(authStore.user?.role || '').toLowerCase() === 'super_admin') return null;
-  // Pinia refs: currentAgency and organizationContext are refs, use .value to access the underlying object
+/**
+ * Slug used for global top-nav links (My Dashboard, Schedule, etc.).
+ * School staff: always the school (or child portal) slug only.
+ * Everyone else: never use a school/program/learning slug — use parent agency (or affiliation parent) so nav does not
+ * “carry” a school segment outside the school portal.
+ */
+const navBucketSlug = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'super_admin') return null;
+
+  const slugFromRoute = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
   const agency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
-  const slugFromAgency = agency?.slug || agency?.portal_url;
-  if (slugFromAgency) return slugFromAgency;
+  const list = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? authStore.user?.agencies ?? [];
+  const arr = Array.isArray(list) ? list : [];
+
+  const findBySlug = (s) => {
+    if (!s) return null;
+    const n = String(s).toLowerCase();
+    return (
+      arr.find((o) => {
+        const sl = String(o?.slug || o?.portal_url || o?.portalUrl || '').trim().toLowerCase();
+        return sl === n;
+      }) || null
+    );
+  };
+
+  const parentOfAffiliation = (o) => {
+    if (!o) return null;
+    const t = String(o?.organization_type || o?.organizationType || '').toLowerCase();
+    if (t !== 'affiliation') return null;
+    const p = String(o.parent_slug || o.parentSlug || '').trim();
+    return p || null;
+  };
+
+  const parentOfPortalChild = (o) => {
+    if (!o) return null;
+    const t = String(o?.organization_type || o?.organizationType || '').toLowerCase();
+    if (t !== 'school' && t !== 'program' && t !== 'learning') return null;
+    const p = String(o.parent_slug || o.parentSlug || '').trim();
+    return p || null;
+  };
+
+  if (role === 'school_staff') {
+    if (slugFromRoute) return slugFromRoute;
+    const s = agency?.slug || agency?.portal_url || agency?.portalUrl;
+    if (s) return String(s).trim();
+    const oc = organizationStore.organizationContext?.value ?? organizationStore.organizationContext;
+    return oc?.slug ? String(oc.slug).trim() : null;
+  }
+
+  const routeOrg = slugFromRoute ? findBySlug(slugFromRoute) : null;
+  const affParent = parentOfAffiliation(routeOrg) || parentOfAffiliation(agency);
+  if (affParent) return affParent;
+
+  const portalParent = parentOfPortalChild(routeOrg) || parentOfPortalChild(agency);
+  if (portalParent) return portalParent;
+
+  if (slugFromRoute) return slugFromRoute;
+  const fromAgency = agency?.slug || agency?.portal_url || agency?.portalUrl;
+  if (fromAgency) return String(fromAgency).trim();
   const orgContext = organizationStore.organizationContext?.value ?? organizationStore.organizationContext;
-  const slugFromOrg = orgContext?.slug;
-  if (slugFromOrg) return slugFromOrg;
+  if (orgContext?.slug) return String(orgContext.slug).trim();
   return null;
 });
 
-// For admin routes, use parent slug when in club/affiliation context (e.g. /ssc/admin instead of /club-slug/admin)
-const adminOrganizationSlug = computed(() => {
-  const agency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
-  const orgType = String(agency?.organization_type || agency?.organizationType || '').toLowerCase();
-  if (orgType === 'affiliation' && agency?.parent_slug) return agency.parent_slug;
-  return activeOrganizationSlug.value;
-});
-
 const orgTo = (path) => {
-  const slug = path.startsWith('/admin') ? adminOrganizationSlug.value : activeOrganizationSlug.value;
+  const slug = navBucketSlug.value;
   if (!slug) return path;
+  const hostPortal = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase();
+  const s = String(slug || '').trim().toLowerCase();
+  if (hostPortal && s && hostPortal === s) return path;
   return `/${slug}${path}`;
 };
 
@@ -1822,7 +1883,7 @@ const onSessionLockLogout = async () => {
   stopActivityTracking();
   mobileMenuOpen.value = false;
   const { getLoginUrlForRedirect } = await import('./utils/loginRedirect');
-  const redirectTo = getLoginUrlForRedirect(null, null, { timeout: true });
+  const redirectTo = getLoginUrlForRedirect(unref(authStore.user), null, { timeout: true });
   await authStore.logout('timeout', { redirectTo });
 };
 

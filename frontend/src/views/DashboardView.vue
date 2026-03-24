@@ -2925,6 +2925,34 @@ const portalLogoUrl = (org) => {
   if (value.startsWith('/uploads/') || value.startsWith('uploads/')) return toUploadsUrl(value);
   return value;
 };
+
+/** Program/school portal pills: prefer uploaded logo URL, then Program overview icon (Icons tab), then master org icon. */
+const programPortalRailIconUrl = (org) => {
+  const explicitBrand = [
+    org?.logo_path,
+    org?.logoPath,
+    org?.logo_url,
+    org?.logoUrl,
+    org?.icon_url,
+    org?.iconUrl
+  ].find((v) => String(v || '').trim());
+  if (explicitBrand) {
+    const value = String(explicitBrand).trim();
+    if (value.startsWith('http://') || value.startsWith('https://')) return value;
+    if (value.startsWith('/uploads/') || value.startsWith('uploads/')) return toUploadsUrl(value);
+    return value;
+  }
+  const programOverview = brandingStore.getAdminQuickActionIconUrl('program_overview', org);
+  if (programOverview) return programOverview;
+  const fromPortalLogo = portalLogoUrl(org);
+  if (fromPortalLogo) return fromPortalLogo;
+  return (
+    brandingStore.getDashboardCardIconUrl('my_schedule', org) ||
+    brandingStore.getDashboardCardIconUrl('my', org) ||
+    brandingStore.getDashboardCardIconUrl('my_schedule')
+  );
+};
+
 const providerPortalCards = computed(() => {
   const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
   return list
@@ -2939,11 +2967,7 @@ const providerPortalCards = computed(() => {
         kind: 'link',
         to: `/${slug}/dashboard`,
         badgeCount: 0,
-        iconUrl:
-          portalLogoUrl(org) ||
-          brandingStore.getDashboardCardIconUrl('my_schedule', org) ||
-          brandingStore.getDashboardCardIconUrl('my', org) ||
-          brandingStore.getDashboardCardIconUrl('my_schedule'),
+        iconUrl: programPortalRailIconUrl(org),
         description: `Open ${String(org?.name || label)} portal.`
       };
     })

@@ -1422,20 +1422,23 @@ class User {
     let hasIconId = false;
     let hasChatIconId = false;
     let hasMyDashboardIcons = false;
+    let hasProgramOverviewIcon = false;
     let hasPayrollAccess = false;
     let hasH0032ManualMinutes = false;
     try {
       const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('icon_id','chat_icon_id','my_dashboard_checklist_icon_id')"
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('icon_id','chat_icon_id','my_dashboard_checklist_icon_id','program_overview_icon_id')"
       );
       const names = (cols || []).map((c) => c.COLUMN_NAME);
       hasIconId = names.includes('icon_id');
       hasChatIconId = names.includes('chat_icon_id');
       hasMyDashboardIcons = names.includes('my_dashboard_checklist_icon_id');
+      hasProgramOverviewIcon = names.includes('program_overview_icon_id');
     } catch {
       hasIconId = false;
       hasChatIconId = false;
       hasMyDashboardIcons = false;
+      hasProgramOverviewIcon = false;
     }
 
     // Best-effort: include membership fields from user_agencies.
@@ -1477,6 +1480,9 @@ class User {
       hasMyDashboardIcons ? 'mdod_i.file_path as my_dashboard_on_demand_training_icon_path, mdod_i.name as my_dashboard_on_demand_training_icon_name' : null,
       hasMyDashboardIcons ? 'mdp_i.file_path as my_dashboard_payroll_icon_path, mdp_i.name as my_dashboard_payroll_icon_name' : null,
       hasMyDashboardIcons ? 'mds_i.file_path as my_dashboard_submit_icon_path, mds_i.name as my_dashboard_submit_icon_name' : null,
+      hasProgramOverviewIcon
+        ? 'pov_i.file_path as program_overview_icon_path, pov_i.name as program_overview_icon_name'
+        : null,
       hasPayrollAccess ? 'ua.has_payroll_access' : null,
       hasH0032ManualMinutes ? 'ua.h0032_requires_manual_minutes' : null,
       hasSupervisionPrelicensed ? 'ua.supervision_is_prelicensed' : null,
@@ -1496,7 +1502,8 @@ class User {
       hasMyDashboardIcons ? 'LEFT JOIN icons mdsch_i ON a.my_dashboard_my_schedule_icon_id = mdsch_i.id' : null,
       hasMyDashboardIcons ? 'LEFT JOIN icons mdod_i ON a.my_dashboard_on_demand_training_icon_id = mdod_i.id' : null,
       hasMyDashboardIcons ? 'LEFT JOIN icons mdp_i ON a.my_dashboard_payroll_icon_id = mdp_i.id' : null,
-      hasMyDashboardIcons ? 'LEFT JOIN icons mds_i ON a.my_dashboard_submit_icon_id = mds_i.id' : null
+      hasMyDashboardIcons ? 'LEFT JOIN icons mds_i ON a.my_dashboard_submit_icon_id = mds_i.id' : null,
+      hasProgramOverviewIcon ? 'LEFT JOIN icons pov_i ON a.program_overview_icon_id = pov_i.id' : null
     ].filter(Boolean).join('\n       ');
 
     // Exclude archived organizations from the main list (for org switcher / management)
@@ -1559,12 +1566,18 @@ class User {
 
       const placeholders = parentAgencyIds.map(() => '?').join(',');
       const inherited = [];
+      const povSelect = hasProgramOverviewIcon
+        ? ', pov_i.file_path as program_overview_icon_path, pov_i.name as program_overview_icon_name'
+        : '';
+      const povJoin = hasProgramOverviewIcon
+        ? '\n           LEFT JOIN icons pov_i ON a.program_overview_icon_id = pov_i.id'
+        : '';
 
       if (hasOrgAffiliations) {
         const [affRows] = await pool.execute(
-          `SELECT a.*
+          `SELECT a.*${povSelect}
            FROM organization_affiliations oa
-           INNER JOIN agencies a ON a.id = oa.organization_id
+           INNER JOIN agencies a ON a.id = oa.organization_id${povJoin}
            WHERE oa.is_active = TRUE
              AND oa.agency_id IN (${placeholders})
              AND (a.is_archived = FALSE OR a.is_archived IS NULL)`,
@@ -1575,9 +1588,9 @@ class User {
 
       if (hasAgencySchools) {
         const [schoolRows] = await pool.execute(
-          `SELECT a.*
+          `SELECT a.*${povSelect}
            FROM agency_schools axs
-           INNER JOIN agencies a ON a.id = axs.school_organization_id
+           INNER JOIN agencies a ON a.id = axs.school_organization_id${povJoin}
            WHERE axs.is_active = TRUE
              AND axs.agency_id IN (${placeholders})
              AND (a.is_archived = FALSE OR a.is_archived IS NULL)`,

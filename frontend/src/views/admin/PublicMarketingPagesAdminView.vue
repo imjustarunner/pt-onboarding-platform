@@ -173,8 +173,16 @@
       </div>
 
       <div class="field">
-        <span>Photo gallery</span>
-        <p class="muted small">Optional grid of images below the hero. Upload one or more images (append to the list).</p>
+        <span>Photo library (this marketing page only)</span>
+        <p class="muted small">
+          Upload or paste URLs here for <strong>this hub</strong> only. These files are the pool you attach to each
+          <strong>image placeholder</strong> below (and the optional strip of thumbnails on the public page). For
+          <strong>Auto</strong> placeholders, images fill in upload order when a card has no explicit image.
+        </p>
+        <p class="muted small pmp-pattern-note">
+          Pattern: whenever we add image placeholders to a template, they appear as assignable slots next to the uploader (like
+          Placeholder 1–4 here).
+        </p>
         <div class="pmp-upload-row">
           <button type="button" class="btn btn-secondary btn-sm" :disabled="!!saving || !!uploadingTarget" @click="triggerGalleryUpload">
             {{ uploadingTarget === 'gallery' ? '…' : 'Upload images' }}
@@ -192,11 +200,62 @@
         </div>
         <ul class="pmp-gallery-list">
           <li v-for="(url, gi) in galleryUrls" :key="`g-${gi}`" class="pmp-gallery-item">
+            <button
+              v-if="galleryRowHasImage(gi)"
+              type="button"
+              class="pmp-gallery-thumb"
+              :title="'View larger'"
+              @click="openGalleryPreview(gi)"
+            >
+              <img :src="resolvedGalleryImageSrc(galleryUrls[gi])" alt="" loading="lazy" />
+            </button>
+            <div v-else class="pmp-gallery-thumb pmp-gallery-thumb--empty" aria-hidden="true" />
             <input v-model="galleryUrls[gi]" type="text" class="mono" placeholder="Image URL" />
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="!galleryRowHasImage(gi)"
+              @click="openGalleryPreview(gi)"
+            >
+              View
+            </button>
             <button type="button" class="btn btn-danger btn-sm" @click="removeGallery(gi)">Remove</button>
+            <div v-if="placeholdersUsingGalleryRow(gi).length" class="pmp-gallery-ph-badges">
+              <span
+                v-for="n in placeholdersUsingGalleryRow(gi)"
+                :key="`phuse-${gi}-${n}`"
+                class="pmp-ph-chip"
+                :title="`Assigned to Placeholder ${n} on this page`"
+                >Placeholder {{ n }}</span
+              >
+            </div>
           </li>
         </ul>
         <button type="button" class="btn btn-secondary btn-sm" @click="galleryUrls.push('')">Add URL row</button>
+      </div>
+
+      <div class="field">
+        <span>Image placeholders — “What we offer” cards (this page only)</span>
+        <p class="muted small">
+          These four slots match <strong>Placeholder 1–4</strong> on the public hub (visible while you’re logged in as super
+          admin). Each dropdown picks one row from the photo library above.
+        </p>
+        <div v-for="bi in [1, 2, 3, 4]" :key="`ob-${bi}`" class="pmp-offer-block-row">
+          <label class="pmp-offer-block-label">
+            <span>Placeholder {{ bi }}</span>
+            <select v-model="offerBlockImages[bi - 1]" class="filters-input pmp-offer-block-select">
+              <option value="">— Auto (use next library image in order) —</option>
+              <option
+                v-for="(url, gi) in galleryUrls"
+                :key="`obopt-${bi}-${gi}`"
+                :value="String(url || '').trim()"
+                :disabled="!String(url || '').trim()"
+              >
+                Library {{ gi + 1 }} — {{ shortGalleryLabel(url) }}
+              </option>
+            </select>
+          </label>
+        </div>
       </div>
 
       <div class="field">
@@ -250,7 +309,8 @@
           <code>programThemePrimary</code> (hex accent),
           <code>ctaSection</code> (object to override copy, or <code>false</code> to hide the Medicaid / eligibility band),
           <code>processSection</code> (object with <code>title</code> / <code>steps</code> array, or <code>false</code> to hide),
-          <code>whatWeOfferSection</code> (collapsible block: <code>title</code>, <code>summary</code>, <code>intro</code>, <code>items</code>, or <code>false</code>),
+          <code>whatWeOfferSection</code> (collapsible block: <code>title</code>, <code>summary</code>, <code>intro</code>, <code>items</code>,
+          <code>offerBlockImages</code> (this page’s Placeholder 1–4 image paths; or use pickers above); or <code>false</code> to hide),
           <code>heroVideoUrl</code> (use the Hero video field above; it merges here on save).
         </p>
         <textarea v-model="form.brandingJsonText" rows="6" class="mono" placeholder='{"programThemePrimary":"#a32623"}' />
@@ -285,12 +345,41 @@
         <button type="button" class="btn btn-secondary" :disabled="saving" @click="cancelEdit">Cancel</button>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="galleryPreviewIndex !== null"
+        class="pmp-gallery-lightbox"
+        role="presentation"
+        @click.self="closeGalleryPreview"
+      >
+        <div class="pmp-gallery-lightbox-panel" role="dialog" aria-modal="true" aria-label="Gallery photo">
+          <button type="button" class="pmp-gallery-lightbox-close" aria-label="Close" @click="closeGalleryPreview">
+            ×
+          </button>
+          <div class="pmp-gallery-lightbox-img-wrap">
+            <img
+              v-if="galleryPreviewIndex !== null && galleryRowHasImage(galleryPreviewIndex)"
+              :src="resolvedGalleryImageSrc(galleryUrls[galleryPreviewIndex])"
+              alt="Gallery image"
+            />
+          </div>
+          <div class="pmp-gallery-lightbox-actions">
+            <button type="button" class="btn btn-danger btn-sm" @click="deleteFromGalleryPreview">
+              Remove from gallery
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" @click="closeGalleryPreview">Close</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const pages = ref([]);
 const agencyOptions = ref([]);
@@ -347,8 +436,64 @@ const form = ref({
 });
 
 const galleryUrls = ref([]);
+/** Hub “What we offer” cards 1–4: gallery URL per slot, or '' for auto-order fallback. */
+const offerBlockImages = ref(['', '', '', '']);
+const galleryPreviewIndex = ref(null);
+
+function shortGalleryLabel(url) {
+  const s = String(url || '').trim();
+  if (!s) return '—';
+  const tail = s.split('/').pop() || s;
+  return tail.length > 40 ? `${tail.slice(0, 37)}…` : tail;
+}
+
+/** Which placeholder slots (1-based) use this library row’s URL on this page. */
+function placeholdersUsingGalleryRow(gi) {
+  const url = String(galleryUrls.value[gi] || '').trim();
+  if (!url) return [];
+  const nums = [];
+  for (let i = 0; i < offerBlockImages.value.length; i++) {
+    if (String(offerBlockImages.value[i] || '').trim() === url) nums.push(i + 1);
+  }
+  return nums;
+}
 const navRows = ref([{ label: '', href: '' }]);
 const contentPages = ref([{ slug: '', title: '', body: '' }]);
+
+function resolvedGalleryImageSrc(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  return toUploadsUrl(s) || s;
+}
+
+function galleryRowHasImage(gi) {
+  return Boolean(String(galleryUrls.value[gi] || '').trim());
+}
+
+function openGalleryPreview(gi) {
+  if (!galleryRowHasImage(gi)) return;
+  galleryPreviewIndex.value = gi;
+}
+
+function closeGalleryPreview() {
+  galleryPreviewIndex.value = null;
+}
+
+function onGalleryLightboxKeydown(e) {
+  if (e.key === 'Escape') closeGalleryPreview();
+}
+
+watch(galleryPreviewIndex, (v) => {
+  if (v !== null) {
+    document.addEventListener('keydown', onGalleryLightboxKeydown);
+  } else {
+    document.removeEventListener('keydown', onGalleryLightboxKeydown);
+  }
+});
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', onGalleryLightboxKeydown);
+});
 
 function slugifySegment(s) {
   return String(s || '')
@@ -403,6 +548,19 @@ function mergeBrandingPayload() {
   const hv = String(form.value.heroVideoUrl || '').trim();
   if (hv) out.heroVideoUrl = hv;
   else delete out.heroVideoUrl;
+
+  // Page-scoped image placeholders (this hub template). New templates can add keys + picker rows + optional superadmin labels on the public view.
+  const picks = offerBlockImages.value.map((u) => String(u || '').trim());
+  if (picks.some(Boolean) && out.whatWeOfferSection !== false) {
+    const prev = out.whatWeOfferSection;
+    const base = typeof prev === 'object' && prev && !Array.isArray(prev) ? { ...prev } : {};
+    out.whatWeOfferSection = { ...base, offerBlockImages: picks };
+  } else if (out.whatWeOfferSection && typeof out.whatWeOfferSection === 'object' && !Array.isArray(out.whatWeOfferSection)) {
+    const next = { ...out.whatWeOfferSection };
+    delete next.offerBlockImages;
+    if (Object.keys(next).length) out.whatWeOfferSection = next;
+    else delete out.whatWeOfferSection;
+  }
 
   return out;
 }
@@ -516,6 +674,13 @@ function removeGallery(idx) {
   if (!galleryUrls.value.length) galleryUrls.value = [''];
 }
 
+function deleteFromGalleryPreview() {
+  const i = galleryPreviewIndex.value;
+  if (i === null || i < 0) return;
+  closeGalleryPreview();
+  removeGallery(i);
+}
+
 function removeNav(idx) {
   navRows.value.splice(idx, 1);
   if (!navRows.value.length) navRows.value = [{ label: '', href: '' }];
@@ -544,6 +709,7 @@ function resetForm() {
     sources: []
   };
   galleryUrls.value = [''];
+  offerBlockImages.value = ['', '', '', ''];
   navRows.value = [{ label: '', href: '' }];
   contentPages.value = [{ slug: '', title: '', body: '' }];
   pickAgencyId.value = null;
@@ -598,6 +764,16 @@ function edit(p) {
   delete advanced.partnerLine;
   delete advanced.parentIntro;
   delete advanced.heroVideoUrl;
+  const w0 = advanced.whatWeOfferSection;
+  if (w0 && typeof w0 === 'object' && !Array.isArray(w0)) {
+    const obi = Array.isArray(w0.offerBlockImages) ? w0.offerBlockImages.map((x) => String(x || '').trim()) : [];
+    offerBlockImages.value = [0, 1, 2, 3].map((i) => obi[i] || '');
+    const { offerBlockImages: _drop, ...wRest } = w0;
+    if (Object.keys(wRest).length) advanced.whatWeOfferSection = wRest;
+    else delete advanced.whatWeOfferSection;
+  } else {
+    offerBlockImages.value = ['', '', '', ''];
+  }
   form.value = {
     slug: p.slug,
     title: p.title || '',
@@ -852,13 +1028,140 @@ onMounted(async () => {
 }
 .pmp-gallery-item {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
 }
+.pmp-gallery-ph-badges {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 0 4px;
+  margin-left: 64px;
+}
+.pmp-ph-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #7f1d1d;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+}
+.pmp-pattern-note {
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px dashed #cbd5e1;
+}
+@media (max-width: 520px) {
+  .pmp-gallery-ph-badges {
+    margin-left: 0;
+  }
+}
 .pmp-gallery-item input {
   flex: 1;
   min-width: 0;
+}
+.pmp-gallery-thumb {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f1f5f9;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pmp-gallery-thumb:hover {
+  border-color: #94a3b8;
+}
+.pmp-gallery-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.pmp-gallery-thumb--empty {
+  pointer-events: none;
+  cursor: default;
+  background: repeating-linear-gradient(-45deg, #f1f5f9, #f1f5f9 6px, #e2e8f0 6px, #e2e8f0 7px);
+}
+.pmp-gallery-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  background: rgba(15, 23, 42, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+.pmp-gallery-lightbox-panel {
+  position: relative;
+  max-width: min(920px, 100%);
+  max-height: min(92vh, 100%);
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pmp-gallery-lightbox-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 1;
+}
+.pmp-gallery-lightbox-close:hover {
+  background: #e2e8f0;
+}
+.pmp-gallery-lightbox-img-wrap {
+  margin-top: 28px;
+  max-height: min(72vh, 640px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0f172a;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.pmp-gallery-lightbox-img-wrap img {
+  max-width: 100%;
+  max-height: min(72vh, 640px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  display: block;
+}
+.pmp-gallery-lightbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 .pmp-row-grid {
   display: grid;
@@ -893,5 +1196,23 @@ onMounted(async () => {
   padding: 12px;
   margin-bottom: 12px;
   background: #f8fafc;
+}
+.pmp-offer-block-row {
+  margin-bottom: 10px;
+}
+.pmp-offer-block-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+}
+.pmp-offer-block-label span:first-child {
+  min-width: 4.5rem;
+}
+.pmp-offer-block-select {
+  max-width: 100%;
+  width: 100%;
 }
 </style>

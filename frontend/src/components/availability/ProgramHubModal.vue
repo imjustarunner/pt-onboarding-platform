@@ -77,9 +77,59 @@
 
           <div v-show="activeSection === 'events'" class="pch-panel pch-events">
             <div v-if="eventsLoading" class="pch-muted">Loading events…</div>
-            <div v-else-if="eventsError" class="pch-error">{{ eventsError }}</div>
             <template v-else-if="mode === 'coordinator'">
-              <div v-if="!programEvents.length" class="pch-empty">
+              <div v-if="eventsError" class="pch-error pch-events-banner">{{ eventsError }}</div>
+              <div v-if="!isSkillBuildersProgram" class="pch-prog-event-form-wrap">
+                <p class="pch-muted pch-prog-event-intro">
+                  Add program events for this organization. They are independent of schools and school Skill Builders
+                  groups.
+                </p>
+                <form class="pch-prog-event-form" @submit.prevent="submitProgramEvent">
+                  <label class="pch-field">
+                    <span class="pch-field-label">Title</span>
+                    <input
+                      v-model.trim="newProgramEvent.title"
+                      type="text"
+                      class="pch-input"
+                      required
+                      maxlength="500"
+                      autocomplete="off"
+                      placeholder="e.g. Summer kickoff"
+                    />
+                  </label>
+                  <div class="pch-field-row">
+                    <label class="pch-field">
+                      <span class="pch-field-label">Starts</span>
+                      <input v-model="newProgramEvent.startsAt" type="datetime-local" class="pch-input" required />
+                    </label>
+                    <label class="pch-field">
+                      <span class="pch-field-label">Ends</span>
+                      <input v-model="newProgramEvent.endsAt" type="datetime-local" class="pch-input" required />
+                    </label>
+                  </div>
+                  <label class="pch-field">
+                    <span class="pch-field-label">Description <span class="pch-optional">(optional)</span></span>
+                    <textarea
+                      v-model.trim="newProgramEvent.description"
+                      class="pch-input pch-textarea"
+                      rows="2"
+                      maxlength="4000"
+                      placeholder="Notes for coordinators or providers"
+                    />
+                  </label>
+                  <div class="pch-form-actions">
+                    <button
+                      type="submit"
+                      class="btn btn-primary btn-sm"
+                      :disabled="createProgramEventBusy || !coordinatorAgencyId || !resolvedCoordinatorOrganizationId"
+                    >
+                      {{ createProgramEventBusy ? 'Creating…' : 'Create program event' }}
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div v-if="isSkillBuildersProgram && !programEvents.length" class="pch-empty">
                 <p>
                   No integrated events yet. We can create <strong>company events</strong> from your existing school Skill
                   Builders groups (names, dates, meeting times).
@@ -99,13 +149,19 @@
                   under Agency → Company events, or open each school group and save to sync.
                 </p>
               </div>
-              <ul v-else class="pch-event-list">
+
+              <ul v-if="programEvents.length" class="pch-event-list">
                 <li v-for="ev in programEvents" :key="ev.id" class="pch-event-item">
                   <button type="button" class="pch-event-open" @click="goEventPortal(ev.id)">
                     <div class="pch-event-title">{{ ev.title }}</div>
                     <div class="pch-muted pch-event-dates">{{ formatEventDateRange(ev) }}</div>
                     <p
-                      v-if="!ev.skillsGroupStartDate && !ev.skillsGroupEndDate && (ev.startsAt || ev.endsAt)"
+                      v-if="
+                        isSkillBuildersProgram &&
+                        !ev.skillsGroupStartDate &&
+                        !ev.skillsGroupEndDate &&
+                        (ev.startsAt || ev.endsAt)
+                      "
                       class="pch-muted pch-event-hint"
                     >
                       Date range not set on the skills group.
@@ -123,6 +179,7 @@
               </ul>
             </template>
             <template v-else>
+              <div v-if="eventsError" class="pch-error pch-events-banner">{{ eventsError }}</div>
               <h3 class="pch-events-sub">Assigned</h3>
               <ul v-if="assignedEvents.length" class="pch-event-list">
                 <li v-for="ev in assignedEvents" :key="`a-${ev.id}`" class="pch-event-item">
@@ -223,6 +280,13 @@ const assignedEvents = ref([]);
 const upcomingEvents = ref([]);
 const applyBusyId = ref(null);
 const backfillBusy = ref(false);
+const createProgramEventBusy = ref(false);
+const newProgramEvent = ref({
+  title: '',
+  startsAt: '',
+  endsAt: '',
+  description: ''
+});
 const resolvedOrgId = ref(null);
 const resolvedOrgName = ref('');
 
@@ -241,6 +305,11 @@ const resolvedCoordinatorOrganizationId = computed(() => {
   return Number.isFinite(o) && o > 0 ? o : null;
 });
 
+/** Only the affiliated program named "Skill Builders" uses school-group backfill and integrated copy. */
+const isSkillBuildersProgram = computed(
+  () => String(props.organizationName || '').trim().toLowerCase() === 'skill builders'
+);
+
 const sectionItems = computed(() => {
   const base = [
     {
@@ -255,7 +324,9 @@ const sectionItems = computed(() => {
       label: 'Events',
       shortLabel: 'Events',
       icon: '🎯',
-      description: 'Program company events and applications linked to school Skill Builders groups.'
+      description: isSkillBuildersProgram.value
+        ? 'Program company events and applications linked to school Skill Builders groups.'
+        : 'Program company events and provider applications (no school link required).'
     },
     {
       id: 'schedule',
@@ -465,6 +536,51 @@ async function applyToEvent(ev) {
     eventsError.value = e.response?.data?.error?.message || e.message || 'Apply failed';
   } finally {
     applyBusyId.value = null;
+  }
+}
+
+function localDatetimeInputToIso(s) {
+  const t = String(s || '').trim();
+  if (!t) return '';
+  const d = new Date(t);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : '';
+}
+
+async function submitProgramEvent() {
+  const aid = coordinatorAgencyId.value;
+  const oid = resolvedCoordinatorOrganizationId.value;
+  if (!aid || !oid) return;
+  const startsAt = localDatetimeInputToIso(newProgramEvent.value.startsAt);
+  const endsAt = localDatetimeInputToIso(newProgramEvent.value.endsAt);
+  if (!startsAt || !endsAt) {
+    eventsError.value = 'Please choose valid start and end times.';
+    return;
+  }
+  if (new Date(endsAt) <= new Date(startsAt)) {
+    eventsError.value = 'End time must be after start time.';
+    return;
+  }
+  createProgramEventBusy.value = true;
+  eventsError.value = '';
+  try {
+    await api.post(
+      '/availability/admin/program-company-events',
+      {
+        agencyId: aid,
+        organizationId: oid,
+        title: newProgramEvent.value.title,
+        description: newProgramEvent.value.description || undefined,
+        startsAt,
+        endsAt
+      },
+      { skipGlobalLoading: true }
+    );
+    newProgramEvent.value = { title: '', startsAt: '', endsAt: '', description: '' };
+    await loadCoordinatorEvents();
+  } catch (e) {
+    eventsError.value = e.response?.data?.error?.message || e.message || 'Failed to create event';
+  } finally {
+    createProgramEventBusy.value = false;
   }
 }
 
@@ -757,6 +873,9 @@ watch(
   color: #b91c1c;
   font-size: 0.9rem;
 }
+.pch-events-banner {
+  margin-bottom: 12px;
+}
 .pch-empty {
   padding: 20px 8px 8px;
   text-align: center;
@@ -862,6 +981,62 @@ watch(
   padding: 0 14px 12px;
 }
 
+.pch-prog-event-form-wrap {
+  margin-bottom: 20px;
+  padding: 14px 14px 16px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  background: #fff;
+}
+.pch-prog-event-intro {
+  margin: 0 0 12px;
+  line-height: 1.45;
+}
+.pch-prog-event-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pch-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+.pch-field-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary, #334155);
+}
+.pch-optional {
+  font-weight: 400;
+  color: var(--text-secondary, #64748b);
+}
+.pch-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.pch-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.875rem;
+}
+.pch-textarea {
+  resize: vertical;
+  min-height: 56px;
+}
+.pch-form-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
 @media (max-width: 560px) {
   .pch-hub {
     grid-template-columns: 1fr;
@@ -869,6 +1044,9 @@ watch(
   .pch-segments {
     justify-content: flex-start;
     width: 100%;
+  }
+  .pch-field-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>

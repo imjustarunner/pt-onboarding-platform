@@ -6,6 +6,7 @@
  * The presence heartbeat (every HEARTBEAT_INTERVAL) is treated as activity when it succeeds.
  * When the tab is hidden, the inactivity countdown is paused.
  */
+import { unref } from 'vue';
 import { useAuthStore } from '../store/auth';
 import { useSessionLockStore } from '../store/sessionLock';
 import api from '../services/api';
@@ -76,7 +77,7 @@ async function handleTimeout() {
     console.error('Error during timeout handling:', err);
   } finally {
     const { getLoginUrlForRedirect } = await import('../utils/loginRedirect');
-    const redirectTo = getLoginUrlForRedirect(null, null, { timeout: true });
+    const redirectTo = getLoginUrlForRedirect(unref(authStore.user), null, { timeout: true });
     await authStore.logout('timeout', { redirectTo });
   }
 }

@@ -74,8 +74,15 @@ const getDefaultOrganizationSlug = () => {
       if (fromLocal && isPortalOrg(fromLocal) && pickSlug(fromLocal)) return pickSlug(fromLocal);
     }
 
-    const fromStore = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url;
-    if (fromStore) return fromStore;
+    const curAgency = agencyStore.currentAgency;
+    const fromStore = curAgency?.slug || curAgency?.portal_url;
+    if (fromStore) {
+      if (!isSchoolStaff && isPortalOrg(curAgency)) {
+        const p = String(curAgency.parent_slug || curAgency.parentSlug || '').trim();
+        if (p) return p;
+      }
+      return fromStore;
+    }
 
     // Prefer affiliation (SSC) when picking from stored user agencies
     const isAffiliation = (org) => String(org?.organization_type || org?.organizationType || '').toLowerCase() === 'affiliation';
@@ -102,6 +109,13 @@ const getDefaultOrganizationSlug = () => {
     // ignore
   }
   return null;
+};
+
+/** True when hostname already identifies this portal slug (custom domain or subdomain); path must stay flat (no /{slug}/…). */
+const isPortalHostSlugRedundantInPath = (brandingStore, segmentSlug) => {
+  const h = String(brandingStore?.portalHostPortalUrl || '').trim().toLowerCase();
+  const s = String(segmentSlug || '').trim().toLowerCase();
+  return Boolean(h && s && h === s);
 };
 
 const routes = [
@@ -1701,6 +1715,12 @@ const getSlugAwarePath = (targetPath, to, authStore) => {
     (to.meta.organizationSlug && typeof to.params.organizationSlug === 'string' && to.params.organizationSlug) ||
     getDefaultOrganizationSlug();
   if (!slug) return path;
+  try {
+    const brandingStore = useBrandingStore();
+    if (isPortalHostSlugRedundantInPath(brandingStore, slug)) return path;
+  } catch {
+    /* ignore */
+  }
   if (path.startsWith(`/${slug}/`)) return path;
   return `/${slug}${path}`;
 };
@@ -1728,6 +1748,22 @@ router.beforeEach(async (to, from, next) => {
   const brandingStore = useBrandingStore();
   const agencyStore = useAgencyStore();
   const organizationStore = useOrganizationStore();
+
+  // Custom domain / subdomain portals: never keep /{portalSlug}/… in the path (host is already the bucket).
+  const hostPortalEarly = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase();
+  if (hostPortalEarly) {
+    const rawPath = String(to.path || '');
+    const prefix = `/${hostPortalEarly}`;
+    if (rawPath === prefix || rawPath.startsWith(`${prefix}/`)) {
+      const rest = rawPath === prefix ? '/' : rawPath.slice(prefix.length) || '/';
+      // Provider mobile shell is only registered under /:organizationSlug/provider-mobile; /provider-mobile redirects back to a slugbed URL.
+      if (rest !== '/provider-mobile' && !rest.startsWith('/provider-mobile/')) {
+        next({ path: rest, query: to.query, hash: to.hash, replace: true });
+        return;
+      }
+    }
+  }
+
   const userStatus = authStore.user?.status;
   const isPending = userStatus === 'pending';
   const isReadyForReview = userStatus === 'ready_for_review';
@@ -1940,7 +1976,7 @@ router.beforeEach(async (to, from, next) => {
     to.path === '/dashboard'
   ) {
     const slug = getDefaultOrganizationSlug();
-    if (slug) {
+    if (slug && !isPortalHostSlugRedundantInPath(brandingStore, slug)) {
       const suffix = (to.fullPath || to.path).replace(/^\/dashboard/, '') || '';
       next(`/${slug}/dashboard${suffix}`);
       return;
@@ -1955,7 +1991,7 @@ router.beforeEach(async (to, from, next) => {
     !allowUnscopedDocumentSigning
   ) {
     const slug = getDefaultOrganizationSlug();
-    if (slug) {
+    if (slug && !isPortalHostSlugRedundantInPath(brandingStore, slug)) {
       // Prefix the entire path (preserves queries/hash via fullPath).
       next(`/${slug}${to.fullPath}`);
       return;

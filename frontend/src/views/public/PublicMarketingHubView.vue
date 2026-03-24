@@ -33,10 +33,67 @@
           <span class="pmh-partner-dot" />
           {{ partnerLine }}
         </p>
-        <div v-if="heroImageUrl" class="pmh-hero-media">
+        <!-- Video + process: one cinema band (silent video + scrolling signup steps). Skips stacked hero image + separate process block. -->
+        <section
+          v-if="heroProcessCinemaEnabled"
+          class="pmh-hero-cinema"
+          :aria-label="processSectionResolved.title"
+          :style="{ ...programThemeStyle, '--pmh-cinema-scroll-sec': `${heroCinemaScrollDurationSec}s` }"
+        >
+          <div class="pmh-hero-cinema-bg" aria-hidden="true">
+            <iframe
+              v-if="heroVideoYoutubeCinemaEmbed"
+              class="pmh-hero-cinema-iframe"
+              :src="heroVideoYoutubeCinemaEmbed"
+              title="Decorative program video (muted)"
+              tabindex="-1"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              loading="lazy"
+            />
+            <video
+              v-else
+              class="pmh-hero-cinema-video"
+              :src="heroVideoUrl"
+              muted
+              playsinline
+              loop
+              autoplay
+              disablepictureinpicture
+              preload="metadata"
+            />
+          </div>
+          <div class="pmh-hero-cinema-scrim" aria-hidden="true" />
+          <div class="pmh-hero-cinema-overlay">
+            <div class="pmh-hero-cinema-marquee">
+              <div class="pmh-hero-cinema-marquee-track">
+                <div class="pmh-hero-cinema-block">
+                  <h2 class="pmh-hero-cinema-title">{{ processSectionResolved.title }}</h2>
+                  <div class="pmh-hero-cinema-rule" aria-hidden="true" />
+                  <ol class="pmh-hero-cinema-steps">
+                    <li v-for="(step, si) in processSectionResolved.steps" :key="`cs-a-${si}`" class="pmh-hero-cinema-step">
+                      <span class="pmh-hero-cinema-n">Step {{ si + 1 }}</span>
+                      <span class="pmh-hero-cinema-t">{{ step }}</span>
+                    </li>
+                  </ol>
+                </div>
+                <div class="pmh-hero-cinema-block" aria-hidden="true">
+                  <h2 class="pmh-hero-cinema-title">{{ processSectionResolved.title }}</h2>
+                  <div class="pmh-hero-cinema-rule" aria-hidden="true" />
+                  <ol class="pmh-hero-cinema-steps">
+                    <li v-for="(step, si) in processSectionResolved.steps" :key="`cs-b-${si}`" class="pmh-hero-cinema-step">
+                      <span class="pmh-hero-cinema-n">Step {{ si + 1 }}</span>
+                      <span class="pmh-hero-cinema-t">{{ step }}</span>
+                    </li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <div v-else-if="heroImageUrl" class="pmh-hero-media">
           <img :src="heroImageUrl" :alt="displayHeadline" loading="lazy" />
         </div>
-        <div v-if="heroVideoUrl" class="pmh-hero-media pmh-hero-media--video">
+        <div v-if="heroVideoUrl && !heroProcessCinemaEnabled" class="pmh-hero-media pmh-hero-media--video">
           <iframe
             v-if="heroVideoYoutubeEmbed"
             class="pmh-hero-iframe"
@@ -71,18 +128,24 @@
 
       <section v-if="whatWeOfferResolved" class="pmh-offer" aria-labelledby="pmh-offer-heading">
         <div class="pmh-offer-card">
+          <p v-if="isSuperAdmin" class="pmh-placeholder-editor-hint" role="note">
+            You’re signed in as super admin — image areas below are labeled
+            <strong>Placeholder 1–4</strong> (this hub only). Match them to the editor under “Image placeholders.”
+          </p>
           <h2 id="pmh-offer-heading" class="pmh-offer-title">{{ whatWeOfferResolved.title }}</h2>
           <p class="pmh-offer-summary">{{ whatWeOfferResolved.summary }}</p>
-          <button
-            id="pmh-offer-toggle"
-            type="button"
-            class="pmh-offer-toggle"
-            :aria-expanded="offerExpanded"
-            aria-controls="pmh-offer-details"
-            @click="offerExpanded = !offerExpanded"
-          >
-            {{ offerExpanded ? whatWeOfferResolved.collapseLabel : whatWeOfferResolved.expandLabel }}
-          </button>
+          <div class="pmh-offer-toggle-wrap">
+            <button
+              id="pmh-offer-toggle"
+              type="button"
+              class="pmh-offer-toggle"
+              :aria-expanded="offerExpanded"
+              aria-controls="pmh-offer-details"
+              @click="offerExpanded = !offerExpanded"
+            >
+              {{ offerExpanded ? whatWeOfferResolved.collapseLabel : whatWeOfferResolved.expandLabel }}
+            </button>
+          </div>
           <Transition name="pmh-offer-reveal">
             <div
               v-show="offerExpanded"
@@ -95,6 +158,9 @@
               <div class="pmh-offer-grid">
                 <article v-for="(it, oi) in whatWeOfferResolved.items" :key="`offer-${oi}`" class="pmh-offer-item">
                   <div class="pmh-offer-media">
+                    <span v-if="isSuperAdmin" class="pmh-placeholder-badge" aria-hidden="true"
+                      >Placeholder {{ oi + 1 }}</span
+                    >
                     <img
                       v-if="it.imageUrl"
                       class="pmh-offer-img"
@@ -173,7 +239,7 @@
         </div>
       </section>
 
-      <section v-if="processSectionResolved" class="pmh-process" :style="programThemeStyle">
+      <section v-if="processSectionResolved && !heroProcessCinemaEnabled" class="pmh-process" :style="programThemeStyle">
         <div class="pmh-process-inner">
           <div class="pmh-process-head">
             <h2 class="pmh-process-title">{{ processSectionResolved.title }}</h2>
@@ -363,6 +429,29 @@ function youtubeEmbedFromUrl(raw) {
 
 const heroVideoYoutubeEmbed = computed(() => youtubeEmbedFromUrl(heroVideoUrl.value));
 
+/** Background-style embed: autoplay, muted, no controls (cinema hero only). */
+function youtubeCinemaEmbedFromUrl(raw) {
+  const base = youtubeEmbedFromUrl(raw);
+  if (!base) return '';
+  try {
+    const u = new URL(base);
+    u.searchParams.set('autoplay', '1');
+    u.searchParams.set('controls', '0');
+    u.searchParams.set('mute', '1');
+    u.searchParams.set('playsinline', '1');
+    u.searchParams.set('modestbranding', '1');
+    u.searchParams.set('loop', '1');
+    const after = u.pathname.split('/embed/')[1];
+    const id = after ? after.split('/')[0].split('?')[0] : '';
+    if (id) u.searchParams.set('playlist', id);
+    return u.toString();
+  } catch {
+    return base;
+  }
+}
+
+const heroVideoYoutubeCinemaEmbed = computed(() => youtubeCinemaEmbedFromUrl(heroVideoUrl.value));
+
 /** Brick accent for CTA strip + process band; override with branding.programThemePrimary. */
 const programThemeStyle = computed(() => {
   const primary = String(hubBranding.value.programThemePrimary || '#a32623').trim();
@@ -438,6 +527,25 @@ const DEFAULT_WHAT_WE_OFFER = {
   items: DEFAULT_WHAT_WE_OFFER_ITEMS
 };
 
+/**
+ * “What we offer” image placeholders for this hub only: per-item imageUrl, then offerBlockImages[i], then gallery order.
+ */
+function offerItemsWithGalleryFallback(items, galleryUrls, offerBlockImages) {
+  const blocks = Array.isArray(offerBlockImages)
+    ? offerBlockImages.map((s) => String(s || '').trim())
+    : [];
+  let g = 0;
+  return items.map((it, idx) => {
+    const explicit = String(it.imageUrl || '').trim();
+    if (explicit) return { ...it, imageUrl: explicit };
+    const fromSlot = blocks[idx];
+    if (fromSlot) return { ...it, imageUrl: fromSlot };
+    const url = galleryUrls[g] || '';
+    if (url) g += 1;
+    return { ...it, imageUrl: url };
+  });
+}
+
 const whatWeOfferResolved = computed(() => {
   const b = hubBranding.value;
   if (b.whatWeOfferSection === false) return null;
@@ -454,7 +562,12 @@ const whatWeOfferResolved = computed(() => {
       .filter((x) => x.title && x.body);
     if (mapped.length) items = mapped;
   }
-  return { ...DEFAULT_WHAT_WE_OFFER, ...o, items };
+  const galleryUrls = (Array.isArray(b.gallery) ? b.gallery : [])
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+  const blockImages = Array.isArray(o.offerBlockImages) ? o.offerBlockImages : [];
+  const itemsResolved = offerItemsWithGalleryFallback(items, galleryUrls, blockImages);
+  return { ...DEFAULT_WHAT_WE_OFFER, ...o, items: itemsResolved };
 });
 
 const ctaSectionResolved = computed(() => {
@@ -474,6 +587,18 @@ const processSectionResolved = computed(() => {
       ? rawSteps.map((s) => String(s).trim()).filter(Boolean)
       : DEFAULT_PROCESS_STEPS;
   return { ...DEFAULT_PROCESS_SECTION, ...o, steps };
+});
+
+/** Hero video + process steps merged into one silent video backdrop with scrolling copy (no stacked image + video + process). */
+const heroProcessCinemaEnabled = computed(() => {
+  if (!heroVideoUrl.value) return false;
+  const p = processSectionResolved.value;
+  return Boolean(p && Array.isArray(p.steps) && p.steps.length > 0);
+});
+
+const heroCinemaScrollDurationSec = computed(() => {
+  const n = processSectionResolved.value?.steps?.length || 0;
+  return Math.min(140, Math.max(28, 20 + n * 6));
 });
 
 const ctaPrimaryTag = computed(() => {
@@ -689,10 +814,11 @@ watch(hubSlug, () => {
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 14px 16px;
   margin-bottom: 14px;
   flex-wrap: wrap;
+  text-align: center;
 }
 
 .pmh-logo {
@@ -714,7 +840,7 @@ watch(hubSlug, () => {
   letter-spacing: -0.035em;
   line-height: 1.15;
   color: var(--hub-text);
-  text-align: left;
+  text-align: center;
 }
 
 .pmh-partner {
@@ -786,10 +912,177 @@ watch(hubSlug, () => {
   background: #0f172a;
 }
 
+/* Silent video + scrolling process steps (replaces stacked hero image + video + duplicate process section) */
+.pmh-hero-cinema {
+  position: relative;
+  margin: 0 0 16px;
+  min-height: min(52vh, 400px);
+  border-radius: var(--hub-radius-lg);
+  overflow: hidden;
+  box-shadow: var(--hub-shadow);
+  border: 1px solid var(--hub-border);
+  isolation: isolate;
+}
+
+.pmh-hero-cinema-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: #0f172a;
+}
+
+.pmh-hero-cinema-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.pmh-hero-cinema-iframe {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100vw;
+  height: 56.25vw;
+  min-width: 100%;
+  min-height: max(100%, 56.25vw);
+  transform: translate(-50%, -50%);
+  border: 0;
+  pointer-events: none;
+}
+
+.pmh-hero-cinema-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    rgba(15, 23, 42, 0.5) 0%,
+    rgba(15, 23, 42, 0.62) 45%,
+    rgba(15, 23, 42, 0.72) 100%
+  );
+}
+
+.pmh-hero-cinema-overlay {
+  position: relative;
+  z-index: 2;
+  min-height: min(52vh, 400px);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 20px 18px 22px;
+}
+
+.pmh-hero-cinema-marquee {
+  flex: 1;
+  max-width: 32rem;
+  margin: 0 auto;
+  width: 100%;
+  max-height: min(48vh, 360px);
+  overflow: hidden;
+  mask-image: linear-gradient(180deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
+}
+
+.pmh-hero-cinema-marquee-track {
+  display: flex;
+  flex-direction: column;
+  animation: pmh-cinema-scroll var(--pmh-cinema-scroll-sec, 48s) linear infinite;
+  will-change: transform;
+}
+
+.pmh-hero-cinema-block {
+  flex-shrink: 0;
+  padding: 8px 0 28px;
+}
+
+.pmh-hero-cinema-title {
+  margin: 0 0 12px;
+  font-size: clamp(1rem, 3.2vw, 1.25rem);
+  font-weight: 900;
+  font-family: var(--hub-font-display);
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.45);
+}
+
+.pmh-hero-cinema-rule {
+  height: 2px;
+  margin-bottom: 14px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.2) 100%);
+  border-radius: 2px;
+  position: relative;
+}
+
+.pmh-hero-cinema-rule::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 10px solid rgba(255, 255, 255, 0.88);
+}
+
+.pmh-hero-cinema-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pmh-hero-cinema-step {
+  display: grid;
+  gap: 4px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.pmh-hero-cinema-step:last-child {
+  border-bottom: none;
+}
+
+.pmh-hero-cinema-n {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(254, 243, 199, 0.95);
+}
+
+.pmh-hero-cinema-t {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.55;
+  color: #fff;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pmh-hero-cinema-marquee-track {
+    animation: none;
+  }
+}
+
+@keyframes pmh-cinema-scroll {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
+}
+
 .pmh-intro-card {
   display: flex;
   gap: 14px;
   align-items: flex-start;
+  flex-direction: column;
+  text-align: center;
   padding: 18px 20px;
   margin-bottom: 4px;
   background: var(--hub-surface);
@@ -810,6 +1103,7 @@ watch(hubSlug, () => {
   color: var(--hub-brand);
   background: linear-gradient(145deg, rgba(163, 38, 35, 0.12), rgba(163, 38, 35, 0.04));
   border: 1px solid rgba(163, 38, 35, 0.22);
+  align-self: center;
 }
 
 .pmh-intro-icon svg {
@@ -822,6 +1116,7 @@ watch(hubSlug, () => {
   line-height: 1.6;
   color: var(--hub-text-muted);
   font-weight: 500;
+  text-align: center;
 }
 
 .pmh-fatal {
@@ -885,6 +1180,39 @@ watch(hubSlug, () => {
   margin: 16px 16px 0;
 }
 
+.pmh-placeholder-editor-hint {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #7f1d1d;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--hub-radius-sm);
+}
+
+.pmh-placeholder-badge {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 8px 14px;
+  font-size: 0.6875rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-family: var(--hub-font-display);
+  color: #fff;
+  background: rgba(163, 38, 35, 0.94);
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+  pointer-events: none;
+  max-width: calc(100% - 20px);
+  text-align: center;
+  line-height: 1.2;
+}
+
 .pmh-offer-card {
   padding: 22px 20px 20px;
   background: var(--hub-surface);
@@ -901,6 +1229,7 @@ watch(hubSlug, () => {
   letter-spacing: -0.03em;
   color: var(--hub-text);
   line-height: 1.2;
+  text-align: center;
 }
 
 .pmh-offer-summary {
@@ -908,6 +1237,7 @@ watch(hubSlug, () => {
   font-size: 0.9375rem;
   line-height: 1.6;
   color: var(--hub-text-muted);
+  text-align: center;
 }
 
 .pmh-offer-toggle {
@@ -925,6 +1255,12 @@ watch(hubSlug, () => {
   border-radius: var(--hub-radius-md);
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.pmh-offer-toggle-wrap {
+  display: flex;
+  justify-content: center;
+  width: 100%;
 }
 
 .pmh-offer-toggle:hover {
@@ -948,6 +1284,7 @@ watch(hubSlug, () => {
   font-size: 0.875rem;
   line-height: 1.65;
   color: var(--hub-text-muted);
+  text-align: center;
 }
 
 .pmh-offer-grid {
@@ -974,6 +1311,7 @@ watch(hubSlug, () => {
 }
 
 .pmh-offer-media {
+  position: relative;
   margin-bottom: 12px;
   border-radius: var(--hub-radius-sm);
   overflow: hidden;
