@@ -21,7 +21,12 @@ export function buildOrgLoginPath(portalSlug, parentOrgSlug = null, hostImpliedA
   const p = norm(parentOrgSlug);
   const h = norm(hostImpliedAgencySlug);
 
-  // Custom domain is already the agency bucket; do not duplicate parent in path.
+  // Dedicated app host for this agency (e.g. app.itsco.health ≡ portal itsco): login is /login, not /itsco/login.
+  if (h && h === o && !p) {
+    return '/login';
+  }
+
+  // School (or other child) on the parent’s custom domain: host implies parent — /rudy/login not /itsco/rudy/login.
   if (p && h && p === h) {
     return `/${o}/login`;
   }

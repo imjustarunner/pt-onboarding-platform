@@ -170,7 +170,10 @@ export function getCurrentPortalSlugFromHostCache() {
     const host = String(window.location?.hostname || '').trim();
     if (!host) return null;
     const cacheKey = `__pt_portal_host__:${host}`;
-    const cachedRaw = sessionStorage.getItem(cacheKey);
+    let cachedRaw = sessionStorage.getItem(cacheKey);
+    if (!cachedRaw) {
+      cachedRaw = localStorage.getItem(cacheKey);
+    }
     if (!cachedRaw) return null;
     const cached = JSON.parse(cachedRaw);
     const portal = String(cached?.portalUrl || '').trim();

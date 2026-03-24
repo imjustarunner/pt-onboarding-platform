@@ -382,6 +382,14 @@ export const useBrandingStore = defineStore('branding', () => {
         const subdomainPortal = getPortalUrl();
         if (subdomainPortal) {
           portalHostPortalUrl.value = subdomainPortal;
+          try {
+            const cacheKey = `__pt_portal_host__:${window.location.hostname}`;
+            const payload = JSON.stringify({ portalUrl: subdomainPortal, ts: Date.now() });
+            sessionStorage.setItem(cacheKey, payload);
+            localStorage.setItem(cacheKey, payload);
+          } catch {
+            /* ignore */
+          }
           await fetchAgencyTheme(subdomainPortal);
           return;
         }
@@ -395,6 +403,11 @@ export const useBrandingStore = defineStore('branding', () => {
           const cachedPortal = String(cached?.portalUrl || '').trim();
           if (cachedPortal) {
             portalHostPortalUrl.value = cachedPortal;
+            try {
+              localStorage.setItem(cacheKey, cachedRaw);
+            } catch {
+              /* ignore */
+            }
             await fetchAgencyTheme(cachedPortal);
             return;
           }
@@ -412,8 +425,10 @@ export const useBrandingStore = defineStore('branding', () => {
         const resolved = String(resp?.data?.portalUrl || '').trim();
         if (resolved) {
           portalHostPortalUrl.value = resolved;
+          const payload = JSON.stringify({ portalUrl: resolved, ts: Date.now() });
           try {
-            sessionStorage.setItem(cacheKey, JSON.stringify({ portalUrl: resolved, ts: Date.now() }));
+            sessionStorage.setItem(cacheKey, payload);
+            localStorage.setItem(cacheKey, payload);
           } catch {
             // ignore
           }
