@@ -322,10 +322,10 @@
       </label>
 
       <div class="field">
-        <span>Sources (agency IDs — parent agencies with Skill Builders program)</span>
+        <span>Sources (agencies or program organizations with registration-eligible events)</span>
         <div class="pmp-source-pick">
           <select v-model="pickSourceType" class="filters-input">
-            <option value="agency">Agency (Skill Builders program under that agency)</option>
+            <option value="agency">Agency (all affiliated program events under that agency)</option>
             <option value="organization">Program organization id (merge all events with that organization_id)</option>
           </select>
           <select v-model="pickAgencyId" class="filters-input">

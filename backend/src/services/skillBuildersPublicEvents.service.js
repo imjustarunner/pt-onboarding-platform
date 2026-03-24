@@ -1,13 +1,16 @@
 import { geocodeAddressWithGoogle } from './googleGeocode.service.js';
 import { drivingDistancesFromOrigin } from './googleDistanceMatrix.service.js';
 
-/** Only events guardians/public can actually register for (catalog + active smart_registration link). */
+/**
+ * Only events guardians/public can actually register for.
+ * Accepts any active intake link locked to the event: smart_registration, or intake with a
+ * registration step (company_event_id binding is the authoritative signal).
+ */
 export const PUBLIC_REGISTRATION_SQL = `ce.registration_eligible = 1
        AND EXISTS (
          SELECT 1 FROM intake_links il
          WHERE il.company_event_id = ce.id
            AND il.is_active = 1
-           AND LOWER(COALESCE(il.form_type, '')) = 'smart_registration'
        )`;
 
 export const PUBLIC_EVENT_SELECT = `ce.id, ce.title, ce.description, ce.splash_content,
@@ -18,8 +21,9 @@ export const PUBLIC_EVENT_SELECT = `ce.id, ce.title, ce.description, ce.splash_c
        (SELECT il.public_key FROM intake_links il
         WHERE il.company_event_id = ce.id
           AND il.is_active = 1
-          AND LOWER(COALESCE(il.form_type, '')) = 'smart_registration'
-        ORDER BY il.id DESC
+        ORDER BY
+          CASE WHEN LOWER(COALESCE(il.form_type, '')) = 'smart_registration' THEN 0 ELSE 1 END,
+          il.id DESC
         LIMIT 1) AS registration_public_key`;
 
 export function formatPublicEvent(row, sessionLocations = []) {
