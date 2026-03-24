@@ -707,6 +707,32 @@ export const getMyAvailabilityPending = async (req, res, next) => {
       blocks: []
     };
     if (skillBuilderEligible) {
+      /** Map weekday -> school name(s) from slot assignments (for Skill Builder "departing from" auto-fill). */
+      let schoolDayMap = {};
+      try {
+        const [schoolRows] = await pool.execute(
+          `SELECT psa.day_of_week,
+                  GROUP_CONCAT(DISTINCT s.name ORDER BY s.name SEPARATOR ' / ') AS names
+           FROM provider_school_assignments psa
+           INNER JOIN agencies s ON s.id = psa.school_organization_id
+           INNER JOIN organization_affiliations oa
+             ON oa.organization_id = psa.school_organization_id
+            AND oa.agency_id = ?
+            AND (oa.is_active = TRUE OR oa.is_active IS NULL)
+           WHERE psa.provider_user_id = ?
+             AND (psa.is_active = TRUE OR psa.is_active IS NULL)
+           GROUP BY psa.day_of_week`,
+          [agencyId, providerId]
+        );
+        for (const r of schoolRows || []) {
+          const d = String(r.day_of_week || '').trim();
+          const n = String(r.names || '').trim();
+          if (d) schoolDayMap[d] = n;
+        }
+      } catch {
+        schoolDayMap = {};
+      }
+
       try {
         const [blockRows] = await pool.execute(
           `SELECT day_of_week, block_type, start_time, end_time, depart_from, depart_time, is_booked
@@ -761,7 +787,8 @@ export const getMyAvailabilityPending = async (req, res, next) => {
           programCreditItems,
           confirmations,
           needsConfirmation: confirmations.some((c) => !c.confirmedAt),
-          blocks
+          blocks,
+          schoolDayMap
         };
       } catch (e) {
         if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
@@ -769,6 +796,9 @@ export const getMyAvailabilityPending = async (req, res, next) => {
         } else {
           throw e;
         }
+      }
+      if (skillBuilder.eligible) {
+        skillBuilder.schoolDayMap = schoolDayMap;
       }
     }
 

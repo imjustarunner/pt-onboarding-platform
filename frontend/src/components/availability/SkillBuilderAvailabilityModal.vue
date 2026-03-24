@@ -67,19 +67,24 @@
               <label class="lbl">Availability blocks</label>
               <div class="slots">
                 <div v-for="(b, idx) in skillBuilderForm.blocks" :key="idx" class="slot-row">
-                  <select class="select" v-model="b.dayOfWeek">
+                  <select class="select" v-model="b.dayOfWeek" @change="onBlockDayChange(b)">
                     <option v-for="d in dayNames" :key="d" :value="d">{{ d }}</option>
                   </select>
                   <select class="select" v-model="b.blockType">
-                    <option value="AFTER_SCHOOL">After school (usually 3:00–4:30, subject to change)</option>
-                    <option value="WEEKEND">Weekend (12:00–3:00)</option>
-                    <option value="CUSTOM">Custom</option>
+                    <option v-for="opt in blockTypeOptionsForDay(b.dayOfWeek)" :key="opt.value" :value="opt.value">
+                      {{ opt.label }}
+                    </option>
                   </select>
                   <template v-if="b.blockType === 'CUSTOM'">
                     <input class="input" v-model="b.startTime" placeholder="HH:MM" />
                     <input class="input" v-model="b.endTime" placeholder="HH:MM" />
                   </template>
-                  <input class="input" v-model="b.departFrom" placeholder="Departing from (required)" />
+                  <input
+                    class="input"
+                    v-model="b.departFrom"
+                    placeholder="Departing from school, Home, or other (required)"
+                    @input="onDepartFromInput(b)"
+                  />
                   <input class="input" v-model="b.departTime" type="time" placeholder="Depart time (optional)" />
                   <label class="chk" style="display:flex; align-items:center; gap:6px; margin: 0 6px;">
                     <input type="checkbox" v-model="b.isBooked" />
@@ -140,39 +145,7 @@ const pending = reactive({
 
 const dayNames = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
-const skillBuilderProgramHours = computed(() => Number(pending.skillBuilder?.programCreditHoursPerWeek || 0));
-const skillBuilderBlockHours = computed(() => {
-  const sb = pending.skillBuilder;
-  if (!sb?.eligible) return 0;
-  if (sb.blockHoursPerWeek != null && sb.blockHoursPerWeek !== undefined) return Number(sb.blockHoursPerWeek);
-  const total = Number(sb.totalHoursPerWeek || 0);
-  const prog = Number(sb.programCreditHoursPerWeek || 0);
-  return Math.max(0, Math.round((total - prog) * 100) / 100);
-});
-const skillBuilderCombinedHours = computed(() => skillBuilderProgramHours.value + skillBuilderBlockHours.value);
-
-const skillBuilderForm = reactive({
-  blocks: [
-    { dayOfWeek: 'Monday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '', departFrom: '', departTime: '', isBooked: false },
-    { dayOfWeek: 'Wednesday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '', departFrom: '', departTime: '', isBooked: false },
-    { dayOfWeek: 'Friday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '', departFrom: '', departTime: '', isBooked: false }
-  ]
-});
-
-const addSkillBuilderBlock = () => {
-  skillBuilderForm.blocks.push({
-    dayOfWeek: 'Monday',
-    blockType: 'AFTER_SCHOOL',
-    startTime: '',
-    endTime: '',
-    departFrom: '',
-    departTime: '',
-    isBooked: false
-  });
-};
-const removeSkillBuilderBlock = (idx) => {
-  skillBuilderForm.blocks.splice(idx, 1);
-};
+const weekendDays = new Set(['Saturday', 'Sunday']);
 
 const minutesForSkillBlock = (b) => {
   const t = String(b?.blockType || '').toUpperCase();
@@ -189,6 +162,109 @@ const minutesForSkillBlock = (b) => {
   const c = eh * 60 + em;
   return c > a ? (c - a) : 0;
 };
+
+function blockTypeOptionsForDay(day) {
+  const d = String(day || '');
+  if (weekendDays.has(d)) {
+    return [
+      { value: 'WEEKEND', label: 'Weekend (12:00–3:00)' },
+      { value: 'CUSTOM', label: 'Custom' }
+    ];
+  }
+  return [
+    { value: 'AFTER_SCHOOL', label: 'After school (usually 3:00–4:30, subject to change)' },
+    { value: 'CUSTOM', label: 'Custom' }
+  ];
+}
+
+function isWeekendDay(day) {
+  return weekendDays.has(String(day || ''));
+}
+
+function syncBlockTypeForDay(b) {
+  const opts = blockTypeOptionsForDay(b.dayOfWeek);
+  const allowed = new Set(opts.map((o) => o.value));
+  if (!allowed.has(String(b.blockType || ''))) {
+    b.blockType = isWeekendDay(b.dayOfWeek) ? 'WEEKEND' : 'AFTER_SCHOOL';
+  }
+}
+
+const schoolDayMapComputed = computed(() => {
+  const m = pending.skillBuilder?.schoolDayMap;
+  return m && typeof m === 'object' ? m : {};
+});
+
+function suggestedDepartForDay(day) {
+  const name = String(schoolDayMapComputed.value[String(day || '')] || '').trim();
+  return name || 'Home';
+}
+
+function applySuggestedDepartIfNeeded(b) {
+  if (b.departFromManuallyEdited) return;
+  b.departFrom = suggestedDepartForDay(b.dayOfWeek);
+}
+
+function onBlockDayChange(b) {
+  syncBlockTypeForDay(b);
+  applySuggestedDepartIfNeeded(b);
+}
+
+function onDepartFromInput(b) {
+  b.departFromManuallyEdited = true;
+}
+
+function newSkillBuilderBlockRow(overrides = {}) {
+  const dayOfWeek = overrides.dayOfWeek || 'Monday';
+  const row = {
+    dayOfWeek,
+    blockType: isWeekendDay(dayOfWeek) ? 'WEEKEND' : 'AFTER_SCHOOL',
+    startTime: '',
+    endTime: '',
+    departFrom: '',
+    departTime: '',
+    isBooked: false,
+    departFromManuallyEdited: false,
+    ...overrides
+  };
+  syncBlockTypeForDay(row);
+  if (String(row.departFrom || '').trim()) {
+    row.departFromManuallyEdited = true;
+  } else {
+    row.departFromManuallyEdited = false;
+    row.departFrom = suggestedDepartForDay(row.dayOfWeek);
+  }
+  return row;
+}
+
+function blocksForApiSubmit() {
+  return (skillBuilderForm.blocks || []).map((b) => {
+    const { departFromManuallyEdited: _x, ...rest } = b;
+    return rest;
+  });
+}
+
+const skillBuilderForm = reactive({
+  blocks: [
+    newSkillBuilderBlockRow({ dayOfWeek: 'Monday' }),
+    newSkillBuilderBlockRow({ dayOfWeek: 'Wednesday' }),
+    newSkillBuilderBlockRow({ dayOfWeek: 'Friday' })
+  ]
+});
+
+const addSkillBuilderBlock = () => {
+  skillBuilderForm.blocks.push(newSkillBuilderBlockRow({ dayOfWeek: 'Monday' }));
+};
+const removeSkillBuilderBlock = (idx) => {
+  skillBuilderForm.blocks.splice(idx, 1);
+};
+
+const skillBuilderProgramHours = computed(() => Number(pending.skillBuilder?.programCreditHoursPerWeek || 0));
+const skillBuilderBlockHours = computed(() => {
+  if (!pending.skillBuilder?.eligible) return 0;
+  const mins = (skillBuilderForm.blocks || []).reduce((sum, b) => sum + minutesForSkillBlock(b), 0);
+  return Math.round((mins / 60) * 100) / 100;
+});
+const skillBuilderCombinedHours = computed(() => skillBuilderProgramHours.value + skillBuilderBlockHours.value);
 
 const skillBuilderValidationError = computed(() => {
   if (!pending.skillBuilder?.eligible) return '';
@@ -221,15 +297,17 @@ const refresh = async () => {
     if (pending.skillBuilder?.eligible) {
       const saved = Array.isArray(pending.skillBuilder.blocks) ? pending.skillBuilder.blocks : [];
       if (saved.length) {
-        skillBuilderForm.blocks = saved.map((b) => ({
-          dayOfWeek: b.dayOfWeek,
-          blockType: b.blockType,
-          startTime: b.startTime || '',
-          endTime: b.endTime || '',
-          departFrom: b.departFrom || '',
-          departTime: b.departTime || '',
-          isBooked: !!b.isBooked
-        }));
+        skillBuilderForm.blocks = saved.map((b) =>
+          newSkillBuilderBlockRow({
+            dayOfWeek: b.dayOfWeek,
+            blockType: b.blockType,
+            startTime: b.startTime || '',
+            endTime: b.endTime || '',
+            departFrom: b.departFrom || '',
+            departTime: b.departTime || '',
+            isBooked: !!b.isBooked
+          })
+        );
       }
     }
   } catch (e) {
@@ -251,7 +329,7 @@ const submitSkillBuilder = async () => {
     error.value = '';
     await api.post('/availability/me/skill-builder/submit', {
       ...buildParams(),
-      blocks: skillBuilderForm.blocks
+      blocks: blocksForApiSubmit()
     });
     await refresh();
   } catch (e) {
@@ -297,6 +375,21 @@ const onOverlayBackdropClick = () => {
 };
 
 onMounted(refresh);
+
+watch(
+  () => pending.skillBuilder?.schoolDayMap,
+  () => {
+    if (!pending.skillBuilder?.eligible) return;
+    for (const b of skillBuilderForm.blocks || []) {
+      if (b.departFromManuallyEdited) continue;
+      const sug = suggestedDepartForDay(b.dayOfWeek);
+      if (!sug || sug === 'Home') continue;
+      const cur = String(b.departFrom || '').trim();
+      if (!cur || cur === 'Home') b.departFrom = sug;
+    }
+  },
+  { deep: true }
+);
 
 watch(
   () => props.agencyId,
