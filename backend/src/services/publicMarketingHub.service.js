@@ -85,15 +85,22 @@ export async function loadHubPublicEvents(conn, sources) {
     let meta = { sourceAgencyId: sid, sourceAgencyName: '', sourceAgencySlug: '' };
 
     if (st === 'agency') {
-      const programOrgIds = await listAffiliatedProgramOrganizationIds(conn, sid);
       const [agRows] = await conn.execute(
-        `SELECT id, name, slug FROM agencies WHERE id = ? LIMIT 1`,
+        `SELECT id, name, slug, LOWER(COALESCE(organization_type, 'agency')) AS org_type FROM agencies WHERE id = ? LIMIT 1`,
         [sid]
       );
       const ag = agRows?.[0];
       meta.sourceAgencyName = String(ag?.name || '').trim() || `Agency ${sid}`;
       meta.sourceAgencySlug = String(ag?.slug || '').trim().toLowerCase() || '';
-      batch = await loadPublicAgencyHubEventRows(conn, sid, programOrgIds);
+      const orgType = String(ag?.org_type || 'agency');
+
+      if (orgType === 'program') {
+        meta.sourceOrganizationId = sid;
+        batch = await loadPublicProgramEventRowsMerged(conn, sid);
+      } else {
+        const programOrgIds = await listAffiliatedProgramOrganizationIds(conn, sid);
+        batch = await loadPublicAgencyHubEventRows(conn, sid, programOrgIds);
+      }
     } else if (st === 'organization') {
       const [orgRows] = await conn.execute(
         `SELECT id, name, slug FROM agencies WHERE id = ? LIMIT 1`,
