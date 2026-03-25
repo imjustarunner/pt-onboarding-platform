@@ -2,6 +2,7 @@ import { validationResult } from 'express-validator';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import User from '../models/User.model.js';
+import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
 
 function safeJson(value, fallback = null) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -195,7 +196,12 @@ export const listMyGuardianClients = async (req, res, next) => {
     const uid = req.user?.id;
     if (!uid) return res.status(401).json({ error: { message: 'Unauthorized' } });
     const rows = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid });
-    res.json(rows);
+    res.json(
+      (rows || []).map((c) => ({
+        ...c,
+        guardian_portal_locked: isDobAdultLocked(c?.date_of_birth)
+      }))
+    );
   } catch (e) {
     next(e);
   }

@@ -53,6 +53,7 @@ import {
   sendClientSchoolRoiSigningEmail
 } from '../controllers/clientSchoolRoiAccess.controller.js';
 import { listClientGuardians, upsertClientGuardian, updateClientGuardian, removeClientGuardian } from '../controllers/clientGuardian.controller.js';
+import { getClientGuardianWaiverAudit } from '../controllers/guardianWaiver.controller.js';
 import { authenticate, requireBackofficeAdmin, requireGuardianListAccess } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -102,6 +103,9 @@ router.get('/:id/history', getClientHistory);
 
 // Get paperwork/document history (agency-only)
 router.get('/:id/paperwork-history', getClientPaperworkHistory);
+
+// Guardian waiver audit (admin/backoffice)
+router.get('/:id/guardian-waiver-audit', requireBackofficeAdmin, getClientGuardianWaiverAudit);
 
 // Create paperwork/document history entry (agency-only)
 router.post('/:id/paperwork-history', createClientPaperworkHistory);

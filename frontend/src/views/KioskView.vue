@@ -61,8 +61,19 @@
         <h3>Guardian Check-in — Select Client</h3>
         <div v-if="loadingGuardianClients" class="loading">Loading clients…</div>
         <div v-else class="grid">
-          <button v-for="c in guardianClients" :key="c.id" class="pick" @click="selectedGuardianClient = c; guardianStep = 4">
-            <div style="font-weight: 800;">{{ c.display_name || c.initials || `Client ${c.id}` }}</div>
+          <button
+            v-for="c in guardianClients"
+            :key="c.id"
+            type="button"
+            class="pick"
+            :disabled="c.guardian_portal_locked"
+            :title="c.guardian_portal_locked ? 'Check-in does not use guardian waivers for adults 18+.' : ''"
+            @click="selectGuardianClientForCheckin(c)"
+          >
+            <div style="font-weight: 800;">
+              {{ c.display_name || c.initials || `Client ${c.id}` }}
+              <span v-if="c.guardian_portal_locked" class="muted small"> (18+)</span>
+            </div>
           </button>
         </div>
         <button class="btn btn-secondary" style="margin-top: 12px;" @click="guardianStep = 2">Back</button>
@@ -72,11 +83,11 @@
         <h3>Check In or Check Out</h3>
         <p>Client: {{ selectedGuardianClient?.display_name || selectedGuardianClient?.initials }}</p>
         <div class="mode-buttons">
-          <button type="button" class="mode-btn" @click="guardianCheckIn = true; guardianStep = 5">
+          <button type="button" class="mode-btn" @click="beginGuardianCheckInFlow(true)">
             <span class="mode-icon">▶</span>
             <span class="mode-label">Check In</span>
           </button>
-          <button type="button" class="mode-btn" @click="guardianCheckIn = false; guardianStep = 5">
+          <button type="button" class="mode-btn" @click="beginGuardianCheckInFlow(false)">
             <span class="mode-icon">⏹</span>
             <span class="mode-label">Check Out</span>
           </button>
@@ -84,8 +95,51 @@
         <button class="btn btn-secondary" style="margin-top: 12px;" @click="guardianStep = 3">Back</button>
       </div>
 
+      <div v-else-if="mode === 'guardian' && guardianStep === 45" class="step">
+        <h3>Review waivers</h3>
+        <p class="muted">
+          Confirm the details on file for
+          {{ selectedGuardianClient?.display_name || selectedGuardianClient?.initials }}.
+        </p>
+        <div v-if="guardianWaiverLoading" class="loading">Loading…</div>
+        <template v-else>
+          <div v-for="entry in kioskWaiverDisplayList" :key="entry.key" class="gw-kiosk-section">
+            <h4>{{ waiverMissingLabel(entry.key) }}</h4>
+            <ul v-if="entry.lines.length" class="gw-kiosk-lines">
+              <li v-for="(line, idx) in entry.lines" :key="idx">{{ line }}</li>
+            </ul>
+            <p v-else class="muted small">No details entered for this section.</p>
+            <button type="button" class="btn btn-secondary btn-sm" @click="openKioskWaiverEdit(entry.key)">
+              Edit section
+            </button>
+          </div>
+          <div class="actions" style="margin-top: 16px;">
+            <button type="button" class="btn btn-secondary" @click="guardianStep = 4">Back</button>
+            <button type="button" class="btn btn-primary" @click="guardianStep = 5">Confirm all and continue</button>
+          </div>
+        </template>
+      </div>
+
+      <div v-else-if="mode === 'guardian' && guardianStep === 10" class="step">
+        <h3>Waivers required</h3>
+        <p class="subtitle">
+          This program requires guardian waivers on file before check-in. Complete them in the guardian portal (phone or computer), then return to the kiosk.
+        </p>
+        <div v-if="guardianWaiverLoading" class="loading">Checking waivers…</div>
+        <template v-else>
+          <ul v-if="(guardianWaiverStatus?.missing || []).length" class="gw-missing-list">
+            <li v-for="m in guardianWaiverStatus.missing" :key="m">{{ waiverMissingLabel(m) }}</li>
+          </ul>
+          <p v-else class="muted">Unable to load waiver status. Try again or ask staff for help.</p>
+        </template>
+        <button class="btn btn-secondary" style="margin-top: 12px;" @click="guardianStep = 4">Back</button>
+      </div>
+
       <div v-else-if="mode === 'guardian' && guardianStep === 5" class="step">
         <h3>Confirm</h3>
+        <p v-if="guardianCheckIn && guardianWaiverStatus?.enabled && guardianWaiverStatus?.complete" class="muted" style="margin-bottom: 10px;">
+          Waivers on file — confirming check-in.
+        </p>
         <p>{{ guardianCheckIn ? 'Check in' : 'Check out' }} for {{ selectedGuardianClient?.display_name || selectedGuardianClient?.initials }}?</p>
         <div class="actions">
           <button class="btn btn-secondary" @click="guardianStep = 4">Back</button>
@@ -389,6 +443,34 @@
         <button class="btn btn-primary" @click="reset(); selectMode(null)">Start Over</button>
       </div>
     </div>
+
+    <div v-if="kioskWaiverEditOpen" class="kiosk-modal-overlay" @click.self="closeKioskWaiverEdit">
+      <div class="kiosk-modal" @click.stop>
+        <h3 style="margin-top: 0;">Edit {{ waiverMissingLabel(kioskWaiverEditKey) }}</h3>
+        <component
+          :is="kioskWaiverFieldComponent"
+          v-if="kioskWaiverFieldComponent"
+          v-model="kioskWaiverDraft"
+        />
+        <div class="kiosk-waiver-checks">
+          <label class="checkbox-row">
+            <input v-model="kioskWaiverConsent" type="checkbox" />
+            <span>I have read this section and consent to sign.</span>
+          </label>
+          <label class="checkbox-row">
+            <input v-model="kioskWaiverIntent" type="checkbox" />
+            <span>I intend my electronic signature to have the same effect as a handwritten signature.</span>
+          </label>
+        </div>
+        <SignaturePad compact @signed="(d) => (kioskWaiverSig = d)" />
+        <div class="actions">
+          <button type="button" class="btn btn-secondary" @click="closeKioskWaiverEdit">Cancel</button>
+          <button type="button" class="btn btn-primary" :disabled="kioskWaiverSaving" @click="saveKioskWaiverEdit">
+            {{ kioskWaiverSaving ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -396,6 +478,12 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
+import SignaturePad from '../components/SignaturePad.vue';
+import GwvFieldsEsign from './guardian/waivers/GwvFieldsEsign.vue';
+import GwvFieldsPickup from './guardian/waivers/GwvFieldsPickup.vue';
+import GwvFieldsEmergency from './guardian/waivers/GwvFieldsEmergency.vue';
+import GwvFieldsAllergies from './guardian/waivers/GwvFieldsAllergies.vue';
+import GwvFieldsMeals from './guardian/waivers/GwvFieldsMeals.vue';
 
 const props = defineProps({
   /** When provided (e.g. from KioskAppView), overrides route param */
@@ -467,6 +555,177 @@ const guardianStep = ref(1);
 const guardianCheckIn = ref(true);
 const loadingGuardians = ref(false);
 const loadingGuardianClients = ref(false);
+
+const guardianWaiverStatus = ref(null);
+const guardianWaiverLoading = ref(false);
+
+const WAIVER_MISSING_LABELS = {
+  esignature_consent: 'Electronic signature consent',
+  pickup_authorization: 'Pickup authorization',
+  emergency_contacts: 'Emergency contacts',
+  allergies_snacks: 'Allergies & snacks',
+  meal_preferences: 'Meal preferences'
+};
+
+function waiverMissingLabel(k) {
+  return WAIVER_MISSING_LABELS[k] || k;
+}
+
+async function loadGuardianWaiverStatus() {
+  const lid = locationId.value;
+  const g = selectedGuardian.value;
+  const c = selectedGuardianClient.value;
+  const s = selectedGuardianSite.value;
+  if (!lid || !g?.id || !c?.id || !s?.id) return;
+  guardianWaiverLoading.value = true;
+  guardianWaiverStatus.value = null;
+  try {
+    const { data } = await api.get(`/kiosk/${lid}/guardian-waiver-status`, {
+      params: { siteId: s.id, guardianUserId: g.id, clientId: c.id },
+      skipGlobalLoading: true
+    });
+    guardianWaiverStatus.value = data;
+  } catch {
+    guardianWaiverStatus.value = { enabled: false, complete: true, missing: [] };
+  } finally {
+    guardianWaiverLoading.value = false;
+  }
+}
+
+async function beginGuardianCheckInFlow(incomingCheckIn) {
+  guardianCheckIn.value = incomingCheckIn;
+  if (!incomingCheckIn) {
+    guardianStep.value = 5;
+    return;
+  }
+  await loadGuardianWaiverStatus();
+  const st = guardianWaiverStatus.value;
+  if (st?.enabled && !st?.complete) {
+    guardianStep.value = 10;
+    return;
+  }
+  if (st?.enabled && st?.complete && !st?.adultLocked) {
+    guardianStep.value = 45;
+    return;
+  }
+  guardianStep.value = 5;
+}
+
+const kioskWaiverEditOpen = ref(false);
+const kioskWaiverEditKey = ref('');
+const kioskWaiverDraft = ref({});
+const kioskWaiverConsent = ref(false);
+const kioskWaiverIntent = ref(false);
+const kioskWaiverSig = ref('');
+const kioskWaiverSaving = ref(false);
+
+const KIOSK_WAIVER_FIELDS = {
+  esignature_consent: GwvFieldsEsign,
+  pickup_authorization: GwvFieldsPickup,
+  emergency_contacts: GwvFieldsEmergency,
+  allergies_snacks: GwvFieldsAllergies,
+  meal_preferences: GwvFieldsMeals
+};
+
+function defaultKioskWaiverPayload(key) {
+  switch (key) {
+    case 'esignature_consent':
+      return { consented: false, understoodElectronicRecords: false };
+    case 'pickup_authorization':
+      return { authorizedPickups: [{ name: '', relationship: '', phone: '' }] };
+    case 'emergency_contacts':
+      return { contacts: [{ name: '', phone: '', relationship: '' }] };
+    case 'allergies_snacks':
+      return { allergies: '', approvedSnacks: '', notes: '' };
+    case 'meal_preferences':
+      return { allowedMeals: '', restrictedMeals: '', notes: '' };
+    default:
+      return {};
+  }
+}
+
+const kioskWaiverFieldComponent = computed(() => KIOSK_WAIVER_FIELDS[kioskWaiverEditKey.value] || null);
+
+const kioskWaiverDisplayList = computed(() => {
+  const d = guardianWaiverStatus.value?.sectionDisplay;
+  if (!d || typeof d !== 'object') return [];
+  return Object.keys(d).map((key) => ({
+    key,
+    lines: Array.isArray(d[key]?.lines) ? d[key].lines : []
+  }));
+});
+
+function selectGuardianClientForCheckin(c) {
+  if (c?.guardian_portal_locked) return;
+  selectedGuardianClient.value = c;
+  guardianStep.value = 4;
+}
+
+function openKioskWaiverEdit(key) {
+  kioskWaiverEditKey.value = key;
+  const sec = guardianWaiverStatus.value?.sections?.[key];
+  const raw = sec?.payload && typeof sec.payload === 'object' ? sec.payload : null;
+  kioskWaiverDraft.value = raw ? JSON.parse(JSON.stringify(raw)) : defaultKioskWaiverPayload(key);
+  kioskWaiverConsent.value = false;
+  kioskWaiverIntent.value = false;
+  kioskWaiverSig.value = '';
+  kioskWaiverEditOpen.value = true;
+}
+
+function closeKioskWaiverEdit() {
+  kioskWaiverEditOpen.value = false;
+}
+
+async function saveKioskWaiverEdit() {
+  const key = kioskWaiverEditKey.value;
+  if (!key || !kioskWaiverConsent.value || !kioskWaiverIntent.value) {
+    error.value = 'Check both boxes and sign to save.';
+    return;
+  }
+  const sig = String(kioskWaiverSig.value || '').trim();
+  if (sig.length < 80) {
+    error.value = 'Signature is required.';
+    return;
+  }
+  if (key === 'esignature_consent') {
+    const p = kioskWaiverDraft.value || {};
+    if (!p.consented || !p.understoodElectronicRecords) {
+      error.value = 'Complete e-sign consent checkboxes in the form.';
+      return;
+    }
+  }
+  const g = selectedGuardian.value;
+  const c = selectedGuardianClient.value;
+  const s = selectedGuardianSite.value;
+  const lid = locationId.value;
+  if (!g?.id || !c?.id || !s?.id || !lid) return;
+  const sec = guardianWaiverStatus.value?.sections?.[key];
+  const action = sec?.status === 'active' ? 'update' : 'create';
+  kioskWaiverSaving.value = true;
+  error.value = '';
+  try {
+    await api.post(`/kiosk/${lid}/guardian-waiver-section`, {
+      guardianUserId: g.id,
+      clientId: c.id,
+      siteId: s.id,
+      sectionKey: key,
+      payload: kioskWaiverDraft.value,
+      signatureData: sig,
+      consentAcknowledged: true,
+      intentToSign: true,
+      action
+    });
+    await loadGuardianWaiverStatus();
+    if (guardianWaiverStatus.value?.enabled && !guardianWaiverStatus.value?.complete) {
+      guardianStep.value = 10;
+    }
+    closeKioskWaiverEdit();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Save failed';
+  } finally {
+    kioskWaiverSaving.value = false;
+  }
+}
 
 const step = ref(1);
 const loading = ref(false);
@@ -873,7 +1132,19 @@ const submitGuardianCheckin = async () => {
     });
     guardianStep.value = 6;
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to record check-in';
+    const err = e.response?.data?.error;
+    if (e.response?.status === 409 && err?.code === 'GUARDIAN_WAIVERS_INCOMPLETE') {
+      guardianWaiverStatus.value = {
+        enabled: true,
+        complete: false,
+        missing: err.missing || [],
+        requiredKeys: err.requiredKeys || []
+      };
+      guardianStep.value = 10;
+      error.value = '';
+    } else {
+      error.value = err?.message || 'Failed to record check-in';
+    }
   } finally {
     saving.value = false;
   }
@@ -887,6 +1158,9 @@ const resetGuardian = () => {
   selectedGuardianClient.value = null;
   guardians.value = [];
   guardianClients.value = [];
+  guardianWaiverStatus.value = null;
+  guardianWaiverLoading.value = false;
+  closeKioskWaiverEdit();
   loadProgramSites();
 };
 
@@ -1028,6 +1302,61 @@ input, select {
   font-size: 18px;
   letter-spacing: 4px;
   text-align: center;
+}
+.gw-missing-list {
+  margin: 12px 0;
+  padding-left: 20px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.gw-kiosk-section {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+  text-align: left;
+}
+.gw-kiosk-lines {
+  margin: 8px 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.kiosk-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 80;
+  padding: 16px;
+}
+.kiosk-modal {
+  background: var(--bg, #fff);
+  border-radius: 12px;
+  max-width: 520px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 16px;
+  text-align: left;
+}
+.kiosk-waiver-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 14px;
+}
+.checkbox-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.pick:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 </style>
 

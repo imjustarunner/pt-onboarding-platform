@@ -10,6 +10,9 @@ import {
 } from '../services/skillBuildersIntakeEnrollment.service.js';
 import StorageService from '../services/storage.service.js';
 import { loadSessionCurriculumRow } from '../services/skillBuildersSessionClinical.service.js';
+import IntakeSubmissionDocument from '../models/IntakeSubmissionDocument.model.js';
+import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
+import { isClientAdultLockedForGuardian } from '../services/guardianWaivers.service.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
@@ -30,6 +33,14 @@ function getOrgSlug(org) {
   return String(org?.portal_url || org?.slug || '').trim() || null;
 }
 
+function enrichGuardianClientRow(c) {
+  if (!c || typeof c !== 'object') return c;
+  return {
+    ...c,
+    guardian_portal_locked: isDobAdultLocked(c.date_of_birth)
+  };
+}
+
 /**
  * GET /api/guardian-portal/overview
  *
@@ -46,8 +57,15 @@ export const getGuardianPortalOverview = async (req, res, next) => {
       ClientGuardian.listClientsForGuardian({ guardianUserId: uid }),
       User.getAgencies(uid)
     ]);
-    const me = (linkedClients || []).find((c) => String(c?.relationship_type || '').toLowerCase() === 'self') || null;
-    const dependents = (linkedClients || []).filter((c) => String(c?.relationship_type || '').toLowerCase() !== 'self');
+    const meRaw = (linkedClients || []).find((c) => String(c?.relationship_type || '').toLowerCase() === 'self') || null;
+    const me = meRaw ? enrichGuardianClientRow(meRaw) : null;
+    const dependents = (linkedClients || [])
+      .filter((c) => String(c?.relationship_type || '').toLowerCase() !== 'self')
+      .map(enrichGuardianClientRow);
+
+    const clientMetaById = new Map(
+      (linkedClients || []).map((row) => [Number(row?.client_id), row])
+    );
 
     // Explicit org memberships (via user_agencies). Keep only portal org types.
     const explicitOrgs = (explicitOrgsRaw || []).filter((o) => isPortalOrgType(o?.organization_type));
@@ -82,10 +100,12 @@ export const getGuardianPortalOverview = async (req, res, next) => {
       }
 
       const target = byOrgId.get(orgId);
+      const meta = clientMetaById.get(Number(c?.client_id));
       target.children.push({
         client_id: Number(c?.client_id) || null,
         initials: c?.initials || null,
-        full_name: c?.full_name ? String(c.full_name).trim() || null : null
+        full_name: c?.full_name ? String(c.full_name).trim() || null : null,
+        guardian_portal_locked: isDobAdultLocked(meta?.date_of_birth)
       });
     }
 
@@ -717,6 +737,70 @@ export const guardianEnrollLearningClass = async (req, res, next) => {
     }
 
     res.json({ ok: true, results });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/guardian-portal/clients/:clientId/intake-documents
+ * Signed PDFs from intake submissions for this child (guardian must match submission).
+ */
+export const listMyClientIntakeSignedDocuments = async (req, res, next) => {
+  try {
+    const uid = req.user?.id;
+    if (!uid) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    const clientId = parsePositiveInt(req.params.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    if (await isClientAdultLockedForGuardian(clientId)) {
+      return res.status(403).json({
+        error: { message: 'Not available for this client.', code: 'GUARDIAN_ADULT_CLIENT' }
+      });
+    }
+    const rows = await IntakeSubmissionDocument.listSignedForGuardianClient({
+      guardianUserId: uid,
+      clientId
+    });
+    res.json({ documents: rows || [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/guardian-portal/clients/:clientId/intake-documents/:documentId/download-url
+ */
+export const getMyClientIntakeSignedDocumentDownloadUrl = async (req, res, next) => {
+  try {
+    const uid = req.user?.id;
+    if (!uid) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    const clientId = parsePositiveInt(req.params.clientId);
+    const documentId = parsePositiveInt(req.params.documentId);
+    if (!clientId || !documentId) {
+      return res.status(400).json({ error: { message: 'clientId and documentId are required' } });
+    }
+    if (await isClientAdultLockedForGuardian(clientId)) {
+      return res.status(403).json({
+        error: { message: 'Not available for this client.', code: 'GUARDIAN_ADULT_CLIENT' }
+      });
+    }
+
+    const doc = await IntakeSubmissionDocument.findById(documentId);
+    if (!doc || Number(doc.client_id) !== clientId || !doc.signed_pdf_path) {
+      return res.status(404).json({ error: { message: 'Document not found' } });
+    }
+
+    const [srows] = await pool.execute(
+      'SELECT guardian_user_id FROM intake_submissions WHERE id = ? LIMIT 1',
+      [doc.intake_submission_id]
+    );
+    if (Number(srows?.[0]?.guardian_user_id) !== Number(uid)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const url = await StorageService.getSignedUrl(doc.signed_pdf_path, 60 * 30);
+    const safeName = String(doc.signed_pdf_path || '').split('/').pop() || `intake-doc-${documentId}.pdf`;
+    res.json({ url, filename: safeName });
   } catch (e) {
     next(e);
   }

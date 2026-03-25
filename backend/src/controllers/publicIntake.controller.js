@@ -55,6 +55,7 @@ import {
   normalizeSmartSchoolRoiResponse,
   validateSmartSchoolRoiResponse
 } from '../services/smartSchoolRoi.service.js';
+import { persistIntakeGuardianWaiversFromFinalize } from '../services/guardianWaivers.service.js';
 
 const normalizeName = (name) => String(name || '').trim();
 const normalizeDateOnly = (value) => {
@@ -4566,6 +4567,25 @@ export const finalizePublicIntake = async (req, res, next) => {
       }
     }
 
+    try {
+      const latestSub = await IntakeSubmission.findById(submissionId);
+      const orderedClientIds = rawClients.map((c) => Number(c?.id || 0)).filter((id) => id > 0);
+      await persistIntakeGuardianWaiversFromFinalize({
+        link,
+        guardianUserId: latestSub?.guardian_user_id,
+        clientIdsOrdered: orderedClientIds,
+        intakeData,
+        payload: req.body || {},
+        ipAddress: getClientIpAddress(req),
+        userAgent: req.headers['user-agent'] || null
+      });
+    } catch (waiverPersistErr) {
+      console.error('[publicIntake] guardian waiver intake persist failed', {
+        submissionId,
+        message: waiverPersistErr?.message || waiverPersistErr
+      });
+    }
+
     if (!link.create_client && signedDocsOrdered.length > 0) {
       await notifyUnassignedDocuments({
         link,
@@ -5089,6 +5109,25 @@ export const submitPublicIntake = async (req, res, next) => {
           message: persistErr?.message
         });
       }
+    }
+
+    try {
+      const latestSub = await IntakeSubmission.findById(submissionId);
+      const orderedClientIds = rawClients.map((c) => Number(c?.id || 0)).filter((id) => id > 0);
+      await persistIntakeGuardianWaiversFromFinalize({
+        link,
+        guardianUserId: latestSub?.guardian_user_id,
+        clientIdsOrdered: orderedClientIds,
+        intakeData,
+        payload: req.body || {},
+        ipAddress: getClientIpAddress(req),
+        userAgent: req.headers['user-agent'] || null
+      });
+    } catch (waiverPersistErr) {
+      console.error('[publicIntake] guardian waiver intake persist failed (submit)', {
+        submissionId,
+        message: waiverPersistErr?.message || waiverPersistErr
+      });
     }
 
     if (!link.create_client && signedDocs.length > 0) {

@@ -154,7 +154,10 @@
               :key="c.client_id"
               type="button"
               class="rail-card"
-              :class="{ active: activePanel === 'child' && Number(selectedChildId) === Number(c.client_id) }"
+              :class="{
+                active: activePanel === 'child' && Number(selectedChildId) === Number(c.client_id),
+                'rail-card--locked': c.guardian_portal_locked
+              }"
               @click="openChild(c)"
             >
               <div class="rail-card-title">{{ childDisplayName(c) }}</div>
@@ -175,6 +178,18 @@
               <div class="rail-card-title">Documents</div>
               <div class="rail-card-sub">Forms and signatures</div>
             </button>
+            <router-link
+              v-if="!selectedChild?.guardian_portal_locked"
+              class="rail-card"
+              :to="guardianWaiversLink"
+            >
+              <div class="rail-card-title">Waivers &amp; safety</div>
+              <div class="rail-card-sub">Pickup, emergencies, allergies, meals</div>
+            </router-link>
+            <div v-else class="rail-card rail-card--locked" title="Not available for adults 18+">
+              <div class="rail-card-title">Waivers &amp; safety</div>
+              <div class="rail-card-sub">Unavailable (18+)</div>
+            </div>
             <button
               v-if="learningBillingVisible"
               type="button"
@@ -248,6 +263,10 @@
                 <div class="panel-subtitle">Details and daily notes for the selected child.</div>
               </div>
               <div v-if="selectedChild" class="child-panel-content">
+                <div v-if="selectedChild.guardian_portal_locked" class="locked-banner">
+                  This client is 18 or older. Guardian-managed waivers, intake documents, and related guardian actions are
+                  not available for privacy and compliance.
+                </div>
                 <div class="child-details">
                   <div v-if="selectedChildFullName" class="row">
                     <div class="label">Name</div>
@@ -274,6 +293,33 @@
                     <div class="value">{{ formatDocStatus(selectedChild.document_status) }}</div>
                   </div>
                 </div>
+
+                <div v-if="!selectedChild.guardian_portal_locked" class="intake-docs-block">
+                  <h4 style="margin: 20px 0 8px;">Intake documents</h4>
+                  <p class="hint" style="margin-bottom: 10px;">
+                    PDFs you signed on a digital intake form for this child (when the submission is tied to your guardian
+                    account).
+                  </p>
+                  <div v-if="intakeDocsLoading" class="hint">Loading…</div>
+                  <ul v-else-if="intakeSignedDocs.length" class="intake-docs-list">
+                    <li v-for="d in intakeSignedDocs" :key="d.id" class="intake-docs-row">
+                      <div>
+                        <div class="intake-doc-title">{{ d.document_template_name || 'Document' }}</div>
+                        <div class="muted small">{{ d.intake_link_title || 'Intake' }} · {{ formatIntakeSignedAt(d.signed_at) }}</div>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="intakeDocOpeningId === d.id"
+                        @click="openIntakeSignedDoc(d)"
+                      >
+                        {{ intakeDocOpeningId === d.id ? 'Opening…' : 'View' }}
+                      </button>
+                    </li>
+                  </ul>
+                  <p v-else class="hint">No intake-signed documents found for this child yet.</p>
+                </div>
+
                 <div class="guardian-checkin-hint">
                   <p class="hint" style="margin: 0; padding: 8px 10px; background: var(--bg-muted, #f0f4f8); border-radius: 6px;">
                     <strong>Program check-in:</strong> Use the kiosk at the front desk when you drop off or pick up.
@@ -534,6 +580,12 @@ function guardianEventLink(eventId) {
   if (slug && id) return `/${slug}/guardian/skill-builders/event/${id}`;
   return `/guardian/skill-builders/event/${id}`;
 }
+
+const guardianWaiversLink = computed(() => {
+  const slug = guardianPathSlug.value;
+  if (slug) return `/${slug}/guardian/waivers`;
+  return '/guardian/waivers';
+});
 
 const highlightEventId = computed(() => {
   const n = Number(route.query.highlight || 0);
@@ -883,7 +935,61 @@ watch(
 
 const openChild = (c) => {
   selectedChildId.value = Number(c?.client_id) || null;
-  activePanel.value = learningBillingVisible.value ? 'billing' : 'child';
+  if (learningBillingVisible.value && !c?.guardian_portal_locked) {
+    activePanel.value = 'billing';
+  } else {
+    activePanel.value = 'child';
+  }
+};
+
+const intakeSignedDocs = ref([]);
+const intakeDocsLoading = ref(false);
+const intakeDocOpeningId = ref(null);
+
+const formatIntakeSignedAt = (iso) => {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return '';
+  }
+};
+
+const loadIntakeSignedDocumentsForChild = async () => {
+  const id = Number(selectedChildId.value);
+  if (!id) {
+    intakeSignedDocs.value = [];
+    return;
+  }
+  const ch = (children.value || []).find((c) => Number(c.client_id) === id);
+  if (ch?.guardian_portal_locked) {
+    intakeSignedDocs.value = [];
+    return;
+  }
+  intakeDocsLoading.value = true;
+  try {
+    const { data } = await api.get(`/guardian-portal/clients/${id}/intake-documents`);
+    intakeSignedDocs.value = Array.isArray(data?.documents) ? data.documents : [];
+  } catch {
+    intakeSignedDocs.value = [];
+  } finally {
+    intakeDocsLoading.value = false;
+  }
+};
+
+const openIntakeSignedDoc = async (d) => {
+  const cid = Number(selectedChildId.value);
+  if (!cid || !d?.id) return;
+  intakeDocOpeningId.value = d.id;
+  try {
+    const { data } = await api.get(`/guardian-portal/clients/${cid}/intake-documents/${d.id}/download-url`);
+    const url = data?.url;
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  } catch {
+    // ignore
+  } finally {
+    intakeDocOpeningId.value = null;
+  }
 };
 
 const guardianNoteDate = ref('');
@@ -913,6 +1019,7 @@ const formatNoteTime = (dt) => {
 };
 
 watch(selectedChildId, (id) => {
+  void loadIntakeSignedDocumentsForChild();
   if (id) {
     guardianNoteDate.value = new Date().toISOString().slice(0, 10);
     loadGuardianDailyNotes();
@@ -1212,6 +1319,13 @@ onMounted(async () => {
   margin-bottom: 8px;
 }
 
+a.rail-card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  box-sizing: border-box;
+}
+
 .rail-card:hover {
   border-color: var(--primary);
   box-shadow: var(--shadow-sm);
@@ -1220,6 +1334,44 @@ onMounted(async () => {
 .rail-card.active {
   border-color: var(--primary);
   background: rgba(79, 70, 229, 0.06);
+}
+
+.rail-card--locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.locked-banner {
+  padding: 10px 12px;
+  background: var(--bg-muted, #f1f5f9);
+  border-radius: 8px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.intake-docs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.intake-docs-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.intake-doc-title {
+  font-weight: 600;
+  font-size: 14px;
 }
 
 .rail-card-coming-soon {

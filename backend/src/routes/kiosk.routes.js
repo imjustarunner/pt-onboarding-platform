@@ -19,6 +19,8 @@ import {
   kioskClockOut,
   listKioskGuardians,
   listKioskGuardianClients,
+  getKioskGuardianWaiverStatus,
+  postKioskGuardianWaiverSection,
   kioskGuardianCheckin,
   listKioskSkillBuilderEvents,
   listKioskSkillBuilderEventRoster,
@@ -44,6 +46,8 @@ router.get('/:locationId/program-staff', listKioskProgramStaff);
 router.post('/:locationId/identify-by-pin', identifyByPin);
 router.get('/:locationId/guardians', listKioskGuardians);
 router.get('/:locationId/guardian-clients', listKioskGuardianClients);
+router.get('/:locationId/guardian-waiver-status', getKioskGuardianWaiverStatus);
+router.post('/:locationId/guardian-waiver-section', postKioskGuardianWaiverSection);
 router.post('/:locationId/clock-in', kioskClockIn);
 router.post('/:locationId/clock-out', kioskClockOut);
 router.post('/:locationId/guardian-checkin', kioskGuardianCheckin);

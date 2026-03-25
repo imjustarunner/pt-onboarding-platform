@@ -11,8 +11,16 @@ import {
   listGuardianDependentsForAgency,
   listGuardianRegistrationCatalog,
   guardianEnrollCompanyEvent,
-  guardianEnrollLearningClass
+  guardianEnrollLearningClass,
+  listMyClientIntakeSignedDocuments,
+  getMyClientIntakeSignedDocumentDownloadUrl
 } from '../controllers/guardianPortal.controller.js';
+import {
+  getMyClientWaiverProfile,
+  postMyClientWaiverSectionCreate,
+  postMyClientWaiverSectionRevoke,
+  putMyClientWaiverSection
+} from '../controllers/guardianWaiver.controller.js';
 
 const router = express.Router();
 
@@ -28,6 +36,8 @@ router.use((req, res, next) => {
 });
 
 router.get('/clients', listMyGuardianClients);
+router.get('/clients/:clientId/intake-documents', listMyClientIntakeSignedDocuments);
+router.get('/clients/:clientId/intake-documents/:documentId/download-url', getMyClientIntakeSignedDocumentDownloadUrl);
 router.get('/overview', getGuardianPortalOverview);
 router.get('/skill-builders/events', listGuardianSkillBuilderEvents);
 router.get('/skill-builders/events/:eventId/detail', getGuardianSkillBuilderEventDetail);
@@ -39,6 +49,12 @@ router.get('/dependents', listGuardianDependentsForAgency);
 router.get('/registration/catalog', listGuardianRegistrationCatalog);
 router.post('/registration/company-events/:eventId/enroll', guardianEnrollCompanyEvent);
 router.post('/registration/learning-classes/:classId/enroll', guardianEnrollLearningClass);
+
+// Reusable guardian–client waivers (agency feature: guardianWaiversEnabled)
+router.get('/waivers/clients/:clientId', getMyClientWaiverProfile);
+router.post('/waivers/clients/:clientId/sections/:sectionKey', postMyClientWaiverSectionCreate);
+router.put('/waivers/clients/:clientId/sections/:sectionKey', putMyClientWaiverSection);
+router.post('/waivers/clients/:clientId/sections/:sectionKey/revoke', postMyClientWaiverSectionRevoke);
 
 export default router;
 

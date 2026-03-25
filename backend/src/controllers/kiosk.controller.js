@@ -11,6 +11,14 @@ import ModuleContent from '../models/ModuleContent.model.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import pool from '../config/database.js';
 import {
+  buildKioskWaiverSectionDisplay,
+  evaluateKioskGuardianWaiverGate,
+  isClientAdultLockedForGuardian,
+  recordKioskWaiverConfirmation,
+  upsertGuardianWaiverSection
+} from '../services/guardianWaivers.service.js';
+import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
+import {
   recordSkillBuilderEventClockIn,
   recordSkillBuilderEventClockOut
 } from '../services/skillBuildersEventKioskPunch.service.js';
@@ -697,6 +705,173 @@ export const listKioskGuardians = async (req, res, next) => {
   }
 };
 
+// Public: guardian waiver completeness for kiosk (program site + optional company event override)
+export const getKioskGuardianWaiverStatus = async (req, res, next) => {
+  try {
+    const { locationId } = req.params;
+    const guardianUserId = parseInt(req.query.guardianUserId, 10);
+    const clientId = parseInt(req.query.clientId, 10);
+    const siteId = parseInt(req.query.siteId, 10);
+    const companyEventId = req.query.companyEventId ? parseInt(req.query.companyEventId, 10) : null;
+    if (!guardianUserId || !clientId || !siteId) {
+      return res.status(400).json({ error: { message: 'guardianUserId, clientId, and siteId are required' } });
+    }
+
+    const loc = await OfficeLocation.findById(parseInt(locationId));
+    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+
+    const ProgramSite = (await import('../models/ProgramSite.model.js')).default;
+    const ClientGuardian = (await import('../models/ClientGuardian.model.js')).default;
+
+    const site = await ProgramSite.findById(siteId);
+    if (!site || site.office_location_id !== parseInt(locationId)) {
+      return res.status(404).json({ error: { message: 'Site not found at this location' } });
+    }
+
+    const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId });
+    const hasClient = (clients || []).some((c) => parseInt(c.client_id, 10) === clientId);
+    if (!hasClient) return res.status(403).json({ error: { message: 'Guardian is not linked to this client' } });
+
+    const gate = await evaluateKioskGuardianWaiverGate({
+      programSiteId: siteId,
+      guardianUserId,
+      clientId,
+      companyEventId: companyEventId || null
+    });
+
+    const sectionDisplay = gate.enabled
+      ? buildKioskWaiverSectionDisplay(gate.sections, gate.requiredKeys || [])
+      : null;
+
+    res.json({
+      enabled: gate.enabled,
+      complete: gate.complete,
+      missing: gate.missing,
+      requiredKeys: gate.requiredKeys,
+      adultLocked: gate.adultLocked === true,
+      sectionDisplay,
+      sections: gate.sections || {}
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+function formatKioskWaiverProfileRow(profile) {
+  if (!profile) return null;
+  let sections = profile.sections_json;
+  if (typeof sections === 'string') {
+    try {
+      sections = JSON.parse(sections);
+    } catch {
+      sections = {};
+    }
+  }
+  if (!sections || typeof sections !== 'object') sections = {};
+  return { id: profile.id, sections, updatedAt: profile.updated_at };
+}
+
+/** Public: update one waiver section from kiosk (same rules as guardian portal). */
+export const postKioskGuardianWaiverSection = async (req, res, next) => {
+  try {
+    const { locationId } = req.params;
+    const {
+      guardianUserId,
+      clientId,
+      siteId,
+      sectionKey,
+      payload,
+      signatureData,
+      consentAcknowledged,
+      intentToSign,
+      action,
+      companyEventId
+    } = req.body || {};
+
+    const gid = parseInt(guardianUserId, 10);
+    const cid = parseInt(clientId, 10);
+    const sid = parseInt(siteId, 10);
+    if (!gid || !cid || !sid) {
+      return res.status(400).json({ error: { message: 'guardianUserId, clientId, and siteId are required' } });
+    }
+
+    const loc = await OfficeLocation.findById(parseInt(locationId));
+    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+
+    const ProgramSite = (await import('../models/ProgramSite.model.js')).default;
+    const ClientGuardian = (await import('../models/ClientGuardian.model.js')).default;
+
+    const site = await ProgramSite.findById(sid);
+    if (!site || site.office_location_id !== parseInt(locationId)) {
+      return res.status(404).json({ error: { message: 'Site not found at this location' } });
+    }
+
+    if (await isClientAdultLockedForGuardian(cid)) {
+      return res.status(403).json({
+        error: { message: 'Not available for this client.', code: 'GUARDIAN_ADULT_CLIENT' }
+      });
+    }
+
+    const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId: gid });
+    const hasClient = (clients || []).some((c) => parseInt(c.client_id, 10) === cid);
+    if (!hasClient) return res.status(403).json({ error: { message: 'Guardian is not linked to this client' } });
+
+    const gateCtx = await evaluateKioskGuardianWaiverGate({
+      programSiteId: sid,
+      guardianUserId: gid,
+      clientId: cid,
+      companyEventId: companyEventId ? parseInt(companyEventId, 10) : null
+    });
+    if (!gateCtx.enabled) {
+      return res.status(403).json({ error: { message: 'Guardian waivers are not enabled for this program' } });
+    }
+
+    const act = String(action || 'update').toLowerCase();
+    if (act !== 'create' && act !== 'update') {
+      return res.status(400).json({ error: { message: 'action must be create or update' } });
+    }
+
+    const profile = await upsertGuardianWaiverSection({
+      guardianUserId: gid,
+      clientId: cid,
+      sectionKey: String(sectionKey || '').trim(),
+      payload,
+      action: act,
+      signatureData,
+      consentAcknowledged,
+      intentToSign,
+      ipAddress: req.ip || req.headers['x-forwarded-for']?.split?.(',')?.[0]?.trim() || null,
+      userAgent: req.headers['user-agent'] || null
+    });
+
+    const gateNext = await evaluateKioskGuardianWaiverGate({
+      programSiteId: sid,
+      guardianUserId: gid,
+      clientId: cid,
+      companyEventId: companyEventId ? parseInt(companyEventId, 10) : null
+    });
+
+    res.json({
+      profile: formatKioskWaiverProfileRow(profile),
+      gate: {
+        complete: gateNext.complete,
+        missing: gateNext.missing,
+        requiredKeys: gateNext.requiredKeys,
+        enabled: gateNext.enabled
+      },
+      sectionDisplay: gateNext.enabled
+        ? buildKioskWaiverSectionDisplay(gateNext.sections, gateNext.requiredKeys || [])
+        : null
+    });
+  } catch (e) {
+    const status = e.status || 500;
+    if (status >= 400 && status < 500) {
+      return res.status(status).json({ error: { message: e.message, code: e.code } });
+    }
+    next(e);
+  }
+};
+
 // Public: list clients for a guardian at a site
 export const listKioskGuardianClients = async (req, res, next) => {
   try {
@@ -723,7 +898,14 @@ export const listKioskGuardianClients = async (req, res, next) => {
     const programAgencyId = progRows?.[0]?.agency_id;
     const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId });
     const out = (clients || []).filter((c) => parseInt(c.agency_id, 10) === parseInt(programAgencyId, 10));
-    res.json(out.map((c) => ({ id: c.client_id, initials: c.initials, display_name: c.initials || `Client ${c.client_id}` })));
+    res.json(
+      out.map((c) => ({
+        id: c.client_id,
+        initials: c.initials,
+        display_name: c.full_name || c.initials || `Client ${c.client_id}`,
+        guardian_portal_locked: isDobAdultLocked(c.date_of_birth)
+      }))
+    );
   } catch (e) {
     next(e);
   }
@@ -764,7 +946,30 @@ export const kioskGuardianCheckin = async (req, res, next) => {
     const hasClient = (clients || []).some((c) => parseInt(c.client_id, 10) === cid);
     if (!hasClient) return res.status(403).json({ error: { message: 'Guardian is not linked to this client' } });
 
-    const punchType = checkIn ? 'guardian_check_in' : 'guardian_check_out';
+    const isCheckIn = checkIn === true || checkIn === 'true' || checkIn === 1 || checkIn === '1';
+    const companyEventId = req.body.companyEventId ? parseInt(req.body.companyEventId, 10) : null;
+
+    let gate = { enabled: false, complete: true, requiredKeys: [], sections: {} };
+    if (isCheckIn) {
+      gate = await evaluateKioskGuardianWaiverGate({
+        programSiteId: sid,
+        guardianUserId: gid,
+        clientId: cid,
+        companyEventId: companyEventId || null
+      });
+      if (gate.enabled && !gate.complete) {
+        return res.status(409).json({
+          error: {
+            message: 'Complete guardian waivers before check-in.',
+            code: 'GUARDIAN_WAIVERS_INCOMPLETE',
+            missing: gate.missing,
+            requiredKeys: gate.requiredKeys
+          }
+        });
+      }
+    }
+
+    const punchType = isCheckIn ? 'guardian_check_in' : 'guardian_check_out';
     const now = new Date();
     const punch = await ProgramTimePunch.create({
       programId: site.program_id,
@@ -775,6 +980,31 @@ export const kioskGuardianCheckin = async (req, res, next) => {
       kioskLocationId: parseInt(locationId),
       clientId: cid
     });
+
+    if (isCheckIn && gate.enabled && gate.complete) {
+      const [pr] = await pool.execute(
+        'SELECT * FROM guardian_client_waiver_profiles WHERE guardian_user_id = ? AND client_id = ? LIMIT 1',
+        [gid, cid]
+      );
+      if (pr[0]) {
+        try {
+          await recordKioskWaiverConfirmation({
+            profileRow: pr[0],
+            kioskLocationId: parseInt(locationId, 10),
+            programSiteId: sid,
+            guardianUserId: gid,
+            clientId: cid,
+            programTimePunchId: punch?.id || null,
+            requiredKeys: gate.requiredKeys,
+            sectionsSnapshot: gate.sections
+          });
+        } catch (err) {
+          // Non-fatal: punch already recorded
+          console.error('guardian waiver kiosk confirmation failed', err);
+        }
+      }
+    }
+
     res.status(201).json(punch);
   } catch (e) {
     next(e);

@@ -110,6 +110,7 @@ class ClientGuardian {
          c.id AS client_id,
          c.initials,
          c.full_name,
+         c.date_of_birth,
          c.grade,
          c.status,
          c.document_status,

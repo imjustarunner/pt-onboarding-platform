@@ -1047,6 +1047,14 @@
             </div>
             <small class="hint">Enables the Note Aid page (AI note helpers). Requires GEMINI_API_KEY in backend.</small>
 
+            <div v-if="isFeatureAvailable('guardianWaiversEnabled')" class="toggle-row" style="margin-top: 10px;">
+              <span>Enable guardian waivers &amp; kiosk check-in gate</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.guardianWaiversEnabled" compact />
+            </div>
+            <small v-if="isFeatureAvailable('guardianWaiversEnabled')" class="hint">
+              Guardians complete reusable waivers in the portal; kiosks can require them before guardian check-in when this is on.
+            </small>
+
             <div v-if="isFeatureAvailable('clinicalNoteGeneratorEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Clinical Note Generator (agency-paid)</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.clinicalNoteGeneratorEnabled" compact />
@@ -5655,6 +5663,9 @@ const defaultAgencyForm = () => ({
     // Default OFF until explicitly enabled (requires GEMINI_API_KEY in backend).
     noteAidEnabled: false,
 
+    // Guardian portal waivers + optional kiosk gate before check-in
+    guardianWaiversEnabled: false,
+
     // Default OFF until explicitly enabled (agency-paid)
     clinicalNoteGeneratorEnabled: false,
 
@@ -7004,6 +7015,7 @@ const editAgency = async (agency) => {
       kudosEnabled: featureFlags.kudosEnabled === true,
       aiProviderSearchEnabled: featureFlags.aiProviderSearchEnabled === true,
       noteAidEnabled: featureFlags.noteAidEnabled === true,
+      guardianWaiversEnabled: featureFlags.guardianWaiversEnabled === true,
       clinicalNoteGeneratorEnabled: featureFlags.clinicalNoteGeneratorEnabled === true,
       publicProviderFinderEnabled: featureFlags.publicProviderFinderEnabled === true,
       momentumListEnabled: featureFlags.momentumListEnabled === true,

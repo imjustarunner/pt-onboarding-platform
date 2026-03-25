@@ -316,12 +316,16 @@
               </select>
               <small v-if="['public_form', 'medical_records_request', 'smart_school_roi'].includes(form.formType)" class="form-help">These forms do not create clients directly.</small>
             </div>
-            <div v-if="form.formType !== 'job_application'" class="form-group">
+            <div v-if="form.formType !== 'job_application'" class="form-group form-group-guardian-toggle">
               <label>Create Guardian (default)</label>
               <select v-model="form.createGuardian" :disabled="form.formType === 'smart_school_roi'">
                 <option :value="true">Yes</option>
                 <option :value="false">No</option>
               </select>
+              <small v-if="form.formType !== 'smart_school_roi'" class="form-help form-help-guardian">
+                When <strong>Yes</strong>, you can add the green <strong>Guardian waivers</strong> step to collect pickup, emergency
+                contacts, allergies/meals, and e-sign consent into the guardian’s profile (more sections may be added later).
+              </small>
             </div>
             <div class="form-group">
               <label>Intake retention</label>
@@ -450,6 +454,10 @@
           <div class="form-group">
             <label>Intake Flow Builder</label>
             <div class="step-builder">
+              <div v-if="canAddGuardianWaiverStep" class="flow-legend-guardian" role="note">
+                <span class="flow-legend-guardian-dot" aria-hidden="true" />
+                <span><strong>Green</strong> = adds a step tied to the <strong>guardian account</strong> (waivers today; more later).</span>
+              </div>
               <div class="step-actions">
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('registration')">+ Add Registration</button>
@@ -463,16 +471,40 @@
                   + Add School ROI
                 </button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('upload')">+ Add Upload</button>
+                <button
+                  v-if="canAddGuardianWaiverStep"
+                  class="btn btn-secondary btn-sm btn-flow-add-guardian"
+                  type="button"
+                  @click="addStep('guardian_waiver')"
+                >
+                  + Add Guardian waivers
+                </button>
                 <span v-if="hasProgrammedSchoolRoiStep" class="programmed-step-pill">
                   Programmed School ROI active
                 </span>
               </div>
+              <p
+                v-if="showGuardianWaiverStepHint"
+                class="muted form-help"
+                style="margin-top: 10px; max-width: 52rem; line-height: 1.45;"
+              >
+                To add <strong>Guardian waivers</strong>, set <strong>Create Guardian</strong> to <strong>Yes</strong> above.
+                Waiver data still saves to the guardian–client profile; kiosk requirements follow each program site (and optional event).
+              </p>
 
               <div v-if="form.intakeSteps.length === 0" class="muted">No steps yet.</div>
 
-              <div v-for="(step, idx) in safeSteps" :key="step.id" class="step-card">
+              <div
+                v-for="(step, idx) in safeSteps"
+                :key="step.id"
+                class="step-card"
+                :class="{ 'step-card--guardian-flow': step.type === 'guardian_waiver' }"
+              >
                 <div class="step-header">
-                  <strong>{{ getStepTypeLabel(step.type) }}</strong>
+                  <div class="step-header-start">
+                    <strong>{{ getStepTypeLabel(step.type) }}</strong>
+                    <span v-if="step.type === 'guardian_waiver'" class="step-flow-pill step-flow-pill--guardian">Guardian</span>
+                  </div>
                   <div class="step-controls">
                     <button class="btn btn-xs btn-secondary" type="button" @click="moveStep(idx, -1)" :disabled="idx === 0">↑</button>
                     <button class="btn btn-xs btn-secondary" type="button" @click="moveStep(idx, 1)" :disabled="idx === form.intakeSteps.length - 1">↓</button>
@@ -587,6 +619,35 @@
                   </div>
                   <div v-if="registrationFlowAdmin" class="form-group" style="grid-column: 1 / -1;">
                     <label>Show this School ROI step</label>
+                    <select v-model="step.visibility">
+                      <option value="always">Always</option>
+                      <option value="new_client_only">New clients only (skip when existing client match)</option>
+                      <option value="existing_client_only">Existing clients only (skip for new client match)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div v-else-if="step.type === 'guardian_waiver'" class="form-grid">
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Step title</label>
+                    <input v-model="step.label" type="text" placeholder="e.g., Guardian waivers & safety" />
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Waiver sections</label>
+                    <div class="muted" style="margin-bottom: 8px;">
+                      Signers complete pickup, emergency contacts, allergies/meals, and e-sign consent. Saved to the
+                      guardian–client waiver profile when the agency has <code>guardianWaiversEnabled</code>. Kiosk “required”
+                      sections follow each <strong>program site</strong> (and optional event), not this form’s scope alone.
+                    </div>
+                    <div class="checkbox-stack">
+                      <label v-for="opt in guardianWaiverSectionOptions" :key="opt.value" class="checkbox">
+                        <input type="checkbox" :value="opt.value" v-model="step.sectionKeys" />
+                        {{ opt.label }}
+                      </label>
+                    </div>
+                  </div>
+                  <div v-if="registrationFlowAdmin" class="form-group" style="grid-column: 1 / -1;">
+                    <label>Show this step</label>
                     <select v-model="step.visibility">
                       <option value="always">Always</option>
                       <option value="new_client_only">New clients only (skip when existing client match)</option>
@@ -1011,6 +1072,14 @@
                   + Add School ROI
                 </button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('upload')">+ Add Upload</button>
+                <button
+                  v-if="canAddGuardianWaiverStep"
+                  class="btn btn-secondary btn-sm btn-flow-add-guardian"
+                  type="button"
+                  @click="addStep('guardian_waiver')"
+                >
+                  + Add Guardian waivers
+                </button>
               </div>
             </div>
           </div>
@@ -1168,10 +1237,19 @@ const getStepTypeLabel = (t) => {
     registration: 'Registration',
     document: 'Document',
     school_roi: 'School ROI (Programmed)',
-    upload: 'Upload'
+    upload: 'Upload',
+    guardian_waiver: 'Guardian waivers & safety'
   };
   return m[t] || t || 'Step';
 };
+
+const guardianWaiverSectionOptions = [
+  { value: 'esignature_consent', label: 'Electronic signature consent (required for other sections)' },
+  { value: 'pickup_authorization', label: 'Pickup authorization' },
+  { value: 'emergency_contacts', label: 'Emergency contacts' },
+  { value: 'allergies_snacks', label: 'Allergies & snacks' },
+  { value: 'meal_preferences', label: 'Meal preferences' }
+];
 const getFormTypeLabel = (t) => {
   const m = {
     intake: 'Intake',
@@ -1964,6 +2042,20 @@ const schoolRoiStepTemplates = computed(() =>
 const defaultSchoolRoiTemplateId = computed(() => schoolRoiStepTemplates.value[0]?.id || null);
 const canAddSchoolRoiStep = computed(() => form.formType === 'smart_school_roi' || form.scopeType === 'school');
 
+/** Guardian waiver intake step only when this link creates/links a guardian account (flexible for future waiver types). */
+const canAddGuardianWaiverStep = computed(() => {
+  const ft = String(form.formType || '').toLowerCase();
+  if (ft === 'job_application') return false;
+  return Boolean(form.createGuardian);
+});
+
+/** Hint when builder is visible but guardian waivers can’t be added until Create Guardian is Yes. */
+const showGuardianWaiverStepHint = computed(() => {
+  const ft = String(form.formType || '').toLowerCase();
+  if (ft === 'job_application' || ft === 'smart_school_roi') return false;
+  return !canAddGuardianWaiverStep.value;
+});
+
 const getSelectedTemplateLabel = (templateId) => {
   if (templateId == null) return '';
   const t = documentStepTemplates.value.find((x) => Number(x.id) === Number(templateId));
@@ -2168,6 +2260,27 @@ const sanitizeSteps = (steps, { formType } = {}) => {
         next.visibility = ['always', 'new_client_only', 'existing_client_only'].includes(String(next.visibility || '').trim())
           ? String(next.visibility).trim()
           : 'always';
+      } else if (next.type === 'guardian_waiver') {
+        next.label = String(next.label || '').trim() || 'Guardian waivers & safety';
+        next.visibility = ['always', 'new_client_only', 'existing_client_only'].includes(String(next.visibility || '').trim())
+          ? String(next.visibility).trim()
+          : 'always';
+        const allowed = new Set([
+          'esignature_consent',
+          'pickup_authorization',
+          'emergency_contacts',
+          'allergies_snacks',
+          'meal_preferences'
+        ]);
+        const raw = Array.isArray(next.sectionKeys) ? next.sectionKeys : [];
+        let keys = [...new Set(raw.map((k) => String(k || '').trim()).filter((k) => allowed.has(k)))];
+        if (!keys.length) {
+          keys = [...allowed];
+        }
+        if (!keys.includes('esignature_consent')) {
+          keys = ['esignature_consent', ...keys.filter((k) => k !== 'esignature_consent')];
+        }
+        next.sectionKeys = keys;
       }
       return next;
     });
@@ -2258,6 +2371,16 @@ const addStep = (type, options = {}) => {
     step.templateId = null;
     step.checkboxDisclaimer = '';
     step.visibility = 'always';
+  } else if (type === 'guardian_waiver') {
+    step.label = 'Guardian waivers & safety';
+    step.visibility = 'always';
+    step.sectionKeys = [
+      'esignature_consent',
+      'pickup_authorization',
+      'emergency_contacts',
+      'allergies_snacks',
+      'meal_preferences'
+    ];
   } else {
     step.templateId = options?.templateId ?? null;
     step.checkboxDisclaimer = '';
@@ -3038,6 +3161,70 @@ onMounted(fetchData);
   margin-bottom: 12px;
 }
 
+.flow-legend-guardian {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #166534;
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  line-height: 1.35;
+}
+
+.flow-legend-guardian-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #22c55e;
+  box-shadow: 0 0 0 2px #dcfce7;
+}
+
+.btn-flow-add-guardian {
+  background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%) !important;
+  border-color: #86efac !important;
+  color: #14532d !important;
+  font-weight: 600;
+}
+
+.btn-flow-add-guardian:hover {
+  border-color: #4ade80 !important;
+  color: #052e16 !important;
+  background: linear-gradient(180deg, #ecfdf5 0%, #bbf7d0 100%) !important;
+}
+
+.step-card--guardian-flow {
+  border-color: #86efac;
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.12);
+}
+
+.step-flow-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-left: 8px;
+}
+
+.step-flow-pill--guardian {
+  background: #dcfce7;
+  color: #14532d;
+  border: 1px solid #86efac;
+}
+
+.form-group-guardian-toggle .form-help-guardian {
+  margin-top: 6px;
+  color: #166534;
+}
+
 .programmed-step-pill {
   display: inline-flex;
   align-items: center;
@@ -3072,6 +3259,14 @@ onMounted(fetchData);
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
+}
+
+.step-header-start {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
 }
 
 .step-controls {

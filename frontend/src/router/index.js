@@ -430,6 +430,12 @@ const routes = [
     component: () => import('../views/guardian/GuardianSkillBuildersEventView.vue'),
     meta: { requiresAuth: true, requiresRole: 'client_guardian', organizationSlug: true }
   },
+  {
+    path: '/:organizationSlug/guardian/waivers',
+    name: 'OrganizationGuardianWaivers',
+    component: () => import('../views/guardian/GuardianWaiversView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'client_guardian', organizationSlug: true }
+  },
   // Slug-prefixed authenticated routes (branded portal)
   {
     path: '/:organizationSlug/admin/note-aid',
@@ -1058,6 +1064,12 @@ const routes = [
     path: '/guardian/skill-builders/event/:eventId',
     name: 'GuardianSkillBuilderEvent',
     component: () => import('../views/guardian/GuardianSkillBuildersEventView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'client_guardian' }
+  },
+  {
+    path: '/guardian/waivers',
+    name: 'GuardianWaivers',
+    component: () => import('../views/guardian/GuardianWaiversView.vue'),
     meta: { requiresAuth: true, requiresRole: 'client_guardian' }
   },
   {

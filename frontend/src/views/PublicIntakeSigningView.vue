@@ -435,6 +435,9 @@
         <h3 v-else-if="currentFlowStep?.type === 'upload'">{{ currentFlowStep?.label || 'Upload' }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'school_roi'">School ROI</h3>
         <h3 v-else-if="currentFlowStep?.type === 'registration'">{{ currentFlowStep?.label || 'Registration' }}</h3>
+        <h3 v-else-if="currentFlowStep?.type === 'guardian_waiver'">
+          {{ currentFlowStep?.label || 'Guardian waivers & safety' }}
+        </h3>
         <h3 v-else-if="currentFlowStep?.type === 'questions'">Questions</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
         <div v-if="currentFlowStep?.type === 'school_roi'" class="school-roi-step">
@@ -538,6 +541,14 @@
           <div v-else class="muted">
             No registration options are configured for this step.
           </div>
+        </div>
+
+        <div v-if="currentFlowStep?.type === 'guardian_waiver'" class="guardian-waiver-step">
+          <PublicIntakeGuardianWaiverStep
+            :model-value="guardianWaiverBundleRef"
+            :section-keys="currentGuardianWaiverSectionKeys"
+            :client-labels="guardianWaiverClientLabels"
+          />
         </div>
 
         <div class="doc-nav" v-if="currentFlowStep?.type === 'document'">
@@ -736,6 +747,7 @@ import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
 import SmartSchoolRoiFlow from '../components/public/SmartSchoolRoiFlow.vue';
 import PDFPreview from '../components/documents/PDFPreview.vue';
+import PublicIntakeGuardianWaiverStep from '../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { useAuthStore } from '../store/auth';
 
@@ -1103,6 +1115,14 @@ const hasProgrammedSchoolRoiStep = computed(() =>
 const hasRegistrationStep = computed(() =>
   intakeSteps.value.some((step) => String(step?.type || '').trim().toLowerCase() === 'registration')
 );
+const GUARDIAN_WAIVER_ESIGN_KEY = 'esignature_consent';
+const DEFAULT_GUARDIAN_WAIVER_SECTION_KEYS = [
+  'esignature_consent',
+  'pickup_authorization',
+  'emergency_contacts',
+  'allergies_snacks',
+  'meal_preferences'
+];
 
 const FLOW_STEP_VISIBILITY = new Set(['always', 'new_client_only', 'existing_client_only']);
 
@@ -1123,12 +1143,20 @@ const flowSteps = computed(() => {
   };
   if (intakeSteps.value.length) {
     return intakeSteps.value
-      .filter((s) => s?.type === 'document' || s?.type === 'upload' || s?.type === 'school_roi' || s?.type === 'registration')
+      .filter(
+        (s) =>
+          s?.type === 'document'
+          || s?.type === 'upload'
+          || s?.type === 'school_roi'
+          || s?.type === 'registration'
+          || s?.type === 'guardian_waiver'
+      )
       .filter(stepVisible)
       .map((s) => {
         if (s.type === 'upload') return { ...s };
         if (s.type === 'school_roi') return { ...s };
         if (s.type === 'registration') return { ...s };
+        if (s.type === 'guardian_waiver') return { ...s };
         const template = templates.value.find((t) => Number(t.id) === Number(s.templateId));
         return { ...s, template };
       });
@@ -1137,6 +1165,56 @@ const flowSteps = computed(() => {
 });
 const currentFlowIndex = ref(0);
 const currentFlowStep = computed(() => flowSteps.value[currentFlowIndex.value] || null);
+
+const currentGuardianWaiverSectionKeys = computed(() => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'guardian_waiver') return DEFAULT_GUARDIAN_WAIVER_SECTION_KEYS;
+  const keys = Array.isArray(step.sectionKeys)
+    ? step.sectionKeys.map((k) => String(k || '').trim()).filter(Boolean)
+    : [];
+  return keys.length ? keys : DEFAULT_GUARDIAN_WAIVER_SECTION_KEYS;
+});
+
+const guardianWaiverClientLabels = computed(() => {
+  const list = clients.value || [];
+  return list.map((c, i) => {
+    const name = [c.firstName, c.lastName].filter(Boolean).join(' ').trim();
+    return name || `Child ${i + 1}`;
+  });
+});
+
+function ensureGuardianWaiverIntakeShape() {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'guardian_waiver') return;
+  if (!intakeResponses.submission || typeof intakeResponses.submission !== 'object') {
+    intakeResponses.submission = {};
+  }
+  if (
+    !intakeResponses.submission.guardianWaiverIntake
+    || typeof intakeResponses.submission.guardianWaiverIntake !== 'object'
+  ) {
+    intakeResponses.submission.guardianWaiverIntake = { clients: [] };
+  }
+  const gw = intakeResponses.submission.guardianWaiverIntake;
+  gw.stepId = step.id || null;
+  const n = Math.max(1, clients.value.length);
+  while (gw.clients.length < n) {
+    gw.clients.push({ sections: {} });
+  }
+  while (gw.clients.length > n) {
+    gw.clients.pop();
+  }
+}
+
+const guardianWaiverBundleRef = computed(() => {
+  void clients.value.length;
+  ensureGuardianWaiverIntakeShape();
+  const sub = intakeResponses.submission;
+  if (!sub?.guardianWaiverIntake) {
+    return { clients: [] };
+  }
+  return sub.guardianWaiverIntake;
+});
 
 watch(
   flowSteps,
@@ -2691,14 +2769,57 @@ const completeRegistrationStep = async () => {
   await nextFlowStep();
 };
 
+const completeGuardianWaiverStep = () => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'guardian_waiver') return;
+  ensureGuardianWaiverIntakeShape();
+  const keys = [...new Set(currentGuardianWaiverSectionKeys.value)];
+  const order = [GUARDIAN_WAIVER_ESIGN_KEY, ...keys.filter((k) => k !== GUARDIAN_WAIVER_ESIGN_KEY)];
+  const gw = intakeResponses.submission.guardianWaiverIntake;
+  if (!gw?.clients?.length) {
+    stepError.value = 'Missing waiver data. Please refresh and try again.';
+    return;
+  }
+  for (let i = 0; i < gw.clients.length; i += 1) {
+    const label = guardianWaiverClientLabels.value[i] || `Child ${i + 1}`;
+    for (const key of order) {
+      if (!keys.includes(key)) continue;
+      const sec = gw.clients[i].sections?.[key];
+      if (!sec) {
+        stepError.value = `Complete all waiver sections for ${label}.`;
+        return;
+      }
+      if (!sec.consentAcknowledged || !sec.intentToSign) {
+        stepError.value = 'Check both consent boxes for each waiver section.';
+        return;
+      }
+      if (String(sec.signatureData || '').trim().length < 80) {
+        stepError.value = 'Sign each waiver section before continuing.';
+        return;
+      }
+      if (key === GUARDIAN_WAIVER_ESIGN_KEY) {
+        const p = sec.payload || {};
+        if (!p.consented || !p.understoodElectronicRecords) {
+          stepError.value = `Complete electronic signature consent for ${label}.`;
+          return;
+        }
+      }
+    }
+  }
+  stepError.value = '';
+  void nextFlowStep();
+};
+
 const handleCurrentFlowContinue = () => {
   if (currentFlowStep.value?.type === 'document') return completeCurrentDocument();
   if (currentFlowStep.value?.type === 'upload') return completeUploadStep();
   if (currentFlowStep.value?.type === 'registration') return completeRegistrationStep();
+  if (currentFlowStep.value?.type === 'guardian_waiver') return completeGuardianWaiverStep();
   return completeQuestionStep();
 };
 const currentFlowContinueLabel = computed(() => {
   if (currentFlowStep.value?.type === 'upload') return 'Continue';
+  if (currentFlowStep.value?.type === 'guardian_waiver') return t('continue');
   if (currentFlowStep.value?.type === 'document') {
     return currentDoc.value?.document_action_type === 'signature' ? t('signContinue') : t('markReviewedContinue');
   }
