@@ -118,13 +118,14 @@ export const useBrandingStore = defineStore('branding', () => {
 
   /**
    * Portal theme from the app host (e.g. app.itsco.health) is correct for unauthenticated
-   * pages and for org users on that host. Super admins pick an org via the agency switcher;
-   * that selection must override host portal branding or every org looks like the host.
+   * pages. Once a user has an explicit org context (agency switcher, persisted currentAgency,
+   * or router sync), that org’s branding must drive colors/fonts — otherwise host portal
+   * colors stay stuck while logos/icons update from currentAgency (no refresh needed).
    */
   const shouldApplyPortalAgencyThemeFirst = () => {
     if (!portalAgency.value) return false;
     if (!authStore.isAuthenticated) return true;
-    if (isSuperAdmin.value && agencyStore.currentAgency) return false;
+    if (agencyStore.currentAgency) return false;
     return true;
   };
   
@@ -223,9 +224,20 @@ export const useBrandingStore = defineStore('branding', () => {
         themeSettings: response.data.themeSettings || {},
         terminologySettings: response.data.terminologySettings || {}
       };
-      
+
       // Apply theme to CSS variables
       applyTheme(response.data);
+      // Route theme must not override the selected org's palette on :root (many components use --agency-* / --primary on documentElement).
+      const portalNorm = String(portalUrl || '').trim().toLowerCase();
+      if (authStore.isAuthenticated && agencyStore.currentAgency && !shouldApplyPortalAgencyThemeFirst()) {
+        const ag = agencyStore.currentAgency;
+        const agKeys = [ag.slug, ag.portal_url, ag.portalUrl]
+          .map((x) => String(x || '').trim().toLowerCase())
+          .filter(Boolean);
+        if (!portalNorm || agKeys.includes(portalNorm)) {
+          syncDocumentThemeFromSelectedAgency();
+        }
+      }
     } catch (err) {
       const status = Number(err?.response?.status || 0);
       if (import.meta.env.DEV && status !== 401 && status !== 403) {
@@ -277,17 +289,22 @@ export const useBrandingStore = defineStore('branding', () => {
     const themeSettings = themeData.themeSettings || {};
     const brandingAgencyId = themeData.brandingAgencyId || themeData.agencyId || null;
     
-    // Apply colors (accent falls back to primary so glows/buttons match when agencies only set one brand color)
+    // Apply colors (accent falls back to primary so glows/buttons match when agencies only set one brand color).
+    // Also set :root --primary/--secondary/--accent so var(--agency-*) and global fallbacks stay in sync when switching orgs.
     if (colorPalette.primary) {
       root.style.setProperty('--agency-primary-color', colorPalette.primary);
+      root.style.setProperty('--primary', colorPalette.primary);
     }
     if (colorPalette.secondary) {
       root.style.setProperty('--agency-secondary-color', colorPalette.secondary);
+      root.style.setProperty('--secondary', colorPalette.secondary);
     }
     if (colorPalette.accent) {
       root.style.setProperty('--agency-accent-color', colorPalette.accent);
+      root.style.setProperty('--accent', colorPalette.accent);
     } else if (colorPalette.primary) {
       root.style.setProperty('--agency-accent-color', colorPalette.primary);
+      root.style.setProperty('--accent', colorPalette.primary);
     }
     
     // Apply fonts
@@ -330,6 +347,43 @@ export const useBrandingStore = defineStore('branding', () => {
           .catch(() => {});
       }
     }
+  };
+
+  /**
+   * Push selected agency palette to documentElement so :root --agency-* / --primary match store computeds.
+   * Call after hydrate when switching orgs (dropdown) or after route theme when slug matches currentAgency.
+   */
+  const syncDocumentThemeFromSelectedAgency = () => {
+    if (!authStore.isAuthenticated) return;
+    const a = agencyStore.currentAgency;
+    if (!a?.id) return;
+    let colorPalette = {};
+    let themeSettings = {};
+    try {
+      colorPalette =
+        typeof a.color_palette === 'string' ? JSON.parse(a.color_palette || '{}') : (a.color_palette || {});
+    } catch {
+      colorPalette = {};
+    }
+    try {
+      themeSettings =
+        typeof a.theme_settings === 'string' ? JSON.parse(a.theme_settings || '{}') : (a.theme_settings || {});
+    } catch {
+      themeSettings = {};
+    }
+    const pb = platformBranding.value || {};
+    const mergedPalette = {
+      ...colorPalette,
+      primary: colorPalette.primary || pb.primary_color,
+      secondary: colorPalette.secondary || pb.secondary_color,
+      accent: colorPalette.accent || colorPalette.primary || pb.accent_color
+    };
+    applyTheme({
+      colorPalette: mergedPalette,
+      themeSettings,
+      brandingAgencyId: a.id,
+      agencyId: a.id
+    });
   };
 
   const setPortalThemeData = (themeData) => {
@@ -1136,6 +1190,7 @@ export const useBrandingStore = defineStore('branding', () => {
     fetchPublicMarketingHubTheme,
     initializePortalTheme,
     applyTheme,
+    syncDocumentThemeFromSelectedAgency,
     setPortalThemeData,
     setPortalThemeFromLoginTheme,
     clearPortalTheme,

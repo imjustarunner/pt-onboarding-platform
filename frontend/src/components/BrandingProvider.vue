@@ -46,21 +46,11 @@ onMounted(async () => {
     } else {
       await agencyStore.fetchUserAgencies();
     }
-    // Best-effort: apply agency theme (fonts) if we already have a selected agency
-    if (agencyStore.currentAgency) {
+    // Best-effort: full agency row + :root CSS vars when a selection already exists (e.g. persisted currentAgency).
+    if (agencyStore.currentAgency?.id) {
       try {
-        const colorPalette = typeof agencyStore.currentAgency.color_palette === 'string'
-          ? JSON.parse(agencyStore.currentAgency.color_palette)
-          : (agencyStore.currentAgency.color_palette || {});
-        const themeSettings = typeof agencyStore.currentAgency.theme_settings === 'string'
-          ? JSON.parse(agencyStore.currentAgency.theme_settings)
-          : (agencyStore.currentAgency.theme_settings || {});
-        brandingStore.applyTheme({
-          brandingAgencyId: agencyStore.currentAgency.id,
-          agencyId: agencyStore.currentAgency.id,
-          colorPalette,
-          themeSettings
-        });
+        await agencyStore.hydrateAgencyById(agencyStore.currentAgency.id);
+        brandingStore.syncDocumentThemeFromSelectedAgency();
       } catch {
         // ignore
       }
@@ -80,27 +70,19 @@ watch(() => brandingStore.platformBranding, async (newBranding) => {
   }
 }, { deep: true });
 
-// Watch for agency switches and apply the agency theme settings (especially fonts).
-watch(() => agencyStore.currentAgency, async (newAgency) => {
-  if (!authStore.isAuthenticated) return;
-  if (!newAgency) return;
-  try {
-    const colorPalette = typeof newAgency.color_palette === 'string'
-      ? JSON.parse(newAgency.color_palette)
-      : (newAgency.color_palette || {});
-    const themeSettings = typeof newAgency.theme_settings === 'string'
-      ? JSON.parse(newAgency.theme_settings)
-      : (newAgency.theme_settings || {});
-    brandingStore.applyTheme({
-      brandingAgencyId: newAgency.id,
-      agencyId: newAgency.id,
-      colorPalette,
-      themeSettings
-    });
-  } catch {
-    // ignore
+// Watch for agency switches: hydrate full row (palette on list payloads is often missing), then sync :root + fonts.
+watch(
+  () => agencyStore.currentAgency?.id,
+  async (newId) => {
+    if (!authStore.isAuthenticated || !newId) return;
+    try {
+      await agencyStore.hydrateAgencyById(newId);
+      brandingStore.syncDocumentThemeFromSelectedAgency();
+    } catch {
+      // ignore
+    }
   }
-}, { deep: false });
+);
 
 const brandingStyles = computed(() => {
   const platform = brandingStore.platformBranding;
