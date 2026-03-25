@@ -1092,21 +1092,8 @@ const loaderLogoUrl = computed(() => {
   return brandingStore.displayLogoUrl;
 });
 
-// The top-left brand logo should reflect the *current context* (Platform vs org portal),
-// even for super_admin (platform branding mode would otherwise override).
-const navBrandLogoUrl = computed(() => {
-  const slugFromRoute = route.params.organizationSlug;
-  if (typeof slugFromRoute === 'string' && slugFromRoute) {
-    // When inside a branded portal, prefer the portal theme logo, then agency icon fields.
-    if (brandingStore.portalAgency?.logoUrl) return String(brandingStore.portalAgency.logoUrl);
-    const a = agencyStore.currentAgency;
-    if (a?.logo_path) return toUploadsUrl(a.logo_path);
-    if (a?.icon_file_path) return toUploadsUrl(a.icon_file_path);
-    if (a?.logo_url) return a.logo_url;
-  }
-  // Platform context
-  return brandingStore.displayLogoUrl;
-});
+// Top-left logo follows branding store resolution (portal host vs selected org for super_admin).
+const navBrandLogoUrl = computed(() => brandingStore.displayLogoUrl);
 
 function syncPageLoading(isOn) {
   if (isOn) {
@@ -2836,15 +2823,30 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  padding: 18px 22px;
+  padding: 22px 22px 18px;
   border-radius: 16px;
   background: white;
   border: 1px solid var(--border);
   box-shadow: var(--shadow-lg);
   min-width: min(420px, 90vw);
+  /* Clip logos during 360° spin (diagonal exceeds unrotated width/height). */
+  overflow: hidden;
 }
 
 .agency-loading-logo {
+  /* Square frame: rotated logo’s circumscribed circle stays inside. */
+  width: clamp(7.25rem, 30vw, 10.5rem);
+  height: clamp(7.25rem, 30vw, 10.5rem);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.agency-loading-logo :deep(.loader-logo) {
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2854,6 +2856,12 @@ onUnmounted(() => {
 :deep(.loader-logo .logo-image) {
   animation: agencyLogoSpin 1.05s linear infinite;
   transform-origin: 50% 50%;
+  /* Override fixed xlarge height + unbounded width so spin cannot escape the frame. */
+  height: auto !important;
+  width: auto;
+  max-width: 68%;
+  max-height: 68%;
+  object-fit: contain;
 }
 
 @keyframes agencyLogoSpin {

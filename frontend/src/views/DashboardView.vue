@@ -225,7 +225,11 @@
           :class="{ 'dash-attn-pulse': snapshotAttentionPulse }"
         >
           <div class="top-snapshot-title">My Snapshot</div>
-          <button type="button" class="btn btn-secondary btn-sm top-snapshot-toggle" @click="toggleTopCardCollapsed">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm top-snapshot-toggle"
+            @click="toggleTopCardCollapsed"
+          >
             {{ topCardCollapsed ? 'Expand' : 'Collapse' }}
           </button>
         </div>
@@ -1607,6 +1611,20 @@ const employeeQuery = ref('');
 const selectedEmployeeDirectoryId = ref(0);
 const employeeScheduleWeekStartYmd = ref('');
 const SCHEDULE_VIEW_PREF_PREFIX = 'dashboard.scheduleViewPref.v1';
+const PENDING_SCHEDULE_WEEK_RESET_KEY = 'pt.pendingScheduleWeekReset';
+
+/** Monday-start YMD for the current local week (matches schedule grid). */
+const scheduleWeekStartMondayTodayLocal = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const offset = (day + 6) % 7;
+  d.setDate(d.getDate() - offset);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+};
 
 /** Admin/staff/etc.: view another user’s grid while the “My schedule” tab is active (searchable picker). */
 const myScheduleViewAsUserId = ref(0);
@@ -1694,7 +1712,20 @@ const dashboardBanner = ref(null); // { type, message, agencyId, names } | null
 const scheduledBannerItems = ref([]);
 const companyEvents = ref([]);
 
-const SNAPSHOT_COLLAPSE_KEY = 'dashboard.snapshotCollapsed.v1';
+// Legacy global key (pre–per-user); migrated once for super_admin/admin.
+const SNAPSHOT_COLLAPSE_LEGACY_KEY = 'dashboard.snapshotCollapsed.v1';
+
+// Anyone can collapse for the session; only these roles persist across logout/login (localStorage).
+const persistMySnapshotCollapsed = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return r === 'super_admin' || r === 'admin';
+});
+
+const snapshotCollapseStorageKeyForUser = () => {
+  const uid = Number(authStore.user?.id || 0);
+  return uid ? `${SNAPSHOT_COLLAPSE_LEGACY_KEY}:${uid}` : '';
+};
+
 const COMPANY_EVENTS_COLLAPSE_KEY = 'dashboard.companyEventsCollapsed.v1';
 const SKILL_BUILDERS_SERIES_COLLAPSE_KEY = 'dashboard.skillBuildersSeriesCollapsed.v1';
 
@@ -1730,8 +1761,24 @@ const companyEventRecurrenceChip = (event) => {
 };
 
 const loadSnapshotCollapsed = () => {
+  if (!persistMySnapshotCollapsed.value) {
+    topCardCollapsed.value = false;
+    return;
+  }
+  const key = snapshotCollapseStorageKeyForUser();
   try {
-    topCardCollapsed.value = window?.localStorage?.getItem?.(SNAPSHOT_COLLAPSE_KEY) === '1';
+    if (key && window.localStorage.getItem(key) === '1') {
+      topCardCollapsed.value = true;
+      return;
+    }
+    const legacy = window.localStorage.getItem(SNAPSHOT_COLLAPSE_LEGACY_KEY);
+    if (legacy === '1' && key) {
+      topCardCollapsed.value = true;
+      window.localStorage.setItem(key, '1');
+      window.localStorage.removeItem(SNAPSHOT_COLLAPSE_LEGACY_KEY);
+      return;
+    }
+    topCardCollapsed.value = false;
   } catch {
     topCardCollapsed.value = false;
   }
@@ -2333,9 +2380,40 @@ const scheduleViewPrefKey = computed(() => {
 const loadScheduleViewPrefs = () => {
   const key = String(scheduleViewPrefKey.value || '');
   if (!key) return;
+
+  let pendingWeekReset = false;
+  try {
+    pendingWeekReset = window.localStorage.getItem(PENDING_SCHEDULE_WEEK_RESET_KEY) === '1';
+    if (pendingWeekReset) {
+      window.localStorage.removeItem(PENDING_SCHEDULE_WEEK_RESET_KEY);
+    }
+  } catch {
+    pendingWeekReset = false;
+  }
+  const todayMonday = scheduleWeekStartMondayTodayLocal();
+
   try {
     const raw = window.localStorage.getItem(key);
-    if (!raw) return;
+    if (!raw) {
+      if (pendingWeekReset) {
+        selfScheduleWeekStartYmd.value = todayMonday;
+        superviseeScheduleWeekStartYmd.value = todayMonday;
+        employeeScheduleWeekStartYmd.value = todayMonday;
+        try {
+          window.localStorage.setItem(
+            key,
+            JSON.stringify({
+              selfWeekStartYmd: todayMonday,
+              superviseeWeekStartYmd: todayMonday,
+              employeeWeekStartYmd: todayMonday
+            })
+          );
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
     const parsed = JSON.parse(raw);
     const mode = String(parsed?.mode || '').toLowerCase();
     const viewAs = Number(parsed?.viewAsUserId ?? 0);
@@ -2375,6 +2453,23 @@ const loadScheduleViewPrefs = () => {
     selfScheduleWeekStartYmd.value = /^\d{4}-\d{2}-\d{2}$/.test(selfWeek) ? selfWeek : '';
     superviseeScheduleWeekStartYmd.value = /^\d{4}-\d{2}-\d{2}$/.test(superviseeWeek) ? superviseeWeek : '';
     employeeScheduleWeekStartYmd.value = /^\d{4}-\d{2}-\d{2}$/.test(employeeWeek) ? employeeWeek : '';
+
+    if (pendingWeekReset) {
+      selfScheduleWeekStartYmd.value = todayMonday;
+      superviseeScheduleWeekStartYmd.value = todayMonday;
+      employeeScheduleWeekStartYmd.value = todayMonday;
+      saveScheduleViewPrefs();
+      try {
+        const cur = window.localStorage.getItem(key);
+        const obj = cur ? JSON.parse(cur) : {};
+        obj.selfWeekStartYmd = todayMonday;
+        obj.superviseeWeekStartYmd = todayMonday;
+        obj.employeeWeekStartYmd = todayMonday;
+        window.localStorage.setItem(key, JSON.stringify(obj));
+      } catch {
+        /* ignore */
+      }
+    }
   } catch {
     // ignore malformed local preferences
   }
@@ -3403,8 +3498,10 @@ const dashboardSocialFeeds = ref([]);
 const selectedSocialFeedId = ref(null);
 const toggleTopCardCollapsed = () => {
   topCardCollapsed.value = !topCardCollapsed.value;
+  if (!persistMySnapshotCollapsed.value) return;
+  const sk = snapshotCollapseStorageKeyForUser();
   try {
-    window?.localStorage?.setItem?.(SNAPSHOT_COLLAPSE_KEY, topCardCollapsed.value ? '1' : '0');
+    if (sk) window.localStorage.setItem(sk, topCardCollapsed.value ? '1' : '0');
   } catch {
     /* ignore */
   }

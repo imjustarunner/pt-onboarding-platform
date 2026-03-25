@@ -22,6 +22,7 @@ export const useAuthStore = defineStore('auth', () => {
     // Token is now in HttpOnly cookie (set by backend), so we don't store it
     // newToken can be null since it's in the cookie
     token.value = null; // Not used anymore, but keep for compatibility
+    const prevId = user.value?.id != null ? Number(user.value.id) : null;
     user.value = newUser;
     // Store user in localStorage (not sensitive, used for UI state)
     // Include username in stored user object
@@ -33,12 +34,27 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.setItem('sessionId', sessionId);
     }
     // Don't set Authorization header - cookies are sent automatically with withCredentials: true
+
+    const nextId = newUser?.id != null ? Number(newUser.id) : null;
+    if (nextId != null && Number.isFinite(nextId) && (prevId == null || prevId !== nextId)) {
+      try {
+        // Dashboard My Schedule reads this once to snap stored week prefs to the current week.
+        localStorage.setItem('pt.pendingScheduleWeekReset', '1');
+      } catch {
+        /* ignore */
+      }
+    }
   };
 
   const clearAuth = () => {
     token.value = null;
     user.value = null;
     localStorage.removeItem('user');
+    try {
+      localStorage.removeItem('pt.pendingScheduleWeekReset');
+    } catch {
+      /* ignore */
+    }
     // Don't remove sessionId - it's used for activity logging
     // Cookie is cleared by backend on logout
   };

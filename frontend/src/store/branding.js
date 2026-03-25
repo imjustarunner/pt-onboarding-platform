@@ -115,6 +115,18 @@ export const useBrandingStore = defineStore('branding', () => {
   
   // Theme settings from portal agency
   const portalTheme = ref(null);
+
+  /**
+   * Portal theme from the app host (e.g. app.itsco.health) is correct for unauthenticated
+   * pages and for org users on that host. Super admins pick an org via the agency switcher;
+   * that selection must override host portal branding or every org looks like the host.
+   */
+  const shouldApplyPortalAgencyThemeFirst = () => {
+    if (!portalAgency.value) return false;
+    if (!authStore.isAuthenticated) return true;
+    if (isSuperAdmin.value && agencyStore.currentAgency) return false;
+    return true;
+  };
   
   // Fetch platform branding
   const fetchPlatformBranding = async (forceRefresh = false) => {
@@ -447,7 +459,7 @@ export const useBrandingStore = defineStore('branding', () => {
   // Primary color based on branding mode
   const primaryColor = computed(() => {
     // Portal theme takes precedence (for login page and subdomain portals)
-    if (portalAgency.value?.colorPalette?.primary) {
+    if (portalAgency.value?.colorPalette?.primary && shouldApplyPortalAgencyThemeFirst()) {
       return portalAgency.value.colorPalette.primary;
     }
     // Always use platform branding if user is not authenticated (e.g., on login page)
@@ -467,7 +479,7 @@ export const useBrandingStore = defineStore('branding', () => {
   // Secondary color based on branding mode
   const secondaryColor = computed(() => {
     // Portal theme takes precedence
-    if (portalAgency.value?.colorPalette?.secondary) {
+    if (portalAgency.value?.colorPalette?.secondary && shouldApplyPortalAgencyThemeFirst()) {
       return portalAgency.value.colorPalette.secondary;
     }
     // Always use platform branding if user is not authenticated (e.g., on login page)
@@ -487,7 +499,7 @@ export const useBrandingStore = defineStore('branding', () => {
   // Accent color based on branding mode
   const accentColor = computed(() => {
     // Portal theme takes precedence
-    if (portalAgency.value?.colorPalette?.accent) {
+    if (portalAgency.value?.colorPalette?.accent && shouldApplyPortalAgencyThemeFirst()) {
       return portalAgency.value.colorPalette.accent;
     }
     // Always use platform branding if user is not authenticated (e.g., on login page)
@@ -507,7 +519,7 @@ export const useBrandingStore = defineStore('branding', () => {
   // Helper: get parsed palette from agency or portal (agency/portal overrides platform)
   const getPalette = () => {
     const p = portalAgency.value?.colorPalette;
-    if (p && Object.keys(p).length > 0) return p;
+    if (p && Object.keys(p).length > 0 && shouldApplyPortalAgencyThemeFirst()) return p;
     const agency = agencyStore.currentAgency;
     if (agency?.color_palette) {
       return typeof agency.color_palette === 'string'
@@ -588,56 +600,15 @@ export const useBrandingStore = defineStore('branding', () => {
     return platformBranding.value?.tagline || 'The gold standard for behavioral health workflows.';
   });
 
-  // Logo URL: Platform template logo or agency logo (no PlotTwistCo fallback)
+  // Logo URL: Portal (when applicable), then selected org, then platform template for super_admin
   const logoUrl = computed(() => {
-    // Portal theme takes precedence
-    if (portalAgency.value?.logoUrl) {
+    if (portalAgency.value?.logoUrl && shouldApplyPortalAgencyThemeFirst()) {
       return portalAgency.value.logoUrl;
     }
-    if (isSuperAdmin.value) {
-      // Priority 1: Platform organization_logo_url (if set)
-      if (platformBranding.value?.organization_logo_url) {
-        if (import.meta.env.DEV) {
-          console.log('[Branding] Using organization_logo_url:', platformBranding.value.organization_logo_url);
-        }
-        return platformBranding.value.organization_logo_url;
-      }
-      // Priority 2: Platform organization_logo_path (from icon library)
-      if (platformBranding.value?.organization_logo_path) {
-        const logoUrl = toUploadsUrl(platformBranding.value.organization_logo_path);
-        if (import.meta.env.DEV) {
-          console.log('[Branding] Constructed logoUrl from path:', {
-            originalPath: platformBranding.value.organization_logo_path,
-            finalUrl: logoUrl
-          });
-        }
-        return logoUrl;
-      }
-      // Priority 3: Platform organization_logo_icon_path / organization_logo_icon_id (icon-based logo selection)
-      if (platformBranding.value?.organization_logo_icon_path) {
-        return toUploadsUrl(String(platformBranding.value.organization_logo_icon_path));
-      }
-      if (platformBranding.value?.organization_logo_icon_id) {
-        const url = iconUrlById(platformBranding.value.organization_logo_icon_id);
-        if (url) return url;
-      }
-      // No fallback - return null if no platform logo is set
-      if (import.meta.env.DEV) {
-        console.warn('[Branding] No platform logo available for logoUrl:', {
-          hasOrgLogoUrl: !!platformBranding.value?.organization_logo_url,
-          hasOrgLogoPath: !!platformBranding.value?.organization_logo_path,
-          hasOrgLogoIconPath: !!platformBranding.value?.organization_logo_icon_path,
-          hasOrgLogoIconId: !!platformBranding.value?.organization_logo_icon_id
-        });
-      }
-      return null;
-    }
-    // Check for logo_path first (uploaded), then logo_url (URL)
     const agency = agencyStore.currentAgency;
     if (agency?.logo_path) {
       return toUploadsUrl(agency.logo_path);
     }
-    // Fallback to master icon (icon_id -> icon_file_path) when agency has no logo fields.
     if (agency?.icon_file_path) {
       return toUploadsUrl(agency.icon_file_path);
     }
@@ -647,6 +618,40 @@ export const useBrandingStore = defineStore('branding', () => {
       }
       const apiBase = getBackendBaseUrl();
       return `${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`;
+    }
+    if (isSuperAdmin.value) {
+      if (platformBranding.value?.organization_logo_url) {
+        if (import.meta.env.DEV) {
+          console.log('[Branding] Using organization_logo_url:', platformBranding.value.organization_logo_url);
+        }
+        return platformBranding.value.organization_logo_url;
+      }
+      if (platformBranding.value?.organization_logo_path) {
+        const u = toUploadsUrl(platformBranding.value.organization_logo_path);
+        if (import.meta.env.DEV) {
+          console.log('[Branding] Constructed logoUrl from path:', {
+            originalPath: platformBranding.value.organization_logo_path,
+            finalUrl: u
+          });
+        }
+        return u;
+      }
+      if (platformBranding.value?.organization_logo_icon_path) {
+        return toUploadsUrl(String(platformBranding.value.organization_logo_icon_path));
+      }
+      if (platformBranding.value?.organization_logo_icon_id) {
+        const url = iconUrlById(platformBranding.value.organization_logo_icon_id);
+        if (url) return url;
+      }
+      if (import.meta.env.DEV) {
+        console.warn('[Branding] No platform logo available for logoUrl:', {
+          hasOrgLogoUrl: !!platformBranding.value?.organization_logo_url,
+          hasOrgLogoPath: !!platformBranding.value?.organization_logo_path,
+          hasOrgLogoIconPath: !!platformBranding.value?.organization_logo_icon_path,
+          hasOrgLogoIconId: !!platformBranding.value?.organization_logo_icon_id
+        });
+      }
+      return null;
     }
     return null;
   });
@@ -674,32 +679,43 @@ export const useBrandingStore = defineStore('branding', () => {
     return url;
   };
 
-  // Display logo URL (no PlotTwistCo fallback - show platform template logo or nothing)
+  // Display logo URL (portal → selected org → platform template / login)
   const displayLogoUrl = computed(() => {
-    // Portal theme takes precedence
-    if (portalAgency.value?.logoUrl) {
+    if (portalAgency.value?.logoUrl && shouldApplyPortalAgencyThemeFirst()) {
       return addCacheBuster(portalAgency.value.logoUrl);
     }
+    const agency = agencyStore.currentAgency;
+    if (agency?.logo_path) {
+      return addCacheBuster(toUploadsUrl(agency.logo_path));
+    }
+    if (agency?.icon_file_path) {
+      return addCacheBuster(toUploadsUrl(agency.icon_file_path));
+    }
+    if (agency?.logo_url) {
+      if (agency.logo_url.startsWith('http://') || agency.logo_url.startsWith('https://')) {
+        return addCacheBuster(agency.logo_url);
+      }
+      const apiBase = getBackendBaseUrl();
+      const fullUrl = `${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`;
+      return addCacheBuster(fullUrl);
+    }
     if (isSuperAdmin.value || !authStore.isAuthenticated) {
-      // Priority 1: Platform organization_logo_url (if set)
       if (platformBranding.value?.organization_logo_url) {
         if (import.meta.env.DEV) {
           console.log('[Branding] Using organization_logo_url for displayLogoUrl:', platformBranding.value.organization_logo_url);
         }
         return addCacheBuster(platformBranding.value.organization_logo_url);
       }
-      // Priority 2: Platform organization_logo_path (from icon library)
       if (platformBranding.value?.organization_logo_path) {
-        const logoUrl = toUploadsUrl(platformBranding.value.organization_logo_path);
+        const u = toUploadsUrl(platformBranding.value.organization_logo_path);
         if (import.meta.env.DEV) {
           console.log('[Branding] Constructed displayLogoUrl from path:', {
             originalPath: platformBranding.value.organization_logo_path,
-            finalUrl: logoUrl
+            finalUrl: u
           });
         }
-        return addCacheBuster(logoUrl);
+        return addCacheBuster(u);
       }
-      // Priority 3: Platform organization_logo_icon_path / organization_logo_icon_id (icon-based logo selection)
       if (platformBranding.value?.organization_logo_icon_path) {
         return addCacheBuster(toUploadsUrl(String(platformBranding.value.organization_logo_icon_path)));
       }
@@ -707,7 +723,6 @@ export const useBrandingStore = defineStore('branding', () => {
         const url = iconUrlById(platformBranding.value.organization_logo_icon_id);
         if (url) return addCacheBuster(url);
       }
-      // No fallback - return null if no platform logo is set (don't show PlotTwistCo logo)
       if (import.meta.env.DEV && !window.location.pathname.includes('/intake/')) {
         console.warn('[Branding] No platform logo available for displayLogoUrl:', {
           hasOrgLogoUrl: !!platformBranding.value?.organization_logo_url,
@@ -718,30 +733,24 @@ export const useBrandingStore = defineStore('branding', () => {
       }
       return null;
     }
-    // Check for logo_path first (uploaded), then logo_url (URL)
-    const agency = agencyStore.currentAgency;
-    if (agency?.logo_path) {
-      const logoUrl = toUploadsUrl(agency.logo_path);
-      return addCacheBuster(logoUrl);
-    }
-    // Fallback to master icon (icon_id -> icon_file_path) when agency has no logo fields.
-    if (agency?.icon_file_path) {
-      const logoUrl = toUploadsUrl(agency.icon_file_path);
-      return addCacheBuster(logoUrl);
-    }
-    if (agency?.logo_url) {
-      if (agency.logo_url.startsWith('http://') || agency.logo_url.startsWith('https://')) {
-        return addCacheBuster(agency.logo_url);
-      }
-      const apiBase = getBackendBaseUrl();
-      const fullUrl = `${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`;
-      return addCacheBuster(fullUrl);
-    }
     return null;
   });
   
   // Get theme settings (fonts, login background, etc.)
   const themeSettings = computed(() => {
+    if (shouldApplyPortalAgencyThemeFirst() && portalAgency.value?.themeSettings) {
+      return portalAgency.value.themeSettings;
+    }
+    const a = agencyStore.currentAgency;
+    if (a?.theme_settings) {
+      try {
+        return typeof a.theme_settings === 'string'
+          ? JSON.parse(a.theme_settings)
+          : (a.theme_settings || {});
+      } catch {
+        return {};
+      }
+    }
     return portalAgency.value?.themeSettings || {};
   });
   
@@ -770,15 +779,32 @@ export const useBrandingStore = defineStore('branding', () => {
   // Display name for branding
   const displayName = computed(() => {
     if (isSuperAdmin.value) {
-      return platformBranding.value?.organization_name || '';
+      return (
+        agencyStore.currentAgency?.name ||
+        platformBranding.value?.organization_name ||
+        ''
+      );
     }
     return agencyStore.currentAgency?.name || platformBranding.value?.organization_name || '';
   });
 
   // Get terminology setting (e.g., "People Operations", "Human Resources", etc.)
   const peopleOpsTerm = computed(() => {
-    // For super admins, check platform branding first
+    // For super admins, selected org terminology first (agency switcher), then platform
     if (isSuperAdmin.value) {
+      if (agencyStore.currentAgency?.terminology_settings) {
+        try {
+          const terminology =
+            typeof agencyStore.currentAgency.terminology_settings === 'string'
+              ? JSON.parse(agencyStore.currentAgency.terminology_settings)
+              : agencyStore.currentAgency.terminology_settings;
+          if (terminology?.peopleOpsTerm && String(terminology.peopleOpsTerm).trim()) {
+            return String(terminology.peopleOpsTerm).trim();
+          }
+        } catch {
+          /* ignore */
+        }
+      }
       if (platformBranding.value?.people_ops_term && platformBranding.value.people_ops_term.trim()) {
         return platformBranding.value.people_ops_term.trim();
       }

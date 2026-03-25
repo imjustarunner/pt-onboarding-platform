@@ -2887,8 +2887,8 @@ watch(agencyFilterOptions, (rows) => {
 watch(
   () => props.weekStartYmd,
   (next) => {
-    if (!next) return;
-    const monday = startOfWeekMondayYmd(next);
+    const anchor = next && String(next).trim() ? next : new Date();
+    const monday = startOfWeekMondayYmd(anchor);
     if (monday && monday !== weekStart.value) {
       weekStart.value = monday;
       load();
