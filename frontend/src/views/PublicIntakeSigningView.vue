@@ -2382,6 +2382,21 @@ const updateRecaptchaMode = async () => {
   await recaptchaInitPromise;
 };
 
+const maybeInitRecaptchaForCover = async () => {
+  if (loading.value) return;
+  if (step.value !== -1) return;
+  if (!showCaptchaGate.value) return;
+  if (!activeRecaptchaSiteKey.value) return;
+  await nextTick();
+  await updateRecaptchaMode();
+  // One guarded retry helps when script/container timing races on first page load.
+  if (captchaWidgetFailed.value) {
+    await new Promise((r) => setTimeout(r, 180));
+    const rendered = await ensureRecaptchaWidget(activeRecaptchaMode.value, true);
+    captchaWidgetFailed.value = !rendered;
+  }
+};
+
 watch(step, async (val, prev) => {
   if (prev !== undefined && prev !== val) {
     recaptchaWidgetId.value = null;
@@ -2392,6 +2407,17 @@ watch(step, async (val, prev) => {
     await updateRecaptchaMode();
   }
 });
+
+watch(
+  () => [loading.value, step.value, showCaptchaGate.value, activeRecaptchaSiteKey.value, activeRecaptchaMode.value],
+  async ([isLoading, stepVal, showGate, siteKey]) => {
+    if (isLoading) return;
+    if (stepVal !== -1) return;
+    if (!showGate || !siteKey) return;
+    await maybeInitRecaptchaForCover();
+  },
+  { flush: 'post' }
+);
 
 const deriveClientInitials = (firstName, lastName) => {
   const formatTri = (value) => {
@@ -3583,6 +3609,7 @@ onMounted(async () => {
   }
   if (!sessionToken.value) {
     step.value = -1;
+    await maybeInitRecaptchaForCover();
     return;
   }
   if (!restoredDraft && introScreens.value.length) {
