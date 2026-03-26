@@ -105,7 +105,7 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
       const [classRows] = await pool.execute(
         `SELECT c.id, c.class_name, c.description, c.starts_at, c.ends_at,
                 c.enrollment_opens_at, c.enrollment_closes_at,
-                c.registration_eligible, c.medicaid_eligible, c.cash_eligible
+                c.registration_eligible, c.medicaid_eligible, c.cash_eligible, c.delivery_mode
          FROM learning_program_classes c
          WHERE c.organization_id IN (${ph})
            AND c.registration_eligible = 1
@@ -128,6 +128,7 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
           endsAt: r.ends_at,
           enrollmentOpensAt: r.enrollment_opens_at,
           enrollmentClosesAt: r.enrollment_closes_at,
+          deliveryMode: String(r.delivery_mode || 'group').toLowerCase() === 'individual' ? 'individual' : 'group',
           medicaidEligible: !!(r.medicaid_eligible === 1 || r.medicaid_eligible === true),
           cashEligible: !!(r.cash_eligible === 1 || r.cash_eligible === true)
         });

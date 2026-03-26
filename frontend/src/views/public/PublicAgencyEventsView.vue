@@ -7,6 +7,8 @@
     :error="error"
     :nearest-agency-slug="slug"
     :footer-home-slug="slug"
+    :enroll-cross-link-href="enrollHubPath"
+    enroll-cross-link-label="Looking for individual program enrollment? View enrollments and programs"
     show-public-shell
   />
 </template>
@@ -22,6 +24,12 @@ const route = useRoute();
 const slug = computed(() =>
   String(route.params.agencySlug || route.params.organizationSlug || '').trim()
 );
+const isOpenEventsPath = computed(() => Boolean(route.params.agencySlug));
+const enrollHubPath = computed(() => {
+  if (!slug.value) return '';
+  if (isOpenEventsPath.value) return `/open-events/${slug.value}/enroll`;
+  return `/${slug.value}/enroll`;
+});
 
 const loading = ref(false);
 const error = ref('');

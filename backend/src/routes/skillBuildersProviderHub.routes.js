@@ -18,6 +18,7 @@ import {
   skillBuilderEventClockIn,
   skillBuilderEventClockOut,
   quickEnrollClientToSkillBuilderEvent,
+  listAffiliatedProgramOrgsForSkillBuildersDirectory,
   listSkillBuildersEventsDirectory,
   getSkillBuilderPortalCompanyEventForEdit,
   putSkillBuilderPortalCompanyEventForEdit,
@@ -110,6 +111,7 @@ router.delete(
 );
 
 router.get('/events/directory', listSkillBuildersEventsDirectory);
+router.get('/directory/agency/:agencyId/affiliated-program-orgs', listAffiliatedProgramOrgsForSkillBuildersDirectory);
 router.get('/coordinator/master-clients', listMasterSkillBuilderClients);
 router.get('/coordinator/company-events-search', listCoordinatorSkillBuilderCompanyEvents);
 router.patch('/coordinator/clients/:clientId', patchCoordinatorSkillBuilderClient);

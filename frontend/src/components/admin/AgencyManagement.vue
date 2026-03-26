@@ -1047,6 +1047,18 @@
             </div>
             <small class="hint">Enables the Note Aid page (AI note helpers). Requires GEMINI_API_KEY in backend.</small>
 
+            <div class="toggle-row" style="margin-top: 10px;">
+              <span>Enable standards-aligned learning</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.standardsLearningEnabled" compact />
+            </div>
+            <small class="hint">Enables standards/goals/progress views and APIs for learning workflows.</small>
+
+            <div class="toggle-row" style="margin-top: 10px;">
+              <span>Enable group class sessions (Phase 4A)</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.groupClassSessionsEnabled" compact />
+            </div>
+            <small class="hint">Enables learning class session workspace, moderation controls, and live class telemetry.</small>
+
             <div v-if="isFeatureAvailable('guardianWaiversEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable guardian waivers &amp; kiosk check-in gate</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.guardianWaiversEnabled" compact />
@@ -5663,6 +5675,12 @@ const defaultAgencyForm = () => ({
     // Default OFF until explicitly enabled (requires GEMINI_API_KEY in backend).
     noteAidEnabled: false,
 
+    // Standards/goals/progress experience (off by default)
+    standardsLearningEnabled: false,
+
+    // Group class workspace/session controls (off by default)
+    groupClassSessionsEnabled: false,
+
     // Guardian portal waivers + optional kiosk gate before check-in
     guardianWaiversEnabled: false,
 
@@ -7015,6 +7033,8 @@ const editAgency = async (agency) => {
       kudosEnabled: featureFlags.kudosEnabled === true,
       aiProviderSearchEnabled: featureFlags.aiProviderSearchEnabled === true,
       noteAidEnabled: featureFlags.noteAidEnabled === true,
+      standardsLearningEnabled: featureFlags.standardsLearningEnabled === true,
+      groupClassSessionsEnabled: featureFlags.groupClassSessionsEnabled === true,
       guardianWaiversEnabled: featureFlags.guardianWaiversEnabled === true,
       clinicalNoteGeneratorEnabled: featureFlags.clinicalNoteGeneratorEnabled === true,
       publicProviderFinderEnabled: featureFlags.publicProviderFinderEnabled === true,
@@ -8110,8 +8130,30 @@ const closeModal = () => {
 watch(showCreateModal, (isOpen) => {
   if (!isOpen) return;
   if (editingAgency.value) return;
-  // Ensure admins default to an allowed org type (no agency creation)
-  agencyForm.value.organizationType = userRole.value === 'super_admin' ? 'agency' : 'school';
+  const view = String(typeFilter.value || 'agencies').toLowerCase();
+  // Match the list you are on so super admins do not accidentally create a tenant "agency" while on Programs.
+  if (userRole.value === 'super_admin') {
+    const byFilter = {
+      programs: 'program',
+      schools: 'school',
+      learning: 'learning',
+      clinical: 'clinical',
+      buildings: 'office',
+      agencies: 'agency',
+      organizations: 'program',
+      other: 'program'
+    };
+    agencyForm.value.organizationType = byFilter[view] || 'program';
+  } else {
+    const byFilter = {
+      programs: 'program',
+      schools: 'school',
+      learning: 'learning',
+      clinical: 'clinical',
+      buildings: 'office'
+    };
+    agencyForm.value.organizationType = byFilter[view] || 'school';
+  }
   agencyForm.value.affiliatedAgencyId = '';
   // For a new org (no id yet), show platform font families (if any)
   fetchFontFamiliesForOrg(null);

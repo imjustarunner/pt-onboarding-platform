@@ -2,7 +2,10 @@ import express from 'express';
 import { publicGeocodeLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
   getPublicSkillBuildersProgramMeta,
+  listPublicAgencyEnrollPrograms,
   listPublicAgencyEvents,
+  listPublicProgramEnrollHubByPortalSlug,
+  listPublicProgramEnrollHubByProgramSlug,
   listPublicProgramEventsByPortalSlug,
   listPublicProgramEventsByProgramSlug,
   listPublicSkillBuildersProgramEvents,
@@ -21,9 +24,12 @@ import {
 
 const router = express.Router();
 
+router.get('/agency/:slug/enroll/programs', listPublicAgencyEnrollPrograms);
 router.get('/agency/:slug/events', listPublicAgencyEvents);
 router.post('/agency/:slug/events/nearest', publicGeocodeLimiter, rankPublicAgencyEventsByAddress);
+router.get('/agency/:slug/programs/:programSlug/enroll', listPublicProgramEnrollHubByProgramSlug);
 router.get('/agency/:slug/programs/:programSlug/events', listPublicProgramEventsByProgramSlug);
+router.get('/portal/:portalSlug/programs/:programSlug/enroll', listPublicProgramEnrollHubByPortalSlug);
 router.get('/portal/:portalSlug/programs/:programSlug/events', listPublicProgramEventsByPortalSlug);
 router.post(
   '/portal/:portalSlug/programs/:programSlug/events/nearest',

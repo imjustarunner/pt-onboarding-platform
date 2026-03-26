@@ -7,10 +7,12 @@ import {
   respondNearestDistanceError
 } from '../services/skillBuildersPublicEvents.service.js';
 import {
+  listAffiliatedProgramOrganizations,
   resolveAffiliatedProgramOrganizationIdBySlug,
   resolveAffiliatedProgramOrganizationIdBySlugAnyParent,
   resolveSkillBuildersProgramOrganizationId
 } from '../services/skillBuildersSkillsGroup.service.js';
+import { loadPublicProgramEnrollmentRows } from '../services/skillBuildersPublicEnrollments.service.js';
 
 /**
  * Shared resolver for GET/POST `/portal/:portalSlug/programs/:programSlug/...`.
@@ -138,6 +140,124 @@ async function resolvePortalProgramPublicListing(conn, portalSlug, programSlug) 
   }
   return { ok: true, payload };
 }
+
+async function attachEnrollmentsToPayload(conn, payload) {
+  const programOrgId = payload?.organizationId != null ? Number(payload.organizationId) : null;
+  if (!Number.isFinite(programOrgId) || programOrgId <= 0) {
+    return { ...payload, enrollments: [] };
+  }
+  const enrollments = await loadPublicProgramEnrollmentRows(conn, programOrgId);
+  return { ...payload, enrollments };
+}
+
+/** GET /api/public/skill-builders/agency/:slug/enroll/programs */
+export const listPublicAgencyEnrollPrograms = async (req, res, next) => {
+  try {
+    const slug = String(req.params.slug || '').trim().toLowerCase();
+    if (!slug) return res.status(400).json({ error: { message: 'Invalid slug' } });
+    const [orgs] = await pool.execute(
+      `SELECT id, name, slug FROM agencies WHERE LOWER(slug) = ? AND (is_archived = FALSE OR is_archived IS NULL) LIMIT 1`,
+      [slug]
+    );
+    const agencyId = orgs?.[0]?.id ? Number(orgs[0].id) : null;
+    if (!agencyId) return res.status(404).json({ error: { message: 'Agency not found' } });
+    const agencyName = String(orgs[0].name || '').trim() || null;
+    const agencySlugOut = String(orgs[0].slug || '').trim().toLowerCase() || null;
+
+    const conn = await pool.getConnection();
+    try {
+      const programs = await listAffiliatedProgramOrganizations(conn, agencyId);
+      res.json({ ok: true, agencyId, agencyName, agencySlug: agencySlugOut, programs });
+    } finally {
+      conn.release();
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/public/skill-builders/agency/:slug/programs/:programSlug/enroll */
+export const listPublicProgramEnrollHubByProgramSlug = async (req, res, next) => {
+  try {
+    const slug = String(req.params.slug || '').trim().toLowerCase();
+    const programSlug = String(req.params.programSlug || '').trim().toLowerCase();
+    if (!slug || !programSlug) {
+      return res.status(400).json({ error: { message: 'Invalid agency or program slug' } });
+    }
+    const [orgs] = await pool.execute(
+      `SELECT id, name, slug FROM agencies WHERE LOWER(slug) = ? AND (is_archived = FALSE OR is_archived IS NULL) LIMIT 1`,
+      [slug]
+    );
+    const agencyId = orgs?.[0]?.id ? Number(orgs[0].id) : null;
+    if (!agencyId) return res.status(404).json({ error: { message: 'Agency not found' } });
+    const agencyName = String(orgs[0].name || '').trim() || null;
+    const agencySlugOut = String(orgs[0].slug || '').trim().toLowerCase() || null;
+
+    const conn = await pool.getConnection();
+    try {
+      const programOrgId = await resolveAffiliatedProgramOrganizationIdBySlug(conn, agencyId, programSlug);
+      if (!programOrgId) {
+        return res.json({
+          ok: true,
+          agencyId,
+          agencyName,
+          agencySlug: agencySlugOut,
+          organizationId: null,
+          programSlug,
+          enrollments: [],
+          events: []
+        });
+      }
+      const events = await loadPublicProgramEventRows(conn, agencyId, programOrgId);
+      const enrollments = await loadPublicProgramEnrollmentRows(conn, programOrgId);
+      res.json({
+        ok: true,
+        agencyId,
+        agencyName,
+        agencySlug: agencySlugOut,
+        organizationId: programOrgId,
+        programSlug,
+        enrollments,
+        events
+      });
+    } finally {
+      conn.release();
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/public/skill-builders/portal/:portalSlug/programs/:programSlug/enroll
+ * Same URL shape as program events; first segment may be agency or program portal slug.
+ */
+export const listPublicProgramEnrollHubByPortalSlug = async (req, res, next) => {
+  try {
+    const portalSlug = String(req.params.portalSlug || '').trim().toLowerCase();
+    const programSlug = String(req.params.programSlug || '').trim().toLowerCase();
+    if (!portalSlug || !programSlug) {
+      return res.status(400).json({ error: { message: 'Invalid portal or program slug' } });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      const result = await resolvePortalProgramPublicListing(conn, portalSlug, programSlug);
+      if (!result.ok) {
+        if (result.status === 400) {
+          return res.status(400).json({ error: { message: result.message || 'Invalid request' } });
+        }
+        return res.status(404).json({ error: { message: result.message || 'Not found' } });
+      }
+      const withEnroll = await attachEnrollmentsToPayload(conn, result.payload);
+      res.json(withEnroll);
+    } finally {
+      conn.release();
+    }
+  } catch (e) {
+    next(e);
+  }
+};
 
 /** GET /api/public/skill-builders/agency/:slug/events */
 export const listPublicAgencyEvents = async (req, res, next) => {

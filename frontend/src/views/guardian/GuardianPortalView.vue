@@ -91,7 +91,8 @@
           <div>
             <div class="reg-catalog-title">Register for programs</div>
             <p class="reg-catalog-sub muted">
-              Open Skill Builders events and learning classes your organization marked for guardian registration.
+              Open Skill Builders events and program enrollments (learning classes) your organization marked for guardian registration.
+              Your provider may also share a public <strong>enroll</strong> page that lists enrollments and events together.
             </p>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" :disabled="regCatalogLoading" @click="fetchRegistrationCatalog">
@@ -108,7 +109,17 @@
                 {{ registrationPayerLine(item) }}
               </div>
             </div>
-            <button type="button" class="btn btn-primary btn-sm" @click="openRegistrationEnroll(item)">Register</button>
+            <div class="reg-catalog-actions">
+              <button type="button" class="btn btn-primary btn-sm" @click="openRegistrationEnroll(item)">Register</button>
+              <button
+                v-if="item.kind === 'learning_class' && String(item.deliveryMode || 'group').toLowerCase() === 'group'"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="openLearningClassWorkspace(item)"
+              >
+                Join class
+              </button>
+            </div>
           </li>
         </ul>
         <p v-else-if="!regCatalogLoading" class="hint" style="margin: 0;">Nothing is open for registration for this program right now.</p>
@@ -292,6 +303,65 @@
                     <div class="label">Docs</div>
                     <div class="value">{{ formatDocStatus(selectedChild.document_status) }}</div>
                   </div>
+                </div>
+
+                <div v-if="standardsLearningVisible" class="learning-progress-block">
+                  <div class="learning-progress-head">
+                    <h4 style="margin: 0;">Learning progress</h4>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="learningProgressLoading || !selectedChildId"
+                      @click="loadSelectedChildLearningProgress"
+                    >
+                      {{ learningProgressLoading ? 'Loading…' : 'Refresh' }}
+                    </button>
+                  </div>
+                  <p class="hint" style="margin: 6px 0 10px;">
+                    Standards-aligned goals and trends for {{ childDisplayName(selectedChild) }}.
+                  </p>
+                  <div v-if="learningProgressError" class="error" style="font-size: 13px;">{{ learningProgressError }}</div>
+                  <div v-else-if="learningProgressLoading" class="hint">Loading learning progress…</div>
+                  <template v-else>
+                    <div class="learning-progress-grid">
+                      <div class="learning-progress-card">
+                        <div class="learning-progress-card-title">Domain trends</div>
+                        <ul v-if="learningDomainRows.length" class="learning-progress-list">
+                          <li v-for="row in learningDomainRows" :key="`d-${row.domain_id}`">
+                            <strong>{{ row.domain_title || row.domain_code || `Domain ${row.domain_id}` }}</strong>
+                            <span class="muted small">
+                              · {{ Number(row.evidence_count || 0) }} data points
+                              <template v-if="row.avg_score != null"> · avg {{ formatLearningScore(row.avg_score) }}</template>
+                            </span>
+                          </li>
+                        </ul>
+                        <p v-else class="hint" style="margin: 0;">No domain data yet.</p>
+                      </div>
+                      <div class="learning-progress-card">
+                        <div class="learning-progress-card-title">Active goals</div>
+                        <ul v-if="learningGoalRows.length" class="learning-progress-list">
+                          <li v-for="g in learningGoalRows.slice(0, 5)" :key="`g-${g.id}`">
+                            <strong>{{ g.skill_title || `Skill ${g.skill_id}` }}</strong>
+                            <span class="muted small"> · {{ g.status }} · target {{ formatLearningDate(g.target_date) }}</span>
+                          </li>
+                        </ul>
+                        <p v-else class="hint" style="margin: 0;">No goals set yet.</p>
+                      </div>
+                    </div>
+                    <div class="learning-progress-card" style="margin-top: 10px;">
+                      <div class="learning-progress-card-title">Recommended next skills</div>
+                      <ul v-if="learningRecommendationRows.length" class="learning-progress-list">
+                        <li v-for="r in learningRecommendationRows.slice(0, 4)" :key="`r-${r.domain_id}-${r.skill_id}`">
+                          <strong>{{ r.skill_title || `Skill ${r.skill_id}` }}</strong>
+                          <span class="muted small">
+                            · {{ r.domain_title || `Domain ${r.domain_id}` }}
+                            · {{ r.recommended_difficulty_shift }}
+                          </span>
+                        </li>
+                      </ul>
+                      <p v-else class="hint" style="margin: 0;">No recommendations yet.</p>
+                    </div>
+                  </template>
                 </div>
 
                 <div v-if="!selectedChild.guardian_portal_locked" class="intake-docs-block">
@@ -534,6 +604,25 @@ const learningBillingVisible = computed(() => {
   return Boolean(flags?.learningProgramBillingEnabled === true);
 });
 
+const parseFeatureFlags = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) || {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+};
+
+const standardsLearningVisible = computed(() => {
+  const orgType = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
+  const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags);
+  return orgType === 'learning' || flags.standardsLearningEnabled === true;
+});
+
 const selectedChild = computed(() => {
   const id = Number(selectedChildId.value);
   if (!id) return null;
@@ -731,6 +820,30 @@ function registrationPayerLine(item) {
   if (item?.medicaidEligible) bits.push('Medicaid');
   if (item?.cashEligible) bits.push('Cash / self-pay');
   return bits.length ? `Enrollment: ${bits.join(' · ')}` : '';
+}
+
+async function openLearningClassWorkspace(item) {
+  const classId = Number(item?.id || 0);
+  if (!classId) return;
+  try {
+    const resp = await api.get(`/learning-class-sessions/classes/${classId}/join-resolve`, { skipGlobalLoading: true });
+    const joinPath = String(resp.data?.joinPath || '').trim();
+    const sessionId = Number(resp.data?.preferredSessionId || 0);
+    if (joinPath) {
+      if (sessionId > 0) {
+        router.push(`${joinPath}?sessionId=${sessionId}`);
+      } else {
+        router.push(joinPath);
+      }
+      return;
+    }
+  } catch {
+    // fallback to local slug resolution
+  }
+  const slug =
+    String(route.params.organizationSlug || '').trim().toLowerCase() ||
+    String(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || '').trim().toLowerCase();
+  router.push(slug ? `/${slug}/learning/classes/${classId}` : `/learning/classes/${classId}`);
 }
 
 const panelTitle = computed(() => {
@@ -995,6 +1108,60 @@ const openIntakeSignedDoc = async (d) => {
 const guardianNoteDate = ref('');
 const guardianDailyNotes = ref([]);
 const guardianNotesLoading = ref(false);
+const learningProgressLoading = ref(false);
+const learningProgressError = ref('');
+const learningDomainRows = ref([]);
+const learningGoalRows = ref([]);
+const learningRecommendationRows = ref([]);
+
+const formatLearningScore = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  return n.toFixed(1);
+};
+
+const formatLearningDate = (value) => {
+  if (!value) return '—';
+  try {
+    const d = new Date(value);
+    if (!Number.isFinite(d.getTime())) return String(value);
+    return d.toLocaleDateString(undefined, { dateStyle: 'medium' });
+  } catch {
+    return String(value);
+  }
+};
+
+const loadSelectedChildLearningProgress = async () => {
+  const clientId = Number(selectedChildId.value || 0);
+  if (!clientId || !standardsLearningVisible.value) {
+    learningDomainRows.value = [];
+    learningGoalRows.value = [];
+    learningRecommendationRows.value = [];
+    return;
+  }
+  learningProgressLoading.value = true;
+  learningProgressError.value = '';
+  try {
+    const [domainsRes, goalsRes, recommendationsRes] = await Promise.all([
+      api.get(`/learning-progress/students/${clientId}/domains`, { skipGlobalLoading: true }),
+      api.get(`/learning-progress/students/${clientId}/goals`, { skipGlobalLoading: true }),
+      api.get(`/learning-recommendations/students/${clientId}`, { skipGlobalLoading: true })
+    ]);
+    learningDomainRows.value = Array.isArray(domainsRes.data?.domains) ? domainsRes.data.domains : [];
+    learningGoalRows.value = Array.isArray(goalsRes.data?.goals) ? goalsRes.data.goals : [];
+    learningRecommendationRows.value = Array.isArray(recommendationsRes.data?.recommendations)
+      ? recommendationsRes.data.recommendations
+      : [];
+  } catch (err) {
+    learningProgressError.value = err.response?.data?.error?.message || 'Could not load learning progress';
+    learningDomainRows.value = [];
+    learningGoalRows.value = [];
+    learningRecommendationRows.value = [];
+  } finally {
+    learningProgressLoading.value = false;
+  }
+};
+
 const loadGuardianDailyNotes = async () => {
   const clientId = selectedChildId.value;
   const date = guardianNoteDate.value;
@@ -1020,6 +1187,7 @@ const formatNoteTime = (dt) => {
 
 watch(selectedChildId, (id) => {
   void loadIntakeSignedDocumentsForChild();
+  void loadSelectedChildLearningProgress();
   if (id) {
     guardianNoteDate.value = new Date().toISOString().slice(0, 10);
     loadGuardianDailyNotes();
@@ -1039,6 +1207,13 @@ const closeComingSoon = () => {
 onMounted(async () => {
   await fetchOverview();
 });
+
+watch(
+  () => agencyStore.currentAgency?.id,
+  () => {
+    void loadSelectedChildLearningProgress();
+  }
+);
 </script>
 
 <style scoped>
@@ -1097,6 +1272,47 @@ onMounted(async () => {
 
 .hint {
   font-size: 13px;
+}
+
+.learning-progress-block {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--bg-alt);
+}
+
+.learning-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.learning-progress-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.learning-progress-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+.learning-progress-card-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.learning-progress-list {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .top-cards {
@@ -1562,6 +1778,12 @@ a.rail-card {
 .reg-catalog-item-title {
   font-weight: 700;
   font-size: 14px;
+}
+
+.reg-catalog-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .reg-self-stub {

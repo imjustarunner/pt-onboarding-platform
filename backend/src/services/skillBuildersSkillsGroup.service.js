@@ -46,6 +46,36 @@ export async function listAffiliatedProgramOrganizationIds(conn, agencyId) {
 }
 
 /**
+ * Affiliated program-type organizations under an agency (id, name, portal slug).
+ * Used for public /enroll discovery and admin tooling.
+ */
+export async function listAffiliatedProgramOrganizations(conn, agencyId) {
+  const aid = Number(agencyId);
+  if (!Number.isFinite(aid) || aid <= 0) return [];
+  const [rows] = await conn.execute(
+    `SELECT child.id, child.name, child.slug
+     FROM organization_affiliations oa
+     JOIN agencies child ON child.id = oa.organization_id
+     WHERE oa.agency_id = ?
+       AND oa.is_active = TRUE
+       AND (child.is_archived = FALSE OR child.is_archived IS NULL)
+       AND (child.is_active = TRUE OR child.is_active IS NULL)
+       AND LOWER(COALESCE(child.organization_type, '')) = 'program'
+     ORDER BY child.name ASC, child.id ASC`,
+    [aid]
+  );
+  return (rows || [])
+    .map((r) => ({
+      id: Number(r.id),
+      name: String(r.name || '').trim() || 'Program',
+      slug: String(r.slug || '')
+        .trim()
+        .toLowerCase()
+    }))
+    .filter((p) => p.slug && Number.isFinite(p.id) && p.id > 0);
+}
+
+/**
  * Resolve an affiliated program organization under an agency by its portal slug (agencies.slug).
  */
 export async function resolveAffiliatedProgramOrganizationIdBySlug(conn, agencyId, programSlug) {

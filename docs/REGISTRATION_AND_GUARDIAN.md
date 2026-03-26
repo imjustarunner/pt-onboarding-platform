@@ -9,11 +9,16 @@ Companion to [`SKILL_BUILDERS_PROGRAM_AND_AFFILIATIONS.md`](SKILL_BUILDERS_PROGR
   - Short: `/i/{publicKey}`
   - `publicKey` is the value stored on each row in **`intake_links.public_key`**. In the product, open **Admin → Digital forms / Intake links** ([`IntakeLinksView.vue`](../frontend/src/views/admin/IntakeLinksView.vue)) and use **Copy link** (or read the key from the list). The shareable URL is built with [`publicIntakeUrl.js`](../frontend/src/utils/publicIntakeUrl.js); deployments may set **`VITE_PUBLIC_INTAKE_BASE_URL`** so links point at the correct hostname.
 - Set **Form type** to **Smart Registration** for event/class registration flows (`form_type = smart_registration`).
-- **Agency public upcoming-events pages** are separate, read-only listings (until CTAs are configured):
-  - `/open-events/{agencySlug}` — all upcoming events for the agency slug (alias: `/{agencySlug}/events` on the same public listing).
-  - `/open-events/{agencySlug}/programs/{programSlug}/events` — program-scoped listing (API: `GET /api/public/skill-builders/agency/:slug/programs/:programSlug/events`).
+- **Public events-only pages** (scheduled Skill Builders / company events with registration):
+  - `/open-events/{agencySlug}` — all upcoming **events** for the agency slug (alias: `/{agencySlug}/events` on the same public listing).
+  - `/open-events/{agencySlug}/programs/{programSlug}/events` — program-scoped **events** (API: `GET /api/public/skill-builders/agency/:slug/programs/:programSlug/events`).
   - `/{organizationSlug}/programs/{programSlug}/events` — branded URL where the first segment may be the **agency** or a **program** portal slug (API: `GET /api/public/skill-builders/portal/:portalSlug/programs/:programSlug/events`).
-  These pages load data from the public Skill Builders events APIs. **Only** events that are **`registration_eligible`** and have an **active Smart Registration** intake link with **`intake_links.company_event_id`** set are listed. Optional **hero image**, **extra public details**, and **in-person venue** fields live on `company_events` (migration `595_company_events_public_listing_location.sql`). **Find closest session**: `POST /api/public/skill-builders/agency/:slug/events/nearest` with `{ "address": "…" }` (Google Geocoding; straight-line distance to event venue and in-person session addresses).
+  These pages load data from the public Skill Builders events APIs. **Only** events that are **`registration_eligible`** and have an **active** intake link tied to the event (**`intake_links.company_event_id`**) are listed. Optional **hero image**, **extra public details**, and **in-person venue** fields live on `company_events`. **Find closest session**: `POST /api/public/skill-builders/agency/:slug/events/nearest` with `{ "address": "…" }`.
+- **Public enroll hub pages** (program enrollments + events together):
+  - `/open-events/{agencySlug}/enroll` — lists affiliated **program** organizations; each card links to that program’s enroll hub (API: `GET /api/public/skill-builders/agency/:slug/enroll/programs`).
+  - `/{agencySlug}/enroll` — same, branded.
+  - `/open-events/{agencySlug}/programs/{programSlug}/enroll` and `/{portalSlug}/programs/{programSlug}/enroll` — **Program enrollments** (`learning_program_classes` with **`registration_eligible`**, open enrollment window, **active** intake with **`learning_class_id`** and no `company_event_id`) plus the same **events** as the events-only program page (API: `GET .../programs/:programSlug/enroll` and `GET .../portal/:portalSlug/programs/:programSlug/enroll`).
+  Families use **Enroll now** → `/intake/{publicKey}` like events. **Events-only** pages link to the enroll hub when families need individual program enrollment.
 
 ## Goals
 
@@ -79,3 +84,9 @@ Admin **Intake link** builder: registration source **`agency_catalog`** loads op
 
 - **Email/SMS audit**: Ensure templates use initials + identifier for school-facing and bulk sends.
 - **Rich completion**: Dynamic per-event registrant instructions, attachments, magic links beyond the current completion email + status hints.
+
+## Related docs
+
+- [Skill Builders program, school linkage, and cross-sub-organization affiliations](SKILL_BUILDERS_PROGRAM_AND_AFFILIATIONS.md)
+- [Program enrollments initiative](PROGRAM_ENROLLMENTS_INITIATIVE.md)
+- [Standards-aligned learning system initiative](STANDARDS_ALIGNED_LEARNING_SYSTEM_INITIATIVE.md)

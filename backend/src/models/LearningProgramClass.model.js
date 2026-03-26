@@ -89,6 +89,7 @@ class LearningProgramClass {
       mastersAgeThreshold = null,
       recognitionCategoriesJson = null,
       recognitionMetric = null,
+      deliveryMode = 'group',
       registrationEligible = false,
       medicaidEligible = false,
       cashEligible = false,
@@ -100,9 +101,9 @@ class LearningProgramClass {
         enrollment_opens_at, enrollment_closes_at, status, is_active, allow_late_join, max_clients,
         metadata_json, activity_types_json, scoring_rules_json, weekly_goal_minimum,
         team_min_points_per_week, individual_min_points_per_week, week_start_time,
-        masters_age_threshold, recognition_categories_json, recognition_metric,
+        masters_age_threshold, recognition_categories_json, recognition_metric, delivery_mode,
         registration_eligible, medicaid_eligible, cash_eligible, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         organizationId,
         className,
@@ -127,6 +128,7 @@ class LearningProgramClass {
         mastersAgeThreshold != null ? toInt(mastersAgeThreshold) : 53,
         recognitionCategoriesJson ? JSON.stringify(recognitionCategoriesJson) : null,
         recognitionMetric || 'points',
+        String(deliveryMode || 'group').toLowerCase() === 'individual' ? 'individual' : 'group',
         registrationEligible ? 1 : 0,
         medicaidEligible ? 1 : 0,
         cashEligible ? 1 : 0,
@@ -162,6 +164,7 @@ class LearningProgramClass {
       mastersAgeThreshold: 'masters_age_threshold',
       recognitionCategoriesJson: 'recognition_categories_json',
       recognitionMetric: 'recognition_metric',
+      deliveryMode: 'delivery_mode',
       registrationEligible: 'registration_eligible',
       medicaidEligible: 'medicaid_eligible',
       cashEligible: 'cash_eligible'

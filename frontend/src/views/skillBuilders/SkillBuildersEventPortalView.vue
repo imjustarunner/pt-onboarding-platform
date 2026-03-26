@@ -110,7 +110,10 @@
                 <li>Program dates: {{ formatDateOnly(detail.skillsGroup.startDate) }} – {{ formatDateOnly(detail.skillsGroup.endDate) }}</li>
               </ul>
               <p class="muted small">{{ headerSubtitle }}</p>
-              <div v-if="programEventsHref || dashboardHref" class="sbep-inline-actions sbep-home-links">
+              <div v-if="programEventsHref || programEnrollHubHref || dashboardHref" class="sbep-inline-actions sbep-home-links">
+                <router-link v-if="programEnrollHubHref" class="btn btn-secondary btn-sm" :to="programEnrollHubHref">
+                  Public enroll page
+                </router-link>
                 <router-link v-if="programEventsHref" class="btn btn-secondary btn-sm" :to="programEventsHref">
                   All program events
                 </router-link>
@@ -752,9 +755,166 @@
               section-id="learning"
               title="Learning"
               :icon-url="sectionIconUrl('learning')"
-              class="muted"
             >
-              Linked learning class ID {{ detail.event.learningProgramClassId }} — open class features from Learning when wired in the admin UI.
+              <p class="muted small sbep-card-lead">
+                Linked learning class ID <strong>{{ detail.event.learningProgramClassId }}</strong>. View standards-aligned
+                progress for event participants.
+              </p>
+              <div class="sbep-learning-controls">
+                <label class="sbep-label">Student</label>
+                <select v-model.number="learningInsightsClientId" class="input sbep-kiosk-field">
+                  <option :value="0">Select a student…</option>
+                  <option v-for="c in detail.clients || []" :key="`l-c-${c.id}`" :value="Number(c.id)">
+                    {{ clientLabelForRow(c) }}
+                  </option>
+                </select>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="learningInsightsLoading || !learningInsightsClientId"
+                  @click="loadLearningInsights"
+                >
+                  {{ learningInsightsLoading ? 'Loading…' : 'Refresh' }}
+                </button>
+              </div>
+              <div v-if="learningInsightsError" class="error-box">{{ learningInsightsError }}</div>
+              <template v-else-if="learningInsightsClientId">
+                <div class="sbep-learning-grid">
+                  <div class="sbep-learning-card">
+                    <p class="sbep-subh">Domain trends</p>
+                    <ul v-if="learningInsightsDomains.length" class="sbep-list">
+                      <li v-for="row in learningInsightsDomains" :key="`ld-${row.domain_id}`">
+                        <strong>{{ row.domain_title || row.domain_code || `Domain ${row.domain_id}` }}</strong>
+                        <span class="muted small">
+                          · {{ Number(row.evidence_count || 0) }} points
+                          <template v-if="row.avg_score != null"> · avg {{ formatLearningScore(row.avg_score) }}</template>
+                        </span>
+                      </li>
+                    </ul>
+                    <p v-else class="muted small">No domain trend data yet.</p>
+                  </div>
+                  <div class="sbep-learning-card">
+                    <p class="sbep-subh">Active goals</p>
+                    <ul v-if="learningInsightsGoals.length" class="sbep-list">
+                      <li v-for="g in learningInsightsGoals.slice(0, 6)" :key="`lg-${g.id}`">
+                        <div>
+                          <strong>{{ g.skill_title || `Skill ${g.skill_id}` }}</strong>
+                          <span class="muted small"> · {{ g.status }} · target {{ formatLearningDate(g.target_date) }}</span>
+                        </div>
+                        <div v-if="canManageLearningGoals" class="sbep-inline-actions" style="margin-top: 4px;">
+                          <button type="button" class="btn btn-secondary btn-sm" @click="beginEditLearningGoal(g)">Edit</button>
+                          <button
+                            v-if="g.status !== 'active'"
+                            type="button"
+                            class="btn btn-secondary btn-sm"
+                            @click="activateLearningGoal(g)"
+                          >
+                            Activate
+                          </button>
+                          <button
+                            v-if="g.status !== 'closed'"
+                            type="button"
+                            class="btn btn-secondary btn-sm"
+                            @click="archiveLearningGoal(g)"
+                          >
+                            Archive
+                          </button>
+                        </div>
+                      </li>
+                    </ul>
+                    <p v-else class="muted small">No goals found for this student.</p>
+                  </div>
+                </div>
+                <div class="sbep-learning-card">
+                  <p class="sbep-subh">Recommended next skills</p>
+                  <ul v-if="learningInsightsRecommendations.length" class="sbep-list">
+                    <li v-for="r in learningInsightsRecommendations.slice(0, 5)" :key="`lr-${r.domain_id}-${r.skill_id}`">
+                      <strong>{{ r.skill_title || `Skill ${r.skill_id}` }}</strong>
+                      <span class="muted small">
+                        · {{ r.domain_title || `Domain ${r.domain_id}` }}
+                        · {{ r.recommended_difficulty_shift }}
+                      </span>
+                    </li>
+                  </ul>
+                  <p v-else class="muted small">No recommendations yet.</p>
+                </div>
+                <div v-if="canManageLearningGoals" class="sbep-learning-card">
+                  <div class="sbep-inline-actions" style="justify-content: space-between; align-items: center;">
+                    <p class="sbep-subh" style="margin: 0;">Goal editor</p>
+                    <button type="button" class="btn btn-secondary btn-sm" @click="openNewLearningGoalForm">
+                      New goal
+                    </button>
+                  </div>
+                  <div v-if="learningCatalogError" class="error-box" style="margin-top: 8px;">{{ learningCatalogError }}</div>
+                  <div v-else-if="learningCatalogLoading" class="muted small" style="margin-top: 8px;">Loading standards catalog…</div>
+                  <div v-else-if="learningGoalFormOpen" class="sbep-learning-goal-form">
+                    <div class="sbep-learning-goal-form-grid">
+                      <div>
+                        <label class="sbep-label">Domain</label>
+                        <select v-model.number="learningGoalForm.domainId" class="input sbep-kiosk-field">
+                          <option :value="0">Select domain…</option>
+                          <option v-for="d in learningCatalogDomains" :key="`ldm-${d.id}`" :value="Number(d.id)">
+                            {{ d.title || d.code }}
+                          </option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="sbep-label">Skill</label>
+                        <select v-model.number="learningGoalForm.skillId" class="input sbep-kiosk-field">
+                          <option :value="0">Select skill…</option>
+                          <option v-for="s in filteredLearningSkills" :key="`lsk-${s.id}`" :value="Number(s.id)">
+                            {{ s.title }}
+                          </option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="sbep-label">Measurement</label>
+                        <select v-model="learningGoalForm.measurementType" class="input sbep-kiosk-field">
+                          <option value="numeric">Numeric</option>
+                          <option value="rubric">Rubric</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="sbep-label">Start date</label>
+                        <input v-model="learningGoalForm.startDate" type="date" class="input sbep-kiosk-field" />
+                      </div>
+                      <div>
+                        <label class="sbep-label">Target date</label>
+                        <input v-model="learningGoalForm.targetDate" type="date" class="input sbep-kiosk-field" />
+                      </div>
+                      <div v-if="learningGoalForm.measurementType === 'numeric'">
+                        <label class="sbep-label">Baseline value</label>
+                        <input v-model.number="learningGoalForm.baselineValue" type="number" step="0.01" class="input sbep-kiosk-field" />
+                      </div>
+                      <div v-if="learningGoalForm.measurementType === 'numeric'">
+                        <label class="sbep-label">Target value</label>
+                        <input v-model.number="learningGoalForm.targetValue" type="number" step="0.01" class="input sbep-kiosk-field" />
+                      </div>
+                      <div v-if="learningGoalForm.measurementType === 'rubric'">
+                        <label class="sbep-label">Baseline rubric</label>
+                        <input v-model.trim="learningGoalForm.baselineRubricLevel" class="input sbep-kiosk-field" placeholder="e.g., Emerging" />
+                      </div>
+                      <div v-if="learningGoalForm.measurementType === 'rubric'">
+                        <label class="sbep-label">Target rubric</label>
+                        <input v-model.trim="learningGoalForm.targetRubricLevel" class="input sbep-kiosk-field" placeholder="e.g., Proficient" />
+                      </div>
+                    </div>
+                    <label class="sbep-label">Notes (optional)</label>
+                    <textarea v-model.trim="learningGoalForm.notes" class="input" rows="3" />
+                    <div v-if="learningGoalFormError" class="error-box">{{ learningGoalFormError }}</div>
+                    <div class="sbep-inline-actions" style="margin-top: 8px;">
+                      <button type="button" class="btn btn-primary btn-sm" :disabled="learningGoalSaving" @click="saveLearningGoal">
+                        {{ learningGoalSaving ? 'Saving…' : (learningGoalForm.goalId ? 'Save goal' : 'Create goal') }}
+                      </button>
+                      <button type="button" class="btn btn-secondary btn-sm" :disabled="learningGoalSaving" @click="cancelLearningGoalForm">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                  <p v-else class="muted small" style="margin-top: 8px;">Create or edit standards-linked goals for this student.</p>
+                </div>
+              </template>
+              <p v-else class="muted small">Select a student to view learning insights.</p>
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
@@ -868,6 +1028,14 @@ const programEventsHref = computed(() => {
   const ps = detail.value?.programPortal?.slug;
   if (!ag || !ps) return null;
   return `/${ag}/programs/${ps}/events`;
+});
+
+/** Public page: program enrollments + events (share with families). */
+const programEnrollHubHref = computed(() => {
+  const ag = detail.value?.agencyPortalSlug;
+  const ps = detail.value?.programPortal?.slug;
+  if (!ag || !ps) return null;
+  return `/${ag}/programs/${ps}/enroll`;
 });
 
 const dashboardHref = computed(() => {
@@ -1605,8 +1773,80 @@ const clientAttSig = ref('');
 const clientAttSaving = ref(false);
 /** After roster first loads, avoid auto “select all” again if the user cleared selection */
 const clientAttDidInitSelection = ref(false);
+const learningInsightsClientId = ref(0);
+const learningInsightsLoading = ref(false);
+const learningInsightsError = ref('');
+const learningInsightsDomains = ref([]);
+const learningInsightsGoals = ref([]);
+const learningInsightsRecommendations = ref([]);
+const learningCatalogLoading = ref(false);
+const learningCatalogError = ref('');
+const learningCatalogDomains = ref([]);
+const learningCatalogSkills = ref([]);
+const learningGoalFormOpen = ref(false);
+const learningGoalSaving = ref(false);
+const learningGoalFormError = ref('');
+const learningGoalForm = reactive({
+  goalId: null,
+  domainId: 0,
+  skillId: 0,
+  measurementType: 'numeric',
+  baselineValue: null,
+  targetValue: null,
+  baselineRubricLevel: '',
+  targetRubricLevel: '',
+  startDate: '',
+  targetDate: '',
+  notes: ''
+});
 
 const clientAttSelectedCount = computed(() => clientAttSelectedClientIds.value.length);
+const canManageLearningGoals = computed(
+  () => viewerCaps.value.isAssignedProvider || viewerCaps.value.canManageTeamSchedules || viewerCaps.value.canManageCompanyEvent
+);
+const filteredLearningSkills = computed(() => {
+  const did = Number(learningGoalForm.domainId || 0);
+  if (!did) return [];
+  return (learningCatalogSkills.value || []).filter((s) => Number(s.domainId) === did);
+});
+
+const formatLearningScore = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  return n.toFixed(1);
+};
+
+const formatLearningDate = (value) => {
+  if (!value) return '—';
+  try {
+    const d = new Date(value);
+    if (!Number.isFinite(d.getTime())) return String(value);
+    return d.toLocaleDateString(undefined, { dateStyle: 'medium' });
+  } catch {
+    return String(value);
+  }
+};
+
+const todayYmd = () => new Date().toISOString().slice(0, 10);
+
+const resetLearningGoalForm = () => {
+  const firstDomain = Number(learningCatalogDomains.value?.[0]?.id || 0);
+  const firstSkill = Number(
+    (learningCatalogSkills.value || []).find((s) => Number(s.domainId) === firstDomain)?.id || 0
+  );
+  learningGoalForm.goalId = null;
+  learningGoalForm.domainId = firstDomain;
+  learningGoalForm.skillId = firstSkill;
+  learningGoalForm.measurementType = 'numeric';
+  learningGoalForm.baselineValue = null;
+  learningGoalForm.targetValue = null;
+  learningGoalForm.baselineRubricLevel = '';
+  learningGoalForm.targetRubricLevel = '';
+  learningGoalForm.startDate = todayYmd();
+  learningGoalForm.targetDate = todayYmd();
+  learningGoalForm.notes = '';
+  learningGoalFormError.value = '';
+};
 
 const joinNowTick = ref(0);
 if (typeof window !== 'undefined') {
@@ -1934,6 +2174,176 @@ async function loadDetail() {
   }
 }
 
+async function loadLearningInsights() {
+  const clientId = Number(learningInsightsClientId.value || 0);
+  if (!clientId) {
+    learningInsightsDomains.value = [];
+    learningInsightsGoals.value = [];
+    learningInsightsRecommendations.value = [];
+    return;
+  }
+  learningInsightsLoading.value = true;
+  learningInsightsError.value = '';
+  try {
+    const [domainsRes, goalsRes, recommendationsRes] = await Promise.all([
+      api.get(`/learning-progress/students/${clientId}/domains`, { skipGlobalLoading: true }),
+      api.get(`/learning-progress/students/${clientId}/goals`, { skipGlobalLoading: true }),
+      api.get(`/learning-recommendations/students/${clientId}`, { skipGlobalLoading: true })
+    ]);
+    learningInsightsDomains.value = Array.isArray(domainsRes.data?.domains) ? domainsRes.data.domains : [];
+    learningInsightsGoals.value = Array.isArray(goalsRes.data?.goals) ? goalsRes.data.goals : [];
+    learningInsightsRecommendations.value = Array.isArray(recommendationsRes.data?.recommendations)
+      ? recommendationsRes.data.recommendations
+      : [];
+  } catch (e) {
+    learningInsightsError.value = e.response?.data?.error?.message || e.message || 'Could not load learning insights';
+    learningInsightsDomains.value = [];
+    learningInsightsGoals.value = [];
+    learningInsightsRecommendations.value = [];
+  } finally {
+    learningInsightsLoading.value = false;
+  }
+}
+
+async function loadLearningCatalog() {
+  learningCatalogLoading.value = true;
+  learningCatalogError.value = '';
+  try {
+    const res = await api.get('/learning-standards/catalog', { skipGlobalLoading: true });
+    const catalog = Array.isArray(res.data?.catalog) ? res.data.catalog : [];
+    learningCatalogDomains.value = catalog.map((d) => ({
+      id: Number(d.id),
+      code: d.code,
+      title: d.title
+    }));
+    const skills = [];
+    for (const domain of catalog) {
+      const did = Number(domain.id);
+      for (const row of Array.isArray(domain.skills) ? domain.skills : []) {
+        skills.push({ id: Number(row.id), title: row.title || row.code || `Skill ${row.id}`, domainId: did });
+      }
+      for (const sub of Array.isArray(domain.subdomains) ? domain.subdomains : []) {
+        for (const row of Array.isArray(sub.skills) ? sub.skills : []) {
+          skills.push({ id: Number(row.id), title: row.title || row.code || `Skill ${row.id}`, domainId: did });
+        }
+      }
+    }
+    const unique = new Map();
+    for (const s of skills) {
+      if (!unique.has(s.id)) unique.set(s.id, s);
+    }
+    learningCatalogSkills.value = [...unique.values()];
+    resetLearningGoalForm();
+  } catch (e) {
+    learningCatalogError.value = e.response?.data?.error?.message || e.message || 'Could not load catalog';
+    learningCatalogDomains.value = [];
+    learningCatalogSkills.value = [];
+  } finally {
+    learningCatalogLoading.value = false;
+  }
+}
+
+function openNewLearningGoalForm() {
+  if (!learningCatalogDomains.value.length && !learningCatalogLoading.value) {
+    loadLearningCatalog();
+  }
+  resetLearningGoalForm();
+  learningGoalFormOpen.value = true;
+}
+
+function beginEditLearningGoal(goal) {
+  if (!goal) return;
+  if (!learningCatalogDomains.value.length && !learningCatalogLoading.value) {
+    loadLearningCatalog();
+  }
+  learningGoalForm.goalId = Number(goal.id);
+  learningGoalForm.domainId = Number(goal.domain_id || 0);
+  learningGoalForm.skillId = Number(goal.skill_id || 0);
+  learningGoalForm.measurementType = String(goal.measurement_type || 'numeric') === 'rubric' ? 'rubric' : 'numeric';
+  learningGoalForm.baselineValue = goal.baseline_value != null ? Number(goal.baseline_value) : null;
+  learningGoalForm.targetValue = goal.target_value != null ? Number(goal.target_value) : null;
+  learningGoalForm.baselineRubricLevel = String(goal.baseline_rubric_level || '');
+  learningGoalForm.targetRubricLevel = String(goal.target_rubric_level || '');
+  learningGoalForm.startDate = String(goal.start_date || '').slice(0, 10) || todayYmd();
+  learningGoalForm.targetDate = String(goal.target_date || '').slice(0, 10) || todayYmd();
+  learningGoalForm.notes = String(goal.notes || '');
+  learningGoalFormError.value = '';
+  learningGoalFormOpen.value = true;
+}
+
+function cancelLearningGoalForm() {
+  learningGoalFormOpen.value = false;
+  learningGoalFormError.value = '';
+}
+
+async function saveLearningGoal() {
+  const clientId = Number(learningInsightsClientId.value || 0);
+  if (!clientId) return;
+  if (!learningGoalForm.domainId || !learningGoalForm.skillId) {
+    learningGoalFormError.value = 'Domain and skill are required.';
+    return;
+  }
+  if (!learningGoalForm.startDate || !learningGoalForm.targetDate) {
+    learningGoalFormError.value = 'Start date and target date are required.';
+    return;
+  }
+  learningGoalSaving.value = true;
+  learningGoalFormError.value = '';
+  try {
+    const payload = {
+      clientId,
+      domainId: Number(learningGoalForm.domainId),
+      skillId: Number(learningGoalForm.skillId),
+      measurementType: learningGoalForm.measurementType,
+      startDate: learningGoalForm.startDate,
+      targetDate: learningGoalForm.targetDate,
+      notes: learningGoalForm.notes || null,
+      ...(learningGoalForm.measurementType === 'numeric'
+        ? {
+            baselineValue: learningGoalForm.baselineValue != null ? Number(learningGoalForm.baselineValue) : null,
+            targetValue: learningGoalForm.targetValue != null ? Number(learningGoalForm.targetValue) : null
+          }
+        : {
+            baselineRubricLevel: learningGoalForm.baselineRubricLevel || null,
+            targetRubricLevel: learningGoalForm.targetRubricLevel || null
+          })
+    };
+    if (learningGoalForm.goalId) {
+      await api.patch(`/learning-goals/${learningGoalForm.goalId}`, payload);
+    } else {
+      await api.post('/learning-goals', payload);
+    }
+    learningGoalFormOpen.value = false;
+    await loadLearningInsights();
+  } catch (e) {
+    learningGoalFormError.value = e.response?.data?.error?.message || e.message || 'Failed to save goal';
+  } finally {
+    learningGoalSaving.value = false;
+  }
+}
+
+async function activateLearningGoal(goal) {
+  const goalId = Number(goal?.id || 0);
+  if (!goalId) return;
+  try {
+    await api.post(`/learning-goals/${goalId}/activate`, {}, { skipGlobalLoading: true });
+    await loadLearningInsights();
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Failed to activate goal');
+  }
+}
+
+async function archiveLearningGoal(goal) {
+  const goalId = Number(goal?.id || 0);
+  if (!goalId) return;
+  try {
+    await api.post(`/learning-goals/${goalId}/archive`, {}, { skipGlobalLoading: true });
+    await loadLearningInsights();
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Failed to archive goal');
+  }
+}
+
 async function clockIn() {
   if (!eventBillingAgencyId.value || !eventId.value) return;
   clockBusy.value = true;
@@ -2037,6 +2447,11 @@ watch(
     clientAttTimeIn.value = '';
     clientAttTimeOut.value = '';
     clientAttSig.value = '';
+    learningInsightsClientId.value = 0;
+    learningInsightsDomains.value = [];
+    learningInsightsGoals.value = [];
+    learningInsightsRecommendations.value = [];
+    learningInsightsError.value = '';
     loadDetail();
     ensureChatAndLoad();
   },
@@ -2091,8 +2506,43 @@ watch(
       clientAttSelectedClientIds.value = validIds.slice();
       clientAttDidInitSelection.value = true;
     }
+    if (!learningInsightsClientId.value && validIds.length) {
+      learningInsightsClientId.value = validIds[0];
+    }
   },
   { immediate: true }
+);
+
+watch(
+  () => learningInsightsClientId.value,
+  () => {
+    if (railActive.value === 'learning') {
+      loadLearningInsights();
+    }
+  }
+);
+
+watch(
+  () => learningGoalForm.domainId,
+  () => {
+    const currentSkill = Number(learningGoalForm.skillId || 0);
+    const exists = filteredLearningSkills.value.some((s) => Number(s.id) === currentSkill);
+    if (!exists) {
+      learningGoalForm.skillId = Number(filteredLearningSkills.value?.[0]?.id || 0);
+    }
+  }
+);
+
+watch(
+  () => railActive.value,
+  (section) => {
+    if (section === 'learning' && learningInsightsClientId.value) {
+      loadLearningInsights();
+      if (!learningCatalogDomains.value.length && !learningCatalogLoading.value) {
+        loadLearningCatalog();
+      }
+    }
+  }
 );
 </script>
 
@@ -2215,6 +2665,39 @@ watch(
 }
 .sbep-home-links {
   margin-top: 12px;
+}
+
+.sbep-learning-controls {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 8px 0 12px;
+}
+
+.sbep-learning-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.sbep-learning-card {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--bg-alt, #f8fafc);
+}
+
+.sbep-learning-goal-form {
+  margin-top: 8px;
+}
+
+.sbep-learning-goal-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 10px;
+  margin-bottom: 8px;
 }
 
 .sbep-dash-layout {

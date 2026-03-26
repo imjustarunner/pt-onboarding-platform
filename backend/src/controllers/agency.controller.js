@@ -15,6 +15,37 @@ const parseJsonField = (raw) => {
   }
 };
 
+/** Extra tables often keyed by tenant `agencies.id` (organization_type agency) for hard-delete cleanup. */
+const TENANT_EXTRA_DEPENDENCY_TABLES = [
+  'company_events',
+  'agency_fiscal_years',
+  'agency_holidays',
+  'agency_campaigns',
+  'campaign_opt_outs',
+  'fonts',
+  'social_feed_links',
+  'agency_scheduled_announcements',
+  'provider_schedule_events',
+  'icon_templates',
+  'agency_notification_preferences',
+  'agency_checklist_enabled_items',
+  'onboarding_packages',
+  'training_tracks',
+  'agency_contacts',
+  'agency_intake_field_templates',
+  'agency_management_team',
+  'agency_billing_accounts',
+  'payroll_periods',
+  'payroll_time_claims',
+  'budget_fiscal_years',
+  'bulk_import_jobs',
+  'support_tickets',
+  'kiosk_assignments',
+  'office_location_agencies',
+  'club_store_products',
+  'club_store_orders'
+];
+
 async function attachAffiliationMeta(orgs) {
   const list = Array.isArray(orgs) ? orgs : [];
   if (!list.length) return list;
@@ -737,18 +768,60 @@ export const deleteAgencyHard = async (req, res, next) => {
     if (!agency) return res.status(404).json({ error: { message: 'Agency not found' } });
 
     const orgType = String(agency.organization_type || 'agency').toLowerCase();
-    if (orgType !== 'school') {
-      return res.status(400).json({ error: { message: 'Hard delete is only supported for school organizations.' } });
-    }
+    const hardDeleteAllowed = new Set(['school', 'program', 'learning', 'clinical']);
+    const isTenantAgency = orgType === 'agency';
 
     if (!agency.is_archived) {
-      return res.status(409).json({ error: { message: 'This school must be archived before it can be deleted.' } });
+      return res.status(409).json({
+        error: { message: 'This organization must be archived before it can be permanently deleted.' }
+      });
     }
+
+    if (isTenantAgency) {
+      if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+        return res.status(403).json({ error: { message: 'Only super admins can permanently delete tenant agencies.' } });
+      }
+      if (String(req.query?.confirmTenantDelete || '').trim() !== '1') {
+        return res.status(400).json({
+          error: {
+            code: 'TENANT_DELETE_CONFIRM_REQUIRED',
+            message:
+              'Permanent tenant deletion requires confirmTenantDelete=1 (super admin only). Delete all affiliated organizations from Archive first if any remain linked to this tenant.'
+          }
+        });
+      }
+      try {
+        const [affCount] = await pool.execute(
+          'SELECT COUNT(*) AS c FROM organization_affiliations WHERE agency_id = ?',
+          [orgId]
+        );
+        const n = Number(affCount?.[0]?.c || 0);
+        if (n > 0) {
+          return res.status(409).json({
+            error: {
+              message: `This tenant still has ${n} affiliated organization link(s). Permanently delete those organizations (Archive → Organizations) first, then delete the tenant.`
+            }
+          });
+        }
+      } catch {
+        /* organization_affiliations missing in some envs — continue best-effort */
+      }
+    } else if (!hardDeleteAllowed.has(orgType)) {
+      return res.status(400).json({
+        error: {
+          message: `Hard delete is not supported for organization type "${orgType}". Supported types: agency (super admin + confirm), school, program, learning, clinical.`
+        }
+      });
+    }
+
+    // Columns used to find rows scoped to this org id (never use learning_class_id here — ids can collide with agency ids).
+    const ORG_REF_COLUMN_SQL =
+      "('agency_id','organization_id','school_id','school_organization_id','program_organization_id','skill_builders_program_organization_id')";
 
     // Best-effort dependency checks across common tables (skip tables/columns that do not exist).
     const listColumns = async (tableName) => {
       const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ('agency_id','organization_id','school_id','school_organization_id')",
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ${ORG_REF_COLUMN_SQL}`,
         [tableName]
       );
       return (cols || []).map((c) => c.COLUMN_NAME);
@@ -805,7 +878,10 @@ export const deleteAgencyHard = async (req, res, next) => {
       'skills_group_meetings',
       'school_profiles',
       'school_soft_schedule_slots',
-      'school_soft_schedule_notes'
+      'school_soft_schedule_notes',
+      'learning_program_classes',
+      'skill_builders_event_program_documents',
+      ...(isTenantAgency ? TENANT_EXTRA_DEPENDENCY_TABLES : [])
     ];
 
     const computeHits = async () => {
@@ -817,9 +893,12 @@ export const deleteAgencyHard = async (req, res, next) => {
       return hits;
     };
 
-    // In practice, many "blocked delete" cases are caused by safe, school-scoped join tables.
+    // In practice, many "blocked delete" cases are caused by safe, scoped join tables.
     // We'll auto-clean those, but we still refuse to delete if actual client records remain.
     const safeAutoCleanupOrder = [
+      // Program / learning org: documents and classes (class rows CASCADE to challenge tables, etc.)
+      'skill_builders_event_program_documents',
+      'learning_program_classes',
       // Most-dependent first (child rows)
       'skills_group_clients',
       'skills_group_providers',
@@ -844,8 +923,20 @@ export const deleteAgencyHard = async (req, res, next) => {
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
+        // company_events.organization_id FK is ON DELETE SET NULL, but rows still block our pre-delete
+        // dependency counts; clear the link without removing agency-scoped events.
+        try {
+          await connection.execute('UPDATE company_events SET organization_id = NULL WHERE organization_id = ?', [orgId]);
+        } catch {
+          /* table/column may not exist in some environments */
+        }
         for (const t of safeAutoCleanupOrder) {
           await deleteRefs(connection, t);
+        }
+        if (isTenantAgency) {
+          for (const t of TENANT_EXTRA_DEPENDENCY_TABLES) {
+            await deleteRefs(connection, t);
+          }
         }
         await connection.commit();
       } catch {
@@ -886,7 +977,9 @@ export const deleteAgencyHard = async (req, res, next) => {
           // ignore
         }
         return res.status(400).json({
-          error: { message: `Failed to reassign clients: ${e?.message || 'Unknown error'}. Ensure target organization exists and is a school.` }
+          error: {
+            message: `Failed to reassign clients: ${e?.message || 'Unknown error'}. Ensure the target organization id exists (e.g. another archived or active school/program).`
+          }
         });
       } finally {
         conn.release();
@@ -894,10 +987,14 @@ export const deleteAgencyHard = async (req, res, next) => {
     }
 
     if (hits.length > 0) {
-      const msg = `Cannot delete this school because dependent records exist: ${hits
+      const hint =
+        hits.some((h) => h.table === 'clients' && Number(h.count || 0) > 0) && !reassignToId
+          ? ' For schools/programs with clients, retry with query param reassignClientsTo=<targetOrgId>.'
+          : '';
+      const msg = `Cannot delete this organization because dependent records exist: ${hits
         .slice(0, 8)
         .map((h) => `${h.table} (${h.count})`)
-        .join(', ')}${hits.length > 8 ? ', …' : ''}.`;
+        .join(', ')}${hits.length > 8 ? ', …' : ''}.${hint}`;
       return res.status(409).json({ error: { message: msg, dependencies: hits } });
     }
 
@@ -913,7 +1010,7 @@ export const deleteAgencyHard = async (req, res, next) => {
       });
     }
 
-    return res.json({ message: 'School deleted successfully', deletedId: orgId });
+    return res.json({ message: 'Organization deleted successfully', deletedId: orgId });
   } catch (error) {
     next(error);
   }

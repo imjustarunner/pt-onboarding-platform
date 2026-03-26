@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import {
+  listAffiliatedProgramOrganizations,
   resolveSkillBuildersProgramOrganizationId,
   buildSkillsGroupEventDescription,
   computeSkillsGroupEventWindow,
@@ -1071,6 +1072,36 @@ export const listSkillBuildersEventsDirectory = async (req, res, next) => {
     });
 
     res.json({ ok: true, scope, events });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Affiliated program organizations for public /enroll links and intake setup.
+ * GET /api/skill-builders/directory/agency/:agencyId/affiliated-program-orgs
+ */
+export const listAffiliatedProgramOrgsForSkillBuildersDirectory = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.params.agencyId);
+    const userId = parsePositiveInt(req.user?.id);
+    if (!agencyId || !userId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const sbCoord = await getSkillBuilderCoordinatorAccess(userId);
+    if (!staffLike && !sbCoord) {
+      return res.status(403).json({ error: { message: 'Not authorized' } });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      const programs = await listAffiliatedProgramOrganizations(conn, agencyId);
+      res.json({ ok: true, programs });
+    } finally {
+      conn.release();
+    }
   } catch (e) {
     next(e);
   }

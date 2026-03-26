@@ -871,7 +871,9 @@ const INTAKE_TRANSLATIONS = {
     unableToStartSession: 'Unable to start a new intake session. Please try again.',
     dailyLimitReached: 'Daily intake start limit reached. Please try again tomorrow.',
     draftRestored: 'Draft restored from this browser session (saved within the last hour).',
-    beginSubtitleRegistration: 'Register for one program, class, or event from this secure link. Some links let you choose from multiple options.'
+    beginSubtitleRegistration: 'Register for one program, class, or event from this secure link. Some links let you choose from multiple options.',
+    beginSubtitleProgramEnrollment:
+      'Enroll in an individual program or service from this secure link. This is for becoming a client — not for signing up for a group class or dated event unless your provider included that here.'
   },
   es: {
     loadingLink: 'Cargando enlace de admisión...',
@@ -887,6 +889,8 @@ const INTAKE_TRANSLATIONS = {
     beginSubtitleJob: 'Comience su solicitud de empleo. Este enlace crea una sesión única para su solicitud.',
     beginSubtitleMedical: 'Solicite sus registros médicos. Este enlace crea una sesión única para su solicitud.',
     beginSubtitleRegistration: 'Regístrese para un programa, clase o evento desde este enlace seguro. Algunos enlaces permiten elegir entre varias opciones.',
+    beginSubtitleProgramEnrollment:
+      'Inscríbase en un programa o servicio individual desde este enlace seguro. Esto es para convertirse en cliente — no para inscribirse en una clase grupal o un evento con fecha, a menos que su proveedor lo haya incluido aquí.',
     beginIntake: 'Comenzar admisión',
     beginIntakeSmartRoi: 'Comenzar autorización',
     beginIntakeRegistration: 'Comenzar registro',
@@ -986,6 +990,9 @@ const publicKey = route.params.publicKey;
 const isLocalhostRecaptcha = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const LOCALHOST_TEST_RECAPTCHA_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI';
 const authStore = useAuthStore();
+// Keep link initialized before any computed/translation helpers that read link.value.
+// Prevents TDZ crashes in production minified bundles.
+const link = ref(null);
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 
@@ -1001,10 +1008,19 @@ const t = (key) => {
 };
 
 const formTypeKey = computed(() => String(link.value?.form_type || '').toLowerCase());
+/** Intake link scoped to a learning class enrollment (not a company event). */
+const isProgramEnrollmentIntake = computed(() => {
+  const lc = Number(link.value?.learning_class_id || 0);
+  const ce = Number(link.value?.company_event_id || 0);
+  return lc > 0 && !ce;
+});
 const beginSubtitleText = computed(() => {
   if (formTypeKey.value === 'smart_school_roi') return t('beginSubtitleSmartRoi');
   const custom = customMessages.value?.beginSubtitle;
   if (custom && String(custom).trim()) return String(custom).trim();
+  if (formTypeKey.value === 'smart_registration' && isProgramEnrollmentIntake.value) {
+    return t('beginSubtitleProgramEnrollment');
+  }
   if (formTypeKey.value === 'smart_registration') return t('beginSubtitleRegistration');
   if (formTypeKey.value === 'job_application') return t('beginSubtitleJob');
   if (formTypeKey.value === 'medical_records_request') return t('beginSubtitleMedical');
@@ -1059,7 +1075,6 @@ const loading = ref(true);
 const error = ref('');
 const stepError = ref('');
 const beginError = ref('');
-const link = ref(null);
 const templates = ref([]);
 const agencyInfo = ref(null);
 const organizationInfo = ref(null);

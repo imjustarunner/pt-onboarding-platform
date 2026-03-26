@@ -5,6 +5,8 @@
         <h1>Programs &amp; events</h1>
         <p class="sbpe-sub">
           Skill Builders company events for the selected agency — current &amp; upcoming (and past below). Open a card to go to the event portal.
+          Use <strong>Program enrollments</strong> below for individual-service onboarding (learning classes + intake links) and public
+          <code>/enroll</code> URLs.
         </p>
       </div>
       <div v-if="agencies.length > 1 || isSuperAdmin" class="sbpe-agency-field">
@@ -26,6 +28,11 @@
       :portal-slug="selectedAgencyPortalSlug"
       variant="page"
     />
+    <SkillBuildersProgramEnrollmentsGuide
+      v-if="selectedAgencyIdNum"
+      :agency-id="selectedAgencyIdNum"
+      :agency-portal-slug="selectedAgencyPortalSlug"
+    />
   </div>
 </template>
 
@@ -34,6 +41,7 @@ import { computed, ref, watch, onMounted } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import SkillBuildersEventsDirectoryPanel from '../../components/availability/SkillBuildersEventsDirectoryPanel.vue';
+import SkillBuildersProgramEnrollmentsGuide from '../../components/availability/SkillBuildersProgramEnrollmentsGuide.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();

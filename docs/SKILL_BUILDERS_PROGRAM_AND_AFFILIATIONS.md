@@ -188,6 +188,7 @@ When adding a new pair type, update this doc with a short subsection: **pair**, 
 
 - Event sessions (materialized occurrences + next milestones): [`docs/SKILL_BUILDERS_EVENT_SESSIONS_ROADMAP.md`](SKILL_BUILDERS_EVENT_SESSIONS_ROADMAP.md)
 - Registration / guardian enrollment: [`docs/REGISTRATION_AND_GUARDIAN.md`](REGISTRATION_AND_GUARDIAN.md)
+- Standards-aligned learning system initiative: [`docs/STANDARDS_ALIGNED_LEARNING_SYSTEM_INITIATIVE.md`](STANDARDS_ALIGNED_LEARNING_SYSTEM_INITIATIVE.md)
 - School portal overview: [`docs/ai/context/school-portal.md`](ai/context/school-portal.md)
 - Dashboard context: [`docs/ai/context/my-dashboard.md`](ai/context/my-dashboard.md)
 

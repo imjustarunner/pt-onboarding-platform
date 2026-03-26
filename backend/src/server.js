@@ -136,6 +136,13 @@ import clinicalNoteGeneratorRoutes from './routes/clinicalNoteGenerator.routes.j
 import complianceCornerRoutes from './routes/complianceCorner.routes.js';
 import learningBillingRoutes from './routes/learningBilling.routes.js';
 import learningProgramClassesRoutes from './routes/learningProgramClasses.routes.js';
+import learningStandardsRoutes from './routes/learningStandards.routes.js';
+import learningGoalsRoutes from './routes/learningGoals.routes.js';
+import learningProgressRoutes from './routes/learningProgress.routes.js';
+import learningAssignmentsRoutes from './routes/learningAssignments.routes.js';
+import learningContentGenerationRoutes from './routes/learningContentGeneration.routes.js';
+import learningRecommendationsRoutes from './routes/learningRecommendations.routes.js';
+import learningClassSessionsRoutes from './routes/learningClassSessions.routes.js';
 import clubStoreRoutes from './routes/clubStore.routes.js';
 import summitStatsRoutes from './routes/summitStats.routes.js';
 import stravaRoutes from './routes/strava.routes.js';
@@ -617,6 +624,13 @@ app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy mig
 app.use('/api/office-schedule', officeScheduleRoutes);
 app.use('/api/learning-billing', learningBillingRoutes);
 app.use('/api/learning-program-classes', learningProgramClassesRoutes);
+app.use('/api/learning-standards', learningStandardsRoutes);
+app.use('/api/learning-goals', learningGoalsRoutes);
+app.use('/api/learning-progress', learningProgressRoutes);
+app.use('/api/learning-assignments', learningAssignmentsRoutes);
+app.use('/api/learning-content', learningContentGenerationRoutes);
+app.use('/api/learning-recommendations', learningRecommendationsRoutes);
+app.use('/api/learning-class-sessions', learningClassSessionsRoutes);
 app.use('/api/club-store', clubStoreRoutes);
 app.use('/api/summit-stats', summitStatsRoutes);
 app.use('/api/strava', stravaRoutes);

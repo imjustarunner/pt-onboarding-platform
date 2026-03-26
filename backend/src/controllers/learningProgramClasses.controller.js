@@ -56,8 +56,13 @@ const ensureLearningOrganization = async (organizationId) => {
   const org = rows?.[0] || null;
   if (!org) return { ok: false, status: 404, message: 'Organization not found' };
   const orgType = String(org.organization_type || '').toLowerCase();
-  if (orgType !== 'learning' && orgType !== 'affiliation') {
-    return { ok: false, status: 400, message: 'organizationId must be a learning or affiliation organization' };
+  // Program orgs host therapy-style "enrollments" (learning_program_classes) without being learning-type tenants.
+  if (orgType !== 'learning' && orgType !== 'affiliation' && orgType !== 'program') {
+    return {
+      ok: false,
+      status: 400,
+      message: 'organizationId must be a program, learning, or affiliation organization'
+    };
   }
   return { ok: true, organization: org };
 };
@@ -181,6 +186,7 @@ export const createLearningProgramClass = async (req, res, next) => {
         return null;
       })(),
       recognitionMetric: req.body.recognitionMetric || 'points',
+      deliveryMode: String(req.body.deliveryMode || req.body.delivery_mode || 'group').toLowerCase() === 'individual' ? 'individual' : 'group',
       registrationEligible: asBool(req.body.registrationEligible ?? req.body.registration_eligible, false),
       medicaidEligible: asBool(req.body.medicaidEligible ?? req.body.medicaid_eligible, false),
       cashEligible: asBool(req.body.cashEligible ?? req.body.cash_eligible, false),
@@ -233,7 +239,10 @@ export const updateLearningProgramClass = async (req, res, next) => {
       recognitionCategoriesJson: req.body.recognitionCategoriesJson !== undefined
         ? (Array.isArray(req.body.recognitionCategoriesJson) ? req.body.recognitionCategoriesJson : (req.body.recognitionCategoriesJson ? JSON.parse(String(req.body.recognitionCategoriesJson)) : null))
         : undefined,
-      recognitionMetric: req.body.recognitionMetric !== undefined ? (req.body.recognitionMetric || null) : undefined
+      recognitionMetric: req.body.recognitionMetric !== undefined ? (req.body.recognitionMetric || null) : undefined,
+      deliveryMode: req.body.deliveryMode !== undefined || req.body.delivery_mode !== undefined
+        ? (String(req.body.deliveryMode || req.body.delivery_mode || 'group').toLowerCase() === 'individual' ? 'individual' : 'group')
+        : undefined
     };
     const nextClass = await LearningProgramClass.update(classId, patch);
     return res.json({ class: nextClass });
@@ -279,6 +288,7 @@ export const duplicateLearningProgramClass = async (req, res, next) => {
       mastersAgeThreshold: source.masters_age_threshold ?? 53,
       recognitionCategoriesJson: source.recognition_categories_json || null,
       recognitionMetric: source.recognition_metric || 'points',
+      deliveryMode: source.delivery_mode || 'group',
       registrationEligible: !!(source.registration_eligible === 1 || source.registration_eligible === true),
       medicaidEligible: !!(source.medicaid_eligible === 1 || source.medicaid_eligible === true),
       cashEligible: !!(source.cash_eligible === 1 || source.cash_eligible === true),

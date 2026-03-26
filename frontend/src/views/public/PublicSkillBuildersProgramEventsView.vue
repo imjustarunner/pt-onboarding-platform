@@ -10,6 +10,8 @@
     :portal-program-portal-slug="portalSlug"
     :portal-program-program-slug="programSlug"
     :footer-home-slug="portalSlug"
+    :enroll-cross-link-href="programEnrollHubPath"
+    enroll-cross-link-label="Need individual program enrollment? Open the full enroll page (enrollments + events)"
     show-public-shell
   />
 </template>
@@ -27,6 +29,14 @@ const portalSlug = computed(() =>
 );
 const programSlug = computed(() => String(route.params.programSlug || '').trim());
 const useAgencyApiPath = computed(() => Boolean(route.params.agencySlug));
+
+const programEnrollHubPath = computed(() => {
+  if (!portalSlug.value || !programSlug.value) return '';
+  if (useAgencyApiPath.value) {
+    return `/open-events/${portalSlug.value}/programs/${programSlug.value}/enroll`;
+  }
+  return `/${portalSlug.value}/programs/${programSlug.value}/enroll`;
+});
 
 const loading = ref(false);
 const error = ref('');

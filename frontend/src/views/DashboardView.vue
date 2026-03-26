@@ -3405,7 +3405,7 @@ const dashboardCards = computed(() => {
           programOrganizationId: oid,
           badgeCount: 0,
           iconUrl: programPortalRailIconUrl(org),
-          description: `Availability, events, and work schedule for ${name}.`
+          description: `Portal, availability, events, enrollments, and work schedule for ${name}.`
         });
       }
     }
@@ -3576,7 +3576,16 @@ const handleCardClick = (card) => {
   if (String(card?.id || '').startsWith('sub_coord_program_')) {
     const oid = Number(card?.programOrganizationId);
     if (Number.isFinite(oid) && oid > 0) {
-      programHubOrg.value = { id: oid, name: String(card?.label || '').trim() || `Program ${oid}` };
+      const org = (subCoordinatorProgramOrgs.value || []).find((x) => Number(x?.id) === oid);
+      programHubOrg.value = org
+        ? {
+            id: oid,
+            name: String(org.name || card?.label || '').trim() || `Program ${oid}`,
+            slug: org.slug,
+            portal_url: org.portal_url,
+            portalUrl: org.portalUrl
+          }
+        : { id: oid, name: String(card?.label || '').trim() || `Program ${oid}` };
       programHubOpen.value = true;
     }
     return;
@@ -4013,8 +4022,25 @@ function applyProgramHubQuery() {
   if (!Number.isFinite(oid) || oid <= 0) return;
   const section = String(route.query?.programHubSection || '').trim();
   const name = String(route.query?.programHubOrgName || '').trim();
-  const allowed = new Set(['documents', 'availability', 'events', 'schedule', 'clients']);
-  programHubOrg.value = { id: oid, name: name || `Program ${oid}` };
+  const allowed = new Set([
+    'documents',
+    'availability',
+    'events',
+    'enrollments',
+    'schedule',
+    'clients',
+    'portal'
+  ]);
+  const fromList = (subCoordinatorProgramOrgs.value || []).find((x) => Number(x?.id) === oid);
+  programHubOrg.value = fromList
+    ? {
+        id: oid,
+        name: String(fromList.name || name || '').trim() || `Program ${oid}`,
+        slug: fromList.slug,
+        portal_url: fromList.portal_url,
+        portalUrl: fromList.portalUrl
+      }
+    : { id: oid, name: name || `Program ${oid}` };
   programHubOpen.value = true;
   programHubInitialSection.value = allowed.has(section) ? section : null;
   const q = { ...route.query };

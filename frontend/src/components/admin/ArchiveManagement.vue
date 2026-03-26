@@ -316,12 +316,18 @@
         </div>
       </div>
 
-      <!-- Agencies Archive -->
+      <!-- Archived organizations (all types in agencies table) -->
       <div v-if="activeTab === 'agencies'" class="archive-section">
-        <h3>Archived Agencies</h3>
-        <div v-if="loadingAgencies" class="loading">Loading archived agencies...</div>
+        <h3>Archived organizations</h3>
+        <p class="section-hint muted">
+          Archived <strong>school, program, learning, and clinical</strong> rows can be permanently deleted. Tenant
+          agencies can be deleted by super admins after any <strong>affiliated organizations</strong> under that tenant are
+          removed here first. Schools/programs still tied to <strong>clients</strong> will ask for a target org id to move
+          clients to (or delete individually and enter the id when prompted).
+        </p>
+        <div v-if="loadingAgencies" class="loading">Loading archived organizations…</div>
         <div v-else-if="archivedAgencies.length === 0" class="empty-state">
-          <p>No archived agencies.</p>
+          <p>No archived organizations.</p>
         </div>
         <div v-else class="archive-table-container">
           <div v-if="selectedCount('agencies') > 0" class="bulk-actions">
@@ -340,6 +346,7 @@
                   />
                 </th>
                 <th>Name</th>
+                <th>Type</th>
                 <th>Slug</th>
                 <th>Archived Date</th>
                 <th>Archived By</th>
@@ -356,6 +363,7 @@
                   />
                 </td>
                 <td class="name-cell">{{ agency.name }}</td>
+                <td>{{ archivedOrgTypeLabel(agency) }}</td>
                 <td>{{ agency.slug || '-' }}</td>
                 <td>{{ formatDate(agency.archived_at) }}</td>
                 <td>
@@ -492,7 +500,7 @@ const tabs = computed(() => {
   
   // Agencies tab: super admins only
   if (authStore.user?.role === 'super_admin') {
-    allTabs.push({ id: 'agencies', label: 'Agencies', count: archivedAgencies.value.length });
+    allTabs.push({ id: 'agencies', label: 'Organizations', count: archivedAgencies.value.length });
   }
   
   return allTabs;
@@ -735,7 +743,7 @@ const bulkConfigs = {
   agencies: {
     label: 'agency',
     restore: (id) => api.post(`/agencies/${id}/restore`),
-    remove: (id) => api.delete(`/agencies/${id}`),
+    remove: (id, opts = {}) => api.delete(`/agencies/${id}`, { params: opts.params || {} }),
     refresh: fetchArchivedAgencies
   },
   buildings: {
@@ -761,6 +769,19 @@ const runBulk = async (tabId, action) => {
     return;
   }
 
+  if (tabId === 'agencies' && action === 'delete') {
+    const rows = ids
+      .map((id) => archivedAgencies.value.find((a) => Number(a.id) === Number(id)))
+      .filter(Boolean);
+    const tenantCount = rows.filter((r) => String(r.organization_type || '').toLowerCase() === 'agency').length;
+    if (tenantCount > 0) {
+      const ok = confirm(
+        `This selection includes ${tenantCount} tenant agency row(s). Those will be permanently removed (after automated cleanup). This cannot be undone. Continue?`
+      );
+      if (!ok) return;
+    }
+  }
+
   const failures = [];
   const concurrency = 5;
   let i = 0;
@@ -770,6 +791,13 @@ const runBulk = async (tabId, action) => {
       try {
         if (action === 'restore') {
           await config.restore(id);
+        } else if (tabId === 'agencies') {
+          const row = archivedAgencies.value.find((a) => Number(a.id) === Number(id));
+          const params = {};
+          if (String(row?.organization_type || '').toLowerCase() === 'agency') {
+            params.confirmTenantDelete = '1';
+          }
+          await config.remove(id, { params });
         } else {
           await config.remove(id);
         }
@@ -784,8 +812,17 @@ const runBulk = async (tabId, action) => {
   clearSelection(tabId);
 
   if (failures.length > 0) {
+    const samples = failures
+      .slice(0, 4)
+      .map(
+        (f) =>
+          `ID ${f.id}: ${f.err?.response?.data?.error?.message || f.err?.message || 'Request failed'}`
+      )
+      .join('\n');
     alert(
-      `Bulk ${actionVerb} finished with ${failures.length} failure${failures.length === 1 ? '' : 's'}.`
+      `Bulk ${actionVerb} finished with ${failures.length} failure${failures.length === 1 ? '' : 's'}.\n\n${samples}${
+        failures.length > 4 ? '\n…' : ''
+      }`
     );
   } else {
     alert(`Bulk ${actionVerb} successful for ${ids.length} ${label}${ids.length === 1 ? '' : 's'}.`);
@@ -876,6 +913,18 @@ const permanentlyDeleteUser = async (id) => {
   }
 };
 
+const archivedOrgTypeLabel = (row) => {
+  const t = String(row?.organization_type || row?.organizationType || 'agency').toLowerCase();
+  if (t === 'agency') return 'Tenant agency';
+  if (t === 'school') return 'School';
+  if (t === 'program') return 'Program';
+  if (t === 'learning') return 'Learning';
+  if (t === 'clinical') return 'Clinical';
+  if (t === 'office') return 'Building';
+  if (t === 'affiliation') return 'Affiliation';
+  return t || '—';
+};
+
 const formatDate = (dateString) => {
   if (!dateString) return 'Unknown';
   return new Date(dateString).toLocaleString();
@@ -952,17 +1001,54 @@ const restoreAgency = async (id) => {
 };
 
 const permanentlyDeleteAgency = async (id) => {
-  if (!confirm('Are you sure you want to permanently delete this agency? This action CANNOT be undone.')) {
+  const row = archivedAgencies.value.find((a) => Number(a.id) === Number(id));
+  const t = String(row?.organization_type || '').toLowerCase();
+  if (t === 'agency') {
+    const ok = confirm(
+      'This is a tenant agency. It can only be deleted if it has no affiliated organizations left in the system. Permanently delete it? This cannot be undone.'
+    );
+    if (!ok) return;
+  } else if (!confirm('Are you sure you want to permanently delete this organization? This action CANNOT be undone.')) {
     return;
   }
-  
-  try {
-    await api.delete(`/agencies/${id}`);
+
+  const baseParams = {};
+  if (t === 'agency') {
+    baseParams.confirmTenantDelete = '1';
+  }
+
+  const runDelete = async (params) => {
+    await api.delete(`/agencies/${id}`, { params });
     await fetchArchivedAgencies();
     await agencyStore.fetchAgencies();
-    alert('Agency permanently deleted');
+    alert('Organization permanently deleted');
+  };
+
+  try {
+    await runDelete(baseParams);
   } catch (err) {
-    alert(err.response?.data?.error?.message || 'Failed to delete agency');
+    const deps = err.response?.data?.error?.dependencies;
+    const clientBlocked =
+      err.response?.status === 409 &&
+      Array.isArray(deps) &&
+      deps.some((h) => h.table === 'clients' && Number(h.count || 0) > 0);
+    if (clientBlocked) {
+      const to = window.prompt(
+        'This organization still has client record(s). Enter the target organization ID (school/program) to move them to, then OK to delete:'
+      );
+      const tid = parseInt(String(to || '').trim(), 10);
+      if (!Number.isFinite(tid) || tid <= 0) {
+        alert('Delete cancelled.');
+        return;
+      }
+      try {
+        await runDelete({ ...baseParams, reassignClientsTo: String(tid) });
+      } catch (e2) {
+        alert(e2.response?.data?.error?.message || e2.message || 'Failed to delete organization');
+      }
+      return;
+    }
+    alert(err.response?.data?.error?.message || 'Failed to delete organization');
   }
 };
 
@@ -1042,6 +1128,13 @@ onMounted(async () => {
 .section-description {
   color: var(--text-secondary);
   margin: 0;
+}
+
+.section-hint {
+  font-size: 0.875rem;
+  line-height: 1.45;
+  margin: 0 0 16px;
+  max-width: 48rem;
 }
 
 .archive-tabs {

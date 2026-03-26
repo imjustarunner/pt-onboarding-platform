@@ -75,6 +75,47 @@
             </template>
           </div>
 
+          <div v-show="activeSection === 'portal'" class="pch-panel pch-portal-panel">
+            <p class="pch-muted pch-portal-lead">
+              Open the workspace for each Skill Builders <strong>event</strong> or <strong>program enrollment</strong> (learning
+              class) you use here — same idea as the assigned portal cards across the top of My Dashboard. Only items for
+              this program appear; providers see events and enrollments they are assigned to.
+            </p>
+            <div v-if="portalLoading" class="pch-muted">Loading workspaces…</div>
+            <div v-else-if="portalError" class="pch-error">{{ portalError }}</div>
+            <template v-else-if="portalTiles.length">
+              <div class="pch-portal-cards-wrap">
+                <div class="pch-portal-cards-header">Workspaces</div>
+                <div class="pch-portal-cards-grid" role="list">
+                  <button
+                    v-for="t in portalTiles"
+                    :key="t.key"
+                    type="button"
+                    class="pch-portal-card"
+                    :class="{ active: selectedPortalKey === t.key }"
+                    role="listitem"
+                    @click="selectPortalTile(t)"
+                  >
+                    <div class="pch-portal-card-logo" aria-hidden="true">
+                      <span class="pch-portal-card-emoji">{{ t.emoji }}</span>
+                    </div>
+                    <div class="pch-portal-card-body">
+                      <div class="pch-portal-card-name">{{ t.title }}</div>
+                      <div class="pch-portal-card-type">{{ t.typeLabel }}</div>
+                      <div v-if="t.subtitle" class="pch-portal-card-sub muted">{{ t.subtitle }}</div>
+                    </div>
+                    <div class="pch-portal-card-cta">Open <span aria-hidden="true">→</span></div>
+                  </button>
+                </div>
+              </div>
+            </template>
+            <p v-else class="pch-muted">
+              No events or enrollments yet for this program. Use <strong>Events</strong> for company events, or open
+              <strong>Enrollments</strong> to create individual service enrollments, then add a digital intake link for
+              each class.
+            </p>
+          </div>
+
           <div v-show="activeSection === 'events'" class="pch-panel pch-events">
             <div v-if="eventsLoading" class="pch-muted">Loading events…</div>
             <template v-else-if="mode === 'coordinator'">
@@ -217,6 +258,87 @@
             </template>
           </div>
 
+          <div v-show="activeSection === 'enrollments'" class="pch-panel pch-enrollments">
+            <template v-if="mode === 'coordinator'">
+              <p class="pch-muted pch-enrollments-lead">
+                Individual service enrollments are <strong>learning classes</strong> (not dated events). After you create
+                one, add a <strong>digital intake link</strong> scoped to that class so families can register; open a row
+                below for the enrollment workspace.
+              </p>
+              <div v-if="enrollmentsLoading" class="pch-muted">Loading enrollments…</div>
+              <div v-else-if="enrollmentsError" class="pch-error">{{ enrollmentsError }}</div>
+              <template v-else>
+                <div class="pch-prog-event-form-wrap pch-enrollments-form-wrap">
+                <form class="pch-prog-event-form" @submit.prevent="submitNewEnrollment">
+                  <label class="pch-field">
+                    <span class="pch-field-label">Enrollment name</span>
+                    <input
+                      v-model.trim="newEnrollment.className"
+                      type="text"
+                      class="pch-input"
+                      required
+                      maxlength="500"
+                      autocomplete="off"
+                      placeholder="e.g. After-school tutoring — East campus"
+                    />
+                  </label>
+                  <label class="pch-field">
+                    <span class="pch-field-label">Description <span class="pch-optional">(optional)</span></span>
+                    <textarea
+                      v-model.trim="newEnrollment.description"
+                      class="pch-input pch-textarea"
+                      rows="2"
+                      maxlength="4000"
+                      placeholder="Internal notes for staff"
+                    />
+                  </label>
+                  <label class="pch-field pch-checkbox-field">
+                    <input v-model="newEnrollment.registrationEligible" type="checkbox" />
+                    <span>Open for registration setup (registration-eligible)</span>
+                  </label>
+                  <div class="pch-form-actions">
+                    <button
+                      type="submit"
+                      class="btn btn-primary btn-sm"
+                      :disabled="
+                        createEnrollmentBusy || !coordinatorAgencyId || !resolvedCoordinatorOrganizationId
+                      "
+                    >
+                      {{ createEnrollmentBusy ? 'Creating…' : 'Create enrollment' }}
+                    </button>
+                    <RouterLink
+                      v-if="agencyPortalSlugForIntake"
+                      :to="`/${agencyPortalSlugForIntake}/admin/intake-links`"
+                      class="btn btn-secondary btn-sm"
+                      @click="$emit('close')"
+                    >
+                      Digital intake links
+                    </RouterLink>
+                  </div>
+                </form>
+                </div>
+
+                <h3 class="pch-events-sub" style="margin-top: 20px;">Existing enrollments</h3>
+                <ul v-if="coordinatorEnrollmentClasses.length" class="pch-event-list">
+                  <li v-for="c in coordinatorEnrollmentClasses" :key="c.id" class="pch-event-item">
+                    <button type="button" class="pch-event-open" @click="openEnrollmentFromList(c)">
+                      <div class="pch-event-title">
+                        {{ String(c.class_name || c.className || '').trim() || `Enrollment ${c.id}` }}
+                      </div>
+                      <div class="pch-muted pch-event-dates">
+                        {{ String(c.status || '—').trim() }}
+                        <span v-if="c.registration_eligible || c.registrationEligible"> · Registration-eligible</span>
+                      </div>
+                      <span class="pch-cta">Workspace →</span>
+                    </button>
+                  </li>
+                </ul>
+                <p v-else class="pch-muted">No enrollments yet for this program.</p>
+              </template>
+            </template>
+            <p v-else class="pch-muted">Enrollments are managed by program coordinators.</p>
+          </div>
+
           <div v-show="activeSection === 'schedule'" class="pch-panel">
             <SkillBuildersWorkSchedulePanel :agency-id="props.agencyId" :mode="props.mode" />
           </div>
@@ -242,7 +364,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { useRouter, useRoute } from 'vue-router';
+import { useRouter, useRoute, RouterLink } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import SkillBuildersAvailabilityPanel from './SkillBuildersAvailabilityPanel.vue';
@@ -289,8 +411,22 @@ const newProgramEvent = ref({
   endsAt: '',
   description: ''
 });
+const coordinatorEnrollmentClasses = ref([]);
+const enrollmentsLoading = ref(false);
+const enrollmentsError = ref('');
+const createEnrollmentBusy = ref(false);
+const newEnrollment = ref({
+  className: '',
+  description: '',
+  registrationEligible: true
+});
 const resolvedOrgId = ref(null);
 const resolvedOrgName = ref('');
+const programClassesForPortal = ref([]);
+const portalLoading = ref(false);
+const portalError = ref('');
+/** Highlights the workspace card last opened (toggle-style selection). */
+const selectedPortalKey = ref('');
 
 const displayName = computed(() => {
   if (props.mode === 'provider') return resolvedOrgName.value || 'Skill Builders';
@@ -307,10 +443,29 @@ const resolvedCoordinatorOrganizationId = computed(() => {
   return Number.isFinite(o) && o > 0 ? o : null;
 });
 
+/** Program org id for portal workspaces: explicit for coordinators, resolved Skill Builders program for providers. */
+const platformOrgIdForPortal = computed(() => {
+  if (props.mode === 'coordinator') return resolvedCoordinatorOrganizationId.value;
+  const r = Number(resolvedOrgId.value);
+  return Number.isFinite(r) && r > 0 ? r : null;
+});
+
 /** Only the affiliated program named "Skill Builders" uses school-group backfill and integrated copy. */
 const isSkillBuildersProgram = computed(
   () => String(props.organizationName || '').trim().toLowerCase() === 'skill builders'
 );
+
+/** Parent agency portal slug for admin intake links (modal has agency id, not always slug). */
+const agencyPortalSlugForIntake = computed(() => {
+  const aid = coordinatorAgencyId.value;
+  if (!aid) return '';
+  const list = agencyStore.agencies || [];
+  const a = list.find((x) => Number(x?.id) === aid);
+  if (a) return String(a.slug || a.portal_url || '').trim();
+  const cur = agencyStore.currentAgency;
+  if (cur && Number(cur.id) === aid) return String(cur.slug || cur.portal_url || '').trim();
+  return '';
+});
 
 const sectionItems = computed(() => {
   const base = [
@@ -322,6 +477,14 @@ const sectionItems = computed(() => {
       description: 'Weekly Skill Builder blocks, confirmations, and coordinator view by day.'
     },
     {
+      id: 'portal',
+      label: 'Portal',
+      shortLabel: 'Portal',
+      icon: '🧭',
+      description:
+        'Jump to an event or enrollment workspace — cards work like assigned school/program portals on My Dashboard.'
+    },
+    {
       id: 'events',
       label: 'Events',
       shortLabel: 'Events',
@@ -329,15 +492,25 @@ const sectionItems = computed(() => {
       description: isSkillBuildersProgram.value
         ? 'Program company events and applications linked to school Skill Builders groups.'
         : 'Program company events and provider applications (no school link required).'
-    },
-    {
-      id: 'schedule',
-      label: 'Work schedule',
-      shortLabel: 'Schedule',
-      icon: '🗓️',
-      description: 'Upcoming Skill Builders meetings and your assignments.'
     }
   ];
+  if (props.mode === 'coordinator' && resolvedCoordinatorOrganizationId.value) {
+    base.push({
+      id: 'enrollments',
+      label: 'Enrollments',
+      shortLabel: 'Enroll',
+      icon: '📋',
+      description:
+        'Create individual service enrollments (learning classes). Add a digital intake link per enrollment for families to register.'
+    });
+  }
+  base.push({
+    id: 'schedule',
+    label: 'Work schedule',
+    shortLabel: 'Schedule',
+    icon: '🗓️',
+    description: 'Upcoming Skill Builders meetings and your assignments.'
+  });
   if (props.mode === 'coordinator' && coordinatorAgencyId.value) {
     base.push({
       id: 'documents',
@@ -375,7 +548,7 @@ const headerSubtitle = computed(() => {
 });
 
 const sectionTagline = computed(() => {
-  if (activeSection.value === 'documents') return '';
+  if (activeSection.value === 'documents' || activeSection.value === 'enrollments') return '';
   const item = sectionItems.value.find((s) => s.id === activeSection.value);
   return item?.description || '';
 });
@@ -457,6 +630,62 @@ function formatEventDateRange(ev) {
   }
 }
 
+const portalTiles = computed(() => {
+  const oid = platformOrgIdForPortal.value;
+  if (!oid) return [];
+  const out = [];
+  if (props.mode === 'coordinator') {
+    for (const ev of programEvents.value) {
+      const id = Number(ev.id);
+      if (!Number.isFinite(id)) continue;
+      out.push({
+        key: `event-${id}`,
+        kind: 'event',
+        eventId: id,
+        title: String(ev.title || '').trim() || `Event ${id}`,
+        typeLabel: 'Event',
+        subtitle: formatEventDateRange(ev) || null,
+        emoji: '🎯'
+      });
+    }
+  } else {
+    for (const ev of assignedEvents.value) {
+      const eid = Number(ev.organizationId);
+      if (!Number.isFinite(eid) || eid !== Number(oid)) continue;
+      const id = Number(ev.id);
+      if (!Number.isFinite(id)) continue;
+      const sub = [formatEventDateRange(ev), ev.schoolName].filter(Boolean).join(' · ');
+      out.push({
+        key: `event-${id}`,
+        kind: 'event',
+        eventId: id,
+        title: String(ev.title || '').trim() || `Event ${id}`,
+        typeLabel: 'Event',
+        subtitle: sub || null,
+        emoji: '🎯'
+      });
+    }
+  }
+  for (const c of programClassesForPortal.value) {
+    const cid = Number(c.id);
+    if (!Number.isFinite(cid)) continue;
+    const name = String(c.class_name || c.className || '').trim() || `Enrollment ${cid}`;
+    const st = String(c.status || '').trim();
+    out.push({
+      key: `class-${cid}`,
+      kind: 'enrollment',
+      classId: cid,
+      title: name,
+      typeLabel: 'Program enrollment',
+      subtitle: st || null,
+      deliveryMode: String(c.delivery_mode || c.deliveryMode || 'group').toLowerCase() === 'individual' ? 'individual' : 'group',
+      organizationSlug: String(c.organization_slug || '').trim().toLowerCase(),
+      emoji: '📋'
+    });
+  }
+  return out;
+});
+
 function orgSlug() {
   return (
     String(route.params?.organizationSlug || '').trim() ||
@@ -476,6 +705,136 @@ function goEventPortal(eventId, ev = null) {
   const slug = fromEv || eventPortalSlug();
   const id = Number(eventId);
   if (slug && Number.isFinite(id) && id > 0) router.push(`/${slug}/skill-builders/event/${id}`);
+}
+
+function openEnrollmentWorkspace(tile) {
+  const slug =
+    String(tile.organizationSlug || '').trim().toLowerCase() ||
+    String(props.organizationPortalSlug || '').trim().toLowerCase() ||
+    orgSlug();
+  const id = Number(tile.classId);
+  if (!slug || !Number.isFinite(id) || id <= 0) return;
+  const mode = String(tile.deliveryMode || tile.mode || 'group').toLowerCase();
+  if (mode === 'group') {
+    router.push(`/${slug}/learning/classes/${id}`);
+    return;
+  }
+  router.push(`/${slug}/challenges/${id}`);
+}
+
+function selectPortalTile(t) {
+  selectedPortalKey.value = t.key;
+  if (t.kind === 'event') goEventPortal(t.eventId);
+  else openEnrollmentWorkspace(t);
+}
+
+async function loadCoordinatorLearningClassesList() {
+  const oid = resolvedCoordinatorOrganizationId.value;
+  if (!oid || props.mode !== 'coordinator') {
+    coordinatorEnrollmentClasses.value = [];
+    return;
+  }
+  enrollmentsLoading.value = true;
+  enrollmentsError.value = '';
+  try {
+    const res = await api.get('/learning-program-classes', {
+      params: { organizationId: oid, includeArchived: false },
+      skipGlobalLoading: true
+    });
+    const list = Array.isArray(res.data?.classes) ? res.data.classes : [];
+    coordinatorEnrollmentClasses.value = list;
+    programClassesForPortal.value = list;
+  } catch (e) {
+    enrollmentsError.value = e.response?.data?.error?.message || e.message || 'Failed to load enrollments';
+    coordinatorEnrollmentClasses.value = [];
+  } finally {
+    enrollmentsLoading.value = false;
+  }
+}
+
+function openEnrollmentFromList(c) {
+  const slug =
+    String(c.organization_slug || '').trim().toLowerCase() ||
+    String(props.organizationPortalSlug || '').trim().toLowerCase() ||
+    orgSlug();
+  const id = Number(c.id);
+  if (!slug || !Number.isFinite(id) || id <= 0) return;
+  const mode = String(c.delivery_mode || c.deliveryMode || 'group').toLowerCase();
+  if (mode === 'group') {
+    router.push(`/${slug}/learning/classes/${id}`);
+    return;
+  }
+  router.push(`/${slug}/challenges/${id}`);
+}
+
+async function submitNewEnrollment() {
+  const oid = resolvedCoordinatorOrganizationId.value;
+  if (!oid) return;
+  const name = String(newEnrollment.value.className || '').trim();
+  if (!name) {
+    enrollmentsError.value = 'Enrollment name is required.';
+    return;
+  }
+  createEnrollmentBusy.value = true;
+  enrollmentsError.value = '';
+  try {
+    await api.post(
+      '/learning-program-classes',
+      {
+        organizationId: oid,
+        className: name,
+        description: newEnrollment.value.description?.trim() || null,
+        status: 'active',
+        isActive: true,
+        registrationEligible: !!newEnrollment.value.registrationEligible,
+        medicaidEligible: false,
+        cashEligible: false,
+        timezone: 'America/New_York'
+      },
+      { skipGlobalLoading: true }
+    );
+    newEnrollment.value = { className: '', description: '', registrationEligible: true };
+    await loadCoordinatorLearningClassesList();
+  } catch (e) {
+    enrollmentsError.value = e.response?.data?.error?.message || e.message || 'Failed to create enrollment';
+  } finally {
+    createEnrollmentBusy.value = false;
+  }
+}
+
+async function loadPortalWorkspaces() {
+  portalError.value = '';
+  const oid = platformOrgIdForPortal.value;
+  if (!oid) {
+    programClassesForPortal.value = [];
+    portalError.value =
+      props.mode === 'coordinator'
+        ? 'Program organization is missing.'
+        : 'Could not resolve your Skill Builders program for this agency.';
+    portalLoading.value = false;
+    return;
+  }
+  portalLoading.value = true;
+  try {
+    if (props.mode === 'coordinator') await loadCoordinatorEvents();
+    else await loadProviderEvents();
+    const res =
+      props.mode === 'coordinator'
+        ? await api.get('/learning-program-classes', {
+            params: { organizationId: oid, includeArchived: false },
+            skipGlobalLoading: true
+          })
+        : await api.get('/learning-program-classes/my', {
+            params: { organizationId: oid },
+            skipGlobalLoading: true
+          });
+    programClassesForPortal.value = Array.isArray(res.data?.classes) ? res.data.classes : [];
+  } catch (e) {
+    portalError.value = e.response?.data?.error?.message || e.message || 'Failed to load workspaces';
+    programClassesForPortal.value = [];
+  } finally {
+    portalLoading.value = false;
+  }
 }
 
 async function loadProgramContext() {
@@ -628,6 +987,10 @@ watch(
   () => [props.mode, props.agencyId, props.organizationId],
   async () => {
     activeSection.value = null;
+    programClassesForPortal.value = [];
+    coordinatorEnrollmentClasses.value = [];
+    enrollmentsError.value = '';
+    selectedPortalKey.value = '';
     if (props.mode === 'provider') {
       await loadProgramContext();
     } else {
@@ -644,6 +1007,27 @@ watch(
     if (activeSection.value !== 'events') return;
     if (props.mode === 'coordinator') await loadCoordinatorEvents();
     else await loadProviderEvents();
+  }
+);
+
+watch(
+  () => [activeSection.value, props.mode, resolvedCoordinatorOrganizationId.value],
+  async () => {
+    if (activeSection.value !== 'enrollments') return;
+    if (props.mode !== 'coordinator') return;
+    await loadCoordinatorLearningClassesList();
+  }
+);
+
+watch(
+  () => [activeSection.value, props.mode, props.agencyId, props.organizationId, resolvedOrgId.value],
+  async () => {
+    if (activeSection.value !== 'portal') return;
+    selectedPortalKey.value = '';
+    if (props.mode === 'provider' && !resolvedOrgId.value) {
+      await loadProgramContext();
+    }
+    await loadPortalWorkspaces();
   }
 );
 </script>
@@ -870,6 +1254,95 @@ watch(
 .pch-panel {
   min-height: 120px;
 }
+.pch-portal-panel .pch-portal-lead {
+  margin: 0 0 16px;
+  max-width: 44rem;
+  line-height: 1.5;
+  font-size: 0.875rem;
+}
+.pch-portal-cards-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pch-portal-cards-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  letter-spacing: 0.01em;
+}
+.pch-portal-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.pch-portal-card {
+  border: 1px solid var(--border, #e2e8f0);
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease;
+}
+.pch-portal-card:hover {
+  border-color: var(--primary, #15803d);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+.pch-portal-card.active {
+  border-color: var(--primary, #15803d);
+  box-shadow: 0 0 0 2px rgba(21, 128, 61, 0.12);
+}
+.pch-portal-card-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid var(--border, #e2e8f0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pch-portal-card-emoji {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+.pch-portal-card-body {
+  min-width: 0;
+}
+.pch-portal-card-name {
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  font-size: 0.9rem;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pch-portal-card-type {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pch-portal-card-sub {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+.pch-portal-card-cta {
+  color: var(--primary, #15803d);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .pch-inline-actions {
   display: flex;
   gap: 8px;
@@ -1046,6 +1519,24 @@ watch(
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 4px;
+}
+.pch-enrollments-lead {
+  margin: 0 0 14px;
+  line-height: 1.45;
+}
+.pch-enrollments-form-wrap {
+  margin-bottom: 0;
+}
+.pch-checkbox-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--text-primary, #334155);
+}
+.pch-checkbox-field input {
+  width: auto;
+  margin: 0;
 }
 
 @media (max-width: 560px) {

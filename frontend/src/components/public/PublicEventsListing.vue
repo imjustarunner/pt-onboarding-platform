@@ -7,7 +7,7 @@
     }"
     :style="rootFontStyle"
   >
-    <header class="pel-hero">
+    <header v-if="!hidePelHeader" class="pel-hero">
       <div class="pel-hero-inner">
         <p v-if="showMasthead" class="pel-eyebrow">Official registration</p>
         <div v-if="headerLogoUrl" class="pel-logo-wrap">
@@ -18,6 +18,13 @@
         <div v-if="showMasthead" class="pel-hero-rule" aria-hidden="true" />
       </div>
     </header>
+
+    <div
+      v-if="enrollCrossLinkHref && enrollCrossLinkLabel"
+      class="pel-cross-link pel-cross-link--below-hero"
+    >
+      <RouterLink class="pel-cross-link-a" :to="enrollCrossLinkHref">{{ enrollCrossLinkLabel }}</RouterLink>
+    </div>
 
     <div v-if="loading" class="pel-loading">Loading…</div>
     <div v-else-if="error" class="pel-error">{{ error }}</div>
@@ -305,7 +312,12 @@ const props = defineProps({
   /** Override modal title for nearest / driving distance. */
   nearestModalTitle: { type: String, default: '' },
   /** Override modal body (plain text; line breaks preserved). */
-  nearestModalHint: { type: String, default: '' }
+  nearestModalHint: { type: String, default: '' },
+  /** Hide the top hero (logo/title) — e.g. when embedded under a parent enroll page. */
+  hidePelHeader: { type: Boolean, default: false },
+  /** Optional link to program enroll hub (shown on events-only pages). */
+  enrollCrossLinkHref: { type: String, default: '' },
+  enrollCrossLinkLabel: { type: String, default: '' }
 });
 
 const brandingStore = useBrandingStore();
@@ -1167,6 +1179,21 @@ function clearNearest() {
   font-weight: 500;
 }
 
+.pel-cross-link {
+  max-width: 920px;
+  margin: 0 auto 16px;
+  padding: 0 20px;
+  text-align: center;
+}
+.pel-cross-link--below-hero {
+  margin-top: -4px;
+}
+.pel-cross-link-a {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--primary, #15803d);
+  text-decoration: underline;
+}
 .pel-footer {
   margin-top: auto;
   padding: 20px 16px 28px;

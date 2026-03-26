@@ -21,6 +21,10 @@ const PUBLIC_TRANSLATION_ROUTE_NAMES = new Set([
   'PublicIntakeSigningShort',
   'PublicProviderFinder',
   'PublicAgencyEventsOpen',
+  'PublicAgencyEnrollOpen',
+  'PublicProgramEnrollOpen',
+  'PublicProgramEnroll',
+  'PublicAgencyEnrollBranded',
   'PublicOpenEventsLegacySkillBuilders',
   'PublicProgramEventsOpen',
   'PublicProgramEvents',
@@ -60,6 +64,7 @@ export function shouldShowPublicTranslate(route) {
   if (p.startsWith('/intake/') || p.startsWith('/i/')) return true;
   if (p.startsWith('/find-provider/')) return true;
   if (p.startsWith('/open-events/')) return true;
+  if (/\/enroll(\/|$)/.test(p)) return true;
   if (p === '/schools') return true;
   if (p.startsWith('/kiosk/') && !p.startsWith('/kiosk/login') && !p.startsWith('/kiosk/app')) return true;
 

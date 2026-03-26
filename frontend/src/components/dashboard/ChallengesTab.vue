@@ -2,11 +2,21 @@
   <div class="challenges-tab">
     <div class="challenges-header">
       <div>
-        <h2>My Challenges</h2>
-        <p class="hint">Your assigned fitness challenges. Click a challenge to view leaderboards, teams, and log workouts.</p>
+        <h2>Learning Progress</h2>
+        <p class="hint">Open your learning classes to run group sessions, present slides/documents, and track standards-linked evidence.</p>
       </div>
       <router-link v-if="challenges.length" :to="challengesOverviewRoute" class="btn btn-secondary btn-sm">
-        View full dashboard
+        View class dashboard
+      </router-link>
+    </div>
+    <div class="learning-progress-card">
+      <div class="learning-progress-kpis">
+        <div class="kpi"><strong>{{ challenges.length }}</strong><span>Classes</span></div>
+        <div class="kpi"><strong>{{ activeCount }}</strong><span>Active</span></div>
+        <div class="kpi"><strong>{{ groupCount }}</strong><span>Group mode</span></div>
+      </div>
+      <router-link v-if="firstWorkspaceRoute" :to="firstWorkspaceRoute" class="btn btn-primary btn-sm">
+        Open class workspace
       </router-link>
     </div>
     <div v-if="loading" class="loading">Loading challenges…</div>
@@ -48,6 +58,16 @@ const challengesOverviewRoute = computed(() => {
 });
 const loading = ref(true);
 const error = ref(null);
+const activeCount = computed(() => challenges.value.filter((c) => String(c.status || '').toLowerCase() === 'active').length);
+const groupCount = computed(() =>
+  challenges.value.filter((c) => String(c.delivery_mode || c.deliveryMode || 'group').toLowerCase() === 'group').length
+);
+const firstWorkspaceRoute = computed(() => {
+  const row = challenges.value.find((c) => String(c.delivery_mode || c.deliveryMode || 'group').toLowerCase() === 'group');
+  if (!row?.id) return null;
+  const slug = row.organization_slug || row.organizationSlug;
+  return slug ? `/${slug}/learning/classes/${row.id}` : `/learning/classes/${row.id}`;
+});
 
 const loadChallenges = async () => {
   loading.value = true;
@@ -96,6 +116,8 @@ const formatDates = (c) => {
 const challengeRoute = (c) => {
   const id = c.id;
   const slug = c.organization_slug || c.organizationSlug;
+  const mode = String(c.delivery_mode || c.deliveryMode || 'group').toLowerCase();
+  if (mode === 'group') return slug ? `/${slug}/learning/classes/${id}` : `/learning/classes/${id}`;
   if (slug) return `/${slug}/challenges/${id}`;
   return `/challenges/${id}`;
 };
@@ -125,6 +147,27 @@ onMounted(loadChallenges);
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.learning-progress-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.learning-progress-kpis {
+  display: flex;
+  gap: 16px;
+}
+.kpi {
+  display: grid;
+  gap: 2px;
+}
+.kpi span {
+  color: var(--text-muted, #666);
+  font-size: 0.82em;
 }
 .challenge-card {
   display: block;

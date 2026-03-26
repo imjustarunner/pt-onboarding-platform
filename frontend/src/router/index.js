@@ -180,6 +180,12 @@ const routes = [
     meta: { requiresGuest: false, publicAgencyEventsOpen: true }
   },
   {
+    path: '/open-events/:agencySlug/enroll',
+    name: 'PublicAgencyEnrollOpen',
+    component: () => import('../views/public/PublicAgencyEnrollView.vue'),
+    meta: { requiresGuest: false, publicAgencyEnrollOpen: true }
+  },
+  {
     path: '/open-events/:agencySlug/skill-builders',
     name: 'PublicOpenEventsLegacySkillBuilders',
     component: () => import('../views/public/PublicOpenEventsLegacyRedirectView.vue'),
@@ -189,6 +195,12 @@ const routes = [
     path: '/open-events/:agencySlug/programs/:programSlug/events',
     name: 'PublicProgramEventsOpen',
     component: () => import('../views/public/PublicSkillBuildersProgramEventsView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/open-events/:agencySlug/programs/:programSlug/enroll',
+    name: 'PublicProgramEnrollOpen',
+    component: () => import('../views/public/PublicProgramEnrollHubView.vue'),
     meta: { requiresGuest: false }
   },
   {
@@ -202,6 +214,12 @@ const routes = [
     name: 'PublicProgramEvents',
     component: () => import('../views/public/PublicSkillBuildersProgramEventsView.vue'),
     meta: { requiresGuest: false, organizationSlug: true, publicSkillBuildersEventsBranding: true }
+  },
+  {
+    path: '/:organizationSlug/programs/:programSlug/enroll',
+    name: 'PublicProgramEnroll',
+    component: () => import('../views/public/PublicProgramEnrollHubView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true, publicSkillBuildersProgramEnrollBranding: true }
   },
   {
     path: '/:organizationSlug/kiosk',
@@ -221,6 +239,12 @@ const routes = [
     name: 'PublicAgencyEventsBranded',
     component: () => import('../views/public/PublicAgencyEventsView.vue'),
     meta: { requiresGuest: false, organizationSlug: true, publicAgencyEventsBranding: true }
+  },
+  {
+    path: '/:organizationSlug/enroll',
+    name: 'PublicAgencyEnrollBranded',
+    component: () => import('../views/public/PublicAgencyEnrollView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true, publicAgencyEnrollBranding: true }
   },
   // Organization-specific routes (supports Agency, School, Program, Learning)
   // School splash page (public, no auth required)
@@ -416,6 +440,12 @@ const routes = [
     path: '/:organizationSlug/challenges',
     name: 'OrganizationChallengesOverview',
     component: () => import('../views/SummitStatsDashboardView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/learning/classes/:classId',
+    name: 'OrganizationLearningClassWorkspace',
+    component: () => import('../views/learning/LearningClassWorkspaceView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
@@ -1046,6 +1076,12 @@ const routes = [
     path: '/challenges/:id',
     name: 'ChallengeDashboard',
     component: () => import('../views/ChallengeDashboardView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/learning/classes/:classId',
+    name: 'LearningClassWorkspace',
+    component: () => import('../views/learning/LearningClassWorkspaceView.vue'),
     meta: { requiresAuth: true }
   },
   {
@@ -1870,7 +1906,7 @@ router.beforeEach(async (to, from, next) => {
   }
 
   // Public agency-wide events (/open-events/:agencySlug) — same theme as /:slug/events (not organizationSlug-based).
-  if (to.meta.publicAgencyEventsOpen) {
+  if (to.meta.publicAgencyEventsOpen || to.meta.publicAgencyEnrollOpen) {
     const s = String(to.params.agencySlug || '').trim();
     if (s) {
       try {
@@ -1907,7 +1943,10 @@ router.beforeEach(async (to, from, next) => {
         // visible header/logo flicker vs paths without the redundant slug prefix.
         try {
           const pageContext =
-            to.meta.publicSkillBuildersEventsBranding || to.meta.publicAgencyEventsBranding
+            to.meta.publicSkillBuildersEventsBranding ||
+            to.meta.publicAgencyEventsBranding ||
+            to.meta.publicAgencyEnrollBranding ||
+            to.meta.publicSkillBuildersProgramEnrollBranding
               ? 'public_events'
               : undefined;
           const isSuperAdmin = String(authStore.user?.role || '').toLowerCase() === 'super_admin';
