@@ -1075,6 +1075,16 @@ const loading = ref(true);
 const error = ref('');
 const stepError = ref('');
 const beginError = ref('');
+// Declare shared intake state early so setup-time computed/watch evaluation
+// cannot hit temporal dead zone errors in production bundles.
+const clients = ref([
+  { firstName: '', lastName: '' }
+]);
+const intakeResponses = reactive({
+  guardian: {},
+  submission: {},
+  clients: [{}]
+});
 const templates = ref([]);
 const agencyInfo = ref(null);
 const organizationInfo = ref(null);
@@ -1142,7 +1152,10 @@ const DEFAULT_GUARDIAN_WAIVER_SECTION_KEYS = [
 const FLOW_STEP_VISIBILITY = new Set(['always', 'new_client_only', 'existing_client_only']);
 
 const flowSteps = computed(() => {
-  const forceRegistrationStepVisible = usesRegistrationFeatures.value;
+  // Keep this independent from later-declared computed refs to avoid setup TDZ.
+  const forceRegistrationStepVisible =
+    formTypeKey.value === 'smart_registration'
+    || (formTypeKey.value === 'intake' && hasRegistrationStep.value);
   const isExisting =
     String(intakeResponses.submission?.registration_client_match || '').trim().toLowerCase() === 'existing';
   const stepVisible = (s) => {
@@ -1422,9 +1435,6 @@ let draftRestoredBannerTimer = null;
 const signerInitials = ref('');
 const boundClient = ref(null);
 const roiContext = ref(null);
-const clients = ref([
-  { firstName: '', lastName: '' }
-]);
 const organizationId = ref('');
 
 const guardianFirstName = ref('');
@@ -1432,11 +1442,6 @@ const guardianLastName = ref('');
 const guardianEmail = ref('');
 const guardianPhone = ref('');
 const guardianRelationship = ref('');
-const intakeResponses = reactive({
-  guardian: {},
-  submission: {},
-  clients: [{}]
-});
 const downloadUrl = ref('');
 const clientBundleLinks = ref([]);
 const jobApplicationSubmitted = ref(false);
