@@ -58,6 +58,32 @@
                 Mirror inbound client texts to support
               </label>
             </div>
+            <div class="field checkbox" v-if="isWorkforceEmployeeRole">
+              <label>
+                <input
+                  v-model="prefs.notification_categories.workforce_internal_notifications_sms"
+                  type="checkbox"
+                  :disabled="notificationDisabled"
+                />
+                Campaign 4 (Employee): Internal workforce SMS notifications
+              </label>
+              <div class="field-help">
+                Opt-in for operational reminders, internal announcements, and optional polls/voting.
+              </div>
+            </div>
+            <div class="field checkbox" v-if="isSchoolStaffRole">
+              <label>
+                <input
+                  v-model="prefs.notification_categories.school_staff_operational_notifications_sms"
+                  type="checkbox"
+                  :disabled="notificationDisabled"
+                />
+                Campaign 4 (School Staff): Operational SMS notifications
+              </label>
+              <div class="field-help">
+                School-staff limited-access SMS for operational updates and participation reminders.
+              </div>
+            </div>
             <div class="field" v-if="prefs.sms_enabled && prefs.sms_support_mirror_enabled">
               <label>Support takeover mode</label>
               <select v-model="prefs.sms_support_thread_mode" :disabled="notificationDisabled">
@@ -915,7 +941,9 @@ const defaultCategories = () => ({
   surveys_survey_completed: false,
   system_emergency_broadcasts: true,
   system_org_announcements: false,
-  program_reminders: false
+  program_reminders: false,
+  workforce_internal_notifications_sms: false,
+  school_staff_operational_notifications_sms: false
 });
 
 const prefs = ref({
@@ -1013,6 +1041,23 @@ const hasMyDashboard = computed(() => {
   const role = String((props.userId === authStore.user?.id ? authStore.user?.role : props.identity?.role) || '').toLowerCase();
   return role !== 'school_staff';
 });
+const effectiveRoleNorm = computed(() =>
+  String((props.userId === authStore.user?.id ? authStore.user?.role : props.identity?.role) || '').toLowerCase()
+);
+const isSchoolStaffRole = computed(() => effectiveRoleNorm.value === 'school_staff');
+const isWorkforceEmployeeRole = computed(() =>
+  [
+    'provider',
+    'provider_plus',
+    'admin',
+    'staff',
+    'support',
+    'schedule_manager',
+    'clinical_practice_assistant',
+    'intern',
+    'intern_plus'
+  ].includes(effectiveRoleNorm.value)
+);
 
 const sessionLockPinNew = ref('');
 const sessionLockPinConfirm = ref('');

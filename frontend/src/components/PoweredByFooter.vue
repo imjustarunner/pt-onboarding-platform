@@ -11,12 +11,14 @@
       />
       <span v-if="platformOrgName" class="powered-by-name">{{ platformOrgName }}</span>
     </div>
-    <div v-if="includeLegal && (privacyPolicyUrl || termsUrl || platformHipaaUrl)" class="legal-links">
-      <a v-if="privacyPolicyUrl" :href="privacyPolicyUrl" target="_blank" rel="noopener noreferrer" class="legal-link">Privacy Policy</a>
-      <span v-if="privacyPolicyUrl && (termsUrl || platformHipaaUrl)" class="legal-sep">|</span>
-      <a v-if="termsUrl" :href="termsUrl" target="_blank" rel="noopener noreferrer" class="legal-link">Terms</a>
-      <span v-if="termsUrl && platformHipaaUrl" class="legal-sep">|</span>
-      <a v-if="platformHipaaUrl" :href="platformHipaaUrl" target="_blank" rel="noopener noreferrer" class="legal-link">Platform HIPAA</a>
+    <div v-if="includeLegal && (privacyPolicyUrl || termsUrl || publicProofUrl || platformHipaaUrl)" class="legal-links">
+      <router-link v-if="privacyPolicyUrl" :to="privacyPolicyUrl" class="legal-link">Privacy Policy</router-link>
+      <span v-if="privacyPolicyUrl && (termsUrl || publicProofUrl || platformHipaaUrl)" class="legal-sep">|</span>
+      <router-link v-if="termsUrl" :to="termsUrl" class="legal-link">Terms</router-link>
+      <span v-if="termsUrl && (publicProofUrl || platformHipaaUrl)" class="legal-sep">|</span>
+      <router-link v-if="publicProofUrl" :to="publicProofUrl" class="legal-link">Public Proof</router-link>
+      <span v-if="publicProofUrl && platformHipaaUrl" class="legal-sep">|</span>
+      <router-link v-if="platformHipaaUrl" :to="platformHipaaUrl" class="legal-link">Platform HIPAA</router-link>
     </div>
   </div>
 </template>
@@ -49,15 +51,19 @@ const brandingStore = useBrandingStore();
 const showPoweredBy = computed(() => brandingStore.showPoweredBy);
 
 // Show footer when we have powered-by content OR legal links (e.g. on login page)
-const privacyPolicyUrl = computed(() => brandingStore.platformBranding?.privacy_policy_url?.trim() || null);
-const termsUrl = computed(() => brandingStore.platformBranding?.terms_url?.trim() || null);
-const platformHipaaUrl = computed(() => brandingStore.platformBranding?.platform_hipaa_url?.trim() || null);
+const privacyPolicyUrl = computed(() => '/privacypolicy');
+const termsUrl = computed(() => '/terms');
+const publicProofUrl = computed(() => '/publicproof');
+const platformHipaaUrl = computed(() => {
+  const raw = String(brandingStore.platformBranding?.platform_hipaa_url || '').trim();
+  return raw ? '/platformhipaa' : null;
+});
 const showFooter = computed(() => {
   const powered =
     props.includePoweredBy && showPoweredBy.value && (platformOrgName.value || platformLogoUrl.value);
   const legal =
     props.includeLegal &&
-    (privacyPolicyUrl.value || termsUrl.value || platformHipaaUrl.value);
+    (privacyPolicyUrl.value || termsUrl.value || publicProofUrl.value || platformHipaaUrl.value);
   return Boolean(powered || legal);
 });
 

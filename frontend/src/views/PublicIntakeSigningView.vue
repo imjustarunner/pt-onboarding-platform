@@ -444,6 +444,9 @@
         <h3 v-else-if="currentFlowStep?.type === 'payment_collection'">
           {{ currentFlowStep?.label || 'Payment information' }}
         </h3>
+        <h3 v-else-if="currentFlowStep?.type === 'communications'">
+          {{ currentFlowStep?.label || 'Communication preferences' }}
+        </h3>
         <h3 v-else-if="currentFlowStep?.type === 'questions'">Questions</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
         <div v-if="currentFlowStep?.type === 'school_roi'" class="school-roi-step">
@@ -579,6 +582,125 @@
             @update:model-value="(v) => { intakeResponses.submission.paymentInfo = v; }"
             @card-saved="onPaymentCardSaved"
           />
+        </div>
+
+        <div v-if="currentFlowStep?.type === 'communications'" class="communications-step">
+          <p class="muted">
+            Choose how you would like to receive platform communications. You can update these preferences at any time.
+          </p>
+
+          <section class="communications-campaign-card">
+            <h4>Email Communication Preference <span class="required-indicator">*</span></h4>
+            <p class="communications-disclosure">
+              Please choose what you would like to receive emails from us. If you opt in, we may email you about
+              scheduling, appointment reminders, and-if selected-updates about mental health programs and services.
+              Your email will never be shared or sold to third parties, and you may unsubscribe at any time.
+            </p>
+            <div class="radio-group">
+              <label class="radio-row">
+                <input type="radio" name="communications_email_preference" value="all" v-model="communications.emailPreference" />
+                <span>Yes - Scheduling + all program communications</span>
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="communications_email_preference" value="scheduling_only" v-model="communications.emailPreference" />
+                <span>Yes - Scheduling only</span>
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="communications_email_preference" value="no" v-model="communications.emailPreference" />
+                <span>No</span>
+              </label>
+            </div>
+          </section>
+
+          <section class="communications-campaign-card">
+            <h4>Text Message (SMS) Communication Preference <span class="required-indicator">*</span></h4>
+            <p class="communications-disclosure">
+              Please choose what you would like to receive text messages from us. If you opt in, we may text you
+              about scheduling, appointment reminders, and-if selected-updates about mental health programs and services.
+              Message and data rates may apply. Reply STOP to opt out at any time and HELP for assistance.
+              Terms: <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
+              Privacy: <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+            </p>
+            <div class="radio-group">
+              <label class="radio-row">
+                <input type="radio" name="communications_sms_preference" value="all" v-model="communications.smsPreference" />
+                <span>Yes - Scheduling + all program communications</span>
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="communications_sms_preference" value="scheduling_only" v-model="communications.smsPreference" />
+                <span>Yes - Scheduling only</span>
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="communications_sms_preference" value="no" v-model="communications.smsPreference" />
+                <span>No - Do not text me</span>
+              </label>
+            </div>
+          </section>
+
+          <section v-if="currentFlowStep?.campaigns?.providerTexting" class="communications-campaign-card">
+            <h4>SMS With Your Provider/Care Team <span class="required-indicator">*</span></h4>
+            <p class="communications-disclosure">
+              If you choose Yes, we may text you for service-related communication with your provider/care team
+              (for example, responding to your questions and coordinating care). Message frequency varies.
+              Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
+              Appointment reminders/confirmations are not sent from individual provider numbers.
+              Terms: <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
+              Privacy: <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+            </p>
+            <div class="radio-group">
+              <label class="radio-row">
+                <input type="radio" name="communications_provider_sms" value="yes" v-model="communications.providerTextingOptIn" />
+                <span>Yes - I opt in to provider/care-team texting</span>
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="communications_provider_sms" value="no" v-model="communications.providerTextingOptIn" />
+                <span>No - Keep provider texting off</span>
+              </label>
+            </div>
+          </section>
+
+          <section v-if="currentFlowStep?.campaigns?.programUpdates" class="communications-campaign-card">
+            <h4>Optional Program &amp; Service Updates <span class="required-indicator">*</span></h4>
+            <p class="communications-disclosure">
+              If you choose Yes, we may text you updates about programs/services you requested (for example,
+              openings, enrollment options, and availability). Message frequency varies and is limited based on your
+              preferences. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
+              Terms: <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
+              Privacy: <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+            </p>
+            <div class="radio-group">
+              <label class="radio-row">
+                <input type="radio" name="communications_program_sms" value="yes" v-model="communications.programUpdatesOptIn" />
+                <span>Yes - I want optional updates</span>
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="communications_program_sms" value="no" v-model="communications.programUpdatesOptIn" />
+                <span>No - Keep optional updates off</span>
+              </label>
+            </div>
+          </section>
+
+          <section v-if="currentFlowStep?.campaigns?.internalWorkforce" class="communications-campaign-card">
+            <h4>Internal Workforce + School Staff Notifications (Opt-In) <span class="required-indicator">*</span></h4>
+            <p class="communications-disclosure">
+              By opting in, you agree to receive SMS/text messages from PlotTwistHQ for operational notifications and reminders,
+              internal announcements, and optional polls/voting related to your participation on the platform. Message frequency varies.
+              Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
+              Support: 833-756-8894 ext. 701 | hq@plottwistco.com.
+              Terms: <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
+              Privacy: <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+            </p>
+            <div class="radio-group">
+              <label class="radio-row">
+                <input type="radio" name="communications_workforce_sms" value="yes" v-model="communications.internalWorkforceOptIn" />
+                <span>Yes - I opt in to internal workforce / school staff SMS notifications</span>
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="communications_workforce_sms" value="no" v-model="communications.internalWorkforceOptIn" />
+                <span>No - Keep internal notifications off</span>
+              </label>
+            </div>
+          </section>
         </div>
 
         <div class="doc-nav" v-if="currentFlowStep?.type === 'document'">
@@ -1125,6 +1247,15 @@ const intakeResponses = reactive({
   submission: {},
   clients: [{}]
 });
+const communications = reactive({
+  emailPreference: '',
+  smsPreference: '',
+  providerTextingOptIn: '',
+  programUpdatesOptIn: '',
+  internalWorkforceOptIn: ''
+});
+const platformTermsUrl = '/terms';
+const platformPrivacyUrl = '/privacypolicy';
 const templates = ref([]);
 const agencyInfo = ref(null);
 const organizationInfo = ref(null);
@@ -1218,6 +1349,7 @@ const flowSteps = computed(() => {
           || s?.type === 'guardian_waiver'
           || s?.type === 'insurance_info'
           || s?.type === 'payment_collection'
+          || s?.type === 'communications'
       )
       .filter((s) => {
         // Skip payment_collection when the guardian selected a Medicaid insurer.
@@ -1234,6 +1366,7 @@ const flowSteps = computed(() => {
         if (s.type === 'guardian_waiver') return { ...s };
         if (s.type === 'insurance_info') return { ...s };
         if (s.type === 'payment_collection') return { ...s };
+        if (s.type === 'communications') return { ...s };
         const template = templates.value.find((t) => Number(t.id) === Number(s.templateId));
         return { ...s, template };
       });
@@ -1305,6 +1438,20 @@ watch(
     }
   },
   { flush: 'post' }
+);
+
+watch(
+  () => [currentFlowStep.value?.id, currentFlowStep.value?.type],
+  () => {
+    if (currentFlowStep.value?.type !== 'communications') return;
+    const stored = intakeResponses.submission?.communicationPreferences || {};
+    communications.emailPreference = String(stored.emailPreference || communications.emailPreference || '');
+    communications.smsPreference = String(stored.smsPreference || communications.smsPreference || '');
+    communications.providerTextingOptIn = String(stored.providerTextingOptIn || communications.providerTextingOptIn || '');
+    communications.programUpdatesOptIn = String(stored.programUpdatesOptIn || communications.programUpdatesOptIn || '');
+    communications.internalWorkforceOptIn = String(stored.internalWorkforceOptIn || communications.internalWorkforceOptIn || '');
+  },
+  { immediate: true }
 );
 
 const getCurrentRegistrationRules = () => {
@@ -3002,6 +3149,42 @@ const completePaymentStep = () => {
   void nextFlowStep();
 };
 
+const completeCommunicationsStep = () => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'communications') return;
+  if (!communications.emailPreference) {
+    stepError.value = 'Please choose an email communication preference.';
+    return;
+  }
+  if (!communications.smsPreference) {
+    stepError.value = 'Please choose an SMS communication preference.';
+    return;
+  }
+  if (step?.campaigns?.providerTexting && !communications.providerTextingOptIn) {
+    stepError.value = 'Please choose whether to enable provider/care-team texting.';
+    return;
+  }
+  if (step?.campaigns?.programUpdates && !communications.programUpdatesOptIn) {
+    stepError.value = 'Please choose whether to enable optional program updates.';
+    return;
+  }
+  if (step?.campaigns?.internalWorkforce && !communications.internalWorkforceOptIn) {
+    stepError.value = 'Please choose whether to enable internal workforce notifications.';
+    return;
+  }
+  intakeResponses.submission.communicationPreferences = {
+    emailPreference: communications.emailPreference,
+    smsPreference: communications.smsPreference,
+    providerTextingOptIn: step?.campaigns?.providerTexting ? communications.providerTextingOptIn : null,
+    programUpdatesOptIn: step?.campaigns?.programUpdates ? communications.programUpdatesOptIn : null,
+    internalWorkforceOptIn: step?.campaigns?.internalWorkforce ? communications.internalWorkforceOptIn : null,
+    termsUrl: platformTermsUrl,
+    privacyUrl: platformPrivacyUrl
+  };
+  stepError.value = '';
+  void nextFlowStep();
+};
+
 const onPaymentCardSaved = (cardInfo) => {
   if (!intakeResponses.submission.paymentInfo) {
     intakeResponses.submission.paymentInfo = {};
@@ -3031,6 +3214,7 @@ const handleCurrentFlowContinue = () => {
   if (currentFlowStep.value?.type === 'guardian_waiver') return completeGuardianWaiverStep();
   if (currentFlowStep.value?.type === 'insurance_info') return completeInsuranceStep();
   if (currentFlowStep.value?.type === 'payment_collection') return completePaymentStep();
+  if (currentFlowStep.value?.type === 'communications') return completeCommunicationsStep();
   return completeQuestionStep();
 };
 const currentFlowContinueLabel = computed(() => {
@@ -3038,6 +3222,7 @@ const currentFlowContinueLabel = computed(() => {
   if (currentFlowStep.value?.type === 'guardian_waiver') return t('continue');
   if (currentFlowStep.value?.type === 'insurance_info') return 'Save & continue';
   if (currentFlowStep.value?.type === 'payment_collection') return 'Continue';
+  if (currentFlowStep.value?.type === 'communications') return 'Save preferences & continue';
   if (currentFlowStep.value?.type === 'document') {
     return currentDoc.value?.document_action_type === 'signature' ? t('signContinue') : t('markReviewedContinue');
   }
@@ -4113,6 +4298,26 @@ onBeforeUnmount(() => {
 }
 .registration-step {
   margin: 16px 0;
+}
+.communications-step {
+  margin: 16px 0;
+  display: grid;
+  gap: 12px;
+}
+.communications-campaign-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+.communications-campaign-card h4 {
+  margin: 0 0 8px;
+}
+.communications-disclosure {
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  font-size: 14px;
 }
 .registration-options {
   display: grid;

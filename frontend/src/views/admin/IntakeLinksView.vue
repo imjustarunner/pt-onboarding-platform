@@ -494,6 +494,13 @@
                 >
                   + Add Payment collection
                 </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addStep('communications')"
+                >
+                  + Add Communications
+                </button>
                 <span v-if="hasProgrammedSchoolRoiStep" class="programmed-step-pill">
                   Programmed School ROI active
                 </span>
@@ -725,6 +732,51 @@
                     <select v-model="step.visibility">
                       <option value="always">Always</option>
                       <option value="new_client_only">New clients only</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div v-else-if="step.type === 'communications'" class="form-grid">
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Step title</label>
+                    <input v-model="step.label" type="text" placeholder="Communication preferences" />
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label class="checkbox">
+                      <input v-model="step.campaigns.scheduling" type="checkbox" />
+                      Include Campaign 1 — Appointment scheduling + reminders (required for A2P proof)
+                    </label>
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label class="checkbox">
+                      <input v-model="step.campaigns.providerTexting" type="checkbox" />
+                      Include Campaign 2 — Provider ↔ client 1:1 conversational texting
+                    </label>
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label class="checkbox">
+                      <input v-model="step.campaigns.programUpdates" type="checkbox" />
+                      Include Campaign 3 — Program/service opportunities
+                    </label>
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label class="checkbox">
+                      <input v-model="step.campaigns.internalWorkforce" type="checkbox" />
+                      Include Campaign 4 — Internal workforce + school staff notifications
+                    </label>
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <div class="muted" style="font-size: 13px; line-height: 1.45;">
+                      This step renders platform-standard consent language for SMS/email, including frequency, rates,
+                      STOP/HELP, and Terms/Privacy references.
+                    </div>
+                  </div>
+                  <div v-if="registrationFlowAdmin" class="form-group" style="grid-column: 1 / -1;">
+                    <label>Show this step</label>
+                    <select v-model="step.visibility">
+                      <option value="always">Always</option>
+                      <option value="new_client_only">New clients only</option>
+                      <option value="existing_client_only">Existing clients only</option>
                     </select>
                   </div>
                 </div>
@@ -1330,7 +1382,8 @@ const getStepTypeLabel = (t) => {
     upload: 'Upload',
     guardian_waiver: 'Guardian waivers & safety',
     insurance_info: 'Insurance information',
-    payment_collection: 'Payment collection'
+    payment_collection: 'Payment collection',
+    communications: 'Communication preferences'
   };
   return m[t] || t || 'Step';
 };
@@ -2372,6 +2425,18 @@ const sanitizeSteps = (steps, { formType } = {}) => {
           keys = ['esignature_consent', ...keys.filter((k) => k !== 'esignature_consent')];
         }
         next.sectionKeys = keys;
+      } else if (next.type === 'communications') {
+        next.label = String(next.label || '').trim() || 'Communication preferences';
+        next.visibility = ['always', 'new_client_only', 'existing_client_only'].includes(String(next.visibility || '').trim())
+          ? String(next.visibility).trim()
+          : 'always';
+        const campaigns = next.campaigns && typeof next.campaigns === 'object' ? { ...next.campaigns } : {};
+        next.campaigns = {
+          scheduling: campaigns.scheduling !== false,
+          providerTexting: !!campaigns.providerTexting,
+          programUpdates: !!campaigns.programUpdates,
+          internalWorkforce: !!campaigns.internalWorkforce
+        };
       }
       return next;
     });
@@ -2484,6 +2549,15 @@ const addStep = (type, options = {}) => {
     step.costDisclosureText = '';
     // Whether to auto-charge the saved card at session start.
     step.autoChargeDefault = true;
+  } else if (type === 'communications') {
+    step.label = 'Communication preferences';
+    step.visibility = 'always';
+    step.campaigns = {
+      scheduling: true,
+      providerTexting: false,
+      programUpdates: false,
+      internalWorkforce: false
+    };
   } else {
     step.templateId = options?.templateId ?? null;
     step.checkboxDisclaimer = '';

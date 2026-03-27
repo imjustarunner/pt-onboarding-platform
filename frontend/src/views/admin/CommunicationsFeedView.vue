@@ -15,16 +15,17 @@
             <span v-if="!isProviderOrSchoolStaff && pendingDeliveryCount > 0" class="tab-badge">{{ pendingDeliveryCount }}</span>
           </button>
           <button class="tab" :class="{ active: activeTab === 'school' }" @click="setTab('school')">School alerts</button>
+          <button class="tab" :class="{ active: activeTab === 'proof' }" @click="setTab('proof')">Compliance proof</button>
         </div>
-        <router-link class="btn btn-secondary" :to="smsInboxLink">SMS Inbox</router-link>
-        <router-link class="btn btn-secondary" :to="preferencesLink">Preferences</router-link>
-        <router-link v-if="canManageTexting" class="btn btn-secondary" :to="textingSettingsLink">Texting settings</router-link>
-        <router-link class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Chats</router-link>
-        <router-link class="btn btn-secondary" :to="ticketsLink">
+        <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="smsInboxLink">SMS Inbox</router-link>
+        <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="preferencesLink">Preferences</router-link>
+        <router-link v-if="!isPublicProofMode && canManageTexting" class="btn btn-secondary" :to="textingSettingsLink">Texting settings</router-link>
+        <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Chats</router-link>
+        <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="ticketsLink">
           Tickets
           <span v-if="openTicketsCount > 0" class="header-badge">{{ openTicketsCount }}</span>
         </router-link>
-        <button class="btn btn-secondary" @click="refreshActive" :disabled="loading || schoolLoading">Refresh</button>
+        <button v-if="!isPublicProofMode" class="btn btn-secondary" @click="refreshActive" :disabled="loading || schoolLoading">Refresh</button>
       </div>
     </div>
 
@@ -419,6 +420,283 @@
           </div>
         </div>
       </div>
+      <div v-else-if="activeTab === 'proof'" class="compliance-proof">
+        <div class="proof-card">
+          <h3>Tenant feature toggle (demo)</h3>
+          <p class="muted">
+            Existing text transport controls are already available under Calls (Inbound texts / Outbound texts). This demo
+            toggle is for Campaign 4 rollout planning and billing workflows.
+          </p>
+          <label class="proof-radio">
+            <input type="checkbox" v-model="tenantTextingNotificationsFeatureEnabled" />
+            Texting notifications feature enabled (ITSCO tenant demo)
+          </label>
+          <p class="proof-disclosure" v-if="tenantTextingNotificationsFeatureEnabled">
+            Demo mode ON: campaign consent setup can be tested in screenshots and preferences without sending production texts.
+          </p>
+          <p class="proof-disclosure" v-else>
+            Demo mode OFF: workforce/school staff consent workflows remain preview-only.
+          </p>
+        </div>
+
+        <div class="proof-card">
+          <h3>Deployment link examples (use for screenshots)</h3>
+          <p class="muted">
+            Show both deployments in consent proof screenshots so Twilio reviewers can see co-branded usage.
+          </p>
+          <div class="proof-deployment-grid">
+            <div v-for="d in proofDeployments" :key="d.name" class="proof-deployment-item">
+              <div><strong>{{ d.name }}</strong> ({{ d.base }})</div>
+              <div>Terms: <a :href="d.terms" target="_blank" rel="noopener noreferrer">{{ d.terms }}</a></div>
+              <div>Privacy: <a :href="d.privacy" target="_blank" rel="noopener noreferrer">{{ d.privacy }}</a></div>
+              <div>Public Proof: <a :href="d.publicProof" target="_blank" rel="noopener noreferrer">{{ d.publicProof }}</a></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="proof-card">
+          <h3>Campaign 1 - Appointment Scheduling + Reminders (Transactional)</h3>
+          <p class="muted">
+            Use this section for screenshots showing the intake/portal yes-no opt-in controls and the required disclosure language.
+          </p>
+          <div class="proof-consent-block">
+            <h4>Email Communication Preference *</h4>
+            <p class="proof-disclosure">
+              Please choose what you would like to receive emails from us. If you opt in, we may email you about
+              scheduling, appointment reminders, and-if selected-updates about mental health programs and services.
+              Your email will never be shared or sold to third parties, and you may unsubscribe at any time.
+            </p>
+            <label class="proof-radio"><input type="radio" disabled checked /> Yes - Scheduling + all program communications</label>
+            <label class="proof-radio"><input type="radio" disabled /> Yes - Scheduling only</label>
+            <label class="proof-radio"><input type="radio" disabled /> No</label>
+          </div>
+          <div class="proof-consent-block">
+            <h4>Text Message (SMS) Communication Preference *</h4>
+            <p class="proof-disclosure">
+              Please choose what you would like to receive text messages from us. If you opt in, we may text you
+              about scheduling, appointment reminders, and-if selected-updates about mental health programs and services.
+              Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time.
+              Reply HELP for help. Terms/Privacy links vary by deployment (see deployment examples above).
+            </p>
+            <label class="proof-radio"><input type="radio" disabled checked /> Yes - Scheduling + all program communications</label>
+            <label class="proof-radio"><input type="radio" disabled /> Yes - Scheduling only</label>
+            <label class="proof-radio"><input type="radio" disabled /> No - Do not text me</label>
+          </div>
+        </div>
+
+        <div class="proof-card">
+          <h3>Campaign 2 - Provider ↔ Client 1:1 Conversational Texting</h3>
+          <div class="proof-consent-block">
+            <h4>SMS With Your Provider/Care Team *</h4>
+            <p class="proof-disclosure">
+              If you choose Yes, we may text you for service-related communication with your provider/care team (for example,
+              responding to your questions and coordinating care). Message frequency varies. Message and data rates may apply.
+              Reply STOP to opt out at any time. Reply HELP for help. Appointment reminders/confirmations are not sent from
+              individual provider numbers. Terms/Privacy links vary by deployment (see deployment examples above).
+            </p>
+            <label class="proof-radio"><input type="radio" disabled checked /> Yes - I opt in to provider/care-team texting</label>
+            <label class="proof-radio"><input type="radio" disabled /> No - Keep provider texting off</label>
+          </div>
+          <div class="proof-message-preview">
+            <h4>Client-initiated SMS auto-reply examples (tenant-branded)</h4>
+            <div class="proof-two-col">
+              <div class="proof-tenant-card">
+                <h5>ITSCO</h5>
+                <div class="proof-chat-bubble proof-chat-bubble--incoming">Hi, this is Laurie. Can I move tomorrow's appointment?</div>
+                <div class="proof-chat-bubble proof-chat-bubble--outgoing">
+                  ITSCO: Thanks for the text! Our new platform will allow you to message me privately via our app during my office hours.
+                  Message frequency varies. Msg &amp; data rates may apply.
+                  Reply STOP to opt out, HELP for help.
+                </div>
+              </div>
+              <div class="proof-tenant-card">
+                <h5>NextLevelUp</h5>
+                <div class="proof-chat-bubble proof-chat-bubble--incoming">Hi, this is Laurie. Can I move tomorrow's appointment?</div>
+                <div class="proof-chat-bubble proof-chat-bubble--outgoing">
+                  NextLevelUp: Thanks for the text! Our new platform will allow you to message me privately via our app during my office hours.
+                  Message frequency varies. Msg &amp; data rates may apply.
+                  Reply STOP to opt out, HELP for help.
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="proof-message-preview">
+            <h4>Email example we send for new texting app transition</h4>
+            <div class="proof-two-col">
+              <div class="proof-tenant-card">
+                <h5>ITSCO</h5>
+                <div class="proof-email-example">
+                  Subject: New texting app for your care-team communication
+                  <br />
+                  Hi, it's [provider_first], we have a new app that is managing all texting for us.
+                  My number is [provider_number]. If you'd like to opt in to text me, please do so by texting my number.
+                  If not, no worries, I will still be available via email.
+                </div>
+              </div>
+              <div class="proof-tenant-card">
+                <h5>NextLevelUp</h5>
+                <div class="proof-email-example">
+                  Subject: New texting app for your care-team communication
+                  <br />
+                  Hi, it's [provider_first], we have a new app that is managing all texting for us.
+                  My number is [provider_number]. If you'd like to opt in to text me, please do so by texting my number.
+                  If not, no worries, I will still be available via email.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="proof-card">
+          <h3>Campaign 3 - Program/Service Opportunities (Opted-in Updates)</h3>
+          <div class="proof-two-col">
+            <div class="proof-tenant-card">
+              <h5>ITSCO</h5>
+              <div class="proof-consent-block">
+                <h4>Optional Program &amp; Service Updates *</h4>
+                <p class="proof-disclosure">
+                  If you choose Yes, we may text you updates about additional programs and services we offer based on your interests
+                  (for example: tutoring, parent classes, workshops, new enrollment opportunities, and other promotional service offerings).
+                  Message frequency varies and is limited based on your preferences.
+                  Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
+                </p>
+                <label class="proof-radio"><input type="radio" disabled checked /> Yes - I want optional updates</label>
+                <label class="proof-radio"><input type="radio" disabled /> No - Keep optional updates off</label>
+              </div>
+            </div>
+            <div class="proof-tenant-card">
+              <h5>NextLevelUp</h5>
+              <div class="proof-consent-block">
+                <h4>Optional Program &amp; Service Updates *</h4>
+                <p class="proof-disclosure">
+                  If you choose Yes, we may text you updates about additional programs and services we offer based on your interests
+                  (for example: tutoring, parent classes, workshops, new enrollment opportunities, and other promotional service offerings).
+                  Message frequency varies and is limited based on your preferences.
+                  Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
+                </p>
+                <label class="proof-radio"><input type="radio" disabled checked /> Yes - I want optional updates</label>
+                <label class="proof-radio"><input type="radio" disabled /> No - Keep optional updates off</label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="proof-card">
+          <h3>Campaign 4 - Internal Workforce + School Staff Notifications (Opt-In)</h3>
+          <div class="proof-two-col">
+            <div class="proof-tenant-card">
+              <h5>ITSCO workforce consent</h5>
+              <div class="proof-consent-block">
+                <h4>Operational workforce SMS notifications *</h4>
+                <p class="proof-disclosure">
+                  By opting in, you agree to receive SMS/text messages from ITSCO for operational notifications and reminders,
+                  internal announcements, and optional polls/voting related to your participation. Message frequency varies.
+                  Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
+                  Support: 833-756-8894 ext. 701 | hq@plottwistco.com.
+                </p>
+                <label class="proof-radio"><input type="radio" disabled checked /> Yes - Opt in</label>
+                <label class="proof-radio"><input type="radio" disabled /> No - Keep SMS off</label>
+              </div>
+            </div>
+            <div class="proof-tenant-card">
+              <h5>NextLevelUp workforce consent</h5>
+              <div class="proof-consent-block">
+                <h4>Operational workforce SMS notifications *</h4>
+                <p class="proof-disclosure">
+                  By opting in, you agree to receive SMS/text messages from NextLevelUp for operational notifications and reminders,
+                  internal announcements, and optional polls/voting related to your participation. Message frequency varies.
+                  Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
+                  Support: 833-756-8894 ext. 701 | hq@plottwistco.com.
+                </p>
+                <label class="proof-radio"><input type="radio" disabled checked /> Yes - Opt in</label>
+                <label class="proof-radio"><input type="radio" disabled /> No - Keep SMS off</label>
+              </div>
+            </div>
+          </div>
+          <div class="proof-two-col">
+            <div class="proof-tenant-card">
+              <h5>ITSCO employee</h5>
+              <div class="proof-status-row">
+                <span>Workforce SMS notifications</span>
+                <span class="proof-status-badge proof-status-badge--on">Opted in</span>
+              </div>
+              <div class="proof-status-sub">Receives operational reminders, announcements, and voting texts.</div>
+            </div>
+            <div class="proof-tenant-card">
+              <h5>NextLevelUp employee</h5>
+              <div class="proof-status-row">
+                <span>Workforce SMS notifications</span>
+                <span class="proof-status-badge proof-status-badge--on">Opted in</span>
+              </div>
+              <div class="proof-status-sub">Receives operational reminders, announcements, and voting texts.</div>
+            </div>
+          </div>
+          <div class="proof-two-col">
+            <div class="proof-tenant-card">
+              <h5>ITSCO school staff</h5>
+              <div class="proof-status-row">
+                <span>School staff operational SMS</span>
+                <span class="proof-status-badge proof-status-badge--on">Opted in</span>
+              </div>
+              <div class="proof-status-sub">Receives reduced-access operational notifications and reminders.</div>
+            </div>
+            <div class="proof-tenant-card">
+              <h5>Splash opt-in page example</h5>
+              <div class="proof-email-example">
+                SMS Notifications
+                <br />
+                [ ] Yes, I agree to receive operational SMS notifications and reminders
+                <br />
+                [ ] No, keep SMS notifications off
+                <br />
+                By opting in, you agree to receive SMS/text messages for operational notifications, internal announcements,
+                and optional polls/voting related to your participation. Message frequency varies.
+                Msg &amp; data rates may apply. Reply STOP to opt out. Reply HELP for help.
+              </div>
+            </div>
+          </div>
+          <div class="proof-message-preview">
+            <h4>Onboarding opt-in example (new employees)</h4>
+            <div class="proof-email-example">
+              Welcome. To receive operational SMS notifications, select:
+              <br />
+              [ ] Yes, I opt in to workforce SMS notifications
+              <br />
+              Disclosure includes message frequency, rates, STOP/HELP, Terms, and Privacy links.
+            </div>
+          </div>
+        </div>
+
+        <div class="proof-card">
+          <h3>Guardian/Client Preferences view</h3>
+          <p class="muted">
+            Example of how guardian/client communication preferences are shown clearly in profile settings.
+          </p>
+          <div class="proof-pref-grid">
+            <div class="proof-status-row">
+              <span>Email: Scheduling + all program communications</span>
+              <span class="proof-status-badge proof-status-badge--on">Opted in</span>
+            </div>
+            <div class="proof-status-row">
+              <span>SMS Scheduling</span>
+              <span class="proof-status-badge proof-status-badge--on">Opted in</span>
+            </div>
+            <div class="proof-status-row">
+              <span>Provider/Care Team SMS</span>
+              <span class="proof-status-badge proof-status-badge--on">Opted in</span>
+            </div>
+            <div class="proof-status-row">
+              <span>Program/Service Updates</span>
+              <span class="proof-status-badge proof-status-badge--off">Opted out</span>
+            </div>
+          </div>
+          <p class="proof-disclosure">
+            Message frequency varies by client need and platform activity. Message and data rates may apply.
+            Reply STOP to opt out. Reply HELP for help or contact 833-756-8894 ext. 701 / hq@plottwistco.com.
+            Terms/Privacy/Public Proof links vary by deployment (see deployment examples above).
+          </p>
+        </div>
+      </div>
       <div v-else>
         <div v-if="filteredRows.length === 0" class="empty">No communications yet.</div>
         <div v-else class="list" data-tour="comms-list">
@@ -635,13 +913,33 @@ const ticketsLink = computed(() => {
 });
 const pendingDeliveryCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
 const openTicketsCount = computed(() => Number(communicationsCountsStore.openTicketsCount || 0));
+const proofDeployments = [
+  {
+    name: 'ITSCO',
+    base: 'https://app.itsco.health',
+    terms: 'https://app.itsco.health/terms',
+    privacy: 'https://app.itsco.health/privacypolicy',
+    publicProof: 'https://app.itsco.health/publicproof'
+  },
+  {
+    name: 'NextLevelUp',
+    base: 'https://app.nextlevelup.com',
+    terms: 'https://app.nextlevelup.com/terms',
+    privacy: 'https://app.nextlevelup.com/privacypolicy',
+    publicProof: 'https://app.nextlevelup.com/publicproof'
+  }
+];
+const tenantTextingNotificationsFeatureEnabled = ref(false);
+const isPublicProofMode = computed(() => !authStore.isAuthenticated && activeTab.value === 'proof');
 
 const activeTab = computed(() => {
-  const t = String(route.query?.tab || 'all');
+  const defaultTab = authStore.isAuthenticated ? 'all' : 'proof';
+  const t = String(route.query?.tab || defaultTab);
   if (t === 'texts') return 'texts';
   if (t === 'calls') return 'calls';
   if (t === 'automation') return 'automation';
   if (t === 'school') return 'school';
+  if (t === 'proof') return 'proof';
   return 'all';
 });
 
@@ -1234,6 +1532,8 @@ const refreshActive = async () => {
     await Promise.all([loadCalls(), loadCallAnalytics(), loadVoicemails()]);
   } else if (activeTab.value === 'automation') {
     await loadPlatform();
+  } else if (activeTab.value === 'proof') {
+    return;
   } else {
     await load();
   }
@@ -1248,6 +1548,11 @@ const filteredRows = computed(() => {
 
 onMounted(async () => {
   if (!authStore.isAuthenticated) {
+    if (activeTab.value === 'proof') {
+      loading.value = false;
+      error.value = '';
+      return;
+    }
     router.push('/login');
     return;
   }
@@ -1274,10 +1579,12 @@ watch(activeTab, async (tab) => {
 });
 
 watch([platformChannel, platformStatus, currentAgencyId], async () => {
+  if (!authStore.isAuthenticated) return;
   if (activeTab.value === 'automation') await loadPlatform();
 });
 
 watch([currentAgencyId, isSuperAdmin], async () => {
+  if (!authStore.isAuthenticated) return;
   await loadSenderIdentityOptions();
 });
 
@@ -1632,6 +1939,135 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
   border-radius: 8px;
   margin: 12px 0;
+}
+.compliance-proof {
+  display: grid;
+  gap: 14px;
+}
+.proof-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  background: #fff;
+}
+.proof-card h3 {
+  margin: 0 0 10px;
+}
+.proof-consent-block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  padding: 12px;
+  margin-top: 10px;
+}
+.proof-consent-block h4 {
+  margin: 0 0 8px;
+}
+.proof-disclosure {
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.proof-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.proof-message-preview {
+  margin-top: 10px;
+}
+.proof-message-preview h4 {
+  margin: 0 0 8px;
+}
+.proof-two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.proof-tenant-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+}
+.proof-tenant-card h5 {
+  margin: 0 0 8px;
+}
+.proof-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+  margin-top: 6px;
+}
+.proof-status-badge {
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.proof-status-badge--on {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+.proof-status-badge--off {
+  background: rgba(148, 163, 184, 0.18);
+  color: #475569;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+}
+.proof-status-sub {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.proof-chat-bubble {
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 6px;
+  max-width: 680px;
+}
+.proof-chat-bubble--incoming {
+  border: 1px solid var(--border);
+  background: #fff;
+}
+.proof-chat-bubble--outgoing {
+  border: 1px solid #cce5ff;
+  background: #eaf5ff;
+}
+.proof-email-example {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  line-height: 1.45;
+}
+.proof-pref-grid {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
+.proof-deployment-grid {
+  display: grid;
+  gap: 10px;
+}
+.proof-deployment-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  line-height: 1.5;
+}
+@media (max-width: 900px) {
+  .proof-two-col {
+    grid-template-columns: 1fr;
+  }
 }
 .loading { color: var(--text-secondary); }
 </style>

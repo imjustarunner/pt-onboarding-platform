@@ -208,6 +208,68 @@ const routes = [
     redirect: (to) => `/${to.params.agencySlug}/kiosk`,
     meta: { requiresGuest: false }
   },
+  {
+    path: '/terms',
+    name: 'LegalTerms',
+    component: () => import('../views/public/LegalDocumentView.vue'),
+    meta: { requiresGuest: false, legalDocType: 'terms' }
+  },
+  {
+    path: '/privacypolicy',
+    name: 'LegalPrivacyPolicy',
+    component: () => import('../views/public/LegalDocumentView.vue'),
+    meta: { requiresGuest: false, legalDocType: 'privacypolicy' }
+  },
+  {
+    path: '/publicproof',
+    name: 'LegalPublicProof',
+    component: () => import('../views/public/LegalDocumentView.vue'),
+    meta: { requiresGuest: false, legalDocType: 'publicproof' }
+  },
+  {
+    path: '/platformhipaa',
+    name: 'LegalPlatformHipaa',
+    component: () => import('../views/public/LegalDocumentView.vue'),
+    meta: { requiresGuest: false, legalDocType: 'platformhipaa' }
+  },
+  {
+    path: '/:organizationSlug/terms',
+    name: 'OrganizationLegalTerms',
+    component: () => import('../views/public/LegalDocumentView.vue'),
+    meta: { requiresGuest: false, legalDocType: 'terms', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/privacypolicy',
+    name: 'OrganizationLegalPrivacyPolicy',
+    component: () => import('../views/public/LegalDocumentView.vue'),
+    meta: { requiresGuest: false, legalDocType: 'privacypolicy', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/publicproof',
+    name: 'OrganizationLegalPublicProof',
+    component: () => import('../views/public/LegalDocumentView.vue'),
+    meta: { requiresGuest: false, legalDocType: 'publicproof', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/platformhipaa',
+    name: 'OrganizationLegalPlatformHipaa',
+    component: () => import('../views/public/LegalDocumentView.vue'),
+    meta: { requiresGuest: false, legalDocType: 'platformhipaa', organizationSlug: true }
+  },
+  {
+    path: '/communications',
+    name: 'PublicCommunicationsProof',
+    component: () => import('../views/admin/CommunicationsFeedView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/communications',
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/admin/communications`,
+      query: { ...to.query, tab: to.query?.tab || 'proof' }
+    }),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
   // Branded program events (portal slug = agencies.slug on the program org)
   {
     path: '/:organizationSlug/programs/:programSlug/events',
