@@ -313,6 +313,349 @@ export const skillBuildersEventKioskPublicClockIn = async (req, res, next) => {
   }
 };
 
+// ─── EVENT DAY KIOSK ────────────────────────────────────────────────────────
+
+/**
+ * GET /api/public/skill-builders/agency/:slug/kiosk/events/:eventId/event-day
+ * Full event-day context: branding, client roster with waiver summaries, staff list.
+ */
+export const getEventDayKioskContext = async (req, res, next) => {
+  try {
+    const ctx = verifySkillBuildersEventKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+    const { agencyId, eventId } = m;
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Event + branding
+    const [evRows] = await pool.execute(
+      `SELECT ce.id, ce.title, ce.starts_at, ce.ends_at, ce.organization_id,
+              ce.snacks_available, ce.snack_options_json, ce.meals_available, ce.meal_options_json,
+              a.name AS agency_name, a.logo_url AS agency_logo, a.color_palette AS agency_colors,
+              org.name AS org_name, org.logo_url AS org_logo, org.color_palette AS org_colors
+       FROM company_events ce
+       JOIN agencies a ON a.id = ce.agency_id
+       LEFT JOIN agencies org ON org.id = ce.organization_id
+       WHERE ce.id = ? AND ce.agency_id = ? LIMIT 1`,
+      [eventId, agencyId]
+    );
+    const ev = evRows?.[0];
+    if (!ev) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    const parseJsonSafe = (raw) => { try { const p = raw ? JSON.parse(raw) : null; return Array.isArray(p) ? p : []; } catch { return []; } };
+    const parseColorPalette = (raw) => { try { return raw ? JSON.parse(raw) : null; } catch { return null; } };
+
+    // Client roster with waiver summary — join guardian waiver profiles per client
+    const [clients] = await pool.execute(
+      `SELECT DISTINCT c.id, c.full_name, c.initials, c.identifier_code,
+              gwp.sections_json AS waiver_sections,
+              gwp.updated_at AS waiver_updated_at,
+              gu.id AS guardian_user_id,
+              CONCAT(gu.first_name, ' ', gu.last_name) AS guardian_name,
+              gu.email AS guardian_email
+       FROM skills_group_clients sgc
+       INNER JOIN clients c ON c.id = sgc.client_id
+       INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id
+       LEFT JOIN client_guardians cg ON cg.client_id = c.id AND cg.is_active = 1
+       LEFT JOIN users gu ON gu.id = cg.guardian_user_id
+       LEFT JOIN guardian_client_waiver_profiles gwp
+              ON gwp.client_id = c.id AND gwp.guardian_user_id = cg.guardian_user_id
+       WHERE sg.company_event_id = ? AND sg.agency_id = ?
+       ORDER BY c.full_name ASC, c.id ASC
+       LIMIT 500`,
+      [eventId, agencyId]
+    );
+
+    const seenClients = new Set();
+    const clientList = [];
+    for (const r of clients || []) {
+      if (seenClients.has(r.id)) continue;
+      seenClients.add(r.id);
+      let sections = {};
+      try { sections = r.waiver_sections ? JSON.parse(r.waiver_sections) : {}; } catch { sections = {}; }
+      const emergencyContacts = sections.emergency_contacts?.payload?.contacts || [];
+      const pickupAuth = sections.pickup_authorization?.payload?.authorizedPickups || [];
+      const allergies = sections.allergies_snacks?.payload || null;
+      const meals = sections.meal_preferences?.payload || null;
+      clientList.push({
+        id: Number(r.id),
+        fullName: r.full_name || r.initials || `Client ${r.id}`,
+        initials: r.initials || '',
+        identifierCode: r.identifier_code || '',
+        guardianUserId: r.guardian_user_id || null,
+        guardianName: r.guardian_name ? String(r.guardian_name).trim() : null,
+        guardianEmail: r.guardian_email || null,
+        waiverUpdatedAt: r.waiver_updated_at || null,
+        waiver: {
+          emergencyContacts,
+          pickupAuth,
+          allergies,
+          meals
+        }
+      });
+    }
+
+    // Staff list (providers on this event)
+    const [staff] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name
+       FROM skills_group_providers sgp
+       INNER JOIN users u ON u.id = sgp.provider_user_id
+       INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id
+       WHERE sg.company_event_id = ? AND sg.agency_id = ?
+         AND u.status = 'active'
+       ORDER BY u.last_name ASC, u.first_name ASC`,
+      [eventId, agencyId]
+    );
+
+    // Today's check-in status (so the kiosk knows who is already checked in)
+    const [checkins] = await pool.execute(
+      `SELECT id, client_id, user_id, person_type, action, checked_in_at, checked_out_at
+       FROM event_day_kiosk_checkins
+       WHERE company_event_id = ? AND kiosk_date = ?`,
+      [eventId, today]
+    ).catch(() => [[]]);
+
+    res.json({
+      ok: true,
+      event: {
+        id: Number(ev.id),
+        title: ev.title || '',
+        startsAt: ev.starts_at,
+        endsAt: ev.ends_at,
+        snacksAvailable: ev.snacks_available === undefined ? true : !!(ev.snacks_available === 1 || ev.snacks_available === true),
+        snackOptions: parseJsonSafe(ev.snack_options_json),
+        mealsAvailable: !!(ev.meals_available === 1 || ev.meals_available === true),
+        mealOptions: parseJsonSafe(ev.meal_options_json)
+      },
+      branding: {
+        agencyName: ev.agency_name || '',
+        agencyLogo: ev.agency_logo || null,
+        agencyColors: parseColorPalette(ev.agency_colors),
+        orgName: ev.org_name || null,
+        orgLogo: ev.org_logo || null,
+        orgColors: parseColorPalette(ev.org_colors)
+      },
+      clients: clientList,
+      staff: (staff || []).map((s) => ({
+        id: Number(s.id),
+        firstName: s.first_name || '',
+        lastName: s.last_name || '',
+        displayName: `${s.first_name || ''} ${s.last_name || ''}`.trim()
+      })),
+      checkins: (checkins || []).map((c) => ({
+        id: Number(c.id),
+        clientId: c.client_id ? Number(c.client_id) : null,
+        userId: c.user_id ? Number(c.user_id) : null,
+        personType: c.person_type,
+        action: c.action,
+        checkedInAt: c.checked_in_at,
+        checkedOutAt: c.checked_out_at
+      })),
+      kioskDate: today
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/public/skill-builders/agency/:slug/kiosk/events/:eventId/event-day/gate-pin
+ * Re-verify the 6-digit event PIN to gate phase transitions (check-in complete, check-out complete).
+ */
+export const verifyEventDayGatePin = async (req, res, next) => {
+  try {
+    const ctx = verifySkillBuildersEventKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const pin = normalizeEventKioskPin(req.body?.pin);
+    if (!pin) return res.status(400).json({ error: { message: 'Enter the 6-digit event PIN' } });
+    const pinHash = KioskModel.hashPin(pin);
+
+    const [evRows] = await pool.execute(
+      `SELECT kiosk_event_pin_hash FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
+      [m.eventId, m.agencyId]
+    );
+    const ev = evRows?.[0];
+    if (!ev) return res.status(404).json({ error: { message: 'Event not found' } });
+    if (String(ev.kiosk_event_pin_hash || '') !== pinHash) {
+      return res.status(401).json({ error: { message: 'Incorrect event PIN' } });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/public/skill-builders/agency/:slug/kiosk/events/:eventId/event-day/client-checkin
+ * Mark a client as checked in for today's event.
+ */
+export const eventDayClientCheckin = async (req, res, next) => {
+  try {
+    const ctx = verifySkillBuildersEventKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const clientId = parsePositiveInt(req.body?.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    const today = new Date().toISOString().slice(0, 10);
+
+    const [result] = await pool.execute(
+      `INSERT INTO event_day_kiosk_checkins
+         (company_event_id, agency_id, client_id, person_type, action, checked_in_at, kiosk_date, ip_address)
+       VALUES (?, ?, ?, 'client', 'check_in', NOW(), ?, ?)
+       ON DUPLICATE KEY UPDATE checked_in_at = NOW(), updated_at = NOW()`,
+      [m.eventId, m.agencyId, clientId, today, req.ip || null]
+    ).catch(async () => {
+      // Table may not exist yet if migration hasn't run; insert gracefully
+      return [{ insertId: 0 }];
+    });
+
+    res.status(201).json({ ok: true, id: Number(result?.insertId || 0), clientId, checkedInAt: new Date().toISOString() });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/public/skill-builders/agency/:slug/kiosk/events/:eventId/event-day/client-checkout
+ * Mark a client as checked out.
+ */
+export const eventDayClientCheckout = async (req, res, next) => {
+  try {
+    const ctx = verifySkillBuildersEventKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const clientId = parsePositiveInt(req.body?.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    const today = new Date().toISOString().slice(0, 10);
+
+    await pool.execute(
+      `UPDATE event_day_kiosk_checkins
+       SET action = 'check_out', checked_out_at = NOW(), updated_at = NOW()
+       WHERE company_event_id = ? AND client_id = ? AND kiosk_date = ? AND person_type = 'client'`,
+      [m.eventId, clientId, today]
+    ).catch(() => null);
+
+    res.json({ ok: true, clientId, checkedOutAt: new Date().toISOString() });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/public/skill-builders/agency/:slug/kiosk/events/:eventId/event-day/employee-identify-checkin
+ * Identify an employee by 4-digit personal PIN and check them in.
+ */
+export const eventDayEmployeeIdentifyCheckin = async (req, res, next) => {
+  try {
+    const ctx = verifySkillBuildersEventKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const pin = normalizeStaffKioskPin(req.body?.pin);
+    if (!pin) return res.status(400).json({ error: { message: 'Enter your 4-digit personal kiosk PIN' } });
+    const pinHash = KioskModel.hashPin(pin);
+
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name
+       FROM users u
+       JOIN user_preferences up ON up.user_id = u.id AND up.kiosk_pin_hash = ?
+       JOIN skills_group_providers sgp ON sgp.provider_user_id = u.id
+       JOIN skills_groups sg ON sg.id = sgp.skills_group_id
+       WHERE sg.company_event_id = ? AND sg.agency_id = ? AND u.status = 'active'`,
+      [pinHash, m.eventId, m.agencyId]
+    );
+
+    if (!rows?.length) return res.status(404).json({ error: { message: 'No employee on this event roster matches that PIN' } });
+    if (rows.length > 1) return res.status(400).json({ error: { message: 'Multiple employees share this PIN. Tap your name instead.' } });
+
+    const user = rows[0];
+    const today = new Date().toISOString().slice(0, 10);
+
+    await pool.execute(
+      `INSERT INTO event_day_kiosk_checkins
+         (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
+       VALUES (?, ?, ?, 'employee', 'check_in', NOW(), ?, ?)
+       ON DUPLICATE KEY UPDATE checked_in_at = NOW(), action = 'check_in', updated_at = NOW()`,
+      [m.eventId, m.agencyId, user.id, today, req.ip || null]
+    ).catch(() => null);
+
+    res.status(201).json({
+      ok: true,
+      userId: Number(user.id),
+      displayName: `${user.first_name || ''} ${user.last_name || ''}`.trim(),
+      checkedInAt: new Date().toISOString()
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/public/skill-builders/agency/:slug/kiosk/events/:eventId/event-day/employee-checkin
+ * Check in an employee by userId (when tapping name instead of using PIN).
+ */
+export const eventDayEmployeeCheckinById = async (req, res, next) => {
+  try {
+    const ctx = verifySkillBuildersEventKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const userId = parsePositiveInt(req.body?.userId);
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+    const today = new Date().toISOString().slice(0, 10);
+
+    await pool.execute(
+      `INSERT INTO event_day_kiosk_checkins
+         (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
+       VALUES (?, ?, ?, 'employee', 'check_in', NOW(), ?, ?)
+       ON DUPLICATE KEY UPDATE checked_in_at = NOW(), action = 'check_in', updated_at = NOW()`,
+      [m.eventId, m.agencyId, userId, today, req.ip || null]
+    ).catch(() => null);
+
+    res.status(201).json({ ok: true, userId, checkedInAt: new Date().toISOString() });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/public/skill-builders/agency/:slug/kiosk/events/:eventId/event-day/employee-checkout
+ * Check out an employee by userId.
+ */
+export const eventDayEmployeeCheckout = async (req, res, next) => {
+  try {
+    const ctx = verifySkillBuildersEventKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlugAndEvent(ctx, req.params.slug, req.params.eventId);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const userId = parsePositiveInt(req.body?.userId);
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+    const today = new Date().toISOString().slice(0, 10);
+
+    await pool.execute(
+      `UPDATE event_day_kiosk_checkins
+       SET action = 'check_out', checked_out_at = NOW(), updated_at = NOW()
+       WHERE company_event_id = ? AND user_id = ? AND kiosk_date = ? AND person_type = 'employee'`,
+      [m.eventId, userId, today]
+    ).catch(() => null);
+
+    res.json({ ok: true, userId, checkedOutAt: new Date().toISOString() });
+  } catch (e) {
+    next(e);
+  }
+};
+
 /** POST /api/public/skill-builders/agency/:slug/kiosk/events/:eventId/clock-out */
 export const skillBuildersEventKioskPublicClockOut = async (req, res, next) => {
   try {

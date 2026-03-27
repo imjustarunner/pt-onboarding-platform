@@ -233,6 +233,12 @@ const routes = [
     component: () => import('../views/public/PublicSkillBuildersEventKioskStationView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
+  {
+    path: '/:organizationSlug/event-day-kiosk',
+    name: 'OrganizationEventDayKiosk',
+    component: () => import('../views/public/PublicEventDayKioskView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
   // Short public URL: /{agencySlug}/events (same data as /open-events/{agencySlug})
   {
     path: '/:organizationSlug/events',

@@ -1,44 +1,42 @@
 <template>
   <div class="pi-gw">
-    <p class="muted pi-gw-intro">
-      Complete waivers for each child listed below. Start with <strong>Electronic signature consent</strong>, then complete
-      the other sections. Each section needs your checkboxes, signature, and saved data before you can continue.
-    </p>
-
     <div v-for="(label, cIdx) in clientLabels" :key="cIdx" class="pi-gw-client-block">
       <h4 class="pi-gw-client-title">{{ label }}</h4>
+      <div v-if="showPackLunchNotice" class="pi-gw-card pi-gw-card--notice">
+        <div class="pi-gw-card-head"><h5>Meals</h5></div>
+        <p class="muted small">This program does not provide meals. Please plan to bring your own lunch or snacks as needed.</p>
+      </div>
       <div v-for="def in activeSectionDefs" :key="`${cIdx}-${def.key}`" class="pi-gw-card">
         <div class="pi-gw-card-head">
           <h5>{{ def.title }}</h5>
         </div>
-        <p class="muted small">{{ def.blurb }}</p>
+        <p v-if="def.blurb" class="muted small">{{ def.blurb }}</p>
 
         <component
           :is="def.fields"
           :model-value="sectionPayload(cIdx, def.key)"
-          :disabled="fieldsDisabled(cIdx, def.key)"
+          v-bind="def.extraProps ? def.extraProps(eventWaiverContext) : {}"
           @update:model-value="(v) => setSectionPayload(cIdx, def.key, v)"
         />
 
-        <div class="pi-gw-legal">
-          <label class="pi-gw-check">
-            <input v-model="sectionMeta(cIdx, def.key).consentAcknowledged" type="checkbox" />
-            I have read this section and consent to sign.
-          </label>
-          <label class="pi-gw-check">
-            <input v-model="sectionMeta(cIdx, def.key).intentToSign" type="checkbox" />
-            I intend my electronic signature to have the same effect as a handwritten signature.
-          </label>
-        </div>
-
-        <div class="pi-gw-sig">
-          <div class="pi-gw-sig-label">Signature (required)</div>
-          <SignaturePad
-            :key="`sig-${cIdx}-${def.key}`"
-            compact
-            @signed="(dataUrl) => onSigned(cIdx, def.key, dataUrl)"
-          />
-          <div v-if="sectionMeta(cIdx, def.key).signatureData" class="muted small">Signature captured.</div>
+        <div class="pi-gw-sig-action">
+          <div v-if="sectionMeta(cIdx, def.key).signatureData" class="pi-gw-sig-applied">
+            <span class="pi-gw-sig-check">&#10003;</span> Signature applied for this section.
+          </div>
+          <template v-else>
+            <div v-if="savedSignatureData" class="pi-gw-sig-btn-wrap">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                @click="applySavedSignature(cIdx, def.key)"
+              >
+                Use saved signature for this section
+              </button>
+            </div>
+            <div v-else class="muted small">
+              Complete the earlier signature step to sign waivers.
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -46,33 +44,31 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
-import SignaturePad from '../SignaturePad.vue';
-import GwvFieldsEsign from '../../views/guardian/waivers/GwvFieldsEsign.vue';
+import { computed, toRef } from 'vue';
 import GwvFieldsPickup from '../../views/guardian/waivers/GwvFieldsPickup.vue';
 import GwvFieldsEmergency from '../../views/guardian/waivers/GwvFieldsEmergency.vue';
 import GwvFieldsAllergies from '../../views/guardian/waivers/GwvFieldsAllergies.vue';
 import GwvFieldsMeals from '../../views/guardian/waivers/GwvFieldsMeals.vue';
 
-const ESIGN_KEY = 'esignature_consent';
-
 const props = defineProps({
   modelValue: { type: Object, required: true },
   sectionKeys: { type: Array, default: () => [] },
-  clientLabels: { type: Array, default: () => [] }
+  clientLabels: { type: Array, default: () => [] },
+  savedSignatureData: { type: String, default: '' },
+  /**
+   * eventWaiverContext: { snacksAvailable: bool, snackOptions: string[], mealsAvailable: bool, mealOptions: string[] }
+   * Passed down from PublicIntakeSigningView once a registration event is selected.
+   */
+  eventWaiverContext: { type: Object, default: () => ({}) }
 });
+
+const eventWaiverContext = toRef(props, 'eventWaiverContext');
 
 const sectionCatalog = [
   {
-    key: 'esignature_consent',
-    title: 'Electronic signature consent',
-    blurb: 'Required before other waiver sections can be signed.',
-    fields: GwvFieldsEsign
-  },
-  {
     key: 'pickup_authorization',
     title: 'Pickup authorization',
-    blurb: 'Who may pick up your child besides you, if applicable.',
+    blurb: null,
     fields: GwvFieldsPickup
   },
   {
@@ -83,25 +79,40 @@ const sectionCatalog = [
   },
   {
     key: 'allergies_snacks',
-    title: 'Allergies & snacks',
-    blurb: 'Allergies and snacks you approve for your child.',
-    fields: GwvFieldsAllergies
+    title: 'Medical information & allergies',
+    blurb: null,
+    fields: GwvFieldsAllergies,
+    // Pass event snack options into GwvFieldsAllergies
+    extraProps: (ctx) => ({
+      snackOptions: ctx?.snackOptions || []
+    })
   },
   {
     key: 'meal_preferences',
     title: 'Meals',
-    blurb: 'Meals or foods you approve or want restricted.',
+    blurb: null,
     fields: GwvFieldsMeals
   }
 ];
 
 const activeSectionDefs = computed(() => {
+  const ctx = eventWaiverContext.value || {};
   const want = new Set((props.sectionKeys || []).map((k) => String(k || '').trim()));
   const ordered = [];
   for (const def of sectionCatalog) {
-    if (want.has(def.key)) ordered.push(def);
+    if (!want.has(def.key)) continue;
+    // Meal preferences: only show when the event has meals; else guardian will see a notice instead
+    if (def.key === 'meal_preferences' && ctx.mealsAvailable === false) continue;
+    ordered.push(def);
   }
   return ordered;
+});
+
+// Whether to show the "no meals / pack your own" notice in place of the meals section
+const showPackLunchNotice = computed(() => {
+  const ctx = eventWaiverContext.value || {};
+  const want = new Set((props.sectionKeys || []).map((k) => String(k || '').trim()));
+  return want.has('meal_preferences') && ctx.mealsAvailable === false;
 });
 
 function ensureClientSlot(idx) {
@@ -117,8 +128,6 @@ function ensureClientSlot(idx) {
 
 function defaultPayload(key) {
   switch (key) {
-    case 'esignature_consent':
-      return { consented: false, understoodElectronicRecords: false };
     case 'pickup_authorization':
       return { authorizedPickups: [{ name: '', relationship: '', phone: '' }] };
     case 'emergency_contacts':
@@ -137,9 +146,7 @@ function ensureSection(idx, key) {
   if (!row.sections[key]) {
     row.sections[key] = {
       payload: defaultPayload(key),
-      signatureData: '',
-      consentAcknowledged: false,
-      intentToSign: false
+      signatureData: ''
     };
   }
   return row.sections[key];
@@ -162,27 +169,17 @@ function sectionMeta(idx, key) {
   return ensureSection(idx, key);
 }
 
-function fieldsDisabled(idx, key) {
-  if (key === ESIGN_KEY) return false;
-  const es = ensureSection(idx, ESIGN_KEY);
-  const p = es.payload && typeof es.payload === 'object' ? es.payload : {};
-  const esignOk = !!(p.consented && p.understoodElectronicRecords && String(es.signatureData || '').length >= 80);
-  return !esignOk;
-}
-
-function onSigned(idx, key, dataUrl) {
+function applySavedSignature(idx, key) {
+  const sig = String(props.savedSignatureData || '').trim();
+  if (!sig) return;
   const sec = ensureSection(idx, key);
-  sec.signatureData = dataUrl || '';
+  sec.signatureData = sig;
 }
 </script>
 
 <style scoped>
 .pi-gw {
   text-align: left;
-}
-.pi-gw-intro {
-  margin-bottom: 16px;
-  line-height: 1.5;
 }
 .pi-gw-client-block {
   margin-bottom: 28px;
@@ -200,6 +197,9 @@ function onSigned(idx, key, dataUrl) {
   margin-bottom: 14px;
   background: var(--bg, #fff);
 }
+.pi-gw-card--notice {
+  background: var(--bg-alt, #f8fafc);
+}
 .pi-gw-card-head h5 {
   margin: 0 0 6px;
   font-size: 1rem;
@@ -207,21 +207,23 @@ function onSigned(idx, key, dataUrl) {
 .small {
   font-size: 13px;
 }
-.pi-gw-legal {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 12px 0 8px;
-  font-size: 14px;
+.pi-gw-sig-action {
+  margin-top: 14px;
 }
-.pi-gw-check {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-.pi-gw-sig-label {
-  font-weight: 600;
+.pi-gw-sig-applied {
   font-size: 14px;
-  margin-bottom: 6px;
+  color: var(--success, #166534);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pi-gw-sig-check {
+  font-size: 18px;
+  line-height: 1;
+}
+.pi-gw-sig-btn-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 </style>

@@ -479,6 +479,21 @@
                 >
                   + Add Guardian waivers
                 </button>
+                <button
+                  v-if="canAddGuardianWaiverStep"
+                  class="btn btn-secondary btn-sm btn-flow-add-guardian"
+                  type="button"
+                  @click="addStep('insurance_info')"
+                >
+                  + Add Insurance info
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addStep('payment_collection')"
+                >
+                  + Add Payment collection
+                </button>
                 <span v-if="hasProgrammedSchoolRoiStep" class="programmed-step-pill">
                   Programmed School ROI active
                 </span>
@@ -652,6 +667,64 @@
                       <option value="always">Always</option>
                       <option value="new_client_only">New clients only (skip when existing client match)</option>
                       <option value="existing_client_only">Existing clients only (skip for new client match)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div v-else-if="step.type === 'insurance_info'" class="form-grid">
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Step title</label>
+                    <input v-model="step.label" type="text" placeholder="Insurance information" />
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Non-Medicaid disclaimer / notice text</label>
+                    <div class="muted" style="margin-bottom: 6px; font-size: 13px;">
+                      Shown when the family selects a <strong>non-Medicaid</strong> insurer, above the insurance fields.
+                      Use this to explain why payment information will also be collected. Leave blank to omit.
+                    </div>
+                    <textarea
+                      v-model="step.nonMedicaidDisclaimerText"
+                      rows="4"
+                      placeholder="e.g., Because your insurance plan is not a Medicaid plan, a cost-share or private-pay balance may apply for this program. Payment information will be collected in the next step."
+                    />
+                  </div>
+                  <div v-if="registrationFlowAdmin" class="form-group" style="grid-column: 1 / -1;">
+                    <label>Show this step</label>
+                    <select v-model="step.visibility">
+                      <option value="always">Always</option>
+                      <option value="new_client_only">New clients only</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div v-else-if="step.type === 'payment_collection'" class="form-grid">
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Step title</label>
+                    <input v-model="step.label" type="text" placeholder="Payment information" />
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Cost disclosure / terms text</label>
+                    <div class="muted" style="margin-bottom: 6px; font-size: 13px;">
+                      Displayed at the top of the payment collection form. Include the cost amount, billing cadence, and
+                      any relevant payment terms. The platform payment disclaimer is always appended automatically.
+                    </div>
+                    <textarea
+                      v-model="step.costDisclosureText"
+                      rows="4"
+                      placeholder="e.g., The total program fee of $150 is billed per session. Your card will be charged at the start of each session unless paid in advance."
+                    />
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label class="checkbox" style="gap: 8px; display: flex; align-items: center;">
+                      <input v-model="step.autoChargeDefault" type="checkbox" />
+                      Default to auto-charge (families may opt out during enrollment)
+                    </label>
+                  </div>
+                  <div v-if="registrationFlowAdmin" class="form-group" style="grid-column: 1 / -1;">
+                    <label>Show this step</label>
+                    <select v-model="step.visibility">
+                      <option value="always">Always</option>
+                      <option value="new_client_only">New clients only</option>
                     </select>
                   </div>
                 </div>
@@ -964,9 +1037,11 @@
                   </div>
                   <div class="question-list">
                     <div v-for="(field, fIdx) in getStepFields(step)" :key="field.id || fIdx" class="question-block">
-                      <div class="question-row">
+                      <div class="question-label-row">
                         <div class="question-index">#{{ fIdx + 1 }}</div>
-                        <input v-model="field.label" placeholder="Question label" />
+                        <input v-model="field.label" placeholder="Question label" class="question-label-input" />
+                      </div>
+                      <div class="question-row">
                         <input v-model="field.key" placeholder="Key (e.g., grade)" />
                         <select v-model="field.type">
                           <option value="text">Short answer</option>
@@ -1079,6 +1154,21 @@
                   @click="addStep('guardian_waiver')"
                 >
                   + Add Guardian waivers
+                </button>
+                <button
+                  v-if="canAddGuardianWaiverStep"
+                  class="btn btn-secondary btn-sm btn-flow-add-guardian"
+                  type="button"
+                  @click="addStep('insurance_info')"
+                >
+                  + Add Insurance info
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addStep('payment_collection')"
+                >
+                  + Add Payment collection
                 </button>
               </div>
             </div>
@@ -1238,17 +1328,18 @@ const getStepTypeLabel = (t) => {
     document: 'Document',
     school_roi: 'School ROI (Programmed)',
     upload: 'Upload',
-    guardian_waiver: 'Guardian waivers & safety'
+    guardian_waiver: 'Guardian waivers & safety',
+    insurance_info: 'Insurance information',
+    payment_collection: 'Payment collection'
   };
   return m[t] || t || 'Step';
 };
 
 const guardianWaiverSectionOptions = [
-  { value: 'esignature_consent', label: 'Electronic signature consent (required for other sections)' },
   { value: 'pickup_authorization', label: 'Pickup authorization' },
   { value: 'emergency_contacts', label: 'Emergency contacts' },
-  { value: 'allergies_snacks', label: 'Allergies & snacks' },
-  { value: 'meal_preferences', label: 'Meal preferences' }
+  { value: 'allergies_snacks', label: 'Allergies & snacks (always recommended)' },
+  { value: 'meal_preferences', label: 'Meal preferences (only if event provides meals)' }
 ];
 const getFormTypeLabel = (t) => {
   const m = {
@@ -2375,12 +2466,24 @@ const addStep = (type, options = {}) => {
     step.label = 'Guardian waivers & safety';
     step.visibility = 'always';
     step.sectionKeys = [
-      'esignature_consent',
       'pickup_authorization',
       'emergency_contacts',
       'allergies_snacks',
       'meal_preferences'
     ];
+  } else if (type === 'insurance_info') {
+    step.label = 'Insurance information';
+    step.visibility = 'always';
+    // Text shown to non-Medicaid families explaining why payment info is collected.
+    step.nonMedicaidDisclaimerText = '';
+    step.requireSecondaryInsurance = false;
+  } else if (type === 'payment_collection') {
+    step.label = 'Payment information';
+    step.visibility = 'always';
+    // Disclosure text shown above the card form. May include cost details.
+    step.costDisclosureText = '';
+    // Whether to auto-charge the saved card at session start.
+    step.autoChargeDefault = true;
   } else {
     step.templateId = options?.templateId ?? null;
     step.checkboxDisclaimer = '';
@@ -3274,6 +3377,16 @@ onMounted(fetchData);
   gap: 6px;
 }
 
+.question-label-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.question-label-input {
+  flex: 1;
+  min-width: 0;
+}
 .question-row,
 .option-row {
   display: flex;

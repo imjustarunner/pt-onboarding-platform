@@ -1,5 +1,9 @@
 <template>
   <div class="gwv-f">
+    <div class="gwv-notice">
+      <p>We cannot release your child to individuals who are not approved in writing and never to an individual under the age of 18.</p>
+      <p>At any time you may update or submit additional individuals, though we request that you list any individuals whom you approve at the time of admission likely to be included to help our staff manage check out and release for these programs.</p>
+    </div>
     <div v-for="(row, idx) in rows" :key="idx" class="gwv-grid">
       <input
         :value="row.name"
@@ -80,6 +84,21 @@ function removeRow(i) {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.gwv-notice {
+  background: var(--bg-alt, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary, #475569);
+}
+.gwv-notice p {
+  margin: 0 0 8px;
+}
+.gwv-notice p:last-child {
+  margin-bottom: 0;
 }
 .gwv-grid {
   display: grid;

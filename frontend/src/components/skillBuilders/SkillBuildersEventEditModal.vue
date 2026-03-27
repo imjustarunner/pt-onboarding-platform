@@ -355,6 +355,89 @@
                   </select>
                 </div>
               </div>
+              <div v-if="draft.cashEligible" class="sb-ce-pricing-block">
+                <p class="muted small sb-ce-pattern-lead">
+                  Set the cost for cash / self-pay families. Choose whether they pay a single total program fee or a per-session amount billed each session.
+                </p>
+                <div class="sb-ce-grid sb-ce-grid-tight">
+                  <div class="form-group">
+                    <label class="sb-ce-lbl">Billing mode</label>
+                    <select v-model="draft.programCostBillingMode" class="input">
+                      <option value="total">Total program cost (one fee)</option>
+                      <option value="per_session">Per session (billed each session)</option>
+                    </select>
+                  </div>
+                  <div v-if="draft.programCostBillingMode === 'total'" class="form-group">
+                    <label class="sb-ce-lbl">Total program cost ($)</label>
+                    <input
+                      v-model.number="draft.programCostDollars"
+                      class="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="e.g. 450.00"
+                    />
+                  </div>
+                  <div v-if="draft.programCostBillingMode === 'per_session'" class="form-group">
+                    <label class="sb-ce-lbl">Cost per session ($)</label>
+                    <input
+                      v-model.number="draft.perSessionCostDollars"
+                      class="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="e.g. 35.00"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Snacks & meals -->
+            <div class="sb-ce-section">
+              <strong>Snacks &amp; meals</strong>
+              <p class="muted small sb-ce-pattern-lead">
+                Configure what food is available at this program. These options appear in the guardian waiver so
+                families can pre-approve snacks and meal preferences for their child.
+              </p>
+              <div class="sb-ce-grid sb-ce-grid-tight">
+                <div class="form-group">
+                  <label class="sb-ce-lbl">Snacks provided</label>
+                  <select v-model="draft.snacksAvailable" class="input">
+                    <option :value="true">Yes — snacks available</option>
+                    <option :value="false">No — families bring their own</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="sb-ce-lbl">Meals provided</label>
+                  <select v-model="draft.mealsAvailable" class="input">
+                    <option :value="false">No — families pack their own lunch</option>
+                    <option :value="true">Yes — meals available</option>
+                  </select>
+                </div>
+              </div>
+              <!-- Snack options builder -->
+              <div v-if="draft.snacksAvailable" class="sb-ce-food-options">
+                <label class="sb-ce-lbl">Snack options <span class="muted">(guardians choose from these in the waiver)</span></label>
+                <div v-for="(opt, idx) in draft.snackOptions" :key="idx" class="sb-ce-food-row">
+                  <input v-model="draft.snackOptions[idx]" class="input" type="text" placeholder="e.g. Goldfish crackers" />
+                  <button type="button" class="sb-ce-food-remove" @click="draft.snackOptions.splice(idx, 1)">✕</button>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" style="margin-top: 6px;" @click="draft.snackOptions.push('')">
+                  + Add snack option
+                </button>
+              </div>
+              <!-- Meal options builder -->
+              <div v-if="draft.mealsAvailable" class="sb-ce-food-options" style="margin-top: 10px;">
+                <label class="sb-ce-lbl">Meal options <span class="muted">(guardians choose from these in the waiver)</span></label>
+                <div v-for="(opt, idx) in draft.mealOptions" :key="idx" class="sb-ce-food-row">
+                  <input v-model="draft.mealOptions[idx]" class="input" type="text" placeholder="e.g. Peanut-free lunch provided" />
+                  <button type="button" class="sb-ce-food-remove" @click="draft.mealOptions.splice(idx, 1)">✕</button>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" style="margin-top: 6px;" @click="draft.mealOptions.push('')">
+                  + Add meal option
+                </button>
+              </div>
             </div>
 
             <div class="sb-ce-section">
@@ -644,6 +727,13 @@ function emptyDraft() {
     registrationEligible: false,
     medicaidEligible: false,
     cashEligible: false,
+    programCostBillingMode: 'total',
+    programCostDollars: null,
+    perSessionCostDollars: null,
+    snacksAvailable: true,
+    snackOptions: [],
+    mealsAvailable: false,
+    mealOptions: [],
     publicHeroImageUrl: '',
     publicListingDetails: '',
     inPersonPublic: false,
@@ -860,6 +950,13 @@ function populateFromEvent(event) {
     registrationEligible: !!event.registrationEligible,
     medicaidEligible: !!event.medicaidEligible,
     cashEligible: !!event.cashEligible,
+    snacksAvailable: event.snacksAvailable === undefined ? true : !!event.snacksAvailable,
+    snackOptions: Array.isArray(event.snackOptions) ? [...event.snackOptions] : [],
+    mealsAvailable: !!event.mealsAvailable,
+    mealOptions: Array.isArray(event.mealOptions) ? [...event.mealOptions] : [],
+    programCostBillingMode: String(event.programCostBillingMode || 'total').trim(),
+    programCostDollars: event.programCostDollars != null ? Number(event.programCostDollars) : null,
+    perSessionCostDollars: event.perSessionCostDollars != null ? Number(event.perSessionCostDollars) : null,
     publicHeroImageUrl: String(event.publicHeroImageUrl || '').trim(),
     publicListingDetails: String(event.publicListingDetails || '').trim(),
     inPersonPublic: !!event.inPersonPublic,
@@ -1127,6 +1224,13 @@ async function save() {
       registrationEligible: !!draft.value.registrationEligible,
       medicaidEligible: !!draft.value.medicaidEligible,
       cashEligible: !!draft.value.cashEligible,
+      programCostBillingMode: draft.value.cashEligible ? (draft.value.programCostBillingMode || 'total') : null,
+      programCostDollars: draft.value.cashEligible && draft.value.programCostBillingMode === 'total'
+        ? (draft.value.programCostDollars != null ? Number(draft.value.programCostDollars) : null)
+        : null,
+      perSessionCostDollars: draft.value.cashEligible && draft.value.programCostBillingMode === 'per_session'
+        ? (draft.value.perSessionCostDollars != null ? Number(draft.value.perSessionCostDollars) : null)
+        : null,
       publicHeroImageUrl: String(draft.value.publicHeroImageUrl || '').trim() || null,
       publicListingDetails: String(draft.value.publicListingDetails || '').trim() || null,
       inPersonPublic: !!draft.value.inPersonPublic,
@@ -1151,7 +1255,15 @@ async function save() {
       clientCheckOutDisplayTime: draft.value.clientCheckOutDisplayTime || null,
       employeeReportTime: draft.value.employeeReportTime || null,
       employeeDepartureTime: draft.value.employeeDepartureTime || null,
-      virtualSessionsEnabled: !!draft.value.virtualSessionsEnabled
+      virtualSessionsEnabled: !!draft.value.virtualSessionsEnabled,
+      snacksAvailable: !!draft.value.snacksAvailable,
+      snackOptions: draft.value.snacksAvailable
+        ? (draft.value.snackOptions || []).map((s) => String(s || '').trim()).filter(Boolean)
+        : [],
+      mealsAvailable: !!draft.value.mealsAvailable,
+      mealOptions: draft.value.mealsAvailable
+        ? (draft.value.mealOptions || []).map((s) => String(s || '').trim()).filter(Boolean)
+        : []
     };
 
     const pinNew = String(draft.value.kioskEventPinNew || '').replace(/\D/g, '').slice(0, 6);
@@ -1407,6 +1519,34 @@ watch(
   font-size: 0.95rem;
   margin-bottom: 6px;
   color: var(--primary, #0f766e);
+}
+.sb-ce-pricing-block {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-alt, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+}
+.sb-ce-food-options {
+  margin-top: 10px;
+}
+.sb-ce-food-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.sb-ce-food-row .input {
+  flex: 1;
+}
+.sb-ce-food-remove {
+  background: none;
+  border: none;
+  color: var(--danger, #dc2626);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  line-height: 1;
 }
 .sb-ce-pattern-lead {
   margin: 0 0 10px;

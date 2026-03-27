@@ -135,6 +135,7 @@ import agentsRoutes from './routes/agents.routes.js';
 import clinicalNoteGeneratorRoutes from './routes/clinicalNoteGenerator.routes.js';
 import complianceCornerRoutes from './routes/complianceCorner.routes.js';
 import learningBillingRoutes from './routes/learningBilling.routes.js';
+import guardianBillingRoutes from './routes/guardianBilling.routes.js';
 import learningProgramClassesRoutes from './routes/learningProgramClasses.routes.js';
 import learningStandardsRoutes from './routes/learningStandards.routes.js';
 import learningGoalsRoutes from './routes/learningGoals.routes.js';
@@ -623,6 +624,7 @@ app.use('/api/guardian-portal', guardianPortalRoutes); // Guardian portal routes
 app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy migration tool)
 app.use('/api/office-schedule', officeScheduleRoutes);
 app.use('/api/learning-billing', learningBillingRoutes);
+app.use('/api/guardian-billing', guardianBillingRoutes);
 app.use('/api/learning-program-classes', learningProgramClassesRoutes);
 app.use('/api/learning-standards', learningStandardsRoutes);
 app.use('/api/learning-goals', learningGoalsRoutes);

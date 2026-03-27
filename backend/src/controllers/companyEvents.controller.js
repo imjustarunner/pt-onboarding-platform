@@ -230,6 +230,9 @@ function mapEventRow(row, req, opts = {}) {
     registrationEligible: !!(row.registration_eligible === 1 || row.registration_eligible === true),
     medicaidEligible: !!(row.medicaid_eligible === 1 || row.medicaid_eligible === true),
     cashEligible: !!(row.cash_eligible === 1 || row.cash_eligible === true),
+    programCostBillingMode: String(row.program_cost_billing_mode || 'total').trim(),
+    programCostDollars: row.program_cost_dollars != null ? Number(row.program_cost_dollars) : null,
+    perSessionCostDollars: row.per_session_cost_dollars != null ? Number(row.per_session_cost_dollars) : null,
     clientCheckInDisplayTime: row.client_check_in_display_time != null ? String(row.client_check_in_display_time).slice(0, 8) : null,
     clientCheckOutDisplayTime: row.client_check_out_display_time != null ? String(row.client_check_out_display_time).slice(0, 8) : null,
     employeeReportTime: row.employee_report_time != null ? String(row.employee_report_time).slice(0, 8) : null,
@@ -260,7 +263,11 @@ function mapEventRow(row, req, opts = {}) {
       return Number.isFinite(n) && n >= 0 ? n : null;
     })(),
     publicSessionLabel: row.public_session_label ? String(row.public_session_label).trim() : '',
-    publicSessionDateRange: row.public_session_date_range ? String(row.public_session_date_range).trim() : ''
+    publicSessionDateRange: row.public_session_date_range ? String(row.public_session_date_range).trim() : '',
+    snacksAvailable: row.snacks_available === undefined ? true : !!(row.snacks_available === 1 || row.snacks_available === true),
+    snackOptions: (() => { try { const p = row.snack_options_json ? JSON.parse(row.snack_options_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })(),
+    mealsAvailable: !!(row.meals_available === 1 || row.meals_available === true),
+    mealOptions: (() => { try { const p = row.meal_options_json ? JSON.parse(row.meal_options_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })()
   };
   const nextOccurrence = computeNextOccurrence(base);
   const calendarSource = nextOccurrence || { startsAt, endsAt };
@@ -389,6 +396,19 @@ function parseEventPayload(body = {}) {
   const medicaidEligible = triBool(body.medicaidEligible ?? body.medicaid_eligible, false);
   const cashEligible = triBool(body.cashEligible ?? body.cash_eligible, false);
 
+  const validBillingModes = ['total', 'per_session'];
+  const rawBillingMode = String(body.programCostBillingMode ?? body.program_cost_billing_mode ?? 'total').trim().toLowerCase();
+  const programCostBillingMode = validBillingModes.includes(rawBillingMode) ? rawBillingMode : 'total';
+
+  const parseCostField = (raw) => {
+    if (raw === undefined || raw === null || raw === '') return null;
+    const n = parseFloat(String(raw).trim());
+    if (!Number.isFinite(n) || n < 0) return null;
+    return Math.round(n * 100) / 100;
+  };
+  const programCostDollars = parseCostField(body.programCostDollars ?? body.program_cost_dollars);
+  const perSessionCostDollars = parseCostField(body.perSessionCostDollars ?? body.per_session_cost_dollars);
+
   const publicHeroImageUrl = String(body.publicHeroImageUrl ?? body.public_hero_image_url ?? '')
     .trim()
     .slice(0, 2048);
@@ -439,6 +459,16 @@ function parseEventPayload(body = {}) {
     body.virtualSessionsEnabled ?? body.virtual_sessions_enabled,
     true
   );
+
+  const snacksAvailable = triBool(body.snacksAvailable ?? body.snacks_available, true);
+  const parseJsonArrayField = (raw) => {
+    if (raw === undefined || raw === null) return null;
+    if (Array.isArray(raw)) return raw.map((s) => String(s || '').trim()).filter(Boolean);
+    try { const p = JSON.parse(raw); return Array.isArray(p) ? p.map((s) => String(s || '').trim()).filter(Boolean) : null; } catch { return null; }
+  };
+  const snackOptions = parseJsonArrayField(body.snackOptions ?? body.snack_options_json);
+  const mealsAvailable = triBool(body.mealsAvailable ?? body.meals_available, false);
+  const mealOptions = parseJsonArrayField(body.mealOptions ?? body.meal_options_json);
 
   let kioskPinOutcome = { mode: 'unchanged' };
   const pinRaw = body.kioskEventPin ?? body.kiosk_event_pin;
@@ -503,6 +533,9 @@ function parseEventPayload(body = {}) {
     registrationEligible,
     medicaidEligible,
     cashEligible,
+    programCostBillingMode,
+    programCostDollars,
+    perSessionCostDollars,
     publicHeroImageUrl: publicHeroImageUrl || null,
     publicListingDetails: publicListingDetails || null,
     inPersonPublic,
@@ -516,7 +549,11 @@ function parseEventPayload(body = {}) {
     employeeReportTime,
     employeeDepartureTime,
     virtualSessionsEnabled,
-    kioskPinOutcome
+    kioskPinOutcome,
+    snacksAvailable,
+    snackOptions,
+    mealsAvailable,
+    mealOptions
   };
 }
 
@@ -1171,8 +1208,8 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
 
   const [insertResult] = await pool.execute(
     `INSERT INTO company_events
-     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, public_session_label, public_session_date_range, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, kiosk_event_pin_hash)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, public_session_label, public_session_date_range, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, program_cost_billing_mode, program_cost_dollars, per_session_cost_dollars, kiosk_event_pin_hash, snacks_available, snack_options_json, meals_available, meal_options_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       agencyId,
       organizationIdForRow,
@@ -1206,7 +1243,14 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
       parsed.registrationEligible ? 1 : 0,
       parsed.medicaidEligible ? 1 : 0,
       parsed.cashEligible ? 1 : 0,
-      createKioskPinHash
+      parsed.programCostBillingMode || 'total',
+      parsed.programCostDollars,
+      parsed.perSessionCostDollars,
+      createKioskPinHash,
+      parsed.snacksAvailable ? 1 : 0,
+      parsed.snackOptions?.length ? JSON.stringify(parsed.snackOptions) : null,
+      parsed.mealsAvailable ? 1 : 0,
+      parsed.mealOptions?.length ? JSON.stringify(parsed.mealOptions) : null
     ]
   );
   const eventId = Number(insertResult.insertId);
@@ -1367,7 +1411,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
 
   await pool.execute(
     `UPDATE company_events
-     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, public_session_label = ?, public_session_date_range = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?
+     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, public_session_label = ?, public_session_date_range = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?, program_cost_billing_mode = ?, program_cost_dollars = ?, per_session_cost_dollars = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?, snacks_available = ?, snack_options_json = ?, meals_available = ?, meal_options_json = ?
      WHERE id = ? AND agency_id = ?`,
     [
       userId,
@@ -1400,12 +1444,19 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
       parsed.registrationEligible ? 1 : 0,
       parsed.medicaidEligible ? 1 : 0,
       parsed.cashEligible ? 1 : 0,
+      parsed.programCostBillingMode || 'total',
+      parsed.programCostDollars,
+      parsed.perSessionCostDollars,
       parsed.clientCheckInDisplayTime,
       parsed.clientCheckOutDisplayTime,
       parsed.employeeReportTime,
       parsed.employeeDepartureTime,
       parsed.virtualSessionsEnabled ? 1 : 0,
       nextKioskPinHash,
+      parsed.snacksAvailable ? 1 : 0,
+      parsed.snackOptions?.length ? JSON.stringify(parsed.snackOptions) : null,
+      parsed.mealsAvailable ? 1 : 0,
+      parsed.mealOptions?.length ? JSON.stringify(parsed.mealOptions) : null,
       eventId,
       agencyId
     ]

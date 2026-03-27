@@ -211,6 +211,14 @@
               <div class="rail-card-title">Billing</div>
               <div class="rail-card-sub">Learning program charges</div>
             </button>
+            <button type="button" class="rail-card" :class="{ active: activePanel === 'dependents' }" @click="activePanel = 'dependents'">
+              <div class="rail-card-title">Dependents</div>
+              <div class="rail-card-sub">Emergency contacts &amp; health info</div>
+            </button>
+            <button type="button" class="rail-card" :class="{ active: activePanel === 'payment_methods' }" @click="activePanel = 'payment_methods'">
+              <div class="rail-card-title">Payment &amp; Insurance</div>
+              <div class="rail-card-sub">Saved cards &amp; insurance info</div>
+            </button>
             <button type="button" class="rail-card" :class="{ active: activePanel === 'messages' }" @click="activePanel = 'messages'">
               <div class="rail-card-title">Messages</div>
               <div class="rail-card-sub">Coming soon</div>
@@ -450,6 +458,28 @@
               />
             </template>
 
+            <template v-else-if="activePanel === 'dependents'">
+              <div class="panel-head">
+                <div class="panel-title">Dependents</div>
+                <div class="panel-subtitle">Health, allergy, and emergency contact information for each child on your account.</div>
+              </div>
+              <GuardianDependentsTab
+                :agency-id="currentAgencyId"
+                :guardian-user-id="authStore.user?.id"
+              />
+            </template>
+
+            <template v-else-if="activePanel === 'payment_methods'">
+              <div class="panel-head">
+                <div class="panel-title">Payment &amp; Insurance</div>
+                <div class="panel-subtitle">Saved payment methods and insurance information on file.</div>
+              </div>
+              <GuardianPaymentInsuranceTab
+                :agency-id="currentAgencyId"
+                :guardian-user-id="authStore.user?.id"
+              />
+            </template>
+
             <template v-else>
               <div class="panel-head">
                 <div class="panel-title">{{ panelTitle }}</div>
@@ -536,6 +566,8 @@ import TrainingFocusTab from '../../components/dashboard/TrainingFocusTab.vue';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.vue';
 import GuardianProgramSelector from '../../components/GuardianProgramSelector.vue';
 import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue';
+import GuardianPaymentInsuranceTab from '../../components/guardian/GuardianPaymentInsuranceTab.vue';
+import GuardianDependentsTab from '../../components/guardian/GuardianDependentsTab.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();

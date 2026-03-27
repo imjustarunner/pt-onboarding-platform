@@ -13,13 +13,20 @@ import {
   rankPublicProgramPortalEventsByAddress
 } from '../controllers/skillBuildersPublic.controller.js';
 import {
+  eventDayClientCheckin,
+  eventDayClientCheckout,
+  eventDayEmployeeCheckinById,
+  eventDayEmployeeCheckout,
+  eventDayEmployeeIdentifyCheckin,
+  getEventDayKioskContext,
   getSkillBuildersEventKioskMeta,
   identifySkillBuildersEventKioskStaff,
   listSkillBuildersEventKioskRoster,
   listSkillBuildersEventKioskSessions,
   skillBuildersEventKioskPublicClockIn,
   skillBuildersEventKioskPublicClockOut,
-  unlockSkillBuildersEventKiosk
+  unlockSkillBuildersEventKiosk,
+  verifyEventDayGatePin
 } from '../controllers/skillBuildersEventKioskPublic.controller.js';
 
 const router = express.Router();
@@ -46,5 +53,14 @@ router.get('/agency/:slug/kiosk/events/:eventId/roster', listSkillBuildersEventK
 router.post('/agency/:slug/kiosk/events/:eventId/identify', identifySkillBuildersEventKioskStaff);
 router.post('/agency/:slug/kiosk/events/:eventId/clock-in', skillBuildersEventKioskPublicClockIn);
 router.post('/agency/:slug/kiosk/events/:eventId/clock-out', skillBuildersEventKioskPublicClockOut);
+
+// Event-day kiosk (check-in/check-out, waiver review, phase gating)
+router.get('/agency/:slug/kiosk/events/:eventId/event-day', getEventDayKioskContext);
+router.post('/agency/:slug/kiosk/events/:eventId/event-day/gate-pin', verifyEventDayGatePin);
+router.post('/agency/:slug/kiosk/events/:eventId/event-day/client-checkin', eventDayClientCheckin);
+router.post('/agency/:slug/kiosk/events/:eventId/event-day/client-checkout', eventDayClientCheckout);
+router.post('/agency/:slug/kiosk/events/:eventId/event-day/employee-identify-checkin', eventDayEmployeeIdentifyCheckin);
+router.post('/agency/:slug/kiosk/events/:eventId/event-day/employee-checkin', eventDayEmployeeCheckinById);
+router.post('/agency/:slug/kiosk/events/:eventId/event-day/employee-checkout', eventDayEmployeeCheckout);
 
 export default router;

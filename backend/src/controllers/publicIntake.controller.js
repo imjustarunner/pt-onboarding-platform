@@ -28,6 +28,9 @@ import User from '../models/User.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import ClientGuardianIntakeProfile from '../models/ClientGuardianIntakeProfile.model.js';
 import HiringJobDescription from '../models/HiringJobDescription.model.js';
+import GuardianInsuranceProfile from '../models/GuardianInsuranceProfile.model.js';
+import GuardianPaymentCard from '../models/GuardianPaymentCard.model.js';
+import QuickBooksPaymentsService from '../services/quickbooksPayments.service.js';
 import HiringProfile from '../models/HiringProfile.model.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import ProgramStaffAssignment from '../models/ProgramStaffAssignment.model.js';
@@ -1486,6 +1489,77 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
   if (submissionLines.length) {
     pushHeader('One-Time Questions');
     submissionLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+  }
+
+  // Registration selections made during the intake
+  const registrationSelections = Array.isArray(submissionResponses?.registrationSelections)
+    ? submissionResponses.registrationSelections
+    : [];
+  if (registrationSelections.length) {
+    pushHeader('Registration Selections');
+    registrationSelections.forEach((sel) => {
+      const label = String(sel?.label || sel?.optionId || sel?.entityId || '').trim();
+      const step = String(sel?.stepId || '').trim();
+      const type = String(sel?.entityType || sel?.type || '').trim();
+      const parts = [label];
+      if (type) parts.push(`(${type})`);
+      if (step) parts.push(`[Step: ${step}]`);
+      output.push(parts.join(' '));
+    });
+  }
+
+  // Guardian waiver sections captured for this client
+  const waiverSectionLabels = {
+    pickup_authorization: 'Pickup Authorization',
+    emergency_contacts: 'Emergency Contacts',
+    allergies_snacks: 'Medical Information & Allergies',
+    meal_preferences: 'Meal Preferences'
+  };
+  const gwBundle =
+    submissionResponses?.guardianWaiverIntake ||
+    intakeData?.submission?.guardianWaiverIntake ||
+    null;
+  const gwClientRow = Array.isArray(gwBundle?.clients) ? (gwBundle.clients[clientIndex] || null) : null;
+  if (gwClientRow?.sections && typeof gwClientRow.sections === 'object') {
+    const waiverSections = Object.entries(gwClientRow.sections);
+    if (waiverSections.length) {
+      pushHeader('Guardian Waivers & Safety Information');
+      for (const [key, sec] of waiverSections) {
+        const sectionLabel = waiverSectionLabels[key] || key;
+        const signed = String(sec?.signatureData || '').trim().length >= 80 ? 'Signed' : 'Not signed';
+        output.push(`${sectionLabel}: ${signed}`);
+        const payload = sec?.payload;
+        if (!payload || typeof payload !== 'object') continue;
+        // Format section-specific data
+        if (key === 'pickup_authorization' && Array.isArray(payload.authorizedPickups)) {
+          payload.authorizedPickups.forEach((p, i) => {
+            const name = String(p?.name || '').trim();
+            if (!name) return;
+            const rel = String(p?.relationship || '').trim();
+            const phone = String(p?.phone || '').trim();
+            const info = [name, rel, phone].filter(Boolean).join(' | ');
+            output.push(`  Pickup ${i + 1}: ${info}`);
+          });
+        } else if (key === 'emergency_contacts' && Array.isArray(payload.contacts)) {
+          payload.contacts.forEach((c, i) => {
+            const name = String(c?.name || '').trim();
+            if (!name) return;
+            const rel = String(c?.relationship || '').trim();
+            const phone = String(c?.phone || '').trim();
+            const info = [name, rel, phone].filter(Boolean).join(' | ');
+            output.push(`  Contact ${i + 1}: ${info}`);
+          });
+        } else if (key === 'allergies_snacks') {
+          if (payload.allergies) output.push(`  Allergies/Medical notes: ${payload.allergies}`);
+          if (payload.approvedSnacks) output.push(`  Approved snacks: ${payload.approvedSnacks}`);
+          if (payload.notes) output.push(`  Notes: ${payload.notes}`);
+        } else if (key === 'meal_preferences') {
+          if (payload.allowedMeals) output.push(`  Allowed meals: ${payload.allowedMeals}`);
+          if (payload.restrictedMeals) output.push(`  Restricted meals: ${payload.restrictedMeals}`);
+          if (payload.notes) output.push(`  Notes: ${payload.notes}`);
+        }
+      }
+    }
   }
 
   return output.join('\n').trim();
@@ -5130,6 +5204,28 @@ export const submitPublicIntake = async (req, res, next) => {
       });
     }
 
+    // Enroll clients and guardian in any classes or events selected during the registration step.
+    // This mirrors the same call in finalizePublicIntake so that forms using the submit
+    // pathway also complete registration (e.g. smart_registration forms).
+    try {
+      const enrollClientIds = rawClients
+        .map((c) => Number(c?.id || 0))
+        .filter((id) => Number.isFinite(id) && id > 0);
+      await enrollSmartRegistrationSelections({
+        link,
+        intakeData,
+        payload: req.body || {},
+        submissionId,
+        clientIds: enrollClientIds,
+        guardianUserId: updatedSubmission?.guardian_user_id || null
+      });
+    } catch (enrollErr) {
+      console.error('[publicIntake] smart registration enrollment failed (submit)', {
+        submissionId,
+        message: enrollErr?.message || enrollErr
+      });
+    }
+
     if (!link.create_client && signedDocs.length > 0) {
       await notifyUnassignedDocuments({
         link,
@@ -5295,6 +5391,145 @@ export const uploadIntakeFiles = async (req, res, next) => {
     }
 
     res.json({ success: true, count: saved.length, uploads: saved });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /:publicKey/:submissionId/insurance-card-photos
+ * Upload front/back insurance card photos for the guardian.
+ * Stores images in GCS under intake-insurance/<submissionId>/<slot>.
+ */
+export const saveInsuranceCardPhotos = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const submissionId = parseInt(req.params.submissionId, 10);
+    if (!submissionId) {
+      return res.status(400).json({ error: { message: 'submissionId is required' } });
+    }
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link?.is_active) return res.status(404).json({ error: { message: 'Intake link not found' } });
+    const submission = await IntakeSubmission.findById(submissionId);
+    if (!submission || submission.intake_link_id !== link.id) {
+      return res.status(404).json({ error: { message: 'Submission not found' } });
+    }
+
+    const files = Array.isArray(req.files) ? req.files : (req.file ? [req.file] : []);
+    const ALLOWED_SLOTS = new Set(['primary_front', 'primary_back', 'secondary_front', 'secondary_back']);
+    const urls = {};
+    const bucket = await StorageService.getGCSBucket();
+
+    for (const f of files) {
+      const slot = f.fieldname;
+      if (!ALLOWED_SLOTS.has(slot) || !f?.buffer) continue;
+      const ext = (f.originalname || '').split('.').pop().toLowerCase() || 'jpg';
+      const key = `intake-insurance/${submissionId}/${slot}.${ext}`;
+      const gcsFile = bucket.file(key);
+      await gcsFile.save(f.buffer, {
+        contentType: f.mimetype || 'image/jpeg',
+        metadata: { intakeSubmissionId: String(submissionId), slot }
+      });
+      // Build a public-accessible signed URL valid for 7 years (or use bucket-level public access).
+      // For now, return the GCS path; the app can generate signed URLs on read.
+      urls[`${slot}_url`] = `gs://${bucket.name}/${key}`;
+    }
+
+    res.json({ success: true, urls });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /:publicKey/:submissionId/payment-card
+ * Tokenize and store a guardian's credit card via QuickBooks Payments.
+ * Requires the agency to have QuickBooks Payments enabled.
+ */
+export const saveGuardianPaymentCard = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const submissionId = parseInt(req.params.submissionId, 10);
+    if (!submissionId) {
+      return res.status(400).json({ error: { message: 'submissionId is required' } });
+    }
+
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link?.is_active) return res.status(404).json({ error: { message: 'Intake link not found' } });
+
+    const submission = await IntakeSubmission.findById(submissionId);
+    if (!submission || submission.intake_link_id !== link.id) {
+      return res.status(404).json({ error: { message: 'Submission not found' } });
+    }
+
+    const cardPayload = req.body?.card;
+    if (!cardPayload?.number || !cardPayload?.expMonth || !cardPayload?.expYear || !cardPayload?.cvc) {
+      return res.status(400).json({ error: { message: 'Complete card details are required' } });
+    }
+
+    const agencyId = link.agency_id;
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'No agency associated with this intake link' } });
+    }
+
+    // Resolve guardian user ID from the submission's signer data.
+    const intakeData = submission.intake_data ? JSON.parse(submission.intake_data) : {};
+    const signerEmail = String(intakeData?.signerInfo?.email || submission.signer_email || '').trim().toLowerCase();
+    let guardianUserId = submission.guardian_user_id || null;
+    if (!guardianUserId && signerEmail) {
+      const userRow = await User.findByEmail(signerEmail);
+      guardianUserId = userRow?.id || null;
+    }
+
+    if (!guardianUserId) {
+      return res.status(400).json({
+        error: { message: 'Guardian account not yet established. Please complete the earlier steps first.' }
+      });
+    }
+
+    // Create token + store card in QuickBooks Payments.
+    let qbResult;
+    try {
+      qbResult = await QuickBooksPaymentsService.createCard({
+        agencyId,
+        card: {
+          name: cardPayload.name || null,
+          number: String(cardPayload.number).replace(/[^\d]/g, ''),
+          expMonth: String(cardPayload.expMonth),
+          expYear: String(cardPayload.expYear),
+          cvc: String(cardPayload.cvc),
+          address: cardPayload.address || null
+        }
+      });
+    } catch (qbErr) {
+      const msg = qbErr?.response?.data?.Errors?.[0]?.Message
+        || qbErr?.response?.data?.error?.message
+        || qbErr.message
+        || 'Payment processing error';
+      return res.status(422).json({ error: { message: `Card declined or invalid: ${msg}` } });
+    }
+
+    const cardObj = qbResult.card || {};
+    const last4 = String(cardObj.last4 || cardPayload.number.replace(/[^\d]/g, '').slice(-4) || '');
+    const brand = String(cardObj.cardType || cardObj.brand || 'Card');
+    const autoCharge = req.body?.autoCharge === true || req.body?.autoCharge === 'true';
+
+    await GuardianPaymentCard.create({
+      guardianUserId,
+      agencyId,
+      qbPaymentCustomerId: qbResult.customerId || null,
+      qbCardId: cardObj.id,
+      cardBrand: brand,
+      cardLast4: last4,
+      cardExpMonth: cardPayload.expMonth,
+      cardExpYear: cardPayload.expYear,
+      cardholderName: cardPayload.name || null,
+      autoCharge,
+      isDefault: true,
+      intakeSubmissionId: submissionId
+    });
+
+    res.json({ success: true, last4, brand, qbCardId: cardObj.id, autoCharge });
   } catch (error) {
     next(error);
   }

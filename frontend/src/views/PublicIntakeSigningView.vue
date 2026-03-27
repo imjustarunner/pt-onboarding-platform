@@ -438,6 +438,12 @@
         <h3 v-else-if="currentFlowStep?.type === 'guardian_waiver'">
           {{ currentFlowStep?.label || 'Guardian waivers & safety' }}
         </h3>
+        <h3 v-else-if="currentFlowStep?.type === 'insurance_info'">
+          {{ currentFlowStep?.label || 'Insurance information' }}
+        </h3>
+        <h3 v-else-if="currentFlowStep?.type === 'payment_collection'">
+          {{ currentFlowStep?.label || 'Payment information' }}
+        </h3>
         <h3 v-else-if="currentFlowStep?.type === 'questions'">Questions</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
         <div v-if="currentFlowStep?.type === 'school_roi'" class="school-roi-step">
@@ -548,6 +554,30 @@
             :model-value="guardianWaiverBundleRef"
             :section-keys="currentGuardianWaiverSectionKeys"
             :client-labels="guardianWaiverClientLabels"
+            :saved-signature-data="lastSignatureData"
+            :event-waiver-context="eventWaiverContext"
+          />
+        </div>
+
+        <div v-if="currentFlowStep?.type === 'insurance_info'" class="insurance-step">
+          <PublicIntakeInsuranceStep
+            ref="insuranceStepRef"
+            :model-value="intakeResponses.submission.insuranceInfo || {}"
+            :step-config="currentFlowStep"
+            @update:model-value="(v) => { intakeResponses.submission.insuranceInfo = v; }"
+            @medicaid-change="(isMedicaid) => { if (intakeResponses.submission.insuranceInfo) intakeResponses.submission.insuranceInfo.primaryIsMedicaid = isMedicaid; }"
+          />
+        </div>
+
+        <div v-if="currentFlowStep?.type === 'payment_collection'" class="payment-step">
+          <PublicIntakePaymentStep
+            :model-value="intakeResponses.submission.paymentInfo || {}"
+            :step-config="currentFlowStep"
+            :public-key="publicKey"
+            :submission-id="submissionId"
+            :cost-display="paymentCostDisplay"
+            @update:model-value="(v) => { intakeResponses.submission.paymentInfo = v; }"
+            @card-saved="onPaymentCardSaved"
           />
         </div>
 
@@ -652,7 +682,7 @@
 
         <div v-if="currentFlowStep?.type === 'document' && currentDoc?.document_action_type === 'signature'" class="signature-block" ref="signatureBlockRef">
           <SignaturePad compact @signed="onSigned" />
-          <div v-if="allowSignatureReuseActions && lastSignatureData && !signatureData" class="signature-reuse-actions" style="margin-top: 12px;">
+          <div v-if="lastSignatureData && !signatureData" class="signature-reuse-actions" style="margin-top: 12px;">
             <button
               type="button"
               class="btn btn-outline btn-sm"
@@ -662,6 +692,14 @@
             </button>
           </div>
           <div v-if="signatureData" class="muted" style="margin-top: 6px;">Signature ready for this document.</div>
+        </div>
+
+        <div v-if="showSavedSigPrompt" class="saved-sig-prompt">
+          <p>You haven't signed this document yet. Would you like to apply your saved signature?</p>
+          <div class="saved-sig-prompt-actions">
+            <button type="button" class="btn btn-primary btn-sm" @click="applyPromptedSavedSignature">Yes, apply signature</button>
+            <button type="button" class="btn btn-outline btn-sm" @click="showSavedSigPrompt = false">Sign manually instead</button>
+          </div>
         </div>
 
         <div v-if="currentFlowStep?.type !== 'school_roi'" class="actions">
@@ -748,6 +786,8 @@ import SignaturePad from '../components/SignaturePad.vue';
 import SmartSchoolRoiFlow from '../components/public/SmartSchoolRoiFlow.vue';
 import PDFPreview from '../components/documents/PDFPreview.vue';
 import PublicIntakeGuardianWaiverStep from '../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
+import PublicIntakeInsuranceStep from '../components/public-intake/PublicIntakeInsuranceStep.vue';
+import PublicIntakePaymentStep from '../components/public-intake/PublicIntakePaymentStep.vue';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { useAuthStore } from '../store/auth';
 
@@ -1140,9 +1180,7 @@ const hasProgrammedSchoolRoiStep = computed(() =>
 const hasRegistrationStep = computed(() =>
   intakeSteps.value.some((step) => String(step?.type || '').trim().toLowerCase() === 'registration')
 );
-const GUARDIAN_WAIVER_ESIGN_KEY = 'esignature_consent';
 const DEFAULT_GUARDIAN_WAIVER_SECTION_KEYS = [
-  'esignature_consent',
   'pickup_authorization',
   'emergency_contacts',
   'allergies_snacks',
@@ -1178,13 +1216,24 @@ const flowSteps = computed(() => {
           || s?.type === 'school_roi'
           || s?.type === 'registration'
           || s?.type === 'guardian_waiver'
+          || s?.type === 'insurance_info'
+          || s?.type === 'payment_collection'
       )
-      .filter(stepVisible)
+      .filter((s) => {
+        // Skip payment_collection when the guardian selected a Medicaid insurer.
+        if (s?.type === 'payment_collection') {
+          const insInfo = intakeResponses.submission?.insuranceInfo;
+          if (insInfo?.primaryIsMedicaid) return false;
+        }
+        return stepVisible(s);
+      })
       .map((s) => {
         if (s.type === 'upload') return { ...s };
         if (s.type === 'school_roi') return { ...s };
         if (s.type === 'registration') return { ...s };
         if (s.type === 'guardian_waiver') return { ...s };
+        if (s.type === 'insurance_info') return { ...s };
+        if (s.type === 'payment_collection') return { ...s };
         const template = templates.value.find((t) => Number(t.id) === Number(s.templateId));
         return { ...s, template };
       });
@@ -1389,6 +1438,7 @@ const currentDocIndex = ref(0);
 const signatureBlockRef = ref(null);
 const signatureData = ref('');
 const lastSignatureData = ref('');
+const showSavedSigPrompt = ref(false);
 const signatureDocFlowIndexes = computed(() =>
   flowSteps.value
     .map((s, idx) => ({ s, idx }))
@@ -1416,6 +1466,49 @@ const uploadStepFiles = ref([]);
 const uploadStepInputRef = ref(null);
 const embeddedSmartSchoolRoi = ref(null);
 const agencyRegistrationCatalog = ref([]);
+
+/**
+ * Derive snack/meal config for the guardian waiver step from whichever company event
+ * the guardian selected in the registration step. Falls back to "snacks yes, no meals"
+ * when no catalog event is found.
+ */
+const eventWaiverContext = computed(() => {
+  const sels = intakeResponses.submission?.registrationSelections;
+  const selArr = Array.isArray(sels) ? sels : [];
+  // Find first selection that references a company event
+  for (const sel of selArr) {
+    if (sel.entityType === 'company_event' && sel.entityId) {
+      const catalogItem = agencyRegistrationCatalog.value.find(
+        (item) => item.kind === 'company_event' && Number(item.id) === Number(sel.entityId)
+      );
+      if (catalogItem) {
+        return {
+          snacksAvailable: catalogItem.snacksAvailable !== false,
+          snackOptions: Array.isArray(catalogItem.snackOptions) ? catalogItem.snackOptions : [],
+          mealsAvailable: !!catalogItem.mealsAvailable,
+          mealOptions: Array.isArray(catalogItem.mealOptions) ? catalogItem.mealOptions : []
+        };
+      }
+    }
+  }
+  // If the link is locked to a specific event, look for it in the catalog too
+  const linkedEventId = Number(link.value?.company_event_id || 0);
+  if (linkedEventId) {
+    const catalogItem = agencyRegistrationCatalog.value.find(
+      (item) => item.kind === 'company_event' && Number(item.id) === linkedEventId
+    );
+    if (catalogItem) {
+      return {
+        snacksAvailable: catalogItem.snacksAvailable !== false,
+        snackOptions: Array.isArray(catalogItem.snackOptions) ? catalogItem.snackOptions : [],
+        mealsAvailable: !!catalogItem.mealsAvailable,
+        mealOptions: Array.isArray(catalogItem.mealOptions) ? catalogItem.mealOptions : []
+      };
+    }
+  }
+  return { snacksAvailable: true, snackOptions: [], mealsAvailable: false, mealOptions: [] };
+});
+
 const registrationCompletion = ref(null);
 const loginHelpSending = ref(false);
 const loginHelpMessage = ref('');
@@ -2625,7 +2718,7 @@ const submitConsent = async () => {
     currentFlowIndex.value = 0;
     step.value = 2;
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to capture consent';
+    stepError.value = e.response?.data?.error?.message || 'Failed to capture consent';
   } finally {
     consentLoading.value = false;
   }
@@ -2634,6 +2727,7 @@ const submitConsent = async () => {
 const onSigned = (dataUrl) => {
   signatureData.value = dataUrl;
   lastSignatureData.value = dataUrl;
+  showSavedSigPrompt.value = false;
 };
 
 const onUseSavedSignatureClick = () => {
@@ -2645,6 +2739,14 @@ const onUseSavedSignatureClick = () => {
     signatureData.value = lastSignatureData.value;
     stepError.value = '';
   }
+};
+
+const applyPromptedSavedSignature = () => {
+  if (lastSignatureData.value) {
+    signatureData.value = lastSignatureData.value;
+    stepError.value = '';
+  }
+  showSavedSigPrompt.value = false;
 };
 
 const skipToSignaturePage = () => {
@@ -2673,7 +2775,11 @@ const completeCurrentDocument = async () => {
       return;
     }
     if (currentDoc.value.document_action_type === 'signature' && !signatureData.value) {
-      stepError.value = t('signatureRequired');
+      if (lastSignatureData.value) {
+        showSavedSigPrompt.value = true;
+      } else {
+        stepError.value = t('signatureRequired');
+      }
       return;
     }
 
@@ -2693,7 +2799,7 @@ const completeCurrentDocument = async () => {
       return val === null || val === undefined || String(val).trim() === '';
     });
     if (missingFields.length > 0) {
-      error.value = t('completeRequiredFields');
+      stepError.value = t('completeRequiredFields');
       await nextTick();
       focusNextField();
       return;
@@ -2712,7 +2818,7 @@ const completeCurrentDocument = async () => {
 
     await nextFlowStep();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || t('completeRequiredFields');
+    stepError.value = e.response?.data?.error?.message || t('completeRequiredFields');
   } finally {
     submitLoading.value = false;
   }
@@ -2820,7 +2926,6 @@ const completeGuardianWaiverStep = () => {
   if (!step || step.type !== 'guardian_waiver') return;
   ensureGuardianWaiverIntakeShape();
   const keys = [...new Set(currentGuardianWaiverSectionKeys.value)];
-  const order = [GUARDIAN_WAIVER_ESIGN_KEY, ...keys.filter((k) => k !== GUARDIAN_WAIVER_ESIGN_KEY)];
   const gw = intakeResponses.submission.guardianWaiverIntake;
   if (!gw?.clients?.length) {
     stepError.value = 'Missing waiver data. Please refresh and try again.';
@@ -2828,27 +2933,15 @@ const completeGuardianWaiverStep = () => {
   }
   for (let i = 0; i < gw.clients.length; i += 1) {
     const label = guardianWaiverClientLabels.value[i] || `Child ${i + 1}`;
-    for (const key of order) {
-      if (!keys.includes(key)) continue;
+    for (const key of keys) {
       const sec = gw.clients[i].sections?.[key];
       if (!sec) {
-        stepError.value = `Complete all waiver sections for ${label}.`;
-        return;
-      }
-      if (!sec.consentAcknowledged || !sec.intentToSign) {
-        stepError.value = 'Check both consent boxes for each waiver section.';
+        stepError.value = `Please complete all waiver sections for ${label}.`;
         return;
       }
       if (String(sec.signatureData || '').trim().length < 80) {
-        stepError.value = 'Sign each waiver section before continuing.';
+        stepError.value = `Apply your saved signature to each waiver section for ${label} before continuing.`;
         return;
-      }
-      if (key === GUARDIAN_WAIVER_ESIGN_KEY) {
-        const p = sec.payload || {};
-        if (!p.consented || !p.understoodElectronicRecords) {
-          stepError.value = `Complete electronic signature consent for ${label}.`;
-          return;
-        }
       }
     }
   }
@@ -2856,16 +2949,95 @@ const completeGuardianWaiverStep = () => {
   void nextFlowStep();
 };
 
+const insuranceStepRef = ref(null);
+
+const completeInsuranceStep = async () => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'insurance_info') return;
+  const insInfo = intakeResponses.submission.insuranceInfo;
+  if (!insInfo?.primary?.insurerName) {
+    stepError.value = 'Please select your primary insurance provider before continuing.';
+    return;
+  }
+  if (!insInfo?.primary?.memberId) {
+    stepError.value = 'Please enter your primary insurance Member / Policy ID.';
+    return;
+  }
+  // If photos are present, upload them now before advancing.
+  const photoFiles = insuranceStepRef.value?.getPhotoFiles?.();
+  if (photoFiles) {
+    const slots = Object.entries(photoFiles).filter(([, f]) => f instanceof File);
+    if (slots.length && submissionId.value && publicKey) {
+      try {
+        const fd = new FormData();
+        for (const [slot, file] of slots) {
+          fd.append(slot, file, file.name);
+        }
+        const resp = await api.post(
+          `/public-intake/${publicKey}/${submissionId.value}/insurance-card-photos`,
+          fd,
+          { headers: { 'Content-Type': 'multipart/form-data' } }
+        );
+        const urls = resp.data?.urls || {};
+        if (!intakeResponses.submission.insuranceInfo) intakeResponses.submission.insuranceInfo = {};
+        Object.assign(intakeResponses.submission.insuranceInfo, urls);
+      } catch {
+        // Non-blocking: continue even if photo upload fails
+      }
+    }
+  }
+  stepError.value = '';
+  void nextFlowStep();
+};
+
+const completePaymentStep = () => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'payment_collection') return;
+  const payInfo = intakeResponses.submission.paymentInfo;
+  if (!payInfo?.cardSaved) {
+    stepError.value = 'Please save your payment method before continuing.';
+    return;
+  }
+  stepError.value = '';
+  void nextFlowStep();
+};
+
+const onPaymentCardSaved = (cardInfo) => {
+  if (!intakeResponses.submission.paymentInfo) {
+    intakeResponses.submission.paymentInfo = {};
+  }
+  Object.assign(intakeResponses.submission.paymentInfo, { cardSaved: true, ...cardInfo });
+};
+
+const paymentCostDisplay = computed(() => {
+  // Build a cost display string from the event's pricing config if available.
+  const reg = intakeResponses.submission?.registrationSelections;
+  if (!reg) return '';
+  const firstSel = Array.isArray(reg) ? reg[0] : null;
+  if (!firstSel) return '';
+  if (firstSel.programCostBillingMode === 'per_session' && firstSel.perSessionCostDollars) {
+    return `$${Number(firstSel.perSessionCostDollars).toFixed(2)} per session`;
+  }
+  if (firstSel.programCostDollars) {
+    return `$${Number(firstSel.programCostDollars).toFixed(2)} (total program cost)`;
+  }
+  return '';
+});
+
 const handleCurrentFlowContinue = () => {
   if (currentFlowStep.value?.type === 'document') return completeCurrentDocument();
   if (currentFlowStep.value?.type === 'upload') return completeUploadStep();
   if (currentFlowStep.value?.type === 'registration') return completeRegistrationStep();
   if (currentFlowStep.value?.type === 'guardian_waiver') return completeGuardianWaiverStep();
+  if (currentFlowStep.value?.type === 'insurance_info') return completeInsuranceStep();
+  if (currentFlowStep.value?.type === 'payment_collection') return completePaymentStep();
   return completeQuestionStep();
 };
 const currentFlowContinueLabel = computed(() => {
   if (currentFlowStep.value?.type === 'upload') return 'Continue';
   if (currentFlowStep.value?.type === 'guardian_waiver') return t('continue');
+  if (currentFlowStep.value?.type === 'insurance_info') return 'Save & continue';
+  if (currentFlowStep.value?.type === 'payment_collection') return 'Continue';
   if (currentFlowStep.value?.type === 'document') {
     return currentDoc.value?.document_action_type === 'signature' ? t('signContinue') : t('markReviewedContinue');
   }
@@ -4018,6 +4190,22 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
+}
+.saved-sig-prompt {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--bg-alt, #f8fafc);
+}
+.saved-sig-prompt p {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+.saved-sig-prompt-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .signature-summary-top {
   font-size: 13px;

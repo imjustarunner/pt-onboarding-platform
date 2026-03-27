@@ -33,7 +33,8 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
     if (lockedId) {
       const [evRows] = await pool.execute(
         `SELECT id, title, description, starts_at, ends_at,
-                registration_eligible, medicaid_eligible, cash_eligible
+                registration_eligible, medicaid_eligible, cash_eligible,
+                snacks_available, snack_options_json, meals_available, meal_options_json
          FROM company_events
          WHERE agency_id = ?
            AND id = ?
@@ -43,6 +44,7 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
          LIMIT 1`,
         [aid, lockedId]
       );
+      const parseJsonArr = (raw) => { try { const p = raw ? JSON.parse(raw) : null; return Array.isArray(p) ? p : []; } catch { return []; } };
       for (const r of evRows || []) {
         items.push({
           kind: 'company_event',
@@ -54,13 +56,18 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
           enrollmentOpensAt: null,
           enrollmentClosesAt: null,
           medicaidEligible: !!(r.medicaid_eligible === 1 || r.medicaid_eligible === true),
-          cashEligible: !!(r.cash_eligible === 1 || r.cash_eligible === true)
+          cashEligible: !!(r.cash_eligible === 1 || r.cash_eligible === true),
+          snacksAvailable: r.snacks_available === undefined ? true : !!(r.snacks_available === 1 || r.snacks_available === true),
+          snackOptions: parseJsonArr(r.snack_options_json),
+          mealsAvailable: !!(r.meals_available === 1 || r.meals_available === true),
+          mealOptions: parseJsonArr(r.meal_options_json)
         });
       }
     } else {
       const [evRows] = await pool.execute(
         `SELECT id, title, description, starts_at, ends_at,
-                registration_eligible, medicaid_eligible, cash_eligible
+                registration_eligible, medicaid_eligible, cash_eligible,
+                snacks_available, snack_options_json, meals_available, meal_options_json
          FROM company_events
          WHERE agency_id = ?
            AND (is_active = 1 OR is_active IS NULL)
@@ -70,6 +77,7 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
          LIMIT 200`,
         [aid]
       );
+      const parseJsonArr2 = (raw) => { try { const p = raw ? JSON.parse(raw) : null; return Array.isArray(p) ? p : []; } catch { return []; } };
       for (const r of evRows || []) {
         items.push({
           kind: 'company_event',
@@ -78,6 +86,10 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
           summary: r.description ? String(r.description).slice(0, 240) : '',
           startsAt: r.starts_at,
           endsAt: r.ends_at,
+          snacksAvailable: r.snacks_available === undefined ? true : !!(r.snacks_available === 1 || r.snacks_available === true),
+          snackOptions: parseJsonArr2(r.snack_options_json),
+          mealsAvailable: !!(r.meals_available === 1 || r.meals_available === true),
+          mealOptions: parseJsonArr2(r.meal_options_json),
           enrollmentOpensAt: null,
           enrollmentClosesAt: null,
           medicaidEligible: !!(r.medicaid_eligible === 1 || r.medicaid_eligible === true),

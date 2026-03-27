@@ -17,7 +17,9 @@ import {
   previewPublicTemplate,
   signPublicIntakeDocument,
   submitPublicIntake,
-  uploadIntakeFiles
+  uploadIntakeFiles,
+  saveInsuranceCardPhotos,
+  saveGuardianPaymentCard
 } from '../controllers/publicIntake.controller.js';
 
 const upload = multer({
@@ -90,6 +92,28 @@ router.post(
     body('sessionToken').optional().isString()
   ],
   finalizePublicIntake
+);
+
+router.post(
+  '/:publicKey/:submissionId/insurance-card-photos',
+  upload.fields([
+    { name: 'primary_front', maxCount: 1 },
+    { name: 'primary_back', maxCount: 1 },
+    { name: 'secondary_front', maxCount: 1 },
+    { name: 'secondary_back', maxCount: 1 }
+  ]),
+  saveInsuranceCardPhotos
+);
+
+router.post(
+  '/:publicKey/:submissionId/payment-card',
+  [
+    body('card.number').notEmpty().withMessage('Card number is required'),
+    body('card.expMonth').notEmpty().withMessage('Expiry month is required'),
+    body('card.expYear').notEmpty().withMessage('Expiry year is required'),
+    body('card.cvc').notEmpty().withMessage('CVV is required')
+  ],
+  saveGuardianPaymentCard
 );
 
 export default router;
