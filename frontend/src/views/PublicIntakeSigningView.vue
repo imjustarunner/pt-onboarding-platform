@@ -907,6 +907,7 @@ import PublicIntakeGuardianWaiverStep from '../components/public-intake/PublicIn
 import PublicIntakeInsuranceStep from '../components/public-intake/PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from '../components/public-intake/PublicIntakePaymentStep.vue';
 import { toUploadsUrl } from '../utils/uploadsUrl';
+import { isMedicaidInsurer } from '../utils/coloradoInsurances';
 import { useAuthStore } from '../store/auth';
 
 const INTAKE_TRANSLATIONS = {
@@ -3195,17 +3196,22 @@ const insuranceStepRef = ref(null);
 const completeInsuranceStep = async () => {
   const step = currentFlowStep.value;
   if (!step || step.type !== 'insurance_info') return;
-  const insInfo = intakeResponses.submission.insuranceInfo;
-  if (!insInfo?.primary?.insurerName) {
-    stepError.value = 'Please select your primary insurance provider before continuing.';
-    return;
+  if (!intakeResponses.submission.insuranceInfo || typeof intakeResponses.submission.insuranceInfo !== 'object') {
+    intakeResponses.submission.insuranceInfo = {};
   }
-  if (!insInfo?.primary?.memberId) {
-    stepError.value = 'Please enter your primary insurance Member / Policy ID.';
-    return;
+  const insInfo = intakeResponses.submission.insuranceInfo;
+  if (!insInfo.primary || typeof insInfo.primary !== 'object') {
+    insInfo.primary = {
+      insurerName: '',
+      memberId: '',
+      groupNumber: '',
+      subscriberName: '',
+      isMedicaid: false
+    };
   }
   // If photos are present, upload them now before advancing.
   const photoFiles = insuranceStepRef.value?.getPhotoFiles?.();
+  const insuranceEntryState = insuranceStepRef.value?.getInsuranceEntryState?.() || {};
   if (photoFiles) {
     const slots = Object.entries(photoFiles).filter(([, f]) => f instanceof File);
     if (slots.length && submissionId.value && publicKey) {
@@ -3222,10 +3228,61 @@ const completeInsuranceStep = async () => {
         const urls = resp.data?.urls || {};
         if (!intakeResponses.submission.insuranceInfo) intakeResponses.submission.insuranceInfo = {};
         Object.assign(intakeResponses.submission.insuranceInfo, urls);
+        const extracted = resp.data?.extracted || {};
+        if (extracted?.primary && intakeResponses.submission.insuranceInfo?.primary) {
+          const primary = intakeResponses.submission.insuranceInfo.primary;
+          const extPrimary = extracted.primary;
+          if (!String(primary.insurerName || '').trim() && String(extPrimary.insurerName || '').trim()) {
+            primary.insurerName = String(extPrimary.insurerName || '').trim();
+          }
+          if (!String(primary.memberId || '').trim() && String(extPrimary.memberId || '').trim()) {
+            primary.memberId = String(extPrimary.memberId || '').trim();
+          }
+          if (!String(primary.groupNumber || '').trim() && String(extPrimary.groupNumber || '').trim()) {
+            primary.groupNumber = String(extPrimary.groupNumber || '').trim();
+          }
+          if (!String(primary.subscriberName || '').trim() && String(extPrimary.subscriberName || '').trim()) {
+            primary.subscriberName = String(extPrimary.subscriberName || '').trim();
+          }
+          primary.isMedicaid = isMedicaidInsurer(primary.insurerName);
+          intakeResponses.submission.insuranceInfo.primaryIsMedicaid = primary.isMedicaid;
+        }
       } catch {
         // Non-blocking: continue even if photo upload fails
       }
     }
+  }
+  const hasPrimaryCardImage = Boolean(
+    insuranceEntryState.hasPrimaryCardPhoto
+    || insInfo.primary_front_url
+    || insInfo.primary_back_url
+  );
+  const noPrimaryCardAvailable = Boolean(insuranceEntryState.noPrimaryCardAvailable || insInfo.noPrimaryCardAvailable);
+  const insurerName = String(insInfo.primary?.insurerName || '').trim();
+  const memberId = String(insInfo.primary?.memberId || '').trim();
+  const medicaidPrimary = isMedicaidInsurer(insurerName);
+
+  if (!hasPrimaryCardImage && !noPrimaryCardAvailable) {
+    stepError.value = 'Please upload your primary insurance card, or check "I do not have my primary insurance card right now."';
+    return;
+  }
+  if (!insInfo.primary?.insurerName && memberId) {
+    stepError.value = 'Please select your primary insurance provider before continuing.';
+    return;
+  }
+  if (noPrimaryCardAvailable && !insurerName && !memberId) {
+    insInfo.primary.insurerName = 'Self-Pay / No Insurance';
+    insInfo.primary.memberId = '';
+    insInfo.primary.groupNumber = String(insInfo.primary.groupNumber || '');
+    insInfo.primary.subscriberName = String(insInfo.primary.subscriberName || '');
+    insInfo.primary.isMedicaid = false;
+    insInfo.primaryIsMedicaid = false;
+  } else if (insurerName && !memberId && !medicaidPrimary) {
+    stepError.value = 'Please enter your primary insurance Member / Policy ID (or choose Medicaid if applicable).';
+    return;
+  } else {
+    insInfo.primary.isMedicaid = medicaidPrimary;
+    insInfo.primaryIsMedicaid = medicaidPrimary;
   }
   stepError.value = '';
   void nextFlowStep();

@@ -19,6 +19,7 @@ import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 import Client from '../models/Client.model.js';
 import StorageService from '../services/storage.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
+import ReferralOcrService from '../services/referralOcr.service.js';
 import EmailService from '../services/email.service.js';
 import EmailTemplate from '../models/EmailTemplate.model.js';
 import Agency from '../models/Agency.model.js';
@@ -5439,6 +5440,58 @@ export const uploadIntakeFiles = async (req, res, next) => {
  * Upload front/back insurance card photos for the guardian.
  * Stores images in GCS under intake-insurance/<submissionId>/<slot>.
  */
+function parseInsuranceCardText(rawText = '') {
+  const text = String(rawText || '').replace(/\r/g, '\n');
+  const compact = text.replace(/\s+/g, ' ').trim();
+  const insurerPatterns = [
+    { label: 'Health First Colorado (Medicaid)', re: /(health\s*first\s*colorado|colorado\s+access|ccha|community\s+health\s+alliance|medicaid|chp\+)/i },
+    { label: 'United Healthcare', re: /united\s*health\s*care|uhc/i },
+    { label: 'Anthem Blue Cross Blue Shield of Colorado', re: /(anthem|blue\s*cross|blue\s*shield|bcbs)/i },
+    { label: 'Aetna', re: /\baetna\b/i },
+    { label: 'Cigna', re: /\bcigna\b/i },
+    { label: 'Kaiser Permanente', re: /kaiser/i },
+    { label: 'Humana', re: /humana/i },
+    { label: 'Molina Healthcare of Colorado', re: /molina/i },
+    { label: 'TRICARE', re: /tricare/i },
+    { label: 'Medicare (Original)', re: /medicare/i }
+  ];
+
+  const memberMatch = compact.match(/(?:member(?:\s*id)?|id(?:\s*#)?|subscriber(?:\s*id)?)\s*[:#]?\s*([A-Z0-9\-]{5,})/i);
+  const groupMatch = compact.match(/(?:group(?:\s*(?:number|no|#))?)\s*[:#]?\s*([A-Z0-9\-]{3,})/i);
+  const subscriberMatch = compact.match(/(?:subscriber|member|name)\s*[:#]?\s*([A-Z][A-Z\-'., ]{2,})/i);
+
+  let insurerName = '';
+  for (const candidate of insurerPatterns) {
+    if (candidate.re.test(compact)) {
+      insurerName = candidate.label;
+      break;
+    }
+  }
+
+  return {
+    insurerName,
+    memberId: memberMatch?.[1] ? String(memberMatch[1]).trim() : '',
+    groupNumber: groupMatch?.[1] ? String(groupMatch[1]).trim() : '',
+    subscriberName: subscriberMatch?.[1]
+      ? String(subscriberMatch[1]).replace(/\s+/g, ' ').trim().slice(0, 120)
+      : ''
+  };
+}
+
+async function extractInsuranceCardFieldsBestEffort(file) {
+  if (!file?.buffer) return null;
+  try {
+    const text = await ReferralOcrService.extractText({
+      buffer: file.buffer,
+      mimeType: file.mimetype || 'image/jpeg'
+    });
+    if (!String(text || '').trim()) return null;
+    return parseInsuranceCardText(text);
+  } catch {
+    return null;
+  }
+}
+
 export const saveInsuranceCardPhotos = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
@@ -5456,7 +5509,12 @@ export const saveInsuranceCardPhotos = async (req, res, next) => {
     const files = Array.isArray(req.files) ? req.files : (req.file ? [req.file] : []);
     const ALLOWED_SLOTS = new Set(['primary_front', 'primary_back', 'secondary_front', 'secondary_back']);
     const urls = {};
+    const extracted = { primary: null, secondary: null };
     const bucket = await StorageService.getGCSBucket();
+    const useEncryption = DocumentEncryptionService.isConfigured();
+    if (!useEncryption && process.env.NODE_ENV === 'production') {
+      console.warn('Insurance card uploads stored unencrypted: REFERRAL_KMS_KEY or DOCUMENTS_KMS_KEY not configured');
+    }
 
     for (const f of files) {
       const slot = f.fieldname;
@@ -5464,16 +5522,54 @@ export const saveInsuranceCardPhotos = async (req, res, next) => {
       const ext = (f.originalname || '').split('.').pop().toLowerCase() || 'jpg';
       const key = `intake-insurance/${submissionId}/${slot}.${ext}`;
       const gcsFile = bucket.file(key);
-      await gcsFile.save(f.buffer, {
-        contentType: f.mimetype || 'image/jpeg',
-        metadata: { intakeSubmissionId: String(submissionId), slot }
+      let fileBuffer = f.buffer;
+      let saveMimeType = f.mimetype || 'image/jpeg';
+      let metadata = { intakeSubmissionId: String(submissionId), slot };
+      if (useEncryption) {
+        const aad = JSON.stringify({
+          intakeSubmissionId: submissionId,
+          slot,
+          filename: String(f.originalname || f.name || `insurance-${slot}`).slice(0, 255)
+        });
+        const encResult = await DocumentEncryptionService.encryptBuffer(f.buffer, { aad });
+        fileBuffer = encResult.encryptedBuffer;
+        saveMimeType = 'application/octet-stream';
+        metadata = {
+          ...metadata,
+          isEncrypted: '1',
+          encryptionKeyId: String(encResult.encryptionKeyId || ''),
+          encryptionWrappedKey: String(encResult.encryptionWrappedKeyB64 || ''),
+          encryptionIv: String(encResult.encryptionIvB64 || ''),
+          encryptionAuthTag: String(encResult.encryptionAuthTagB64 || ''),
+          encryptionAlg: String(encResult.encryptionAlg || ''),
+          encryptionAad: aad
+        };
+      }
+      await gcsFile.save(fileBuffer, {
+        contentType: saveMimeType,
+        metadata
       });
       // Build a public-accessible signed URL valid for 7 years (or use bucket-level public access).
       // For now, return the GCS path; the app can generate signed URLs on read.
       urls[`${slot}_url`] = `gs://${bucket.name}/${key}`;
+
+      // OCR best-effort: parse card text to prefill insurer/member/group/subscriber fields.
+      const parsed = await extractInsuranceCardFieldsBestEffort(f);
+      if (!parsed) continue;
+      if (slot.startsWith('primary_')) {
+        extracted.primary = {
+          ...(extracted.primary || {}),
+          ...Object.fromEntries(Object.entries(parsed).filter(([, v]) => String(v || '').trim()))
+        };
+      } else if (slot.startsWith('secondary_')) {
+        extracted.secondary = {
+          ...(extracted.secondary || {}),
+          ...Object.fromEntries(Object.entries(parsed).filter(([, v]) => String(v || '').trim()))
+        };
+      }
     }
 
-    res.json({ success: true, urls });
+    res.json({ success: true, urls, extracted });
   } catch (error) {
     next(error);
   }

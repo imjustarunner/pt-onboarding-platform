@@ -8,6 +8,9 @@
     <!-- PRIMARY INSURANCE -->
     <div class="pi-ins-card">
       <h4 class="pi-ins-card-title">Primary Insurance</h4>
+      <p class="pi-ins-card-tip">
+        Start by uploading your insurance card images. We will auto-fill what we can, and you can edit anything below.
+      </p>
 
       <div class="form-group">
         <label class="pi-ins-lbl">Insurance provider <span class="req">*</span></label>
@@ -37,21 +40,6 @@
         </div>
         <div v-if="primaryIsMedicaid" class="pi-ins-medicaid-notice">
           ✓ Medicaid detected — no self-pay cost applies for this program.
-        </div>
-      </div>
-
-      <div class="pi-ins-grid">
-        <div class="form-group">
-          <label class="pi-ins-lbl">Member / Policy ID <span class="req">*</span></label>
-          <input v-model="local.primary.memberId" class="pi-ins-input" type="text" placeholder="e.g. COA123456789" />
-        </div>
-        <div class="form-group">
-          <label class="pi-ins-lbl">Group number (if applicable)</label>
-          <input v-model="local.primary.groupNumber" class="pi-ins-input" type="text" placeholder="Optional" />
-        </div>
-        <div class="form-group">
-          <label class="pi-ins-lbl">Subscriber name (if different from guardian)</label>
-          <input v-model="local.primary.subscriberName" class="pi-ins-input" type="text" placeholder="First Last" />
         </div>
       </div>
 
@@ -98,6 +86,30 @@
           <button v-if="primaryBackPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('primary_back')">
             Remove
           </button>
+        </div>
+      </div>
+      <div class="pi-ins-no-card">
+        <label class="checkbox-row">
+          <input v-model="noPrimaryCardAvailable" type="checkbox" @change="onNoPrimaryCardToggle" />
+          <span>I do not have my primary insurance card right now</span>
+        </label>
+      </div>
+
+      <div class="pi-ins-grid">
+        <div class="form-group">
+          <label class="pi-ins-lbl">Member / Policy ID</label>
+          <input v-model="local.primary.memberId" class="pi-ins-input" type="text" placeholder="e.g. COA123456789" />
+          <div v-if="primaryIsMedicaid" class="pi-ins-field-note">
+            For Medicaid plans, Member ID is recommended but not required.
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="pi-ins-lbl">Group number (if applicable)</label>
+          <input v-model="local.primary.groupNumber" class="pi-ins-input" type="text" placeholder="Optional" />
+        </div>
+        <div class="form-group">
+          <label class="pi-ins-lbl">Subscriber name (if different from guardian)</label>
+          <input v-model="local.primary.subscriberName" class="pi-ins-input" type="text" placeholder="First Last" />
         </div>
       </div>
     </div>
@@ -229,6 +241,7 @@ const local = reactive({
 });
 
 const hasSecondary = ref(!!(props.modelValue?.secondary?.insurerName));
+const noPrimaryCardAvailable = ref(!!props.modelValue?.noPrimaryCardAvailable);
 
 // Photo file references (File objects kept in memory; uploaded on submit)
 const photoFiles = reactive({ primary_front: null, primary_back: null, secondary_front: null, secondary_back: null });
@@ -246,11 +259,11 @@ const secondaryBackInput = ref(null);
 // Typeahead
 const primaryQuery = ref(local.primary.insurerName);
 const primaryOpen = ref(false);
-const primarySuggestions = computed(() => filterInsurances(primaryQuery.value).slice(0, 12));
+const primarySuggestions = computed(() => filterInsurances(primaryQuery.value));
 
 const secondaryQuery = ref(local.secondary.insurerName);
 const secondaryOpen = ref(false);
-const secondarySuggestions = computed(() => filterInsurances(secondaryQuery.value).slice(0, 12));
+const secondarySuggestions = computed(() => filterInsurances(secondaryQuery.value));
 
 const primaryIsMedicaid = computed(() => isMedicaidInsurer(local.primary.insurerName));
 const allMedicaid = computed(() => primaryIsMedicaid.value && (!hasSecondary.value || isMedicaidInsurer(local.secondary.insurerName)));
@@ -308,6 +321,7 @@ function onPhotoSelected(event, slot) {
   const file = event.target.files?.[0];
   if (!file) return;
   photoFiles[slot] = file;
+  if (slot === 'primary_front' || slot === 'primary_back') noPrimaryCardAvailable.value = false;
   const reader = new FileReader();
   reader.onload = (e) => {
     if (slot === 'primary_front') primaryFrontPreview.value = e.target.result;
@@ -327,6 +341,18 @@ function clearPhoto(slot) {
   push();
 }
 
+function onNoPrimaryCardToggle() {
+  if (!noPrimaryCardAvailable.value) {
+    push();
+    return;
+  }
+  photoFiles.primary_front = null;
+  photoFiles.primary_back = null;
+  primaryFrontPreview.value = '';
+  primaryBackPreview.value = '';
+  push();
+}
+
 // ── Emit helpers ─────────────────────────────────────────────────────────────
 function push() {
   const out = {
@@ -338,6 +364,7 @@ function push() {
       secondary_front_preview: secondaryFrontPreview.value,
       secondary_back_preview: secondaryBackPreview.value
     },
+    noPrimaryCardAvailable: noPrimaryCardAvailable.value,
     hasSecondary: hasSecondary.value,
     primaryIsMedicaid: primaryIsMedicaid.value
   };
@@ -350,10 +377,25 @@ function getPhotoFiles() {
   return { ...photoFiles };
 }
 
+function getInsuranceEntryState() {
+  const hasPrimaryCardPhoto = Boolean(
+    photoFiles.primary_front
+    || photoFiles.primary_back
+    || primaryFrontPreview.value
+    || primaryBackPreview.value
+    || props.modelValue?.primary_front_url
+    || props.modelValue?.primary_back_url
+  );
+  return {
+    hasPrimaryCardPhoto,
+    noPrimaryCardAvailable: !!noPrimaryCardAvailable.value
+  };
+}
+
 watch([() => local.primary, () => local.secondary, hasSecondary], push, { deep: true });
 
 // Expose for parent
-defineExpose({ getPhotoFiles, primaryIsMedicaid });
+defineExpose({ getPhotoFiles, getInsuranceEntryState, primaryIsMedicaid });
 </script>
 
 <style scoped>
@@ -385,6 +427,11 @@ defineExpose({ getPhotoFiles, primaryIsMedicaid });
 .pi-ins-card-title {
   margin: 0 0 12px;
   font-size: 1rem;
+}
+.pi-ins-card-tip {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
 }
 .pi-ins-lbl {
   display: block;
@@ -444,6 +491,11 @@ defineExpose({ getPhotoFiles, primaryIsMedicaid });
   font-size: 13px;
   color: #166534;
   font-weight: 600;
+}
+.pi-ins-field-note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
 }
 .pi-ins-grid {
   display: grid;
@@ -505,6 +557,9 @@ defineExpose({ getPhotoFiles, primaryIsMedicaid });
 }
 .pi-ins-secondary-toggle {
   margin-top: 4px;
+}
+.pi-ins-no-card {
+  margin-top: 10px;
 }
 .checkbox-row {
   display: flex;
