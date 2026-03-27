@@ -253,12 +253,10 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true, publicAgencyEnrollBranding: true }
   },
   // Organization-specific routes (supports Agency, School, Program, Learning)
-  // School splash page (public, no auth required)
+  // Root org path redirects directly to the branded login page — splash was removed.
   {
     path: '/:organizationSlug',
-    name: 'OrganizationSplash',
-    component: () => import('../views/school/SchoolSplashView.vue'),
-    meta: { requiresGuest: false, organizationSlug: true } // Allow both guests and authenticated users
+    redirect: (to) => ({ path: `/${to.params.organizationSlug}/login` })
   },
   // Child portal login under agency path: /itsco/rudy/login (matches before flat /:slug/login).
   {
@@ -1964,7 +1962,11 @@ router.beforeEach(async (to, from, next) => {
           const slugNorm = String(slug).trim().toLowerCase();
           const skipRedundantTheme =
             authStore.isAuthenticated && isSuperAdmin && hostPortal && slugNorm === hostPortal;
-          if (!skipRedundantTheme) {
+          // Login routes fetch their own login-theme in onMounted (fetchLoginTheme), which applies
+          // full branding via setPortalThemeFromLoginTheme. Skip the guard's /theme call to avoid
+          // a redundant round-trip that causes a visible flash before the richer theme loads.
+          const isLoginRoute = to.name === 'OrganizationLogin' || to.name === 'ParentOrganizationLogin';
+          if (!skipRedundantTheme && !isLoginRoute) {
             await brandingStore.fetchAgencyTheme(slug, pageContext ? { pageContext } : {});
           }
         } catch (e) {

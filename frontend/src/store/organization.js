@@ -25,6 +25,12 @@ const findStoredOrgBySlug = (slug) => {
   }) || null;
 };
 
+// In-flight deduplication + short TTL cache for fetchBySlug.
+// Prevents duplicate HTTP requests when beforeEach fires back-to-back for redirect chains.
+const _slugInflight = new Map();   // slug → Promise
+const _slugCache    = new Map();   // slug → { org, ts }
+const SLUG_CACHE_TTL_MS = 5000;
+
 /**
  * Organization Store
  * Manages organization context (Agency, School, Program, Learning)
@@ -36,10 +42,24 @@ export const useOrganizationStore = defineStore('organization', () => {
   const loading = ref(false);
   const error = ref(null);
 
+  const _applyOrg = (org) => {
+    currentOrganization.value = org;
+    organizationContext.value = {
+      id: org.id,
+      name: org.name,
+      slug: org.slug,
+      organizationType: org.organization_type || 'agency',
+      logoUrl: org.logo_url,
+      colorPalette: org.color_palette,
+      themeSettings: org.theme_settings,
+      portalUrl: org.portal_url
+    };
+  };
+
   /**
-   * Fetch organization by slug
-   * @param {string} slug - Organization slug
-   * @returns {Promise<Object|null>} Organization object or null
+   * Fetch organization by slug.
+   * Concurrent calls for the same slug share one in-flight request; results are
+   * cached for SLUG_CACHE_TTL_MS to absorb rapid re-navigations.
    */
   const fetchBySlug = async (slug) => {
     const normalized = normalizeSlug(slug);
@@ -48,63 +68,57 @@ export const useOrganizationStore = defineStore('organization', () => {
       return null;
     }
 
+    // Return cached result if still fresh
+    const cached = _slugCache.get(normalized);
+    if (cached && Date.now() - cached.ts < SLUG_CACHE_TTL_MS) {
+      _applyOrg(cached.org);
+      return cached.org;
+    }
+
+    // Coalesce concurrent requests for the same slug
+    if (_slugInflight.has(normalized)) {
+      return _slugInflight.get(normalized);
+    }
+
     loading.value = true;
     error.value = null;
 
-    try {
-      // Try to fetch by slug (backend will handle organization_type)
-      const response = await api.get(`/agencies/slug/${encodeURIComponent(normalized)}`, {
-        skipGlobalLoading: true,
-        timeout: 10000
-      });
-      const org = response.data;
-      
-      if (!org || !org.is_active) {
-        error.value = 'Organization not found or inactive';
-        return null;
-      }
-      
-      if (org) {
-        currentOrganization.value = org;
-        organizationContext.value = {
-          id: org.id,
-          name: org.name,
-          slug: org.slug,
-          organizationType: org.organization_type || 'agency',
-          logoUrl: org.logo_url,
-          colorPalette: org.color_palette,
-          themeSettings: org.theme_settings,
-          portalUrl: org.portal_url
-        };
+    const promise = (async () => {
+      try {
+        const response = await api.get(`/agencies/slug/${encodeURIComponent(normalized)}`, {
+          skipGlobalLoading: true,
+          timeout: 10000
+        });
+        const org = response.data;
+
+        if (!org || !org.is_active) {
+          error.value = 'Organization not found or inactive';
+          return null;
+        }
+
+        _applyOrg(org);
+        _slugCache.set(normalized, { org, ts: Date.now() });
         return org;
+      } catch (err) {
+        const status = Number(err?.response?.status || 0);
+        const fallbackOrg = findStoredOrgBySlug(normalized);
+        if ((status === 401 || status === 403) && fallbackOrg) {
+          _applyOrg(fallbackOrg);
+          return fallbackOrg;
+        }
+        if (import.meta.env.DEV) {
+          console.error('Failed to fetch organization by slug:', err);
+        }
+        error.value = err.response?.data?.error?.message || 'Failed to load organization';
+        return null;
+      } finally {
+        loading.value = false;
+        _slugInflight.delete(normalized);
       }
-      
-      return null;
-    } catch (err) {
-      const status = Number(err?.response?.status || 0);
-      const fallbackOrg = findStoredOrgBySlug(normalized);
-      if ((status === 401 || status === 403) && fallbackOrg) {
-        currentOrganization.value = fallbackOrg;
-        organizationContext.value = {
-          id: fallbackOrg.id,
-          name: fallbackOrg.name,
-          slug: fallbackOrg.slug,
-          organizationType: fallbackOrg.organization_type || 'agency',
-          logoUrl: fallbackOrg.logo_url,
-          colorPalette: fallbackOrg.color_palette,
-          themeSettings: fallbackOrg.theme_settings,
-          portalUrl: fallbackOrg.portal_url
-        };
-        return fallbackOrg;
-      }
-      if (import.meta.env.DEV) {
-        console.error('Failed to fetch organization by slug:', err);
-      }
-      error.value = err.response?.data?.error?.message || 'Failed to load organization';
-      return null;
-    } finally {
-      loading.value = false;
-    }
+    })();
+
+    _slugInflight.set(normalized, promise);
+    return promise;
   };
 
   /**

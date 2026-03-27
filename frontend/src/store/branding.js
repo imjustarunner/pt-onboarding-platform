@@ -9,6 +9,12 @@ import { getBackendBaseUrl, toUploadsUrl } from '../utils/uploadsUrl';
 import { trackPromise } from '../utils/pageLoader';
 import { preloadImages } from '../utils/preloadImages';
 
+// In-flight deduplication + short TTL cache for fetchAgencyTheme.
+// Prevents duplicate HTTP requests on redirect-chain navigations (/:slug → /:slug/login).
+const _themeInflight = new Map();  // cacheKey → Promise
+const _themeCache    = new Map();  // cacheKey → { data, ts }
+const THEME_CACHE_TTL_MS = 5000;
+
 export const useBrandingStore = defineStore('branding', () => {
   const agencyStore = useAgencyStore();
   const authStore = useAuthStore();
@@ -200,51 +206,76 @@ export const useBrandingStore = defineStore('branding', () => {
     }
   };
   
-  // Fetch agency theme by portal URL
+  // Fetch agency theme by portal URL.
+  // Concurrent calls for the same slug+context share one in-flight request; results are
+  // cached for THEME_CACHE_TTL_MS to absorb rapid re-navigations (e.g. redirect chains).
   const fetchAgencyTheme = async (portalUrl, options = {}) => {
     if (!portalUrl) {
       portalAgency.value = null;
       portalTheme.value = null;
       return;
     }
-    
-    try {
-      const pageContext = String(options.pageContext || '').trim().toLowerCase();
-      const params = pageContext ? { pageContext } : {};
-      const response = await api.get(`/agencies/portal/${portalUrl}/theme`, {
-        params,
-        skipGlobalLoading: true,
-        timeout: 15000
-      });
-      portalTheme.value = response.data;
-      portalAgency.value = {
-        name: response.data.agencyName,
-        colorPalette: response.data.colorPalette || {},
-        logoUrl: response.data.logoUrl,
-        themeSettings: response.data.themeSettings || {},
-        terminologySettings: response.data.terminologySettings || {}
-      };
 
-      // Apply theme to CSS variables
-      applyTheme(response.data);
-      // Route theme must not override the selected org's palette on :root (many components use --agency-* / --primary on documentElement).
-      const portalNorm = String(portalUrl || '').trim().toLowerCase();
-      if (authStore.isAuthenticated && agencyStore.currentAgency && !shouldApplyPortalAgencyThemeFirst()) {
-        const ag = agencyStore.currentAgency;
-        const agKeys = [ag.slug, ag.portal_url, ag.portalUrl]
-          .map((x) => String(x || '').trim().toLowerCase())
-          .filter(Boolean);
-        if (!portalNorm || agKeys.includes(portalNorm)) {
-          syncDocumentThemeFromSelectedAgency();
+    const pageContext = String(options.pageContext || '').trim().toLowerCase();
+    const cacheKey = pageContext ? `${portalUrl}::${pageContext}` : portalUrl;
+
+    // Apply cached theme immediately (zero-flash on rapid re-navigation)
+    const cached = _themeCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < THEME_CACHE_TTL_MS) {
+      _applyThemeData(cached.data, portalUrl);
+      return;
+    }
+
+    // Coalesce concurrent requests for the same key
+    if (_themeInflight.has(cacheKey)) {
+      return _themeInflight.get(cacheKey);
+    }
+
+    const promise = (async () => {
+      try {
+        const params = pageContext ? { pageContext } : {};
+        const response = await api.get(`/agencies/portal/${portalUrl}/theme`, {
+          params,
+          skipGlobalLoading: true,
+          timeout: 15000
+        });
+        _themeCache.set(cacheKey, { data: response.data, ts: Date.now() });
+        _applyThemeData(response.data, portalUrl);
+      } catch (err) {
+        const status = Number(err?.response?.status || 0);
+        if (import.meta.env.DEV && status !== 401 && status !== 403) {
+          console.error('Failed to fetch agency theme:', err);
         }
+        portalAgency.value = null;
+        portalTheme.value = null;
+      } finally {
+        _themeInflight.delete(cacheKey);
       }
-    } catch (err) {
-      const status = Number(err?.response?.status || 0);
-      if (import.meta.env.DEV && status !== 401 && status !== 403) {
-        console.error('Failed to fetch agency theme:', err);
+    })();
+
+    _themeInflight.set(cacheKey, promise);
+    return promise;
+  };
+
+  const _applyThemeData = (data, portalUrl) => {
+    portalTheme.value = data;
+    portalAgency.value = {
+      name: data.agencyName,
+      colorPalette: data.colorPalette || {},
+      logoUrl: data.logoUrl,
+      themeSettings: data.themeSettings || {},
+      terminologySettings: data.terminologySettings || {}
+    };
+    applyTheme(data);
+    const portalNorm = String(portalUrl || '').trim().toLowerCase();
+    if (authStore.isAuthenticated && agencyStore.currentAgency && !shouldApplyPortalAgencyThemeFirst()) {
+      const ag = agencyStore.currentAgency;
+      const agKeys = [ag.slug, ag.portal_url, ag.portalUrl]
+        .map((x) => String(x || '').trim().toLowerCase())
+        .filter(Boolean);
+      if (!portalNorm || agKeys.includes(portalNorm)) {
+        syncDocumentThemeFromSelectedAgency();
       }
-      portalAgency.value = null;
-      portalTheme.value = null;
     }
   };
 

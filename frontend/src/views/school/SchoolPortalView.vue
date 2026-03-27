@@ -8,7 +8,7 @@
           </div>
           <div>
             <h1 data-tour="school-header-title">{{ organizationDisplayName }} Portal</h1>
-            <p class="portal-subtitle">Schedule + roster (no PHI)</p>
+            <p class="portal-subtitle">Schedule + roster</p>
           </div>
         </div>
         <div class="portal-header-right">
