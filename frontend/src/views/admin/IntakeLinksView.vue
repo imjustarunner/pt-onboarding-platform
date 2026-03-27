@@ -365,22 +365,24 @@
               </div>
               <div class="form-group" style="grid-column: 1 / -1;">
                 <label>Completion email template</label>
-                <select
-                  v-model="form.customMessages.completionEmailTemplateId"
-                  @change="onCompletionEmailTemplateChange"
-                >
-                  <option :value="null">Use agency default (School Full Intake Packet)</option>
+                <select :value="completionEmailDropdownValue" @change="onCompletionEmailDropdownChange">
+                  <option value="">Use agency default (School Full Intake Packet)</option>
+                  <option value="preset:guardian_partnership">
+                    Parent partnership / class registration (welcome + account &amp; packet)
+                  </option>
                   <option
                     v-for="tpl in completionEmailTemplateOptions"
                     :key="tpl.id"
-                    :value="Number(tpl.id)"
+                    :value="`template:${tpl.id}`"
                   >
                     {{ tpl.name }} ({{ tpl.type || 'template' }})
                   </option>
                 </select>
                 <small class="form-help">
                   Default behavior uses the agency template type <code>school_full_intake_packet_default</code>.
-                  Select a specific template to override this form.
+                  The parent-partnership option fills suggested copy for welcome plus portal credentials; when a new
+                  guardian account is created, the PORTAL_LOGIN_URL placeholder resolves to the one-time sign-in link.
+                  You can edit the subject and body after choosing it.
                 </small>
               </div>
               <div class="form-group" style="grid-column: 1 / -1;">
@@ -401,7 +403,7 @@
                 <textarea
                   v-model="form.customMessages.completionEmailBody"
                   rows="6"
-                  placeholder="Use placeholders like {{SIGNER_NAME}}, {{CLIENT_SUMMARY}}, {{DOWNLOAD_URL}}, and {{LINK_EXPIRES_DAYS}}."
+                  placeholder="Placeholders include {{SIGNER_NAME}}, {{CLIENT_SUMMARY}}, {{DOWNLOAD_URL}}, {{LINK_EXPIRES_DAYS}}, {{PORTAL_LOGIN_URL}}, {{REGISTRATION_LOGIN_PAGE_URL}}, {{REGISTRATION_LOGIN_EMAIL}}, {{REGISTRATION_TEMP_PASSWORD}}, {{REGISTRATION_EVENT_SUMMARY}}, {{SCHOOL_NAME}}."
                 />
               </div>
             </div>
@@ -693,6 +695,18 @@
                       v-model="step.nonMedicaidDisclaimerText"
                       rows="4"
                       placeholder="e.g., Because your insurance plan is not a Medicaid plan, a cost-share or private-pay balance may apply for this program. Payment information will be collected in the next step."
+                    />
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Secondary insurance notice (optional)</label>
+                    <div class="muted" style="margin-bottom: 6px; font-size: 13px;">
+                      Shown for every family on this step, after primary insurance and before the optional secondary block.
+                      Leave blank to use the default notice about reporting secondary coverage.
+                    </div>
+                    <textarea
+                      v-model="step.secondaryInsuranceDisclaimerText"
+                      rows="4"
+                      placeholder="Override the default secondary-insurance notice, or leave blank for the built-in text."
                     />
                   </div>
                   <div v-if="registrationFlowAdmin" class="form-group" style="grid-column: 1 / -1;">
@@ -1244,6 +1258,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
+/** Stored on the intake link customMessages when the admin picks the built-in parent/class registration email preset. */
+const COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP = 'guardian_partnership';
+
 const loading = ref(false);
 const error = ref('');
 const links = ref([]);
@@ -1281,6 +1298,7 @@ const form = reactive({
     beginSubtitle: '',
     formTimeLimit: '',
     completionEmailTemplateId: null,
+    completionEmailPreset: null,
     completionEmailTemplateType: 'school_full_intake_packet_default',
     completionEmailSubject: '',
     completionEmailBody: ''
@@ -1362,6 +1380,14 @@ const completionEmailTemplateOptions = computed(() =>
 const selectedCompletionEmailTemplate = computed(() =>
   completionEmailTemplateOptions.value.find((t) => Number(t.id) === Number(form.customMessages?.completionEmailTemplateId || 0)) || null
 );
+const completionEmailDropdownValue = computed(() => {
+  const id = Number(form.customMessages?.completionEmailTemplateId || 0);
+  if (id) return `template:${id}`;
+  if (form.customMessages?.completionEmailPreset === COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP) {
+    return 'preset:guardian_partnership';
+  }
+  return '';
+});
 const programOrganizations = computed(() =>
   organizations.value
     .filter((o) => String(o?.organization_type || '').toLowerCase() === 'program')
@@ -1528,6 +1554,7 @@ const resetForm = () => {
     beginSubtitle: '',
     formTimeLimit: '',
     completionEmailTemplateId: null,
+    completionEmailPreset: null,
     completionEmailTemplateType: 'school_full_intake_packet_default',
     completionEmailSubject: '',
     completionEmailBody: ''
@@ -1568,6 +1595,7 @@ const serializeDraft = () => ({
       beginSubtitle: '',
       formTimeLimit: '',
       completionEmailTemplateId: null,
+      completionEmailPreset: null,
       completionEmailTemplateType: 'school_full_intake_packet_default',
       completionEmailSubject: '',
       completionEmailBody: ''
@@ -1616,6 +1644,7 @@ const applyDraft = (draft) => {
         beginSubtitle: data.customMessages.beginSubtitle ?? '',
         formTimeLimit: data.customMessages.formTimeLimit ?? '',
         completionEmailTemplateId: data.customMessages.completionEmailTemplateId ?? null,
+        completionEmailPreset: data.customMessages.completionEmailPreset ?? null,
         completionEmailTemplateType: data.customMessages.completionEmailTemplateType ?? 'school_full_intake_packet_default',
         completionEmailSubject: data.customMessages.completionEmailSubject ?? '',
         completionEmailBody: data.customMessages.completionEmailBody ?? ''
@@ -1624,6 +1653,7 @@ const applyDraft = (draft) => {
         beginSubtitle: '',
         formTimeLimit: '',
         completionEmailTemplateId: null,
+        completionEmailPreset: null,
         completionEmailTemplateType: 'school_full_intake_packet_default',
         completionEmailSubject: '',
         completionEmailBody: ''
@@ -1859,6 +1889,7 @@ const editLink = (link) => {
         beginSubtitle: link.custom_messages.beginSubtitle ?? '',
         formTimeLimit: link.custom_messages.formTimeLimit ?? '',
         completionEmailTemplateId: link.custom_messages.completionEmailTemplateId ?? null,
+        completionEmailPreset: link.custom_messages.completionEmailPreset ?? null,
         completionEmailTemplateType: link.custom_messages.completionEmailTemplateType ?? 'school_full_intake_packet_default',
         completionEmailSubject: link.custom_messages.completionEmailSubject ?? '',
         completionEmailBody: link.custom_messages.completionEmailBody ?? ''
@@ -1867,6 +1898,7 @@ const editLink = (link) => {
         beginSubtitle: '',
         formTimeLimit: '',
         completionEmailTemplateId: null,
+        completionEmailPreset: null,
         completionEmailTemplateType: 'school_full_intake_packet_default',
         completionEmailSubject: '',
         completionEmailBody: ''
@@ -1990,17 +2022,23 @@ const save = async () => {
       const cm = form.customMessages || {};
       const completionType = String(cm.completionEmailTemplateType || '').trim();
       const hasCustomCompletionType = completionType && completionType !== 'school_full_intake_packet_default';
+      const preset = String(cm.completionEmailPreset || '').trim();
       const hasAny = (cm.beginSubtitle || '').trim()
         || (cm.formTimeLimit || '').trim()
         || Number(cm.completionEmailTemplateId || 0)
         || hasCustomCompletionType
         || (cm.completionEmailSubject || '').trim()
-        || (cm.completionEmailBody || '').trim();
+        || (cm.completionEmailBody || '').trim()
+        || preset === COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP;
       if (!hasAny) return null;
       return {
         beginSubtitle: (cm.beginSubtitle || '').trim() || undefined,
         formTimeLimit: (cm.formTimeLimit || '').trim() || undefined,
         completionEmailTemplateId: Number(cm.completionEmailTemplateId || 0) || undefined,
+        completionEmailPreset:
+          preset === COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP
+            ? COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP
+            : undefined,
         completionEmailTemplateType: hasCustomCompletionType ? completionType : undefined,
         completionEmailSubject: (cm.completionEmailSubject || '').trim() || undefined,
         completionEmailBody: (cm.completionEmailBody || '').trim() || undefined
@@ -2055,6 +2093,7 @@ const save = async () => {
 
 const applyDefaultCompletionEmailCopy = () => {
   if (!form.customMessages) return;
+  form.customMessages.completionEmailPreset = null;
   const formLabel = String(form.title || '').trim() || 'Intake Packet';
   form.customMessages.completionEmailSubject = `${formLabel} - Signed Packet Ready`;
   form.customMessages.completionEmailBody = [
@@ -2068,6 +2107,67 @@ const applyDefaultCompletionEmailCopy = () => {
     '',
     'This link expires in {{LINK_EXPIRES_DAYS}} days.'
   ].join('\n');
+};
+
+const applyGuardianPartnershipCompletionEmailCopy = () => {
+  if (!form.customMessages) return;
+  const formLabel = String(form.title || '').trim() || 'Your program';
+  form.customMessages.completionEmailSubject = `${formLabel} — Welcome, your intake is complete`;
+  form.customMessages.completionEmailBody = [
+    'Hi {{SIGNER_NAME}},',
+    '',
+    'Thank you for completing your registration and intake. We are glad you are joining us.',
+    '{{CLIENT_SUMMARY}}',
+    '',
+    'Your signed intake packet is ready for your records.',
+    '',
+    'Download your signed packet:',
+    '{{DOWNLOAD_URL}}',
+    '',
+    'This download link expires in {{LINK_EXPIRES_DAYS}} days.',
+    '',
+    'We also created a guardian portal account for you. You can access it using the one-time sign-in link below (recommended), or sign in from the main login page with your email and temporary password.',
+    '',
+    'One-time sign-in link:',
+    '{{PORTAL_LOGIN_URL}}',
+    '',
+    'Username (email): {{REGISTRATION_LOGIN_EMAIL}}',
+    'Temporary password: {{REGISTRATION_TEMP_PASSWORD}}',
+    '',
+    'Main login page (optional): {{REGISTRATION_LOGIN_PAGE_URL}}',
+    '',
+    'The temporary password is valid for 72 hours. After you sign in, you will be prompted to set a new password.',
+    'If it expires before you sign in, use "Forgot password" on the login page to receive a reset link.',
+    '',
+    '{{REGISTRATION_EVENT_SUMMARY}}',
+    '',
+    'If you have questions, reply to this email and we will be happy to help.',
+    '',
+    'Warm regards,',
+    '{{SCHOOL_NAME}} team'
+  ].join('\n');
+};
+
+const onCompletionEmailDropdownChange = (event) => {
+  if (!form.customMessages) return;
+  const raw = String(event?.target?.value ?? '');
+  form.customMessages.completionEmailPreset = null;
+  form.customMessages.completionEmailTemplateId = null;
+  if (raw.startsWith('template:')) {
+    const id = Number(raw.slice('template:'.length));
+    if (id) {
+      form.customMessages.completionEmailTemplateId = id;
+      onCompletionEmailTemplateChange();
+    }
+    return;
+  }
+  if (raw === 'preset:guardian_partnership') {
+    form.customMessages.completionEmailPreset = COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP;
+    applyGuardianPartnershipCompletionEmailCopy();
+    return;
+  }
+  form.customMessages.completionEmailSubject = '';
+  form.customMessages.completionEmailBody = '';
 };
 
 const onCompletionEmailTemplateChange = () => {
@@ -2437,6 +2537,14 @@ const sanitizeSteps = (steps, { formType } = {}) => {
           programUpdates: !!campaigns.programUpdates,
           internalWorkforce: !!campaigns.internalWorkforce
         };
+      } else if (next.type === 'insurance_info') {
+        next.label = String(next.label || '').trim() || 'Insurance information';
+        next.visibility = ['always', 'new_client_only'].includes(String(next.visibility || '').trim())
+          ? String(next.visibility).trim()
+          : 'always';
+        next.nonMedicaidDisclaimerText = String(next.nonMedicaidDisclaimerText || '').trim();
+        next.secondaryInsuranceDisclaimerText = String(next.secondaryInsuranceDisclaimerText || '').trim();
+        next.requireSecondaryInsurance = !!next.requireSecondaryInsurance;
       }
       return next;
     });
@@ -2541,6 +2649,7 @@ const addStep = (type, options = {}) => {
     step.visibility = 'always';
     // Text shown to non-Medicaid families explaining why payment info is collected.
     step.nonMedicaidDisclaimerText = '';
+    step.secondaryInsuranceDisclaimerText = '';
     step.requireSecondaryInsurance = false;
   } else if (type === 'payment_collection') {
     step.label = 'Payment information';

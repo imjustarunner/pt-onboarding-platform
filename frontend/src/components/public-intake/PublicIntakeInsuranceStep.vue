@@ -102,6 +102,10 @@
       </div>
     </div>
 
+    <p v-if="displayedSecondaryDisclaimer" class="pi-ins-disclaimer pi-ins-secondary-notice">
+      {{ displayedSecondaryDisclaimer }}
+    </p>
+
     <!-- SECONDARY INSURANCE (optional) -->
     <div class="pi-ins-secondary-toggle">
       <label class="checkbox-row">
@@ -197,6 +201,9 @@
 import { ref, reactive, computed, watch } from 'vue';
 import { filterInsurances, isMedicaidInsurer } from '../../utils/coloradoInsurances.js';
 
+const DEFAULT_SECONDARY_INSURANCE_NOTICE =
+  'If your household carries secondary (supplemental) insurance in addition to the primary plan above, please add it using the option below or contact us promptly with complete policy information. Failure to provide complete and accurate coverage details—including applicable secondary insurance when it exists—may delay authorizations or benefit verification and could result in interruptions or delays in services.';
+
 const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
   stepConfig: { type: Object, default: () => ({}) }
@@ -247,6 +254,11 @@ const secondarySuggestions = computed(() => filterInsurances(secondaryQuery.valu
 
 const primaryIsMedicaid = computed(() => isMedicaidInsurer(local.primary.insurerName));
 const allMedicaid = computed(() => primaryIsMedicaid.value && (!hasSecondary.value || isMedicaidInsurer(local.secondary.insurerName)));
+
+const displayedSecondaryDisclaimer = computed(() => {
+  const custom = String(props.stepConfig?.secondaryInsuranceDisclaimerText || '').trim();
+  return custom || DEFAULT_SECONDARY_INSURANCE_NOTICE;
+});
 
 // ── Typeahead handlers ───────────────────────────────────────────────────────
 function onPrimaryInput() {
@@ -358,6 +370,11 @@ defineExpose({ getPhotoFiles, primaryIsMedicaid });
   font-size: 14px;
   line-height: 1.5;
   color: #713f12;
+}
+.pi-ins-secondary-notice {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e3a5f;
 }
 .pi-ins-card {
   border: 1px solid var(--border, #e2e8f0);

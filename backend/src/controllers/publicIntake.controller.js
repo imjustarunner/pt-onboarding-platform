@@ -718,6 +718,7 @@ const resolvePacketCompletionEmailContent = async ({
   registrationLoginEmail = null,
   registrationTempPassword = null,
   portalLoginUrl = null,
+  registrationPasswordlessUrl = null,
   registrationEventSummary = null
 }) => {
   const customMessages = link?.custom_messages && typeof link.custom_messages === 'object'
@@ -739,7 +740,9 @@ const resolvePacketCompletionEmailContent = async ({
 
   const regLogin = String(registrationLoginEmail || signerEmail || '').trim();
   const regPw = String(registrationTempPassword || '').trim();
-  const regPortal = String(portalLoginUrl || '').trim();
+  const regPlainLogin = String(portalLoginUrl || '').trim();
+  const regPasswordless = String(registrationPasswordlessUrl || '').trim();
+  const regPortalPrimary = regPasswordless || regPlainLogin;
   const regEvent = String(registrationEventSummary || '').trim();
 
   const params = {
@@ -756,7 +759,9 @@ const resolvePacketCompletionEmailContent = async ({
     LINK_EXPIRY_DAYS: Number(expiresInDays || 7),
     REGISTRATION_LOGIN_EMAIL: regLogin,
     REGISTRATION_TEMP_PASSWORD: regPw,
-    PORTAL_LOGIN_URL: regPortal,
+    PORTAL_LOGIN_URL: regPortalPrimary,
+    REGISTRATION_PASSWORDLESS_URL: regPasswordless,
+    REGISTRATION_LOGIN_PAGE_URL: regPlainLogin,
     REGISTRATION_EVENT_SUMMARY: regEvent
   };
 
@@ -764,9 +769,14 @@ const resolvePacketCompletionEmailContent = async ({
     ? [
         '',
         '— Guardian portal access —',
+        regPasswordless
+          ? `One-time sign-in link (use this to access the portal and set your password):\n${regPasswordless}`
+          : '',
         `Username (email): ${regLogin}`,
         `Temporary password (valid 72 hours; you will set a new password after signing in): ${regPw}`,
-        regPortal ? `Sign in: ${regPortal}` : '',
+        regPlainLogin && regPasswordless && regPlainLogin !== regPasswordless
+          ? `Main login page (if you prefer to type your email and temporary password): ${regPlainLogin}`
+          : (!regPasswordless && regPlainLogin ? `Sign in: ${regPlainLogin}` : ''),
         'If this password expires before you sign in, use "Forgot password" on the login page to receive a reset link.',
         regEvent ? `Event / registration: ${regEvent}` : ''
       ].filter(Boolean).join('\n')
@@ -810,7 +820,9 @@ const resolvePacketCompletionEmailContent = async ({
                <p><strong>Guardian portal</strong></p>
                <p>Username: ${escapeHtml(regLogin)}</p>
                <p>Temporary password (72h): <code>${escapeHtml(regPw)}</code></p>
-               ${regPortal ? `<p><a href="${escapeHtml(regPortal)}">Sign in</a></p>` : ''}
+               ${regPasswordless ? `<p><a href="${escapeHtml(regPasswordless)}">One-time sign-in link</a></p>` : ''}
+               ${regPlainLogin && regPasswordless ? `<p style="font-size:13px;color:#555;">Or open the <a href="${escapeHtml(regPlainLogin)}">login page</a> and sign in with your email and temporary password.</p>` : ''}
+               ${!regPasswordless && regPlainLogin ? `<p><a href="${escapeHtml(regPlainLogin)}">Sign in</a></p>` : ''}
                ${regEvent ? `<p><strong>Event:</strong> ${escapeHtml(regEvent)}</p>` : ''}
              </div>`
           : ''}
@@ -3823,14 +3835,21 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
 
     let newGuardianTemporaryPassword = null;
+    let newGuardianPasswordlessLoginUrl = null;
     let createdClients = [];
     if (link.create_client) {
-      const { clients, guardianUser, newGuardianTemporaryPassword: ngpw } = await PublicIntakeClientService.createClientAndGuardian({
+      const {
+        clients,
+        guardianUser,
+        newGuardianTemporaryPassword: ngpw,
+        newGuardianPasswordlessLoginUrl: ngMagic
+      } = await PublicIntakeClientService.createClientAndGuardian({
         link,
         payload: req.body
       });
       createdClients = clients || [];
       newGuardianTemporaryPassword = ngpw || null;
+      newGuardianPasswordlessLoginUrl = ngMagic || null;
       updatedSubmission = await IntakeSubmission.updateById(submissionId, {
         client_id: createdClients?.[0]?.id || null,
         guardian_user_id: guardianUser?.id || null
@@ -4514,8 +4533,12 @@ export const finalizePublicIntake = async (req, res, next) => {
             registrationEventSummary = '';
           }
           const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
-          const portalLoginUrl = portalBase ? `${portalBase}/login` : '';
+          const registrationLoginPageUrl = portalBase ? `${portalBase}/login` : '';
           const regFlow = linkSupportsPublicRegistrationFeatures(link);
+          const registrationPasswordlessUrl =
+            regFlow && link.create_guardian && newGuardianTemporaryPassword
+              ? (newGuardianPasswordlessLoginUrl || '')
+              : '';
           const packetEmail = await resolvePacketCompletionEmailContent({
             link,
             agencyId: link?.agency_id || agency?.id || null,
@@ -4528,7 +4551,8 @@ export const finalizePublicIntake = async (req, res, next) => {
             expiresInDays: 7,
             registrationLoginEmail: updatedSubmission.signer_email || '',
             registrationTempPassword: regFlow && link.create_guardian ? (newGuardianTemporaryPassword || '') : '',
-            portalLoginUrl,
+            portalLoginUrl: registrationLoginPageUrl,
+            registrationPasswordlessUrl,
             registrationEventSummary
           });
           const identity = await resolveIntakeSenderIdentity({
@@ -4586,10 +4610,11 @@ export const finalizePublicIntake = async (req, res, next) => {
     if (linkSupportsPublicRegistrationFeatures(link) && link.create_guardian) {
       try {
         const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
+        const loginPageUrl = portalBase ? `${portalBase}/login` : null;
         const merged = mergeIntakeSubmissionPatch(intakeData, {
           registration_completion_new_guardian: !!newGuardianTemporaryPassword,
           registration_completion_login_email: updatedSubmission.signer_email || null,
-          registration_completion_portal_url: portalBase ? `${portalBase}/login` : null
+          registration_completion_portal_url: newGuardianPasswordlessLoginUrl || loginPageUrl
         });
         await IntakeSubmission.updateById(submissionId, {
           intake_data: JSON.stringify(merged),
@@ -4785,14 +4810,21 @@ export const submitPublicIntake = async (req, res, next) => {
     });
 
     let newGuardianTemporaryPassword = null;
+    let newGuardianPasswordlessLoginUrl = null;
     let createdClients = [];
     if (link.create_client) {
-      const { clients, guardianUser, newGuardianTemporaryPassword: ngpw } = await PublicIntakeClientService.createClientAndGuardian({
+      const {
+        clients,
+        guardianUser,
+        newGuardianTemporaryPassword: ngpw,
+        newGuardianPasswordlessLoginUrl: ngMagic
+      } = await PublicIntakeClientService.createClientAndGuardian({
         link,
         payload: req.body
       });
       createdClients = clients || [];
       newGuardianTemporaryPassword = ngpw || null;
+      newGuardianPasswordlessLoginUrl = ngMagic || null;
       updatedSubmission = await IntakeSubmission.updateById(submissionId, {
         client_id: createdClients?.[0]?.id || null,
         guardian_user_id: guardianUser?.id || null
@@ -5066,8 +5098,12 @@ export const submitPublicIntake = async (req, res, next) => {
           registrationEventSummary = '';
         }
         const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
-        const portalLoginUrl = portalBase ? `${portalBase}/login` : '';
+        const registrationLoginPageUrl = portalBase ? `${portalBase}/login` : '';
         const regFlowEmail = linkSupportsPublicRegistrationFeatures(link);
+        const registrationPasswordlessUrl =
+          regFlowEmail && link.create_guardian && newGuardianTemporaryPassword
+            ? (newGuardianPasswordlessLoginUrl || '')
+            : '';
         const packetEmail = await resolvePacketCompletionEmailContent({
           link,
           agencyId: link?.agency_id || agency?.id || null,
@@ -5080,7 +5116,8 @@ export const submitPublicIntake = async (req, res, next) => {
           expiresInDays: 7,
           registrationLoginEmail: updatedSubmission.signer_email || '',
           registrationTempPassword: regFlowEmail && link.create_guardian ? (newGuardianTemporaryPassword || '') : '',
-          portalLoginUrl,
+          portalLoginUrl: registrationLoginPageUrl,
+          registrationPasswordlessUrl,
           registrationEventSummary
         });
         try {
@@ -5134,10 +5171,11 @@ export const submitPublicIntake = async (req, res, next) => {
     if (linkSupportsPublicRegistrationFeatures(link) && link.create_guardian) {
       try {
         const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
+        const loginPageUrl = portalBase ? `${portalBase}/login` : null;
         const merged = mergeIntakeSubmissionPatch(intakeData, {
           registration_completion_new_guardian: !!newGuardianTemporaryPassword,
           registration_completion_login_email: updatedSubmission.signer_email || null,
-          registration_completion_portal_url: portalBase ? `${portalBase}/login` : null
+          registration_completion_portal_url: newGuardianPasswordlessLoginUrl || loginPageUrl
         });
         await IntakeSubmission.updateById(submissionId, {
           intake_data: JSON.stringify(merged),

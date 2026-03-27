@@ -1,3 +1,4 @@
+import config from '../config/config.js';
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -52,6 +53,15 @@ const resolveAgencyId = async (organizationId) => {
     (await AgencySchool.getActiveAgencyIdForSchool(orgId)) ||
     null
   );
+};
+
+const buildGuardianPasswordlessLoginUrl = (agencyRecord, token) => {
+  const frontendBase = String(config.frontendUrl || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+  const portalSlug = String(agencyRecord?.portal_url || '').trim();
+  if (!frontendBase || !token) return '';
+  return portalSlug
+    ? `${frontendBase}/${portalSlug}/passwordless-login/${token}`
+    : `${frontendBase}/passwordless-login/${token}`;
 };
 
 const ensureOrganizationIsChild = async (organizationId) => {
@@ -150,6 +160,7 @@ class PublicIntakeClientService {
 
     let guardianUser = null;
     let newGuardianTemporaryPassword = null;
+    let newGuardianPasswordlessLoginUrl = null;
     if (createGuardian) {
       const guardianPayload = payload?.guardian || {};
       const email = String(guardianPayload.email || '').trim();
@@ -181,6 +192,16 @@ class PublicIntakeClientService {
         const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
         await User.setTemporaryPassword(guardianUser.id, tempPassword, tempHours);
         newGuardianTemporaryPassword = tempPassword;
+        try {
+          const agencyRecord = await Agency.findById(agencyId);
+          const tokenResult = await User.generatePasswordlessToken(guardianUser.id, tempHours, 'setup');
+          newGuardianPasswordlessLoginUrl = buildGuardianPasswordlessLoginUrl(agencyRecord, tokenResult.token);
+        } catch (tokenErr) {
+          console.error('[publicIntakeClient] guardian passwordless token failed', {
+            userId: guardianUser.id,
+            message: tokenErr?.message || tokenErr
+          });
+        }
       }
 
       for (const client of createdClients) {
@@ -195,7 +216,12 @@ class PublicIntakeClientService {
       }
     }
 
-    return { clients: createdClients, guardianUser, newGuardianTemporaryPassword };
+    return {
+      clients: createdClients,
+      guardianUser,
+      newGuardianTemporaryPassword,
+      newGuardianPasswordlessLoginUrl
+    };
   }
 }
 
