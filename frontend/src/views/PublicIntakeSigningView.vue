@@ -1426,6 +1426,50 @@ const currentGuardianWaiverSectionKeys = computed(() => {
     : [];
   return keys.length ? keys : DEFAULT_GUARDIAN_WAIVER_SECTION_KEYS;
 });
+const GUARDIAN_WAIVER_RENDERABLE_SECTION_KEYS = new Set([
+  'pickup_authorization',
+  'emergency_contacts',
+  'allergies_snacks',
+  'meal_preferences'
+]);
+const guardianWaiverSectionLabels = {
+  pickup_authorization: 'pickup authorization',
+  emergency_contacts: 'emergency contacts',
+  allergies_snacks: 'medical information & allergies',
+  meal_preferences: 'meals'
+};
+const guardianWaiverValidationKeys = computed(() => {
+  const ctx = eventWaiverContext.value || {};
+  const keys = [...new Set(currentGuardianWaiverSectionKeys.value)];
+  return keys.filter((key) => {
+    if (!GUARDIAN_WAIVER_RENDERABLE_SECTION_KEYS.has(key)) return false;
+    if (key === 'meal_preferences' && ctx.mealsAvailable === false) return false;
+    return true;
+  });
+});
+
+function hasAnyFilledText(values = []) {
+  return values.some((v) => String(v ?? '').trim().length > 0);
+}
+
+function isOptionalGuardianWaiverSectionSkipped(sectionKey, payload) {
+  if (!payload || typeof payload !== 'object') return true;
+  if (sectionKey === 'pickup_authorization') {
+    if (payload.declinePickupAuthorization === true) return true;
+    const rows = Array.isArray(payload.authorizedPickups) ? payload.authorizedPickups : [];
+    return !rows.some((row) =>
+      hasAnyFilledText([row?.name, row?.relationship, row?.phone])
+    );
+  }
+  if (sectionKey === 'emergency_contacts') {
+    if (payload.declineEmergencyContacts === true) return true;
+    const rows = Array.isArray(payload.contacts) ? payload.contacts : [];
+    return !rows.some((row) =>
+      hasAnyFilledText([row?.name, row?.relationship, row?.phone])
+    );
+  }
+  return false;
+}
 
 const guardianWaiverClientLabels = computed(() => {
   const list = clients.value || [];
@@ -3114,7 +3158,8 @@ const completeGuardianWaiverStep = () => {
   const step = currentFlowStep.value;
   if (!step || step.type !== 'guardian_waiver') return;
   ensureGuardianWaiverIntakeShape();
-  const keys = [...new Set(currentGuardianWaiverSectionKeys.value)];
+  const keys = guardianWaiverValidationKeys.value;
+  const savedSig = String(lastSignatureData.value || '').trim();
   const gw = intakeResponses.submission.guardianWaiverIntake;
   if (!gw?.clients?.length) {
     stepError.value = 'Missing waiver data. Please refresh and try again.';
@@ -3124,12 +3169,19 @@ const completeGuardianWaiverStep = () => {
     const label = guardianWaiverClientLabels.value[i] || `Child ${i + 1}`;
     for (const key of keys) {
       const sec = gw.clients[i].sections?.[key];
+      if ((key === 'pickup_authorization' || key === 'emergency_contacts')
+        && isOptionalGuardianWaiverSectionSkipped(key, sec?.payload)) {
+        continue;
+      }
       if (!sec) {
-        stepError.value = `Please complete all waiver sections for ${label}.`;
+        stepError.value = `Please complete ${guardianWaiverSectionLabels[key] || 'all waiver sections'} for ${label}.`;
         return;
       }
-      if (String(sec.signatureData || '').trim().length < 80) {
-        stepError.value = `Apply your saved signature to each waiver section for ${label} before continuing.`;
+      if (String(sec.signatureData || '').trim().length < 10 && savedSig) {
+        sec.signatureData = savedSig;
+      }
+      if (String(sec.signatureData || '').trim().length < 10) {
+        stepError.value = `Please apply your saved signature to the ${guardianWaiverSectionLabels[key] || 'waiver'} section for ${label}.`;
         return;
       }
     }

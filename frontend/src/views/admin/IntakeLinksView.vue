@@ -2522,7 +2522,6 @@ const sanitizeSteps = (steps, { formType } = {}) => {
           ? String(next.visibility).trim()
           : 'always';
         const allowed = new Set([
-          'esignature_consent',
           'pickup_authorization',
           'emergency_contacts',
           'allergies_snacks',
@@ -2532,9 +2531,6 @@ const sanitizeSteps = (steps, { formType } = {}) => {
         let keys = [...new Set(raw.map((k) => String(k || '').trim()).filter((k) => allowed.has(k)))];
         if (!keys.length) {
           keys = [...allowed];
-        }
-        if (!keys.includes('esignature_consent')) {
-          keys = ['esignature_consent', ...keys.filter((k) => k !== 'esignature_consent')];
         }
         next.sectionKeys = keys;
       } else if (next.type === 'communications') {

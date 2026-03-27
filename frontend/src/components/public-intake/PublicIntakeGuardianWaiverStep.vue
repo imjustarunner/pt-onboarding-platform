@@ -129,9 +129,15 @@ function ensureClientSlot(idx) {
 function defaultPayload(key) {
   switch (key) {
     case 'pickup_authorization':
-      return { authorizedPickups: [{ name: '', relationship: '', phone: '' }] };
+      return {
+        declinePickupAuthorization: false,
+        authorizedPickups: [{ name: '', relationship: '', phone: '' }]
+      };
     case 'emergency_contacts':
-      return { contacts: [{ name: '', phone: '', relationship: '' }] };
+      return {
+        declineEmergencyContacts: false,
+        contacts: [{ name: '', phone: '', relationship: '' }]
+      };
     case 'allergies_snacks':
       return { allergies: '', approvedSnacks: '', notes: '' };
     case 'meal_preferences':

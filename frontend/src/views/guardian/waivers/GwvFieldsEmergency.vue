@@ -1,12 +1,21 @@
 <template>
   <div class="gwv-f">
+    <label class="gwv-optout">
+      <input
+        type="checkbox"
+        :checked="declineEmergencyContacts"
+        :disabled="disabled"
+        @change="toggleDeclineEmergency($event.target.checked)"
+      />
+      <span>I do not want to list emergency contacts at this time.</span>
+    </label>
     <div v-for="(row, idx) in rows" :key="idx" class="gwv-grid">
       <input
         :value="row.name"
         class="input"
         type="text"
         placeholder="Name"
-        :disabled="disabled"
+        :disabled="disabled || declineEmergencyContacts"
         @input="patchRow(idx, 'name', $event.target.value)"
       />
       <input
@@ -14,7 +23,7 @@
         class="input"
         type="tel"
         placeholder="Phone"
-        :disabled="disabled"
+        :disabled="disabled || declineEmergencyContacts"
         @input="patchRow(idx, 'phone', $event.target.value)"
       />
       <input
@@ -22,20 +31,20 @@
         class="input"
         type="text"
         placeholder="Relationship"
-        :disabled="disabled"
+        :disabled="disabled || declineEmergencyContacts"
         @input="patchRow(idx, 'relationship', $event.target.value)"
       />
       <button
         v-if="rows.length > 1"
         type="button"
         class="btn btn-secondary btn-sm"
-        :disabled="disabled"
+        :disabled="disabled || declineEmergencyContacts"
         @click="removeRow(idx)"
       >
         Remove
       </button>
     </div>
-    <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled" @click="addRow">Add contact</button>
+    <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || declineEmergencyContacts" @click="addRow">Add contact</button>
   </div>
 </template>
 
@@ -53,9 +62,18 @@ const rows = computed(() =>
     ? props.modelValue.contacts
     : [{ name: '', phone: '', relationship: '' }]
 );
+const declineEmergencyContacts = computed(() => !!props.modelValue.declineEmergencyContacts);
 
 function emitRows(next) {
   emit('update:modelValue', { ...props.modelValue, contacts: next });
+}
+
+function toggleDeclineEmergency(checked) {
+  emit('update:modelValue', {
+    ...props.modelValue,
+    declineEmergencyContacts: !!checked,
+    contacts: [{ name: '', phone: '', relationship: '' }]
+  });
 }
 
 function patchRow(idx, field, value) {
@@ -86,6 +104,12 @@ function removeRow(i) {
   grid-template-columns: 1fr 1fr 1fr auto;
   gap: 8px;
   align-items: center;
+}
+.gwv-optout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
 }
 @media (max-width: 720px) {
   .gwv-grid {

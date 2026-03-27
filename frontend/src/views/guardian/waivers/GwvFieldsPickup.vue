@@ -4,13 +4,22 @@
       <p>We cannot release your child to individuals who are not approved in writing and never to an individual under the age of 18.</p>
       <p>At any time you may update or submit additional individuals, though we request that you list any individuals whom you approve at the time of admission likely to be included to help our staff manage check out and release for these programs.</p>
     </div>
+    <label class="gwv-optout">
+      <input
+        type="checkbox"
+        :checked="declinePickupAuthorization"
+        :disabled="disabled"
+        @change="toggleDeclinePickup($event.target.checked)"
+      />
+      <span>I do not want to list additional pickup contacts at this time.</span>
+    </label>
     <div v-for="(row, idx) in rows" :key="idx" class="gwv-grid">
       <input
         :value="row.name"
         class="input"
         type="text"
         placeholder="Full name"
-        :disabled="disabled"
+        :disabled="disabled || declinePickupAuthorization"
         @input="patchRow(idx, 'name', $event.target.value)"
       />
       <input
@@ -18,7 +27,7 @@
         class="input"
         type="text"
         placeholder="Relationship"
-        :disabled="disabled"
+        :disabled="disabled || declinePickupAuthorization"
         @input="patchRow(idx, 'relationship', $event.target.value)"
       />
       <input
@@ -26,20 +35,20 @@
         class="input"
         type="tel"
         placeholder="Phone"
-        :disabled="disabled"
+        :disabled="disabled || declinePickupAuthorization"
         @input="patchRow(idx, 'phone', $event.target.value)"
       />
       <button
         v-if="rows.length > 1"
         type="button"
         class="btn btn-secondary btn-sm"
-        :disabled="disabled"
+        :disabled="disabled || declinePickupAuthorization"
         @click="removeRow(idx)"
       >
         Remove
       </button>
     </div>
-    <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled" @click="addRow">Add person</button>
+    <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || declinePickupAuthorization" @click="addRow">Add person</button>
   </div>
 </template>
 
@@ -57,9 +66,18 @@ const rows = computed(() =>
     ? props.modelValue.authorizedPickups
     : [{ name: '', relationship: '', phone: '' }])
 );
+const declinePickupAuthorization = computed(() => !!props.modelValue.declinePickupAuthorization);
 
 function emitRows(next) {
   emit('update:modelValue', { ...props.modelValue, authorizedPickups: next });
+}
+
+function toggleDeclinePickup(checked) {
+  emit('update:modelValue', {
+    ...props.modelValue,
+    declinePickupAuthorization: !!checked,
+    authorizedPickups: [{ name: '', relationship: '', phone: '' }]
+  });
 }
 
 function patchRow(idx, field, value) {
@@ -105,6 +123,12 @@ function removeRow(i) {
   grid-template-columns: 1fr 1fr 1fr auto;
   gap: 8px;
   align-items: center;
+}
+.gwv-optout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
 }
 @media (max-width: 720px) {
   .gwv-grid {
