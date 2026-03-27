@@ -100,7 +100,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import api from '../../utils/api.js';
+import api from '../../services/api';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },

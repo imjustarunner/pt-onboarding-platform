@@ -118,7 +118,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import api from '../../utils/api.js';
+import api from '../../services/api';
 
 const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
