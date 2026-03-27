@@ -756,6 +756,18 @@
                     <input v-model="step.label" type="text" placeholder="Communication preferences" />
                   </div>
                   <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Audience</label>
+                    <select v-model="step.audience">
+                      <option value="auto">Auto (based on form context)</option>
+                      <option value="guardian_client">Guardian / client</option>
+                      <option value="workforce">Employee / contractor</option>
+                      <option value="school_staff">School staff</option>
+                    </select>
+                    <div class="muted" style="font-size: 13px; margin-top: 6px;">
+                      Auto uses the intake context. Job/onboarding-style links default to workforce wording.
+                    </div>
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
                     <label class="checkbox">
                       <input v-model="step.campaigns.scheduling" type="checkbox" />
                       Include Campaign 1 — Appointment scheduling + reminders (required for A2P proof)
@@ -2530,6 +2542,9 @@ const sanitizeSteps = (steps, { formType } = {}) => {
         next.visibility = ['always', 'new_client_only', 'existing_client_only'].includes(String(next.visibility || '').trim())
           ? String(next.visibility).trim()
           : 'always';
+        next.audience = ['auto', 'guardian_client', 'workforce', 'school_staff'].includes(String(next.audience || '').trim())
+          ? String(next.audience).trim()
+          : 'auto';
         const campaigns = next.campaigns && typeof next.campaigns === 'object' ? { ...next.campaigns } : {};
         next.campaigns = {
           scheduling: campaigns.scheduling !== false,
@@ -2661,6 +2676,7 @@ const addStep = (type, options = {}) => {
   } else if (type === 'communications') {
     step.label = 'Communication preferences';
     step.visibility = 'always';
+    step.audience = 'auto';
     step.campaigns = {
       scheduling: true,
       providerTexting: false,

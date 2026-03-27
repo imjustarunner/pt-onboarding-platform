@@ -586,24 +586,22 @@
 
         <div v-if="currentFlowStep?.type === 'communications'" class="communications-step">
           <p class="muted">
-            Choose how you would like to receive platform communications. You can update these preferences at any time.
+            {{ communicationsIntroText }}
           </p>
 
           <section class="communications-campaign-card">
-            <h4>Email Communication Preference <span class="required-indicator">*</span></h4>
+            <h4>{{ communicationsEmailTitle }} <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
-              Please choose what you would like to receive emails from us. If you opt in, we may email you about
-              scheduling, appointment reminders, and-if selected-updates about mental health programs and services.
-              Your email will never be shared or sold to third parties, and you may unsubscribe at any time.
+              {{ communicationsEmailDisclosure }}
             </p>
             <div class="radio-group">
               <label class="radio-row">
                 <input type="radio" name="communications_email_preference" value="all" v-model="communications.emailPreference" />
-                <span>Yes - Scheduling + all program communications</span>
+                <span>{{ communicationsEmailAllLabel }}</span>
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_email_preference" value="scheduling_only" v-model="communications.emailPreference" />
-                <span>Yes - Scheduling only</span>
+                <span>{{ communicationsEmailSchedulingOnlyLabel }}</span>
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_email_preference" value="no" v-model="communications.emailPreference" />
@@ -613,22 +611,20 @@
           </section>
 
           <section class="communications-campaign-card">
-            <h4>Text Message (SMS) Communication Preference <span class="required-indicator">*</span></h4>
+            <h4>{{ communicationsSmsTitle }} <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
-              Please choose what you would like to receive text messages from us. If you opt in, we may text you
-              about scheduling, appointment reminders, and-if selected-updates about mental health programs and services.
-              Message and data rates may apply. Reply STOP to opt out at any time and HELP for assistance.
+              {{ communicationsSmsDisclosure }}
               Terms: <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
               Privacy: <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
             </p>
             <div class="radio-group">
               <label class="radio-row">
                 <input type="radio" name="communications_sms_preference" value="all" v-model="communications.smsPreference" />
-                <span>Yes - Scheduling + all program communications</span>
+                <span>{{ communicationsSmsAllLabel }}</span>
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_sms_preference" value="scheduling_only" v-model="communications.smsPreference" />
-                <span>Yes - Scheduling only</span>
+                <span>{{ communicationsSmsSchedulingOnlyLabel }}</span>
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_sms_preference" value="no" v-model="communications.smsPreference" />
@@ -1256,6 +1252,52 @@ const communications = reactive({
 });
 const platformTermsUrl = '/terms';
 const platformPrivacyUrl = '/privacypolicy';
+const communicationsAudience = computed(() => {
+  const explicit = String(currentFlowStep.value?.audience || '').trim().toLowerCase();
+  if (['guardian_client', 'workforce', 'school_staff'].includes(explicit)) return explicit;
+  if (formTypeKey.value === 'job_application') return 'workforce';
+  return 'guardian_client';
+});
+const isWorkforceAudience = computed(() =>
+  communicationsAudience.value === 'workforce' || communicationsAudience.value === 'school_staff'
+);
+const communicationsIntroText = computed(() =>
+  isWorkforceAudience.value
+    ? 'Choose how you would like to receive operational communications. You can update these preferences at any time.'
+    : 'Choose how you would like to receive platform communications. You can update these preferences at any time.'
+);
+const communicationsEmailTitle = computed(() =>
+  isWorkforceAudience.value ? 'Email Notifications Preference' : 'Email Communication Preference'
+);
+const communicationsSmsTitle = computed(() =>
+  isWorkforceAudience.value ? 'Text Message (SMS) Notifications Preference' : 'Text Message (SMS) Communication Preference'
+);
+const communicationsEmailDisclosure = computed(() =>
+  isWorkforceAudience.value
+    ? 'Please choose what you would like to receive by email from us. If you opt in, we may email you about operational scheduling, internal announcements, and optional platform participation updates. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.'
+    : 'Please choose what you would like to receive emails from us. If you opt in, we may email you about scheduling, appointment reminders, and-if selected-updates about mental health programs and services. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.'
+);
+const communicationsSmsDisclosure = computed(() =>
+  isWorkforceAudience.value
+    ? 'Please choose what you would like to receive by text message from us. If you opt in, we may text you about operational scheduling, internal announcements, and optional participation updates. Message and data rates may apply. Reply STOP to opt out at any time and HELP for assistance.'
+    : 'Please choose what you would like to receive text messages from us. If you opt in, we may text you about scheduling, appointment reminders, and-if selected-updates about mental health programs and services. Message and data rates may apply. Reply STOP to opt out at any time and HELP for assistance.'
+);
+const communicationsEmailAllLabel = computed(() =>
+  isWorkforceAudience.value
+    ? 'Yes - Operational scheduling + internal announcements'
+    : 'Yes - Scheduling + all program communications'
+);
+const communicationsEmailSchedulingOnlyLabel = computed(() =>
+  isWorkforceAudience.value ? 'Yes - Scheduling only' : 'Yes - Scheduling only'
+);
+const communicationsSmsAllLabel = computed(() =>
+  isWorkforceAudience.value
+    ? 'Yes - Operational scheduling + internal announcements'
+    : 'Yes - Scheduling + all program communications'
+);
+const communicationsSmsSchedulingOnlyLabel = computed(() =>
+  isWorkforceAudience.value ? 'Yes - Scheduling only' : 'Yes - Scheduling only'
+);
 const templates = ref([]);
 const agencyInfo = ref(null);
 const organizationInfo = ref(null);
