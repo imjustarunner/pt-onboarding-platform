@@ -13,7 +13,7 @@
       </p>
 
       <div class="form-group">
-        <label class="pi-ins-lbl">Insurance provider <span class="req">*</span></label>
+        <label class="pi-ins-lbl">Insurance Carrier Name <span class="req">*</span></label>
         <div class="pi-ins-typeahead" ref="primarySearchRef">
           <input
             v-model="primaryQuery"
@@ -41,6 +41,27 @@
         <div v-if="primaryIsMedicaid" class="pi-ins-medicaid-notice">
           ✓ Medicaid detected — no self-pay cost applies for this program.
         </div>
+        <div v-if="primaryIsMedicaid" class="pi-ins-field-note">
+          If the child has other primary insurance, list that other plan as Primary and add Medicaid under Secondary.
+        </div>
+      </div>
+      <div class="pi-ins-quickfill">
+        <button
+          v-if="guardianDisplayName"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          @click="fillPrimarySubscriberFromGuardian"
+        >
+          Use Guardian Name
+        </button>
+        <button
+          v-if="firstClientDisplayName"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          @click="fillPrimarySubscriberFromFirstClient"
+        >
+          Use Client 1 Name
+        </button>
       </div>
 
       <!-- Insurance card photos -->
@@ -97,19 +118,54 @@
 
       <div class="pi-ins-grid">
         <div class="form-group">
-          <label class="pi-ins-lbl">Member / Policy ID</label>
+          <label class="pi-ins-lbl">Subscriber Name</label>
+          <input
+            v-model="local.primary.subscriberName"
+            class="pi-ins-input"
+            type="text"
+            :placeholder="primaryIsMedicaid ? 'Child name' : 'Parent / Guardian name'"
+          />
+          <div class="pi-ins-field-note">
+            {{ primaryIsMedicaid
+              ? 'For Medicaid-only coverage, this is usually the child.'
+              : 'For private/commercial plans, this is usually the parent/guardian policy holder.' }}
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="pi-ins-lbl">Subscriber ID / Member ID</label>
           <input v-model="local.primary.memberId" class="pi-ins-input" type="text" placeholder="e.g. COA123456789" />
           <div v-if="primaryIsMedicaid" class="pi-ins-field-note">
             For Medicaid plans, Member ID is recommended but not required.
           </div>
         </div>
-        <div class="form-group">
+        <div v-if="!primaryIsMedicaid" class="form-group">
           <label class="pi-ins-lbl">Group number (if applicable)</label>
           <input v-model="local.primary.groupNumber" class="pi-ins-input" type="text" placeholder="Optional" />
         </div>
-        <div class="form-group">
-          <label class="pi-ins-lbl">Subscriber name (if different from guardian)</label>
-          <input v-model="local.primary.subscriberName" class="pi-ins-input" type="text" placeholder="First Last" />
+        <div v-if="!primaryIsMedicaid" class="form-group">
+          <label class="pi-ins-lbl">Patient suffix</label>
+          <input v-model="local.primary.patientSuffix" class="pi-ins-input" type="text" placeholder="e.g. -01, -02" />
+          <div class="pi-ins-field-note">
+            Common on private/commercial plans.
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showMultiClientMedicaidSection" class="pi-ins-multi-client">
+        <h5>Per-Client Medicaid Member IDs</h5>
+        <p class="pi-ins-field-note" style="margin-top: 0;">
+          Since this intake includes multiple clients, capture each child’s Medicaid Member ID so billing is stored correctly per client.
+        </p>
+        <div v-for="(row, idx) in medicaidByClient" :key="`medicaid-client-${idx}`" class="form-group">
+          <label class="pi-ins-lbl">
+            {{ clientDisplayNames[idx] || `Client ${idx + 1}` }} — Medicaid Member ID
+          </label>
+          <input
+            v-model="row.memberId"
+            class="pi-ins-input"
+            type="text"
+            placeholder="Enter this client's Medicaid ID"
+          />
         </div>
       </div>
     </div>
@@ -130,7 +186,7 @@
       <h4 class="pi-ins-card-title">Secondary Insurance</h4>
 
       <div class="form-group">
-        <label class="pi-ins-lbl">Secondary insurance provider</label>
+        <label class="pi-ins-lbl">Insurance Carrier Name</label>
         <div class="pi-ins-typeahead">
           <input
             v-model="secondaryQuery"
@@ -155,18 +211,22 @@
             </div>
           </div>
         </div>
+        <div class="pi-ins-field-note">
+          This is often where Medicaid is listed when the child also has other primary coverage.
+          TRICARE is generally primary over Medicaid when both are present.
+        </div>
       </div>
 
       <div class="pi-ins-grid">
         <div class="form-group">
-          <label class="pi-ins-lbl">Member / Policy ID</label>
+          <label class="pi-ins-lbl">Member ID</label>
           <input v-model="local.secondary.memberId" class="pi-ins-input" type="text" placeholder="Optional" />
         </div>
-        <div class="form-group">
+        <div v-if="!secondaryIsMedicaid" class="form-group">
           <label class="pi-ins-lbl">Group number</label>
           <input v-model="local.secondary.groupNumber" class="pi-ins-input" type="text" placeholder="Optional" />
         </div>
-        <div class="form-group">
+        <div v-if="!secondaryIsMedicaid" class="form-group">
           <label class="pi-ins-lbl">Subscriber name</label>
           <input v-model="local.secondary.subscriberName" class="pi-ins-input" type="text" placeholder="Optional" />
         </div>
@@ -196,6 +256,16 @@
       </div>
     </div>
 
+    <div class="pi-ins-card pi-ins-guarantor-card">
+      <h4 class="pi-ins-card-title">Responsible Party (Guarantor)</h4>
+      <p class="pi-ins-field-note" style="margin-top: 0;">
+        Name: Parent/Guardian
+      </p>
+      <p class="pi-ins-field-note">
+        Contact info: captured earlier in intake and used for billing/consent communications.
+      </p>
+    </div>
+
     <!-- Insurance disclaimer -->
     <div class="pi-ins-footer-notice">
       <p>
@@ -218,7 +288,11 @@ const DEFAULT_SECONDARY_INSURANCE_NOTICE =
 
 const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
-  stepConfig: { type: Object, default: () => ({}) }
+  stepConfig: { type: Object, default: () => ({}) },
+  guardianName: { type: String, default: '' },
+  guardianRelationship: { type: String, default: '' },
+  guardianPhone: { type: String, default: '' },
+  clientNames: { type: Array, default: () => [] }
 });
 const emit = defineEmits(['update:modelValue', 'medicaid-change']);
 
@@ -228,6 +302,7 @@ const local = reactive({
     insurerName: props.modelValue?.primary?.insurerName || '',
     memberId: props.modelValue?.primary?.memberId || '',
     groupNumber: props.modelValue?.primary?.groupNumber || '',
+    patientSuffix: props.modelValue?.primary?.patientSuffix || '',
     subscriberName: props.modelValue?.primary?.subscriberName || '',
     isMedicaid: props.modelValue?.primary?.isMedicaid || false
   },
@@ -242,6 +317,15 @@ const local = reactive({
 
 const hasSecondary = ref(!!(props.modelValue?.secondary?.insurerName));
 const noPrimaryCardAvailable = ref(!!props.modelValue?.noPrimaryCardAvailable);
+const medicaidByClient = ref(
+  Array.isArray(props.modelValue?.medicaidByClient)
+    ? props.modelValue.medicaidByClient.map((row) => ({
+        clientIndex: Number(row?.clientIndex || 0),
+        clientName: String(row?.clientName || ''),
+        memberId: String(row?.memberId || '')
+      }))
+    : []
+);
 
 // Photo file references (File objects kept in memory; uploaded on submit)
 const photoFiles = reactive({ primary_front: null, primary_back: null, secondary_front: null, secondary_back: null });
@@ -266,7 +350,24 @@ const secondaryOpen = ref(false);
 const secondarySuggestions = computed(() => filterInsurances(secondaryQuery.value));
 
 const primaryIsMedicaid = computed(() => isMedicaidInsurer(local.primary.insurerName));
+const secondaryIsMedicaid = computed(() => isMedicaidInsurer(local.secondary.insurerName));
 const allMedicaid = computed(() => primaryIsMedicaid.value && (!hasSecondary.value || isMedicaidInsurer(local.secondary.insurerName)));
+const guardianDisplayName = computed(() => String(props.guardianName || '').trim());
+const firstClientDisplayName = computed(() => String((props.clientNames || [])[0] || '').trim());
+const clientDisplayNames = computed(() =>
+  (Array.isArray(props.clientNames) ? props.clientNames : []).map((name, idx) => {
+    const clean = String(name || '').trim();
+    return clean || `Client ${idx + 1}`;
+  })
+);
+const medicaidPlanPosition = computed(() => {
+  if (primaryIsMedicaid.value) return 'primary';
+  if (hasSecondary.value && secondaryIsMedicaid.value) return 'secondary';
+  return '';
+});
+const showMultiClientMedicaidSection = computed(() =>
+  clientDisplayNames.value.length > 1 && !!medicaidPlanPosition.value
+);
 
 const displayedSecondaryDisclaimer = computed(() => {
   const custom = String(props.stepConfig?.secondaryInsuranceDisclaimerText || '').trim();
@@ -353,8 +454,27 @@ function onNoPrimaryCardToggle() {
   push();
 }
 
+function fillPrimarySubscriberFromGuardian() {
+  if (!guardianDisplayName.value) return;
+  local.primary.subscriberName = guardianDisplayName.value;
+  push();
+}
+
+function fillPrimarySubscriberFromFirstClient() {
+  if (!firstClientDisplayName.value) return;
+  local.primary.subscriberName = firstClientDisplayName.value;
+  push();
+}
+
 // ── Emit helpers ─────────────────────────────────────────────────────────────
 function push() {
+  const medicaidRows = showMultiClientMedicaidSection.value
+    ? medicaidByClient.value.map((row, idx) => ({
+        clientIndex: idx,
+        clientName: clientDisplayNames.value[idx] || `Client ${idx + 1}`,
+        memberId: String(row?.memberId || '').trim()
+      }))
+    : [];
   const out = {
     primary: { ...local.primary },
     secondary: hasSecondary.value ? { ...local.secondary } : null,
@@ -366,7 +486,9 @@ function push() {
     },
     noPrimaryCardAvailable: noPrimaryCardAvailable.value,
     hasSecondary: hasSecondary.value,
-    primaryIsMedicaid: primaryIsMedicaid.value
+    primaryIsMedicaid: primaryIsMedicaid.value,
+    medicaidPlanPosition: medicaidPlanPosition.value || null,
+    medicaidByClient: medicaidRows
   };
   emit('update:modelValue', out);
   emit('medicaid-change', primaryIsMedicaid.value);
@@ -393,6 +515,46 @@ function getInsuranceEntryState() {
 }
 
 watch([() => local.primary, () => local.secondary, hasSecondary], push, { deep: true });
+watch(
+  [primaryIsMedicaid, guardianDisplayName, firstClientDisplayName],
+  () => {
+    if (String(local.primary.subscriberName || '').trim()) return;
+    if (primaryIsMedicaid.value && firstClientDisplayName.value) {
+      local.primary.subscriberName = firstClientDisplayName.value;
+      push();
+      return;
+    }
+    if (!primaryIsMedicaid.value && guardianDisplayName.value) {
+      local.primary.subscriberName = guardianDisplayName.value;
+      push();
+    }
+  },
+  { immediate: true }
+);
+watch(
+  [clientDisplayNames, showMultiClientMedicaidSection],
+  () => {
+    const names = clientDisplayNames.value;
+    if (!names.length) {
+      medicaidByClient.value = [];
+      push();
+      return;
+    }
+    const base = Array.isArray(medicaidByClient.value) ? medicaidByClient.value : [];
+    medicaidByClient.value = names.map((name, idx) => ({
+      clientIndex: idx,
+      clientName: name,
+      memberId: String(base[idx]?.memberId || '')
+    }));
+    if (!local.primary.subscriberName && !primaryIsMedicaid.value && guardianDisplayName.value) {
+      local.primary.subscriberName = guardianDisplayName.value;
+    } else if (!local.primary.subscriberName && primaryIsMedicaid.value && names.length) {
+      local.primary.subscriberName = names[0];
+    }
+    push();
+  },
+  { immediate: true, deep: true }
+);
 
 // Expose for parent
 defineExpose({ getPhotoFiles, getInsuranceEntryState, primaryIsMedicaid });
@@ -432,6 +594,12 @@ defineExpose({ getPhotoFiles, getInsuranceEntryState, primaryIsMedicaid });
   margin: 0 0 10px;
   font-size: 13px;
   color: var(--text-secondary, #64748b);
+}
+.pi-ins-quickfill {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
 }
 .pi-ins-lbl {
   display: block;
@@ -560,6 +728,15 @@ defineExpose({ getPhotoFiles, getInsuranceEntryState, primaryIsMedicaid });
 }
 .pi-ins-no-card {
   margin-top: 10px;
+}
+.pi-ins-multi-client {
+  margin-top: 14px;
+  border-top: 1px solid var(--border, #e2e8f0);
+  padding-top: 12px;
+}
+.pi-ins-multi-client h5 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
 }
 .checkbox-row {
   display: flex;

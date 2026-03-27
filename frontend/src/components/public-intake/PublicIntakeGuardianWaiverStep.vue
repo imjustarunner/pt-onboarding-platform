@@ -54,6 +54,7 @@ const props = defineProps({
   modelValue: { type: Object, required: true },
   sectionKeys: { type: Array, default: () => [] },
   clientLabels: { type: Array, default: () => [] },
+  guardianDefaultPickup: { type: Object, default: () => ({}) },
   savedSignatureData: { type: String, default: '' },
   /**
    * eventWaiverContext: { snacksAvailable: bool, snackOptions: string[], mealsAvailable: bool, mealOptions: string[] }
@@ -127,11 +128,21 @@ function ensureClientSlot(idx) {
 }
 
 function defaultPayload(key) {
+  const guardianName = String(props.guardianDefaultPickup?.name || '').trim();
+  const guardianRelationship = String(props.guardianDefaultPickup?.relationship || '').trim();
+  const guardianPhone = String(props.guardianDefaultPickup?.phone || '').trim();
+  const defaultGuardianPickupRow = guardianName
+    ? [{
+        name: guardianName,
+        relationship: guardianRelationship || 'Parent/Guardian',
+        phone: guardianPhone
+      }]
+    : [{ name: '', relationship: '', phone: '' }];
   switch (key) {
     case 'pickup_authorization':
       return {
         declinePickupAuthorization: false,
-        authorizedPickups: [{ name: '', relationship: '', phone: '' }]
+        authorizedPickups: defaultGuardianPickupRow
       };
     case 'emergency_contacts':
       return {
@@ -162,6 +173,14 @@ function sectionPayload(idx, key) {
   const sec = ensureSection(idx, key);
   if (!sec.payload || typeof sec.payload !== 'object') {
     sec.payload = defaultPayload(key);
+  } else if (key === 'pickup_authorization') {
+    const rows = Array.isArray(sec.payload.authorizedPickups) ? sec.payload.authorizedPickups : [];
+    const hasAnyEntry = rows.some((row) =>
+      [row?.name, row?.relationship, row?.phone].some((v) => String(v || '').trim().length > 0)
+    );
+    if (!hasAnyEntry) {
+      sec.payload = defaultPayload(key);
+    }
   }
   return sec.payload;
 }

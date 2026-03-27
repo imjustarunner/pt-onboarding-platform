@@ -1248,6 +1248,13 @@
                 >
                   + Add Payment collection
                 </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addStep('communications')"
+                >
+                  + Add Communications
+                </button>
               </div>
             </div>
           </div>

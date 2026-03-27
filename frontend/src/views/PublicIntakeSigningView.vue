@@ -479,38 +479,40 @@
         </div>
         <div v-if="currentFlowStep?.type === 'registration'" class="registration-step">
           <p v-if="currentFlowStep?.description" class="muted">{{ currentFlowStep.description }}</p>
-          <div v-if="currentRegistrationScheduleBlocks.length" class="registration-schedule-blocks">
-            <div v-for="sb in currentRegistrationScheduleBlocks" :key="sb.id" class="registration-schedule-item">
-              <strong>{{ sb.label || 'Scheduled Session' }}</strong>
-              <small class="muted">
-                {{ formatScheduleBlock(sb) }}
-              </small>
+
+          <!-- Rich event card for locked / single event -->
+          <div v-if="hideRegistrationOptionsPicker && currentRegistrationOptions[0]" class="reg-event-card">
+            <div class="reg-event-banner">
+              <img
+                v-if="currentRegistrationOptions[0].imageUrl"
+                :src="currentRegistrationOptions[0].imageUrl"
+                class="reg-event-img"
+                alt="Event image"
+              />
+              <div v-else class="reg-event-img-placeholder">🎉</div>
+            </div>
+            <div class="reg-event-body">
+              <h4 class="reg-event-title">{{ currentRegistrationOptions[0].label }}</h4>
+              <p v-if="currentRegistrationOptions[0].startsAtFormatted" class="reg-event-date">
+                📅 {{ currentRegistrationOptions[0].startsAtFormatted }}
+                <span v-if="currentRegistrationOptions[0].endsAtFormatted"> – {{ currentRegistrationOptions[0].endsAtFormatted }}</span>
+              </p>
+              <p v-if="currentRegistrationOptions[0].summaryText" class="reg-event-summary muted">
+                {{ currentRegistrationOptions[0].summaryText }}
+              </p>
+              <p v-if="currentRegistrationOptions[0].displayCost" class="reg-event-cost">
+                Cost: {{ currentRegistrationOptions[0].displayCost }}
+              </p>
+              <a v-if="currentRegistrationOptions[0].videoJoinUrl" :href="currentRegistrationOptions[0].videoJoinUrl" target="_blank" rel="noopener" class="reg-event-link">
+                Join link
+              </a>
+            </div>
+            <div class="reg-event-confirm-note">
+              Confirm your spot below — tap <strong>Continue</strong> to complete your registration.
             </div>
           </div>
-          <div class="form-group" style="margin-bottom: 8px;">
-            <label class="checkbox">
-              <input
-                type="checkbox"
-                :checked="isCurrentRegistrationExistingParticipant"
-                @change="setCurrentRegistrationExistingParticipant($event?.target?.checked)"
-              />
-              I am already in your system
-            </label>
-            <input
-              v-if="isCurrentRegistrationExistingParticipant"
-              v-model="currentRegistrationLookupValue"
-              :placeholder="currentRegistrationLookupPlaceholder"
-              type="text"
-            />
-          </div>
-          <div v-if="hideRegistrationOptionsPicker && currentRegistrationOptions[0]" class="locked-registration muted">
-            <p><strong>Event for this registration link</strong></p>
-            <p>{{ currentRegistrationOptions[0].label }}</p>
-            <p v-if="currentRegistrationOptions[0].description">{{ currentRegistrationOptions[0].description }}</p>
-            <small v-if="currentRegistrationOptions[0].videoJoinUrl" class="muted">
-              Video: <a :href="currentRegistrationOptions[0].videoJoinUrl" target="_blank" rel="noopener">Join link</a>
-            </small>
-          </div>
+
+          <!-- Multi-option picker -->
           <div v-else-if="currentRegistrationOptions.length" class="registration-options">
             <label v-for="opt in currentRegistrationOptions" :key="opt.id" class="registration-option">
               <input
@@ -528,7 +530,8 @@
               />
               <span>
                 <strong>{{ opt.label }}</strong>
-                <small v-if="opt.description" class="muted">{{ opt.description }}</small>
+                <small v-if="opt.startsAtFormatted" class="muted">📅 {{ opt.startsAtFormatted }}</small>
+                <small v-else-if="opt.description" class="muted">{{ opt.description }}</small>
                 <small v-if="opt.videoJoinUrl" class="muted">
                   Video: <a :href="opt.videoJoinUrl" target="_blank" rel="noopener">Join link</a>
                 </small>
@@ -536,19 +539,37 @@
                   Cost: {{ opt.displayCost }}
                 </small>
                 <small v-if="opt.frequencyLabel" class="muted">
-                  Frequency: {{ opt.frequencyLabel }}
-                </small>
-                <small v-if="opt.termsSummary" class="muted">
-                  Terms: {{ opt.termsSummary }}
-                </small>
-                <small v-if="opt.paymentLinkUrl" class="muted">
-                  Payment: <a :href="opt.paymentLinkUrl" target="_blank" rel="noopener">Pay now</a>
+                  {{ opt.frequencyLabel }}
                 </small>
               </span>
             </label>
           </div>
-          <div v-else class="muted">
-            No registration options are configured for this step.
+
+          <div v-else class="muted">No registration options are configured for this step.</div>
+
+          <div v-if="currentRegistrationScheduleBlocks.length" class="registration-schedule-blocks" style="margin-top: 12px;">
+            <div v-for="sb in currentRegistrationScheduleBlocks" :key="sb.id" class="registration-schedule-item">
+              <strong>{{ sb.label || 'Scheduled Session' }}</strong>
+              <small class="muted">{{ formatScheduleBlock(sb) }}</small>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top: 12px; margin-bottom: 0;">
+            <label class="checkbox">
+              <input
+                type="checkbox"
+                :checked="isCurrentRegistrationExistingParticipant"
+                @change="setCurrentRegistrationExistingParticipant($event?.target?.checked)"
+              />
+              I am already in your system
+            </label>
+            <input
+              v-if="isCurrentRegistrationExistingParticipant"
+              v-model="currentRegistrationLookupValue"
+              :placeholder="currentRegistrationLookupPlaceholder"
+              type="text"
+              style="margin-top: 6px;"
+            />
           </div>
         </div>
 
@@ -557,6 +578,7 @@
             :model-value="guardianWaiverBundleRef"
             :section-keys="currentGuardianWaiverSectionKeys"
             :client-labels="guardianWaiverClientLabels"
+            :guardian-default-pickup="guardianDefaultPickup"
             :saved-signature-data="lastSignatureData"
             :event-waiver-context="eventWaiverContext"
           />
@@ -567,6 +589,10 @@
             ref="insuranceStepRef"
             :model-value="intakeResponses.submission.insuranceInfo || {}"
             :step-config="currentFlowStep"
+            :guardian-name="guardianDisplayNameForInsurance"
+            :guardian-relationship="guardianRelationship"
+            :guardian-phone="guardianPhone"
+            :client-names="insuranceClientNames"
             @update:model-value="(v) => { intakeResponses.submission.insuranceInfo = v; }"
             @medicaid-change="(isMedicaid) => { if (intakeResponses.submission.insuranceInfo) intakeResponses.submission.insuranceInfo.primaryIsMedicaid = isMedicaid; }"
           />
@@ -833,44 +859,82 @@
       </div>
 
       <div v-else-if="step === 3" class="step">
-        <h3>{{ jobApplicationSubmitted ? 'Application Submitted' : 'Successfully Submitted' }}</h3>
+        <h3>{{ jobApplicationSubmitted ? 'Application Submitted' : (formTypeKey === 'smart_registration' ? "You're Registered!" : 'Successfully Submitted') }}</h3>
         <p v-if="jobApplicationSubmitted">
           Thank you for your application. We have received your materials and will review them shortly.
         </p>
         <template v-else>
-          <div v-if="formTypeKey === 'smart_registration' && registrationCompletion?.newGuardianAccount" class="notice-block" style="margin-bottom: 16px;">
-            <p><strong>Guardian portal</strong></p>
-            <p v-if="registrationCompletion.loginEmail">
-              Check your email for login instructions. Sign in as <strong>{{ registrationCompletion.loginEmail }}</strong>
-              using the temporary password we sent (valid 72 hours). After signing in you will choose a new password.
-            </p>
-            <p v-else>
-              Check your email for your username and temporary password (72 hours). You will set a new password after signing in.
-            </p>
-            <p v-if="registrationCompletion.portalLoginUrl">
-              <a class="btn btn-secondary btn-sm" :href="registrationCompletion.portalLoginUrl" target="_blank" rel="noopener">Open login page</a>
-            </p>
-            <p class="muted" style="margin-top: 8px;">
-              Temporary password expired? Use &ldquo;Forgot password&rdquo; on the login page to receive a reset link.
-            </p>
-            <div style="margin-top: 12px;">
-              <button
-                type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="loginHelpSending"
-                @click="sendPublicIntakeLoginHelp"
-              >
-                {{ loginHelpSending ? 'Sending…' : 'Still need help? Notify staff' }}
-              </button>
-              <span v-if="loginHelpMessage" class="muted" style="margin-left: 8px;">{{ loginHelpMessage }}</span>
+          <!-- Registration success card -->
+          <div v-if="formTypeKey === 'smart_registration'" class="reg-success-card">
+            <div v-if="registeredEventSummary" class="reg-success-event">
+              <div class="reg-success-event-title">{{ registeredEventSummary.title }}</div>
+              <div v-if="registeredEventSummary.startsAtFormatted" class="reg-success-event-date">
+                📅 {{ registeredEventSummary.startsAtFormatted }}
+              </div>
+              <div class="reg-success-actions">
+                <a
+                  v-if="registeredEventSummary.icalUrl"
+                  :href="registeredEventSummary.icalUrl"
+                  download="event.ics"
+                  class="btn btn-outline btn-sm"
+                >
+                  Add to Calendar
+                </a>
+              </div>
+            </div>
+            <div v-if="registrationCompletion?.loginEmail" class="reg-success-account">
+              <div class="reg-success-account-label">Your account username</div>
+              <div class="reg-success-username">{{ registrationCompletion.loginEmail }}</div>
+              <div class="reg-success-account-hint">
+                Check your email for a sign-in link. After signing in you will set your password.
+              </div>
+              <div class="reg-success-account-actions">
+                <a
+                  v-if="registrationCompletion.portalLoginUrl"
+                  :href="registrationCompletion.portalLoginUrl"
+                  target="_blank"
+                  rel="noopener"
+                  class="btn btn-primary btn-sm"
+                >
+                  Sign in to your portal
+                </a>
+              </div>
+              <div style="margin-top: 10px;">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="loginHelpSending"
+                  @click="sendPublicIntakeLoginHelp"
+                >
+                  {{ loginHelpSending ? 'Sending…' : 'Need help signing in? Notify staff' }}
+                </button>
+                <span v-if="loginHelpMessage" class="muted" style="margin-left: 8px;">{{ loginHelpMessage }}</span>
+              </div>
+            </div>
+            <div v-else-if="registrationCompletion?.newGuardianAccount" class="reg-success-account">
+              <div class="reg-success-account-hint">
+                Check your email for your sign-in link and username (valid 72 hours).
+              </div>
+              <div style="margin-top: 10px;">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="loginHelpSending"
+                  @click="sendPublicIntakeLoginHelp"
+                >
+                  {{ loginHelpSending ? 'Sending…' : 'Need help signing in? Notify staff' }}
+                </button>
+                <span v-if="loginHelpMessage" class="muted" style="margin-left: 8px;">{{ loginHelpMessage }}</span>
+              </div>
             </div>
           </div>
+
           <p v-if="!downloadUrl && pollingForDownload" class="preparing-message">
             <span class="preparing-spinner"></span>
-            Your download link is being prepared. A copy will be emailed to the address you provided once it is ready.
+            Your documents are being prepared. A copy will be emailed to the address you provided once ready.
           </p>
           <p v-else-if="downloadUrl">{{ completionEmailMessage }}</p>
-          <p v-else>{{ completionEmailMessage }}</p>
+          <p v-else-if="formTypeKey !== 'smart_registration'">{{ completionEmailMessage }}</p>
         </template>
         <p v-if="downloadUrl && !jobApplicationSubmitted" class="muted">Download links expire in 7 days.</p>
         <div v-if="downloadUrl && !jobApplicationSubmitted" class="actions">
@@ -1479,6 +1543,15 @@ const guardianWaiverClientLabels = computed(() => {
     return name || `Child ${i + 1}`;
   });
 });
+const guardianDisplayNameForInsurance = computed(() =>
+  [guardianFirstName.value, guardianLastName.value].filter(Boolean).join(' ').trim()
+);
+const insuranceClientNames = computed(() => guardianWaiverClientLabels.value);
+const guardianDefaultPickup = computed(() => ({
+  name: guardianDisplayNameForInsurance.value,
+  relationship: String(guardianRelationship.value || '').trim() || 'Parent/Guardian',
+  phone: String(guardianPhone.value || '').trim()
+}));
 
 function ensureGuardianWaiverIntakeShape() {
   const step = currentFlowStep.value;
@@ -1579,22 +1652,30 @@ const currentRegistrationOptions = computed(() => {
         const id = Number(it.id || 0) || null;
         const entityType = kind === 'company_event' ? 'company_event' : 'class';
         const title = String(it.title || '').trim() || (kind === 'company_event' ? `Event ${id}` : `Class ${id}`);
-        const summaryParts = [String(it.summary || '').trim()];
-        if (it.startsAt) summaryParts.push(`Starts: ${it.startsAt}`);
+        const summaryText = String(it.summary || '').trim();
+        const startsAtFormatted = formatIsoDatetime(it.startsAt);
+        const endsAtFormatted = formatIsoDatetime(it.endsAt);
+        const dollars = Math.max(0, Number(step?.selfPay?.costDollars || 0) || 0);
         return {
           id: `cat_${kind}_${id}`,
           label: title,
-          description: summaryParts.filter(Boolean).join(' · '),
+          description: [summaryText, startsAtFormatted ? `Starts: ${startsAtFormatted}` : ''].filter(Boolean).join(' · '),
+          summaryText,
+          startsAtFormatted,
+          endsAtFormatted,
+          startsAtRaw: it.startsAt || null,
+          endsAtRaw: it.endsAt || null,
+          imageUrl: String(it.imageUrl || it.image_url || '').trim(),
           entityType,
           entityId: id,
           videoJoinUrl: String(step.defaultVideoUrl || '').trim(),
           paymentLinkUrl: String(step?.selfPay?.paymentLinkUrl || '').trim(),
-          costDollars: Math.max(0, Number(step?.selfPay?.costDollars || 0) || 0),
+          costDollars: dollars,
           providerUserIdsCsv: String(step.providerUserIdsCsv || '').trim(),
           scheduleBlocks: [],
           frequencyLabel: null,
           termsSummary: null,
-          displayCost: ''
+          displayCost: dollars > 0 ? `$${dollars.toFixed(2)}` : ''
         };
       })
       .filter((opt) => opt.id && opt.label && opt.entityId);
@@ -1746,6 +1827,38 @@ const eventWaiverContext = computed(() => {
 const registrationCompletion = ref(null);
 const loginHelpSending = ref(false);
 const loginHelpMessage = ref('');
+
+/** The event the user just registered for (title, date, iCal link) — derived from selections + catalog. */
+const registeredEventSummary = computed(() => {
+  const selections = Array.isArray(intakeResponses.submission?.registrationSelections)
+    ? intakeResponses.submission.registrationSelections
+    : [];
+  // Prefer catalog-backed event
+  const eventSel = selections.find((s) => {
+    const et = String(s?.entityType || s?.type || '').toLowerCase();
+    return et === 'company_event' || et === 'event';
+  }) || selections[0] || null;
+  if (!eventSel) {
+    // Fall back to eventSummary hint from backend (available after polling)
+    const hint = String(registrationCompletion.value?.eventSummary || '').trim();
+    if (hint) return { title: hint, startsAtFormatted: null, icalUrl: null, startsAtRaw: null, endsAtRaw: null };
+    return null;
+  }
+  // Try to match in catalog rows for rich data
+  const catalog = Array.isArray(agencyRegistrationCatalog.value) ? agencyRegistrationCatalog.value : [];
+  const catRow = catalog.find((r) => Number(r.id) === Number(eventSel.entityId));
+  const title = String(catRow?.title || eventSel.label || '').trim();
+  const startsAtRaw = catRow?.startsAt || null;
+  const endsAtRaw = catRow?.endsAt || null;
+  const startsAtFormatted = formatIsoDatetime(startsAtRaw);
+  const icalUrl = buildIcalDataUri({
+    title,
+    startsAt: startsAtRaw,
+    endsAt: endsAtRaw,
+    description: String(catRow?.summary || '').trim()
+  });
+  return { title, startsAtFormatted, icalUrl, startsAtRaw, endsAtRaw };
+});
 const fieldValuesByTemplate = reactive({});
 const sessionToken = ref(String(route.query?.session || '').trim());
 const submissionStorageKey = computed(() =>
@@ -2268,6 +2381,59 @@ const formatDateForDisplay = (val) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
   const [, yyyy, mm, dd] = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return `${mm}/${dd}/${yyyy}`;
+};
+/** Format an ISO datetime string to a friendly local string like "Monday, April 13, 2026 at 4:00 PM". */
+const formatIsoDatetime = (val) => {
+  if (!val) return null;
+  const s = String(val).trim();
+  if (!s) return null;
+  try {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  } catch {
+    return null;
+  }
+};
+/** Build a data-URI for a minimal .ics file so users can add an event to their calendar. */
+const buildIcalDataUri = ({ title, startsAt, endsAt, description = '', location = '' }) => {
+  if (!title || !startsAt) return null;
+  try {
+    const toIcsDate = (iso) => {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return null;
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
+    };
+    const dtStart = toIcsDate(startsAt);
+    if (!dtStart) return null;
+    const dtEnd = endsAt ? (toIcsDate(endsAt) || dtStart) : dtStart;
+    const safe = (s) => String(s || '').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
+    const lines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//PTOnboardingApp//EN',
+      'BEGIN:VEVENT',
+      `DTSTART:${dtStart}`,
+      `DTEND:${dtEnd}`,
+      `SUMMARY:${safe(title)}`,
+      description ? `DESCRIPTION:${safe(description)}` : '',
+      location ? `LOCATION:${safe(location)}` : '',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].filter(Boolean).join('\r\n');
+    return `data:text/calendar;charset=utf-8,${encodeURIComponent(lines)}`;
+  } catch {
+    return null;
+  }
 };
 const formatAnswerValue = (val) => {
   if (val === null || val === undefined) return '';
@@ -3205,6 +3371,7 @@ const completeInsuranceStep = async () => {
       insurerName: '',
       memberId: '',
       groupNumber: '',
+      patientSuffix: '',
       subscriberName: '',
       isMedicaid: false
     };
@@ -3274,6 +3441,7 @@ const completeInsuranceStep = async () => {
     insInfo.primary.insurerName = 'Self-Pay / No Insurance';
     insInfo.primary.memberId = '';
     insInfo.primary.groupNumber = String(insInfo.primary.groupNumber || '');
+    insInfo.primary.patientSuffix = String(insInfo.primary.patientSuffix || '');
     insInfo.primary.subscriberName = String(insInfo.primary.subscriberName || '');
     insInfo.primary.isMedicaid = false;
     insInfo.primaryIsMedicaid = false;
@@ -4450,6 +4618,129 @@ onBeforeUnmount(() => {
 .registration-step {
   margin: 16px 0;
 }
+
+/* ── Registration event card (intake step) ── */
+.reg-event-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+  margin-bottom: 16px;
+}
+.reg-event-banner {
+  width: 100%;
+  background: var(--color-primary, #4db6ac);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+}
+.reg-event-img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  display: block;
+}
+.reg-event-img-placeholder {
+  font-size: 56px;
+  padding: 24px;
+  line-height: 1;
+}
+.reg-event-body {
+  padding: 16px 18px 8px;
+}
+.reg-event-title {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.reg-event-date {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--color-primary, #4db6ac);
+  font-size: 14px;
+}
+.reg-event-summary {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.reg-event-cost {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.reg-event-link {
+  font-size: 13px;
+  color: var(--color-primary, #4db6ac);
+}
+.reg-event-confirm-note {
+  background: var(--bg-alt);
+  border-top: 1px solid var(--border);
+  padding: 12px 18px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+/* ── Registration success card (step 3) ── */
+.reg-success-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+  margin-bottom: 20px;
+}
+.reg-success-event {
+  background: var(--color-primary, #4db6ac);
+  color: #fff;
+  padding: 20px 20px 16px;
+}
+.reg-success-event-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.reg-success-event-date {
+  font-size: 14px;
+  opacity: 0.92;
+  margin-bottom: 14px;
+}
+.reg-success-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.reg-success-account {
+  padding: 16px 20px 20px;
+}
+.reg-success-account-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.reg-success-username {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  word-break: break-all;
+  margin-bottom: 8px;
+}
+.reg-success-account-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  line-height: 1.45;
+}
+.reg-success-account-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
 .communications-step {
   margin: 16px 0;
   display: grid;

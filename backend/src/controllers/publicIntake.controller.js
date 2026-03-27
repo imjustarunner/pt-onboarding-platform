@@ -1575,6 +1575,54 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
     }
   }
 
+  // Insurance information
+  const insInfo = submissionResponses?.insuranceInfo || intakeData?.submission?.insuranceInfo || null;
+  if (insInfo && typeof insInfo === 'object') {
+    const pri = insInfo.primary && typeof insInfo.primary === 'object' ? insInfo.primary : null;
+    const sec = insInfo.secondary && typeof insInfo.secondary === 'object' ? insInfo.secondary : null;
+    const hasPrimary = pri && (
+      String(pri.insurerName || '').trim() ||
+      String(pri.memberId || '').trim() ||
+      String(pri.subscriberName || '').trim()
+    );
+    const hasSecondary = sec && (
+      String(sec.insurerName || '').trim() ||
+      String(sec.memberId || '').trim()
+    );
+    const isMedicaidPrimary = !!insInfo.primaryIsMedicaid;
+    if (hasPrimary || hasSecondary || insInfo.noPrimaryCardAvailable) {
+      pushHeader('Insurance Information');
+      if (insInfo.noPrimaryCardAvailable) {
+        output.push('No insurance card on file at time of intake.');
+      }
+      if (hasPrimary) {
+        if (String(pri.insurerName || '').trim()) output.push(`Primary Insurance Carrier: ${pri.insurerName}`);
+        if (String(pri.subscriberName || '').trim()) output.push(`Primary Subscriber Name: ${pri.subscriberName}`);
+        if (String(pri.memberId || '').trim()) output.push(`Primary Member ID: ${pri.memberId}`);
+        if (!isMedicaidPrimary && String(pri.groupNumber || '').trim()) output.push(`Primary Group Number: ${pri.groupNumber}`);
+        if (!isMedicaidPrimary && String(pri.patientSuffix || '').trim()) output.push(`Primary Patient Suffix: ${pri.patientSuffix}`);
+      } else if (!insInfo.noPrimaryCardAvailable) {
+        output.push('Primary Insurance: Self-Pay / No Insurance');
+      }
+      if (hasSecondary) {
+        if (String(sec.insurerName || '').trim()) output.push(`Secondary Insurance Carrier: ${sec.insurerName}`);
+        if (String(sec.subscriberName || '').trim()) output.push(`Secondary Subscriber Name: ${sec.subscriberName}`);
+        if (String(sec.memberId || '').trim()) output.push(`Secondary Member ID: ${sec.memberId}`);
+        if (String(sec.groupNumber || '').trim()) output.push(`Secondary Group Number: ${sec.groupNumber}`);
+      }
+      // Per-client Medicaid IDs (multi-child Medicaid)
+      const medicaidByClient = Array.isArray(insInfo.medicaidByClient) ? insInfo.medicaidByClient : [];
+      if (medicaidByClient.length > 1) {
+        output.push('Per-Client Medicaid Member IDs:');
+        medicaidByClient.forEach((mc) => {
+          const name = String(mc?.clientName || '').trim();
+          const mid = String(mc?.memberId || '').trim();
+          if (name || mid) output.push(`  ${name || 'Client'}: ${mid || '(not provided)'}`);
+        });
+      }
+    }
+  }
+
   return output.join('\n').trim();
 };
 
@@ -2822,7 +2870,8 @@ export const getPublicIntakeStatus = async (req, res, next) => {
       ? {
           newGuardianAccount: !!sub.registration_completion_new_guardian,
           loginEmail: sub.registration_completion_login_email || null,
-          portalLoginUrl: sub.registration_completion_portal_url || null
+          portalLoginUrl: sub.registration_completion_portal_url || null,
+          eventSummary: sub.registration_completion_event || null
         }
       : null;
 
@@ -4510,29 +4559,31 @@ export const finalizePublicIntake = async (req, res, next) => {
         }).catch(() => {});
       }
 
+      // Resolve event summary once so it can be used by both the email and the persist block.
+      let registrationEventSummary = '';
+      try {
+        const evSel = normalizeRegistrationSelections(intakeData).find((s) => registrationEntityType(s) === 'company_event');
+        const aid = Number(link?.agency_id || 0) || null;
+        if (evSel?.entityId && aid) {
+          const [erows] = await pool.execute(
+            'SELECT title, starts_at FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1',
+            [Number(evSel.entityId), aid]
+          );
+          const er = erows?.[0];
+          if (er) {
+            const st = er.starts_at ? new Date(er.starts_at).toLocaleString() : '';
+            registrationEventSummary = [String(er.title || '').trim(), st].filter(Boolean).join(' — ');
+          }
+        }
+      } catch {
+        registrationEventSummary = '';
+      }
+
       if (updatedSubmission.signer_email) {
         emailDelivery.attempted = true;
         try {
           const clientCount = rawClients.length || 1;
           const { organization, agency } = await resolveIntakeOrgContext(link, { boundClient: null });
-          let registrationEventSummary = '';
-          try {
-            const evSel = normalizeRegistrationSelections(intakeData).find((s) => registrationEntityType(s) === 'company_event');
-            const aid = Number(agency?.id || link?.agency_id || 0) || null;
-            if (evSel?.entityId && aid) {
-              const [erows] = await pool.execute(
-                'SELECT title, starts_at FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1',
-                [Number(evSel.entityId), aid]
-              );
-              const er = erows?.[0];
-              if (er) {
-                const st = er.starts_at ? new Date(er.starts_at).toLocaleString() : '';
-                registrationEventSummary = [String(er.title || '').trim(), st].filter(Boolean).join(' — ');
-              }
-            }
-          } catch {
-            registrationEventSummary = '';
-          }
           const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
           const registrationLoginPageUrl = portalBase ? `${portalBase}/login` : '';
           const regFlow = linkSupportsPublicRegistrationFeatures(link);
@@ -4615,7 +4666,8 @@ export const finalizePublicIntake = async (req, res, next) => {
         const merged = mergeIntakeSubmissionPatch(intakeData, {
           registration_completion_new_guardian: !!newGuardianTemporaryPassword,
           registration_completion_login_email: updatedSubmission.signer_email || null,
-          registration_completion_portal_url: newGuardianPasswordlessLoginUrl || loginPageUrl
+          registration_completion_portal_url: newGuardianPasswordlessLoginUrl || loginPageUrl,
+          registration_completion_event: registrationEventSummary || null
         });
         await IntakeSubmission.updateById(submissionId, {
           intake_data: JSON.stringify(merged),
@@ -5176,7 +5228,8 @@ export const submitPublicIntake = async (req, res, next) => {
         const merged = mergeIntakeSubmissionPatch(intakeData, {
           registration_completion_new_guardian: !!newGuardianTemporaryPassword,
           registration_completion_login_email: updatedSubmission.signer_email || null,
-          registration_completion_portal_url: newGuardianPasswordlessLoginUrl || loginPageUrl
+          registration_completion_portal_url: newGuardianPasswordlessLoginUrl || loginPageUrl,
+          registration_completion_event: registrationEventSummary || null
         });
         await IntakeSubmission.updateById(submissionId, {
           intake_data: JSON.stringify(merged),
