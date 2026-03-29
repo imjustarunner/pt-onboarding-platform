@@ -25,7 +25,7 @@ const canManageChallenge = (role) => {
 const getAccess = async (req, classId) => {
   const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
   if (!access.ok) {
-    if (access.eliminated) return { status: 403, message: 'You have been eliminated from this challenge.' };
+    if (access.eliminated) return { status: 403, message: 'You have been eliminated from this season.' };
     return { status: 403, message: 'Access denied' };
   }
   return { ok: true, class: access.class };

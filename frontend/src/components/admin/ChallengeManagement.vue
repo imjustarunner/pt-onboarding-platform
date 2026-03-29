@@ -1,26 +1,26 @@
 <template>
   <div class="challenge-management">
     <div class="page-header">
-      <h1>Challenge Management</h1>
+      <h1>Season Management</h1>
       <p class="page-description">
-        Create and manage fitness challenges. Configure activity types, scoring, teams, and participants. Use "Challenge" for competitive fitness programs.
+        Create and manage fitness seasons. Configure activity types, scoring, teams, and participants.
       </p>
     </div>
 
     <div v-if="!organizationId" class="empty-state">
-      <p>Select a Learning or Affiliation organization above to manage its challenges.</p>
+      <p>Select a Learning or Affiliation organization above to manage its seasons.</p>
     </div>
 
     <div v-else class="panel">
       <div class="controls">
-        <button class="btn btn-primary" @click="openCreateModal">Create Challenge</button>
+        <button class="btn btn-primary" @click="openCreateModal">Create Season</button>
         <button class="btn btn-secondary" @click="loadChallenges" :disabled="loading">Refresh</button>
       </div>
 
-      <div v-if="loading" class="loading">Loading challenges…</div>
+      <div v-if="loading" class="loading">Loading seasons…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else-if="!challenges.length" class="empty-state">
-        <p>No challenges yet. Create one to get started.</p>
+        <p>No seasons yet. Create one to get started.</p>
       </div>
       <div v-else class="challenge-list">
         <div v-for="c in challenges" :key="c.id" class="challenge-card">
@@ -46,18 +46,18 @@
       </div>
     </div>
 
-    <!-- Create/Edit Challenge Modal -->
+    <!-- Create/Edit Season Modal -->
     <div v-if="showChallengeModal" class="modal-overlay" @click.self="closeChallengeModal">
       <div class="modal-content modal-wide">
-        <h2>{{ editingChallenge ? 'Edit Challenge' : 'Create Challenge' }}</h2>
+        <h2>{{ editingChallenge ? 'Edit Season' : 'Create Season' }}</h2>
         <form @submit.prevent="saveChallenge">
           <div class="form-group">
-            <label>Challenge name *</label>
-            <input v-model="challengeForm.className" type="text" required placeholder="e.g., Spring 2025 Fitness Challenge" />
+            <label>Season name *</label>
+            <input v-model="challengeForm.className" type="text" required placeholder="e.g., Spring 2026 Season" />
           </div>
           <div class="form-group">
             <label>Description</label>
-            <textarea v-model="challengeForm.description" rows="3" placeholder="Optional challenge description" />
+            <textarea v-model="challengeForm.description" rows="3" placeholder="Optional season description" />
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -226,7 +226,7 @@
           </div>
           <div v-if="weeklyTasksWithIds.length && teams.length" class="weekly-assignments">
             <h4>Assignments</h4>
-            <p class="hint">Assign one person per task per team. Captains can also assign from the challenge dashboard.</p>
+            <p class="hint">Assign one person per task per team. Captains can also assign from the season dashboard.</p>
             <div v-for="t in weeklyTasksWithIds" :key="t.id" class="assignment-group">
               <strong>{{ t.name }}</strong>
               <div v-for="team in teams" :key="team.id" class="assignment-row">
@@ -443,7 +443,7 @@ const loadChallenges = async () => {
     const r = await api.get('/learning-program-classes', { params: { organizationId: organizationId.value } });
     challenges.value = Array.isArray(r.data?.classes) ? r.data.classes : [];
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Failed to load challenges';
+    error.value = e?.response?.data?.error?.message || 'Failed to load seasons';
     challenges.value = [];
   } finally {
     loading.value = false;
@@ -541,7 +541,7 @@ const saveChallenge = async () => {
     closeChallengeModal();
     await loadChallenges();
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Failed to save challenge';
+    error.value = e?.response?.data?.error?.message || 'Failed to save season';
   } finally {
     saving.value = false;
   }
@@ -813,17 +813,17 @@ const addMember = async () => {
 };
 
 const duplicateChallenge = async (c) => {
-  if (!confirm(`Duplicate "${c.class_name || c.className}"? A new draft challenge will be created.`)) return;
+  if (!confirm(`Duplicate "${c.class_name || c.className}"? A new draft season will be created.`)) return;
   try {
     await api.post(`/learning-program-classes/${c.id}/duplicate`, { copyMembers: false });
     await loadChallenges();
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Failed to duplicate challenge';
+    error.value = e?.response?.data?.error?.message || 'Failed to duplicate season';
   }
 };
 
 const removeMember = async (m) => {
-  if (!confirm(`Remove ${memberDisplayName(m)} from this challenge?`)) return;
+  if (!confirm(`Remove ${memberDisplayName(m)} from this season?`)) return;
   const classId = managingChallenge.value?.id;
   if (!classId) return;
   try {

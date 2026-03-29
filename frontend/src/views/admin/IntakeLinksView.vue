@@ -354,7 +354,7 @@
                 <option value="agency">Agency</option>
                 <option value="school">School</option>
                 <option value="program">Program</option>
-                <option value="learning_class">Challenge</option>
+                <option value="learning_class">Season</option>
               </select>
             </div>
             <div v-if="form.scopeType !== 'agency' && form.formType !== 'job_application'" class="form-group">
@@ -1828,7 +1828,7 @@ const getFormTypeLabel = (t) => {
   return m[t] || t || 'Intake';
 };
 const getScopeTypeLabel = (t) => {
-  const m = { agency: 'Agency', school: 'School', program: 'Program', learning_class: 'Challenge' };
+  const m = { agency: 'Agency', school: 'School', program: 'Program', learning_class: 'Season' };
   return m[t] || t || '—';
 };
 const getFormTypeBadgeClass = (t) => {

@@ -1,7 +1,12 @@
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import multer from 'multer';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   listLearningProgramClasses,
+  discoverLearningProgramClasses,
   getLearningProgramClass,
   createLearningProgramClass,
   updateLearningProgramClass,
@@ -14,6 +19,7 @@ import {
   deleteClassResource,
   listMyLearningClasses,
   launchLearningProgramClass,
+  joinLearningProgramClass,
   listParticipantProfiles,
   upsertParticipantProfile
 } from '../controllers/learningProgramClasses.controller.js';
@@ -27,7 +33,18 @@ import {
   getLeaderboard,
   getActivityFeed,
   getMyParticipationSummary,
-  submitWorkout
+  submitWorkout,
+  listCaptainApplications,
+  applyForCaptain,
+  reviewCaptainApplication,
+  finalizeCaptains,
+  getTeamWeeklyProgress,
+  listChallengeMessages,
+  postChallengeMessage,
+  listWorkoutComments,
+  postWorkoutComment,
+  deleteWorkoutComment,
+  uploadWorkoutMedia
 } from '../controllers/challenges.controller.js';
 import {
   getScoreboard,
@@ -42,11 +59,34 @@ import {
 } from '../controllers/scoreboard.controller.js';
 
 const router = express.Router();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const uploadsDir = path.resolve(__dirname, '../../uploads/challenge_workouts');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+const workoutMediaUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      cb(null, `workout-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext || '.bin'}`);
+    }
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/gif', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!allowed.includes(String(file.mimetype || '').toLowerCase())) {
+      cb(new Error('Only gif/png/jpg/webp files are allowed'));
+      return;
+    }
+    cb(null, true);
+  }
+});
 
 router.use(authenticate);
 
 router.get('/my/summary', getMyParticipationSummary);
 router.get('/my', listMyLearningClasses);
+router.get('/discover', discoverLearningProgramClasses);
 router.get('/', listLearningProgramClasses);
 router.post('/', createLearningProgramClass);
 router.get('/:classId', getLearningProgramClass);
@@ -55,6 +95,7 @@ router.post('/:classId/duplicate', duplicateLearningProgramClass);
 router.put('/:classId/clients', upsertClassClientMembers);
 router.put('/:classId/providers', upsertClassProviderMembers);
 router.post('/:classId/launch', launchLearningProgramClass);
+router.post('/:classId/join', joinLearningProgramClass);
 router.get('/:classId/participant-profiles', listParticipantProfiles);
 router.put('/:classId/participant-profiles/:providerUserId', upsertParticipantProfile);
 router.get('/:classId/resources', listClassResources);
@@ -72,6 +113,17 @@ router.put('/:classId/teams/:teamId/members', upsertTeamMembers);
 router.get('/:classId/leaderboard', getLeaderboard);
 router.get('/:classId/activity', getActivityFeed);
 router.post('/:classId/workouts', submitWorkout);
+router.get('/:classId/captain-applications', listCaptainApplications);
+router.post('/:classId/captain-applications', applyForCaptain);
+router.put('/:classId/captain-applications/:applicationId', reviewCaptainApplication);
+router.post('/:classId/captains/finalize', finalizeCaptains);
+router.get('/:classId/team-weekly-progress', getTeamWeeklyProgress);
+router.get('/:classId/messages', listChallengeMessages);
+router.post('/:classId/messages', postChallengeMessage);
+router.get('/:classId/workouts/:workoutId/comments', listWorkoutComments);
+router.post('/:classId/workouts/:workoutId/comments', postWorkoutComment);
+router.delete('/:classId/workout-comments/:commentId', deleteWorkoutComment);
+router.post('/:classId/workouts/:workoutId/media', workoutMediaUpload.single('file'), uploadWorkoutMedia);
 
 // Summit Stats Scoreboard: weekly scoreboard, elimination, weekly tasks
 router.get('/:classId/scoreboard', getScoreboard);

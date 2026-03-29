@@ -158,14 +158,14 @@
             :class="{ 'login-credentials-wrap--school-split': schoolPortalCredentialsRow }"
           >
             <div class="form-group login-credentials-username">
-              <label for="username">Username</label>
+              <label for="username">{{ usernameFieldLabel }}</label>
               <input
                 id="username"
                 name="username"
                 v-model="username"
                 type="text"
                 required
-                placeholder="Enter your username"
+                :placeholder="usernameFieldPlaceholder"
                 autocomplete="username"
                 :disabled="loading || verifying"
                 @input="onUsernameInput"
@@ -400,6 +400,16 @@ const clubsPath = computed(() =>
 // Show club links (Sign up, Browse Clubs, Create Club Manager) when backend says so:
 // - affiliation (direct club login), OR agency that hosts clubs (e.g. Summit Stats Challenge)
 const showClubLinks = computed(() => !!loginTheme.value?.agency?.showClubLinks);
+
+/** SSC tenant: phone number is an accepted login identifier. */
+const isSSCLogin = computed(() => {
+  const slug = String(loginSlug.value || '').toLowerCase().trim();
+  return slug === 'ssc' || slug === 'summit-stats';
+});
+const usernameFieldLabel = computed(() => (isSSCLogin.value ? 'Email, username, or phone number' : 'Username'));
+const usernameFieldPlaceholder = computed(() =>
+  isSSCLogin.value ? 'Email, username, or phone (e.g. 555-867-5309)' : 'Enter your username'
+);
 
 // Agency login theme data
 const loginTheme = ref(null);

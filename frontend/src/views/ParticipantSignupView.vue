@@ -72,7 +72,7 @@ const displayLogoUrl = computed(() => {
 
 const displaySubtitle = computed(() => {
   const name = orgSlug.value && loginTheme.value?.agency?.name ? loginTheme.value.agency.name : 'Summit Stats';
-  return `Sign up to join clubs and participate in fitness challenges on ${name}.`;
+  return `Sign up to join clubs and participate in fitness seasons on ${name}.`;
 });
 
 const loginBackground = computed(() => {

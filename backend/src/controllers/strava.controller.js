@@ -198,7 +198,7 @@ export const stravaImport = async (req, res, next) => {
       `SELECT 1 FROM learning_class_provider_memberships WHERE learning_class_id = ? AND provider_user_id = ? AND membership_status IN ('active','completed') LIMIT 1`,
       [learningClassId, userId]
     );
-    if (!pm?.length) return res.status(403).json({ error: { message: 'You must be a challenge participant to import workouts' } });
+    if (!pm?.length) return res.status(403).json({ error: { message: 'You must be a season participant to import workouts' } });
     let teamId = req.body.teamId ? asInt(req.body.teamId) : null;
     if (!teamId) {
       const team = await ChallengeTeam.getTeamForUser(learningClassId, userId);

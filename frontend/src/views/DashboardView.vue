@@ -3263,11 +3263,11 @@ const dashboardCards = computed(() => {
     if (myChallenges.value?.length > 0) {
       cards.push({
         id: 'challenges',
-        label: isClubContext.value ? 'Current Seasons' : 'Challenges',
+        label: isClubContext.value ? 'Current Seasons' : 'Seasons',
         kind: 'content',
         badgeCount: myChallenges.value.length,
         iconUrl: brandingStore.getDashboardCardIconUrl('challenges', iconOrg),
-        description: isClubContext.value ? 'Your enrolled seasons. View leaderboards and log workouts.' : 'Your assigned fitness challenges. View leaderboards and log workouts.'
+        description: isClubContext.value ? 'Your enrolled seasons. View leaderboards and log workouts.' : 'Your assigned fitness seasons. View leaderboards and log workouts.'
       });
     }
     // Club admin: Start new season card

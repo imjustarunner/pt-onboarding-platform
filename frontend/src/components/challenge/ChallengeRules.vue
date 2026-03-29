@@ -1,6 +1,6 @@
 <template>
   <section class="challenge-rules">
-    <h2>Challenge Rules & Details</h2>
+    <h2>Season Rules & Details</h2>
     <div class="rules-content">
       <div v-if="challenge?.description" class="rules-description">
         {{ challenge.description }}
@@ -26,7 +26,7 @@
         <p>{{ challenge.individual_min_points_per_week }} points per week (each person)</p>
       </div>
       <div v-if="challenge?.starts_at || challenge?.ends_at" class="rules-section">
-        <strong>Challenge period</strong>
+        <strong>Season period</strong>
         <p>{{ formatDates(challenge) }}</p>
       </div>
       <div v-if="!hasAnyRules" class="empty-hint">

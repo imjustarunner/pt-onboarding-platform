@@ -11,14 +11,18 @@
       />
       <span v-if="platformOrgName" class="powered-by-name">{{ platformOrgName }}</span>
     </div>
-    <div v-if="includeLegal && (privacyPolicyUrl || termsUrl || publicProofUrl || platformHipaaUrl)" class="legal-links">
-      <router-link v-if="privacyPolicyUrl" :to="privacyPolicyUrl" class="legal-link">Privacy Policy</router-link>
-      <span v-if="privacyPolicyUrl && (termsUrl || publicProofUrl || platformHipaaUrl)" class="legal-sep">|</span>
-      <router-link v-if="termsUrl" :to="termsUrl" class="legal-link">Terms</router-link>
-      <span v-if="termsUrl && (publicProofUrl || platformHipaaUrl)" class="legal-sep">|</span>
-      <router-link v-if="publicProofUrl" :to="publicProofUrl" class="legal-link">Public Proof</router-link>
-      <span v-if="publicProofUrl && platformHipaaUrl" class="legal-sep">|</span>
-      <router-link v-if="platformHipaaUrl" :to="platformHipaaUrl" class="legal-link">Platform HIPAA</router-link>
+    <div v-if="includeLegal && legalLinksToRender.length" class="legal-links">
+      <template v-for="(item, i) in legalLinksToRender" :key="'legal-' + i">
+        <a
+          v-if="isExternalLegalHref(item.href)"
+          :href="item.href"
+          class="legal-link"
+          target="_blank"
+          rel="noopener noreferrer"
+        >{{ item.label }}</a>
+        <router-link v-else :to="item.href" class="legal-link">{{ item.label }}</router-link>
+        <span v-if="i < legalLinksToRender.length - 1" class="legal-sep">|</span>
+      </template>
     </div>
   </div>
 </template>
@@ -27,6 +31,7 @@
 import { computed } from 'vue';
 import { useBrandingStore } from '../store/branding';
 import { toUploadsUrl } from '../utils/uploadsUrl';
+import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
 
 const props = defineProps({
   /** Compact layout for public marketing hub / embedded footers */
@@ -49,21 +54,64 @@ const props = defineProps({
 
 const brandingStore = useBrandingStore();
 const showPoweredBy = computed(() => brandingStore.showPoweredBy);
+const isSummitStatsChrome = useSummitStatsChallengeChrome();
 
-// Show footer when we have powered-by content OR legal links (e.g. on login page)
-const privacyPolicyUrl = computed(() => '/privacypolicy');
-const termsUrl = computed(() => '/terms');
-const publicProofUrl = computed(() => '/publicproof');
-const platformHipaaUrl = computed(() => {
+function parseSscFooterLinksJson(raw) {
+  if (raw == null) return [];
+  let arr = raw;
+  if (typeof raw === 'string') {
+    try {
+      arr = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map((x) => ({
+      label: String(x?.label || '').trim(),
+      href: String(x?.href || x?.url || '').trim()
+    }))
+    .filter((x) => x.label && x.href)
+    .slice(0, 8);
+}
+
+const parsedSscFooterLinks = computed(() =>
+  parseSscFooterLinksJson(brandingStore.platformBranding?.summit_stats_footer_links_json)
+);
+
+const platformHipaaRoute = computed(() => {
   const raw = String(brandingStore.platformBranding?.platform_hipaa_url || '').trim();
   return raw ? '/platformhipaa' : null;
 });
+
+const defaultLegalLinks = computed(() => {
+  const rows = [
+    { label: 'Privacy Policy', href: '/privacypolicy' },
+    { label: 'Terms', href: '/terms' },
+    { label: 'Public Proof', href: '/publicproof' }
+  ];
+  if (platformHipaaRoute.value) {
+    rows.push({ label: 'Platform HIPAA', href: '/platformhipaa' });
+  }
+  return rows;
+});
+
+const legalLinksToRender = computed(() => {
+  if (isSummitStatsChrome.value && parsedSscFooterLinks.value.length) {
+    return parsedSscFooterLinks.value;
+  }
+  return defaultLegalLinks.value;
+});
+
+function isExternalLegalHref(href) {
+  return /^https?:\/\//i.test(String(href || '').trim());
+}
+
 const showFooter = computed(() => {
   const powered =
     props.includePoweredBy && showPoweredBy.value && (platformOrgName.value || platformLogoUrl.value);
-  const legal =
-    props.includeLegal &&
-    (privacyPolicyUrl.value || termsUrl.value || publicProofUrl.value || platformHipaaUrl.value);
+  const legal = props.includeLegal && legalLinksToRender.value.length > 0;
   return Boolean(powered || legal);
 });
 

@@ -19,10 +19,10 @@
         Open class workspace
       </router-link>
     </div>
-    <div v-if="loading" class="loading">Loading challenges…</div>
+    <div v-if="loading" class="loading">Loading seasons…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else-if="!challenges.length" class="empty-state">
-      <p>You have no assigned challenges yet. Contact your Program Manager to join a challenge.</p>
+      <p>You have no assigned seasons yet. Contact your Program Manager to join a season.</p>
     </div>
     <div v-else class="challenges-list">
       <router-link
@@ -76,7 +76,7 @@ const loadChallenges = async () => {
     const r = await api.get('/learning-program-classes/my', { skipGlobalLoading: true });
     challenges.value = Array.isArray(r.data?.classes) ? r.data.classes : [];
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Failed to load challenges';
+    error.value = e?.response?.data?.error?.message || 'Failed to load seasons';
     challenges.value = [];
   } finally {
     loading.value = false;

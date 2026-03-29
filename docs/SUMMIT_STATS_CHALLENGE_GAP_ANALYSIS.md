@@ -52,3 +52,26 @@
 | **admin / super_admin** | Program Manager; `canManageChallenges`; create challenges, teams, assign team managers |
 | **provider_plus** | Team Manager / Team Lead; `canManageTeam` when assigned to team; `canManageChallenges` |
 | **provider** | Participant; join teams, submit workouts, view leaderboards |
+
+## Newly Closed Gaps (Seasonal Workflow)
+
+| Requested Capability | Current State |
+|------|---------|
+| Season start splash with join/apply CTAs | Implemented in `SummitStatsDashboardView.vue` using `GET /learning-program-classes/discover` |
+| Participant self-join season | Implemented via `POST /learning-program-classes/:classId/join` |
+| Captain application workflow | Implemented with submit/review/finalize APIs and manager UI in challenge dashboard |
+| Team weekly progress (behind/met/ahead) | Implemented via `GET /learning-program-classes/:classId/team-weekly-progress` and `ChallengeTeamWeeklyProgress.vue` |
+| Right-side season message feed | Implemented via `challenge_messages` table + `ChallengeMessageFeed.vue` |
+| Workout comments | Implemented (`challenge_workout_comments` + comment endpoints) |
+| GIF uploads for workouts | Implemented (`challenge_workout_media` + multipart upload endpoint with gif/image validation) |
+| Google Vision ingestion hook | Implemented via `challenge_workout_vision_jobs` + enqueue service hooks |
+| WhatsApp bridge feasibility scaffold | Implemented adapter service with in-app default and feature-flagged WhatsApp scaffold provider |
+
+## Remaining Open Gaps / Follow-Up
+
+| Area | Remaining Work |
+|------|----------------|
+| Google Vision runtime processing | Worker/consumer that pulls `queued` jobs and executes Vision API OCR/classification |
+| WhatsApp live bridge | Finalize auth + webhook + outbound mapping and moderation policy for production mode |
+| Captain auto-assignment to teams | Optional automation to map approved applicants to `challenge_teams.team_manager_user_id` |
+| Feed moderation controls | Optional admin settings UI toggles from `season_settings_json` to enforce comment/media policies |

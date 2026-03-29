@@ -119,6 +119,42 @@ export const listLearningProgramClasses = async (req, res, next) => {
   }
 };
 
+export const discoverLearningProgramClasses = async (req, res, next) => {
+  try {
+    const organizationId = asInt(req.query.organizationId);
+    if (!organizationId) return res.status(400).json({ error: { message: 'organizationId is required' } });
+    const orgCheck = await ensureLearningOrganization(organizationId);
+    if (!orgCheck.ok) return res.status(orgCheck.status).json({ error: { message: orgCheck.message } });
+    const allowed = await canAccessOrganization({ user: req.user, organizationId });
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied for this learning program' } });
+
+    const classes = await LearningProgramClass.listByOrganization({ organizationId, includeArchived: false });
+    const [membershipRows] = await pool.execute(
+      `SELECT learning_class_id, membership_status
+       FROM learning_class_provider_memberships
+       WHERE provider_user_id = ?`,
+      [req.user.id]
+    );
+    const membershipByClass = new Map((membershipRows || []).map((r) => [Number(r.learning_class_id), String(r.membership_status || '').toLowerCase()]));
+    const seasons = [];
+    for (const c of classes || []) {
+      const s = await ensureClassLifecycleStatus(c);
+      const status = String(s?.status || '').toLowerCase();
+      if (status !== 'active' && status !== 'draft') continue;
+      const membershipStatus = membershipByClass.get(Number(s.id)) || null;
+      const joined = membershipStatus === 'active' || membershipStatus === 'completed';
+      seasons.push({
+        ...s,
+        joined,
+        membership_status: membershipStatus
+      });
+    }
+    return res.json({ organizationId, seasons });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getLearningProgramClass = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);
@@ -186,6 +222,15 @@ export const createLearningProgramClass = async (req, res, next) => {
         return null;
       })(),
       recognitionMetric: req.body.recognitionMetric || 'points',
+      captainApplicationOpen: asBool(req.body.captainApplicationOpen ?? req.body.captain_application_open, true),
+      captainsFinalized: asBool(req.body.captainsFinalized ?? req.body.captains_finalized, false),
+      seasonSplashEnabled: asBool(req.body.seasonSplashEnabled ?? req.body.season_splash_enabled, true),
+      seasonAnnouncementText: req.body.seasonAnnouncementText !== undefined
+        ? (req.body.seasonAnnouncementText ? String(req.body.seasonAnnouncementText) : null)
+        : (req.body.season_announcement_text ? String(req.body.season_announcement_text) : null),
+      seasonSettingsJson: req.body.seasonSettingsJson && typeof req.body.seasonSettingsJson === 'object'
+        ? req.body.seasonSettingsJson
+        : (req.body.season_settings_json && typeof req.body.season_settings_json === 'object' ? req.body.season_settings_json : null),
       deliveryMode: String(req.body.deliveryMode || req.body.delivery_mode || 'group').toLowerCase() === 'individual' ? 'individual' : 'group',
       registrationEligible: asBool(req.body.registrationEligible ?? req.body.registration_eligible, false),
       medicaidEligible: asBool(req.body.medicaidEligible ?? req.body.medicaid_eligible, false),
@@ -240,6 +285,26 @@ export const updateLearningProgramClass = async (req, res, next) => {
         ? (Array.isArray(req.body.recognitionCategoriesJson) ? req.body.recognitionCategoriesJson : (req.body.recognitionCategoriesJson ? JSON.parse(String(req.body.recognitionCategoriesJson)) : null))
         : undefined,
       recognitionMetric: req.body.recognitionMetric !== undefined ? (req.body.recognitionMetric || null) : undefined,
+      captainApplicationOpen: req.body.captainApplicationOpen !== undefined || req.body.captain_application_open !== undefined
+        ? asBool(req.body.captainApplicationOpen ?? req.body.captain_application_open, true)
+        : undefined,
+      captainsFinalized: req.body.captainsFinalized !== undefined || req.body.captains_finalized !== undefined
+        ? asBool(req.body.captainsFinalized ?? req.body.captains_finalized, false)
+        : undefined,
+      seasonSplashEnabled: req.body.seasonSplashEnabled !== undefined || req.body.season_splash_enabled !== undefined
+        ? asBool(req.body.seasonSplashEnabled ?? req.body.season_splash_enabled, true)
+        : undefined,
+      seasonAnnouncementText: req.body.seasonAnnouncementText !== undefined || req.body.season_announcement_text !== undefined
+        ? (req.body.seasonAnnouncementText ?? req.body.season_announcement_text ? String(req.body.seasonAnnouncementText ?? req.body.season_announcement_text) : null)
+        : undefined,
+      seasonSettingsJson: req.body.seasonSettingsJson !== undefined || req.body.season_settings_json !== undefined
+        ? (() => {
+          const v = req.body.seasonSettingsJson ?? req.body.season_settings_json;
+          if (v && typeof v === 'object') return v;
+          if (typeof v === 'string' && v.trim()) { try { return JSON.parse(v); } catch { return null; } }
+          return null;
+        })()
+        : undefined,
       deliveryMode: req.body.deliveryMode !== undefined || req.body.delivery_mode !== undefined
         ? (String(req.body.deliveryMode || req.body.delivery_mode || 'group').toLowerCase() === 'individual' ? 'individual' : 'group')
         : undefined
@@ -288,6 +353,11 @@ export const duplicateLearningProgramClass = async (req, res, next) => {
       mastersAgeThreshold: source.masters_age_threshold ?? 53,
       recognitionCategoriesJson: source.recognition_categories_json || null,
       recognitionMetric: source.recognition_metric || 'points',
+      captainApplicationOpen: !!(source.captain_application_open === 1 || source.captain_application_open === true),
+      captainsFinalized: false,
+      seasonSplashEnabled: !!(source.season_splash_enabled === 1 || source.season_splash_enabled === true),
+      seasonAnnouncementText: source.season_announcement_text || null,
+      seasonSettingsJson: source.season_settings_json || null,
       deliveryMode: source.delivery_mode || 'group',
       registrationEligible: !!(source.registration_eligible === 1 || source.registration_eligible === true),
       medicaidEligible: !!(source.medicaid_eligible === 1 || source.medicaid_eligible === true),
@@ -557,6 +627,34 @@ export const launchLearningProgramClass = async (req, res, next) => {
     await LearningProgramClass.update(classId, { status: 'active' });
     const updated = await LearningProgramClass.findById(classId);
     return res.json({ class: updated, launched: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const joinLearningProgramClass = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const klass = await LearningProgramClass.findById(classId);
+    if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
+    const allowed = await canAccessOrganization({ user: req.user, organizationId: klass.organization_id });
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied for this class' } });
+    const status = String(klass.status || '').toLowerCase();
+    if (status !== 'active' && status !== 'draft') {
+      return res.status(400).json({ error: { message: 'This season is not open for joining' } });
+    }
+    if (status === 'draft') {
+      return res.status(400).json({ error: { message: 'Season has not started yet' } });
+    }
+    await LearningProgramClass.addProviderMember({
+      classId,
+      providerUserId: req.user.id,
+      membershipStatus: 'active',
+      actorUserId: req.user.id
+    });
+    const providerMembers = await LearningProgramClass.listProviderMembers(classId);
+    return res.json({ joined: true, classId, providerMembers });
   } catch (e) {
     next(e);
   }

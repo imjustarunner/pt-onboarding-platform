@@ -1,8 +1,8 @@
 <template>
   <div class="summit-stats-dashboard">
     <div class="dashboard-header">
-      <h1>Challenges</h1>
-      <p class="subtitle">Your fitness challenges, teams, and progress.</p>
+      <h1>Seasons</h1>
+      <p class="subtitle">Your fitness seasons, teams, and progress.</p>
     </div>
 
     <!-- Create Club (SSC only: scoped admin with no clubs) -->
@@ -30,6 +30,43 @@
       </div>
     </div>
 
+    <div v-if="seasonSplashes.length" class="season-splash-wrap">
+      <article v-for="season in seasonSplashes" :key="`season-splash-${season.id}`" class="season-splash-card">
+        <div class="season-splash-header">
+          <h2>New Season: {{ season.class_name || season.className }}</h2>
+          <span class="season-splash-badge">{{ season.joined ? 'Joined' : 'Open' }}</span>
+        </div>
+        <p class="season-splash-copy">
+          {{ season.season_announcement_text || 'A new season is live. Join now, or apply to be captain before captains are finalized.' }}
+        </p>
+        <div class="season-splash-actions">
+          <button
+            v-if="!season.captains_finalized && season.captain_application_open"
+            class="btn btn-secondary"
+            :disabled="captainApplyingClassId === season.id"
+            @click="applyForCaptain(season.id)"
+          >
+            {{ captainApplyingClassId === season.id ? 'Applying…' : 'Apply for Captain' }}
+          </button>
+          <button
+            v-if="!season.joined"
+            class="btn btn-primary"
+            :disabled="joiningClassId === season.id"
+            @click="joinSeason(season.id)"
+          >
+            {{ joiningClassId === season.id ? 'Joining…' : 'Join Season' }}
+          </button>
+          <router-link
+            v-else
+            class="btn btn-primary"
+            :to="challengeRoute(season)"
+          >
+            Open Season Dashboard
+          </router-link>
+        </div>
+      </article>
+    </div>
+
     <!-- Personal stats -->
     <div v-if="summary" class="stats-strip">
       <div class="stat-card">
@@ -51,13 +88,13 @@
       <router-link :to="`/club-store/${organizationId}`" class="club-store-link">View Club Store</router-link>
     </div>
 
-    <!-- Challenges by affiliation/org -->
+    <!-- Seasons by affiliation/org -->
     <div class="challenges-section">
-      <h2>My Challenges</h2>
+      <h2>My Seasons</h2>
       <div v-if="loading" class="loading">Loading…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else-if="!challenges.length" class="empty-state">
-        <p>You have no assigned challenges. Contact your Program Manager to join.</p>
+        <p>You have no assigned seasons. Contact your Program Manager to join.</p>
       </div>
       <div v-else class="challenges-grid">
         <div v-for="c in challenges" :key="c.id" class="challenge-card-wrapper">
@@ -113,6 +150,9 @@ const loading = ref(true);
 const error = ref(null);
 const challenges = ref([]);
 const summary = ref(null);
+const seasonSplashes = ref([]);
+const joiningClassId = ref(null);
+const captainApplyingClassId = ref(null);
 
 const clubContext = ref(null);
 const clubContextLoading = ref(true);
@@ -170,7 +210,7 @@ const loadChallenges = async () => {
     const r = await api.get('/learning-program-classes/my', { params, skipGlobalLoading: true });
     challenges.value = Array.isArray(r.data?.classes) ? r.data.classes : [];
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Failed to load challenges';
+    error.value = e?.response?.data?.error?.message || 'Failed to load seasons';
     challenges.value = [];
   } finally {
     loading.value = false;
@@ -184,6 +224,48 @@ const loadSummary = async () => {
     summary.value = r.data || null;
   } catch {
     summary.value = null;
+  }
+};
+
+const loadSeasonSplashes = async () => {
+  seasonSplashes.value = [];
+  if (!organizationId.value) return;
+  try {
+    const r = await api.get('/learning-program-classes/discover', {
+      params: { organizationId: organizationId.value },
+      skipGlobalLoading: true
+    });
+    const seasons = Array.isArray(r.data?.seasons) ? r.data.seasons : [];
+    seasonSplashes.value = seasons.filter((s) => {
+      const status = String(s?.status || '').toLowerCase();
+      return status === 'active' && (s?.season_splash_enabled === 1 || s?.season_splash_enabled === true);
+    });
+  } catch {
+    seasonSplashes.value = [];
+  }
+};
+
+const joinSeason = async (classId) => {
+  joiningClassId.value = classId;
+  try {
+    await api.post(`/learning-program-classes/${classId}/join`);
+    await Promise.all([loadChallenges(), loadSummary(), loadSeasonSplashes()]);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to join season';
+  } finally {
+    joiningClassId.value = null;
+  }
+};
+
+const applyForCaptain = async (classId) => {
+  captainApplyingClassId.value = classId;
+  try {
+    await api.post(`/learning-program-classes/${classId}/captain-applications`, {});
+    await loadSeasonSplashes();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to apply for captain';
+  } finally {
+    captainApplyingClassId.value = null;
   }
 };
 
@@ -228,12 +310,13 @@ const formatDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { month
 
 onMounted(async () => {
   await loadClubManagerContext();
-  await Promise.all([loadChallenges(), loadSummary()]);
+  await Promise.all([loadChallenges(), loadSummary(), loadSeasonSplashes()]);
 });
 
 watch(organizationId, () => {
   loadChallenges();
   loadSummary();
+  loadSeasonSplashes();
 });
 </script>
 
@@ -259,6 +342,45 @@ watch(organizationId, () => {
   display: flex;
   gap: 16px;
   margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.season-splash-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.season-splash-card {
+  border: 1px solid rgba(16, 146, 169, 0.28);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(16, 146, 169, 0.08), rgba(245, 141, 24, 0.08));
+  padding: 14px 16px;
+}
+.season-splash-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.season-splash-header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.season-splash-badge {
+  font-size: 0.78rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid #ddd;
+}
+.season-splash-copy {
+  margin: 8px 0 10px 0;
+  font-size: 0.92rem;
+  color: var(--text-muted, #666);
+}
+.season-splash-actions {
+  display: flex;
+  gap: 10px;
   flex-wrap: wrap;
 }
 .stat-card {

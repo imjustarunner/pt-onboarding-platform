@@ -381,6 +381,14 @@ export const login = async (req, res, next) => {
     const orgSlugRaw = req.body?.organizationSlug || req.body?.orgSlug || null;
     const orgSlug = orgSlugRaw ? String(orgSlugRaw).trim().toLowerCase() : null;
 
+    /** Digits-only phone heuristic: 7–15 digits after stripping non-numeric chars. */
+    const identifierDigits = identifier.replace(/\D/g, '');
+    const looksLikePhone = identifierDigits.length >= 7 && identifierDigits.length <= 15 && !/[@.]/.test(identifier);
+
+    /** True when the login is happening on the Summit Stats Challenge tenant. */
+    const sscSlug = (process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc').toLowerCase();
+    const isSSCTenant = orgSlug === 'ssc' || orgSlug === 'summit-stats' || orgSlug === sscSlug;
+
     let user;
     try {
       // Try to find by email first (which also checks username now)
@@ -388,6 +396,10 @@ export const login = async (req, res, next) => {
       // If not found by email, try username field specifically
       if (!user) {
         user = await User.findByUsername(identifier);
+      }
+      // SSC tenant: allow phone number as login identifier
+      if (!user && isSSCTenant && looksLikePhone) {
+        user = await User.findByPhone(identifier);
       }
     } catch (dbError) {
       console.error('Database error during login:', {

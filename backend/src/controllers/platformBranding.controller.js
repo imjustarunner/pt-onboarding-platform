@@ -1,6 +1,30 @@
 import PlatformBranding from '../models/PlatformBranding.model.js';
 import { validationResult } from 'express-validator';
 
+/** Normalize SSC footer links from API/restore; undefined = omit, null = clear, array = save (max 8). */
+function normalizeSummitStatsFooterLinks(input) {
+  if (input === undefined) return undefined;
+  if (input === null) return null;
+  let arr = input;
+  if (typeof input === 'string') {
+    try {
+      arr = JSON.parse(input);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(arr)) return null;
+  const out = arr
+    .map((x) => {
+      const label = String(x?.label ?? '').trim();
+      const href = String(x?.href ?? x?.url ?? '').trim();
+      return { label, href };
+    })
+    .filter((x) => x.label && x.href)
+    .slice(0, 8);
+  return out.length ? out : null;
+}
+
 /** Map exported (GET) snake_case keys to update payload camelCase. */
 function exportedToUpdatePayload(data) {
   if (!data || typeof data !== 'object') return {};
@@ -93,7 +117,8 @@ function exportedToUpdatePayload(data) {
     school_portal_parent_qr_icon_id: 'schoolPortalParentQrIconId',
     school_portal_parent_sign_icon_id: 'schoolPortalParentSignIconId',
     school_portal_upload_packet_icon_id: 'schoolPortalUploadPacketIconId',
-    available_agency_features_json: 'availableAgencyFeatures'
+    available_agency_features_json: 'availableAgencyFeatures',
+    summit_stats_footer_links_json: 'summitStatsFooterLinks'
   };
   const out = {};
   for (const [snake, camel] of Object.entries(map)) {
@@ -228,7 +253,8 @@ export const updatePlatformBranding = async (req, res, next) => {
       schoolPortalUploadPacketIconId,
       maxInactivityTimeoutMinutes,
       betaFeedbackEnabled,
-      availableAgencyFeatures
+      availableAgencyFeatures,
+      summitStatsFooterLinks
     } = req.body;
 
     const branding = await PlatformBranding.update({
@@ -317,7 +343,8 @@ export const updatePlatformBranding = async (req, res, next) => {
       schoolPortalUploadPacketIconId: schoolPortalUploadPacketIconId !== undefined ? (schoolPortalUploadPacketIconId === null || schoolPortalUploadPacketIconId === '' ? null : parseInt(schoolPortalUploadPacketIconId)) : undefined,
       maxInactivityTimeoutMinutes: maxInactivityTimeoutMinutes !== undefined ? (maxInactivityTimeoutMinutes === null || maxInactivityTimeoutMinutes === '' ? null : Math.min(240, Math.max(1, parseInt(maxInactivityTimeoutMinutes, 10) || 30))) : undefined,
       betaFeedbackEnabled: betaFeedbackEnabled !== undefined ? !!betaFeedbackEnabled : undefined,
-      availableAgencyFeatures: availableAgencyFeatures !== undefined && typeof availableAgencyFeatures === 'object' ? availableAgencyFeatures : undefined
+      availableAgencyFeatures: availableAgencyFeatures !== undefined && typeof availableAgencyFeatures === 'object' ? availableAgencyFeatures : undefined,
+      summitStatsFooterLinks: normalizeSummitStatsFooterLinks(summitStatsFooterLinks)
     }, req.user.id);
 
     res.json(branding);
@@ -342,6 +369,9 @@ export const updatePlatformBranding = async (req, res, next) => {
 export const restorePlatformBranding = async (req, res, next) => {
   try {
     const payload = exportedToUpdatePayload(req.body);
+    if (payload.summitStatsFooterLinks !== undefined) {
+      payload.summitStatsFooterLinks = normalizeSummitStatsFooterLinks(payload.summitStatsFooterLinks);
+    }
     if (Object.keys(payload).length === 0) {
       return res.status(400).json({ error: { message: 'No valid platform branding data to restore' } });
     }

@@ -36,7 +36,7 @@
                 {{ photoUploading ? 'Uploading…' : 'Upload Photo' }}
               </button>
               <div class="hint" style="margin-top: 6px;">
-                Used across the app (school portal provider cards, chat, and profile headers).
+                {{ isSsc ? 'Shown on your club profile and team pages.' : 'Used across the app (school portal provider cards, chat, and profile headers).' }}
               </div>
               <div v-if="photoError" class="error" style="margin-top: 10px;">{{ photoError }}</div>
             </template>
@@ -52,7 +52,88 @@
       <!-- Personal Information Section -->
       <div class="info-section">
         <h2>Personal Information</h2>
-        <div class="info-grid">
+
+        <!-- ── SSC: fully editable personal info form ────────────────── -->
+        <div v-if="isSsc" class="card compact-card">
+          <div class="section-header">
+            <h3 style="margin:0;">Your Details</h3>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button
+                v-if="!editingPersonalInfo"
+                class="btn btn-secondary btn-compact"
+                type="button"
+                @click="startEditPersonalInfo"
+              >Edit</button>
+              <button
+                v-else
+                class="btn btn-primary btn-compact"
+                type="button"
+                :disabled="savingPersonalInfo"
+                @click="savePersonalInfo"
+              >{{ savingPersonalInfo ? 'Saving…' : 'Save' }}</button>
+              <button
+                v-if="editingPersonalInfo"
+                class="btn btn-secondary btn-compact"
+                type="button"
+                :disabled="savingPersonalInfo"
+                @click="cancelEditPersonalInfo"
+              >Cancel</button>
+            </div>
+          </div>
+          <div v-if="personalInfoError" class="error" style="margin-top:10px;">{{ personalInfoError }}</div>
+          <div class="fields-grid" style="margin-top:14px;">
+            <!-- Email (read-only — login email changes require admin) -->
+            <div class="field-item">
+              <label>Login Email</label>
+              <input :value="accountInfo.loginEmail" type="email" disabled title="Contact an admin to change your login email." />
+              <small class="hint" style="margin-top:4px;">Contact an admin to change your login email.</small>
+            </div>
+            <!-- Username (separate from email; can be phone or handle) -->
+            <div class="field-item">
+              <label>Username</label>
+              <input
+                v-model="personalInfoForm.username"
+                type="text"
+                :disabled="!editingPersonalInfo"
+                placeholder="e.g. trackrunna24 or 555-867-5309"
+              />
+              <small class="hint" style="margin-top:4px;">Can be a handle or phone number — used as a login shortcut.</small>
+            </div>
+            <!-- Phone number (primary — used for phone login) -->
+            <div class="field-item">
+              <label>Phone Number</label>
+              <input
+                v-model="personalInfoForm.phoneNumber"
+                type="tel"
+                :disabled="!editingPersonalInfo"
+                placeholder="e.g. 555-867-5309"
+              />
+            </div>
+            <!-- Preferred Name -->
+            <div class="field-item">
+              <label>Preferred Name</label>
+              <input
+                v-model="personalInfoForm.preferredName"
+                type="text"
+                :disabled="!editingPersonalInfo"
+                placeholder="e.g. Katie"
+              />
+            </div>
+            <!-- Title -->
+            <div class="field-item">
+              <label>Title</label>
+              <input
+                v-model="personalInfoForm.title"
+                type="text"
+                :disabled="!editingPersonalInfo"
+                placeholder="e.g. Captain, Coach"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Non-SSC: existing read-only grid ──────────────────────── -->
+        <div v-else class="info-grid">
           <div class="info-item">
             <label>Login Email:</label>
             <span>{{ accountInfo.loginEmail }}</span>
@@ -75,7 +156,7 @@
           </div>
           <div class="info-item">
             <label>Personal Phone Number:</label>
-            <span>{{ accountInfo.personalPhone || accountInfo.phoneNumber || 'Not provided' }}</span>
+            <span>{{ accountInfo.phoneNumber || accountInfo.personalPhone || 'Not provided' }}</span>
           </div>
           <div class="info-item">
             <label>Work Phone Number:</label>
@@ -102,7 +183,8 @@
           </div>
         </div>
 
-        <div class="card compact-card" style="margin-top: 16px;">
+        <!-- SSC: preferred name is inside the editable "Your Details" card above -->
+        <div v-if="!isSsc" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">Preferred Name (display only)</h3>
             <button class="btn btn-primary btn-compact" @click="savePreferredName" :disabled="savingPreferredName">
@@ -181,7 +263,7 @@
           </div>
         </div>
 
-        <div class="card compact-card" style="margin-top: 16px;">
+        <div v-if="!isSsc" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">Assigned Building Office(s)</h3>
           </div>
@@ -506,6 +588,7 @@ import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { toUploadsUrl } from '../utils/uploadsUrl';
+import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -514,6 +597,7 @@ const isClubContext = computed(() => {
   const t = String(agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || '').toLowerCase();
   return t === 'affiliation';
 });
+const isSsc = useSummitStatsChallengeChrome();
 const userId = computed(() => authStore.user?.id);
 const profilePhotoUrl = computed(() => {
   // `GET /users/me` returns `profile_photo_url` which is typically a backend-relative `/uploads/...` path.
@@ -577,6 +661,7 @@ const loading = ref(true);
 const error = ref('');
 const accountInfo = ref({ 
   loginEmail: '', 
+  username: '',
   preferredName: '',
   title: '',
   serviceFocus: '',
@@ -602,6 +687,49 @@ const tokenExpirationDays = ref(7);
 const preferredNameForm = ref('');
 const savingPreferredName = ref(false);
 const preferredNameError = ref('');
+
+// SSC editable personal info
+const editingPersonalInfo = ref(false);
+const savingPersonalInfo = ref(false);
+const personalInfoError = ref('');
+const personalInfoForm = ref({ username: '', phoneNumber: '', preferredName: '', title: '' });
+
+const startEditPersonalInfo = () => {
+  personalInfoForm.value = {
+    username: accountInfo.value.username || '',
+    phoneNumber: accountInfo.value.phoneNumber || accountInfo.value.personalPhone || '',
+    preferredName: accountInfo.value.preferredName || '',
+    title: accountInfo.value.title || ''
+  };
+  personalInfoError.value = '';
+  editingPersonalInfo.value = true;
+};
+
+const cancelEditPersonalInfo = () => {
+  editingPersonalInfo.value = false;
+  personalInfoError.value = '';
+};
+
+const savePersonalInfo = async () => {
+  savingPersonalInfo.value = true;
+  personalInfoError.value = '';
+  try {
+    const payload = {
+      username: personalInfoForm.value.username.trim() || null,
+      phoneNumber: personalInfoForm.value.phoneNumber.trim() || null,
+      preferredName: personalInfoForm.value.preferredName.trim() || null,
+      title: personalInfoForm.value.title.trim() || null
+    };
+    await api.put(`/users/${userId.value}`, payload);
+    await fetchAccountInfo();
+    try { await authStore.refreshUser(); } catch { /* non-blocking */ }
+    editingPersonalInfo.value = false;
+  } catch (e) {
+    personalInfoError.value = e?.response?.data?.error?.message || 'Failed to save. Please try again.';
+  } finally {
+    savingPersonalInfo.value = false;
+  }
+};
 
 // User Info (profile fields saved by Custom Input Modules)
 const userInfoLoading = ref(false);
@@ -963,6 +1091,13 @@ const fetchAccountInfo = async () => {
     const response = await api.get(`/users/${userId.value}/account-info`);
     accountInfo.value = response.data;
     preferredNameForm.value = response.data?.preferredName || '';
+    // Seed SSC personal-info form with current values (stays hidden until user clicks Edit)
+    personalInfoForm.value = {
+      username: response.data?.username || '',
+      phoneNumber: response.data?.phoneNumber || response.data?.personalPhone || '',
+      preferredName: response.data?.preferredName || '',
+      title: response.data?.title || ''
+    };
     homeAddressForm.value = {
       street: response.data?.homeStreetAddress || '',
       line2: response.data?.homeAddressLine2 || '',

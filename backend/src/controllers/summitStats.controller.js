@@ -262,9 +262,10 @@ export const addMemberToClub = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Invalid club ID' } });
     }
 
-    const email = String(req.body?.email || '').trim().toLowerCase();
-    if (!email || !email.includes('@')) {
-      return res.status(400).json({ error: { message: 'Valid email is required' } });
+    // Accept email, username, or phone number as the lookup identifier.
+    const identifier = String(req.body?.identifier || req.body?.email || '').trim();
+    if (!identifier) {
+      return res.status(400).json({ error: { message: 'Email, username, or phone number is required' } });
     }
 
     const user = req.user;
@@ -287,11 +288,23 @@ export const addMemberToClub = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Club not found' } });
     }
 
-    const existingUser = await User.findByEmail(email);
+    // Try email → username → phone (digits only) in order.
+    const identifierLower = identifier.toLowerCase();
+    const identifierDigits = identifier.replace(/\D/g, '');
+    const looksLikePhone =
+      identifierDigits.length >= 7 && identifierDigits.length <= 15 && !/[@.]/.test(identifier);
+
+    let existingUser =
+      (await User.findByEmail(identifierLower)) ||
+      (await User.findByUsername(identifierLower));
+    if (!existingUser && looksLikePhone) {
+      existingUser = await User.findByPhone(identifier);
+    }
+
     if (!existingUser) {
       return res.json({
         exists: false,
-        message: 'No account found with this email. They can sign up as a participant and apply to join your club.'
+        message: 'No account found for that email, username, or phone number. They can sign up as a participant and apply to join your club.'
       });
     }
 

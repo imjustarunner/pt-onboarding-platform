@@ -129,6 +129,9 @@ When creating a season, the Program Manager can define:
 - Scoring rules
 - Team and individual minimum points per week
 - Weekly challenge goals
+- Captain application controls (`captain_application_open`, `captains_finalized`)
+- Season splash visibility and announcement copy
+- Season settings JSON for feed/moderation/integration options
 
 Examples of season types:
 
@@ -194,6 +197,12 @@ Each workout submission generates a **workout card** that includes:
 
 Users may click the screenshot to view the full uploaded image.
 
+Workouts now also support:
+
+- GIF/image media attachments on workout posts
+- Comment threads on workout cards
+- Async Vision ingestion hook (job queue) for screenshot/media enrichment
+
 ---
 
 # 7. Scoring System
@@ -216,6 +225,49 @@ The system automatically updates:
 - Individual points
 - Team points
 - Leaderboards
+
+---
+
+# 8. Seasonal Workflow (Current)
+
+Each season now follows an explicit lifecycle:
+
+1. **Manager starts season** (status active + splash enabled)
+2. Participants see season splash with:
+   - **Apply for captain** (while applications are open)
+   - **Join season**
+3. Manager reviews applications and **finalizes captains**
+4. Season dashboard shows:
+   - Overall season leaderboards and weekly scoreboard
+   - Team weekly progress with member status (behind/met/ahead)
+   - Workout feed and in-app message feed
+
+### Seasonal Workflow API Surface
+
+- `GET /api/learning-program-classes/discover`
+- `POST /api/learning-program-classes/:classId/join`
+- `GET /api/learning-program-classes/:classId/captain-applications`
+- `POST /api/learning-program-classes/:classId/captain-applications`
+- `PUT /api/learning-program-classes/:classId/captain-applications/:applicationId`
+- `POST /api/learning-program-classes/:classId/captains/finalize`
+- `GET /api/learning-program-classes/:classId/team-weekly-progress`
+- `GET/POST /api/learning-program-classes/:classId/messages`
+- `GET/POST/DELETE` workout comment routes
+- `POST /api/learning-program-classes/:classId/workouts/:workoutId/media`
+
+---
+
+# 9. Messaging + Integration Direction
+
+The in-app message feed is the default transport.
+
+Bridge scaffold is implemented for future WhatsApp integration with adapter methods:
+
+- `postMessageToChannel`
+- `ingestExternalMessage`
+- `mapExternalAuthor`
+
+Google Vision is integrated as an async queue hook (`challenge_workout_vision_jobs`) so screenshot/media processing can be enabled without changing the workout submission UX.
 
 ---
 

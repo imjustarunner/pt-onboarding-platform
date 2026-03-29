@@ -20,7 +20,7 @@
     
     <!-- Summit Stats club managers only (ssc slug): create/manage club as main interface -->
     <div v-if="clubContextLoading && isSscAdminRoute" class="loading">Loading…</div>
-    <div v-else-if="isSscAdminRoute && clubContext?.summitStatsScopedAdmin" class="create-club-section">
+    <div v-else-if="isSscAdminRoute && clubContext?.summitStatsScopedAdmin && !(clubContext.clubs?.length)" class="create-club-section">
       <div v-if="!clubContext?.emailVerified" class="create-club-card create-club-verify">
         <h3>Verify your email</h3>
         <p>Please verify your email before creating your club. Check your inbox for the verification link.</p>
@@ -296,6 +296,9 @@ const loadClubManagerContext = async () => {
   try {
     const r = await api.get('/summit-stats/club-manager-context', { skipGlobalLoading: true });
     clubContext.value = r.data || null;
+
+    // Club already exists: the dashboard will skip the create-club form (clubs.length > 0 guard).
+    // No redirect needed — club managers stay at /ssc/admin regardless of which club they own.
   } catch {
     clubContext.value = null;
   } finally {

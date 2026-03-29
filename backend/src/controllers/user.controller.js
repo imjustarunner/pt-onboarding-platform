@@ -2074,9 +2074,32 @@ export const updateUser = async (req, res, next) => {
     }
     
     // Handle phone number updates
+    const phoneNumberRaw = req.body?.phoneNumber;
+    if (phoneNumberRaw !== undefined) {
+      // Any user can update their own primary phone number (used for SSC phone login).
+      if (parseInt(id) === req.user.id || req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support') {
+        updateData.phoneNumber = phoneNumberRaw ? String(phoneNumberRaw).trim() : null;
+      }
+    }
     if (personalPhone !== undefined) updateData.personalPhone = personalPhone;
     if (workPhone !== undefined) updateData.workPhone = workPhone;
     if (workPhoneExtension !== undefined) updateData.workPhoneExtension = workPhoneExtension;
+
+    // Allow users to update their own username (collision-checked).
+    const usernameRaw = req.body?.username;
+    if (usernameRaw !== undefined) {
+      const newUsername = String(usernameRaw || '').trim();
+      if (newUsername) {
+        const collision = await User.findByUsername(newUsername);
+        if (collision && Number(collision.id) !== Number(id)) {
+          return res.status(409).json({ error: { message: 'That username is already taken' } });
+        }
+        // For SSC: username can be a phone — just store as-is.
+        updateData.username = newUsername;
+      } else {
+        updateData.username = null;
+      }
+    }
 
     // Home address (used for mileage calculations)
     if (homeStreetAddress !== undefined) updateData.homeStreetAddress = homeStreetAddress;
@@ -5860,6 +5883,7 @@ export const getAccountInfo = async (req, res, next) => {
     
     const accountInfo = {
       loginEmail: user.email || user.work_email || 'Not provided',
+      username: user.username || null,
       preferredName: user.preferred_name || null,
       title: user.title ?? null,
       serviceFocus: user.service_focus ?? null,

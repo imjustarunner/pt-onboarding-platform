@@ -1,8 +1,8 @@
 <template>
   <div class="challenge-dashboard">
-    <div v-if="loading" class="loading">Loading challenge…</div>
+    <div v-if="loading" class="loading">Loading season…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else-if="!challenge" class="empty-state">Challenge not found.</div>
+    <div v-else-if="!challenge" class="empty-state">Season not found.</div>
     <div v-else class="challenge-detail">
       <!-- Challenge Overview -->
       <div class="challenge-overview">
@@ -25,42 +25,79 @@
       </div>
 
       <div class="challenge-sections">
-        <!-- Challenge Rules & Details -->
+        <div class="challenge-two-col">
+          <div class="challenge-col-left">
+            <div class="challenge-section">
+              <h2>Season Stats</h2>
+              <ChallengeLeaderboard :leaderboard="leaderboard" :loading="leaderboardLoading" />
+            </div>
+            <div class="challenge-section">
+              <ChallengeScoreboard :challenge-id="challengeId" />
+            </div>
+            <div class="challenge-section">
+              <ChallengeTeamWeeklyProgress :challenge-id="challengeId" />
+            </div>
+          </div>
+          <div class="challenge-col-right">
+            <div class="challenge-section">
+              <ChallengeActivityFeed
+                :workouts="activity"
+                :loading="activityLoading"
+                :challenge-id="challengeId"
+                :my-user-id="authStore.user?.id"
+                @media-uploaded="loadActivity"
+              />
+            </div>
+            <div class="challenge-section">
+              <ChallengeMessageFeed :challenge-id="challengeId" />
+            </div>
+          </div>
+        </div>
+
         <div class="challenge-section">
           <ChallengeRules :challenge="challenge" />
         </div>
-
-        <!-- Teams -->
         <div class="challenge-section">
           <ChallengeTeamList :teams="teams" :loading="teamsLoading" />
         </div>
-
-        <!-- Weekly Scoreboard -->
-        <div class="challenge-section">
-          <ChallengeScoreboard :challenge-id="challengeId" />
-        </div>
-
-        <!-- Leaderboard -->
-        <div class="challenge-section">
-          <ChallengeLeaderboard :leaderboard="leaderboard" :loading="leaderboardLoading" />
-        </div>
-
-        <!-- Elimination Board -->
         <div class="challenge-section">
           <ChallengeEliminationBoard :challenge-id="challengeId" />
         </div>
-
-        <!-- Weekly Challenges -->
         <div class="challenge-section">
           <ChallengeWeeklyTasks :challenge-id="challengeId" :my-user-id="authStore.user?.id" />
         </div>
 
-        <!-- Recent Activity -->
-        <div class="challenge-section">
-          <ChallengeActivityFeed :workouts="activity" :loading="activityLoading" />
-        </div>
+        <section class="challenge-section">
+          <h2>Captain Applications</h2>
+          <div v-if="captainAppsLoading" class="loading-inline">Loading applications…</div>
+          <div v-else-if="captainAppsError" class="error-inline">{{ captainAppsError }}</div>
+          <div v-else class="captain-apps-list">
+            <div v-if="!captainApplications.length" class="empty-hint">No captain applications yet.</div>
+            <article
+              v-for="app in captainApplications"
+              :key="`captain-app-${app.id}`"
+              class="captain-app-card"
+            >
+              <div class="captain-app-header">
+                <strong>{{ app.first_name }} {{ app.last_name }}</strong>
+                <span class="captain-app-status" :class="`status-${String(app.status || '').toLowerCase()}`">{{ app.status }}</span>
+              </div>
+              <p v-if="app.application_text" class="hint">{{ app.application_text }}</p>
+              <p v-if="app.manager_notes" class="hint">Manager note: {{ app.manager_notes }}</p>
+              <div v-if="isChallengeManager && String(app.status || '').toLowerCase() === 'pending'" class="captain-app-actions">
+                <button class="btn btn-primary btn-small" @click="reviewCaptain(app.id, 'approved')">Approve</button>
+                <button class="btn btn-secondary btn-small" @click="reviewCaptain(app.id, 'rejected')">Reject</button>
+              </div>
+            </article>
+          </div>
+          <div v-if="isChallengeManager" class="captain-finalize">
+            <button class="btn btn-secondary" :disabled="captainsFinalizeSubmitting" @click="finalizeCaptainsForSeason">
+              {{ captainsFinalizeSubmitting ? 'Finalizing…' : 'Finalize Captains' }}
+            </button>
+            <span class="hint">This closes captain applications for the season.</span>
+          </div>
+        </section>
 
-        <!-- Submit Workout -->
         <section class="challenge-section">
           <h2>Log Workout</h2>
           <div v-if="canSubmitWorkout" class="workout-actions">
@@ -103,14 +140,14 @@
               </div>
             </form>
           </div>
-          <p v-else class="hint">You must be a challenge participant to log workouts. Contact your Program Manager to join.</p>
+          <p v-else class="hint">You must be a season participant to log workouts. Contact your Program Manager to join.</p>
         </section>
 
         <!-- Strava Import Modal -->
         <div v-if="showStravaImportModal" class="modal-overlay" @click.self="closeStravaImportModal">
           <div class="modal-content modal-wide">
             <h2>Import from Strava</h2>
-            <p class="hint">Select which activities to import into this challenge. Points are calculated from distance or duration.</p>
+            <p class="hint">Select which activities to import into this season. Points are calculated from distance or duration.</p>
             <div v-if="stravaActivitiesLoading" class="loading-inline">Loading your Strava activities…</div>
             <div v-else-if="stravaActivitiesError" class="error-inline">{{ stravaActivitiesError }}</div>
             <div v-else class="strava-activity-list">
@@ -153,6 +190,8 @@ import ChallengeScoreboard from '../components/challenge/ChallengeScoreboard.vue
 import ChallengeEliminationBoard from '../components/challenge/ChallengeEliminationBoard.vue';
 import ChallengeWeeklyTasks from '../components/challenge/ChallengeWeeklyTasks.vue';
 import ChallengeActivityFeed from '../components/challenge/ChallengeActivityFeed.vue';
+import ChallengeTeamWeeklyProgress from '../components/challenge/ChallengeTeamWeeklyProgress.vue';
+import ChallengeMessageFeed from '../components/challenge/ChallengeMessageFeed.vue';
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -181,6 +220,10 @@ const stravaActivitiesLoading = ref(false);
 const stravaActivitiesError = ref(null);
 const selectedStravaIds = ref([]);
 const stravaImporting = ref(false);
+const captainApplications = ref([]);
+const captainAppsLoading = ref(false);
+const captainAppsError = ref('');
+const captainsFinalizeSubmitting = ref(false);
 
 const challengeId = computed(() => route.params.id || route.params.challengeId);
 const organizationSlug = computed(() => route.params.organizationSlug || null);
@@ -206,6 +249,11 @@ const activityTypeOptions = computed(() => {
     { value: 'workout_session', label: 'Workout Session' },
     { value: 'steps', label: 'Steps' }
   ];
+});
+
+const isChallengeManager = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
 });
 
 const formatStatus = (c) => {
@@ -284,6 +332,47 @@ const loadActivity = async () => {
     activity.value = [];
   } finally {
     activityLoading.value = false;
+  }
+};
+
+const loadCaptainApplications = async () => {
+  const id = challengeId.value;
+  if (!id) return;
+  captainAppsLoading.value = true;
+  captainAppsError.value = '';
+  try {
+    const r = await api.get(`/learning-program-classes/${id}/captain-applications`, { skipGlobalLoading: true });
+    captainApplications.value = Array.isArray(r.data?.applications) ? r.data.applications : [];
+  } catch (e) {
+    captainApplications.value = [];
+    captainAppsError.value = e?.response?.data?.error?.message || 'Failed to load captain applications';
+  } finally {
+    captainAppsLoading.value = false;
+  }
+};
+
+const reviewCaptain = async (applicationId, status) => {
+  const id = challengeId.value;
+  if (!id || !applicationId) return;
+  try {
+    await api.put(`/learning-program-classes/${id}/captain-applications/${applicationId}`, { status });
+    await Promise.all([loadCaptainApplications(), loadChallenge()]);
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to update captain application');
+  }
+};
+
+const finalizeCaptainsForSeason = async () => {
+  const id = challengeId.value;
+  if (!id) return;
+  captainsFinalizeSubmitting.value = true;
+  try {
+    await api.post(`/learning-program-classes/${id}/captains/finalize`);
+    await Promise.all([loadChallenge(), loadCaptainApplications()]);
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to finalize captains');
+  } finally {
+    captainsFinalizeSubmitting.value = false;
   }
 };
 
@@ -384,7 +473,7 @@ const importSelectedStrava = async () => {
 onMounted(async () => {
   await loadChallenge();
   if (challenge.value) {
-    await Promise.all([loadLeaderboard(), loadTeams(), loadActivity()]);
+    await Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications()]);
     loadStravaStatus();
   }
   if (route.query?.strava === 'import') {
@@ -395,7 +484,7 @@ onMounted(async () => {
 watch(challengeId, () => {
   loadChallenge().then(() => {
     if (challenge.value) {
-      Promise.all([loadLeaderboard(), loadTeams(), loadActivity()]);
+      Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications()]);
     }
   });
 });
@@ -466,6 +555,17 @@ watch(challengeId, () => {
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+.challenge-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr);
+  gap: 16px;
+}
+.challenge-col-left,
+.challenge-col-right {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 .challenge-section {
   padding: 16px;
@@ -565,5 +665,56 @@ watch(challengeId, () => {
   display: flex;
   gap: 12px;
   margin-top: 16px;
+}
+.captain-apps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.captain-app-card {
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fafafa;
+}
+.captain-app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.captain-app-status {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid #ddd;
+}
+.captain-app-status.status-pending {
+  background: #fff8e1;
+}
+.captain-app-status.status-approved {
+  background: #e8f5e9;
+}
+.captain-app-status.status-rejected {
+  background: #ffebee;
+}
+.captain-app-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+.captain-finalize {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+@media (max-width: 980px) {
+  .challenge-two-col {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

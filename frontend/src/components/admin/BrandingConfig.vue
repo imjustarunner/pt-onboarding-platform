@@ -225,6 +225,40 @@
           <small>Additional always-visible footer link ("Platform HIPAA"), commonly used for HIPAA policy docs.</small>
         </div>
         <div class="form-section-divider">
+          <h4>Summit Stats Challenge footer</h4>
+          <p class="section-description">
+            When you add one or more links here, club managers and members on <code>/ssc</code> or any club (affiliation)
+            portal see this set instead of the default Privacy / Terms / Public Proof / HIPAA row. Use full
+            <code>https://</code> URLs for external documents, or in-app paths such as <code>/privacypolicy</code> for the
+            embedded viewer. Leave empty to keep the default footer on SSC.
+          </p>
+        </div>
+        <div
+          v-for="(row, idx) in platformForm.summitStatsFooterLinks"
+          :key="'ssc-foot-' + idx"
+          class="ssc-footer-link-row"
+        >
+          <div class="form-group">
+            <label>Title</label>
+            <input v-model="row.label" type="text" placeholder="e.g. Season rules" />
+          </div>
+          <div class="form-group">
+            <label>URL or path</label>
+            <input v-model="row.href" type="text" placeholder="https://… or /terms" />
+          </div>
+          <div class="ssc-footer-link-actions">
+            <button type="button" class="btn btn-sm btn-danger" @click="removeSummitStatsFooterRow(idx)">Remove</button>
+          </div>
+        </div>
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="(platformForm.summitStatsFooterLinks || []).length >= 8"
+          @click="addSummitStatsFooterRow"
+        >
+          Add link
+        </button>
+        <div class="form-section-divider">
           <h4>Fonts</h4>
           <p class="section-description">Configure default fonts for the platform.</p>
         </div>
@@ -2233,6 +2267,51 @@ const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const router = useRouter();
 
+function parseSummitStatsFooterLinksFromStore(raw) {
+  if (raw == null) return [];
+  let arr = raw;
+  if (typeof raw === 'string') {
+    try {
+      arr = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map((x) => ({
+      label: String(x?.label || '').trim(),
+      href: String(x?.href || x?.url || '').trim()
+    }))
+    .filter((x) => x.label && x.href)
+    .slice(0, 8)
+    .map((x) => ({ label: x.label, href: x.href }));
+}
+
+const addSummitStatsFooterRow = () => {
+  if (!Array.isArray(platformForm.value.summitStatsFooterLinks)) {
+    platformForm.value.summitStatsFooterLinks = [];
+  }
+  if (platformForm.value.summitStatsFooterLinks.length >= 8) return;
+  platformForm.value.summitStatsFooterLinks.push({ label: '', href: '' });
+};
+
+const removeSummitStatsFooterRow = (idx) => {
+  if (!Array.isArray(platformForm.value.summitStatsFooterLinks)) return;
+  platformForm.value.summitStatsFooterLinks.splice(idx, 1);
+};
+
+function normalizedSummitStatsFooterLinksForSave() {
+  const rows = (platformForm.value.summitStatsFooterLinks || [])
+    .map((x) => ({
+      label: String(x?.label || '').trim(),
+      href: String(x?.href || x?.url || '').trim()
+    }))
+    .filter((x) => x.label && x.href)
+    .slice(0, 8);
+  return rows.length ? rows : null;
+}
+
 const availableTemplates = ref([]);
 const selectedTemplateToApply = ref('');
 const currentlyAppliedTemplate = ref(null); // Track which template is currently applied
@@ -2300,6 +2379,7 @@ const platformForm = ref({
       privacyPolicyUrl: null,
       termsUrl: null,
       platformHipaaUrl: null,
+      summitStatsFooterLinks: [],
 
   // Settings sidebar navigation icon defaults (replaces emojis)
   companyProfileIconId: null,
@@ -3250,6 +3330,10 @@ const applySelectedTemplate = async (event) => {
           organizationLogoPath: brandingStore.platformBranding.organization_logo_path ?? null,
           privacyPolicyUrl: brandingStore.platformBranding.privacy_policy_url ?? null,
           termsUrl: brandingStore.platformBranding.terms_url ?? null,
+          platformHipaaUrl: brandingStore.platformBranding.platform_hipaa_url ?? null,
+          summitStatsFooterLinks: parseSummitStatsFooterLinksFromStore(
+            brandingStore.platformBranding.summit_stats_footer_links_json
+          ),
 
           companyProfileIconId: brandingStore.platformBranding.company_profile_icon_id ?? null,
           teamRolesIconId: brandingStore.platformBranding.team_roles_icon_id ?? null,
@@ -3691,6 +3775,7 @@ const savePlatformBranding = async () => {
       privacyPolicyUrl: platformForm.value.privacyPolicyUrl?.trim() || null,
       termsUrl: platformForm.value.termsUrl?.trim() || null,
       platformHipaaUrl: platformForm.value.platformHipaaUrl?.trim() || null,
+      summitStatsFooterLinks: normalizedSummitStatsFooterLinksForSave(),
 
       // Settings sidebar navigation icon defaults
       companyProfileIconId: platformForm.value.companyProfileIconId ?? null,
@@ -3871,6 +3956,9 @@ const savePlatformBranding = async () => {
       platformForm.value.privacyPolicyUrl = response.data.privacy_policy_url ?? platformForm.value.privacyPolicyUrl ?? null;
       platformForm.value.termsUrl = response.data.terms_url ?? platformForm.value.termsUrl ?? null;
       platformForm.value.platformHipaaUrl = response.data.platform_hipaa_url ?? platformForm.value.platformHipaaUrl ?? null;
+      platformForm.value.summitStatsFooterLinks = parseSummitStatsFooterLinksFromStore(
+        response.data.summit_stats_footer_links_json
+      );
 
       // Update other fields
       platformForm.value.tagline = response.data.tagline ?? platformForm.value.tagline;
@@ -4010,6 +4098,9 @@ onMounted(async () => {
         privacyPolicyUrl: brandingStore.platformBranding.privacy_policy_url ?? null,
         termsUrl: brandingStore.platformBranding.terms_url ?? null,
         platformHipaaUrl: brandingStore.platformBranding.platform_hipaa_url ?? null,
+        summitStatsFooterLinks: parseSummitStatsFooterLinksFromStore(
+          brandingStore.platformBranding.summit_stats_footer_links_json
+        ),
 
         companyProfileIconId: brandingStore.platformBranding.company_profile_icon_id ?? null,
         teamRolesIconId: brandingStore.platformBranding.team_roles_icon_id ?? null,
@@ -4051,6 +4142,9 @@ onActivated(async () => {
       platformForm.value.privacyPolicyUrl = brandingStore.platformBranding.privacy_policy_url ?? null;
       platformForm.value.termsUrl = brandingStore.platformBranding.terms_url ?? null;
       platformForm.value.platformHipaaUrl = brandingStore.platformBranding.platform_hipaa_url ?? null;
+      platformForm.value.summitStatsFooterLinks = parseSummitStatsFooterLinksFromStore(
+        brandingStore.platformBranding.summit_stats_footer_links_json
+      );
 
       // Set logo input method based on what's available
       if (platformForm.value.organizationLogoPath) {
@@ -4668,6 +4762,26 @@ onActivated(async () => {
 .font-input-item small {
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.ssc-footer-link-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 12px 16px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.ssc-footer-link-actions {
+  display: flex;
+  align-items: center;
+  padding-bottom: 2px;
+}
+
+@media (max-width: 768px) {
+  .ssc-footer-link-row {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
 

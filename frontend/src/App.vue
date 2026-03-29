@@ -509,8 +509,9 @@
           </div>
         </div>
       </nav>
-      <!-- Welcome tag (hangs under navbar) -->
-      <div v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" class="welcome-hang-wrap">
+      <SummitStatsContextBar :visible="showSummitStatsClubContextBar" />
+      <!-- Welcome tag (hangs under navbar); omitted on SSC / club portals to avoid a dead band under the header -->
+      <div v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isSummitStatsChallengeChrome" class="welcome-hang-wrap">
         <router-link
           class="welcome-hang-link"
           :to="myDashboardTo"
@@ -825,8 +826,9 @@
         @click="mobileMenuOpen = false"
       ></div>
       <main :class="{ 'main-no-global-chrome': hideGlobalNavForSchoolStaff }">
-        <!-- Keep legacy selector for non-super-admin users; super admins use the top-nav switcher -->
-        <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff && !String(route.path || '').includes('/tickets')" />
+        <!-- Keep legacy selector for non-super-admin users; super admins use the top-nav switcher.
+             Hidden on SSC / affiliation portals: the context bar below the navbar replaces it. -->
+        <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff && !isSummitStatsChallengeChrome && !String(route.path || '').includes('/tickets')" />
         <!-- Use path (not fullPath) so query-only updates don't destroy/recreate the page (avoids flash + repeated dashboard_view logs). -->
         <router-view :key="route.path" />
       </main>
@@ -1044,10 +1046,13 @@ import {
 import { toUploadsUrl } from './utils/uploadsUrl';
 import { buildSuperadminAgencyBrandUrl, buildSuperadminPlatformBrandUrl } from './utils/brandSwitchUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
+import { useSummitStatsChallengeChrome } from './composables/useSummitStatsChallengeChrome';
+import SummitStatsContextBar from './components/summit/SummitStatsContextBar.vue';
 
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
+const isSummitStatsChallengeChrome = useSummitStatsChallengeChrome();
 
 const currentAgencyIdForAddon = computed(() => agencyStore.currentAgency?.id ?? null);
 const { momentumListEnabled } = useMomentumListAddon(currentAgencyIdForAddon);
@@ -1083,17 +1088,35 @@ let loadingStartedAt = 0;
 const LOADER_MIN_MS = 250;
 
 // Prefer the selected agency icon for the loader even before authStore hydrates.
-// This avoids showing platform branding briefly during boot.
+// Falls back through: club logo → portal-agency logo (e.g. SSC org icon) → platform branding logo.
 const loaderLogoUrl = computed(() => {
   const a = agencyStore.currentAgency;
   if (a?.logo_path) return toUploadsUrl(a.logo_path);
   if (a?.icon_file_path) return toUploadsUrl(a.icon_file_path);
   if (a?.logo_url) return a.logo_url;
-  return brandingStore.displayLogoUrl;
+  // portalAgency is set by the route's portal theme (e.g. the ssc org's icon when at /ssc/…).
+  // This catches org icons uploaded via admin → org settings → Organization Icon.
+  const portalLogo = brandingStore.portalAgency?.logoUrl;
+  if (portalLogo) return portalLogo;
+  const resolved = brandingStore.displayLogoUrl;
+  if (resolved) return resolved;
+  const pb = brandingStore.platformBranding;
+  return pb?.organization_logo_url || null;
 });
 
-// Top-left logo follows branding store resolution (portal host vs selected org for super_admin).
-const navBrandLogoUrl = computed(() => brandingStore.displayLogoUrl);
+// Top-left logo: club logo first, then the portal-agency logo (SSC org icon when at /ssc/…),
+// then platform branding.  Keeps the navbar always showing something meaningful.
+const navBrandLogoUrl = computed(() => {
+  const resolved = brandingStore.displayLogoUrl;
+  if (resolved) return resolved;
+  const portalLogo = brandingStore.portalAgency?.logoUrl;
+  if (portalLogo) return portalLogo;
+  if (isSummitStatsChallengeChrome.value) {
+    const pb = brandingStore.platformBranding;
+    return pb?.organization_logo_url || null;
+  }
+  return null;
+});
 
 function syncPageLoading(isOn) {
   if (isOn) {
@@ -1457,17 +1480,19 @@ watch(mobileMenuOpen, (open) => {
   }
 });
 
-// Navigation title - only show if it's not "PlotTwistCo" and there's a valid platform template name
+// Navigation title - only show if it's not "PlotTwistCo" and there's a valid platform template name.
+// Hidden on SSC / club portals: the logo alone + context bar serves as identity there.
 const navTitleText = computed(() => {
+  if (isSummitStatsChallengeChrome.value) return null;
   const title = brandingStore.navigationTitle || (brandingStore.displayName + ' ' + (brandingStore.peopleOpsTerm || 'People Operations'));
   // Don't show if it contains "PlotTwistCo" or if it's just the default term
   if (!title || title.includes('PlotTwistCo') || title.trim() === 'People Operations') {
-    return null; // Show nothing if it's PlotTwistCo or just the default
+    return null;
   }
   // Only show if there's a valid organization name (not empty)
   const orgName = brandingStore.displayName || brandingStore.platformBranding?.organization_name || '';
   if (!orgName || orgName === 'PlotTwistCo') {
-    return null; // Show nothing if no valid org name or it's PlotTwistCo
+    return null;
   }
   return title;
 });
@@ -1558,6 +1583,15 @@ const isSummitStatsClubManager = computed(() => {
 // SSC/affiliation context: current org is a club (affiliation). Simplified nav: Team Lead Dashboards, Schedule, Members, Settings.
 const isAffiliationContext = computed(() => {
   const t = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
+  return t === 'affiliation';
+});
+
+/** Club name + team row below the navbar (SSC / club portals only). */
+const showSummitStatsClubContextBar = computed(() => {
+  if (!isSummitStatsChallengeChrome.value || hideGlobalNavForSchoolStaff.value) return false;
+  const a = agencyStore.currentAgency;
+  if (!a?.id) return false;
+  const t = String(a.organization_type || a.organizationType || '').toLowerCase();
   return t === 'affiliation';
 });
 
@@ -2922,15 +2956,22 @@ onUnmounted(() => {
   box-shadow: var(--shadow-lg);
   border-bottom: 3px solid var(--accent);
   width: 100%;
-  max-width: 100%;
+  max-width: 100vw;
   flex-shrink: 0;
-  overflow: visible;
+  /* clip stops the bar from expanding the page horizontally while still
+     allowing position:absolute dropdowns to paint outside (clip ≠ hidden) */
+  overflow-x: clip;
+  overflow-y: visible;
   box-sizing: border-box;
 }
 
 .navbar .container {
   overflow: visible;
   max-width: 100%;
+  width: 100%;
+  min-width: 0;
+  padding-left: 20px;
+  padding-right: 20px;
   box-sizing: border-box;
 }
 
@@ -2947,9 +2988,14 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   gap: 28px;
+  max-width: 100%;
+  min-width: 0;
   /* Allow dropdowns (e.g., Switch Brand) to render outside navbar row */
   overflow: visible;
   position: relative;
+  /* Breathing room so content never jams against the left/right edges */
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 .nav-brand {
@@ -4279,7 +4325,9 @@ onUnmounted(() => {
 }
 
 main {
-  min-height: calc(100vh - 70px);
+  flex: 1 0 auto;
+  width: 100%;
+  min-height: 0;
   padding: 20px 0;
   display: flex;
   flex-direction: column;

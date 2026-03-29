@@ -6,18 +6,19 @@
         <button type="button" class="btn-close" @click="$emit('close')" aria-label="Close">×</button>
       </div>
       <div class="modal-body">
-        <p class="hint">Enter the member's email. We'll check if they already have an account.</p>
+        <p class="hint">Enter the member's email, username, or phone number. We'll check if they already have an account.</p>
         <form v-if="!success" @submit.prevent="submit" class="add-member-form">
           <div class="form-group">
-            <label for="add-member-email">Email *</label>
+            <label for="add-member-identifier">Email, username, or phone *</label>
             <input
-              id="add-member-email"
-              v-model="email"
-              type="email"
+              id="add-member-identifier"
+              v-model="identifier"
+              type="text"
               required
-              placeholder="member@example.com"
+              placeholder="name@example.com · username · 555-867-5309"
               :disabled="loading"
               class="form-input"
+              autocomplete="off"
             />
           </div>
           <div v-if="error" class="error-msg">{{ error }}</div>
@@ -26,7 +27,7 @@
           </div>
           <div class="form-actions">
             <button type="button" class="btn btn-secondary" @click="$emit('close')">Cancel</button>
-            <button type="submit" class="btn btn-primary" :disabled="loading || !email.trim()">
+            <button type="submit" class="btn btn-primary" :disabled="loading || !identifier.trim()">
               {{ loading ? 'Checking…' : 'Add Member' }}
             </button>
           </div>
@@ -51,7 +52,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'added']);
 
-const email = ref('');
+const identifier = ref('');
 const loading = ref(false);
 const error = ref('');
 const notFound = ref(false);
@@ -60,7 +61,7 @@ const successMessage = ref('');
 
 watch(() => props.open, (open) => {
   if (!open) {
-    email.value = '';
+    identifier.value = '';
     error.value = '';
     notFound.value = false;
     success.value = false;
@@ -75,7 +76,7 @@ const submit = async () => {
   notFound.value = false;
   try {
     const r = await api.post(`/summit-stats/clubs/${props.clubId}/add-member`, {
-      email: email.value.trim().toLowerCase()
+      identifier: identifier.value.trim()
     }, { skipGlobalLoading: true });
     if (r.data?.exists === false) {
       notFound.value = true;

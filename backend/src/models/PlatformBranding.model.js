@@ -713,7 +713,8 @@ class PlatformBranding {
       currentBrandingTemplateId,
       maxInactivityTimeoutMinutes,
       betaFeedbackEnabled,
-      availableAgencyFeatures
+      availableAgencyFeatures,
+      summitStatsFooterLinks
     } = brandingData;
 
     // Check if branding exists
@@ -819,6 +820,24 @@ class PlatformBranding {
           ? JSON.stringify(availableAgencyFeatures)
           : null;
         updates.push('available_agency_features_json = ?');
+        values.push(jsonVal);
+      }
+
+      let hasSummitStatsFooterLinks = false;
+      try {
+        const [sscCols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'summit_stats_footer_links_json'"
+        );
+        hasSummitStatsFooterLinks = (sscCols || []).length > 0;
+      } catch (e) {
+        hasSummitStatsFooterLinks = false;
+      }
+      if (hasSummitStatsFooterLinks && summitStatsFooterLinks !== undefined) {
+        const jsonVal =
+          Array.isArray(summitStatsFooterLinks) && summitStatsFooterLinks.length
+            ? JSON.stringify(summitStatsFooterLinks)
+            : null;
+        updates.push('summit_stats_footer_links_json = ?');
         values.push(jsonVal);
       }
 

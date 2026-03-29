@@ -166,7 +166,7 @@ const submit = async () => {
     };
     const r = await api.post('/learning-program-classes', payload, { skipGlobalLoading: true });
     success.value = true;
-    successMessage.value = `"${form.value.className}" has been created. You can add teams and participants from Challenge Management.`;
+    successMessage.value = `"${form.value.className}" has been created. You can add teams and participants from Season Management.`;
     emit('created');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to create season';

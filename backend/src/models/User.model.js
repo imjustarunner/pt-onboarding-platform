@@ -214,6 +214,62 @@ class User {
     return null;
   }
 
+  /**
+   * Look up a user by phone number (digits-only match).
+   * Checks phone_number, personal_phone, and work_phone columns.
+   * Used by SSC tenant phone-number login.
+   */
+  static async findByPhone(phoneRaw) {
+    const digitsOnly = String(phoneRaw || '').replace(/\D/g, '');
+    if (digitsOnly.length < 7) return null;
+
+    const base = 'SELECT id, email, phone_number, role, status, completed_at, terminated_at, status_expires_at, password_hash, first_name, last_name, invitation_token, invitation_token_expires_at, temporary_password_hash, temporary_password_expires_at, created_at';
+    const dbName = process.env.DB_NAME || 'onboarding_stage';
+
+    let existingColumns = [];
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('username', 'work_email', 'personal_email', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override')",
+        [dbName]
+      );
+      existingColumns = cols.map((c) => c.COLUMN_NAME);
+    } catch { /* ignore */ }
+
+    let sel = base;
+    if (existingColumns.includes('work_email')) sel += ', work_email';
+    if (existingColumns.includes('personal_email')) sel += ', personal_email';
+    if (existingColumns.includes('username')) sel += ', username';
+    if (existingColumns.includes('has_supervisor_privileges')) sel += ', has_supervisor_privileges';
+    if (existingColumns.includes('has_provider_access')) sel += ', has_provider_access';
+    if (existingColumns.includes('has_staff_access')) sel += ', has_staff_access';
+    if (existingColumns.includes('personal_phone')) sel += ', personal_phone';
+    if (existingColumns.includes('work_phone')) sel += ', work_phone';
+    if (existingColumns.includes('work_phone_extension')) sel += ', work_phone_extension';
+    if (existingColumns.includes('credential')) sel += ', credential';
+    if (existingColumns.includes('sso_password_override')) sel += ', sso_password_override';
+
+    // Match on digits-only comparison for whichever phone columns exist
+    const conditions = [`REGEXP_REPLACE(phone_number, '[^0-9]', '') = ?`];
+    const params = [digitsOnly];
+
+    if (existingColumns.includes('personal_phone')) {
+      conditions.push(`REGEXP_REPLACE(personal_phone, '[^0-9]', '') = ?`);
+      params.push(digitsOnly);
+    }
+    if (existingColumns.includes('work_phone')) {
+      conditions.push(`REGEXP_REPLACE(work_phone, '[^0-9]', '') = ?`);
+      params.push(digitsOnly);
+    }
+
+    const query = `${sel} FROM users WHERE ${conditions.join(' OR ')} LIMIT 1`;
+    try {
+      const [rows] = await pool.execute(query, params);
+      return rows[0] || null;
+    } catch {
+      return null;
+    }
+  }
+
   static async findByWorkEmail(workEmail) {
     // Check if work_email column exists
     let query = 'SELECT id, email, phone_number, role, status, completed_at, terminated_at, status_expires_at, password_hash, first_name, last_name, invitation_token, invitation_token_expires_at, temporary_password_hash, temporary_password_expires_at, created_at';
@@ -677,7 +733,8 @@ class User {
       hasHiringAccess,
       hasMedicalRecordsReleaseAccess,
       externalBusyIcsUrl,
-      providerStartDate
+      providerStartDate,
+      username
     } = userData;
     
     // Get current user to check if it's superadmin
@@ -907,6 +964,20 @@ class User {
     if (phoneNumber !== undefined) {
       updates.push('phone_number = ?');
       values.push(phoneNumber);
+    }
+    if (username !== undefined) {
+      // Only update if the username column exists
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'username' LIMIT 1"
+        );
+        if (cols.length > 0) {
+          updates.push('username = ?');
+          values.push(username);
+        }
+      } catch {
+        // column absent on older schema — skip silently
+      }
     }
     if (isActive !== undefined) {
       updates.push('is_active = ?');

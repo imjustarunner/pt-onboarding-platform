@@ -23,7 +23,8 @@ const normalizeClass = (row) => {
     // Summit Stats Challenge config (Phase 1 extension)
     activity_types_json: parseJsonMaybe(row.activity_types_json),
     scoring_rules_json: parseJsonMaybe(row.scoring_rules_json),
-    recognition_categories_json: parseJsonMaybe(row.recognition_categories_json)
+    recognition_categories_json: parseJsonMaybe(row.recognition_categories_json),
+    season_settings_json: parseJsonMaybe(row.season_settings_json)
   };
 };
 
@@ -89,6 +90,11 @@ class LearningProgramClass {
       mastersAgeThreshold = null,
       recognitionCategoriesJson = null,
       recognitionMetric = null,
+      captainApplicationOpen = true,
+      captainsFinalized = false,
+      seasonSplashEnabled = true,
+      seasonAnnouncementText = null,
+      seasonSettingsJson = null,
       deliveryMode = 'group',
       registrationEligible = false,
       medicaidEligible = false,
@@ -101,9 +107,11 @@ class LearningProgramClass {
         enrollment_opens_at, enrollment_closes_at, status, is_active, allow_late_join, max_clients,
         metadata_json, activity_types_json, scoring_rules_json, weekly_goal_minimum,
         team_min_points_per_week, individual_min_points_per_week, week_start_time,
-        masters_age_threshold, recognition_categories_json, recognition_metric, delivery_mode,
+        masters_age_threshold, recognition_categories_json, recognition_metric,
+        captain_application_open, captains_finalized, season_splash_enabled, season_announcement_text, season_settings_json,
+        delivery_mode,
         registration_eligible, medicaid_eligible, cash_eligible, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         organizationId,
         className,
@@ -128,6 +136,11 @@ class LearningProgramClass {
         mastersAgeThreshold != null ? toInt(mastersAgeThreshold) : 53,
         recognitionCategoriesJson ? JSON.stringify(recognitionCategoriesJson) : null,
         recognitionMetric || 'points',
+        captainApplicationOpen ? 1 : 0,
+        captainsFinalized ? 1 : 0,
+        seasonSplashEnabled ? 1 : 0,
+        seasonAnnouncementText ? String(seasonAnnouncementText).trim() : null,
+        seasonSettingsJson ? JSON.stringify(seasonSettingsJson) : null,
         String(deliveryMode || 'group').toLowerCase() === 'individual' ? 'individual' : 'group',
         registrationEligible ? 1 : 0,
         medicaidEligible ? 1 : 0,
@@ -164,6 +177,11 @@ class LearningProgramClass {
       mastersAgeThreshold: 'masters_age_threshold',
       recognitionCategoriesJson: 'recognition_categories_json',
       recognitionMetric: 'recognition_metric',
+      captainApplicationOpen: 'captain_application_open',
+      captainsFinalized: 'captains_finalized',
+      seasonSplashEnabled: 'season_splash_enabled',
+      seasonAnnouncementText: 'season_announcement_text',
+      seasonSettingsJson: 'season_settings_json',
       deliveryMode: 'delivery_mode',
       registrationEligible: 'registration_eligible',
       medicaidEligible: 'medicaid_eligible',
@@ -173,12 +191,12 @@ class LearningProgramClass {
     const values = [];
     for (const [k, col] of Object.entries(mapping)) {
       if (patch[k] === undefined) continue;
-      if (k === 'isActive' || k === 'allowLateJoin' || k === 'registrationEligible' || k === 'medicaidEligible' || k === 'cashEligible') {
+      if (k === 'isActive' || k === 'allowLateJoin' || k === 'registrationEligible' || k === 'medicaidEligible' || k === 'cashEligible' || k === 'captainApplicationOpen' || k === 'captainsFinalized' || k === 'seasonSplashEnabled') {
         setParts.push(`${col} = ?`);
         values.push(patch[k] ? 1 : 0);
         continue;
       }
-      if (k === 'metadataJson' || k === 'activityTypesJson' || k === 'scoringRulesJson') {
+      if (k === 'metadataJson' || k === 'activityTypesJson' || k === 'scoringRulesJson' || k === 'seasonSettingsJson') {
         setParts.push(`${col} = ?`);
         values.push(patch[k] ? JSON.stringify(patch[k]) : null);
         continue;

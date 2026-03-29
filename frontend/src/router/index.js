@@ -1863,6 +1863,18 @@ router.beforeEach(async (to, from, next) => {
   const agencyStore = useAgencyStore();
   const organizationStore = useOrganizationStore();
 
+  // Summit Stats canonical slug redirect: /summit-stats/* → /ssc/*
+  // The platform org may have been created with slug "summit-stats" but the canonical
+  // public-facing URL is /ssc. Redirect transparently so links and bookmarks still work.
+  {
+    const rawPath = String(to.path || '');
+    if (rawPath === '/summit-stats' || rawPath.startsWith('/summit-stats/')) {
+      const rest = rawPath === '/summit-stats' ? '' : rawPath.slice('/summit-stats'.length);
+      next({ path: `/ssc${rest}`, query: to.query, hash: to.hash, replace: true });
+      return;
+    }
+  }
+
   // Custom domain / subdomain portals: never keep /{portalSlug}/… in the path (host is already the bucket).
   const hostPortalEarly = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase();
   if (hostPortalEarly) {
