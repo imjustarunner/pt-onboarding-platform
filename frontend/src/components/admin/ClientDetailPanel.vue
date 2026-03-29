@@ -657,6 +657,27 @@
           </div>
         </div>
 
+        <!-- Clinical Tab (provider/admin only) -->
+        <div v-if="activeTab === 'clinical'" class="detail-section">
+          <div v-if="clinicalLoading" class="loading">Loading clinical responses…</div>
+          <div v-else-if="clinicalError" class="error">{{ clinicalError }}</div>
+          <div v-else-if="clinicalFields.length === 0" class="empty-state">
+            <p>No clinical responses on file. Clinical questions must be added to the client's intake form to capture data here.</p>
+          </div>
+          <div v-else>
+            <p v-if="clinicalCapturedAt" class="muted" style="font-size: 13px; margin-bottom: 16px;">
+              Captured from intake on {{ new Date(clinicalCapturedAt).toLocaleDateString() }}.
+              Visible only to the assigned provider and admin staff.
+            </p>
+            <div class="clinical-field-list">
+              <div v-for="field in clinicalFields" :key="field.key" class="clinical-field-row">
+                <div class="clinical-field-label">{{ field.label }}</div>
+                <div class="clinical-field-value">{{ field.value }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Learning Billing Tab -->
         <div v-if="activeTab === 'billing'" class="detail-section">
           <GuardianBillingTab
@@ -2039,6 +2060,11 @@ const tabs = computed(() => {
     const roiIdx = base.findIndex((t) => t.id === 'phi');
     base.splice(roiIdx < 0 ? base.length : roiIdx, 0, { id: 'school-roi', label: 'School ROI Access' });
   }
+  // Clinical tab: visible to providers, provider_plus, admin, super_admin
+  if (['provider', 'provider_plus', 'admin', 'super_admin'].includes(roleNorm.value)) {
+    const clinicalIdx = base.findIndex((t) => t.id === 'messages');
+    base.splice(clinicalIdx < 0 ? base.length : clinicalIdx, 0, { id: 'clinical', label: 'Clinical' });
+  }
   return base;
 });
 
@@ -3270,6 +3296,8 @@ watch(() => activeTab.value, (newTab) => {
     fetchPaperworkStatuses();
     fetchDeliveryMethods();
     fetchPaperworkHistory();
+  } else if (newTab === 'clinical' && clinicalFields.value.length === 0) {
+    fetchClinicalResponses();
   }
 });
 
@@ -3356,6 +3384,27 @@ const fetchAccessLog = async () => {
   }
 };
 
+// Clinical tab
+const clinicalFields = ref([]);
+const clinicalCapturedAt = ref(null);
+const clinicalLoading = ref(false);
+const clinicalError = ref('');
+
+const fetchClinicalResponses = async () => {
+  if (!props.client?.id) return;
+  try {
+    clinicalLoading.value = true;
+    clinicalError.value = '';
+    const r = await api.get(`/clients/${props.client.id}/clinical-responses`);
+    clinicalFields.value = r.data?.fields || [];
+    clinicalCapturedAt.value = r.data?.capturedAt || null;
+  } catch (e) {
+    clinicalError.value = e.response?.data?.error?.message || 'Failed to load clinical responses';
+  } finally {
+    clinicalLoading.value = false;
+  }
+};
+
 onMounted(async () => {
   if (isBackofficeRole.value) {
     await fetchProviders();
@@ -3363,6 +3412,10 @@ onMounted(async () => {
   await fetchAccess();
   await refreshOverviewProviders();
   await fetchAdminNote();
+  // Log that this profile was viewed (best-effort)
+  if (props.client?.id) {
+    api.post(`/clients/${props.client.id}/log-view`).catch(() => {});
+  }
   if (activeTab.value === 'history') {
     await fetchHistory();
   } else if (activeTab.value === 'access') {
@@ -3382,6 +3435,8 @@ onMounted(async () => {
     await fetchPaperworkStatuses();
     await fetchDeliveryMethods();
     await fetchPaperworkHistory();
+  } else if (activeTab.value === 'clinical') {
+    await fetchClinicalResponses();
   }
 });
 
@@ -4172,5 +4227,27 @@ watch(
   color: #c33;
   background: #fee;
   border-radius: 6px;
+}
+
+.clinical-field-list {
+  display: grid;
+  gap: 10px;
+}
+.clinical-field-row {
+  padding: 10px 14px;
+  background: #f8f9fb;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.clinical-field-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
+  margin-bottom: 4px;
+}
+.clinical-field-value {
+  font-size: 14px;
+  color: var(--text-primary, #1e293b);
+  white-space: pre-wrap;
 }
 </style>

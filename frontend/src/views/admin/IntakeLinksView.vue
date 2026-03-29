@@ -5,7 +5,115 @@
         <h1>Digital Forms</h1>
         <p class="subtitle">Configure digital forms, intake links, documents, and custom fields.</p>
       </div>
-      <button class="btn btn-primary" type="button" @click="openCreate">New Digital Form</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-secondary" type="button" @click="showQuestionSetsPanel = !showQuestionSetsPanel">
+          {{ showQuestionSetsPanel ? 'Hide Question Sets' : 'Question Sets' }}
+        </button>
+        <button class="btn btn-primary" type="button" @click="openCreate">New Digital Form</button>
+      </div>
+    </div>
+
+    <!-- Question Sets Panel -->
+    <div v-if="showQuestionSetsPanel" class="question-sets-panel">
+      <div class="question-sets-panel-header">
+        <div>
+          <h2 style="margin:0 0 4px;">Question Sets</h2>
+          <p class="subtitle" style="margin:0;">Save reusable groups of questions to drop into any digital form.</p>
+        </div>
+        <button class="btn btn-primary btn-sm" type="button" @click="startNewQuestionSet">+ New Question Set</button>
+      </div>
+
+      <!-- Editor -->
+      <div v-if="editingQuestionSet" class="question-set-editor">
+        <div class="form-group" style="max-width:400px;margin-bottom:16px;">
+          <label>Question Set Name</label>
+          <input v-model="editingQuestionSet.name" type="text" placeholder="e.g., Self Intake Questions" />
+        </div>
+        <div class="question-list">
+          <div v-for="(field, fIdx) in editingQuestionSet.fields" :key="field.id || fIdx" class="question-block">
+            <div class="question-label-row">
+              <div class="question-index">#{{ fIdx + 1 }}</div>
+              <input v-model="field.label" placeholder="Question label" class="question-label-input" />
+            </div>
+            <div class="question-row">
+              <input v-model="field.key" placeholder="Key (e.g., school_grade)" />
+              <select v-model="field.type">
+                <option value="text">Short answer</option>
+                <option value="textarea">Long answer</option>
+                <option value="checkbox">Checkbox</option>
+                <option value="select">Select</option>
+                <option value="radio">Radio</option>
+                <option value="date">Date</option>
+                <option value="info">Info / Disclaimer</option>
+              </select>
+              <select v-model="field.scope">
+                <option value="self">Self (only when filling for themselves)</option>
+                <option value="client">Client (repeats per child)</option>
+                <option value="guardian">Guardian (one-time)</option>
+                <option value="submission">One-time (global)</option>
+              </select>
+              <label class="checkbox">
+                <input v-model="field.required" type="checkbox" :disabled="field.type === 'info'" />
+                Required
+              </label>
+              <div class="question-controls">
+                <button class="btn btn-xs btn-secondary" type="button" @click="moveQSetField(fIdx, -1)" :disabled="fIdx === 0">↑</button>
+                <button class="btn btn-xs btn-secondary" type="button" @click="moveQSetField(fIdx, 1)" :disabled="fIdx === editingQuestionSet.fields.length - 1">↓</button>
+                <button class="btn btn-xs btn-secondary" type="button" @click="addQSetFieldAfter(fIdx)">＋</button>
+                <button class="btn btn-xs btn-danger" type="button" @click="removeQSetField(fIdx)">×</button>
+              </div>
+            </div>
+            <div class="question-meta">
+              <input v-model="field.helperText" placeholder="Helper text / disclaimer (optional)" />
+              <div class="condition-row">
+                <select v-model="field.showIf.fieldKey">
+                  <option value="">Show if (optional)</option>
+                  <option
+                    v-for="target in getQSetConditionalTargets(fIdx)"
+                    :key="target.key"
+                    :value="target.key"
+                  >
+                    {{ target.label || target.key }}
+                  </option>
+                </select>
+                <input
+                  v-model="field.showIf.equals"
+                  :disabled="!field.showIf.fieldKey"
+                  placeholder="Equals value (e.g., yes)"
+                />
+              </div>
+            </div>
+            <div v-if="field.type === 'select' || field.type === 'radio'" class="option-list">
+              <div v-for="(opt, oIdx) in field.options" :key="opt.id || oIdx" class="option-row">
+                <input v-model="opt.label" placeholder="Option label" />
+                <input v-model="opt.value" placeholder="Value" />
+                <button class="btn btn-xs btn-secondary" type="button" @click="field.options.splice(oIdx, 1)">×</button>
+              </div>
+              <button class="btn btn-xs btn-secondary" type="button" @click="field.options.push({ id: createId('opt'), label: '', value: '' })">+ Option</button>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-xs btn-secondary" type="button" @click="addQSetField" style="margin-bottom:16px;">+ Add Question</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary" type="button" @click="saveQuestionSet">Save Question Set</button>
+          <button class="btn btn-secondary" type="button" @click="editingQuestionSet = null">Cancel</button>
+        </div>
+      </div>
+
+      <!-- List of saved sets -->
+      <div v-if="!editingQuestionSet" class="question-set-list">
+        <div v-if="!questionSets.length" class="muted" style="padding:12px 0;">No question sets yet. Click "+ New Question Set" to create one.</div>
+        <div v-for="qs in questionSets" :key="qs.id" class="question-set-row">
+          <div>
+            <strong>{{ qs.name || 'Unnamed Set' }}</strong>
+            <span class="muted" style="margin-left:8px;">{{ qs.fields.length }} question{{ qs.fields.length === 1 ? '' : 's' }}</span>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-xs btn-secondary" type="button" @click="startEditQuestionSet(qs)">Edit</button>
+            <button class="btn btn-xs btn-danger" type="button" @click="deleteQuestionSet(qs.id)">Delete</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="quick-create">
@@ -462,6 +570,7 @@
               </div>
               <div class="step-actions">
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
+                <button v-if="questionSets.length" class="btn btn-secondary btn-sm" type="button" @click="openQSetPicker">+ Add Question Set</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('registration')">+ Add Registration</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
                 <button
@@ -482,7 +591,6 @@
                   + Add Guardian waivers
                 </button>
                 <button
-                  v-if="canAddGuardianWaiverStep"
                   class="btn btn-secondary btn-sm btn-flow-add-guardian"
                   type="button"
                   @click="addStep('insurance_info')"
@@ -502,6 +610,20 @@
                   @click="addStep('communications')"
                 >
                   + Add Communications
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addStep('demographics')"
+                >
+                  + Add Demographics
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addStep('clinical_questions')"
+                >
+                  + Add Clinical Questions
                 </button>
                 <span v-if="hasProgrammedSchoolRoiStep" class="programmed-step-pill">
                   Programmed School ROI active
@@ -528,6 +650,8 @@
                   <div class="step-header-start">
                     <strong>{{ getStepTypeLabel(step.type) }}</strong>
                     <span v-if="step.type === 'guardian_waiver'" class="step-flow-pill step-flow-pill--guardian">Guardian</span>
+                    <span v-if="step.type === 'clinical_questions'" class="step-flow-pill step-flow-pill--clinical">Clinical</span>
+                    <span v-if="step.type === 'demographics'" class="step-flow-pill step-flow-pill--demographics">Demographics</span>
                   </div>
                   <div class="step-controls">
                     <button class="btn btn-xs btn-secondary" type="button" @click="moveStep(idx, -1)" :disabled="idx === 0">↑</button>
@@ -1105,7 +1229,62 @@
                   </div>
                 </div>
 
-                <div v-else-if="step.type === 'questions'" class="question-builder">
+                <div v-else-if="step.type === 'demographics'" class="form-grid">
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Step title</label>
+                    <input v-model="step.label" type="text" placeholder="Demographics" />
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <p class="muted" style="margin: 0; font-size: 13px;">
+                      This step collects standard demographic fields and saves them directly to the client's profile.
+                      Choose which fields to display:
+                    </p>
+                  </div>
+                  <div class="form-group">
+                    <label class="checkbox" style="display: flex; align-items: center; gap: 8px;">
+                      <input v-model="step.showDob" type="checkbox" />
+                      Date of birth
+                    </label>
+                  </div>
+                  <div class="form-group">
+                    <label class="checkbox" style="display: flex; align-items: center; gap: 8px;">
+                      <input v-model="step.showGender" type="checkbox" />
+                      Gender
+                    </label>
+                  </div>
+                  <div class="form-group">
+                    <label class="checkbox" style="display: flex; align-items: center; gap: 8px;">
+                      <input v-model="step.showEthnicity" type="checkbox" />
+                      Race / Ethnicity
+                    </label>
+                  </div>
+                  <div class="form-group">
+                    <label class="checkbox" style="display: flex; align-items: center; gap: 8px;">
+                      <input v-model="step.showAddress" type="checkbox" />
+                      Address (street, city, state, zip)
+                    </label>
+                  </div>
+                  <div class="form-group">
+                    <label class="checkbox" style="display: flex; align-items: center; gap: 8px;">
+                      <input v-model="step.showPreferredLanguage" type="checkbox" />
+                      Preferred language
+                    </label>
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label class="checkbox" style="display: flex; align-items: center; gap: 8px;">
+                      <input v-model="step.hideForExisting" type="checkbox" />
+                      Skip this step for returning / existing clients (recommended)
+                    </label>
+                  </div>
+                </div>
+
+                <div v-else-if="step.type === 'questions' || step.type === 'clinical_questions'" class="question-builder">
+                  <div v-if="step.type === 'clinical_questions'" class="form-group" style="margin-bottom: 12px; padding: 10px 14px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; grid-column: 1 / -1;">
+                    <p class="muted" style="margin: 0; font-size: 13px;">
+                      <strong>Clinical questions</strong> — answers are stored separately and only visible to the assigned provider
+                      in the <strong>Clinical</strong> tab of the client profile. They are excluded from the standard intake PDF.
+                    </p>
+                  </div>
                   <div v-if="registrationFlowAdmin" class="form-group" style="margin-bottom: 12px;">
                     <label>Show this questions step</label>
                     <select v-model="step.visibility">
@@ -1132,6 +1311,7 @@
                         </select>
                         <select v-model="field.scope">
                           <option value="client">Client (repeats per child)</option>
+                          <option value="self">Self (only when filling for themselves)</option>
                           <option value="guardian">Guardian (one-time)</option>
                           <option value="submission">One-time (global)</option>
                         </select>
@@ -1214,6 +1394,7 @@
 
               <div v-if="safeSteps.length" class="step-actions step-actions-bottom">
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
+                <button v-if="questionSets.length" class="btn btn-secondary btn-sm" type="button" @click="openQSetPicker">+ Add Question Set</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('registration')">+ Add Registration</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
                 <button
@@ -1234,7 +1415,6 @@
                   + Add Guardian waivers
                 </button>
                 <button
-                  v-if="canAddGuardianWaiverStep"
                   class="btn btn-secondary btn-sm btn-flow-add-guardian"
                   type="button"
                   @click="addStep('insurance_info')"
@@ -1255,6 +1435,20 @@
                 >
                   + Add Communications
                 </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addStep('demographics')"
+                >
+                  + Add Demographics
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addStep('clinical_questions')"
+                >
+                  + Add Clinical Questions
+                </button>
               </div>
             </div>
           </div>
@@ -1270,6 +1464,32 @@
 
     </div>
   </div>
+
+  <!-- Question Set Picker Modal — teleported to body to escape any parent stacking context -->
+  <Teleport to="body">
+  <div v-if="showQSetPicker" class="modal-backdrop qset-backdrop" @click.self="showQSetPicker = false">
+    <div class="modal-box qset-modal-box" style="max-width:480px;">
+      <div class="modal-header">
+        <h3 style="margin:0;">Insert a Question Set</h3>
+        <button class="btn btn-xs btn-secondary" type="button" @click="showQSetPicker = false">✕</button>
+      </div>
+      <div class="modal-body" style="padding:16px;">
+        <p class="muted" style="margin-top:0;">Choose a question set to insert as a new Questions step in the form.</p>
+        <div v-if="!questionSets.length" class="muted">No question sets saved yet. Create one using the "Question Sets" button above.</div>
+        <div v-for="qs in questionSets" :key="qs.id" class="question-set-picker-row">
+          <div>
+            <strong>{{ qs.name || 'Unnamed Set' }}</strong>
+            <span class="muted" style="margin-left:6px;">{{ qs.fields.length }} question{{ qs.fields.length === 1 ? '' : 's' }}</span>
+            <div class="muted" style="font-size:0.8em;margin-top:2px;">
+              {{ qs.fields.map((f) => f.label || f.key).filter(Boolean).slice(0, 4).join(', ') }}{{ qs.fields.length > 4 ? '…' : '' }}
+            </div>
+          </div>
+          <button class="btn btn-sm btn-primary" type="button" @click="insertQuestionSet(qs)">Insert</button>
+        </div>
+        </div>
+    </div>
+  </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -1347,6 +1567,134 @@ const quickError = ref('');
 const selectedAgencyId = ref(null);
 const fieldTemplateName = ref('');
 const fieldTemplateJson = ref('');
+
+// ─── Question Sets ────────────────────────────────────────────────────────────
+const showQuestionSetsPanel = ref(false);
+const questionSets = ref([]);
+const editingQuestionSet = ref(null);
+const showQSetPicker = ref(false);
+
+const qsetStorageKey = () => `intake_qsets_${selectedAgencyId.value || 'default'}`;
+
+const loadQuestionSets = () => {
+  try {
+    const raw = localStorage.getItem(qsetStorageKey());
+    questionSets.value = raw ? JSON.parse(raw) : [];
+  } catch {
+    questionSets.value = [];
+  }
+};
+
+const persistQuestionSets = () => {
+  try {
+    localStorage.setItem(qsetStorageKey(), JSON.stringify(questionSets.value));
+  } catch { /* ignore */ }
+};
+
+const startNewQuestionSet = () => {
+  editingQuestionSet.value = {
+    id: createId('qset'),
+    name: '',
+    fields: []
+  };
+};
+
+const startEditQuestionSet = (qs) => {
+  editingQuestionSet.value = JSON.parse(JSON.stringify(qs));
+};
+
+const saveQuestionSet = () => {
+  if (!editingQuestionSet.value) return;
+  const idx = questionSets.value.findIndex((q) => q.id === editingQuestionSet.value.id);
+  if (idx >= 0) {
+    questionSets.value.splice(idx, 1, editingQuestionSet.value);
+  } else {
+    questionSets.value.push(editingQuestionSet.value);
+  }
+  persistQuestionSets();
+  editingQuestionSet.value = null;
+};
+
+const deleteQuestionSet = (id) => {
+  questionSets.value = questionSets.value.filter((q) => q.id !== id);
+  persistQuestionSets();
+};
+
+const addQSetField = () => {
+  if (!editingQuestionSet.value) return;
+  editingQuestionSet.value.fields.push({
+    id: createId('field'),
+    key: '',
+    label: '',
+    type: 'text',
+    required: false,
+    helperText: '',
+    scope: 'self',
+    visibility: 'always',
+    showIf: { fieldKey: '', equals: '' },
+    options: []
+  });
+};
+
+const addQSetFieldAfter = (idx) => {
+  if (!editingQuestionSet.value) return;
+  editingQuestionSet.value.fields.splice(idx + 1, 0, {
+    id: createId('field'),
+    key: '',
+    label: '',
+    type: 'text',
+    required: false,
+    helperText: '',
+    scope: 'self',
+    visibility: 'always',
+    showIf: { fieldKey: '', equals: '' },
+    options: []
+  });
+};
+
+const removeQSetField = (idx) => {
+  if (!editingQuestionSet.value) return;
+  editingQuestionSet.value.fields.splice(idx, 1);
+};
+
+const moveQSetField = (idx, dir) => {
+  if (!editingQuestionSet.value) return;
+  const fields = editingQuestionSet.value.fields;
+  const next = idx + dir;
+  if (next < 0 || next >= fields.length) return;
+  const copy = [...fields];
+  const [moved] = copy.splice(idx, 1);
+  copy.splice(next, 0, moved);
+  editingQuestionSet.value.fields = copy;
+};
+
+const getQSetConditionalTargets = (idx) => {
+  if (!editingQuestionSet.value) return [];
+  return editingQuestionSet.value.fields
+    .filter((f, fIdx) => f && typeof f === 'object' && fIdx !== idx && f.key)
+    .map((f) => ({ key: f.key, label: f.label }));
+};
+
+const openQSetPicker = () => {
+  showQSetPicker.value = true;
+};
+
+const insertQuestionSet = (qs) => {
+  const clonedFields = JSON.parse(JSON.stringify(qs.fields)).map((f) => ({
+    ...f,
+    id: createId('field')
+  }));
+  const step = {
+    id: createId('step'),
+    type: 'questions',
+    fields: clonedFields,
+    visibility: 'always',
+    label: qs.name || ''
+  };
+  form.intakeSteps.push(step);
+  showQSetPicker.value = false;
+};
+// ─────────────────────────────────────────────────────────────────────────────
 const openDocumentStepSelectId = ref(null);
 const documentStepFilter = ref('');
 const documentStepSelectRef = ref(null);
@@ -1428,7 +1776,9 @@ const getStepTypeLabel = (t) => {
     guardian_waiver: 'Guardian waivers & safety',
     insurance_info: 'Insurance information',
     payment_collection: 'Payment collection',
-    communications: 'Communication preferences'
+    communications: 'Communication preferences',
+    demographics: 'Demographics',
+    clinical_questions: 'Clinical Questions'
   };
   return m[t] || t || 'Step';
 };
@@ -1771,6 +2121,7 @@ watch(selectedAgencyId, async (next) => {
   if (!next) return;
   const r = await api.get('/intake-field-templates', { params: { agencyId: next } });
   fieldTemplates.value = r.data || [];
+  loadQuestionSets();
 });
 
 watch(() => form.formType, (newVal) => {
@@ -1824,6 +2175,7 @@ const handleDocumentClick = (e) => {
 
 onMounted(() => {
   window.addEventListener('beforeunload', handleBeforeUnload);
+  loadQuestionSets();
 });
 
 watch(openDocumentStepSelectId, (open) => {
@@ -2366,7 +2718,7 @@ const sanitizeSteps = (steps, { formType } = {}) => {
       const next = { ...s };
       if (!next.id) next.id = createId('step');
       if (!next.type) next.type = next.templateId ? 'document' : 'questions';
-      if (next.type === 'questions') {
+      if (next.type === 'questions' || next.type === 'clinical_questions') {
         next.visibility = ['always', 'new_client_only'].includes(String(next.visibility || '').trim())
           ? String(next.visibility).trim()
           : 'always';
@@ -2380,7 +2732,7 @@ const sanitizeSteps = (steps, { formType } = {}) => {
             type: f.type || 'text',
             required: !!f.required,
             helperText: f.helperText || '',
-            scope: f.scope || 'submission',
+            scope: next.type === 'clinical_questions' ? 'clinical' : (f.scope || 'submission'),
             documentKey: f.documentKey || '',
             visibility: ['always', 'new_client_only'].includes(String(f.visibility || '').trim())
               ? String(f.visibility).trim()
@@ -2391,6 +2743,13 @@ const sanitizeSteps = (steps, { formType } = {}) => {
             },
             options: Array.isArray(f.options) ? f.options.filter((o) => o && typeof o === 'object') : []
           }));
+      } else if (next.type === 'demographics') {
+        next.showDob = next.showDob !== false;
+        next.showGender = next.showGender !== false;
+        next.showEthnicity = next.showEthnicity !== false;
+        next.showAddress = next.showAddress !== false;
+        next.showPreferredLanguage = next.showPreferredLanguage !== false;
+        next.hideForExisting = !!next.hideForExisting;
       } else if (next.type === 'document') {
         if (next.templateId === undefined) next.templateId = null;
         if (next.checkboxDisclaimer === undefined) next.checkboxDisclaimer = '';
@@ -2686,6 +3045,19 @@ const addStep = (type, options = {}) => {
       programUpdates: false,
       internalWorkforce: false
     };
+  } else if (type === 'demographics') {
+    step.label = 'Demographics';
+    step.visibility = 'always';
+    step.showDob = true;
+    step.showGender = true;
+    step.showEthnicity = true;
+    step.showAddress = true;
+    step.showPreferredLanguage = true;
+    step.hideForExisting = true;
+  } else if (type === 'clinical_questions') {
+    step.label = 'Clinical questions';
+    step.visibility = 'always';
+    step.fields = [];
   } else {
     step.templateId = options?.templateId ?? null;
     step.checkboxDisclaimer = '';
@@ -3320,7 +3692,7 @@ const buildPayloadFromSteps = (selectedTemplateIds = []) => {
   const intakeFields = [];
   const allowedDocumentTemplateIds = [];
   intakeSteps.forEach((step) => {
-    if (step.type === 'questions') {
+    if (step.type === 'questions' || step.type === 'clinical_questions') {
       (step.fields || []).forEach((f) => {
         if (f.type === 'info') return;
         intakeFields.push({
@@ -3331,7 +3703,7 @@ const buildPayloadFromSteps = (selectedTemplateIds = []) => {
           options: f.options || [],
           helperText: f.helperText || '',
           showIf: f.showIf || null,
-          scope: f.scope || 'submission'
+          scope: step.type === 'clinical_questions' ? 'clinical' : (f.scope || 'submission')
         });
       });
     } else if (step.type === 'document' && step.templateId) {
@@ -3523,6 +3895,18 @@ onMounted(fetchData);
   background: #dcfce7;
   color: #14532d;
   border: 1px solid #86efac;
+}
+
+.step-flow-pill--clinical {
+  background: #ede9fe;
+  color: #4c1d95;
+  border: 1px solid #c4b5fd;
+}
+
+.step-flow-pill--demographics {
+  background: #fef9c3;
+  color: #713f12;
+  border: 1px solid #fde047;
 }
 
 .form-group-guardian-toggle .form-help-guardian {
@@ -3757,5 +4141,73 @@ onMounted(fetchData);
 .document-step-option.selected {
   background: rgba(37, 99, 235, 0.1);
   color: var(--primary, #2563eb);
+}
+
+/* Question Sets panel */
+.question-sets-panel {
+  background: #f8fafc;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+.question-sets-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.question-set-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.question-set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.question-set-editor {
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+/* Question set picker modal — rendered via Teleport so z-index is relative to body */
+.qset-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 1400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.qset-modal-box {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.22);
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.question-set-picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border, #f3f4f6);
+}
+.question-set-picker-row:last-child {
+  border-bottom: none;
 }
 </style>

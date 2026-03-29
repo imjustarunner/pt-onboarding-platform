@@ -146,7 +146,7 @@
             <label>{{ (intakeForSelf || isMedicalRecordsRequest || isJobApplication) ? t('yourPhoneOptional') : t('guardianPhoneOptional') }}</label>
             <input v-model="guardianPhone" type="tel" />
           </div>
-          <div v-if="!isMedicalRecordsRequest && !isJobApplication" class="form-group">
+          <div v-if="!isMedicalRecordsRequest && !isJobApplication && !intakeForSelf" class="form-group">
             <label>{{ t('relationship') }}</label>
             <input v-model="guardianRelationship" type="text" :placeholder="t('relationshipPlaceholder')" />
           </div>
@@ -260,13 +260,13 @@
           <div class="muted">This signing link is already assigned to this client.</div>
         </div>
 
-        <div v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound" class="clients-block">
+        <div v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound && !intakeForSelf" class="clients-block">
           <div class="clients-header">
             <h4>{{ intakeForSelf ? t('client') : t('clients') }}</h4>
           </div>
           <div v-for="(c, idx) in clients" :key="idx" class="client-card" :class="{ 'client-card-alt': idx % 2 === 1 }">
             <div class="client-card-header">
-              <strong>{{ t('clientN') }} {{ idx + 1 }}</strong>
+              <strong>{{ intakeForSelf ? t('yourInformation') : (t('clientN') + ' ' + (idx + 1)) }}</strong>
               <button v-if="clients.length > 1" class="btn btn-secondary btn-sm" type="button" @click="removeClient(idx)">{{ t('remove') }}</button>
             </div>
             <div class="form-grid">
@@ -300,7 +300,7 @@
               </div>
             </div>
 
-            <div v-if="clientFields.length" class="custom-fields">
+            <div v-if="clientFields.length && !intakeForSelf" class="custom-fields">
               <h4>{{ t('clientQuestions') }}</h4>
               <div class="muted" style="margin-bottom: 10px;">
                 {{ t('clientQuestionsDesc') }}
@@ -362,7 +362,13 @@
 
         <div v-if="visibleQuestionFields.length" class="field-inputs">
           <h4>{{ t('additionalQuestions') }}</h4>
-          <div v-for="field in visibleQuestionFields" :key="field.id" class="form-group" :data-question-key="field.key">
+          <div
+            v-for="field in visibleQuestionFields"
+            :key="field.id"
+            class="form-group"
+            :class="{ 'required-missing-glow': isQuestionFieldMissing(field) }"
+            :data-question-key="field.key"
+          >
             <div v-if="field.type === 'info'" class="info-block">
               <div class="info-title">{{ field.label || t('notice') }}</div>
               <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
@@ -377,25 +383,32 @@
                 v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
                 v-model="questionValues[field.key]"
                 type="text"
+                :class="{ 'input-error': isQuestionFieldMissing(field) }"
+                @blur="maybeAutofillQuestionLocation(field)"
               />
-              <textarea v-else-if="field.type === 'textarea'" v-model="questionValues[field.key]" rows="4"></textarea>
+              <textarea
+                v-else-if="field.type === 'textarea'"
+                v-model="questionValues[field.key]"
+                rows="4"
+                :class="{ 'input-error': isQuestionFieldMissing(field) }"
+              ></textarea>
               <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
-                <input v-model="questionValues[field.key]" type="checkbox" />
+                <input v-model="questionValues[field.key]" type="checkbox" :class="{ 'input-error': isQuestionFieldMissing(field) }" />
                 <span>{{ field.label || field.key }}</span>
               </label>
-              <select v-else-if="field.type === 'select'" v-model="questionValues[field.key]">
+              <select v-else-if="field.type === 'select'" v-model="questionValues[field.key]" :class="{ 'input-error': isQuestionFieldMissing(field) }">
                 <option value="">{{ t('selectOption') }}</option>
                 <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
                   {{ opt.label || opt.value }}
                 </option>
               </select>
-              <div v-else-if="field.type === 'radio'" class="radio-group">
-                <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
+              <div v-else-if="field.type === 'radio'" class="radio-group" :class="{ 'input-error': isQuestionFieldMissing(field) }">
+                <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row" :class="{ 'input-error': isQuestionFieldMissing(field) }">
                   <input type="radio" :name="`q_${field.key}`" :value="opt.value || opt.label" v-model="questionValues[field.key]" />
                   <span>{{ opt.label || opt.value }}</span>
                 </label>
               </div>
-              <input v-else v-model="questionValues[field.key]" type="date" />
+              <input v-else v-model="questionValues[field.key]" type="date" :class="{ 'input-error': isQuestionFieldMissing(field) }" />
             </template>
           </div>
         </div>
@@ -446,6 +459,12 @@
         </h3>
         <h3 v-else-if="currentFlowStep?.type === 'communications'">
           {{ currentFlowStep?.label || 'Communication preferences' }}
+        </h3>
+        <h3 v-else-if="currentFlowStep?.type === 'demographics'">
+          {{ currentFlowStep?.label || 'Demographics' }}
+        </h3>
+        <h3 v-else-if="currentFlowStep?.type === 'clinical_questions'">
+          {{ currentFlowStep?.label || 'Clinical Questions' }}
         </h3>
         <h3 v-else-if="currentFlowStep?.type === 'questions'">Questions</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
@@ -593,6 +612,8 @@
             :guardian-relationship="guardianRelationship"
             :guardian-phone="guardianPhone"
             :client-names="insuranceClientNames"
+            :intake-for-self="intakeForSelf"
+            :agency-name="agencyInfo?.official_name || agencyInfo?.name || ''"
             @update:model-value="(v) => { intakeResponses.submission.insuranceInfo = v; }"
             @medicaid-change="(isMedicaid) => { if (intakeResponses.submission.insuranceInfo) intakeResponses.submission.insuranceInfo.primaryIsMedicaid = isMedicaid; }"
           />
@@ -725,6 +746,134 @@
           </section>
         </div>
 
+        <!-- Demographics step -->
+        <div v-if="currentFlowStep?.type === 'demographics'" class="demographics-step">
+          <p class="muted" style="margin-bottom: 16px;">
+            Please fill in the following information so we can keep your records up to date.
+          </p>
+          <div class="demographics-grid">
+            <div v-if="currentFlowStep.showDob" class="form-group">
+              <label>Date of Birth <span class="required-indicator">*</span></label>
+              <input
+                type="date"
+                v-model="demographicsData.dob"
+                :class="{ 'input-error': demographicsErrors.dob }"
+              />
+              <span v-if="demographicsErrors.dob" class="field-error">Required</span>
+            </div>
+            <div v-if="currentFlowStep.showGender" class="form-group">
+              <label>Gender</label>
+              <select v-model="demographicsData.gender">
+                <option value="">Prefer not to say</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="nonbinary">Non-binary</option>
+                <option value="other">Other / self-describe</option>
+              </select>
+            </div>
+            <div v-if="currentFlowStep.showEthnicity" class="form-group">
+              <label>Race / Ethnicity</label>
+              <select v-model="demographicsData.ethnicity">
+                <option value="">Prefer not to say</option>
+                <option value="american_indian">American Indian or Alaska Native</option>
+                <option value="asian">Asian</option>
+                <option value="black">Black or African American</option>
+                <option value="hispanic">Hispanic or Latino</option>
+                <option value="nhpi">Native Hawaiian or Other Pacific Islander</option>
+                <option value="white">White</option>
+                <option value="two_or_more">Two or more races</option>
+                <option value="other">Other / self-describe</option>
+              </select>
+            </div>
+            <div v-if="currentFlowStep.showPreferredLanguage" class="form-group">
+              <label>Preferred Language</label>
+              <select v-model="demographicsData.preferredLanguage">
+                <option value="">Select…</option>
+                <option value="english">English</option>
+                <option value="spanish">Spanish</option>
+                <option value="french">French</option>
+                <option value="mandarin">Mandarin</option>
+                <option value="arabic">Arabic</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <template v-if="currentFlowStep.showAddress">
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label>Street Address</label>
+                <input type="text" v-model="demographicsData.addressStreet" placeholder="123 Main St" />
+              </div>
+              <div class="form-group">
+                <label>Apt / Unit (optional)</label>
+                <input type="text" v-model="demographicsData.addressApt" placeholder="Apt 4B" />
+              </div>
+              <div class="form-group">
+                <label>Zip Code</label>
+                <input
+                  type="text"
+                  v-model="demographicsData.addressZip"
+                  placeholder="80903"
+                  maxlength="10"
+                  @blur="autofillDemographicsLocation"
+                />
+              </div>
+              <div class="form-group">
+                <label>City</label>
+                <input type="text" v-model="demographicsData.addressCity" placeholder="Colorado Springs" />
+              </div>
+              <div class="form-group">
+                <label>State</label>
+                <input type="text" v-model="demographicsData.addressState" placeholder="CO" maxlength="2" style="max-width: 80px;" />
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Clinical questions step — rendered identically to regular questions but saved separately -->
+        <div v-if="currentFlowStep?.type === 'clinical_questions'" class="clinical-questions-step">
+          <p class="muted" style="margin-bottom: 16px; font-size: 13px;">
+            The following questions help your provider understand your needs. Your answers are confidential and only visible to your assigned provider.
+          </p>
+          <div v-for="field in visibleClinicalFields" :key="field.key || field.id" class="question-field-row" :ref="el => fieldRefs[field.key || field.id] = el">
+            <label :class="{ 'required-label': field.required }">
+              {{ field.label }}
+              <span v-if="field.required" class="required-indicator">*</span>
+            </label>
+            <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
+            <select
+              v-if="field.type === 'select'"
+              v-model="clinicalResponses[field.key]"
+              :class="{ 'input-error': isClinicalFieldMissing(field) }"
+            >
+              <option value="">Select…</option>
+              <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+            <div v-else-if="field.type === 'radio'" class="radio-group">
+              <label v-for="opt in field.options" :key="opt.value" class="radio-row">
+                <input type="radio" :name="'cq_' + field.key" :value="opt.value" v-model="clinicalResponses[field.key]" />
+                <span>{{ opt.label }}</span>
+              </label>
+            </div>
+            <div v-else-if="field.type === 'checkbox'" class="checkbox-group">
+              <label class="checkbox-row">
+                <input type="checkbox" v-model="clinicalResponses[field.key]" :true-value="'yes'" :false-value="'no'" />
+                <span>{{ field.label }}</span>
+              </label>
+            </div>
+            <textarea
+              v-else-if="field.type === 'textarea'"
+              v-model="clinicalResponses[field.key]"
+              rows="3"
+              :class="{ 'input-error': isClinicalFieldMissing(field) }"
+            />
+            <input
+              v-else
+              v-model="clinicalResponses[field.key]"
+              type="text"
+              :class="{ 'input-error': isClinicalFieldMissing(field) }"
+            />
+          </div>
+        </div>
+
         <div class="doc-nav" v-if="currentFlowStep?.type === 'document'">
           <button class="btn btn-secondary btn-sm" type="button" :disabled="currentDocIndex === 0" @click="goToPrevious">
             Previous
@@ -824,7 +973,7 @@
           </div>
         </div>
 
-        <div v-if="currentFlowStep?.type === 'document' && currentDoc?.document_action_type === 'signature'" class="signature-block" ref="signatureBlockRef">
+        <div v-if="currentFlowStep?.type === 'document' && currentDoc?.document_action_type === 'signature'" class="signature-block" ref="signatureBlockRef" :class="{ 'signature-block--flash': signatureBlockFlash }">
           <SignaturePad compact @signed="onSigned" />
           <div v-if="lastSignatureData && !signatureData" class="signature-reuse-actions" style="margin-top: 12px;">
             <button
@@ -1017,6 +1166,7 @@ const INTAKE_TRANSLATIONS = {
     relationshipPlaceholder: 'e.g., Parent',
     notice: 'Notice',
     guardianQuestions: 'Guardian Questions',
+    yourQuestions: 'Your Questions',
     oneTimeQuestions: 'One-time Questions',
     oneTimeQuestionsDesc: 'These questions are asked once for the whole intake.',
     selectOption: 'Select an option',
@@ -1033,6 +1183,7 @@ const INTAKE_TRANSLATIONS = {
     additionalQuestions: 'Additional Questions',
     remove: 'Remove',
     clientN: 'Client',
+    yourInformation: 'Your Information',
     information: 'Information',
     iConsentContinue: 'I Consent and Continue',
     saving: 'Saving...',
@@ -1065,6 +1216,7 @@ const INTAKE_TRANSLATIONS = {
     requesterRequired: 'Name and email are required.',
     registrantRequired: 'Name and email are required.',
     signerLabelGuardian: 'Guardian',
+    signerLabelSelf: 'Signing as',
     signerLabelApplicant: 'Applicant',
     signerLabelRequester: 'Requester',
     signerLabelRegistrant: 'Registrant',
@@ -1143,6 +1295,7 @@ const INTAKE_TRANSLATIONS = {
     relationshipPlaceholder: 'ej., Padre, Madre',
     notice: 'Aviso',
     guardianQuestions: 'Preguntas del tutor',
+    yourQuestions: 'Sus preguntas',
     oneTimeQuestions: 'Preguntas únicas',
     oneTimeQuestionsDesc: 'Estas preguntas se hacen una vez para toda la admisión.',
     selectOption: 'Seleccione una opción',
@@ -1159,6 +1312,7 @@ const INTAKE_TRANSLATIONS = {
     additionalQuestions: 'Preguntas adicionales',
     remove: 'Eliminar',
     clientN: 'Cliente',
+    yourInformation: 'Su información',
     information: 'Información',
     iConsentContinue: 'Acepto y continúo',
     saving: 'Guardando...',
@@ -1271,6 +1425,7 @@ const defaultTitle = computed(() => {
   return t('digitalIntake');
 });
 const signerLabel = computed(() => {
+  if (intakeForSelf.value) return t('signerLabelSelf');
   if (formTypeKey.value === 'job_application') return t('signerLabelApplicant');
   if (formTypeKey.value === 'medical_records_request') return t('signerLabelRequester');
   if (formTypeKey.value === 'smart_registration') return t('signerLabelRegistrant');
@@ -1288,6 +1443,7 @@ const completionEmailMessage = computed(() => {
   return t('completionEmailGuardian');
 });
 const guardianSectionTitle = computed(() => {
+  if (intakeForSelf.value) return t('yourQuestions');
   if (formTypeKey.value === 'job_application') return t('applicantInformation');
   if (formTypeKey.value === 'medical_records_request') return t('requesterInformation');
   if (formTypeKey.value === 'smart_registration') return t('registrantInformation');
@@ -1315,6 +1471,56 @@ const communications = reactive({
   programUpdatesOptIn: '',
   internalWorkforceOptIn: ''
 });
+
+// Demographics step state
+const demographicsData = reactive({
+  dob: '',
+  gender: '',
+  ethnicity: '',
+  preferredLanguage: '',
+  addressStreet: '',
+  addressApt: '',
+  addressCity: '',
+  addressState: '',
+  addressZip: ''
+});
+const demographicsErrors = reactive({ dob: false });
+
+const autofillDemographicsLocation = async () => {
+  const zip = String(demographicsData.addressZip || '').replace(/\D/g, '').slice(0, 5);
+  if (zip.length !== 5) return;
+  try {
+    const resp = await fetch(`https://api.zippopotam.us/us/${zip}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const place = Array.isArray(data?.places) ? data.places[0] : null;
+    if (!place) return;
+    if (!demographicsData.addressCity) demographicsData.addressCity = place['place name'] || '';
+    if (!demographicsData.addressState) demographicsData.addressState = place['state abbreviation'] || place['state'] || '';
+  } catch { /* ignore */ }
+};
+
+// Clinical questions step state
+const clinicalResponses = reactive({});
+
+const visibleClinicalFields = computed(() => {
+  if (currentFlowStep.value?.type !== 'clinical_questions') return [];
+  const fields = Array.isArray(currentFlowStep.value?.fields) ? currentFlowStep.value.fields : [];
+  return fields.filter((f) => {
+    if (!f?.key) return false;
+    const showIf = f.showIf;
+    if (showIf?.fieldKey && showIf.equals !== undefined) {
+      return String(clinicalResponses[showIf.fieldKey] || '') === String(showIf.equals || '');
+    }
+    return true;
+  });
+});
+
+const isClinicalFieldMissing = (field) => {
+  if (!field?.required) return false;
+  const v = clinicalResponses[field.key];
+  return v === undefined || v === null || String(v).trim() === '';
+};
 const platformTermsUrl = '/terms';
 const platformPrivacyUrl = '/privacypolicy';
 const communicationsAudience = computed(() => {
@@ -1751,6 +1957,7 @@ const consentLoading = ref(false);
 const submitLoading = ref(false);
 const currentDocIndex = ref(0);
 const signatureBlockRef = ref(null);
+const signatureBlockFlash = ref(false);
 const signatureData = ref('');
 const lastSignatureData = ref('');
 const showSavedSigPrompt = ref(false);
@@ -1827,6 +2034,7 @@ const eventWaiverContext = computed(() => {
 const registrationCompletion = ref(null);
 const loginHelpSending = ref(false);
 const loginHelpMessage = ref('');
+const missingRequiredQuestionKeys = ref([]);
 
 /** The event the user just registered for (title, date, iCal link) — derived from selections + catalog. */
 const registeredEventSummary = computed(() => {
@@ -2068,6 +2276,42 @@ const queueDraftPersist = () => {
   draftPersistTimer = setTimeout(() => {
     persistDraftSnapshot();
   }, 150);
+};
+
+const persistDraftOnPageExit = () => {
+  // Flush immediately when user backgrounds/leaves to avoid losing recent input.
+  persistDraftSnapshot();
+};
+
+const handleVisibilityDraftPersist = () => {
+  if (document.visibilityState === 'hidden') {
+    persistDraftSnapshot();
+  }
+};
+
+const isMobileViewport = () =>
+  typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
+
+const syncMobileStepScroll = async () => {
+  if (!isMobileViewport()) return;
+  await nextTick();
+
+  const isDocStep = step.value === 2 && currentFlowStep.value?.type === 'document';
+  if (isDocStep) {
+    // Keep doc nav + preview in view so reviewing/next actions are immediately accessible.
+    const nav = document.querySelector('.doc-nav');
+    if (nav?.scrollIntoView) {
+      nav.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    const preview = document.querySelector('.doc-preview');
+    if (preview?.scrollIntoView) {
+      preview.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+  }
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 };
 
 const hasMeaningfulDraftSnapshot = (snapshot) => {
@@ -2546,6 +2790,36 @@ const maybeAutofillLocation = async (idx, field) => {
   }
 };
 
+const maybeAutofillQuestionLocation = async (field) => {
+  if (!field?.key || !/zip|postal/i.test(normalizeKey(field.key))) return;
+  const raw = intakeResponses.submission?.[field.key];
+  const zip = String(raw || '').replace(/\D/g, '').slice(0, 5);
+  if (zip.length !== 5) return;
+  const cacheKey = `q_${field.key}`;
+  if (zipLookupCache[cacheKey] === zip) return;
+  zipLookupCache[cacheKey] = zip;
+  try {
+    const resp = await fetch(`https://api.zippopotam.us/us/${zip}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const place = Array.isArray(data?.places) ? data.places[0] : null;
+    if (!place) return;
+    const city = place['place name'] || '';
+    const state = place['state abbreviation'] || place['state'] || '';
+    (visibleQuestionFields.value || []).forEach((f) => {
+      if (!f?.key || f.key === field.key) return;
+      const k = normalizeKey(f.key);
+      const cur = String(intakeResponses.submission?.[f.key] || '').trim();
+      if (!cur) {
+        if (/city|town/.test(k)) intakeResponses.submission[f.key] = city;
+        else if (/state|province/.test(k)) intakeResponses.submission[f.key] = state;
+      }
+    });
+  } catch {
+    // ignore lookup errors
+  }
+};
+
 const isIntakeFieldVisible = (field, values = {}) => {
   const showIf = field?.showIf;
   if (!showIf || !showIf.fieldKey) return true;
@@ -2560,9 +2834,11 @@ const isIntakeFieldVisible = (field, values = {}) => {
   return String(actual ?? '').trim().toLowerCase() === String(expected ?? '').trim().toLowerCase();
 };
 
-const visibleGuardianFields = computed(() =>
-  guardianFields.value.filter((f) => isIntakeFieldVisible(f, intakeResponses.guardian))
-);
+const visibleGuardianFields = computed(() => {
+  // Self-intake should not render guardian-only prompts.
+  if (intakeForSelf.value) return [];
+  return guardianFields.value.filter((f) => isIntakeFieldVisible(f, intakeResponses.guardian));
+});
 
 const visibleSubmissionFields = computed(() =>
   submissionFields.value.filter((f) => isIntakeFieldVisible(f, intakeResponses.submission))
@@ -3099,12 +3375,13 @@ const submitConsent = async () => {
       intakeData: {
         responses: intakeResponses || {},
         clients: clientPayloads || [],
+        intakeForSelf: intakeForSelf.value,
         guardian: {
           firstName: guardianFirstName.value,
           lastName: guardianLastName.value,
           email: guardianEmail.value,
           phone: guardianPhone.value,
-          relationship: guardianRelationship.value
+          relationship: intakeForSelf.value ? 'Self' : guardianRelationship.value
         },
         approval: approvalContext.value || null,
         smartSchoolRoi: embeddedSmartSchoolRoi.value || null
@@ -3128,6 +3405,7 @@ const onSigned = (dataUrl) => {
   signatureData.value = dataUrl;
   lastSignatureData.value = dataUrl;
   showSavedSigPrompt.value = false;
+  signatureBlockFlash.value = false;
 };
 
 const onUseSavedSignatureClick = () => {
@@ -3176,11 +3454,22 @@ const completeCurrentDocument = async () => {
     }
     if (currentDoc.value.document_action_type === 'signature' && !signatureData.value) {
       if (lastSignatureData.value) {
-        showSavedSigPrompt.value = true;
+        // Auto-apply saved signature so the user can proceed in one click.
+        signatureData.value = lastSignatureData.value;
+        stepError.value = '';
+        showSavedSigPrompt.value = false;
+        // Fall through to continue.
       } else {
         stepError.value = t('signatureRequired');
+        signatureBlockFlash.value = true;
+        import('vue').then(({ nextTick }) => {
+          nextTick(() => {
+            signatureBlockRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          });
+        });
+        setTimeout(() => { signatureBlockFlash.value = false; }, 2600);
+        return;
       }
-      return;
     }
 
     const missingFields = displayedFieldDefinitions.value.filter((f) => {
@@ -3224,15 +3513,25 @@ const completeCurrentDocument = async () => {
   }
 };
 
+const isQuestionFieldMissing = (field) => {
+  if (!field || !field.required || field.type === 'info') return false;
+  const key = String(field.key || '').trim();
+  if (!key) return false;
+  return missingRequiredQuestionKeys.value.includes(key);
+};
+
+const isQuestionValueMissing = (field) => {
+  if (!field || !field.required || field.type === 'info') return false;
+  const val = questionValues.value[field.key];
+  if (field.type === 'checkbox') return val !== true;
+  return val === null || val === undefined || String(val).trim() === '';
+};
+
 const completeQuestionStep = async () => {
   const missing = visibleQuestionFields.value
-    .filter((f) => f.required && f.type !== 'info')
-    .filter((f) => {
-      const val = questionValues.value[f.key];
-      if (f.type === 'checkbox') return val !== true;
-      return val === null || val === undefined || String(val).trim() === '';
-    });
+    .filter((f) => isQuestionValueMissing(f));
   if (missing.length) {
+    missingRequiredQuestionKeys.value = missing.map((f) => String(f.key || '').trim()).filter(Boolean);
     stepError.value = t('completeRequiredFields');
     await nextTick();
     const firstKey = missing[0]?.key;
@@ -3244,6 +3543,7 @@ const completeQuestionStep = async () => {
     }
     return;
   }
+  missingRequiredQuestionKeys.value = [];
   stepError.value = '';
   await nextFlowStep();
 };
@@ -3452,6 +3752,14 @@ const completeInsuranceStep = async () => {
     insInfo.primary.isMedicaid = medicaidPrimary;
     insInfo.primaryIsMedicaid = medicaidPrimary;
   }
+  // Require the insurance authorization to be acknowledged.
+  const authSig = insuranceStepRef.value?.getAuthorizationSignature?.();
+  if (!authSig || String(authSig).trim().length < 2) {
+    stepError.value = 'Please sign the Insurance Authorization acknowledgment at the bottom of this step before continuing.';
+    return;
+  }
+  insInfo.authorizationSignature = String(authSig).trim();
+
   stepError.value = '';
   void nextFlowStep();
 };
@@ -3526,6 +3834,43 @@ const paymentCostDisplay = computed(() => {
   return '';
 });
 
+const completeDemographicsStep = () => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'demographics') return;
+  demographicsErrors.dob = false;
+  if (step.showDob && !demographicsData.dob) {
+    demographicsErrors.dob = true;
+    stepError.value = 'Please enter a date of birth.';
+    return;
+  }
+  intakeResponses.submission.demographicsInfo = {
+    dob: demographicsData.dob || null,
+    gender: demographicsData.gender || null,
+    ethnicity: demographicsData.ethnicity || null,
+    preferredLanguage: demographicsData.preferredLanguage || null,
+    addressStreet: demographicsData.addressStreet || null,
+    addressApt: demographicsData.addressApt || null,
+    addressCity: demographicsData.addressCity || null,
+    addressState: demographicsData.addressState || null,
+    addressZip: demographicsData.addressZip || null
+  };
+  stepError.value = '';
+  void nextFlowStep();
+};
+
+const completeClinicalQuestionsStep = () => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'clinical_questions') return;
+  const missingRequired = (visibleClinicalFields.value || []).some((f) => isClinicalFieldMissing(f));
+  if (missingRequired) {
+    stepError.value = 'Please answer all required clinical questions before continuing.';
+    return;
+  }
+  intakeResponses.submission.clinicalResponses = { ...clinicalResponses };
+  stepError.value = '';
+  void nextFlowStep();
+};
+
 const handleCurrentFlowContinue = () => {
   if (currentFlowStep.value?.type === 'document') return completeCurrentDocument();
   if (currentFlowStep.value?.type === 'upload') return completeUploadStep();
@@ -3534,6 +3879,8 @@ const handleCurrentFlowContinue = () => {
   if (currentFlowStep.value?.type === 'insurance_info') return completeInsuranceStep();
   if (currentFlowStep.value?.type === 'payment_collection') return completePaymentStep();
   if (currentFlowStep.value?.type === 'communications') return completeCommunicationsStep();
+  if (currentFlowStep.value?.type === 'demographics') return completeDemographicsStep();
+  if (currentFlowStep.value?.type === 'clinical_questions') return completeClinicalQuestionsStep();
   return completeQuestionStep();
 };
 const currentFlowContinueLabel = computed(() => {
@@ -3542,6 +3889,8 @@ const currentFlowContinueLabel = computed(() => {
   if (currentFlowStep.value?.type === 'insurance_info') return 'Save & continue';
   if (currentFlowStep.value?.type === 'payment_collection') return 'Continue';
   if (currentFlowStep.value?.type === 'communications') return 'Save preferences & continue';
+  if (currentFlowStep.value?.type === 'demographics') return 'Save & continue';
+  if (currentFlowStep.value?.type === 'clinical_questions') return 'Save & continue';
   if (currentFlowStep.value?.type === 'document') {
     return currentDoc.value?.document_action_type === 'signature' ? t('signContinue') : t('markReviewedContinue');
   }
@@ -3871,6 +4220,14 @@ const stepQuestionFields = computed(() => {
   return fields.filter((f) => {
     const key = String(f?.key || '').trim();
     if (!key) return false;
+    const scope = String(f?.scope || 'submission').trim().toLowerCase();
+    if (intakeForSelf.value && scope === 'guardian') return false;
+    if (intakeForSelf.value && scope === 'client') return false;
+    if (!intakeForSelf.value && scope === 'self') return false;
+    // 'self'-scoped fields are never rendered by any legacy section, so bypass
+    // the deduplication check — they would otherwise be silently hidden because
+    // buildPayloadFromSteps also flattens them into intake_fields.
+    if (scope === 'self') return true;
     return !intakeKeys.has(key);
   });
 });
@@ -4191,6 +4548,31 @@ watch(currentDoc, async () => {
 });
 
 watch(
+  questionValues,
+  () => {
+    if (!missingRequiredQuestionKeys.value.length) return;
+    const stillMissing = new Set(
+      visibleQuestionFields.value
+        .filter((field) => isQuestionValueMissing(field))
+        .map((field) => String(field.key || '').trim())
+        .filter(Boolean)
+    );
+    missingRequiredQuestionKeys.value = missingRequiredQuestionKeys.value.filter((key) => stillMissing.has(key));
+  },
+  { deep: true }
+);
+
+watch(
+  () => [step.value, currentFlowIndex.value, currentDocIndex.value],
+  () => {
+    if (!(step.value === 2 && currentFlowStep.value?.type === 'questions')) {
+      missingRequiredQuestionKeys.value = [];
+    }
+    syncMobileStepScroll();
+  }
+);
+
+watch(
   () => ({
     sessionToken: sessionToken.value,
     submissionId: submissionId.value,
@@ -4278,6 +4660,10 @@ const handleEmbeddedSchoolRoiCaptured = async ({ smartSchoolRoi } = {}) => {
 };
 
 onMounted(async () => {
+  window.addEventListener('beforeunload', persistDraftOnPageExit);
+  window.addEventListener('pagehide', persistDraftOnPageExit);
+  document.addEventListener('visibilitychange', handleVisibilityDraftPersist);
+
   await loadLink();
   const restoredDraft = restoreDraftSnapshot();
   if (restoredDraft) {
@@ -4294,9 +4680,23 @@ onMounted(async () => {
   }
   initializeFieldValues();
   await loadPdfPreview();
+  await syncMobileStepScroll();
 });
 
 onBeforeUnmount(() => {
+  if (draftPersistTimer) {
+    clearTimeout(draftPersistTimer);
+    draftPersistTimer = null;
+  }
+  if (draftRestoredBannerTimer) {
+    clearTimeout(draftRestoredBannerTimer);
+    draftRestoredBannerTimer = null;
+  }
+  window.removeEventListener('beforeunload', persistDraftOnPageExit);
+  window.removeEventListener('pagehide', persistDraftOnPageExit);
+  document.removeEventListener('visibilitychange', handleVisibilityDraftPersist);
+  persistDraftSnapshot();
+
   if (registrationLookupTimer) {
     clearTimeout(registrationLookupTimer);
     registrationLookupTimer = null;
@@ -4533,7 +4933,24 @@ onBeforeUnmount(() => {
 }
 .input-error {
   border-color: #dc3545;
-  box-shadow: 0 0 0 1px #dc3545;
+  box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.55), 0 0 10px rgba(220, 53, 69, 0.35);
+}
+.required-missing-glow {
+  border: 1px solid rgba(220, 53, 69, 0.55);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(220, 53, 69, 0.04);
+  box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.2), 0 0 14px rgba(220, 53, 69, 0.22);
+  animation: requiredPulse 1.2s ease-in-out infinite;
+}
+.required-missing-glow .radio-group,
+.required-missing-glow .checkbox-row {
+  border-radius: 8px;
+}
+@keyframes requiredPulse {
+  0% { box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.18), 0 0 10px rgba(220, 53, 69, 0.14); }
+  50% { box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.28), 0 0 18px rgba(220, 53, 69, 0.3); }
+  100% { box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.18), 0 0 10px rgba(220, 53, 69, 0.14); }
 }
 .error-text {
   color: #dc3545;
@@ -4741,6 +5158,40 @@ onBeforeUnmount(() => {
   margin-bottom: 4px;
 }
 
+.demographics-step {
+  margin: 16px 0;
+}
+.demographics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 600px) {
+  .demographics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.demographics-grid .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.demographics-grid .form-group label {
+  font-weight: 600;
+  font-size: 14px;
+}
+.field-error {
+  color: var(--color-danger, #dc2626);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.clinical-questions-step {
+  margin: 16px 0;
+  display: grid;
+  gap: 16px;
+}
+
 .communications-step {
   margin: 16px 0;
   display: grid;
@@ -4810,6 +5261,15 @@ onBeforeUnmount(() => {
 }
 .signature-block {
   margin-top: 16px;
+  border-radius: 8px;
+  transition: box-shadow 0.2s;
+}
+.signature-block--flash {
+  animation: signatureFlash 0.55s ease-in-out 0s 4 alternate;
+}
+@keyframes signatureFlash {
+  0%   { box-shadow: 0 0 0 0px rgba(239,68,68,0); }
+  100% { box-shadow: 0 0 0 6px rgba(239,68,68,0.55), 0 0 18px rgba(239,68,68,0.3); }
 }
 .signature-confirm {
   margin-top: 10px;

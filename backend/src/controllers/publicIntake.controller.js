@@ -542,6 +542,41 @@ const persistClientDateOfBirthIfMissing = async ({ clientId, dateOfBirth }) => {
     [dob, cid]
   );
 };
+const persistClientDemographicsIfProvided = async ({ clientId, demographicsInfo }) => {
+  const cid = Number(clientId || 0);
+  if (!cid || !demographicsInfo || typeof demographicsInfo !== 'object') return;
+
+  const updates = [];
+  const values = [];
+
+  const addIfPresent = (col, val) => {
+    const v = String(val || '').trim();
+    if (v) { updates.push(`${col} = ?`); values.push(v); }
+  };
+
+  if (demographicsInfo.dob) {
+    const dob = normalizeDateOnly(demographicsInfo.dob);
+    if (dob) { updates.push('date_of_birth = COALESCE(date_of_birth, ?)'); values.push(dob); }
+  }
+  addIfPresent('gender', demographicsInfo.gender);
+  addIfPresent('ethnicity', demographicsInfo.ethnicity);
+  addIfPresent('preferred_language', demographicsInfo.preferredLanguage);
+  addIfPresent('address_street', demographicsInfo.addressStreet);
+  addIfPresent('address_apt', demographicsInfo.addressApt);
+  addIfPresent('address_city', demographicsInfo.addressCity);
+  addIfPresent('address_state', demographicsInfo.addressState);
+  addIfPresent('address_zip', demographicsInfo.addressZip);
+
+  if (!updates.length) return;
+  values.push(cid);
+  try {
+    await pool.execute(`UPDATE clients SET ${updates.join(', ')} WHERE id = ?`, values);
+  } catch (e) {
+    // Best-effort; ignore if columns don't exist yet (migration pending)
+    console.warn('[publicIntake] demographics persist failed', { clientId: cid, message: e?.message });
+  }
+};
+
 const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {}, accessEnabled = false }) => {
   const cid = Number(clientId || 0);
   if (!cid) return null;
@@ -1429,6 +1464,7 @@ const buildAnswerLinesForScope = ({ fields, responses }) => {
 export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) => {
   if (!intakeData) return '';
   const { fields } = buildIntakeFieldIndex(link);
+  const intakeForSelf = Boolean(intakeData?.intakeForSelf);
   const guardianPayload = intakeData?.guardian || {};
   const clientPayload = Array.isArray(intakeData?.clients) ? intakeData.clients[clientIndex] : null;
   const responses = intakeData?.responses || {};
@@ -1448,60 +1484,95 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
     output.push(`${label}: ${normalizeAnswerValue(value)}`);
   };
 
-  const clientFirst =
-    clientPayload?.firstName ||
-    clientResponses?.client_first ||
-    clientResponses?.clientFirst ||
-    submissionResponses?.client_first ||
-    submissionResponses?.clientFirst;
-  const clientLast =
-    clientPayload?.lastName ||
-    clientResponses?.client_last ||
-    clientResponses?.clientLast ||
-    submissionResponses?.client_last ||
-    submissionResponses?.clientLast;
-  const clientName =
-    String(clientPayload?.fullName || '').trim() ||
-    `${String(clientFirst || '').trim()} ${String(clientLast || '').trim()}`.trim();
+  // Keys that duplicate the built-in name lines — skip them in scope-based sections.
+  const builtInNameKeys = new Set([
+    'client_first', 'clientFirst', 'client_last', 'clientLast',
+    'guardian_first', 'guardianFirst', 'guardian_last', 'guardianLast',
+    'first_name', 'firstName', 'last_name', 'lastName'
+  ]);
 
-  // Client info first (requested: first page shows client, not parent)
-  pushHeader(`Client ${clientIndex + 1}${clientName ? ` - ${clientName}` : ''} Information`);
-  pushLine('Client first name', clientFirst);
-  pushLine('Client last name', clientLast);
-  const clientLines = buildAnswerLinesForScope({
-    fields: getOrderedFieldsByScope(fields, 'client'),
-    responses: clientResponses
-  });
-  if (clientLines.length) {
-    clientLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+  if (intakeForSelf) {
+    // Self-intake: the person IS the client, no separate guardian.
+    const selfName = `${String(guardianPayload.firstName || '').trim()} ${String(guardianPayload.lastName || '').trim()}`.trim();
+    pushHeader(`Your Information${selfName ? ` - ${selfName}` : ''}`);
+    pushLine('First name', guardianPayload.firstName);
+    pushLine('Last name', guardianPayload.lastName);
+    pushLine('Email', guardianPayload.email);
+    pushLine('Phone', guardianPayload.phone);
+
+    // Self-scoped question answers
+    const selfFields = getOrderedFieldsByScope(fields, 'self');
+    const selfLines = buildAnswerLinesForScope({ fields: selfFields, responses: submissionResponses });
+    if (selfLines.length) {
+      pushHeader('Your Responses');
+      selfLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+    }
+
+    // Submission (one-time) answers — skip built-in name keys
+    const submissionLines = buildAnswerLinesForScope({
+      fields: getOrderedFieldsByScope(fields, 'submission').filter((f) => !builtInNameKeys.has(f.key)),
+      responses: submissionResponses
+    });
+    if (submissionLines.length) {
+      pushHeader('Additional Responses');
+      submissionLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+    }
   } else {
-    output.push('No client answers captured.');
-  }
+    const clientFirst =
+      clientPayload?.firstName ||
+      clientResponses?.client_first ||
+      clientResponses?.clientFirst ||
+      submissionResponses?.client_first ||
+      submissionResponses?.clientFirst;
+    const clientLast =
+      clientPayload?.lastName ||
+      clientResponses?.client_last ||
+      clientResponses?.clientLast ||
+      submissionResponses?.client_last ||
+      submissionResponses?.clientLast;
+    const clientName =
+      String(clientPayload?.fullName || '').trim() ||
+      `${String(clientFirst || '').trim()} ${String(clientLast || '').trim()}`.trim();
 
-  // Guardian info second
-  pushHeader('Guardian Information');
-  pushLine('Guardian first name', guardianPayload.firstName);
-  pushLine('Guardian last name', guardianPayload.lastName);
-  pushLine('Guardian email', guardianPayload.email);
-  pushLine('Guardian phone', guardianPayload.phone);
-  pushLine('Relationship', guardianPayload.relationship);
+    // Client info first
+    pushHeader(`Client ${clientIndex + 1}${clientName ? ` - ${clientName}` : ''} Information`);
+    pushLine('Client first name', clientFirst);
+    pushLine('Client last name', clientLast);
+    const clientLines = buildAnswerLinesForScope({
+      fields: getOrderedFieldsByScope(fields, 'client').filter((f) => !builtInNameKeys.has(f.key)),
+      responses: clientResponses
+    });
+    if (clientLines.length) {
+      clientLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+    } else {
+      output.push('No client answers captured.');
+    }
 
-  const guardianLines = buildAnswerLinesForScope({
-    fields: getOrderedFieldsByScope(fields, 'guardian'),
-    responses: guardianResponses
-  });
-  if (guardianLines.length) {
-    pushHeader('Guardian Questions');
-    guardianLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
-  }
+    // Guardian info second
+    pushHeader('Guardian Information');
+    pushLine('Guardian first name', guardianPayload.firstName);
+    pushLine('Guardian last name', guardianPayload.lastName);
+    pushLine('Guardian email', guardianPayload.email);
+    pushLine('Guardian phone', guardianPayload.phone);
+    pushLine('Relationship', guardianPayload.relationship);
 
-  const submissionLines = buildAnswerLinesForScope({
-    fields: getOrderedFieldsByScope(fields, 'submission'),
-    responses: submissionResponses
-  });
-  if (submissionLines.length) {
-    pushHeader('One-Time Questions');
-    submissionLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+    const guardianLines = buildAnswerLinesForScope({
+      fields: getOrderedFieldsByScope(fields, 'guardian'),
+      responses: guardianResponses
+    });
+    if (guardianLines.length) {
+      pushHeader('Guardian Questions');
+      guardianLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+    }
+
+    const submissionLines = buildAnswerLinesForScope({
+      fields: getOrderedFieldsByScope(fields, 'submission').filter((f) => !builtInNameKeys.has(f.key)),
+      responses: submissionResponses
+    });
+    if (submissionLines.length) {
+      pushHeader('One-Time Questions');
+      submissionLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+    }
   }
 
   // Registration selections made during the intake
@@ -4454,6 +4525,12 @@ export const finalizePublicIntake = async (req, res, next) => {
           expiresAt: retentionExpiresAt,
           organizationId: req.body?.organizationId || null
         });
+
+        // Save demographics to client profile if a demographics step was included
+        const demographicsInfo = intakeData?.responses?.submission?.demographicsInfo;
+        if (demographicsInfo) {
+          await persistClientDemographicsIfProvided({ clientId, demographicsInfo });
+        }
       }
     }
 

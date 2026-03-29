@@ -52,10 +52,10 @@
           class="btn btn-secondary btn-sm"
           @click="fillPrimarySubscriberFromGuardian"
         >
-          Use Guardian Name
+          {{ props.intakeForSelf ? 'Use My Name' : 'Use Guardian Name' }}
         </button>
         <button
-          v-if="firstClientDisplayName"
+          v-if="firstClientDisplayName && !props.intakeForSelf"
           type="button"
           class="btn btn-secondary btn-sm"
           @click="fillPrimarySubscriberFromFirstClient"
@@ -276,6 +276,41 @@
         Medicaid (Health First Colorado) clients are enrolled at no cost to the family for eligible programs.
       </p>
     </div>
+
+    <!-- Insurance Authorization Acknowledgment -->
+    <div class="pi-ins-auth-block">
+      <h4 class="pi-ins-auth-title">Insurance Authorization &amp; Assignment of Benefits</h4>
+      <div class="pi-ins-auth-text">
+        <p>
+          I authorize <strong>{{ props.agencyName || 'the provider' }}</strong> to release information to the insurance companies provided on this form in order to submit insurance claims on my behalf.
+        </p>
+        <p>
+          This authorization extends to the extent necessary to obtain payment for the services provided to me, and includes authorization to release information about mental health, substance use, or HIV diagnoses as required.
+        </p>
+        <p>
+          In consideration of the services provided to me, I assign all benefits to <strong>{{ props.agencyName || 'the provider' }}</strong> if accepted, and authorize my insurance companies, Medicare, or other third-party payers to make payments directly to <strong>{{ props.agencyName || 'the provider' }}</strong> and its affiliates.
+        </p>
+        <p>
+          I understand that I remain responsible for all amounts due by me, including (but not limited to) copays, coinsurance, deductible amounts, and all services not covered by my insurance plan (including those for which I fail to obtain prior authorization), and mutually agreed-upon services or fees that are deemed not medically necessary.
+        </p>
+      </div>
+      <div class="pi-ins-auth-sign">
+        <label class="pi-ins-lbl" for="ins-auth-sig">
+          Type your full name to sign this authorization <span class="req">*</span>
+        </label>
+        <input
+          id="ins-auth-sig"
+          v-model="authorizationSignature"
+          type="text"
+          class="pi-ins-input"
+          placeholder="Full legal name"
+          autocomplete="name"
+        />
+        <div v-if="authorizationSignature.trim().length >= 2" class="pi-ins-auth-confirmed">
+          ✓ Signed by {{ authorizationSignature.trim() }}
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -292,7 +327,9 @@ const props = defineProps({
   guardianName: { type: String, default: '' },
   guardianRelationship: { type: String, default: '' },
   guardianPhone: { type: String, default: '' },
-  clientNames: { type: Array, default: () => [] }
+  clientNames: { type: Array, default: () => [] },
+  intakeForSelf: { type: Boolean, default: false },
+  agencyName: { type: String, default: '' }
 });
 const emit = defineEmits(['update:modelValue', 'medicaid-change']);
 
@@ -556,8 +593,14 @@ watch(
   { immediate: true, deep: true }
 );
 
+const authorizationSignature = ref(String(props.modelValue?.authorizationSignature || ''));
+
+function getAuthorizationSignature() {
+  return authorizationSignature.value;
+}
+
 // Expose for parent
-defineExpose({ getPhotoFiles, getInsuranceEntryState, primaryIsMedicaid });
+defineExpose({ getPhotoFiles, getInsuranceEntryState, primaryIsMedicaid, getAuthorizationSignature });
 </script>
 
 <style scoped>
@@ -755,4 +798,37 @@ defineExpose({ getPhotoFiles, getInsuranceEntryState, primaryIsMedicaid });
   color: #475569;
 }
 .pi-ins-footer-notice p { margin: 0; }
+
+.pi-ins-auth-block {
+  border: 2px solid var(--primary, #0f766e);
+  border-radius: 10px;
+  padding: 18px 20px;
+  background: #f0fdfa;
+}
+.pi-ins-auth-title {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  color: var(--primary, #0f766e);
+}
+.pi-ins-auth-text {
+  font-size: 13px;
+  line-height: 1.65;
+  color: #334155;
+  margin-bottom: 16px;
+}
+.pi-ins-auth-text p {
+  margin: 0 0 10px;
+}
+.pi-ins-auth-text p:last-child { margin-bottom: 0; }
+.pi-ins-auth-sign {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pi-ins-auth-confirmed {
+  font-size: 13px;
+  color: #059669;
+  font-weight: 600;
+  margin-top: 4px;
+}
 </style>

@@ -3705,6 +3705,89 @@ export const upsertClientDailyNote = async (req, res, next) => {
 };
 
 /**
+ * Log a client profile view (best-effort).
+ * POST /api/clients/:id/log-view
+ */
+export const logClientProfileView = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    logClientAccess(req, clientId, 'profile_viewed').catch(() => {});
+    res.status(204).end();
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Get clinical responses from the client's most recent intake submission.
+ * GET /api/clients/:id/clinical-responses
+ */
+export const getClientClinicalResponses = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userRole = String(req.user?.role || '').toLowerCase();
+    const allowedRoles = ['super_admin', 'admin', 'support', 'provider', 'provider_plus'];
+    if (!allowedRoles.includes(userRole)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: userRole, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    // Fetch the latest submitted intake for this client
+    const [submRows] = await pool.execute(
+      `SELECT s.id, s.submission_data, s.link_token
+       FROM public_intake_submissions s
+       WHERE s.client_id = ? AND s.status = 'submitted'
+       ORDER BY s.created_at DESC
+       LIMIT 1`,
+      [clientId]
+    );
+
+    if (!submRows.length) return res.json({ fields: [], capturedAt: null });
+
+    const sub = submRows[0];
+    let submissionData = {};
+    try { submissionData = JSON.parse(sub.submission_data || '{}'); } catch { /* ignore */ }
+
+    const clinicalResponses = submissionData?.responses?.submission?.clinicalResponses || {};
+    if (!Object.keys(clinicalResponses).length) return res.json({ fields: [], capturedAt: null });
+
+    // Get the link to resolve field labels for clinical_questions steps
+    let fieldLabels = {};
+    if (sub.link_token) {
+      const [linkRows] = await pool.execute(
+        `SELECT form_config FROM public_intake_links WHERE token = ? LIMIT 1`,
+        [sub.link_token]
+      );
+      if (linkRows.length) {
+        try {
+          const formConfig = JSON.parse(linkRows[0].form_config || '{}');
+          const steps = Array.isArray(formConfig.intakeSteps) ? formConfig.intakeSteps : [];
+          for (const step of steps) {
+            if (step.type !== 'clinical_questions') continue;
+            for (const field of (step.fields || [])) {
+              if (field.key) fieldLabels[field.key] = field.label || field.key;
+            }
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
+    const fields = Object.entries(clinicalResponses)
+      .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+      .map(([key, value]) => ({ key, label: fieldLabels[key] || key, value: String(value) }));
+
+    res.json({ fields, capturedAt: sub.created_at || null });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
  * Get client access log (admin/support/staff)
  * GET /api/clients/:id/access-log
  */

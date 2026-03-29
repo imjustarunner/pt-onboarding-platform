@@ -31,6 +31,8 @@ import {
   markClientNotesRead,
   updateClientComplianceChecklist,
   getClientAccessLog,
+  getClientClinicalResponses,
+  logClientProfileView,
   listClientAffiliations,
   upsertClientAffiliation,
   removeClientAffiliation,
@@ -116,6 +118,12 @@ router.put('/:id/document-status', updateClientDocumentStatus);
 
 // Access log (admin/support)
 router.get('/:id/access-log', getClientAccessLog);
+
+// Log a profile view (best-effort; called on panel mount)
+router.post('/:id/log-view', logClientProfileView);
+
+// Clinical responses from intake (provider/admin)
+router.get('/:id/clinical-responses', getClientClinicalResponses);
 
 // Single admin note (internal-only; shown on Overview)
 router.get('/:id/admin-note', getClientAdminNote);
