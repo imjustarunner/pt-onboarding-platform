@@ -168,6 +168,10 @@ jobs:
           QUICKBOOKS_ENV: ${{ secrets.QUICKBOOKS_ENV }}
           QBO_VENDOR_DISPLAY_NAME: ${{ secrets.QBO_VENDOR_DISPLAY_NAME }}
           CLOUD_RUN_SA_EMAIL: ${{ secrets.CLOUD_RUN_SA_EMAIL }}
+          STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
+          STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+          STRAVA_REDIRECT_URI: ${{ secrets.STRAVA_REDIRECT_URI }}
+          STRAVA_OAUTH_STATE_SECRET: ${{ secrets.STRAVA_OAUTH_STATE_SECRET }}
         run: |
           # Build env var list safely. Use update-env-vars so we don't accidentally wipe
           # existing Cloud Run configuration that isn't specified here.
@@ -290,6 +294,10 @@ jobs:
           if [ -n "${QUICKBOOKS_OAUTH_STATE_SECRET}" ]; then ENV_VARS="${ENV_VARS}|QUICKBOOKS_OAUTH_STATE_SECRET=${QUICKBOOKS_OAUTH_STATE_SECRET}"; fi
           if [ -n "${QUICKBOOKS_ENV}" ]; then ENV_VARS="${ENV_VARS}|QUICKBOOKS_ENV=${QUICKBOOKS_ENV}"; fi
           if [ -n "${QBO_VENDOR_DISPLAY_NAME}" ]; then ENV_VARS="${ENV_VARS}|QBO_VENDOR_DISPLAY_NAME=${QBO_VENDOR_DISPLAY_NAME}"; fi
+          if [ -n "${STRAVA_CLIENT_ID}" ]; then ENV_VARS="${ENV_VARS}|STRAVA_CLIENT_ID=${STRAVA_CLIENT_ID}"; fi
+          if [ -n "${STRAVA_CLIENT_SECRET}" ]; then ENV_VARS="${ENV_VARS}|STRAVA_CLIENT_SECRET=${STRAVA_CLIENT_SECRET}"; fi
+          if [ -n "${STRAVA_REDIRECT_URI}" ]; then ENV_VARS="${ENV_VARS}|STRAVA_REDIRECT_URI=${STRAVA_REDIRECT_URI}"; fi
+          if [ -n "${STRAVA_OAUTH_STATE_SECRET}" ]; then ENV_VARS="${ENV_VARS}|STRAVA_OAUTH_STATE_SECRET=${STRAVA_OAUTH_STATE_SECRET}"; fi
 
           # Remove ALL vars that may have been set as Secret Manager refs, so we can use plain env vars from GitHub.
           # Must be separate from deploy: cannot remove-secrets and update-env-vars same key in one command.
