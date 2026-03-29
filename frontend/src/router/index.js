@@ -784,6 +784,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/club-settings',
+    name: 'OrganizationClubSettings',
+    component: () => import('../views/admin/ClubSettingsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/communications',
     name: 'OrganizationCommunicationsFeed',
     component: () => import('../views/admin/CommunicationsFeedView.vue'),

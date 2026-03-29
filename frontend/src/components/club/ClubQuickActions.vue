@@ -51,7 +51,7 @@ const brandingStore = useBrandingStore();
 
 const settingsTo = computed(() => {
   const slug = props.orgSlug;
-  return slug ? `/${slug}/admin/settings` : '/admin/settings';
+  return slug ? `/${slug}/admin/club-settings` : '/admin/settings';
 });
 
 const addMemberIconUrl = computed(() =>

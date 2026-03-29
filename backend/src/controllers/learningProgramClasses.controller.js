@@ -18,6 +18,113 @@ const asBool = (v, fallback = false) => {
   return s === 'true' || s === 'yes' || s === 'on';
 };
 
+const asNonEmptyString = (v, fallback = null) => {
+  const s = String(v || '').trim();
+  return s ? s : fallback;
+};
+
+const toWeekday = (v, fallback = 'monday') => {
+  const raw = String(v || '').trim().toLowerCase();
+  const allowed = new Set(['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']);
+  return allowed.has(raw) ? raw : fallback;
+};
+
+const toTimeHHMM = (v, fallback = '23:59') => {
+  const raw = String(v || '').trim();
+  const m = raw.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return fallback;
+  const hh = Math.max(0, Math.min(23, Number.parseInt(m[1], 10) || 0));
+  const mm = Math.max(0, Math.min(59, Number.parseInt(m[2], 10) || 0));
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+};
+
+const normalizeSeasonSettings = (input = {}) => {
+  const src = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+  const numOr = (v, fallback) => {
+    const n = Number.parseInt(v, 10);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const floatOr = (v, fallback) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const parseList = (v) => {
+    if (Array.isArray(v)) return v.map((x) => String(x || '').trim()).filter(Boolean);
+    if (typeof v === 'string') {
+      return v.split(',').map((x) => x.trim()).filter(Boolean);
+    }
+    return [];
+  };
+  const schedule = src.schedule && typeof src.schedule === 'object' ? src.schedule : {};
+  const divisions = src.divisions && typeof src.divisions === 'object' ? src.divisions : {};
+  const scoring = src.scoring && typeof src.scoring === 'object' ? src.scoring : {};
+  const publish = src.challengePublish && typeof src.challengePublish === 'object' ? src.challengePublish : {};
+  const recognition = src.recognition && typeof src.recognition === 'object' ? src.recognition : {};
+  const event = src.event && typeof src.event === 'object' ? src.event : {};
+  const teams = src.teams && typeof src.teams === 'object' ? src.teams : {};
+  const participation = src.participation && typeof src.participation === 'object' ? src.participation : {};
+  const byeWeek = src.byeWeek && typeof src.byeWeek === 'object' ? src.byeWeek : {};
+  return {
+    event: {
+      category: (String(event.category || '').toLowerCase() === 'fitness') ? 'fitness' : 'run_ruck',
+      challengeAssignmentMode: asNonEmptyString(event.challengeAssignmentMode, 'volunteer_or_elect')
+    },
+    schedule: {
+      weeklyCadence: asNonEmptyString(schedule.weeklyCadence, 'weekly'),
+      weekStartsOn: toWeekday(schedule.weekStartsOn, 'monday'),
+      weekEndsSundayAt: toTimeHHMM(schedule.weekEndsSundayAt, '23:59'),
+      teamDraftEnabled: asBool(schedule.teamDraftEnabled, true),
+      captainApplicationsCloseHoursBeforeDraft: Math.max(0, numOr(schedule.captainApplicationsCloseHoursBeforeDraft, 24))
+    },
+    divisions: {
+      mastersAgeThreshold: Math.max(40, numOr(divisions.mastersAgeThreshold, 53)),
+      ladiesEnabled: asBool(divisions.ladiesEnabled, true),
+      requireGlobalProfileFields: asBool(divisions.requireGlobalProfileFields, true)
+    },
+    scoring: {
+      weeklyMinimumPointsPerAthlete: Math.max(0, numOr(scoring.weeklyMinimumPointsPerAthlete, numOr(scoring.individualMinPointsPerWeek, 0))),
+      teamWeeklyTargetPoints: Math.max(0, numOr(scoring.teamWeeklyTargetPoints, numOr(scoring.teamMinPointsPerWeek, 0))),
+      runMilesPerPoint: Math.max(0.1, floatOr(scoring.runMilesPerPoint, 1)),
+      ruckMilesPerPoint: Math.max(0.1, floatOr(scoring.ruckMilesPerPoint, 1)),
+      caloriesPerPoint: Math.max(1, numOr(scoring.caloriesPerPoint, 100)),
+      activityWeights: {
+        run: Math.max(0, floatOr(scoring?.activityWeights?.run, 1)),
+        ride: Math.max(0, floatOr(scoring?.activityWeights?.ride, 1)),
+        workout: Math.max(0, floatOr(scoring?.activityWeights?.workout, 1)),
+        walk: Math.max(0, floatOr(scoring?.activityWeights?.walk, 1))
+      }
+    },
+    teams: {
+      teamCount: Math.max(1, numOr(teams.teamCount, 2)),
+      presetTeamNames: parseList(teams.presetTeamNames),
+      allowCaptainRenameTeam: asBool(teams.allowCaptainRenameTeam, true)
+    },
+    participation: {
+      individualMinPointsPerWeek: Math.max(0, numOr(participation.individualMinPointsPerWeek, numOr(scoring.weeklyMinimumPointsPerAthlete, 0))),
+      teamMinPointsPerWeek: Math.max(0, numOr(participation.teamMinPointsPerWeek, numOr(scoring.teamWeeklyTargetPoints, 0)))
+    },
+    byeWeek: {
+      allowByeWeek: asBool(byeWeek.allowByeWeek, false),
+      maxByeWeeksPerParticipant: Math.max(0, numOr(byeWeek.maxByeWeeksPerParticipant, 1)),
+      requireAdvanceDeclaration: asBool(byeWeek.requireAdvanceDeclaration, true)
+    },
+    challengePublish: {
+      aiDraftEnabled: asBool(publish.aiDraftEnabled, true),
+      requiresManagerPublish: asBool(publish.requiresManagerPublish, true),
+      tasksPerWeek: Math.min(7, Math.max(1, numOr(publish.tasksPerWeek, 3))),
+      publishLeadHours: Math.max(0, numOr(publish.publishLeadHours, 24))
+    },
+    recognition: {
+      weeklyTopAthletesCount: Math.max(1, numOr(recognition.weeklyTopAthletesCount, 5)),
+      weeklyTopTeamsCount: Math.max(1, numOr(recognition.weeklyTopTeamsCount, 3)),
+      seasonTopIndividualsCount: Math.max(1, numOr(recognition.seasonTopIndividualsCount, 5)),
+      seasonTopMastersCount: Math.max(1, numOr(recognition.seasonTopMastersCount, 3)),
+      seasonTopLadiesCount: Math.max(1, numOr(recognition.seasonTopLadiesCount, 3)),
+      additionalMetrics: parseList(recognition.additionalMetrics)
+    }
+  };
+};
+
 // Roles that can manage challenges/classes. provider_plus = Team Manager / Team Lead (Summit Stats Challenge).
 const canManageRole = (role) => {
   const r = String(role || '').toLowerCase();
@@ -100,6 +207,14 @@ const ensureClassLifecycleStatus = async (klass) => {
   return updated || klass;
 };
 
+const withSeasonSettingsDefaults = (klass) => {
+  if (!klass) return klass;
+  return {
+    ...klass,
+    season_settings_json: normalizeSeasonSettings(klass.season_settings_json || {})
+  };
+};
+
 export const listLearningProgramClasses = async (req, res, next) => {
   try {
     const organizationId = asInt(req.query.organizationId);
@@ -112,7 +227,7 @@ export const listLearningProgramClasses = async (req, res, next) => {
     const includeArchived = asBool(req.query.includeArchived, false);
     const classes = await LearningProgramClass.listByOrganization({ organizationId, includeArchived });
     const out = [];
-    for (const row of classes || []) out.push(await ensureClassLifecycleStatus(row));
+    for (const row of classes || []) out.push(withSeasonSettingsDefaults(await ensureClassLifecycleStatus(row)));
     return res.json({ organizationId, classes: out });
   } catch (e) {
     next(e);
@@ -138,7 +253,7 @@ export const discoverLearningProgramClasses = async (req, res, next) => {
     const membershipByClass = new Map((membershipRows || []).map((r) => [Number(r.learning_class_id), String(r.membership_status || '').toLowerCase()]));
     const seasons = [];
     for (const c of classes || []) {
-      const s = await ensureClassLifecycleStatus(c);
+      const s = withSeasonSettingsDefaults(await ensureClassLifecycleStatus(c));
       const status = String(s?.status || '').toLowerCase();
       if (status !== 'active' && status !== 'draft') continue;
       const membershipStatus = membershipByClass.get(Number(s.id)) || null;
@@ -163,7 +278,7 @@ export const getLearningProgramClass = async (req, res, next) => {
     if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
     const allowed = await canAccessOrganization({ user: req.user, organizationId: klass.organization_id });
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied for this class' } });
-    klass = await ensureClassLifecycleStatus(klass);
+    klass = withSeasonSettingsDefaults(await ensureClassLifecycleStatus(klass));
     const [intakeRows] = await pool.execute(
       `SELECT * FROM intake_links
        WHERE scope_type = 'learning_class' AND learning_class_id = ?
@@ -228,16 +343,18 @@ export const createLearningProgramClass = async (req, res, next) => {
       seasonAnnouncementText: req.body.seasonAnnouncementText !== undefined
         ? (req.body.seasonAnnouncementText ? String(req.body.seasonAnnouncementText) : null)
         : (req.body.season_announcement_text ? String(req.body.season_announcement_text) : null),
-      seasonSettingsJson: req.body.seasonSettingsJson && typeof req.body.seasonSettingsJson === 'object'
-        ? req.body.seasonSettingsJson
-        : (req.body.season_settings_json && typeof req.body.season_settings_json === 'object' ? req.body.season_settings_json : null),
+      seasonSettingsJson: normalizeSeasonSettings(
+        req.body.seasonSettingsJson && typeof req.body.seasonSettingsJson === 'object'
+          ? req.body.seasonSettingsJson
+          : (req.body.season_settings_json && typeof req.body.season_settings_json === 'object' ? req.body.season_settings_json : {})
+      ),
       deliveryMode: String(req.body.deliveryMode || req.body.delivery_mode || 'group').toLowerCase() === 'individual' ? 'individual' : 'group',
       registrationEligible: asBool(req.body.registrationEligible ?? req.body.registration_eligible, false),
       medicaidEligible: asBool(req.body.medicaidEligible ?? req.body.medicaid_eligible, false),
       cashEligible: asBool(req.body.cashEligible ?? req.body.cash_eligible, false),
       createdByUserId: req.user.id
     });
-    return res.status(201).json({ class: klass });
+    return res.status(201).json({ class: withSeasonSettingsDefaults(klass) });
   } catch (e) {
     next(e);
   }
@@ -300,9 +417,11 @@ export const updateLearningProgramClass = async (req, res, next) => {
       seasonSettingsJson: req.body.seasonSettingsJson !== undefined || req.body.season_settings_json !== undefined
         ? (() => {
           const v = req.body.seasonSettingsJson ?? req.body.season_settings_json;
-          if (v && typeof v === 'object') return v;
-          if (typeof v === 'string' && v.trim()) { try { return JSON.parse(v); } catch { return null; } }
-          return null;
+          if (v && typeof v === 'object') return normalizeSeasonSettings(v);
+          if (typeof v === 'string' && v.trim()) {
+            try { return normalizeSeasonSettings(JSON.parse(v)); } catch { return normalizeSeasonSettings({}); }
+          }
+          return normalizeSeasonSettings({});
         })()
         : undefined,
       deliveryMode: req.body.deliveryMode !== undefined || req.body.delivery_mode !== undefined
@@ -310,7 +429,7 @@ export const updateLearningProgramClass = async (req, res, next) => {
         : undefined
     };
     const nextClass = await LearningProgramClass.update(classId, patch);
-    return res.json({ class: nextClass });
+    return res.json({ class: withSeasonSettingsDefaults(nextClass) });
   } catch (e) {
     next(e);
   }
@@ -617,7 +736,23 @@ export const launchLearningProgramClass = async (req, res, next) => {
     if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
     const status = String(klass.status || '').toLowerCase();
     if (status !== 'draft') return res.status(400).json({ error: { message: 'Only draft seasons can be launched' } });
-    const [teams] = await pool.execute(`SELECT id FROM challenge_teams WHERE learning_class_id = ?`, [classId]);
+    let [teams] = await pool.execute(`SELECT id FROM challenge_teams WHERE learning_class_id = ?`, [classId]);
+    if (!teams?.length) {
+      const settings = normalizeSeasonSettings(klass?.season_settings_json || {});
+      const count = Number(settings?.teams?.teamCount || 0);
+      const preset = Array.isArray(settings?.teams?.presetTeamNames) ? settings.teams.presetTeamNames : [];
+      if (count > 0) {
+        for (let i = 0; i < count; i++) {
+          const teamName = String(preset[i] || `Team ${i + 1}`).trim();
+          await pool.execute(
+            `INSERT INTO challenge_teams (learning_class_id, team_name, created_by_user_id)
+             VALUES (?, ?, ?)`,
+            [classId, teamName, req.user.id]
+          );
+        }
+      }
+      [teams] = await pool.execute(`SELECT id FROM challenge_teams WHERE learning_class_id = ?`, [classId]);
+    }
     if (!teams?.length) return res.status(400).json({ error: { message: 'Add at least one team before launching' } });
     const [members] = await pool.execute(
       `SELECT 1 FROM learning_class_provider_memberships WHERE learning_class_id = ? AND membership_status IN ('active','completed') LIMIT 1`,
@@ -670,6 +805,70 @@ export const listParticipantProfiles = async (req, res, next) => {
     if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
     const profiles = await ChallengeParticipantProfile.listByClass(classId);
     return res.json({ profiles });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getSeasonProfileCompleteness = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const klass = await LearningProgramClass.findById(classId);
+    if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
+    const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId: klass.organization_id });
+    if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
+
+    const [rows] = await pool.execute(
+      `SELECT
+         u.id AS user_id,
+         u.first_name,
+         u.last_name,
+         u.email,
+         MAX(CASE
+           WHEN uifd.field_key IN ('date_of_birth','provider_birthdate') AND uiv.value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+             THEN uiv.value
+           ELSE NULL
+         END) AS global_date_of_birth,
+         MAX(CASE
+           WHEN uifd.field_key IN ('sex','gender','provider_gender') AND uiv.value IS NOT NULL AND uiv.value <> ''
+             THEN LOWER(TRIM(uiv.value))
+           ELSE NULL
+         END) AS global_sex
+       FROM learning_class_provider_memberships pm
+       INNER JOIN users u ON u.id = pm.provider_user_id
+       LEFT JOIN user_info_values uiv ON uiv.user_id = u.id
+       LEFT JOIN user_info_field_definitions uifd
+         ON uifd.id = uiv.field_definition_id
+         AND (uifd.agency_id IS NULL OR uifd.agency_id = ?)
+       WHERE pm.learning_class_id = ?
+         AND pm.membership_status IN ('active','completed')
+       GROUP BY u.id, u.first_name, u.last_name, u.email
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [klass.organization_id, classId]
+    );
+
+    const participants = (rows || []).map((r) => {
+      const missing = [];
+      if (!r.global_date_of_birth) missing.push('birthdate');
+      if (!r.global_sex) missing.push('sex');
+      return {
+        userId: Number(r.user_id),
+        firstName: r.first_name,
+        lastName: r.last_name,
+        email: r.email,
+        globalDateOfBirth: r.global_date_of_birth || null,
+        globalSex: r.global_sex || null,
+        missingFields: missing
+      };
+    });
+    const missingParticipants = participants.filter((p) => p.missingFields.length > 0);
+    return res.json({
+      classId,
+      participantsChecked: participants.length,
+      missingCount: missingParticipants.length,
+      missingParticipants
+    });
   } catch (e) {
     next(e);
   }

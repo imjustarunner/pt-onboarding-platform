@@ -1,7 +1,18 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { createClub, getClubManagerContext, getClubSpecs, listClubs, applyToClub, addMemberToClub } from '../controllers/summitStats.controller.js';
+import {
+  createClub,
+  getClubManagerContext,
+  getClubSpecs,
+  listClubs,
+  applyToClub,
+  addMemberToClub,
+  getClubRecords,
+  upsertClubRecords,
+  listClubRecordVerifications,
+  reviewClubRecordVerification
+} from '../controllers/summitStats.controller.js';
 
 const router = express.Router();
 
@@ -18,7 +29,12 @@ router.post('/clubs', [
 ], createClub);
 router.post('/clubs/:id/apply', applyToClub);
 router.post('/clubs/:id/add-member', [
-  body('email').trim().notEmpty().withMessage('Email is required').isEmail().withMessage('Valid email required')
+  body('identifier').optional().trim(),
+  body('email').optional().trim()
 ], addMemberToClub);
+router.get('/clubs/:id/records', getClubRecords);
+router.put('/clubs/:id/records', upsertClubRecords);
+router.get('/clubs/:id/records/verifications', listClubRecordVerifications);
+router.put('/clubs/:id/records/verifications/:verificationId', reviewClubRecordVerification);
 
 export default router;

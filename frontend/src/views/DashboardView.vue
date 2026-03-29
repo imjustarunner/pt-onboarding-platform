@@ -1145,6 +1145,13 @@
       :payroll-period-id="lastPaycheckPayrollPeriodId"
       @close="closeLastPaycheckModal"
     />
+    <ClubAddSeasonModal
+      v-if="isClubContext"
+      :open="showAddSeasonModal"
+      :club-id="Number(currentAgencyId || 0)"
+      @close="showAddSeasonModal = false"
+      @created="() => { showAddSeasonModal = false; loadMyChallenges(); }"
+    />
 
     <!-- Hidden MyPayrollTab used to open mileage/reimbursement/medcancel/PTO modals from Submit panel (no navigation). -->
     <BudgetSubmitExpensesModal
@@ -1294,6 +1301,7 @@ import MyCompensationTab from '../components/dashboard/MyCompensationTab.vue';
 import OnDemandTrainingLibraryView from './OnDemandTrainingLibraryView.vue';
 import ChallengesTab from '../components/dashboard/ChallengesTab.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
+import ClubAddSeasonModal from '../components/club/ClubAddSeasonModal.vue';
 import SupervisionModal from '../components/supervision/SupervisionModal.vue';
 import ProvidersPanel from '../components/supervision/ProvidersPanel.vue';
 import UserSupervisionTab from '../components/admin/UserSupervisionTab.vue';
@@ -1420,6 +1428,7 @@ const railPulse = ref(!prefersReducedMotion);
 const RAIL_PULSE_DURATION_MS = 2500;
 const showLastPaycheckModal = ref(false);
 const lastPaycheckPayrollPeriodId = ref(null);
+const showAddSeasonModal = ref(false);
 const railCardDescriptors = getDashboardRailCardDescriptors();
 const openCardDescriptorId = ref('');
 
@@ -3256,16 +3265,13 @@ const dashboardCards = computed(() => {
     }
     // Club admin: Start new season card
     if (isClubContext.value && (role === 'admin' || role === 'super_admin')) {
-      const orgSlug = route.params?.organizationSlug || agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || '';
-      const to = orgSlug ? `/${orgSlug}/admin/settings?category=workflow&item=challenge-management` : '/admin/settings?category=workflow&item=challenge-management';
       cards.push({
         id: 'start_new_season',
         label: 'Start New Season',
         kind: 'action',
-        to,
         badgeCount: 0,
         iconUrl: brandingStore.getDashboardCardIconUrl('challenges', iconOrg),
-        description: 'Create a new fitness challenge season for your club.'
+        description: 'Create a new season for your club.'
       });
     }
     // Social feeds – super_admin only until full release
@@ -3539,6 +3545,10 @@ function openSocialFeedInDetail(feed) {
 const handleCardClick = (card) => {
   closeCardDescriptor();
   if (props.previewMode) return;
+  if (card.id === 'start_new_season' && isClubContext.value) {
+    showAddSeasonModal.value = true;
+    return;
+  }
   if ((card.kind === 'link' || card.kind === 'action') && card.to) {
     router.push(String(card.to));
     return;

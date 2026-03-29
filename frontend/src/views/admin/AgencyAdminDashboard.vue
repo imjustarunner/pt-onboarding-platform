@@ -545,7 +545,7 @@ const quickActions = computed(() => {
     id: 'start_new_season',
     title: 'Start New Season',
     description: 'Create a new fitness challenge season',
-    to: '/admin/settings?category=workflow&item=challenge-management',
+    to: '/admin?openAddSeason=1',
     emoji: '🏁',
     iconKey: 'challenges',
     category: 'Challenges',
@@ -921,6 +921,12 @@ onMounted(async () => {
   // Summit Stats club managers only (ssc): load context for create-club flow
   if (String(route.params?.organizationSlug || '').toLowerCase() === 'ssc') {
     await loadClubManagerContext();
+  }
+  if (String(route.query?.openAddSeason || '') === '1' && isSummitStatsContext.value) {
+    showAddSeasonModal.value = true;
+    const q = { ...route.query };
+    delete q.openAddSeason;
+    router.replace({ query: q });
   }
   await fetchStats();
   await fetchOrgOverviewSummary();

@@ -139,6 +139,137 @@
               </div>
             </div>
           </div>
+          <div class="form-group">
+            <label>Event category</label>
+            <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <div class="form-group">
+                <label>Category</label>
+                <select v-model="challengeForm.eventCategory">
+                  <option value="run_ruck">Run/Ruck (distance based)</option>
+                  <option value="fitness">Fitness (calories based)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Challenge assignment mode</label>
+                <select v-model="challengeForm.challengeAssignmentMode">
+                  <option value="volunteer_or_elect">Volunteer or Elect</option>
+                  <option value="captain_assigns">Captain Assigns</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Season cadence + publish settings</label>
+            <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <div class="form-group">
+                <label>Week starts on</label>
+                <select v-model="challengeForm.weekStartsOn">
+                  <option value="sunday">Sunday</option>
+                  <option value="monday">Monday</option>
+                  <option value="tuesday">Tuesday</option>
+                  <option value="wednesday">Wednesday</option>
+                  <option value="thursday">Thursday</option>
+                  <option value="friday">Friday</option>
+                  <option value="saturday">Saturday</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Weekly tasks count</label>
+                <input v-model.number="challengeForm.tasksPerWeek" type="number" min="1" max="7" />
+              </div>
+              <div class="form-group">
+                <label>Publish lead hours</label>
+                <input v-model.number="challengeForm.publishLeadHours" type="number" min="0" />
+              </div>
+              <div class="form-group">
+                <label>Week ends Sunday at</label>
+                <input v-model="challengeForm.weekEndsSundayAt" type="time" />
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Scoring weights</label>
+            <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <div class="form-group">
+                <label>Run</label>
+                <input v-model.number="challengeForm.weightRun" type="number" min="0" step="0.1" />
+              </div>
+              <div class="form-group">
+                <label>Ride</label>
+                <input v-model.number="challengeForm.weightRide" type="number" min="0" step="0.1" />
+              </div>
+              <div class="form-group">
+                <label>Workout</label>
+                <input v-model.number="challengeForm.weightWorkout" type="number" min="0" step="0.1" />
+              </div>
+              <div class="form-group">
+                <label>Walk</label>
+                <input v-model.number="challengeForm.weightWalk" type="number" min="0" step="0.1" />
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Distance / calories conversion</label>
+            <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <div class="form-group">
+                <label>Run miles per point</label>
+                <input v-model.number="challengeForm.runMilesPerPoint" type="number" min="0.1" step="0.1" />
+              </div>
+              <div class="form-group">
+                <label>Ruck miles per point</label>
+                <input v-model.number="challengeForm.ruckMilesPerPoint" type="number" min="0.1" step="0.1" />
+              </div>
+              <div class="form-group">
+                <label>Calories per point (fitness)</label>
+                <input v-model.number="challengeForm.caloriesPerPoint" type="number" min="1" step="1" />
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Team setup</label>
+            <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <div class="form-group">
+                <label>Number of teams</label>
+                <input v-model.number="challengeForm.teamCount" type="number" min="1" />
+              </div>
+              <div class="form-group">
+                <label>Captains can rename teams</label>
+                <select v-model="challengeForm.allowCaptainRenameTeam">
+                  <option :value="true">Yes</option>
+                  <option :value="false">No</option>
+                </select>
+              </div>
+            </div>
+            <label>Preset/temporary team names (comma-separated)</label>
+            <input v-model="challengeForm.presetTeamNamesText" type="text" placeholder="e.g., Team Alpha, Team Bravo, Team Charlie" />
+          </div>
+          <div class="form-group">
+            <label>Bye week settings</label>
+            <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <div class="form-group">
+                <label>Allow bye week</label>
+                <select v-model="challengeForm.allowByeWeek">
+                  <option :value="false">No</option>
+                  <option :value="true">Yes</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Max bye weeks per participant</label>
+                <input v-model.number="challengeForm.maxByeWeeksPerParticipant" type="number" min="0" />
+              </div>
+              <div class="form-group">
+                <label>Require declaration before week starts</label>
+                <select v-model="challengeForm.requireAdvanceByeDeclaration">
+                  <option :value="true">Yes</option>
+                  <option :value="false">No</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Weekly recognition metrics (comma-separated)</label>
+            <input v-model="challengeForm.additionalMetricsText" type="text" placeholder="e.g., miles, elevation gain, workout streak" />
+          </div>
           <div class="form-actions">
             <button type="button" class="btn btn-secondary" @click="closeChallengeModal">Cancel</button>
             <button type="submit" class="btn btn-primary" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
@@ -189,6 +320,13 @@
 
         <div v-show="manageTab === 'profiles'" class="manage-panel">
           <p class="hint">Set gender and date of birth for participants to appear in Recognition of the Week (Fastest Male/Female, Master's Division).</p>
+          <div v-if="profileCompletenessLoading" class="loading-inline">Checking global profile completeness…</div>
+          <div v-else-if="profileCompletenessMissing.length" class="error-inline" style="margin-bottom: 10px;">
+            {{ profileCompletenessMissing.length }} participants are missing global birthdate and/or sex fields.
+            <div class="hint" style="margin-top: 6px;">
+              {{ profileCompletenessMissing.map((p) => `${p.firstName || ''} ${p.lastName || ''}`.trim() || p.email).join(', ') }}
+            </div>
+          </div>
           <div v-if="participantProfilesLoading" class="loading-inline">Loading…</div>
           <div v-else class="profiles-list">
             <div v-for="m in providerMembers" :key="m.provider_user_id" class="profile-row">
@@ -210,8 +348,14 @@
           <div class="panel-actions">
             <label>Week of</label>
             <input v-model="weeklyTasksWeek" type="date" />
+            <button class="btn btn-secondary btn-sm" @click="generateWeeklyAiDraft" :disabled="!managingChallenge || weeklyAiDraftLoading">
+              {{ weeklyAiDraftLoading ? 'Generating…' : 'Generate AI Draft' }}
+            </button>
             <button class="btn btn-primary btn-sm" @click="saveWeeklyTasks" :disabled="!managingChallenge || weeklyTasksSaving">
               {{ weeklyTasksSaving ? 'Saving…' : 'Save 3 Weekly Tasks' }}
+            </button>
+            <button class="btn btn-primary btn-sm" @click="publishWeeklyDraft" :disabled="!managingChallenge || weeklyPublishSaving">
+              {{ weeklyPublishSaving ? 'Publishing…' : 'Publish Week' }}
             </button>
             <button class="btn btn-secondary btn-sm" @click="closeWeek" :disabled="!managingChallenge || closeWeekSaving">
               {{ closeWeekSaving ? 'Closing…' : 'Close Week & Post Scoreboard' }}
@@ -326,13 +470,35 @@ const challengeForm = ref({
   recognitionCategories: [],
   registrationEligible: false,
   medicaidEligible: false,
-  cashEligible: false
+  cashEligible: false,
+  weekStartsOn: 'monday',
+  weekEndsSundayAt: '23:59',
+  tasksPerWeek: 3,
+  publishLeadHours: 24,
+  weightRun: 1,
+  weightRide: 1,
+  weightWorkout: 1,
+  weightWalk: 1,
+  additionalMetricsText: '',
+  eventCategory: 'run_ruck',
+  challengeAssignmentMode: 'volunteer_or_elect',
+  runMilesPerPoint: 1,
+  ruckMilesPerPoint: 1,
+  caloriesPerPoint: 100,
+  teamCount: 2,
+  presetTeamNamesText: '',
+  allowCaptainRenameTeam: true,
+  allowByeWeek: false,
+  maxByeWeeksPerParticipant: 1,
+  requireAdvanceByeDeclaration: true
 });
 
 const weeklyTasksWeek = ref(getThisWeekSunday());
 const weeklyTasksForm = ref([{ name: '', description: '' }, { name: '', description: '' }, { name: '', description: '' }]);
 const weeklyTasksSaving = ref(false);
 const closeWeekSaving = ref(false);
+const weeklyAiDraftLoading = ref(false);
+const weeklyPublishSaving = ref(false);
 const weeklyAssignments = ref([]);
 const weeklyTasksWithIds = ref([]);
 const teamMembersCache = ref({});
@@ -366,6 +532,8 @@ const launching = ref(false);
 const participantProfiles = ref([]);
 const participantProfilesLoading = ref(false);
 const profileEdits = ref({});
+const profileCompletenessLoading = ref(false);
+const profileCompletenessMissing = ref([]);
 
 const organizationSlug = computed(() => agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || null);
 
@@ -466,7 +634,27 @@ const openCreateModal = () => {
     recognitionCategories: [],
     registrationEligible: false,
     medicaidEligible: false,
-    cashEligible: false
+    cashEligible: false,
+    weekStartsOn: 'monday',
+    weekEndsSundayAt: '23:59',
+    tasksPerWeek: 3,
+    publishLeadHours: 24,
+    weightRun: 1,
+    weightRide: 1,
+    weightWorkout: 1,
+    weightWalk: 1,
+    additionalMetricsText: '',
+    eventCategory: 'run_ruck',
+    challengeAssignmentMode: 'volunteer_or_elect',
+    runMilesPerPoint: 1,
+    ruckMilesPerPoint: 1,
+    caloriesPerPoint: 100,
+    teamCount: 2,
+    presetTeamNamesText: '',
+    allowCaptainRenameTeam: true,
+    allowByeWeek: false,
+    maxByeWeeksPerParticipant: 1,
+    requireAdvanceByeDeclaration: true
   };
   showChallengeModal.value = true;
 };
@@ -479,6 +667,16 @@ const openEditModal = (c) => {
   else if (typeof at === 'object' && at) activityTypesText = Object.keys(at).join(', ');
   const rec = c.recognition_categories_json ?? c.recognitionCategoriesJson;
   const recArr = Array.isArray(rec) ? rec : (typeof rec === 'string' ? (() => { try { return JSON.parse(rec) || []; } catch { return []; } })() : []);
+  const seasonSettings = c.season_settings_json && typeof c.season_settings_json === 'object'
+    ? c.season_settings_json
+    : {};
+  const scoringSettings = seasonSettings.scoring || {};
+  const scheduleSettings = seasonSettings.schedule || {};
+  const publishSettings = seasonSettings.challengePublish || {};
+  const recognitionSettings = seasonSettings.recognition || {};
+  const eventSettings = seasonSettings.event || {};
+  const teamsSettings = seasonSettings.teams || {};
+  const byeSettings = seasonSettings.byeWeek || {};
   challengeForm.value = {
     className: c.class_name || c.className || '',
     description: c.description || '',
@@ -493,7 +691,27 @@ const openEditModal = (c) => {
     recognitionCategories: recArr,
     registrationEligible: !!(c.registration_eligible === 1 || c.registration_eligible === true || c.registrationEligible),
     medicaidEligible: !!(c.medicaid_eligible === 1 || c.medicaid_eligible === true || c.medicaidEligible),
-    cashEligible: !!(c.cash_eligible === 1 || c.cash_eligible === true || c.cashEligible)
+    cashEligible: !!(c.cash_eligible === 1 || c.cash_eligible === true || c.cashEligible),
+    weekStartsOn: scheduleSettings.weekStartsOn || 'monday',
+    weekEndsSundayAt: scheduleSettings.weekEndsSundayAt || '23:59',
+    tasksPerWeek: publishSettings.tasksPerWeek || 3,
+    publishLeadHours: publishSettings.publishLeadHours ?? 24,
+    weightRun: scoringSettings?.activityWeights?.run ?? 1,
+    weightRide: scoringSettings?.activityWeights?.ride ?? 1,
+    weightWorkout: scoringSettings?.activityWeights?.workout ?? 1,
+    weightWalk: scoringSettings?.activityWeights?.walk ?? 1,
+    additionalMetricsText: Array.isArray(recognitionSettings.additionalMetrics) ? recognitionSettings.additionalMetrics.join(', ') : '',
+    eventCategory: eventSettings.category || 'run_ruck',
+    challengeAssignmentMode: eventSettings.challengeAssignmentMode || 'volunteer_or_elect',
+    runMilesPerPoint: scoringSettings.runMilesPerPoint ?? 1,
+    ruckMilesPerPoint: scoringSettings.ruckMilesPerPoint ?? 1,
+    caloriesPerPoint: scoringSettings.caloriesPerPoint ?? 100,
+    teamCount: teamsSettings.teamCount ?? 2,
+    presetTeamNamesText: Array.isArray(teamsSettings.presetTeamNames) ? teamsSettings.presetTeamNames.join(', ') : '',
+    allowCaptainRenameTeam: teamsSettings.allowCaptainRenameTeam !== false,
+    allowByeWeek: byeSettings.allowByeWeek === true,
+    maxByeWeeksPerParticipant: byeSettings.maxByeWeeksPerParticipant ?? 1,
+    requireAdvanceByeDeclaration: byeSettings.requireAdvanceDeclaration !== false
   };
   showChallengeModal.value = true;
 };
@@ -531,7 +749,59 @@ const saveChallenge = async () => {
       recognitionCategoriesJson: challengeForm.value.recognitionCategories?.length ? challengeForm.value.recognitionCategories : null,
       registrationEligible: !!challengeForm.value.registrationEligible,
       medicaidEligible: !!challengeForm.value.medicaidEligible,
-      cashEligible: !!challengeForm.value.cashEligible
+      cashEligible: !!challengeForm.value.cashEligible,
+      seasonSettingsJson: {
+        event: {
+          category: challengeForm.value.eventCategory || 'run_ruck',
+          challengeAssignmentMode: challengeForm.value.challengeAssignmentMode || 'volunteer_or_elect'
+        },
+        schedule: {
+          weekStartsOn: challengeForm.value.weekStartsOn || 'monday',
+          weekEndsSundayAt: challengeForm.value.weekEndsSundayAt || '23:59'
+        },
+        scoring: {
+          weeklyMinimumPointsPerAthlete: challengeForm.value.individualMinPointsPerWeek ?? 0,
+          teamWeeklyTargetPoints: challengeForm.value.teamMinPointsPerWeek ?? 0,
+          runMilesPerPoint: Number(challengeForm.value.runMilesPerPoint ?? 1),
+          ruckMilesPerPoint: Number(challengeForm.value.ruckMilesPerPoint ?? 1),
+          caloriesPerPoint: Number(challengeForm.value.caloriesPerPoint ?? 100),
+          activityWeights: {
+            run: Number(challengeForm.value.weightRun ?? 1),
+            ride: Number(challengeForm.value.weightRide ?? 1),
+            workout: Number(challengeForm.value.weightWorkout ?? 1),
+            walk: Number(challengeForm.value.weightWalk ?? 1)
+          }
+        },
+        teams: {
+          teamCount: Number(challengeForm.value.teamCount ?? 2),
+          presetTeamNames: String(challengeForm.value.presetTeamNamesText || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
+          allowCaptainRenameTeam: challengeForm.value.allowCaptainRenameTeam !== false
+        },
+        participation: {
+          individualMinPointsPerWeek: Number(challengeForm.value.individualMinPointsPerWeek ?? 0),
+          teamMinPointsPerWeek: Number(challengeForm.value.teamMinPointsPerWeek ?? 0)
+        },
+        byeWeek: {
+          allowByeWeek: challengeForm.value.allowByeWeek === true,
+          maxByeWeeksPerParticipant: Number(challengeForm.value.maxByeWeeksPerParticipant ?? 1),
+          requireAdvanceDeclaration: challengeForm.value.requireAdvanceByeDeclaration !== false
+        },
+        challengePublish: {
+          tasksPerWeek: Number(challengeForm.value.tasksPerWeek ?? 3),
+          publishLeadHours: Number(challengeForm.value.publishLeadHours ?? 24),
+          aiDraftEnabled: true,
+          requiresManagerPublish: true
+        },
+        recognition: {
+          additionalMetrics: String(challengeForm.value.additionalMetricsText || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        }
+      }
     };
     if (editingChallenge.value) {
       await api.put(`/learning-program-classes/${editingChallenge.value.id}`, payload);
@@ -582,11 +852,26 @@ const loadParticipantProfiles = async () => {
       if (!map[m.provider_user_id]) map[m.provider_user_id] = { gender: '', dateOfBirth: '' };
     }
     profileEdits.value = map;
+    await loadProfileCompleteness();
   } catch {
     participantProfiles.value = [];
     profileEdits.value = {};
   } finally {
     participantProfilesLoading.value = false;
+  }
+};
+
+const loadProfileCompleteness = async () => {
+  const id = managingChallenge.value?.id;
+  if (!id) return;
+  profileCompletenessLoading.value = true;
+  try {
+    const r = await api.get(`/learning-program-classes/${id}/profile-completeness`);
+    profileCompletenessMissing.value = Array.isArray(r.data?.missingParticipants) ? r.data.missingParticipants : [];
+  } catch {
+    profileCompletenessMissing.value = [];
+  } finally {
+    profileCompletenessLoading.value = false;
   }
 };
 
@@ -707,6 +992,42 @@ const saveWeeklyTasks = async () => {
     alert(e?.response?.data?.error?.message || 'Failed to save weekly tasks');
   } finally {
     weeklyTasksSaving.value = false;
+  }
+};
+
+const generateWeeklyAiDraft = async () => {
+  if (!managingChallenge.value?.id) return;
+  weeklyAiDraftLoading.value = true;
+  try {
+    const r = await api.post(`/learning-program-classes/${managingChallenge.value.id}/weekly-tasks/ai-draft`, {
+      week: weeklyTasksWeek.value
+    });
+    const tasks = Array.isArray(r.data?.tasks) ? r.data.tasks : [];
+    weeklyTasksForm.value = [
+      { name: tasks[0]?.name || '', description: tasks[0]?.description || '' },
+      { name: tasks[1]?.name || '', description: tasks[1]?.description || '' },
+      { name: tasks[2]?.name || '', description: tasks[2]?.description || '' }
+    ];
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to generate weekly AI draft');
+  } finally {
+    weeklyAiDraftLoading.value = false;
+  }
+};
+
+const publishWeeklyDraft = async () => {
+  if (!managingChallenge.value?.id) return;
+  weeklyPublishSaving.value = true;
+  try {
+    await api.post(`/learning-program-classes/${managingChallenge.value.id}/weekly-tasks/publish`, {
+      week: weeklyTasksWeek.value,
+      tasks: weeklyTasksForm.value.filter((t) => t.name?.trim())
+    });
+    await loadWeeklyTasks();
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to publish weekly challenges');
+  } finally {
+    weeklyPublishSaving.value = false;
   }
 };
 

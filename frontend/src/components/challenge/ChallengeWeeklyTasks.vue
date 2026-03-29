@@ -4,6 +4,18 @@
     <div class="tasks-week-selector">
       <label>Week of</label>
       <input v-model="weekStart" type="date" @change="load" />
+      <button
+        v-if="byeWeekAllowed"
+        type="button"
+        class="btn btn-secondary btn-sm"
+        :disabled="declaringBye || hasByeDeclaredForWeek"
+        @click="declareByeWeek"
+      >
+        {{ declaringBye ? 'Declaring…' : hasByeDeclaredForWeek ? 'Bye Week Declared' : 'Declare Bye Week' }}
+      </button>
+    </div>
+    <div v-if="byeWeekAllowed" class="hint" style="margin-bottom: 8px;">
+      You can use up to {{ maxByeWeeks }} bye week(s). Declared so far: {{ byeWeeks.length }}.
     </div>
     <div v-if="loading" class="loading-inline">Loading…</div>
     <div v-else class="tasks-content">
@@ -65,6 +77,14 @@ const showCompleteModal = ref(false);
 const completingAssignment = ref(null);
 const completeNotes = ref('');
 const completing = ref(false);
+const byeWeekAllowed = ref(false);
+const maxByeWeeks = ref(1);
+const byeWeeks = ref([]);
+const declaringBye = ref(false);
+
+const hasByeDeclaredForWeek = computed(() =>
+  (byeWeeks.value || []).some((b) => String(b.week_start_date || '').slice(0, 10) === String(weekStart.value || '').slice(0, 10))
+);
 
 function getThisWeekSunday() {
   const d = new Date();
@@ -107,7 +127,7 @@ const load = async () => {
   if (!props.challengeId) return;
   loading.value = true;
   try {
-    const [tasksRes, assignRes] = await Promise.all([
+    const [tasksRes, assignRes, classRes, byeRes] = await Promise.all([
       api.get(`/learning-program-classes/${props.challengeId}/weekly-tasks`, {
         params: { week: weekStart.value },
         skipGlobalLoading: true
@@ -115,15 +135,45 @@ const load = async () => {
       api.get(`/learning-program-classes/${props.challengeId}/weekly-assignments`, {
         params: { week: weekStart.value },
         skipGlobalLoading: true
+      }),
+      api.get(`/learning-program-classes/${props.challengeId}`, {
+        skipGlobalLoading: true
+      }),
+      api.get(`/learning-program-classes/${props.challengeId}/bye-weeks/my`, {
+        skipGlobalLoading: true
       })
     ]);
     tasks.value = Array.isArray(tasksRes.data?.tasks) ? tasksRes.data.tasks : [];
     assignments.value = Array.isArray(assignRes.data?.assignments) ? assignRes.data.assignments : [];
+    const settings = classRes.data?.class?.season_settings_json && typeof classRes.data.class.season_settings_json === 'object'
+      ? classRes.data.class.season_settings_json
+      : {};
+    const bye = settings.byeWeek || {};
+    byeWeekAllowed.value = bye.allowByeWeek === true;
+    maxByeWeeks.value = Number(bye.maxByeWeeksPerParticipant ?? 1);
+    byeWeeks.value = Array.isArray(byeRes.data?.byeWeeks) ? byeRes.data.byeWeeks : [];
   } catch {
     tasks.value = [];
     assignments.value = [];
+    byeWeeks.value = [];
+    byeWeekAllowed.value = false;
   } finally {
     loading.value = false;
+  }
+};
+
+const declareByeWeek = async () => {
+  if (!props.challengeId || !byeWeekAllowed.value) return;
+  declaringBye.value = true;
+  try {
+    await api.post(`/learning-program-classes/${props.challengeId}/bye-weeks/declare`, {
+      week: weekStart.value
+    });
+    await load();
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to declare bye week');
+  } finally {
+    declaringBye.value = false;
   }
 };
 

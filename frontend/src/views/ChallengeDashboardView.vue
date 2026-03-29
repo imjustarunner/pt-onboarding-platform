@@ -37,6 +37,54 @@
             <div class="challenge-section">
               <ChallengeTeamWeeklyProgress :challenge-id="challengeId" />
             </div>
+            <div class="challenge-section">
+              <h2>Weekly + Season Summary</h2>
+              <div v-if="seasonSummaryLoading" class="loading-inline">Loading summary…</div>
+              <div v-else-if="!seasonSummary" class="hint">Summary data will appear after workouts are logged.</div>
+              <div v-else class="summary-grid">
+                <div class="summary-card">
+                  <h4>Top Athletes (Week)</h4>
+                  <ol>
+                    <li v-for="r in seasonSummary.weeklySummary?.topAthletes || []" :key="`wa-${r.user_id}`">
+                      {{ r.first_name }} {{ r.last_name }} — {{ r.total_points }} pts
+                    </li>
+                  </ol>
+                </div>
+                <div class="summary-card">
+                  <h4>Top Teams (Week)</h4>
+                  <ol>
+                    <li v-for="r in seasonSummary.weeklySummary?.topTeams || []" :key="`wt-${r.team_id}`">
+                      {{ r.team_name }} — {{ r.total_points }} pts
+                    </li>
+                  </ol>
+                </div>
+                <div class="summary-card">
+                  <h4>Season Standings</h4>
+                  <div class="hint" style="margin-bottom: 6px;">
+                    Club totals: {{ seasonSummary.weeklySummary?.seasonPointsTotal || 0 }} pts ·
+                    {{ Number(seasonSummary.weeklySummary?.seasonMilesTotal || 0).toFixed(1) }} miles
+                  </div>
+                  <div><strong>Top Individuals</strong></div>
+                  <ol>
+                    <li v-for="r in seasonSummary.seasonStandings?.topIndividuals || []" :key="`si-${r.user_id}`">
+                      {{ r.first_name }} {{ r.last_name }} — {{ r.total_points }} pts
+                    </li>
+                  </ol>
+                  <div><strong>Top Masters</strong></div>
+                  <ol>
+                    <li v-for="r in seasonSummary.seasonStandings?.topMasters || []" :key="`sm-${r.user_id}`">
+                      {{ r.first_name }} {{ r.last_name }} — {{ r.total_points }} pts
+                    </li>
+                  </ol>
+                  <div><strong>Top Ladies</strong></div>
+                  <ol>
+                    <li v-for="r in seasonSummary.seasonStandings?.topLadies || []" :key="`sl-${r.user_id}`">
+                      {{ r.first_name }} {{ r.last_name }} — {{ r.total_points }} pts
+                    </li>
+                  </ol>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="challenge-col-right">
             <div class="challenge-section">
@@ -117,9 +165,27 @@
                 <label>Duration (minutes)</label>
                 <input v-model.number="workoutForm.durationMinutes" type="number" min="0" placeholder="Optional" />
               </div>
+              <div class="form-row" v-if="eventCategory === 'fitness'">
+                <label>Calories burned</label>
+                <input v-model.number="workoutForm.caloriesBurned" type="number" min="0" placeholder="Optional" />
+              </div>
               <div class="form-row">
                 <label>Points</label>
                 <input v-model.number="workoutForm.points" type="number" min="0" required />
+                <small class="hint">
+                  {{ eventCategory === 'fitness'
+                    ? 'Points can be auto-derived from calories based on season settings.'
+                    : 'For run/ruck entries, points can be auto-derived from mileage settings.' }}
+                </small>
+              </div>
+              <div class="form-row">
+                <label>Weekly challenge tag</label>
+                <select v-model="workoutForm.weeklyTaskId">
+                  <option :value="null">None</option>
+                  <option v-for="t in weeklyTaskOptions" :key="`weekly-task-option-${t.id}`" :value="t.id">
+                    {{ t.name }}
+                  </option>
+                </select>
               </div>
               <div class="form-row">
                 <label>Notes</label>
@@ -209,8 +275,10 @@ const workoutForm = ref({
   activityType: '',
   distanceValue: null,
   durationMinutes: null,
+  caloriesBurned: null,
   points: 0,
-  workoutNotes: ''
+  workoutNotes: '',
+  weeklyTaskId: null
 });
 const workoutSubmitting = ref(false);
 const stravaStatus = ref(null);
@@ -224,6 +292,9 @@ const captainApplications = ref([]);
 const captainAppsLoading = ref(false);
 const captainAppsError = ref('');
 const captainsFinalizeSubmitting = ref(false);
+const weeklyTaskOptions = ref([]);
+const seasonSummary = ref(null);
+const seasonSummaryLoading = ref(false);
 
 const challengeId = computed(() => route.params.id || route.params.challengeId);
 const organizationSlug = computed(() => route.params.organizationSlug || null);
@@ -249,6 +320,12 @@ const activityTypeOptions = computed(() => {
     { value: 'workout_session', label: 'Workout Session' },
     { value: 'steps', label: 'Steps' }
   ];
+});
+
+const eventCategory = computed(() => {
+  const settings = challenge.value?.season_settings_json;
+  const category = settings && typeof settings === 'object' ? settings?.event?.category : null;
+  return String(category || 'run_ruck').toLowerCase() === 'fitness' ? 'fitness' : 'run_ruck';
 });
 
 const isChallengeManager = computed(() => {
@@ -335,6 +412,31 @@ const loadActivity = async () => {
   }
 };
 
+const loadWeeklyTaskOptions = async () => {
+  const id = challengeId.value;
+  if (!id) return;
+  try {
+    const r = await api.get(`/learning-program-classes/${id}/weekly-tasks`, { skipGlobalLoading: true });
+    weeklyTaskOptions.value = Array.isArray(r.data?.tasks) ? r.data.tasks : [];
+  } catch {
+    weeklyTaskOptions.value = [];
+  }
+};
+
+const loadSeasonSummary = async () => {
+  const id = challengeId.value;
+  if (!id) return;
+  seasonSummaryLoading.value = true;
+  try {
+    const r = await api.get(`/learning-program-classes/${id}/season-summary`, { skipGlobalLoading: true });
+    seasonSummary.value = r.data || null;
+  } catch {
+    seasonSummary.value = null;
+  } finally {
+    seasonSummaryLoading.value = false;
+  }
+};
+
 const loadCaptainApplications = async () => {
   const id = challengeId.value;
   if (!id) return;
@@ -385,11 +487,13 @@ const submitWorkout = async () => {
       activityType: workoutForm.value.activityType,
       distanceValue: workoutForm.value.distanceValue || null,
       durationMinutes: workoutForm.value.durationMinutes || null,
+      caloriesBurned: workoutForm.value.caloriesBurned || null,
       points: workoutForm.value.points || 0,
-      workoutNotes: workoutForm.value.workoutNotes || null
+      workoutNotes: workoutForm.value.workoutNotes || null,
+      weeklyTaskId: workoutForm.value.weeklyTaskId || null
     });
-    workoutForm.value = { activityType: '', distanceValue: null, durationMinutes: null, points: 0, workoutNotes: '' };
-    await Promise.all([loadLeaderboard(), loadActivity()]);
+    workoutForm.value = { activityType: '', distanceValue: null, durationMinutes: null, caloriesBurned: null, points: 0, workoutNotes: '', weeklyTaskId: null };
+    await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary()]);
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to submit workout');
   } finally {
@@ -462,7 +566,7 @@ const importSelectedStrava = async () => {
       activityIds: selectedStravaIds.value
     });
     closeStravaImportModal();
-    await Promise.all([loadLeaderboard(), loadActivity()]);
+    await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary()]);
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to import activities');
   } finally {
@@ -473,7 +577,7 @@ const importSelectedStrava = async () => {
 onMounted(async () => {
   await loadChallenge();
   if (challenge.value) {
-    await Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications()]);
+    await Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary()]);
     loadStravaStatus();
   }
   if (route.query?.strava === 'import') {
@@ -484,7 +588,7 @@ onMounted(async () => {
 watch(challengeId, () => {
   loadChallenge().then(() => {
     if (challenge.value) {
-      Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications()]);
+      Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary()]);
     }
   });
 });
@@ -575,6 +679,23 @@ watch(challengeId, () => {
 .challenge-section h2 {
   margin: 0 0 12px 0;
   font-size: 1.1em;
+}
+.summary-grid {
+  display: grid;
+  gap: 10px;
+}
+.summary-card {
+  border: 1px solid #eee;
+  border-radius: 6px;
+  padding: 10px;
+  background: #fafafa;
+}
+.summary-card h4 {
+  margin: 0 0 8px;
+}
+.summary-card ol {
+  margin: 0;
+  padding-left: 18px;
 }
 .workout-form {
   display: flex;

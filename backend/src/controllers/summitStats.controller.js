@@ -15,6 +15,120 @@ function slugify(name) {
     .replace(/^-|-$/g, '');
 }
 
+const canManageClub = (role) => {
+  const r = String(role || '').toLowerCase();
+  return r === 'admin' || r === 'super_admin';
+};
+
+const parseClubRecords = (raw) => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+const normalizeClubRecords = (input) => {
+  const rows = Array.isArray(input) ? input : [];
+  const out = [];
+  const normalizeMetricKey = (raw) => {
+    const s = String(raw || '').trim().toLowerCase();
+    if (s === 'distance_miles' || s === 'distance') return 'distance_miles';
+    if (s === 'duration_minutes' || s === 'duration') return 'duration_minutes';
+    if (s === 'points') return 'points';
+    return null;
+  };
+  for (const row of rows) {
+    const label = String(row?.label || '').trim();
+    if (!label) continue;
+    const rawValue = Number(row?.value);
+    const numericValue = Number.isFinite(rawValue) ? rawValue : null;
+    out.push({
+      id: String(row?.id || `record-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+      label,
+      value: numericValue != null ? numericValue : null,
+      unit: String(row?.unit || '').trim(),
+      notes: String(row?.notes || '').trim(),
+      metricKey: normalizeMetricKey(row?.metricKey),
+      verificationRequired: true,
+      seededAt: row?.seededAt || null,
+      updatedAt: row?.updatedAt || null,
+      lastVerifiedAt: row?.lastVerifiedAt || null,
+      lastVerifiedWorkoutId: row?.lastVerifiedWorkoutId || null,
+      lastVerifiedByUserId: row?.lastVerifiedByUserId || null
+    });
+  }
+  return out;
+};
+
+const mergeSeedRecords = ({ existingRecords, incomingRecords }) => {
+  const existingById = new Map((existingRecords || []).map((r) => [String(r.id), r]));
+  const merged = [];
+  for (const incoming of incomingRecords || []) {
+    const id = String(incoming.id);
+    const prev = existingById.get(id);
+    if (!prev) {
+      merged.push({
+        ...incoming,
+        seededAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      continue;
+    }
+    // Seed values can be defined at creation, but existing records are not manually broken/overwritten.
+    merged.push({
+      ...prev,
+      label: incoming.label,
+      unit: incoming.unit,
+      notes: incoming.notes,
+      metricKey: incoming.metricKey || prev.metricKey || null,
+      verificationRequired: true
+    });
+  }
+  return merged;
+};
+
+const getMetricValueFromWorkout = (metricKey, workout) => {
+  if (!metricKey || !workout) return null;
+  if (metricKey === 'distance_miles') {
+    const n = Number(workout.distance_value);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (metricKey === 'duration_minutes') {
+    const n = Number(workout.duration_minutes);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (metricKey === 'points') {
+    const n = Number(workout.points);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+};
+
+const ensureClubAdminAccess = async ({ user, clubId }) => {
+  if (!Number.isFinite(clubId) || clubId < 1) return { ok: false, status: 400, message: 'Invalid club ID' };
+  if (!canManageClub(user?.role)) return { ok: false, status: 403, message: 'Club manager access required' };
+  const [clubRows] = await pool.execute(
+    'SELECT id, organization_type FROM agencies WHERE id = ? LIMIT 1',
+    [clubId]
+  );
+  const club = clubRows?.[0];
+  if (!club || String(club.organization_type || '').toLowerCase() !== 'affiliation') {
+    return { ok: false, status: 404, message: 'Club not found' };
+  }
+  if (String(user.role || '').toLowerCase() === 'super_admin') return { ok: true, club };
+  const userAgencies = await User.getAgencies(user.id);
+  const hasAccess = (userAgencies || []).some((a) => Number(a?.id) === clubId);
+  if (!hasAccess) return { ok: false, status: 403, message: 'You do not have access to this club' };
+  return { ok: true, club };
+};
+
 /** Resolve Summit Stats platform agency ID (for club creation, club manager emails, etc.). */
 export async function getPlatformAgencyId() {
   const envId = process.env.SUMMIT_STATS_PLATFORM_AGENCY_ID;
@@ -495,5 +609,224 @@ export const getClubManagerContext = async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+};
+
+/**
+ * Get manual all-time club records.
+ * GET /api/summit-stats/clubs/:id/records
+ */
+export const getClubRecords = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.id, 10);
+    const access = await ensureClubAdminAccess({ user: req.user, clubId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const [rows] = await pool.execute(
+      `SELECT records_json, updated_at
+       FROM summit_stats_club_records
+       WHERE agency_id = ?
+       LIMIT 1`,
+      [clubId]
+    );
+    const rec = rows?.[0] || null;
+    return res.json({
+      agencyId: clubId,
+      records: normalizeClubRecords(parseClubRecords(rec?.records_json)),
+      updatedAt: rec?.updated_at || null
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Upsert manual all-time club records.
+ * PUT /api/summit-stats/clubs/:id/records
+ */
+export const upsertClubRecords = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.id, 10);
+    const access = await ensureClubAdminAccess({ user: req.user, clubId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const incomingRecords = normalizeClubRecords(req.body?.records);
+    const [existingRows] = await pool.execute(
+      `SELECT records_json
+       FROM summit_stats_club_records
+       WHERE agency_id = ?
+       LIMIT 1`,
+      [clubId]
+    );
+    const existingRecords = normalizeClubRecords(parseClubRecords(existingRows?.[0]?.records_json));
+    const records = mergeSeedRecords({ existingRecords, incomingRecords });
+    await pool.execute(
+      `INSERT INTO summit_stats_club_records
+       (agency_id, records_json, created_by_user_id, updated_by_user_id)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         records_json = VALUES(records_json),
+         updated_by_user_id = VALUES(updated_by_user_id),
+         updated_at = CURRENT_TIMESTAMP`,
+      [clubId, JSON.stringify(records), req.user.id, req.user.id]
+    );
+    return res.json({ agencyId: clubId, records });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const listClubRecordVerifications = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.id, 10);
+    const access = await ensureClubAdminAccess({ user: req.user, clubId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const [rows] = await pool.execute(
+      `SELECT
+         v.id,
+         v.record_id,
+         v.record_label,
+         v.metric_key,
+         v.current_value,
+         v.candidate_value,
+         v.status,
+         v.created_at,
+         v.reviewed_at,
+         v.review_note,
+         v.workout_id,
+         v.challenger_user_id,
+         u.first_name,
+         u.last_name
+       FROM summit_stats_club_record_verifications v
+       LEFT JOIN users u ON u.id = v.challenger_user_id
+       WHERE v.agency_id = ?
+       ORDER BY CASE WHEN v.status = 'pending' THEN 0 ELSE 1 END, v.created_at DESC
+       LIMIT 100`,
+      [clubId]
+    );
+    return res.json({ verifications: rows || [] });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const reviewClubRecordVerification = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.id, 10);
+    const verificationId = parseInt(req.params.verificationId, 10);
+    const access = await ensureClubAdminAccess({ user: req.user, clubId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (!Number.isFinite(verificationId) || verificationId < 1) {
+      return res.status(400).json({ error: { message: 'Invalid verification ID' } });
+    }
+    const status = String(req.body?.status || '').toLowerCase();
+    if (status !== 'approved' && status !== 'rejected') {
+      return res.status(400).json({ error: { message: 'status must be approved or rejected' } });
+    }
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM summit_stats_club_record_verifications
+       WHERE id = ? AND agency_id = ?
+       LIMIT 1`,
+      [verificationId, clubId]
+    );
+    const verification = rows?.[0];
+    if (!verification) return res.status(404).json({ error: { message: 'Verification request not found' } });
+    if (String(verification.status) !== 'pending') {
+      return res.status(400).json({ error: { message: 'Verification request already reviewed' } });
+    }
+    await pool.execute(
+      `UPDATE summit_stats_club_record_verifications
+       SET status = ?, reviewed_by_user_id = ?, reviewed_at = NOW(), review_note = ?
+       WHERE id = ?`,
+      [status, req.user.id, req.body?.reviewNote ? String(req.body.reviewNote) : null, verificationId]
+    );
+
+    if (status === 'approved') {
+      const [recRows] = await pool.execute(
+        `SELECT records_json
+         FROM summit_stats_club_records
+         WHERE agency_id = ?
+         LIMIT 1`,
+        [clubId]
+      );
+      const records = normalizeClubRecords(parseClubRecords(recRows?.[0]?.records_json));
+      const nextRecords = records.map((r) => {
+        if (String(r.id) !== String(verification.record_id)) return r;
+        return {
+          ...r,
+          value: Number(verification.candidate_value),
+          updatedAt: new Date().toISOString(),
+          lastVerifiedAt: new Date().toISOString(),
+          lastVerifiedWorkoutId: Number(verification.workout_id),
+          lastVerifiedByUserId: Number(req.user.id)
+        };
+      });
+      await pool.execute(
+        `UPDATE summit_stats_club_records
+         SET records_json = ?, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE agency_id = ?`,
+        [JSON.stringify(nextRecords), req.user.id, clubId]
+      );
+    }
+    return res.json({ ok: true, status });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const queueClubRecordBreakCandidates = async ({ learningClassId, workoutId, userId }) => {
+  const classId = Number(learningClassId);
+  const wId = Number(workoutId);
+  const uId = Number(userId);
+  if (!Number.isFinite(classId) || !Number.isFinite(wId) || !Number.isFinite(uId)) return;
+  const [classRows] = await pool.execute(
+    `SELECT id, organization_id
+     FROM learning_program_classes
+     WHERE id = ?
+     LIMIT 1`,
+    [classId]
+  );
+  const klass = classRows?.[0];
+  if (!klass?.organization_id) return;
+  const agencyId = Number(klass.organization_id);
+  const [recordRows] = await pool.execute(
+    `SELECT records_json
+     FROM summit_stats_club_records
+     WHERE agency_id = ?
+     LIMIT 1`,
+    [agencyId]
+  );
+  const records = normalizeClubRecords(parseClubRecords(recordRows?.[0]?.records_json));
+  if (!records.length) return;
+  const [workoutRows] = await pool.execute(
+    `SELECT id, learning_class_id, user_id, points, distance_value, duration_minutes
+     FROM challenge_workouts
+     WHERE id = ? AND learning_class_id = ? AND user_id = ?
+     LIMIT 1`,
+    [wId, classId, uId]
+  );
+  const workout = workoutRows?.[0];
+  if (!workout) return;
+  for (const record of records) {
+    const metricKey = record.metricKey || null;
+    if (!metricKey) continue;
+    const candidateValue = getMetricValueFromWorkout(metricKey, workout);
+    const currentValue = Number(record.value);
+    if (!Number.isFinite(candidateValue) || !Number.isFinite(currentValue)) continue;
+    if (candidateValue <= currentValue) continue;
+    const [existingPending] = await pool.execute(
+      `SELECT id
+       FROM summit_stats_club_record_verifications
+       WHERE agency_id = ? AND record_id = ? AND workout_id = ? AND status = 'pending'
+       LIMIT 1`,
+      [agencyId, String(record.id), wId]
+    );
+    if (existingPending?.length) continue;
+    await pool.execute(
+      `INSERT INTO summit_stats_club_record_verifications
+       (agency_id, record_id, record_label, metric_key, current_value, candidate_value, workout_id, challenger_user_id, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      [agencyId, String(record.id), String(record.label || ''), metricKey, currentValue, candidateValue, wId, uId]
+    );
   }
 };

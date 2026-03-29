@@ -21,7 +21,8 @@ import {
   launchLearningProgramClass,
   joinLearningProgramClass,
   listParticipantProfiles,
-  upsertParticipantProfile
+  upsertParticipantProfile,
+  getSeasonProfileCompleteness
 } from '../controllers/learningProgramClasses.controller.js';
 import {
   listTeams,
@@ -49,9 +50,14 @@ import {
 import {
   getScoreboard,
   getEliminationBoard,
+  getSeasonSummary,
   listWeeklyTasks,
   createWeeklyTasks,
+  generateWeeklyTasksDraft,
+  publishWeeklyTasksDraft,
   listWeeklyAssignments,
+  listMyByeWeeks,
+  declareByeWeek,
   upsertWeeklyAssignment,
   completeWeeklyChallenge,
   closeWeek,
@@ -98,6 +104,7 @@ router.post('/:classId/launch', launchLearningProgramClass);
 router.post('/:classId/join', joinLearningProgramClass);
 router.get('/:classId/participant-profiles', listParticipantProfiles);
 router.put('/:classId/participant-profiles/:providerUserId', upsertParticipantProfile);
+router.get('/:classId/profile-completeness', getSeasonProfileCompleteness);
 router.get('/:classId/resources', listClassResources);
 router.post('/:classId/resources', createClassResource);
 router.put('/:classId/resources/:resourceId', updateClassResource);
@@ -127,10 +134,15 @@ router.post('/:classId/workouts/:workoutId/media', workoutMediaUpload.single('fi
 
 // Summit Stats Scoreboard: weekly scoreboard, elimination, weekly tasks
 router.get('/:classId/scoreboard', getScoreboard);
+router.get('/:classId/season-summary', getSeasonSummary);
 router.get('/:classId/elimination-board', getEliminationBoard);
 router.get('/:classId/weekly-tasks', listWeeklyTasks);
 router.post('/:classId/weekly-tasks', createWeeklyTasks);
+router.post('/:classId/weekly-tasks/ai-draft', generateWeeklyTasksDraft);
+router.post('/:classId/weekly-tasks/publish', publishWeeklyTasksDraft);
 router.get('/:classId/weekly-assignments', listWeeklyAssignments);
+router.get('/:classId/bye-weeks/my', listMyByeWeeks);
+router.post('/:classId/bye-weeks/declare', declareByeWeek);
 router.post('/:classId/weekly-assignments', upsertWeeklyAssignment);
 router.post('/:classId/weekly-assignments/:assignmentId/complete', completeWeeklyChallenge);
 router.post('/:classId/close-week', closeWeek);

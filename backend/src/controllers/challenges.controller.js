@@ -6,10 +6,12 @@
 import pool from '../config/database.js';
 import ChallengeTeam from '../models/ChallengeTeam.model.js';
 import ChallengeWorkout from '../models/ChallengeWorkout.model.js';
+import ChallengeWeeklyTask from '../models/ChallengeWeeklyTask.model.js';
 import ChallengeCaptainApplication from '../models/ChallengeCaptainApplication.model.js';
 import ChallengeMessage from '../models/ChallengeMessage.model.js';
 import ChallengeWorkoutComment from '../models/ChallengeWorkoutComment.model.js';
 import ChallengeWorkoutMedia from '../models/ChallengeWorkoutMedia.model.js';
+import { queueClubRecordBreakCandidates } from './summitStats.controller.js';
 import { canManageTeam } from '../utils/challengePermissions.js';
 import { canAccessChallenge } from '../utils/challengeAccess.js';
 import { getWeekStartDate } from '../utils/challengeWeekUtils.js';
@@ -19,6 +21,20 @@ import { challengeMessageBridge } from '../services/challengeMessageBridge.servi
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
   return Number.isFinite(n) ? n : null;
+};
+
+const parseJsonObject = (raw, fallback = {}) => {
+  if (!raw) return fallback;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {
+      // ignore
+    }
+  }
+  return fallback;
 };
 
 const canManageChallenge = (role) => {
@@ -67,6 +83,20 @@ export const updateTeam = async (req, res, next) => {
     if (!team || Number(team.learning_class_id) !== Number(classId)) return res.status(404).json({ error: { message: 'Team not found' } });
     const canManage = canManageChallenge(req.user?.role) || canManageTeam(req.user, team);
     if (!canManage) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (req.body.teamName !== undefined && !canManageChallenge(req.user?.role)) {
+      const [classRows] = await pool.execute(
+        `SELECT season_settings_json
+         FROM learning_program_classes
+         WHERE id = ?
+         LIMIT 1`,
+        [classId]
+      );
+      const settings = parseJsonObject(classRows?.[0]?.season_settings_json || {});
+      const allowCaptainRename = settings?.teams?.allowCaptainRenameTeam !== false;
+      if (!allowCaptainRename) {
+        return res.status(403).json({ error: { message: 'Captains cannot rename teams for this season' } });
+      }
+    }
     const patch = {};
     if (req.body.teamName !== undefined) patch.teamName = String(req.body.teamName || '').trim();
     if (req.body.teamManagerUserId !== undefined) patch.teamManagerUserId = req.body.teamManagerUserId ? asInt(req.body.teamManagerUserId) : null;
@@ -275,21 +305,63 @@ export const submitWorkout = async (req, res, next) => {
       const team = await ChallengeTeam.getTeamForUser(classId, req.user.id);
       teamId = team?.id || null;
     }
-    const points = asInt(req.body.points) || 0;
+    const settings = parseJsonObject(access.class?.season_settings_json || {});
+    const eventCategory = String(settings?.event?.category || 'run_ruck').toLowerCase();
+    const scoring = parseJsonObject(settings?.scoring || {});
+    const runMilesPerPoint = Number(scoring.runMilesPerPoint || 1) || 1;
+    const ruckMilesPerPoint = Number(scoring.ruckMilesPerPoint || 1) || 1;
+    const caloriesPerPoint = Number(scoring.caloriesPerPoint || 100) || 100;
+    const activityLower = String(activityType || '').toLowerCase();
+    const distanceValue = req.body.distanceValue != null ? Number(req.body.distanceValue) : null;
+    const caloriesBurned = req.body.caloriesBurned != null ? asInt(req.body.caloriesBurned) : null;
+    let computedPoints = null;
+    if (eventCategory === 'fitness' && caloriesBurned != null && caloriesPerPoint > 0) {
+      computedPoints = Math.max(0, Math.floor(caloriesBurned / caloriesPerPoint));
+    } else if (eventCategory === 'run_ruck' && distanceValue != null && Number.isFinite(distanceValue)) {
+      if (activityLower.includes('ruck')) {
+        computedPoints = Math.max(0, Math.floor(distanceValue / ruckMilesPerPoint));
+      } else if (activityLower.includes('run')) {
+        computedPoints = Math.max(0, Math.floor(distanceValue / runMilesPerPoint));
+      }
+    }
+    const points = computedPoints != null ? computedPoints : (asInt(req.body.points) || 0);
     const completedAt = req.body.completedAt ? new Date(req.body.completedAt) : new Date();
+    const weekCutoffTime = String(settings?.schedule?.weekEndsSundayAt || access.class?.week_start_time || '00:00');
+    const completedWeekStart = getWeekStartDate(completedAt, weekCutoffTime);
+    const weeklyTaskId = req.body.weeklyTaskId ? asInt(req.body.weeklyTaskId) : null;
+    if (weeklyTaskId) {
+      const weeklyTask = await ChallengeWeeklyTask.findById(weeklyTaskId);
+      if (!weeklyTask || Number(weeklyTask.learning_class_id) !== Number(classId)) {
+        return res.status(400).json({ error: { message: 'Invalid weekly challenge tag' } });
+      }
+      if (String(weeklyTask.week_start_date || '').slice(0, 10) !== String(completedWeekStart || '').slice(0, 10)) {
+        return res.status(400).json({ error: { message: 'Weekly challenge tag must belong to the active workout week' } });
+      }
+    }
     const workout = await ChallengeWorkout.create({
       learningClassId: classId,
       teamId,
       userId: req.user.id,
       activityType,
-      distanceValue: req.body.distanceValue != null ? Number(req.body.distanceValue) : null,
+      distanceValue,
       durationMinutes: req.body.durationMinutes != null ? asInt(req.body.durationMinutes) : null,
+      caloriesBurned,
       points,
       workoutNotes: req.body.workoutNotes ? String(req.body.workoutNotes).trim() : null,
       screenshotFilePath: req.body.screenshotFilePath ? String(req.body.screenshotFilePath).trim() : null,
-      completedAt: completedAt.toISOString().slice(0, 19).replace('T', ' ')
+      completedAt: completedAt.toISOString().slice(0, 19).replace('T', ' '),
+      weeklyTaskId
     });
     if (workout?.id) {
+      try {
+        await queueClubRecordBreakCandidates({
+          learningClassId: classId,
+          workoutId: workout.id,
+          userId: req.user.id
+        });
+      } catch {
+        // Non-blocking async hook.
+      }
       try {
         await enqueueWorkoutVision({
           workoutId: workout.id,
@@ -410,13 +482,16 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
 
-    const weekStart = req.query.weekStart || req.query.week || getWeekStartDate(new Date());
+    const weekCutoffTime = String(parseJsonObject(access.class?.season_settings_json || {})?.schedule?.weekEndsSundayAt || access.class?.week_start_time || '00:00');
+    const weekStart = req.query.weekStart || req.query.week || getWeekStartDate(new Date(), weekCutoffTime);
     const start = new Date(String(weekStart).slice(0, 10));
     if (!Number.isFinite(start.getTime())) return res.status(400).json({ error: { message: 'Invalid weekStart' } });
-    const startStr = start.toISOString().slice(0, 10);
+    const [h, m] = weekCutoffTime.split(':').map((x) => Number.parseInt(x, 10) || 0);
+    start.setHours(h, m, 0, 0);
+    const startStr = start.toISOString().slice(0, 19).replace('T', ' ');
     const end = new Date(start);
     end.setDate(end.getDate() + 7);
-    const endStr = end.toISOString().slice(0, 10);
+    const endStr = end.toISOString().slice(0, 19).replace('T', ' ');
 
     const individualMinimum = access.class?.individual_min_points_per_week != null
       ? Number.parseInt(access.class.individual_min_points_per_week, 10)

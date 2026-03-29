@@ -3,7 +3,36 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import SettingsPage from '../../components/admin/SettingsPage.vue';
+import { useAgencyStore } from '../../store/agency';
+
+const route = useRoute();
+const router = useRouter();
+const agencyStore = useAgencyStore();
+
+onMounted(async () => {
+  try {
+    await agencyStore.fetchUserAgencies();
+  } catch {
+    // ignore hydration errors, fallback to currently selected agency
+  }
+
+  const routeSlug = String(route.params?.organizationSlug || '').trim();
+  const current = agencyStore.currentAgency || null;
+  const orgType = String(current?.organization_type || current?.organizationType || '').toLowerCase();
+  const slug = routeSlug || String(current?.slug || current?.portal_url || '').trim();
+  const isSscRoute = routeSlug.toLowerCase() === 'ssc';
+  const isAffiliation = orgType === 'affiliation';
+
+  if ((isAffiliation || isSscRoute) && slug) {
+    const to = `/${slug}/admin/club-settings`;
+    if (route.path !== to) {
+      router.replace(to);
+    }
+  }
+});
 </script>
 
 <style scoped>

@@ -18,6 +18,9 @@
           <span v-if="w.duration_minutes">{{ w.duration_minutes }} min</span>
           <span class="activity-points">{{ w.points }} pts</span>
         </div>
+        <div v-if="w.weekly_task_name" class="hint" style="margin-top: 4px;">
+          Tagged weekly challenge: <strong>{{ w.weekly_task_name }}</strong>
+        </div>
         <div v-if="w.workout_notes" class="activity-notes">{{ w.workout_notes }}</div>
         <div v-if="w.media?.length" class="activity-media">
           <img
