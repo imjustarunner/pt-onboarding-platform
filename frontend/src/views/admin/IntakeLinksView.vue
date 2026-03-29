@@ -95,7 +95,7 @@
         </div>
         <button class="btn btn-xs btn-secondary" type="button" @click="addQSetField" style="margin-bottom:16px;">+ Add Question</button>
         <div style="display:flex;gap:8px;">
-          <button class="btn btn-primary" type="button" @click="saveQuestionSet">Save Question Set</button>
+          <button class="btn btn-primary" type="button" @click="saveQuestionSet" :disabled="qsetSaving">{{ qsetSaving ? 'Saving…' : 'Save Question Set' }}</button>
           <button class="btn btn-secondary" type="button" @click="editingQuestionSet = null">Cancel</button>
         </div>
       </div>
@@ -639,6 +639,10 @@
               </p>
 
               <div v-if="form.intakeSteps.length === 0" class="muted">No steps yet.</div>
+
+              <div v-if="qsetInsertedNotice" class="qset-inserted-notice">
+                ✅ Question set added as a new step — <strong>save the form</strong> to keep it.
+              </div>
 
               <div
                 v-for="(step, idx) in safeSteps"
@@ -1474,7 +1478,7 @@
         <button class="btn btn-xs btn-secondary" type="button" @click="showQSetPicker = false">✕</button>
       </div>
       <div class="modal-body" style="padding:16px;">
-        <p class="muted" style="margin-top:0;">Choose a question set to insert as a new Questions step in the form.</p>
+        <p class="muted" style="margin-top:0;">Choose a question set to insert as a new Questions step in the form. <strong>Remember to save the form after inserting.</strong></p>
         <div v-if="!questionSets.length" class="muted">No question sets saved yet. Create one using the "Question Sets" button above.</div>
         <div v-for="qs in questionSets" :key="qs.id" class="question-set-picker-row">
           <div>
@@ -1573,27 +1577,28 @@ const showQuestionSetsPanel = ref(false);
 const questionSets = ref([]);
 const editingQuestionSet = ref(null);
 const showQSetPicker = ref(false);
+const qsetSaving = ref(false);
+const qsetInsertedNotice = ref(false);
 
-const qsetStorageKey = () => `intake_qsets_${selectedAgencyId.value || 'default'}`;
-
-const loadQuestionSets = () => {
+const loadQuestionSets = async () => {
+  if (!selectedAgencyId.value) return;
   try {
-    const raw = localStorage.getItem(qsetStorageKey());
-    questionSets.value = raw ? JSON.parse(raw) : [];
+    const r = await api.get('/intake-field-templates', {
+      params: { agencyId: selectedAgencyId.value, type: 'question_set' }
+    });
+    questionSets.value = (Array.isArray(r.data) ? r.data : []).map((t) => ({
+      id: t.id,
+      name: t.name,
+      fields: Array.isArray(t.fields_json) ? t.fields_json : []
+    }));
   } catch {
     questionSets.value = [];
   }
 };
 
-const persistQuestionSets = () => {
-  try {
-    localStorage.setItem(qsetStorageKey(), JSON.stringify(questionSets.value));
-  } catch { /* ignore */ }
-};
-
 const startNewQuestionSet = () => {
   editingQuestionSet.value = {
-    id: createId('qset'),
+    id: null,
     name: '',
     fields: []
   };
@@ -1603,21 +1608,41 @@ const startEditQuestionSet = (qs) => {
   editingQuestionSet.value = JSON.parse(JSON.stringify(qs));
 };
 
-const saveQuestionSet = () => {
-  if (!editingQuestionSet.value) return;
-  const idx = questionSets.value.findIndex((q) => q.id === editingQuestionSet.value.id);
-  if (idx >= 0) {
-    questionSets.value.splice(idx, 1, editingQuestionSet.value);
-  } else {
-    questionSets.value.push(editingQuestionSet.value);
+const saveQuestionSet = async () => {
+  if (!editingQuestionSet.value || !selectedAgencyId.value) return;
+  qsetSaving.value = true;
+  try {
+    const payload = {
+      agencyId: selectedAgencyId.value,
+      name: editingQuestionSet.value.name || 'Untitled Question Set',
+      fieldsJson: editingQuestionSet.value.fields || [],
+      templateType: 'question_set'
+    };
+    if (editingQuestionSet.value.id) {
+      await api.put(`/intake-field-templates/${editingQuestionSet.value.id}`, {
+        name: payload.name,
+        fieldsJson: payload.fieldsJson
+      });
+    } else {
+      await api.post('/intake-field-templates', payload);
+    }
+    editingQuestionSet.value = null;
+    await loadQuestionSets();
+  } catch (e) {
+    alert('Failed to save question set: ' + (e?.response?.data?.error?.message || e.message));
+  } finally {
+    qsetSaving.value = false;
   }
-  persistQuestionSets();
-  editingQuestionSet.value = null;
 };
 
-const deleteQuestionSet = (id) => {
-  questionSets.value = questionSets.value.filter((q) => q.id !== id);
-  persistQuestionSets();
+const deleteQuestionSet = async (id) => {
+  if (!confirm('Delete this question set? This cannot be undone.')) return;
+  try {
+    await api.delete(`/intake-field-templates/${id}`);
+    questionSets.value = questionSets.value.filter((q) => q.id !== id);
+  } catch (e) {
+    alert('Failed to delete: ' + (e?.response?.data?.error?.message || e.message));
+  }
 };
 
 const addQSetField = () => {
@@ -1693,6 +1718,8 @@ const insertQuestionSet = (qs) => {
   };
   form.intakeSteps.push(step);
   showQSetPicker.value = false;
+  qsetInsertedNotice.value = true;
+  setTimeout(() => { qsetInsertedNotice.value = false; }, 6000);
 };
 // ─────────────────────────────────────────────────────────────────────────────
 const openDocumentStepSelectId = ref(null);
@@ -2121,7 +2148,7 @@ watch(selectedAgencyId, async (next) => {
   if (!next) return;
   const r = await api.get('/intake-field-templates', { params: { agencyId: next } });
   fieldTemplates.value = r.data || [];
-  loadQuestionSets();
+  await loadQuestionSets();
 });
 
 watch(() => form.formType, (newVal) => {
@@ -2175,7 +2202,6 @@ const handleDocumentClick = (e) => {
 
 onMounted(() => {
   window.addEventListener('beforeunload', handleBeforeUnload);
-  loadQuestionSets();
 });
 
 watch(openDocumentStepSelectId, (open) => {
@@ -4209,5 +4235,14 @@ onMounted(fetchData);
 }
 .question-set-picker-row:last-child {
   border-bottom: none;
+}
+.qset-inserted-notice {
+  background: #d1fae5;
+  border: 1px solid #6ee7b7;
+  color: #065f46;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 0.9rem;
 }
 </style>
