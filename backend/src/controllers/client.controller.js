@@ -3787,10 +3787,10 @@ export const getClientClinicalResponses = async (req, res, next) => {
     let submRows = [];
     try {
       [submRows] = await pool.execute(
-        `SELECT s.id, s.submission_data, s.link_token, s.created_at
-         FROM public_intake_submissions s
+        `SELECT s.id, s.intake_data, s.intake_link_id, s.submitted_at
+         FROM intake_submissions s
          WHERE s.client_id = ? AND s.status = 'submitted'
-         ORDER BY s.created_at DESC
+         ORDER BY s.submitted_at DESC
          LIMIT 1`,
         [clientId]
       );
@@ -3806,18 +3806,21 @@ export const getClientClinicalResponses = async (req, res, next) => {
 
     const sub = submRows[0];
     let submissionData = {};
-    try { submissionData = JSON.parse(sub.submission_data || '{}'); } catch { /* ignore */ }
+    try { submissionData = JSON.parse(sub.intake_data || '{}'); } catch { /* ignore */ }
 
     // Get the link to resolve all field labels and scopes
     let intakeFields = [];
     let formConfig = {};
-    if (sub.link_token) {
+    if (sub.intake_link_id) {
       const [linkRows] = await pool.execute(
-        `SELECT form_config, intake_fields FROM public_intake_links WHERE token = ? LIMIT 1`,
-        [sub.link_token]
+        `SELECT intake_fields, intake_steps FROM intake_links WHERE id = ? LIMIT 1`,
+        [sub.intake_link_id]
       );
       if (linkRows.length) {
-        try { formConfig = JSON.parse(linkRows[0].form_config || '{}'); } catch { /* ignore */ }
+        try {
+          const rawSteps = JSON.parse(linkRows[0].intake_steps || '[]');
+          formConfig = { intakeSteps: Array.isArray(rawSteps) ? rawSteps : [] };
+        } catch { /* ignore */ }
         try {
           const raw = JSON.parse(linkRows[0].intake_fields || '[]');
           intakeFields = Array.isArray(raw) ? raw : [];
@@ -3971,10 +3974,10 @@ export const getClientDemographics = async (req, res, next) => {
     let submRows = [];
     try {
       [submRows] = await pool.execute(
-        `SELECT s.submission_data, s.link_token, s.created_at
-         FROM public_intake_submissions s
+        `SELECT s.intake_data, s.intake_link_id, s.submitted_at
+         FROM intake_submissions s
          WHERE s.client_id = ? AND s.status = 'submitted'
-         ORDER BY s.created_at DESC
+         ORDER BY s.submitted_at DESC
          LIMIT 1`,
         [clientId]
       );
@@ -3990,15 +3993,15 @@ export const getClientDemographics = async (req, res, next) => {
 
     if (submRows.length) {
       const sub = submRows[0];
-      capturedAt = sub.created_at || null;
+      capturedAt = sub.submitted_at || null;
       let submissionData = {};
-      try { submissionData = JSON.parse(sub.submission_data || '{}'); } catch { /* ignore */ }
+      try { submissionData = JSON.parse(sub.intake_data || '{}'); } catch { /* ignore */ }
 
       // Resolve field labels from the link
-      if (sub.link_token) {
+      if (sub.intake_link_id) {
         const [linkRows] = await pool.execute(
-          `SELECT intake_fields FROM public_intake_links WHERE token = ? LIMIT 1`,
-          [sub.link_token]
+          `SELECT intake_fields FROM intake_links WHERE id = ? LIMIT 1`,
+          [sub.intake_link_id]
         );
         if (linkRows.length) {
           try { intakeFields = JSON.parse(linkRows[0].intake_fields || '[]') || []; } catch { /* ignore */ }
@@ -4045,7 +4048,7 @@ export const getClientDemographics = async (req, res, next) => {
     if (submRows.length) {
       const sub = submRows[0];
       let submissionData = {};
-      try { submissionData = JSON.parse(sub.submission_data || '{}'); } catch { /* ignore */ }
+      try { submissionData = JSON.parse(sub.intake_data || '{}'); } catch { /* ignore */ }
       const insurerName = String(submissionData?.responses?.submission?.insuranceInfo?.primary?.insurerName || '').trim();
       if (insurerName) {
         // Try to persist it back to DB so the Overview picks it up next time
