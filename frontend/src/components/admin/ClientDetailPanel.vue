@@ -661,18 +661,63 @@
         <div v-if="activeTab === 'clinical'" class="detail-section">
           <div v-if="clinicalLoading" class="loading">Loading clinical responses…</div>
           <div v-else-if="clinicalError" class="error">{{ clinicalError }}</div>
-          <div v-else-if="clinicalFields.length === 0" class="empty-state">
-            <p>No clinical responses on file. Clinical questions must be added to the client's intake form to capture data here.</p>
+          <div v-else-if="!clinicalSections.length" class="empty-state">
+            <p>No clinical responses on file yet.</p>
+            <p class="muted" style="font-size: 13px; margin-top: 8px;">
+              Clinical data appears here automatically from completed intakes —
+              including PSC-17 scores, trauma indicators, goals, and any Clinical Questions step data.
+            </p>
           </div>
           <div v-else>
             <p v-if="clinicalCapturedAt" class="muted" style="font-size: 13px; margin-bottom: 16px;">
-              Captured from intake on {{ new Date(clinicalCapturedAt).toLocaleDateString() }}.
+              From intake completed {{ new Date(clinicalCapturedAt).toLocaleDateString() }}.
               Visible only to the assigned provider and admin staff.
             </p>
-            <div class="clinical-field-list">
-              <div v-for="field in clinicalFields" :key="field.key" class="clinical-field-row">
-                <div class="clinical-field-label">{{ field.label }}</div>
-                <div class="clinical-field-value">{{ field.value }}</div>
+            <div v-for="section in clinicalSections" :key="section.title" class="clinical-section" style="margin-bottom: 24px;">
+              <h4 class="clinical-section-title">{{ section.title }}</h4>
+              <div class="clinical-field-list">
+                <div v-for="field in section.fields" :key="field.key" class="clinical-field-row">
+                  <div class="clinical-field-label">{{ field.label }}</div>
+                  <div class="clinical-field-value">{{ field.value }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Demographics Tab -->
+        <div v-if="activeTab === 'demographics'" class="detail-section">
+          <div v-if="demoLoading" class="loading">Loading demographics…</div>
+          <div v-else-if="demoError" class="error">{{ demoError }}</div>
+          <div v-else-if="!demoProfileFields.length && !demoIntakeFields.length" class="empty-state">
+            <p>No demographic data on file yet.</p>
+            <p class="muted" style="font-size: 13px; margin-top: 8px;">
+              Demographics are captured automatically from completed intakes when a Demographics step is included,
+              or when fields like address, date of birth, and gender are answered in any question step.
+            </p>
+          </div>
+          <div v-else>
+            <div v-if="demoProfileFields.length" style="margin-bottom: 24px;">
+              <h4 class="clinical-section-title">Profile</h4>
+              <div class="clinical-field-list">
+                <div v-for="f in demoProfileFields" :key="f.key" class="clinical-field-row">
+                  <div class="clinical-field-label">{{ f.label }}</div>
+                  <div class="clinical-field-value">{{ f.value }}</div>
+                </div>
+              </div>
+            </div>
+            <div v-if="demoIntakeFields.length">
+              <h4 class="clinical-section-title">
+                From Intake
+                <span v-if="demoCapturedAt" class="muted" style="font-weight: 400; font-size: 12px; margin-left: 6px;">
+                  ({{ new Date(demoCapturedAt).toLocaleDateString() }})
+                </span>
+              </h4>
+              <div class="clinical-field-list">
+                <div v-for="f in demoIntakeFields" :key="f.key" class="clinical-field-row">
+                  <div class="clinical-field-label">{{ f.label }}</div>
+                  <div class="clinical-field-value">{{ f.value }}</div>
+                </div>
               </div>
             </div>
           </div>
@@ -2065,6 +2110,11 @@ const tabs = computed(() => {
     const clinicalIdx = base.findIndex((t) => t.id === 'messages');
     base.splice(clinicalIdx < 0 ? base.length : clinicalIdx, 0, { id: 'clinical', label: 'Clinical' });
   }
+  // Demographics tab: visible to admin/support roles and providers
+  if (['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus'].includes(roleNorm.value)) {
+    const demoIdx = base.findIndex((t) => t.id === 'clinical');
+    base.splice(demoIdx < 0 ? base.length : demoIdx, 0, { id: 'demographics', label: 'Demographics' });
+  }
   return base;
 });
 
@@ -3296,8 +3346,10 @@ watch(() => activeTab.value, (newTab) => {
     fetchPaperworkStatuses();
     fetchDeliveryMethods();
     fetchPaperworkHistory();
-  } else if (newTab === 'clinical' && clinicalFields.value.length === 0) {
+  } else if (newTab === 'clinical' && clinicalSections.value.length === 0) {
     fetchClinicalResponses();
+  } else if (newTab === 'demographics' && !demoProfileFields.value.length && !demoIntakeFields.value.length) {
+    fetchDemographics();
   }
 });
 
@@ -3385,7 +3437,7 @@ const fetchAccessLog = async () => {
 };
 
 // Clinical tab
-const clinicalFields = ref([]);
+const clinicalSections = ref([]);
 const clinicalCapturedAt = ref(null);
 const clinicalLoading = ref(false);
 const clinicalError = ref('');
@@ -3396,12 +3448,36 @@ const fetchClinicalResponses = async () => {
     clinicalLoading.value = true;
     clinicalError.value = '';
     const r = await api.get(`/clients/${props.client.id}/clinical-responses`);
-    clinicalFields.value = r.data?.fields || [];
+    // Backend returns { sections: [{title, fields}], capturedAt } 
+    clinicalSections.value = r.data?.sections || [];
     clinicalCapturedAt.value = r.data?.capturedAt || null;
   } catch (e) {
     clinicalError.value = e.response?.data?.error?.message || 'Failed to load clinical responses';
   } finally {
     clinicalLoading.value = false;
+  }
+};
+
+// Demographics tab
+const demoProfileFields = ref([]);
+const demoIntakeFields = ref([]);
+const demoCapturedAt = ref(null);
+const demoLoading = ref(false);
+const demoError = ref('');
+
+const fetchDemographics = async () => {
+  if (!props.client?.id) return;
+  try {
+    demoLoading.value = true;
+    demoError.value = '';
+    const r = await api.get(`/clients/${props.client.id}/demographics`);
+    demoProfileFields.value = r.data?.profileFields || [];
+    demoIntakeFields.value = r.data?.intakeDemoFields || [];
+    demoCapturedAt.value = r.data?.capturedAt || null;
+  } catch (e) {
+    demoError.value = e.response?.data?.error?.message || 'Failed to load demographics';
+  } finally {
+    demoLoading.value = false;
   }
 };
 
@@ -3437,6 +3513,8 @@ onMounted(async () => {
     await fetchPaperworkHistory();
   } else if (activeTab.value === 'clinical') {
     await fetchClinicalResponses();
+  } else if (activeTab.value === 'demographics') {
+    await fetchDemographics();
   }
 });
 
@@ -4227,6 +4305,17 @@ watch(
   color: #c33;
   background: #fee;
   border-radius: 6px;
+}
+
+.clinical-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #64748b);
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
 }
 
 .clinical-field-list {

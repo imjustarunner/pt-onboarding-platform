@@ -3719,8 +3719,54 @@ export const logClientProfileView = async (req, res, next) => {
   }
 };
 
+// Heuristic patterns for identifying clinical vs. demographic vs. administrative fields.
+// These allow backfilling data from legacy submissions that predate the new step types.
+const DEMO_KEY_PATTERN = /address|street|apt|city|state|zip|postal|gender|sex|ethnic|race|language|dob|birth|born/i;
+const DEMO_LABEL_PATTERN = /address|street|apartment|city|state|zip|postal|gender|sex|ethnicity|race|language|date of birth|birthdate|born/i;
+const DEMO_SKIP_LABEL_PATTERN = /guardian|parent|emergency|pickup|insurance|subscriber|school|grade|employer/i;
+
+const CLINICAL_SKIP_LABEL_PATTERN = /insurance|member id|policy|subscriber|payer|medicaid|medicare|coverage|group|plan|billing|ssn|social security|address|street|city|state|zip|postal|phone|email|contact|relationship|guardian first|guardian last|client first|client last|full name|middle name|date of birth|birthdate|dob|grade|school|legal right|custodian|sms|text message|communication preference|apartment|apt/i;
+const CLINICAL_SKIP_KEY_PATTERN = /legal|custodian|sms|text|communication|apartment|address|phone|email|relationship|client_first|client_last|guardian_first|guardian_last|first_name|last_name|firstname|lastname|dob|birth|grade|school|insurance|zip|city|state|street|postal/i;
+
+const hasVal = (v) => v !== null && v !== undefined && String(v).trim() !== '';
+const normalizeLabel = (s) => String(s || '').trim();
+
+/**
+ * Extract all labeled fields from a submission, returning { key, label, value } for each non-empty answer.
+ * Uses the link's intake_fields as the label source; also falls back to key as label.
+ */
+const extractLabeledFieldsFromSubmission = (submissionData, intakeFields = []) => {
+  const labelMap = new Map();
+  for (const f of intakeFields) {
+    if (f?.key) labelMap.set(String(f.key), { label: f.label || f.key, scope: f.scope || 'submission' });
+  }
+
+  const allResponses = {
+    ...((submissionData?.responses?.guardian) || {}),
+    ...((submissionData?.responses?.submission) || {}),
+    ...(Array.isArray(submissionData?.responses?.clients) ? (submissionData.responses.clients[0] || {}) : {})
+  };
+
+  const result = [];
+  for (const [key, value] of Object.entries(allResponses)) {
+    if (key === 'clinicalResponses' || key === 'demographicsInfo' || key === 'insuranceInfo'
+      || key === 'communicationPreferences' || key === 'registrationSelections') continue;
+    if (!hasVal(value)) continue;
+    const meta = labelMap.get(key);
+    result.push({
+      key,
+      label: normalizeLabel(meta?.label || key),
+      scope: meta?.scope || 'submission',
+      value: String(value).trim()
+    });
+  }
+  return result;
+};
+
 /**
  * Get clinical responses from the client's most recent intake submission.
+ * Covers both new-style clinical_questions step data AND legacy PSC-17 / clinical
+ * fields from any existing intake.
  * GET /api/clients/:id/clinical-responses
  */
 export const getClientClinicalResponses = async (req, res, next) => {
@@ -3739,7 +3785,7 @@ export const getClientClinicalResponses = async (req, res, next) => {
 
     // Fetch the latest submitted intake for this client
     const [submRows] = await pool.execute(
-      `SELECT s.id, s.submission_data, s.link_token
+      `SELECT s.id, s.submission_data, s.link_token, s.created_at
        FROM public_intake_submissions s
        WHERE s.client_id = ? AND s.status = 'submitted'
        ORDER BY s.created_at DESC
@@ -3747,41 +3793,229 @@ export const getClientClinicalResponses = async (req, res, next) => {
       [clientId]
     );
 
-    if (!submRows.length) return res.json({ fields: [], capturedAt: null });
+    if (!submRows.length) return res.json({ sections: [], capturedAt: null });
 
     const sub = submRows[0];
     let submissionData = {};
     try { submissionData = JSON.parse(sub.submission_data || '{}'); } catch { /* ignore */ }
 
-    const clinicalResponses = submissionData?.responses?.submission?.clinicalResponses || {};
-    if (!Object.keys(clinicalResponses).length) return res.json({ fields: [], capturedAt: null });
-
-    // Get the link to resolve field labels for clinical_questions steps
-    let fieldLabels = {};
+    // Get the link to resolve all field labels and scopes
+    let intakeFields = [];
+    let formConfig = {};
     if (sub.link_token) {
       const [linkRows] = await pool.execute(
-        `SELECT form_config FROM public_intake_links WHERE token = ? LIMIT 1`,
+        `SELECT form_config, intake_fields FROM public_intake_links WHERE token = ? LIMIT 1`,
         [sub.link_token]
       );
       if (linkRows.length) {
+        try { formConfig = JSON.parse(linkRows[0].form_config || '{}'); } catch { /* ignore */ }
         try {
-          const formConfig = JSON.parse(linkRows[0].form_config || '{}');
-          const steps = Array.isArray(formConfig.intakeSteps) ? formConfig.intakeSteps : [];
-          for (const step of steps) {
-            if (step.type !== 'clinical_questions') continue;
-            for (const field of (step.fields || [])) {
-              if (field.key) fieldLabels[field.key] = field.label || field.key;
-            }
-          }
+          const raw = JSON.parse(linkRows[0].intake_fields || '[]');
+          intakeFields = Array.isArray(raw) ? raw : [];
         } catch { /* ignore */ }
       }
     }
 
-    const fields = Object.entries(clinicalResponses)
-      .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
-      .map(([key, value]) => ({ key, label: fieldLabels[key] || key, value: String(value) }));
+    const sections = [];
 
-    res.json({ fields, capturedAt: sub.created_at || null });
+    // ── 1. New-style clinical_questions step data ───────────────────────────
+    const clinicalResponses = submissionData?.responses?.submission?.clinicalResponses || {};
+    const newClinicalFields = [];
+    if (Object.keys(clinicalResponses).length) {
+      const clinicalLabelMap = new Map();
+      const steps = Array.isArray(formConfig.intakeSteps) ? formConfig.intakeSteps : [];
+      for (const step of steps) {
+        if (step.type !== 'clinical_questions') continue;
+        for (const field of (step.fields || [])) {
+          if (field.key) clinicalLabelMap.set(field.key, field.label || field.key);
+        }
+      }
+      for (const [key, value] of Object.entries(clinicalResponses)) {
+        if (!hasVal(value)) continue;
+        newClinicalFields.push({ key, label: clinicalLabelMap.get(key) || key, value: String(value) });
+      }
+    }
+    if (newClinicalFields.length) {
+      sections.push({ title: 'Clinical Questions', fields: newClinicalFields });
+    }
+
+    // ── 2. Legacy: scope=clinical fields from intake_fields ─────────────────
+    const legacyScopedFields = intakeFields.filter((f) => f?.scope === 'clinical' && f?.key);
+    const legacyScopedResults = [];
+    const allSub = {
+      ...((submissionData?.responses?.submission) || {}),
+      ...(Array.isArray(submissionData?.responses?.clients) ? (submissionData.responses.clients[0] || {}) : {})
+    };
+    for (const f of legacyScopedFields) {
+      const value = allSub[f.key];
+      if (!hasVal(value)) continue;
+      legacyScopedResults.push({ key: f.key, label: f.label || f.key, value: String(value).trim() });
+    }
+    if (legacyScopedResults.length) {
+      sections.push({ title: 'Clinical Intake Fields', fields: legacyScopedResults });
+    }
+
+    // ── 3. Legacy: PSC-17 items ─────────────────────────────────────────────
+    const pscFields = [];
+    const clientResponses = Array.isArray(submissionData?.responses?.clients)
+      ? (submissionData.responses.clients[0] || {})
+      : {};
+    const labelMap = new Map(intakeFields.map((f) => [String(f.key || ''), f.label || f.key]));
+    for (let i = 1; i <= 17; i++) {
+      const key = `psc_${i}`;
+      const raw = clientResponses[key] ?? allSub[key];
+      if (!hasVal(raw)) continue;
+      const label = labelMap.get(key) || `PSC item ${i}`;
+      pscFields.push({ key, label, value: String(raw).trim() });
+    }
+    if (pscFields.length) {
+      sections.push({ title: 'PSC-17 Behavioral Assessment', fields: pscFields });
+    }
+
+    // ── 4. Legacy: all other submission/client fields that look clinical ─────
+    // (anything not excluded by the clinical summary exclude patterns, and not
+    //  already surfaced in the previous sections, and not demographic)
+    const seenKeys = new Set([
+      ...newClinicalFields.map((f) => f.key),
+      ...legacyScopedResults.map((f) => f.key),
+      ...pscFields.map((f) => f.key)
+    ]);
+    const allLabeled = extractLabeledFieldsFromSubmission(submissionData, intakeFields);
+    const generalClinicalFields = allLabeled.filter(({ key, label, value }) => {
+      if (seenKeys.has(key)) return false;
+      // Skip demographic-looking fields
+      if (DEMO_KEY_PATTERN.test(key)) return false;
+      if (DEMO_LABEL_PATTERN.test(label) && !DEMO_SKIP_LABEL_PATTERN.test(label)) return false;
+      // Skip admin/contact fields
+      if (CLINICAL_SKIP_KEY_PATTERN.test(key)) return false;
+      if (CLINICAL_SKIP_LABEL_PATTERN.test(label)) return false;
+      return hasVal(value);
+    });
+    if (generalClinicalFields.length) {
+      sections.push({
+        title: 'Additional Intake Responses',
+        fields: generalClinicalFields.map(({ key, label, value }) => ({ key, label, value }))
+      });
+    }
+
+    res.json({ sections, capturedAt: sub.created_at || null });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Get demographic profile data for a client from the DB + latest intake submission.
+ * Covers new demographics step data AND legacy address/demographic fields from any intake.
+ * GET /api/clients/:id/demographics
+ */
+export const getClientDemographics = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userRole = String(req.user?.role || '').toLowerCase();
+    const allowedRoles = ['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus'];
+    if (!allowedRoles.includes(userRole)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: userRole, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    // ── 1. Known demographics columns from clients table ────────────────────
+    const [clientRows] = await pool.execute(
+      `SELECT date_of_birth, gender, address_street, address_apt, address_city,
+              address_state, address_zip, ethnicity, preferred_language
+       FROM clients WHERE id = ? LIMIT 1`,
+      [clientId]
+    );
+    const clientRow = clientRows[0] || {};
+
+    // Coerce NULLs to empty strings for consistent handling
+    const profileFields = [
+      { key: 'date_of_birth',       label: 'Date of Birth',      value: clientRow.date_of_birth ? String(clientRow.date_of_birth).slice(0, 10) : '' },
+      { key: 'gender',              label: 'Gender',             value: clientRow.gender || '' },
+      { key: 'ethnicity',           label: 'Race / Ethnicity',   value: clientRow.ethnicity || '' },
+      { key: 'preferred_language',  label: 'Preferred Language', value: clientRow.preferred_language || '' },
+      { key: 'address_street',      label: 'Street Address',     value: clientRow.address_street || '' },
+      { key: 'address_apt',         label: 'Apt / Unit',         value: clientRow.address_apt || '' },
+      { key: 'address_city',        label: 'City',               value: clientRow.address_city || '' },
+      { key: 'address_state',       label: 'State',              value: clientRow.address_state || '' },
+      { key: 'address_zip',         label: 'Zip Code',           value: clientRow.address_zip || '' },
+    ].filter((f) => hasVal(f.value));
+
+    // ── 2. Latest submitted intake – new-style demographicsInfo block ───────
+    const [submRows] = await pool.execute(
+      `SELECT s.submission_data, s.link_token, s.created_at
+       FROM public_intake_submissions s
+       WHERE s.client_id = ? AND s.status = 'submitted'
+       ORDER BY s.created_at DESC
+       LIMIT 1`,
+      [clientId]
+    );
+
+    let intakeFields = [];
+    let capturedAt = null;
+    const intakeDemoFields = [];
+
+    if (submRows.length) {
+      const sub = submRows[0];
+      capturedAt = sub.created_at || null;
+      let submissionData = {};
+      try { submissionData = JSON.parse(sub.submission_data || '{}'); } catch { /* ignore */ }
+
+      // Resolve field labels from the link
+      if (sub.link_token) {
+        const [linkRows] = await pool.execute(
+          `SELECT intake_fields FROM public_intake_links WHERE token = ? LIMIT 1`,
+          [sub.link_token]
+        );
+        if (linkRows.length) {
+          try { intakeFields = JSON.parse(linkRows[0].intake_fields || '[]') || []; } catch { /* ignore */ }
+        }
+      }
+
+      const labelMap = new Map(intakeFields.map((f) => [String(f.key || ''), f.label || f.key]));
+
+      // New-style demographicsInfo namespace
+      const di = submissionData?.responses?.submission?.demographicsInfo;
+      if (di && typeof di === 'object') {
+        const demoMap = [
+          ['dob', 'Date of Birth (intake)'],
+          ['gender', 'Gender (intake)'],
+          ['ethnicity', 'Race / Ethnicity (intake)'],
+          ['preferredLanguage', 'Preferred Language (intake)'],
+          ['addressStreet', 'Street Address (intake)'],
+          ['addressApt', 'Apt / Unit (intake)'],
+          ['addressCity', 'City (intake)'],
+          ['addressState', 'State (intake)'],
+          ['addressZip', 'Zip Code (intake)']
+        ];
+        for (const [k, label] of demoMap) {
+          if (hasVal(di[k])) intakeDemoFields.push({ key: k, label, value: String(di[k]) });
+        }
+      }
+
+      // Legacy: scan ALL submission fields for demographic-pattern keys/labels
+      // (only include what's not already covered by profileFields)
+      const profileKeys = new Set(profileFields.map((f) => f.key));
+      const intakeDemoKeys = new Set(intakeDemoFields.map((f) => f.key));
+      const allLabeled = extractLabeledFieldsFromSubmission(submissionData, intakeFields);
+      for (const { key, label, value } of allLabeled) {
+        if (profileKeys.has(key) || intakeDemoKeys.has(key)) continue;
+        const matchesKey = DEMO_KEY_PATTERN.test(key);
+        const matchesLabel = DEMO_LABEL_PATTERN.test(label) && !DEMO_SKIP_LABEL_PATTERN.test(label);
+        if (!matchesKey && !matchesLabel) continue;
+        intakeDemoFields.push({ key, label: labelMap.get(key) || label, value });
+      }
+    }
+
+    res.json({
+      profileFields,     // From clients DB columns
+      intakeDemoFields,  // From intake submission (new + legacy)
+      capturedAt
+    });
   } catch (e) {
     next(e);
   }

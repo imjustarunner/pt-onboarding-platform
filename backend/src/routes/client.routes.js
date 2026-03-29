@@ -32,6 +32,7 @@ import {
   updateClientComplianceChecklist,
   getClientAccessLog,
   getClientClinicalResponses,
+  getClientDemographics,
   logClientProfileView,
   listClientAffiliations,
   upsertClientAffiliation,
@@ -124,6 +125,9 @@ router.post('/:id/log-view', logClientProfileView);
 
 // Clinical responses from intake (provider/admin)
 router.get('/:id/clinical-responses', getClientClinicalResponses);
+
+// Demographics from profile + latest intake (backfills legacy data)
+router.get('/:id/demographics', getClientDemographics);
 
 // Single admin note (internal-only; shown on Overview)
 router.get('/:id/admin-note', getClientAdminNote);
