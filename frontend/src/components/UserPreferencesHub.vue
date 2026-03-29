@@ -499,30 +499,6 @@
       </div>
     </section>
 
-    <!-- Fitness Integrations (Summit Stats Challenge) -->
-    <section class="preferences-section">
-      <div class="section-header">
-        <h2>Fitness Integrations</h2>
-        <p class="section-description">Connect your fitness apps for challenge participation. Strava profile linking is available for Summit Stats Challenge.</p>
-      </div>
-      <div class="section-content">
-        <div class="card">
-          <h3 class="card-title">Strava</h3>
-          <div v-if="stravaStatus?.connected" class="strava-connected">
-            <p>Connected as <strong>{{ stravaStatus.username || 'Strava athlete' }}</strong></p>
-            <p v-if="stravaStatus.connectedAt" class="hint">Connected {{ formatStravaDate(stravaStatus.connectedAt) }}</p>
-            <button type="button" class="btn btn-secondary" :disabled="stravaDisconnecting" @click="disconnectStrava">
-              {{ stravaDisconnecting ? 'Disconnecting…' : 'Disconnect Strava' }}
-            </button>
-          </div>
-          <div v-else>
-            <p v-if="!stravaStatus?.stravaConfigured" class="hint">Strava integration is not configured. Contact your Program Manager.</p>
-            <a v-else :href="stravaConnectUrl" class="btn btn-primary">Connect Strava</a>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <!-- Section 3: Communication Preferences (non-notification) -->
     <section class="preferences-section">
       <div class="section-header">
@@ -1025,14 +1001,6 @@ const schedulingPrefs = ref({
   allow_auto_approval_recurring: false
 });
 
-const stravaStatus = ref(null);
-const stravaDisconnecting = ref(false);
-const stravaConnectUrl = computed(() => {
-  const base = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '') || window.location.origin;
-  return `${base}/api/strava/connect`;
-});
-const formatStravaDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
-
 const isSupportRole = computed(() => authStore.user?.role === 'support');
 const canEditAdminControlled = computed(() => !!props.allowAdminControlledEdits);
 
@@ -1232,29 +1200,6 @@ const clearKioskPin = async () => {
   }
 };
 
-const loadStravaStatus = async () => {
-  if (props.userId !== authStore.user?.id) return;
-  try {
-    const r = await api.get('/strava/status', { skipGlobalLoading: true });
-    stravaStatus.value = r.data || null;
-  } catch {
-    stravaStatus.value = null;
-  }
-};
-
-const disconnectStrava = async () => {
-  if (props.userId !== authStore.user?.id || props.viewOnly) return;
-  try {
-    stravaDisconnecting.value = true;
-    await api.delete('/strava/disconnect');
-    stravaStatus.value = { ...stravaStatus.value, connected: false, username: null, connectedAt: null };
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Failed to disconnect Strava';
-  } finally {
-    stravaDisconnecting.value = false;
-  }
-};
-
 const load = async () => {
   try {
     loading.value = true;
@@ -1341,7 +1286,6 @@ const load = async () => {
     }
 
     await loadScheduleLocations();
-    await loadStravaStatus();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load preferences';
   } finally {

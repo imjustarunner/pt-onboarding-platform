@@ -14,7 +14,8 @@ import {
   refreshAccessToken,
   fetchAthleteActivities,
   fetchActivityById,
-  isConfigured
+  isConfigured,
+  getConfigDiagnostics
 } from '../services/stravaOAuth.service.js';
 
 const asInt = (v) => {
@@ -68,8 +69,8 @@ export const stravaCallback = async (req, res, next) => {
   try {
     const { code, state, error: oauthError } = req.query;
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const redirectTo = `${frontendUrl}/dashboard?tab=my&my=preferences&strava=connected`;
-    const redirectError = `${frontendUrl}/dashboard?tab=my&my=preferences&strava=error`;
+    const redirectTo = `${frontendUrl}/dashboard?tab=my&my=account&strava=connected`;
+    const redirectError = `${frontendUrl}/dashboard?tab=my&my=account&strava=error`;
     if (oauthError) return res.redirect(302, redirectError);
     const payload = verifySignedState(state);
     if (!payload?.userId) return res.redirect(302, redirectError);
@@ -133,12 +134,19 @@ export const stravaStatus = async (req, res, next) => {
     );
     const row = rows?.[0];
     const connected = !!(row?.strava_athlete_id);
+    const cfg = getConfigDiagnostics();
     return res.json({
       connected,
       athleteId: row?.strava_athlete_id || null,
       username: row?.strava_athlete_username || null,
       connectedAt: row?.strava_connected_at || null,
-      stravaConfigured: isConfigured()
+      stravaConfigured: cfg.configured,
+      stravaConfig: {
+        hasClientId: cfg.hasClientId,
+        hasClientSecret: cfg.hasClientSecret,
+        hasRedirectUri: cfg.hasRedirectUri,
+        redirectUri: cfg.redirectUri
+      }
     });
   } catch (e) {
     next(e);

@@ -183,6 +183,32 @@
           </div>
         </div>
 
+        <div v-if="isSsc" class="card compact-card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin: 0;">Fitness Integrations</h3>
+          </div>
+          <div class="hint" style="margin-top: 6px; margin-bottom: 10px;">
+            Connect Strava to import workouts into your season activity.
+          </div>
+          <div>
+            <div v-if="stravaStatus?.connected">
+              <div>Connected as <strong>{{ stravaStatus.username || 'Strava athlete' }}</strong></div>
+              <div v-if="stravaStatus.connectedAt" class="hint" style="margin-top: 4px; margin-bottom: 8px;">
+                Connected {{ formatStravaDate(stravaStatus.connectedAt) }}
+              </div>
+              <button type="button" class="btn btn-secondary btn-compact" :disabled="stravaDisconnecting" @click="disconnectStrava">
+                {{ stravaDisconnecting ? 'Disconnecting...' : 'Disconnect Strava' }}
+              </button>
+            </div>
+            <div v-else>
+              <div v-if="!stravaStatus?.stravaConfigured" class="hint" style="margin-bottom: 8px;">
+                Strava integration is not configured. Contact your Program Manager.
+              </div>
+              <a v-else :href="stravaConnectUrl" class="btn btn-primary btn-compact">Connect Strava</a>
+            </div>
+          </div>
+        </div>
+
         <!-- SSC: preferred name is inside the editable "Your Details" card above -->
         <div v-if="!isSsc" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
@@ -693,6 +719,14 @@ const editingPersonalInfo = ref(false);
 const savingPersonalInfo = ref(false);
 const personalInfoError = ref('');
 const personalInfoForm = ref({ username: '', phoneNumber: '', preferredName: '', title: '' });
+const stravaStatus = ref(null);
+const stravaDisconnecting = ref(false);
+const stravaConnectUrl = computed(() => {
+  const base = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '') || window.location.origin;
+  return `${base}/api/strava/connect`;
+});
+const formatStravaDate = (d) =>
+  (d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
 const startEditPersonalInfo = () => {
   personalInfoForm.value = {
@@ -728,6 +762,28 @@ const savePersonalInfo = async () => {
     personalInfoError.value = e?.response?.data?.error?.message || 'Failed to save. Please try again.';
   } finally {
     savingPersonalInfo.value = false;
+  }
+};
+
+const fetchStravaStatus = async () => {
+  if (!userId.value) return;
+  try {
+    const r = await api.get('/strava/status', { skipGlobalLoading: true });
+    stravaStatus.value = r.data || null;
+  } catch {
+    stravaStatus.value = null;
+  }
+};
+
+const disconnectStrava = async () => {
+  try {
+    stravaDisconnecting.value = true;
+    await api.delete('/strava/disconnect');
+    stravaStatus.value = { ...stravaStatus.value, connected: false, username: null, connectedAt: null };
+  } catch (e) {
+    personalInfoError.value = e?.response?.data?.error?.message || 'Failed to disconnect Strava';
+  } finally {
+    stravaDisconnecting.value = false;
   }
 };
 
@@ -1201,6 +1257,7 @@ const downloadCompletionPackage = async () => {
 onMounted(() => {
   if (userId.value) {
     fetchAccountInfo();
+    fetchStravaStatus();
     fetchMyUserInfo();
     fetchAssignedOffices();
     fetchProviderPublicProfile();

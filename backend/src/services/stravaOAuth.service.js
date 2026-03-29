@@ -10,15 +10,15 @@ const STRAVA_AUTH_URL = 'https://www.strava.com/oauth/authorize';
 const STRAVA_TOKEN_URL = 'https://www.strava.com/oauth/token';
 
 function getClientId() {
-  return process.env.STRAVA_CLIENT_ID || '';
+  return String(process.env.STRAVA_CLIENT_ID || '').trim();
 }
 
 function getClientSecret() {
-  return process.env.STRAVA_CLIENT_SECRET || '';
+  return String(process.env.STRAVA_CLIENT_SECRET || '').trim();
 }
 
 function getRedirectUri() {
-  return process.env.STRAVA_REDIRECT_URI || '';
+  return String(process.env.STRAVA_REDIRECT_URI || '').trim();
 }
 
 function getStateSecret() {
@@ -59,6 +59,19 @@ export function verifySignedState(state, { maxAgeMs = 10 * 60 * 1000 } = {}) {
 
 export function isConfigured() {
   return !!(getClientId() && getClientSecret() && getRedirectUri());
+}
+
+export function getConfigDiagnostics() {
+  const clientId = getClientId();
+  const clientSecret = getClientSecret();
+  const redirectUri = getRedirectUri();
+  return {
+    configured: !!(clientId && clientSecret && redirectUri),
+    hasClientId: !!clientId,
+    hasClientSecret: !!clientSecret,
+    hasRedirectUri: !!redirectUri,
+    redirectUri: redirectUri || null
+  };
 }
 
 export function getAuthorizeUrl({ state, redirectUri: override = null }) {

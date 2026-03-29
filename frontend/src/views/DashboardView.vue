@@ -1053,14 +1053,6 @@
                 My Credentials
               </button>
               <button
-                type="button"
-                class="subtab"
-                :class="{ active: myTab === 'preferences' }"
-                @click="setMyTab('preferences')"
-              >
-                My Preferences
-              </button>
-              <button
                 v-if="!isClubContext"
                 type="button"
                 class="subtab"
@@ -1094,13 +1086,6 @@
             </div>
             <div v-if="!isClubContext" v-show="myTab === 'credentials'">
               <CredentialsView />
-            </div>
-            <div v-show="myTab === 'preferences'">
-              <div class="preferences-header">
-                <h1>My Preferences</h1>
-                <p class="preferences-subtitle">Manage your personal settings and preferences</p>
-              </div>
-              <UserPreferencesHub v-if="authStore.user?.id" :userId="authStore.user.id" />
             </div>
             <div v-if="!isClubContext" v-show="myTab === 'payroll'">
               <MyPayrollTab />
@@ -1295,7 +1280,6 @@ import { useMomentumListAddon } from '../composables/useMomentumListAddon';
 import ProviderTopSummaryCard from '../components/dashboard/ProviderTopSummaryCard.vue';
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
-import UserPreferencesHub from '../components/UserPreferencesHub.vue';
 import AdditionalAvailabilitySubmit from '../components/AdditionalAvailabilitySubmit.vue';
 import VirtualWorkingHoursEditor from '../components/availability/VirtualWorkingHoursEditor.vue';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
@@ -1370,7 +1354,7 @@ const userPrefsStore = useUserPreferencesStore();
 const brandingStore = useBrandingStore();
 const tutorialStore = useTutorialStore();
 const activeTab = ref('checklist');
-const myTab = ref('account'); // 'account' | 'credentials' | 'preferences' | 'payroll'
+const myTab = ref('account'); // 'account' | 'credentials' | 'payroll' | 'compensation' | 'kudos'
 const onboardingCompletion = ref(100);
 const trainingCount = ref(0);
 const documentsCount = ref(0);
@@ -3612,10 +3596,11 @@ const handleCardClick = (card) => {
 };
 
 const setMyTab = (tab) => {
-  myTab.value = tab;
+  const normalizedTab = tab === 'preferences' ? 'account' : tab;
+  myTab.value = normalizedTab;
   activeTab.value = 'my';
   if (props.previewMode) return;
-  router.replace({ query: { ...route.query, tab: 'my', my: tab } });
+  router.replace({ query: { ...route.query, tab: 'my', my: normalizedTab } });
 };
 
 const syncFromQuery = () => {
@@ -3627,7 +3612,7 @@ const syncFromQuery = () => {
   }
 
   const qMy = route.query?.my;
-  if (typeof qMy === 'string' && ['account', 'credentials', 'preferences', 'payroll', 'compensation', 'kudos'].includes(qMy)) {
+  if (typeof qMy === 'string' && ['account', 'credentials', 'payroll', 'compensation', 'kudos'].includes(qMy)) {
     const hiddenInClub = ['credentials', 'payroll', 'compensation'];
     if (isClubContext.value && hiddenInClub.includes(qMy)) {
       myTab.value = 'account';
@@ -3635,6 +3620,9 @@ const syncFromQuery = () => {
     } else {
       myTab.value = qMy;
     }
+  } else if (qMy === 'preferences') {
+    myTab.value = 'account';
+    router.replace({ query: { ...route.query, tab: 'my', my: 'account' } });
   }
 
   if (String(qTab || '') === 'my_schedule') {
@@ -4065,7 +4053,7 @@ watch(
 
 function syncClubContextTabs() {
   if (!isClubContext.value) return;
-  const hidden = ['credentials', 'payroll', 'compensation'];
+  const hidden = ['credentials', 'preferences', 'payroll', 'compensation'];
   if (hidden.includes(myTab.value)) {
     myTab.value = 'account';
     if (!props.previewMode) router.replace({ query: { ...route.query, tab: 'my', my: 'account' } });
