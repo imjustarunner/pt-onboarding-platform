@@ -4531,6 +4531,18 @@ export const finalizePublicIntake = async (req, res, next) => {
         if (demographicsInfo) {
           await persistClientDemographicsIfProvided({ clientId, demographicsInfo });
         }
+
+        // Save the primary insurer name from insurance step (best-effort)
+        const insuranceInfo = intakeData?.responses?.submission?.insuranceInfo;
+        const primaryInsurerName = String(insuranceInfo?.primary?.insurerName || '').trim();
+        if (primaryInsurerName) {
+          try {
+            await pool.execute(
+              `UPDATE clients SET primary_insurer_name = ? WHERE id = ?`,
+              [primaryInsurerName.slice(0, 255), clientId]
+            );
+          } catch { /* column may not exist yet (migration pending) */ }
+        }
       }
     }
 

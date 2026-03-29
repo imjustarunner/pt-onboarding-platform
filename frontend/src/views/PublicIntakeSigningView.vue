@@ -3745,7 +3745,7 @@ const completeInsuranceStep = async () => {
     insInfo.primary.subscriberName = String(insInfo.primary.subscriberName || '');
     insInfo.primary.isMedicaid = false;
     insInfo.primaryIsMedicaid = false;
-  } else if (insurerName && !memberId && !medicaidPrimary) {
+  } else if (insurerName && !memberId && !medicaidPrimary && !/self.pay|no insurance/i.test(insurerName)) {
     stepError.value = 'Please enter your primary insurance Member / Policy ID (or choose Medicaid if applicable).';
     return;
   } else {

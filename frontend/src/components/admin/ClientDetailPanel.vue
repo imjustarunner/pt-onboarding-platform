@@ -338,7 +338,11 @@
                   </select>
                 </template>
                 <template v-else>
-                  {{ client.insurance_type_label || '-' }}
+                  <span v-if="client.primary_insurer_name">
+                    {{ client.primary_insurer_name }}
+                    <span v-if="client.insurance_type_label && client.insurance_type_label !== client.primary_insurer_name" class="muted" style="font-size: 12px; margin-left: 4px;">({{ client.insurance_type_label }})</span>
+                  </span>
+                  <span v-else>{{ client.insurance_type_label || '-' }}</span>
                 </template>
               </div>
             </div>

@@ -3784,14 +3784,23 @@ export const getClientClinicalResponses = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     // Fetch the latest submitted intake for this client
-    const [submRows] = await pool.execute(
-      `SELECT s.id, s.submission_data, s.link_token, s.created_at
-       FROM public_intake_submissions s
-       WHERE s.client_id = ? AND s.status = 'submitted'
-       ORDER BY s.created_at DESC
-       LIMIT 1`,
-      [clientId]
-    );
+    let submRows = [];
+    try {
+      [submRows] = await pool.execute(
+        `SELECT s.id, s.submission_data, s.link_token, s.created_at
+         FROM public_intake_submissions s
+         WHERE s.client_id = ? AND s.status = 'submitted'
+         ORDER BY s.created_at DESC
+         LIMIT 1`,
+        [clientId]
+      );
+    } catch (tableErr) {
+      // Table may not exist in all environments (staging/dev); return empty gracefully
+      if (String(tableErr?.message || '').includes("doesn't exist") || tableErr?.errno === 1146) {
+        return res.json({ sections: [], capturedAt: null });
+      }
+      throw tableErr;
+    }
 
     if (!submRows.length) return res.json({ sections: [], capturedAt: null });
 
@@ -3924,13 +3933,26 @@ export const getClientDemographics = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     // ── 1. Known demographics columns from clients table ────────────────────
-    const [clientRows] = await pool.execute(
-      `SELECT date_of_birth, gender, address_street, address_apt, address_city,
-              address_state, address_zip, ethnicity, preferred_language
-       FROM clients WHERE id = ? LIMIT 1`,
-      [clientId]
-    );
-    const clientRow = clientRows[0] || {};
+    // Use a safe column list that degrades gracefully if migration 616 hasn't run yet
+    let clientRow = {};
+    try {
+      const [clientRows] = await pool.execute(
+        `SELECT date_of_birth, gender, address_street, address_apt, address_city,
+                address_state, address_zip, ethnicity, preferred_language
+         FROM clients WHERE id = ? LIMIT 1`,
+        [clientId]
+      );
+      clientRow = clientRows[0] || {};
+    } catch (colErr) {
+      // New address columns may not exist yet (migration pending); fall back to base columns
+      try {
+        const [clientRows] = await pool.execute(
+          `SELECT date_of_birth, gender FROM clients WHERE id = ? LIMIT 1`,
+          [clientId]
+        );
+        clientRow = clientRows[0] || {};
+      } catch { clientRow = {}; }
+    }
 
     // Coerce NULLs to empty strings for consistent handling
     const profileFields = [
@@ -3946,14 +3968,21 @@ export const getClientDemographics = async (req, res, next) => {
     ].filter((f) => hasVal(f.value));
 
     // ── 2. Latest submitted intake – new-style demographicsInfo block ───────
-    const [submRows] = await pool.execute(
-      `SELECT s.submission_data, s.link_token, s.created_at
-       FROM public_intake_submissions s
-       WHERE s.client_id = ? AND s.status = 'submitted'
-       ORDER BY s.created_at DESC
-       LIMIT 1`,
-      [clientId]
-    );
+    let submRows = [];
+    try {
+      [submRows] = await pool.execute(
+        `SELECT s.submission_data, s.link_token, s.created_at
+         FROM public_intake_submissions s
+         WHERE s.client_id = ? AND s.status = 'submitted'
+         ORDER BY s.created_at DESC
+         LIMIT 1`,
+        [clientId]
+      );
+    } catch (tableErr) {
+      if (String(tableErr?.message || '').includes("doesn't exist") || tableErr?.errno === 1146) {
+        submRows = [];
+      } else { throw tableErr; }
+    }
 
     let intakeFields = [];
     let capturedAt = null;
@@ -4008,6 +4037,28 @@ export const getClientDemographics = async (req, res, next) => {
         const matchesLabel = DEMO_LABEL_PATTERN.test(label) && !DEMO_SKIP_LABEL_PATTERN.test(label);
         if (!matchesKey && !matchesLabel) continue;
         intakeDemoFields.push({ key, label: labelMap.get(key) || label, value });
+      }
+    }
+
+    // ── 3. Also backfill primary_insurer_name from latest submission if DB column is empty ──
+    // This catches existing clients who submitted intakes before migration 616 ran.
+    if (submRows.length) {
+      const sub = submRows[0];
+      let submissionData = {};
+      try { submissionData = JSON.parse(sub.submission_data || '{}'); } catch { /* ignore */ }
+      const insurerName = String(submissionData?.responses?.submission?.insuranceInfo?.primary?.insurerName || '').trim();
+      if (insurerName) {
+        // Try to persist it back to DB so the Overview picks it up next time
+        try {
+          await pool.execute(
+            `UPDATE clients SET primary_insurer_name = ? WHERE id = ? AND (primary_insurer_name IS NULL OR primary_insurer_name = '')`,
+            [insurerName.slice(0, 255), clientId]
+          );
+        } catch { /* column may not exist yet */ }
+        // Always include in the response so the caller can use it immediately
+        if (!profileFields.some((f) => f.key === 'primary_insurer_name')) {
+          profileFields.push({ key: 'primary_insurer_name', label: 'Primary Insurance (from intake)', value: insurerName });
+        }
       }
     }
 
