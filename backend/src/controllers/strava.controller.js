@@ -55,10 +55,9 @@ export const stravaConnectStart = async (req, res, next) => {
   try {
     if (!req.user?.id) return res.status(401).json({ error: { message: 'Unauthorized' } });
     if (!isConfigured()) return res.status(503).json({ error: { message: 'Strava integration is not configured' } });
-    const baseUrl = getRequestBaseUrl(req);
-    const redirectUri = `${baseUrl}/api/strava/callback`;
     const state = createSignedState({ userId: req.user.id });
-    const authUrl = getAuthorizeUrl({ state, redirectUri });
+    // Use the configured STRAVA_REDIRECT_URI — dynamically derived host can differ on Cloud Run
+    const authUrl = getAuthorizeUrl({ state });
     return res.redirect(302, authUrl);
   } catch (e) {
     next(e);
@@ -78,7 +77,7 @@ export const stravaCallback = async (req, res, next) => {
     if (!userId) return res.redirect(302, redirectError);
     const tokens = await exchangeCodeForTokens({
       code: String(code || '').trim(),
-      redirectUri: `${getRequestBaseUrl(req)}/api/strava/callback`
+      redirectUri: process.env.STRAVA_REDIRECT_URI || `${getRequestBaseUrl(req)}/api/strava/callback`
     });
     const athleteId = tokens.athlete?.id ? Number(tokens.athlete.id) : null;
     const athleteUsername = tokens.athlete?.username ? String(tokens.athlete.username) : null;
