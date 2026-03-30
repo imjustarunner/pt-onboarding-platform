@@ -311,7 +311,7 @@ jobs:
             --allow-unauthenticated \
             --service-account ${CLOUD_RUN_SA_EMAIL} \
             --vpc-connector=quickbooks \
-            --vpc-egress=all-traffic \
+            --vpc-egress=private-ranges-only \
             --add-cloudsql-instances=${CLOUD_SQL_CONNECTION_NAME} \
             --update-env-vars="${ENV_VARS}" \
             --memory=2Gi \
