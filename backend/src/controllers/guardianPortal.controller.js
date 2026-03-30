@@ -806,3 +806,254 @@ export const getMyClientIntakeSignedDocumentDownloadUrl = async (req, res, next)
   }
 };
 
+// ─── General (non-Skill-Builders) Program Event access ─────────────────────
+
+/**
+ * Guardian is linked to a client enrolled in company_event_clients for this event.
+ * Returns { ok, base, myClients } where myClients are the guardian's dependents enrolled.
+ */
+async function assertGuardianCompanyEventAccess(guardianUserId, eventId) {
+  const gid = Number(guardianUserId);
+  const eid = Number(eventId);
+  if (!gid || !eid) return { ok: false };
+
+  const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: gid });
+  const allowedClientIds = new Set((linked || []).map((c) => Number(c.client_id)).filter((n) => n > 0));
+  if (!allowedClientIds.size) return { ok: false };
+
+  const ph = [...allowedClientIds].map(() => '?').join(',');
+  const [rows] = await pool.execute(
+    `SELECT ce.id AS company_event_id,
+            ce.agency_id,
+            ce.title,
+            ce.description,
+            ce.starts_at,
+            ce.ends_at,
+            ce.event_type,
+            ce.organization_id,
+            ce.virtual_sessions_enabled,
+            ce.registration_eligible,
+            ag.name AS agency_name,
+            ag.slug AS agency_slug
+     FROM company_event_clients cec
+     INNER JOIN company_events ce ON ce.id = cec.company_event_id
+     INNER JOIN agencies ag ON ag.id = ce.agency_id
+     WHERE cec.company_event_id = ?
+       AND cec.client_id IN (${ph})
+       AND cec.is_active = 1
+     LIMIT 1`,
+    [eid, ...allowedClientIds]
+  );
+  const base = rows?.[0];
+  if (!base) return { ok: false };
+
+  const [kidRows] = await pool.execute(
+    `SELECT DISTINCT c.id AS client_id, c.initials, c.full_name, c.date_of_birth
+     FROM company_event_clients cec
+     JOIN clients c ON c.id = cec.client_id
+     WHERE cec.company_event_id = ?
+       AND cec.is_active = 1
+       AND c.id IN (${ph})`,
+    [eid, ...allowedClientIds]
+  );
+  const myClients = (kidRows || []).map((r) => ({
+    clientId: Number(r.client_id),
+    initials: r.initials || null,
+    fullName: r.full_name ? String(r.full_name).trim() || null : null,
+    dateOfBirth: r.date_of_birth || null
+  }));
+  if (!myClients.length) return { ok: false };
+
+  return { ok: true, base, myClients };
+}
+
+/** GET /api/guardian-portal/company-events — lists non-SB events the guardian's clients are enrolled in */
+export const listGuardianCompanyEvents = async (req, res, next) => {
+  try {
+    const uid = req.user?.id;
+    if (!uid) return res.status(401).json({ error: { message: 'Unauthorized' } });
+
+    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid });
+    const ids = (linked || []).map((c) => Number(c.client_id)).filter((n) => n > 0);
+    if (!ids.length) return res.json({ ok: true, events: [] });
+
+    const ph = ids.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT ce.id AS company_event_id,
+              ce.agency_id,
+              ce.title,
+              ce.description,
+              ce.starts_at,
+              ce.ends_at,
+              ce.event_type,
+              ce.virtual_sessions_enabled,
+              ag.name AS agency_name,
+              ag.slug AS agency_slug,
+              prog.name AS program_name,
+              prog.slug AS program_slug,
+              c.id AS client_id,
+              c.initials,
+              c.full_name,
+              cec.enrolled_at
+       FROM company_event_clients cec
+       INNER JOIN company_events ce ON ce.id = cec.company_event_id
+       LEFT JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
+       INNER JOIN agencies ag ON ag.id = ce.agency_id
+       LEFT JOIN agencies prog ON prog.id = ce.organization_id
+       INNER JOIN clients c ON c.id = cec.client_id
+       WHERE cec.client_id IN (${ph})
+         AND cec.is_active = 1
+         AND sg.id IS NULL
+       ORDER BY ce.starts_at ASC`,
+      ids
+    );
+
+    // Group by event, listing all the guardian's enrolled clients per event
+    const byEvent = new Map();
+    for (const r of rows || []) {
+      const eid = Number(r.company_event_id);
+      if (!byEvent.has(eid)) {
+        byEvent.set(eid, {
+          companyEventId: eid,
+          agencyId: Number(r.agency_id),
+          agencyName: r.agency_name || null,
+          agencySlug: r.agency_slug || null,
+          programName: r.program_name || null,
+          programSlug: r.program_slug || null,
+          title: r.title || `Event ${eid}`,
+          description: r.description || null,
+          startsAt: r.starts_at || null,
+          endsAt: r.ends_at || null,
+          eventType: r.event_type || null,
+          virtualSessionsEnabled: !!(r.virtual_sessions_enabled === 1 || r.virtual_sessions_enabled === true),
+          enrolledAt: r.enrolled_at || null,
+          myClients: []
+        });
+      }
+      byEvent.get(eid).myClients.push({
+        clientId: Number(r.client_id),
+        initials: r.initials || null,
+        fullName: r.full_name ? String(r.full_name).trim() || null : null,
+        enrolledAt: r.enrolled_at || null
+      });
+    }
+
+    res.json({ ok: true, events: [...byEvent.values()] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** GET /api/guardian-portal/company-events/:eventId/detail — non-SB event detail for guardian */
+export const getGuardianCompanyEventDetail = async (req, res, next) => {
+  try {
+    const uid = req.user?.id;
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!uid || !eventId) return res.status(400).json({ error: { message: 'Invalid event' } });
+
+    const access = await assertGuardianCompanyEventAccess(uid, eventId);
+    if (!access.ok) return res.status(403).json({ error: { message: 'Event not available for this account' } });
+
+    const { base, myClients } = access;
+
+    // Expand client detail
+    const myClientsDetail = [];
+    for (const cl of myClients) {
+      try {
+        const [crow] = await pool.execute(
+          `SELECT id, initials, full_name, date_of_birth, document_status, paperwork_status_id
+           FROM clients WHERE id = ? LIMIT 1`,
+          [cl.clientId]
+        );
+        const c = crow?.[0];
+        let paperworkLabel = null;
+        if (c?.paperwork_status_id) {
+          const [pw] = await pool.execute(
+            `SELECT label FROM paperwork_statuses WHERE id = ? LIMIT 1`,
+            [c.paperwork_status_id]
+          );
+          paperworkLabel = pw?.[0]?.label || null;
+        }
+        myClientsDetail.push({
+          clientId: cl.clientId,
+          initials: c?.initials || cl.initials,
+          fullName: c?.full_name ? String(c.full_name).trim() || null : null,
+          dateOfBirth: c?.date_of_birth || cl.dateOfBirth || null,
+          documentStatus: c?.document_status || null,
+          paperworkStatusLabel: paperworkLabel
+        });
+      } catch {
+        myClientsDetail.push(cl);
+      }
+    }
+
+    // Sessions for this event (if any were created)
+    let sessions = [];
+    try {
+      const [sessRows] = await pool.execute(
+        `SELECT s.id, s.session_date, s.starts_at, s.ends_at, s.timezone,
+                s.location_label, s.location_address, s.modality, s.join_url
+         FROM skill_builders_event_sessions s
+         WHERE s.company_event_id = ?
+         ORDER BY s.session_date ASC, s.starts_at ASC
+         LIMIT 200`,
+        [eventId]
+      );
+      sessions = (sessRows || []).map((r) => ({
+        id: Number(r.id),
+        sessionDate: r.session_date,
+        startsAt: r.starts_at,
+        endsAt: r.ends_at,
+        timezone: r.timezone || 'UTC',
+        locationLabel: r.location_label != null ? String(r.location_label).trim() || null : null,
+        locationAddress: r.location_address != null ? String(r.location_address).trim() || null : null,
+        modality: r.modality != null ? String(r.modality).trim().toLowerCase() || null : null,
+        joinUrl: r.join_url != null ? String(r.join_url).trim().slice(0, 1024) || null : null
+      }));
+    } catch { /* no sessions table or no rows */ }
+
+    // Program info
+    let programPortal = null;
+    if (base.organization_id) {
+      try {
+        const [pr] = await pool.execute(
+          `SELECT id, name, slug FROM agencies WHERE id = ? LIMIT 1`,
+          [Number(base.organization_id)]
+        );
+        if (pr?.[0]) {
+          programPortal = {
+            organizationId: Number(pr[0].id),
+            name: String(pr[0].name || '').trim(),
+            slug: String(pr[0].slug || '').trim().toLowerCase() || null
+          };
+        }
+      } catch { /* no program org */ }
+    }
+
+    res.json({
+      ok: true,
+      event: {
+        id: Number(base.company_event_id),
+        title: base.title || `Event ${base.company_event_id}`,
+        description: base.description || null,
+        startsAt: base.starts_at || null,
+        endsAt: base.ends_at || null,
+        eventType: base.event_type || null,
+        virtualSessionsEnabled: !!(base.virtual_sessions_enabled === 1 || base.virtual_sessions_enabled === true),
+        agencyId: Number(base.agency_id),
+        agencyName: base.agency_name || null,
+        agencySlug: base.agency_slug || null
+      },
+      skillsGroup: null,
+      meetings: [],
+      providers: [],
+      myChildren: myClientsDetail,
+      sessions,
+      clientAttendance: [],
+      programPortal
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+

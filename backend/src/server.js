@@ -151,6 +151,7 @@ import clinicalDataRoutes from './routes/clinicalData.routes.js';
 import betaFeedbackRoutes from './routes/betaFeedback.routes.js';
 import meRoutes from './routes/me.routes.js';
 import billingPolicyRoutes from './routes/billingPolicy.routes.js';
+import companyEventClientsRoutes from './routes/companyEventClients.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -174,9 +175,12 @@ const corsOriginFn = (origin, callback) => {
   const port = Number(process.env.PORT || config.port) || 3000;
   const isLocalBackend = port === 3000;
   const localOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+  // Native webview origins used by Capacitor/Ionic shells.
+  const nativeAppOrigins = ['capacitor://localhost', 'ionic://localhost'];
   const allowed = Array.isArray(config.cors.origin)
     ? [...config.cors.origin]
     : [config.cors.origin];
+  allowed.push(...nativeAppOrigins);
   if (isLocalBackend) {
     allowed.push(...localOrigins);
   }
@@ -661,6 +665,7 @@ app.use('/api/kiosk', kioskRoutes);
 app.use('/api/emergency-broadcasts', emergencyBroadcastRoutes);
 app.use('/api/payroll', payrollRoutes);
 app.use('/api/company-car', companyCarRoutes);
+app.use('/api/company-events', companyEventClientsRoutes);
 app.use('/api/budget', (req, res, next) => {
   import('./routes/budget.routes.js')
     .then((m) => m.default(req, res, next))

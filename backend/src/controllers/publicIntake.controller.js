@@ -5743,7 +5743,19 @@ export const saveGuardianPaymentCard = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Complete card details are required' } });
     }
 
-    const agencyId = link.agency_id;
+    let agencyId = Number(link?.agency_id || 0) || null;
+    if (!agencyId && link?.organization_id) {
+      const scope = String(link?.scope_type || '').toLowerCase();
+      if (scope === 'school') {
+        agencyId = await AgencySchool.getActiveAgencyIdForSchool(link.organization_id);
+      }
+      if (!agencyId) {
+        agencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(link.organization_id);
+      }
+      if (!agencyId) {
+        agencyId = Number(link.organization_id || 0) || null;
+      }
+    }
     if (!agencyId) {
       return res.status(400).json({ error: { message: 'No agency associated with this intake link' } });
     }
