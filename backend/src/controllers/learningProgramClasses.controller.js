@@ -38,6 +38,17 @@ const toTimeHHMM = (v, fallback = '23:59') => {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 };
 
+const toTimeZone = (v, fallback = 'UTC') => {
+  const zone = String(v || '').trim();
+  if (!zone) return fallback;
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: zone }).format(new Date());
+    return zone;
+  } catch {
+    return fallback;
+  }
+};
+
 const normalizeSeasonSettings = (input = {}) => {
   const src = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
   const numOr = (v, fallback) => {
@@ -68,11 +79,22 @@ const normalizeSeasonSettings = (input = {}) => {
   const treadmillpocalypse = src.treadmillpocalypse && typeof src.treadmillpocalypse === 'object' ? src.treadmillpocalypse : {};
   const workoutModeration = src.workoutModeration && typeof src.workoutModeration === 'object' ? src.workoutModeration : {};
   const records = src.records && typeof src.records === 'object' ? src.records : {};
+  const postseason = src.postseason && typeof src.postseason === 'object' ? src.postseason : {};
   const toModerationMode = (v) => {
     const s = String(v || '').trim().toLowerCase();
     if (s === 'all' || s === 'treadmill_only' || s === 'none') return s;
     return 'treadmill_only';
   };
+  const toPostseasonMatchupMode = (v) => {
+    const s = String(v || '').trim().toLowerCase();
+    if (s === '1v4_2v3' || s === 'seeded_bracket') return s;
+    return '1v4_2v3';
+  };
+  const regularSeasonWeeks = Math.max(1, numOr(postseason.regularSeasonWeeks, 10));
+  const hasBreakWeek = asBool(postseason.hasBreakWeek, false);
+  const breakWeekNumber = hasBreakWeek ? Math.max(1, numOr(postseason.breakWeekNumber, regularSeasonWeeks + 1)) : null;
+  const playoffWeekNumber = Math.max(1, numOr(postseason.playoffWeekNumber, regularSeasonWeeks + (hasBreakWeek ? 2 : 1)));
+  const championshipWeekNumber = Math.max(playoffWeekNumber + 1, numOr(postseason.championshipWeekNumber, playoffWeekNumber + 1));
   return {
     event: {
       category: (String(event.category || '').toLowerCase() === 'fitness') ? 'fitness' : 'run_ruck',
@@ -82,6 +104,7 @@ const normalizeSeasonSettings = (input = {}) => {
       weeklyCadence: asNonEmptyString(schedule.weeklyCadence, 'weekly'),
       weekStartsOn: toWeekday(schedule.weekStartsOn, 'monday'),
       weekEndsSundayAt: toTimeHHMM(schedule.weekEndsSundayAt, '23:59'),
+      weekTimeZone: toTimeZone(schedule.weekTimeZone, 'UTC'),
       teamDraftEnabled: asBool(schedule.teamDraftEnabled, true),
       captainApplicationsCloseHoursBeforeDraft: Math.max(0, numOr(schedule.captainApplicationsCloseHoursBeforeDraft, 24))
     },
@@ -106,7 +129,8 @@ const normalizeSeasonSettings = (input = {}) => {
     teams: {
       teamCount: Math.max(1, numOr(teams.teamCount, 2)),
       presetTeamNames: parseList(teams.presetTeamNames),
-      allowCaptainRenameTeam: asBool(teams.allowCaptainRenameTeam, true)
+      allowCaptainRenameTeam: asBool(teams.allowCaptainRenameTeam, true),
+      allowCaptainNicknameSuffixWhenLocked: asBool(teams.allowCaptainNicknameSuffixWhenLocked, false)
     },
     participation: {
       individualMinPointsPerWeek: Math.max(0, numOr(participation.individualMinPointsPerWeek, numOr(scoring.weeklyMinimumPointsPerAthlete, 0))),
@@ -133,6 +157,16 @@ const normalizeSeasonSettings = (input = {}) => {
     },
     records: {
       metrics: parseList(records.metrics)
+    },
+    postseason: {
+      enabled: asBool(postseason.enabled, false),
+      regularSeasonWeeks,
+      hasBreakWeek,
+      breakWeekNumber,
+      playoffWeekNumber,
+      championshipWeekNumber,
+      playoffSeedCount: Math.max(2, numOr(postseason.playoffSeedCount, 4)),
+      playoffMatchupMode: toPostseasonMatchupMode(postseason.playoffMatchupMode)
     },
     challengePublish: {
       aiDraftEnabled: asBool(publish.aiDraftEnabled, true),

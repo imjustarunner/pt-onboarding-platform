@@ -59,6 +59,17 @@ const getWorkoutModerationMode = (settings) => {
   return 'treadmill_only';
 };
 
+const isNicknameSuffixUpdateAllowed = (currentTeamName, requestedTeamName) => {
+  const current = String(currentTeamName || '').trim();
+  const requested = String(requestedTeamName || '').trim();
+  if (!current || !requested) return false;
+  if (requested.length <= current.length) return false;
+  if (!requested.toLowerCase().startsWith(current.toLowerCase())) return false;
+  const suffix = requested.slice(current.length);
+  if (!suffix || !suffix.trim()) return false;
+  return /^\s+[\w\-'.&]+(?:\s+[\w\-'.&]+)*$/.test(suffix);
+};
+
 export const listTeams = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);
@@ -110,8 +121,20 @@ export const updateTeam = async (req, res, next) => {
       );
       const settings = parseJsonObject(classRows?.[0]?.season_settings_json || {});
       const allowCaptainRename = settings?.teams?.allowCaptainRenameTeam !== false;
+      const allowNicknameSuffixWhenLocked = settings?.teams?.allowCaptainNicknameSuffixWhenLocked === true;
       if (!allowCaptainRename) {
-        return res.status(403).json({ error: { message: 'Captains cannot rename teams for this season' } });
+        const requestedName = String(req.body.teamName || '').trim();
+        const currentName = String(team.team_name || '').trim();
+        if (!allowNicknameSuffixWhenLocked) {
+          return res.status(403).json({ error: { message: 'Captains cannot rename teams for this season' } });
+        }
+        if (!isNicknameSuffixUpdateAllowed(currentName, requestedName)) {
+          return res.status(400).json({
+            error: {
+              message: 'Nickname mode only allows appending a suffix to the existing team name (example: "Charlie Chimeras")'
+            }
+          });
+        }
       }
     }
     const patch = {};
@@ -509,6 +532,7 @@ export const submitWorkout = async (req, res, next) => {
     const treadmillpocalypseStartsAtWeek = String(settings?.treadmillpocalypse?.startsAtWeek || '').slice(0, 10) || null;
     const moderationMode = getWorkoutModerationMode(settings);
     const weekCutoffTime = String(schedule?.weekEndsSundayAt || access.class?.week_start_time || '00:00');
+    const weekTimeZone = String(schedule?.weekTimeZone || 'UTC');
     let computedPoints = null;
     if (eventCategory === 'fitness' && caloriesBurned != null && caloriesPerPoint > 0) {
       computedPoints = Math.max(0, Math.floor(caloriesBurned / caloriesPerPoint));
@@ -521,12 +545,12 @@ export const submitWorkout = async (req, res, next) => {
     }
     const points = computedPoints != null ? computedPoints : (asInt(req.body.points) || 0);
     const completedAt = req.body.completedAt ? new Date(req.body.completedAt) : new Date();
-    const completedWeekStart = getWeekStartDate(completedAt, weekCutoffTime);
+    const completedWeekStart = getWeekStartDate(completedAt, weekCutoffTime, weekTimeZone);
     if (eventCategory === 'run_ruck' && activityLower.includes('ruck')) {
       const participation = parseJsonObject(settings?.participation || {});
       const maxRucksPerWeek = Math.max(0, Number.parseInt(participation?.maxRucksPerWeek, 10) || 0);
       if (maxRucksPerWeek > 0) {
-        const range = getWeekDateTimeRange(completedWeekStart, weekCutoffTime) || {
+        const range = getWeekDateTimeRange(completedWeekStart, weekCutoffTime, weekTimeZone) || {
           start: `${String(completedWeekStart).slice(0, 10)} 00:00:00`,
           end: `${String(completedWeekStart).slice(0, 10)} 23:59:59`
         };
@@ -955,16 +979,15 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
 
-    const weekCutoffTime = String(parseJsonObject(access.class?.season_settings_json || {})?.schedule?.weekEndsSundayAt || access.class?.week_start_time || '00:00');
-    const weekStart = req.query.weekStart || req.query.week || getWeekStartDate(new Date(), weekCutoffTime);
-    const start = new Date(String(weekStart).slice(0, 10));
-    if (!Number.isFinite(start.getTime())) return res.status(400).json({ error: { message: 'Invalid weekStart' } });
-    const [h, m] = weekCutoffTime.split(':').map((x) => Number.parseInt(x, 10) || 0);
-    start.setHours(h, m, 0, 0);
-    const startStr = start.toISOString().slice(0, 19).replace('T', ' ');
-    const end = new Date(start);
-    end.setDate(end.getDate() + 7);
-    const endStr = end.toISOString().slice(0, 19).replace('T', ' ');
+    const seasonSettingsForWeek = parseJsonObject(access.class?.season_settings_json || {});
+    const scheduleWeek = parseJsonObject(seasonSettingsForWeek?.schedule || {});
+    const weekCutoffTime = String(scheduleWeek?.weekEndsSundayAt || access.class?.week_start_time || '00:00');
+    const weekTimeZone = String(scheduleWeek?.weekTimeZone || 'UTC');
+    const weekStart = req.query.weekStart || req.query.week || getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
+    const range = getWeekDateTimeRange(String(weekStart).slice(0, 10), weekCutoffTime, weekTimeZone);
+    if (!range) return res.status(400).json({ error: { message: 'Invalid weekStart' } });
+    const startStr = range.start;
+    const endStr = range.end;
 
     const seasonSettings = parseJsonObject(access.class?.season_settings_json || {});
     const eventCategory = String(seasonSettings?.event?.category || 'run_ruck').toLowerCase();
@@ -979,11 +1002,12 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
     let metricField = 'weekly_points';
     if (eventCategory === 'run_ruck') {
       const cutoff = String(seasonSettings?.schedule?.weekEndsSundayAt || access.class?.week_start_time || '00:00');
+      const tz = String(seasonSettings?.schedule?.weekTimeZone || 'UTC');
       const baseMiles = Number(participation.runRuckStartMilesPerPerson ?? 0) || 0;
       const weeklyIncrease = Number(participation.runRuckWeeklyIncreaseMilesPerPerson ?? 2) || 0;
       const baselineMembers = Math.max(0, Number.parseInt(participation.baselineMemberCount, 10) || 0);
       const anchorWeek = access.class?.starts_at
-        ? getWeekStartDate(new Date(access.class.starts_at), cutoff)
+        ? getWeekStartDate(new Date(access.class.starts_at), cutoff, tz)
         : String(weekStart || '').slice(0, 10);
       const startAnchor = new Date(`${String(anchorWeek).slice(0, 10)}T00:00:00`);
       const currentWeek = new Date(`${String(weekStart).slice(0, 10)}T00:00:00`);

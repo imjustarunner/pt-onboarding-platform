@@ -9,7 +9,7 @@ import ChallengeWorkout from '../models/ChallengeWorkout.model.js';
 import ChallengeWeeklyTask from '../models/ChallengeWeeklyTask.model.js';
 import ChallengeWeeklyAssignment from '../models/ChallengeWeeklyAssignment.model.js';
 import ChallengeElimination from '../models/ChallengeElimination.model.js';
-import { getWeekStartDate, getWeekDateTimeRange } from '../utils/challengeWeekUtils.js';
+import { getWeekStartDate, getWeekDateTimeRange, getSeasonWeekPhase } from '../utils/challengeWeekUtils.js';
 import { canAccessChallenge } from '../utils/challengeAccess.js';
 
 const asInt = (v) => {
@@ -59,12 +59,25 @@ const getWeekCutoffTime = (klass) => {
   return /^\d{1,2}:\d{2}$/.test(raw) ? raw : '00:00';
 };
 
+const getWeekTimeZone = (klass) => {
+  const s = parseJsonObject(klass?.season_settings_json || {});
+  const schedule = parseJsonObject(s.schedule || {});
+  const tz = String(schedule.weekTimeZone || 'UTC').trim();
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: tz }).format(new Date());
+    return tz;
+  } catch {
+    return 'UTC';
+  }
+};
+
 const getRunRuckProgression = ({ klass, weekStart, fallbackMemberCount = 0 }) => {
   const settings = parseJsonObject(klass?.season_settings_json || {});
   const event = parseJsonObject(settings.event || {});
   if (String(event.category || 'run_ruck').toLowerCase() !== 'run_ruck') return null;
   const participation = parseJsonObject(settings.participation || {});
   const cutoff = getWeekCutoffTime(klass);
+  const tz = getWeekTimeZone(klass);
   const baseMiles = Number(participation.runRuckStartMilesPerPerson ?? 0) || 0;
   const weeklyIncrease = Number(participation.runRuckWeeklyIncreaseMilesPerPerson ?? 2) || 0;
   const baselineMembers = Math.max(
@@ -72,7 +85,7 @@ const getRunRuckProgression = ({ klass, weekStart, fallbackMemberCount = 0 }) =>
     Number.parseInt(participation.baselineMemberCount, 10) || Number(fallbackMemberCount) || 0
   );
   const anchorWeek = klass?.starts_at
-    ? getWeekStartDate(new Date(klass.starts_at), cutoff)
+    ? getWeekStartDate(new Date(klass.starts_at), cutoff, tz)
     : String(weekStart || '').slice(0, 10);
   const startDate = new Date(`${String(anchorWeek).slice(0, 10)}T00:00:00`);
   const targetDate = new Date(`${String(weekStart).slice(0, 10)}T00:00:00`);
@@ -159,7 +172,9 @@ export const getScoreboard = async (req, res, next) => {
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const weekCutoffTime = getWeekCutoffTime(access.class);
-    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime);
+    const weekTimeZone = getWeekTimeZone(access.class);
+    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
+    const weekPhase = getSeasonWeekPhase({ klass: access.class, weekStartDate: weekStart, cutoffTime: weekCutoffTime, timeZone: weekTimeZone });
     const [cached] = await pool.execute(
       `SELECT snapshot_json, posted_at FROM challenge_weekly_scoreboard WHERE learning_class_id = ? AND week_start_date = ? LIMIT 1`,
       [classId, weekStart]
@@ -172,13 +187,13 @@ export const getScoreboard = async (req, res, next) => {
       } catch {
         data = {};
       }
-      return res.json({ weekStartDate: weekStart, postedAt: snap.posted_at, ...data });
+      return res.json({ weekStartDate: weekStart, weekPhase, postedAt: snap.posted_at, ...data });
     }
-    const top5Athletes = (await ChallengeWorkout.getWeeklyLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime }))
+    const top5Athletes = (await ChallengeWorkout.getWeeklyLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime, weekTimeZone }))
       .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) }));
-    const top5Teams = (await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime }))
+    const top5Teams = (await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime, weekTimeZone }))
       .map((r) => ({ team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
-    const topPerTeam = (await ChallengeWorkout.getWeeklyTopPerTeam(classId, weekStart, { weekCutoffTime }))
+    const topPerTeam = (await ChallengeWorkout.getWeeklyTopPerTeam(classId, weekStart, { weekCutoffTime, weekTimeZone }))
       .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
     const [klassRows] = await pool.execute(`SELECT masters_age_threshold, recognition_categories_json FROM learning_program_classes WHERE id = ?`, [classId]);
     const klass = klassRows?.[0];
@@ -186,23 +201,24 @@ export const getScoreboard = async (req, res, next) => {
     const mastersThreshold = klass?.masters_age_threshold != null ? asInt(klass.masters_age_threshold) : 53;
     const recognitionOfTheWeek = {};
     if (categories.includes('fastest_male')) {
-      const r = await ChallengeWorkout.getWeeklyLeaderByGender(classId, weekStart, { gender: 'male', weekCutoffTime });
+      const r = await ChallengeWorkout.getWeeklyLeaderByGender(classId, weekStart, { gender: 'male', weekCutoffTime, weekTimeZone });
       if (r) recognitionOfTheWeek.fastest_male = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
     }
     if (categories.includes('fastest_female')) {
-      const r = await ChallengeWorkout.getWeeklyLeaderByGender(classId, weekStart, { gender: 'female', weekCutoffTime });
+      const r = await ChallengeWorkout.getWeeklyLeaderByGender(classId, weekStart, { gender: 'female', weekCutoffTime, weekTimeZone });
       if (r) recognitionOfTheWeek.fastest_female = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
     }
     if (categories.includes('fastest_masters_male')) {
-      const r = await ChallengeWorkout.getWeeklyMastersLeader(classId, weekStart, { gender: 'male', ageThreshold: mastersThreshold, weekCutoffTime });
+      const r = await ChallengeWorkout.getWeeklyMastersLeader(classId, weekStart, { gender: 'male', ageThreshold: mastersThreshold, weekCutoffTime, weekTimeZone });
       if (r) recognitionOfTheWeek.fastest_masters_male = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
     }
     if (categories.includes('fastest_masters_female')) {
-      const r = await ChallengeWorkout.getWeeklyMastersLeader(classId, weekStart, { gender: 'female', ageThreshold: mastersThreshold, weekCutoffTime });
+      const r = await ChallengeWorkout.getWeeklyMastersLeader(classId, weekStart, { gender: 'female', ageThreshold: mastersThreshold, weekCutoffTime, weekTimeZone });
       if (r) recognitionOfTheWeek.fastest_masters_female = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
     }
     return res.json({
       weekStartDate: weekStart,
+      weekPhase,
       postedAt: null,
       top5Athletes,
       top5Teams,
@@ -239,9 +255,11 @@ export const listWeeklyTasks = async (req, res, next) => {
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const weekCutoffTime = getWeekCutoffTime(access.class);
-    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime);
+    const weekTimeZone = getWeekTimeZone(access.class);
+    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
     const tasks = await ChallengeWeeklyTask.listByWeek(classId, weekStart);
-    return res.json({ weekStartDate: weekStart, tasks });
+    const weekPhase = getSeasonWeekPhase({ klass: access.class, weekStartDate: weekStart, cutoffTime: weekCutoffTime, timeZone: weekTimeZone });
+    return res.json({ weekStartDate: weekStart, weekPhase, tasks });
   } catch (e) {
     next(e);
   }
@@ -257,7 +275,8 @@ export const createWeeklyTasks = async (req, res, next) => {
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const weekCutoffTime = getWeekCutoffTime(access.class);
-    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime);
+    const weekTimeZone = getWeekTimeZone(access.class);
+    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
     await ChallengeWeeklyTask.deleteByWeek(classId, weekStart);
     const created = await ChallengeWeeklyTask.createBatch(classId, weekStart, tasks.slice(0, 3));
     return res.status(201).json({ weekStartDate: weekStart, tasks: created });
@@ -275,7 +294,8 @@ export const generateWeeklyTasksDraft = async (req, res, next) => {
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const weekCutoffTime = getWeekCutoffTime(access.class);
-    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime);
+    const weekTimeZone = getWeekTimeZone(access.class);
+    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
     const draftTasks = buildAiWeeklyTaskDraft({ klass: access.class, weekStart });
     await pool.execute(
       `INSERT INTO challenge_weekly_task_drafts
@@ -304,7 +324,8 @@ export const publishWeeklyTasksDraft = async (req, res, next) => {
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const weekCutoffTime = getWeekCutoffTime(access.class);
-    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime);
+    const weekTimeZone = getWeekTimeZone(access.class);
+    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
     const tasksInput = Array.isArray(req.body.tasks) ? req.body.tasks : [];
     const treadmillpocalypse = parseJsonObject(parseJsonObject(access.class?.season_settings_json || {})?.treadmillpocalypse || {});
     const treadmillActive = treadmillpocalypse.enabled === true
@@ -347,7 +368,8 @@ export const listWeeklyAssignments = async (req, res, next) => {
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const weekCutoffTime = getWeekCutoffTime(access.class);
-    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime);
+    const weekTimeZone = getWeekTimeZone(access.class);
+    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
     const assignments = await ChallengeWeeklyAssignment.listByWeek(classId, weekStart);
     return res.json({ weekStartDate: weekStart, assignments });
   } catch (e) {
@@ -392,8 +414,9 @@ export const getNoShowRiskAlerts = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
     const weekCutoffTime = getWeekCutoffTime(access.class);
-    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime);
-    const range = getWeekDateTimeRange(weekStart, weekCutoffTime);
+    const weekTimeZone = getWeekTimeZone(access.class);
+    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
+    const range = getWeekDateTimeRange(weekStart, weekCutoffTime, weekTimeZone);
     const progression = getRunRuckProgression({ klass: access.class, weekStart });
     const [rows] = await pool.execute(
       `SELECT
@@ -431,7 +454,8 @@ export const getNoShowRiskAlerts = async (req, res, next) => {
         riskLevel: ratio < 0.4 ? 'high' : ratio < 0.7 ? 'medium' : ratio < 1 ? 'low' : 'none'
       };
     }).filter((r) => r.riskLevel !== 'none');
-    return res.json({ weekStartDate: weekStart, metric, requiredValue: individualMin, alerts: atRisk });
+    const weekPhase = getSeasonWeekPhase({ klass: access.class, weekStartDate: weekStart, cutoffTime: weekCutoffTime, timeZone: weekTimeZone });
+    return res.json({ weekStartDate: weekStart, weekPhase, metric, requiredValue: individualMin, alerts: atRisk });
   } catch (e) {
     next(e);
   }
@@ -471,7 +495,9 @@ export const declareByeWeek = async (req, res, next) => {
       [classId, req.user.id]
     );
     if (!membership?.length) return res.status(403).json({ error: { message: 'Join the season before declaring a bye week' } });
-    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date());
+    const weekCutoffTime = getWeekCutoffTime(access.class);
+    const weekTimeZone = getWeekTimeZone(access.class);
+    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
     const settings = parseJsonObject(access.class?.season_settings_json || {});
     const byeWeek = parseJsonObject(settings.byeWeek || {});
     const allowByeWeek = byeWeek.allowByeWeek === true;
@@ -493,10 +519,9 @@ export const declareByeWeek = async (req, res, next) => {
     }
     if (requireAdvance) {
       const now = new Date();
-      const [h, m] = String(weekCutoffTime || '00:00').split(':').map((n) => Number.parseInt(n, 10) || 0);
-      const weekStartDate = new Date(`${weekStart}T00:00:00`);
-      weekStartDate.setHours(h, m, 0, 0);
-      if (!(weekStartDate.getTime() > now.getTime())) {
+      const weekRange = getWeekDateTimeRange(weekStart, weekCutoffTime, weekTimeZone);
+      const weekStartDate = weekRange?.start ? new Date(String(weekRange.start).replace(' ', 'T') + 'Z') : null;
+      if (!weekStartDate || !Number.isFinite(weekStartDate.getTime()) || !(weekStartDate.getTime() > now.getTime())) {
         return res.status(400).json({ error: { message: 'Bye week must be declared before the week starts' } });
       }
     }
@@ -615,35 +640,36 @@ export const closeWeek = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const klass = access.class;
     const weekCutoffTime = getWeekCutoffTime(access.class);
-    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime);
+    const weekTimeZone = getWeekTimeZone(access.class);
+    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
     const teamMin = klass.team_min_points_per_week != null ? asInt(klass.team_min_points_per_week) : null;
     const indMin = klass.individual_min_points_per_week != null ? asInt(klass.individual_min_points_per_week) : null;
     const runRuckProgression = getRunRuckProgression({ klass, weekStart });
 
-    const top5Athletes = (await ChallengeWorkout.getWeeklyLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime }))
+    const top5Athletes = (await ChallengeWorkout.getWeeklyLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime, weekTimeZone }))
       .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) }));
-    const top5Teams = (await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime }))
+    const top5Teams = (await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime, weekTimeZone }))
       .map((r) => ({ team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
-    const topPerTeam = (await ChallengeWorkout.getWeeklyTopPerTeam(classId, weekStart, { weekCutoffTime }))
+    const topPerTeam = (await ChallengeWorkout.getWeeklyTopPerTeam(classId, weekStart, { weekCutoffTime, weekTimeZone }))
       .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
 
     const categories = Array.isArray(klass.recognition_categories_json) ? klass.recognition_categories_json : (typeof klass.recognition_categories_json === 'string' ? (() => { try { return JSON.parse(klass.recognition_categories_json); } catch { return []; } })() : []);
     const mastersThreshold = klass.masters_age_threshold != null ? asInt(klass.masters_age_threshold) : 53;
     const recognitionOfTheWeek = {};
     if (categories.includes('fastest_male')) {
-      const r = await ChallengeWorkout.getWeeklyLeaderByGender(classId, weekStart, { gender: 'male', weekCutoffTime });
+      const r = await ChallengeWorkout.getWeeklyLeaderByGender(classId, weekStart, { gender: 'male', weekCutoffTime, weekTimeZone });
       if (r) recognitionOfTheWeek.fastest_male = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
     }
     if (categories.includes('fastest_female')) {
-      const r = await ChallengeWorkout.getWeeklyLeaderByGender(classId, weekStart, { gender: 'female', weekCutoffTime });
+      const r = await ChallengeWorkout.getWeeklyLeaderByGender(classId, weekStart, { gender: 'female', weekCutoffTime, weekTimeZone });
       if (r) recognitionOfTheWeek.fastest_female = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
     }
     if (categories.includes('fastest_masters_male')) {
-      const r = await ChallengeWorkout.getWeeklyMastersLeader(classId, weekStart, { gender: 'male', ageThreshold: mastersThreshold, weekCutoffTime });
+      const r = await ChallengeWorkout.getWeeklyMastersLeader(classId, weekStart, { gender: 'male', ageThreshold: mastersThreshold, weekCutoffTime, weekTimeZone });
       if (r) recognitionOfTheWeek.fastest_masters_male = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
     }
     if (categories.includes('fastest_masters_female')) {
-      const r = await ChallengeWorkout.getWeeklyMastersLeader(classId, weekStart, { gender: 'female', ageThreshold: mastersThreshold, weekCutoffTime });
+      const r = await ChallengeWorkout.getWeeklyMastersLeader(classId, weekStart, { gender: 'female', ageThreshold: mastersThreshold, weekCutoffTime, weekTimeZone });
       if (r) recognitionOfTheWeek.fastest_masters_female = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
     }
 
@@ -677,7 +703,7 @@ export const closeWeek = async (req, res, next) => {
       [classId, weekStart]
     );
     const byeByUser = new Set((byeRows || []).map((r) => Number(r.provider_user_id)));
-    const weekRange = getWeekDateTimeRange(weekStart, weekCutoffTime) || {
+    const weekRange = getWeekDateTimeRange(weekStart, weekCutoffTime, weekTimeZone) || {
       start: `${weekStart} 00:00:00`,
       end: `${weekStart} 23:59:59`
     };
@@ -730,7 +756,7 @@ export const closeWeek = async (req, res, next) => {
         if (miles < runRuckProgression.individualMilesMinimum) pointsFailed = true;
         if (Number(m.team_id || 0) && failingTeams.has(Number(m.team_id))) pointsFailed = true;
       } else if (indMin != null) {
-        const pts = await ChallengeWorkout.getWeeklyPointsForUser(classId, pid, weekStart, { weekCutoffTime });
+        const pts = await ChallengeWorkout.getWeeklyPointsForUser(classId, pid, weekStart, { weekCutoffTime, weekTimeZone });
         if (pts < indMin) pointsFailed = true;
       }
       const myAssignment = assignments.find((a) => Number(a.provider_user_id) === Number(pid));
@@ -767,8 +793,10 @@ export const closeWeek = async (req, res, next) => {
       }
     }
 
+    const weekPhase = getSeasonWeekPhase({ klass: access.class, weekStartDate: weekStart, cutoffTime: weekCutoffTime, timeZone: weekTimeZone });
     return res.json({
       weekStartDate: weekStart,
+      weekPhase,
       scoreboardPosted: true,
       eliminationsCount: eliminations.length,
       runRuckProgression: runRuckProgression || null,
@@ -787,11 +815,12 @@ export const getSeasonSummary = async (req, res, next) => {
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const weekCutoffTime = getWeekCutoffTime(access.class);
-    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime);
+    const weekTimeZone = getWeekTimeZone(access.class);
+    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
     const limits = deriveSummaryLimits(access.class);
-    const weeklyTopAthletes = (await ChallengeWorkout.getWeeklyLeaderboard(classId, weekStart, { limit: limits.weeklyTopAthletes, weekCutoffTime }))
+    const weeklyTopAthletes = (await ChallengeWorkout.getWeeklyLeaderboard(classId, weekStart, { limit: limits.weeklyTopAthletes, weekCutoffTime, weekTimeZone }))
       .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points || 0) }));
-    const weeklyTopTeams = (await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: limits.weeklyTopTeams, weekCutoffTime }))
+    const weeklyTopTeams = (await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: limits.weeklyTopTeams, weekCutoffTime, weekTimeZone }))
       .map((r) => ({ team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points || 0) }));
     const seasonTopIndividuals = (await ChallengeWorkout.getLeaderboardIndividual(classId, { limit: limits.seasonTopIndividuals }))
       .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, total_points: Number(r.total_points || 0) }));
@@ -842,8 +871,10 @@ export const getSeasonSummary = async (req, res, next) => {
        LIMIT ?`,
       [classId, limits.seasonTopLadies]
     );
+    const weekPhase = getSeasonWeekPhase({ klass: access.class, weekStartDate: weekStart, cutoffTime: weekCutoffTime, timeZone: weekTimeZone });
     return res.json({
       weekStartDate: weekStart,
+      weekPhase,
       weeklySummary: {
         topAthletes: weeklyTopAthletes,
         topTeams: weeklyTopTeams,
@@ -895,7 +926,8 @@ export const manuallyEliminateParticipant = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Participant is already eliminated' } });
     }
     const weekCutoffTime = getWeekCutoffTime(access.class);
-    const weekStart = String(req.body?.weekStart || req.body?.week || getWeekStartDate(new Date(), weekCutoffTime)).slice(0, 10);
+    const weekTimeZone = getWeekTimeZone(access.class);
+    const weekStart = String(req.body?.weekStart || req.body?.week || getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone)).slice(0, 10);
     const [teamRows] = await pool.execute(
       `SELECT tm.team_id
        FROM challenge_team_members tm

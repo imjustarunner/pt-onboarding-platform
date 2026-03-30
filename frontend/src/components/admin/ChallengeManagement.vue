@@ -185,6 +185,10 @@
                 <label>Week ends Sunday at</label>
                 <input v-model="challengeForm.weekEndsSundayAt" type="time" />
               </div>
+              <div class="form-group">
+                <label>Week timezone</label>
+                <input v-model="challengeForm.weekTimeZone" type="text" placeholder="e.g., America/New_York" />
+              </div>
             </div>
           </div>
           <div class="form-group">
@@ -260,6 +264,13 @@
                   <option :value="false">No</option>
                 </select>
               </div>
+              <div class="form-group">
+                <label>If locked, captains can add nickname suffix</label>
+                <select v-model="challengeForm.allowCaptainNicknameSuffixWhenLocked">
+                  <option :value="false">No</option>
+                  <option :value="true">Yes</option>
+                </select>
+              </div>
             </div>
             <label>Preset/temporary team names (comma-separated)</label>
             <input v-model="challengeForm.presetTeamNamesText" type="text" placeholder="e.g., Team Alpha, Team Bravo, Team Charlie" />
@@ -286,6 +297,55 @@
                 </select>
               </div>
             </div>
+          </div>
+          <div class="form-group">
+            <label>Postseason setup</label>
+            <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <div class="form-group">
+                <label>Enable postseason</label>
+                <select v-model="challengeForm.postseasonEnabled">
+                  <option :value="false">No</option>
+                  <option :value="true">Yes</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Regular season weeks</label>
+                <input v-model.number="challengeForm.regularSeasonWeeks" type="number" min="1" />
+              </div>
+              <div class="form-group">
+                <label>Break week before playoffs</label>
+                <select v-model="challengeForm.postseasonHasBreakWeek">
+                  <option :value="false">No</option>
+                  <option :value="true">Yes</option>
+                </select>
+              </div>
+              <div v-if="challengeForm.postseasonHasBreakWeek" class="form-group">
+                <label>Break week number</label>
+                <input v-model.number="challengeForm.postseasonBreakWeekNumber" type="number" min="1" />
+              </div>
+              <div class="form-group">
+                <label>Playoff week number</label>
+                <input v-model.number="challengeForm.playoffWeekNumber" type="number" min="1" />
+              </div>
+              <div class="form-group">
+                <label>Championship week number</label>
+                <input v-model.number="challengeForm.championshipWeekNumber" type="number" min="1" />
+              </div>
+              <div class="form-group">
+                <label>Playoff seeds</label>
+                <input v-model.number="challengeForm.playoffSeedCount" type="number" min="2" />
+              </div>
+              <div class="form-group">
+                <label>Playoff matchup mode</label>
+                <select v-model="challengeForm.playoffMatchupMode">
+                  <option value="1v4_2v3">1 vs 4 and 2 vs 3</option>
+                  <option value="seeded_bracket">Seeded bracket</option>
+                </select>
+              </div>
+            </div>
+            <small>
+              Supports regular season champion and post-season champion tracking. With 4 seeds, semifinal defaults are 1v4 and 2v3.
+            </small>
           </div>
           <div class="form-group">
             <label>Treadmill rules</label>
@@ -582,6 +642,7 @@ const challengeForm = ref({
   cashEligible: false,
   weekStartsOn: 'monday',
   weekEndsSundayAt: '23:59',
+  weekTimeZone: 'UTC',
   tasksPerWeek: 3,
   publishLeadHours: 24,
   weightRun: 1,
@@ -597,9 +658,18 @@ const challengeForm = ref({
   teamCount: 2,
   presetTeamNamesText: '',
   allowCaptainRenameTeam: true,
+  allowCaptainNicknameSuffixWhenLocked: false,
   allowByeWeek: false,
   maxByeWeeksPerParticipant: 1,
   requireAdvanceByeDeclaration: true,
+  postseasonEnabled: false,
+  regularSeasonWeeks: 10,
+  postseasonHasBreakWeek: false,
+  postseasonBreakWeekNumber: 11,
+  playoffWeekNumber: 11,
+  championshipWeekNumber: 12,
+  playoffSeedCount: 4,
+  playoffMatchupMode: '1v4_2v3',
   runRuckStartMilesPerPerson: 0,
   runRuckWeeklyIncreaseMilesPerPerson: 2,
   maxRucksPerWeek: 0,
@@ -760,6 +830,7 @@ const openCreateModal = () => {
     cashEligible: false,
     weekStartsOn: 'monday',
     weekEndsSundayAt: '23:59',
+    weekTimeZone: 'UTC',
     tasksPerWeek: 3,
     publishLeadHours: 24,
     weightRun: 1,
@@ -775,9 +846,18 @@ const openCreateModal = () => {
     teamCount: 2,
     presetTeamNamesText: '',
     allowCaptainRenameTeam: true,
+    allowCaptainNicknameSuffixWhenLocked: false,
     allowByeWeek: false,
     maxByeWeeksPerParticipant: 1,
     requireAdvanceByeDeclaration: true,
+    postseasonEnabled: false,
+    regularSeasonWeeks: 10,
+    postseasonHasBreakWeek: false,
+    postseasonBreakWeekNumber: 11,
+    playoffWeekNumber: 11,
+    championshipWeekNumber: 12,
+    playoffSeedCount: 4,
+    playoffMatchupMode: '1v4_2v3',
     runRuckStartMilesPerPerson: 0,
     runRuckWeeklyIncreaseMilesPerPerson: 2,
     maxRucksPerWeek: 0,
@@ -812,6 +892,7 @@ const openEditModal = (c) => {
   const treadmillpocalypseSettings = seasonSettings.treadmillpocalypse || {};
   const moderationSettings = seasonSettings.workoutModeration || {};
   const recordsSettings = seasonSettings.records || {};
+  const postseasonSettings = seasonSettings.postseason || {};
   challengeForm.value = {
     className: c.class_name || c.className || '',
     description: c.description || '',
@@ -829,6 +910,7 @@ const openEditModal = (c) => {
     cashEligible: !!(c.cash_eligible === 1 || c.cash_eligible === true || c.cashEligible),
     weekStartsOn: scheduleSettings.weekStartsOn || 'monday',
     weekEndsSundayAt: scheduleSettings.weekEndsSundayAt || '23:59',
+    weekTimeZone: scheduleSettings.weekTimeZone || 'UTC',
     tasksPerWeek: publishSettings.tasksPerWeek || 3,
     publishLeadHours: publishSettings.publishLeadHours ?? 24,
     weightRun: scoringSettings?.activityWeights?.run ?? 1,
@@ -844,9 +926,18 @@ const openEditModal = (c) => {
     teamCount: teamsSettings.teamCount ?? 2,
     presetTeamNamesText: Array.isArray(teamsSettings.presetTeamNames) ? teamsSettings.presetTeamNames.join(', ') : '',
     allowCaptainRenameTeam: teamsSettings.allowCaptainRenameTeam !== false,
+    allowCaptainNicknameSuffixWhenLocked: teamsSettings.allowCaptainNicknameSuffixWhenLocked === true,
     allowByeWeek: byeSettings.allowByeWeek === true,
     maxByeWeeksPerParticipant: byeSettings.maxByeWeeksPerParticipant ?? 1,
     requireAdvanceByeDeclaration: byeSettings.requireAdvanceDeclaration !== false,
+    postseasonEnabled: postseasonSettings.enabled === true,
+    regularSeasonWeeks: postseasonSettings.regularSeasonWeeks ?? 10,
+    postseasonHasBreakWeek: postseasonSettings.hasBreakWeek === true,
+    postseasonBreakWeekNumber: postseasonSettings.breakWeekNumber ?? 11,
+    playoffWeekNumber: postseasonSettings.playoffWeekNumber ?? 11,
+    championshipWeekNumber: postseasonSettings.championshipWeekNumber ?? 12,
+    playoffSeedCount: postseasonSettings.playoffSeedCount ?? 4,
+    playoffMatchupMode: postseasonSettings.playoffMatchupMode || '1v4_2v3',
     runRuckStartMilesPerPerson: seasonSettings?.participation?.runRuckStartMilesPerPerson ?? 0,
     runRuckWeeklyIncreaseMilesPerPerson: seasonSettings?.participation?.runRuckWeeklyIncreaseMilesPerPerson ?? 2,
     maxRucksPerWeek: seasonSettings?.participation?.maxRucksPerWeek ?? 0,
@@ -900,7 +991,8 @@ const saveChallenge = async () => {
         },
         schedule: {
           weekStartsOn: challengeForm.value.weekStartsOn || 'monday',
-          weekEndsSundayAt: challengeForm.value.weekEndsSundayAt || '23:59'
+          weekEndsSundayAt: challengeForm.value.weekEndsSundayAt || '23:59',
+          weekTimeZone: challengeForm.value.weekTimeZone || 'UTC'
         },
         scoring: {
           weeklyMinimumPointsPerAthlete: challengeForm.value.individualMinPointsPerWeek ?? 0,
@@ -921,7 +1013,8 @@ const saveChallenge = async () => {
             .split(',')
             .map((s) => s.trim())
             .filter(Boolean),
-          allowCaptainRenameTeam: challengeForm.value.allowCaptainRenameTeam !== false
+          allowCaptainRenameTeam: challengeForm.value.allowCaptainRenameTeam !== false,
+          allowCaptainNicknameSuffixWhenLocked: challengeForm.value.allowCaptainNicknameSuffixWhenLocked === true
         },
         participation: {
           individualMinPointsPerWeek: Number(challengeForm.value.individualMinPointsPerWeek ?? 0),
@@ -934,6 +1027,18 @@ const saveChallenge = async () => {
           allowByeWeek: challengeForm.value.allowByeWeek === true,
           maxByeWeeksPerParticipant: Number(challengeForm.value.maxByeWeeksPerParticipant ?? 1),
           requireAdvanceDeclaration: challengeForm.value.requireAdvanceByeDeclaration !== false
+        },
+        postseason: {
+          enabled: challengeForm.value.postseasonEnabled === true,
+          regularSeasonWeeks: Number(challengeForm.value.regularSeasonWeeks ?? 10),
+          hasBreakWeek: challengeForm.value.postseasonHasBreakWeek === true,
+          breakWeekNumber: challengeForm.value.postseasonHasBreakWeek === true
+            ? Number(challengeForm.value.postseasonBreakWeekNumber ?? 11)
+            : null,
+          playoffWeekNumber: Number(challengeForm.value.playoffWeekNumber ?? 11),
+          championshipWeekNumber: Number(challengeForm.value.championshipWeekNumber ?? 12),
+          playoffSeedCount: Number(challengeForm.value.playoffSeedCount ?? 4),
+          playoffMatchupMode: challengeForm.value.playoffMatchupMode || '1v4_2v3'
         },
         treadmill: {
           photoProofRequired: challengeForm.value.treadmillPhotoRequired !== false

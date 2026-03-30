@@ -246,6 +246,7 @@ export const stravaImport = async (req, res, next) => {
     const seasonSettings = parseJsonObject(classRows?.[0]?.season_settings_json || {});
     const moderationMode = getWorkoutModerationMode(seasonSettings);
     const weekCutoffTime = String(seasonSettings?.schedule?.weekEndsSundayAt || classRows?.[0]?.week_start_time || '00:00');
+    const weekTimeZone = String(seasonSettings?.schedule?.weekTimeZone || 'UTC');
     const maxRucksPerWeek = Math.max(0, Number.parseInt(seasonSettings?.participation?.maxRucksPerWeek, 10) || 0);
     const importedRucksByWeek = new Map();
     let teamId = req.body.teamId ? asInt(req.body.teamId) : null;
@@ -277,11 +278,11 @@ export const stravaImport = async (req, res, next) => {
       const treadmill = isTreadmillActivity(activity);
       const isRuck = String(activityType || '').toLowerCase().includes('ruck');
       if (isRuck && maxRucksPerWeek > 0) {
-        const completedWeekStart = getWeekStartDate(completedAt ? new Date(completedAt) : new Date(), weekCutoffTime);
+        const completedWeekStart = getWeekStartDate(completedAt ? new Date(completedAt) : new Date(), weekCutoffTime, weekTimeZone);
         const weekKey = String(completedWeekStart || '').slice(0, 10);
         let count = importedRucksByWeek.get(weekKey);
         if (count == null) {
-          const range = getWeekDateTimeRange(weekKey, weekCutoffTime) || {
+          const range = getWeekDateTimeRange(weekKey, weekCutoffTime, weekTimeZone) || {
             start: `${weekKey} 00:00:00`,
             end: `${weekKey} 23:59:59`
           };

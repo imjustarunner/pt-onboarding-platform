@@ -88,6 +88,10 @@
               <label>Week ends Sunday at (HH:MM)</label>
               <input v-model="form.weekEndsSundayAt" type="time" class="form-input" />
             </div>
+            <div class="form-group">
+              <label>Week timezone</label>
+              <input v-model="form.weekTimeZone" type="text" class="form-input" placeholder="e.g., America/New_York" />
+            </div>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -130,6 +134,13 @@
               </select>
             </div>
             <div class="form-group">
+              <label>If locked, captains can add nickname suffix</label>
+              <select v-model="form.allowCaptainNicknameSuffixWhenLocked" class="form-input">
+                <option :value="false">No</option>
+                <option :value="true">Yes</option>
+              </select>
+            </div>
+            <div class="form-group">
               <label>Preset team names (comma-separated)</label>
               <input v-model="form.presetTeamNamesText" type="text" class="form-input" placeholder="e.g., Team Alpha, Team Bravo" />
             </div>
@@ -151,6 +162,51 @@
               <select v-model="form.requireAdvanceByeDeclaration" class="form-input">
                 <option :value="true">Yes</option>
                 <option :value="false">No</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Enable postseason</label>
+              <select v-model="form.postseasonEnabled" class="form-input">
+                <option :value="false">No</option>
+                <option :value="true">Yes</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Regular season weeks</label>
+              <input v-model.number="form.regularSeasonWeeks" type="number" min="1" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label>Break week before playoffs</label>
+              <select v-model="form.postseasonHasBreakWeek" class="form-input">
+                <option :value="false">No</option>
+                <option :value="true">Yes</option>
+              </select>
+            </div>
+            <div v-if="form.postseasonHasBreakWeek" class="form-group">
+              <label>Break week number</label>
+              <input v-model.number="form.postseasonBreakWeekNumber" type="number" min="1" class="form-input" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Playoff week number</label>
+              <input v-model.number="form.playoffWeekNumber" type="number" min="1" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label>Championship week number</label>
+              <input v-model.number="form.championshipWeekNumber" type="number" min="1" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label>Playoff seeds</label>
+              <input v-model.number="form.playoffSeedCount" type="number" min="2" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label>Playoff matchup mode</label>
+              <select v-model="form.playoffMatchupMode" class="form-input">
+                <option value="1v4_2v3">1 vs 4 and 2 vs 3</option>
+                <option value="seeded_bracket">Seeded bracket</option>
               </select>
             </div>
           </div>
@@ -246,6 +302,7 @@ const form = ref({
   eventCategory: 'run_ruck',
   challengeAssignmentMode: 'volunteer_or_elect',
   weekEndsSundayAt: '23:59',
+  weekTimeZone: 'UTC',
   runMilesPerPoint: 1,
   ruckMilesPerPoint: 1,
   caloriesPerPoint: 100,
@@ -254,10 +311,19 @@ const form = ref({
   maxRucksPerWeek: 0,
   teamCount: 2,
   allowCaptainRenameTeam: true,
+  allowCaptainNicknameSuffixWhenLocked: false,
   presetTeamNamesText: '',
   allowByeWeek: false,
   maxByeWeeksPerParticipant: 1,
   requireAdvanceByeDeclaration: true,
+  postseasonEnabled: false,
+  regularSeasonWeeks: 10,
+  postseasonHasBreakWeek: false,
+  postseasonBreakWeekNumber: 11,
+  playoffWeekNumber: 11,
+  championshipWeekNumber: 12,
+  playoffSeedCount: 4,
+  playoffMatchupMode: '1v4_2v3',
   workoutModerationMode: 'treadmill_only',
   treadmillPhotoRequired: true,
   treadmillpocalypseEnabled: false,
@@ -287,6 +353,7 @@ watch(() => props.open, (open) => {
       eventCategory: 'run_ruck',
       challengeAssignmentMode: 'volunteer_or_elect',
       weekEndsSundayAt: '23:59',
+      weekTimeZone: 'UTC',
       runMilesPerPoint: 1,
       ruckMilesPerPoint: 1,
       caloriesPerPoint: 100,
@@ -295,10 +362,19 @@ watch(() => props.open, (open) => {
       maxRucksPerWeek: 0,
       teamCount: 2,
       allowCaptainRenameTeam: true,
+      allowCaptainNicknameSuffixWhenLocked: false,
       presetTeamNamesText: '',
       allowByeWeek: false,
       maxByeWeeksPerParticipant: 1,
       requireAdvanceByeDeclaration: true,
+      postseasonEnabled: false,
+      regularSeasonWeeks: 10,
+      postseasonHasBreakWeek: false,
+      postseasonBreakWeekNumber: 11,
+      playoffWeekNumber: 11,
+      championshipWeekNumber: 12,
+      playoffSeedCount: 4,
+      playoffMatchupMode: '1v4_2v3',
       workoutModerationMode: 'treadmill_only',
       treadmillPhotoRequired: true,
       treadmillpocalypseEnabled: false,
@@ -343,7 +419,8 @@ const submit = async () => {
           challengeAssignmentMode: form.value.challengeAssignmentMode || 'volunteer_or_elect'
         },
         schedule: {
-          weekEndsSundayAt: form.value.weekEndsSundayAt || '23:59'
+          weekEndsSundayAt: form.value.weekEndsSundayAt || '23:59',
+          weekTimeZone: form.value.weekTimeZone || 'UTC'
         },
         scoring: {
           weeklyMinimumPointsPerAthlete: form.value.individualMinPointsPerWeek ?? 0,
@@ -358,7 +435,8 @@ const submit = async () => {
             .split(',')
             .map((s) => s.trim())
             .filter(Boolean),
-          allowCaptainRenameTeam: form.value.allowCaptainRenameTeam !== false
+          allowCaptainRenameTeam: form.value.allowCaptainRenameTeam !== false,
+          allowCaptainNicknameSuffixWhenLocked: form.value.allowCaptainNicknameSuffixWhenLocked === true
         },
         participation: {
           individualMinPointsPerWeek: Number(form.value.individualMinPointsPerWeek ?? 0),
@@ -371,6 +449,18 @@ const submit = async () => {
           allowByeWeek: form.value.allowByeWeek === true,
           maxByeWeeksPerParticipant: Number(form.value.maxByeWeeksPerParticipant ?? 1),
           requireAdvanceDeclaration: form.value.requireAdvanceByeDeclaration !== false
+        },
+        postseason: {
+          enabled: form.value.postseasonEnabled === true,
+          regularSeasonWeeks: Number(form.value.regularSeasonWeeks ?? 10),
+          hasBreakWeek: form.value.postseasonHasBreakWeek === true,
+          breakWeekNumber: form.value.postseasonHasBreakWeek === true
+            ? Number(form.value.postseasonBreakWeekNumber ?? 11)
+            : null,
+          playoffWeekNumber: Number(form.value.playoffWeekNumber ?? 11),
+          championshipWeekNumber: Number(form.value.championshipWeekNumber ?? 12),
+          playoffSeedCount: Number(form.value.playoffSeedCount ?? 4),
+          playoffMatchupMode: form.value.playoffMatchupMode || '1v4_2v3'
         },
         treadmill: {
           photoProofRequired: form.value.treadmillPhotoRequired !== false

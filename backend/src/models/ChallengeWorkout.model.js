@@ -25,10 +25,10 @@ class ChallengeWorkout {
   static _qualifiedClause(alias = 'w') {
     return `(${alias}.is_disqualified IS NULL OR ${alias}.is_disqualified = 0)`;
   }
-  static _weeklyRange(weekStart, weekCutoffTime = '00:00') {
+  static _weeklyRange(weekStart, weekCutoffTime = '00:00', weekTimeZone = null) {
     const week = String(weekStart || '').slice(0, 10);
     if (!week) return null;
-    return getWeekDateTimeRange(week, weekCutoffTime || '00:00');
+    return getWeekDateTimeRange(week, weekCutoffTime || '00:00', weekTimeZone);
   }
   static async findById(id) {
     const workoutId = toInt(id);
@@ -204,10 +204,10 @@ class ChallengeWorkout {
     return rows || [];
   }
 
-  static async getWeeklyLeaderboard(learningClassId, weekStart, { limit = 50, weekCutoffTime = '00:00' } = {}) {
+  static async getWeeklyLeaderboard(learningClassId, weekStart, { limit = 50, weekCutoffTime = '00:00', weekTimeZone = null } = {}) {
     const classId = toInt(learningClassId);
     if (!classId) return [];
-    const range = this._weeklyRange(weekStart, weekCutoffTime);
+    const range = this._weeklyRange(weekStart, weekCutoffTime, weekTimeZone);
     if (!range) return [];
     const [rows] = await pool.execute(
       `SELECT w.user_id, u.first_name, u.last_name, w.team_id, t.team_name, SUM(w.points) AS total_points
@@ -224,10 +224,10 @@ class ChallengeWorkout {
     return rows || [];
   }
 
-  static async getWeeklyTeamLeaderboard(learningClassId, weekStart, { limit = 50, weekCutoffTime = '00:00' } = {}) {
+  static async getWeeklyTeamLeaderboard(learningClassId, weekStart, { limit = 50, weekCutoffTime = '00:00', weekTimeZone = null } = {}) {
     const classId = toInt(learningClassId);
     if (!classId) return [];
-    const range = this._weeklyRange(weekStart, weekCutoffTime);
+    const range = this._weeklyRange(weekStart, weekCutoffTime, weekTimeZone);
     if (!range) return [];
     const [rows] = await pool.execute(
       `SELECT w.team_id, t.team_name, SUM(w.points) AS total_points
@@ -243,10 +243,10 @@ class ChallengeWorkout {
     return rows || [];
   }
 
-  static async getWeeklyTopPerTeam(learningClassId, weekStart, { weekCutoffTime = '00:00' } = {}) {
+  static async getWeeklyTopPerTeam(learningClassId, weekStart, { weekCutoffTime = '00:00', weekTimeZone = null } = {}) {
     const classId = toInt(learningClassId);
     if (!classId) return [];
-    const range = this._weeklyRange(weekStart, weekCutoffTime);
+    const range = this._weeklyRange(weekStart, weekCutoffTime, weekTimeZone);
     if (!range) return [];
     const [rows] = await pool.execute(
       `SELECT w.user_id, u.first_name, u.last_name, w.team_id, t.team_name, SUM(w.points) AS total_points
@@ -267,11 +267,11 @@ class ChallengeWorkout {
     return Object.values(byTeam);
   }
 
-  static async getWeeklyPointsForUser(learningClassId, userId, weekStartDate, { weekCutoffTime = '00:00' } = {}) {
+  static async getWeeklyPointsForUser(learningClassId, userId, weekStartDate, { weekCutoffTime = '00:00', weekTimeZone = null } = {}) {
     const classId = toInt(learningClassId);
     const uId = toInt(userId);
     if (!classId || !uId) return 0;
-    const range = this._weeklyRange(weekStartDate, weekCutoffTime);
+    const range = this._weeklyRange(weekStartDate, weekCutoffTime, weekTimeZone);
     if (!range) return 0;
     const [rows] = await pool.execute(
       `SELECT COALESCE(SUM(w.points), 0) AS total FROM challenge_workouts w
@@ -283,10 +283,10 @@ class ChallengeWorkout {
   }
 
   /** Weekly leaderboard filtered by gender. Returns top 1 per gender by points. */
-  static async getWeeklyLeaderByGender(learningClassId, weekStart, { gender, weekCutoffTime = '00:00' } = {}) {
+  static async getWeeklyLeaderByGender(learningClassId, weekStart, { gender, weekCutoffTime = '00:00', weekTimeZone = null } = {}) {
     const classId = toInt(learningClassId);
     if (!classId) return null;
-    const range = this._weeklyRange(weekStart, weekCutoffTime);
+    const range = this._weeklyRange(weekStart, weekCutoffTime, weekTimeZone);
     if (!range) return null;
     const [rows] = await pool.execute(
       `SELECT w.user_id, u.first_name, u.last_name, w.team_id, t.team_name, SUM(w.points) AS total_points, p.gender
@@ -305,10 +305,10 @@ class ChallengeWorkout {
   }
 
   /** Weekly leader among Master's (age >= threshold). Filter by gender if provided. */
-  static async getWeeklyMastersLeader(learningClassId, weekStart, { gender = null, ageThreshold = 53, referenceDate = null, weekCutoffTime = '00:00' } = {}) {
+  static async getWeeklyMastersLeader(learningClassId, weekStart, { gender = null, ageThreshold = 53, referenceDate = null, weekCutoffTime = '00:00', weekTimeZone = null } = {}) {
     const classId = toInt(learningClassId);
     if (!classId) return null;
-    const range = this._weeklyRange(weekStart, weekCutoffTime);
+    const range = this._weeklyRange(weekStart, weekCutoffTime, weekTimeZone);
     if (!range) return null;
     const refDate = referenceDate || String(weekStart).slice(0, 10);
     const threshold = toInt(ageThreshold) ?? 53;
@@ -332,11 +332,11 @@ class ChallengeWorkout {
     return rows?.[0] || null;
   }
 
-  static async getWeeklyPointsForTeam(learningClassId, teamId, weekStartDate, { weekCutoffTime = '00:00' } = {}) {
+  static async getWeeklyPointsForTeam(learningClassId, teamId, weekStartDate, { weekCutoffTime = '00:00', weekTimeZone = null } = {}) {
     const classId = toInt(learningClassId);
     const tId = toInt(teamId);
     if (!classId || !tId) return 0;
-    const range = this._weeklyRange(weekStartDate, weekCutoffTime);
+    const range = this._weeklyRange(weekStartDate, weekCutoffTime, weekTimeZone);
     if (!range) return 0;
     const [rows] = await pool.execute(
       `SELECT COALESCE(SUM(w.points), 0) AS total FROM challenge_workouts w
