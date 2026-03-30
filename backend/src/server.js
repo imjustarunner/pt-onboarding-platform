@@ -174,12 +174,9 @@ const corsOriginFn = (origin, callback) => {
   const port = Number(process.env.PORT || config.port) || 3000;
   const isLocalBackend = port === 3000;
   const localOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
-  // Native webview origins used by Capacitor/Ionic shells.
-  const nativeAppOrigins = ['capacitor://localhost', 'ionic://localhost'];
   const allowed = Array.isArray(config.cors.origin)
     ? [...config.cors.origin]
     : [config.cors.origin];
-  allowed.push(...nativeAppOrigins);
   if (isLocalBackend) {
     allowed.push(...localOrigins);
   }

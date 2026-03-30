@@ -422,23 +422,8 @@ export const coordinatorAssignClientToEvent = async (req, res, next) => {
     if (schoolOrganizationId && schoolOrg !== schoolOrganizationId) {
       return res.status(400).json({ error: { message: 'School mismatch for this client row' } });
     }
-
-    // Auto-create the org assignment if missing — program-based events use
-    // sg.organization_id as a program org (not always a pre-existing school
-    // assignment), so we upsert rather than hard-block.
-    if (schoolOrg > 0 && !(await clientAffiliatedToSchool(clientId, schoolOrg))) {
-      try {
-        await pool.execute(
-          `INSERT INTO client_organization_assignments (client_id, organization_id, is_primary, is_active)
-           VALUES (?, ?, 0, TRUE)
-           ON DUPLICATE KEY UPDATE is_active = TRUE`,
-          [clientId, schoolOrg]
-        );
-      } catch (assignErr) {
-        return res.status(400).json({
-          error: { message: assignErr?.message || 'Could not affiliate client with this event program' }
-        });
-      }
+    if (!(await clientAffiliatedToSchool(clientId, schoolOrg))) {
+      return res.status(400).json({ error: { message: 'Client is not affiliated with this event school' } });
     }
 
     await pool.execute(
