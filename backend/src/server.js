@@ -16,7 +16,6 @@ import contentRoutes from './routes/content.routes.js';
 import quizRoutes from './routes/quiz.routes.js';
 import signatureRoutes from './routes/signature.routes.js';
 import agencyRoutes from './routes/agency.routes.js';
-import companyEventClientsRoutes from './routes/companyEventClients.routes.js';
 import trackRoutes from './routes/track.routes.js';
 import acknowledgmentRoutes from './routes/acknowledgment.routes.js';
 import agencyDashboardRoutes from './routes/agencyDashboard.routes.js';
@@ -557,7 +556,6 @@ app.use('/api/signatures', signatureRoutes);
 // login-page branding requests succeed. agencySchools/agencyDepartments use router.use(authenticate)
 // and would 401 all /api/agencies/* requests if mounted before agencyRoutes.
 app.use('/api/agencies', agencyRoutes);
-app.use('/api/company-events', companyEventClientsRoutes);
 app.use('/api/agencies', agencySchoolsRoutes);
 app.use('/api/agencies', agencyDepartmentsRoutes);
 app.use('/api/agencies', agencyDashboardRoutes);
@@ -769,6 +767,17 @@ app.use((req, res) => {
 });
 
 // Export app for bootstrap.js (Cloud Run). When run directly (dev), listen here.
+// Mount company-event-clients routes lazily to avoid crashing the import chain
+// if the migration hasn't run yet or the table doesn't exist.
+(async () => {
+  try {
+    const { default: companyEventClientsRoutes } = await import('./routes/companyEventClients.routes.js');
+    app.use('/api/company-events', companyEventClientsRoutes);
+  } catch (err) {
+    console.warn('⚠ company-event-clients routes not loaded:', err?.message || err);
+  }
+})();
+
 export { app };
 const PORT_RAW = process.env.PORT ?? config.port ?? 8080;
 const PORT = Number.parseInt(String(PORT_RAW), 10) || 8080;
