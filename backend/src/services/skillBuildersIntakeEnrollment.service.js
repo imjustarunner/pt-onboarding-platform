@@ -73,8 +73,21 @@ export async function enrollClientsInCompanyEvent({ agencyId, eventId, clientIds
       [clientId, schoolOrgId]
     );
     if (!coa?.[0]) {
-      results.push({ clientId, ok: false, error: 'Client must be affiliated with the event school' });
-      continue;
+      try {
+        await pool.execute(
+          `INSERT INTO client_organization_assignments (client_id, organization_id, is_primary, is_active)
+           VALUES (?, ?, 0, TRUE)
+           ON DUPLICATE KEY UPDATE is_active = TRUE`,
+          [clientId, schoolOrgId]
+        );
+      } catch (assignErr) {
+        results.push({
+          clientId,
+          ok: false,
+          error: assignErr?.message || 'Client is not affiliated with the event school'
+        });
+        continue;
+      }
     }
     try {
       await pool.execute(

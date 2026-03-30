@@ -263,7 +263,7 @@
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
-              v-if="(detail.clients || []).length"
+              v-if="(detail.clients || []).length || viewerCaps.canManageCompanyEvent"
               v-show="railActive === 'clients'"
               rail-mode
               section-id="clients"
@@ -275,6 +275,43 @@
                 Clients on this program roster — mark attendance here. H2014 session notes and copy-aid notes live under
                 <strong>Clinical Aid</strong> (same list style as the program hub Notes tab).
               </p>
+
+              <!-- Coordinator: add client to roster inline -->
+              <div v-if="viewerCaps.canManageCompanyEvent && eventBillingAgencyId" class="sbep-add-client-block">
+                <p class="sbep-subh">Add client to roster</p>
+                <div class="sbep-add-client-row">
+                  <input
+                    v-model="rosterAddQuery"
+                    type="text"
+                    class="input sbep-add-client-input"
+                    placeholder="Search by name or identifier…"
+                    @input="scheduleRosterSearch"
+                  />
+                  <span v-if="rosterAddSearching" class="muted small"> Searching…</span>
+                </div>
+                <p v-if="rosterAddError" class="error-box sbep-add-client-err">{{ rosterAddError }}</p>
+                <p v-if="rosterAddSuccess" class="sbep-flash-ok" role="status">{{ rosterAddSuccess }}</p>
+                <ul v-if="rosterAddResults.length" class="sbep-add-client-results">
+                  <li
+                    v-for="c in rosterAddResults"
+                    :key="`rac-${c.clientId}`"
+                    class="sbep-add-client-result-row"
+                  >
+                    <span class="sbep-add-client-label">{{ c.initials || c.identifierCode || `Client ${c.clientId}` }}</span>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="rosterAddSavingId === c.clientId"
+                      @click="addClientToRoster(c)"
+                    >
+                      {{ rosterAddSavingId === c.clientId ? 'Adding…' : 'Add' }}
+                    </button>
+                  </li>
+                </ul>
+                <p v-else-if="rosterAddSearched && !rosterAddResults.length && rosterAddQuery.trim()" class="muted small">
+                  No clients found. Make sure the client is in the master clients list first.
+                </p>
+              </div>
 
               <div v-if="canEditClientAttendance && sessions.length" class="sbep-client-mgmt-session-bar">
                 <label class="sbep-label">Session</label>
@@ -449,6 +486,26 @@
                 <router-link :to="guardianRegistrationHref">Open guardian portal</router-link>
                 <span> — Registration section</span>
               </p>
+
+              <!-- Enrolled client count + quick nav to Clients tab -->
+              <div class="sbep-reg-enrolled-summary">
+                <template v-if="(detail.clients || []).length">
+                  <p class="muted small">
+                    <strong>{{ detail.clients.length }}</strong>
+                    {{ detail.clients.length === 1 ? 'client' : 'clients' }} currently enrolled on this program's roster.
+                    <button type="button" class="btn btn-link btn-sm sbep-reg-jump-btn" @click="selectRailSection('clients')">
+                      View roster &amp; attendance →
+                    </button>
+                  </p>
+                </template>
+                <p v-else class="muted small">
+                  No clients on the roster yet. Families can register through the guardian portal above, or coordinators can
+                  <button type="button" class="btn btn-link btn-sm sbep-reg-jump-btn" @click="selectRailSection('clients')">
+                    add a client manually
+                  </button>
+                  from the <strong>Client Management</strong> tab.
+                </p>
+              </div>
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
@@ -1753,6 +1810,71 @@ function goBack() {
 }
 const clockBusy = ref(false);
 const clockMessage = ref('');
+
+// Roster: add client to event inline search
+const rosterAddQuery = ref('');
+const rosterAddResults = ref([]);
+const rosterAddSearching = ref(false);
+const rosterAddSearched = ref(false);
+const rosterAddSavingId = ref(null);
+const rosterAddError = ref('');
+const rosterAddSuccess = ref('');
+let rosterAddSearchTimer = null;
+
+function scheduleRosterSearch() {
+  rosterAddError.value = '';
+  rosterAddSuccess.value = '';
+  rosterAddSearched.value = false;
+  if (rosterAddSearchTimer) clearTimeout(rosterAddSearchTimer);
+  const q = String(rosterAddQuery.value || '').trim();
+  if (!q) {
+    rosterAddResults.value = [];
+    return;
+  }
+  rosterAddSearchTimer = setTimeout(() => doRosterSearch(q), 320);
+}
+
+async function doRosterSearch(q) {
+  const aid = eventBillingAgencyId.value;
+  if (!aid) return;
+  rosterAddSearching.value = true;
+  rosterAddSearched.value = false;
+  try {
+    const res = await api.get('/skill-builders/coordinator/master-clients', {
+      params: { agencyId: aid, q },
+      skipGlobalLoading: true
+    });
+    rosterAddResults.value = Array.isArray(res.data?.clients) ? res.data.clients : [];
+  } catch {
+    rosterAddResults.value = [];
+  } finally {
+    rosterAddSearching.value = false;
+    rosterAddSearched.value = true;
+  }
+}
+
+async function addClientToRoster(c) {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  if (!aid || !eid || !c?.clientId) return;
+  rosterAddSavingId.value = c.clientId;
+  rosterAddError.value = '';
+  rosterAddSuccess.value = '';
+  try {
+    await api.post(`/skill-builders/coordinator/clients/${c.clientId}/assign-event`, {
+      agencyId: aid,
+      companyEventId: eid
+    });
+    rosterAddSuccess.value = `${c.initials || c.identifierCode || 'Client'} added to roster.`;
+    rosterAddResults.value = rosterAddResults.value.filter((r) => r.clientId !== c.clientId);
+    rosterAddQuery.value = '';
+    await loadDetail();
+  } catch (e) {
+    rosterAddError.value = e.response?.data?.error?.message || e.message || 'Could not add client';
+  } finally {
+    rosterAddSavingId.value = null;
+  }
+}
 
 const chatThreadId = ref(null);
 const chatLoading = ref(false);
@@ -3168,6 +3290,59 @@ watch(
 .sbep-client-mgmt-session-bar {
   margin: 4px 0 14px;
   max-width: min(100%, 420px);
+}
+.sbep-reg-enrolled-summary {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+.sbep-reg-jump-btn {
+  padding: 0;
+  font-size: inherit;
+  vertical-align: baseline;
+  margin-left: 4px;
+}
+.sbep-add-client-block {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+.sbep-add-client-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sbep-add-client-input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.sbep-add-client-results {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sbep-add-client-result-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--surface-secondary, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+.sbep-add-client-label {
+  font-weight: 600;
+  color: var(--text-primary, #1e293b);
+}
+.sbep-add-client-err {
+  margin-top: 8px;
+  font-size: 0.88rem;
 }
 .sbep-roster-summary-block {
   margin-top: 20px;
