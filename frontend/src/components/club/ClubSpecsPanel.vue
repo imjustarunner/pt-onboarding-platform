@@ -250,4 +250,65 @@ watch(
 .link:hover {
   text-decoration: underline;
 }
+
+@media (max-width: 768px) {
+  .club-specs {
+    padding: 14px;
+    border-radius: 10px;
+  }
+
+  .panel-header {
+    margin-bottom: 12px;
+  }
+
+  .title h2 {
+    font-size: 1.6rem;
+    line-height: 1.1;
+  }
+
+  .sub {
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .metric {
+    padding: 12px;
+    border-radius: 10px;
+  }
+
+  .k {
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+
+  .v {
+    font-size: 24px;
+    line-height: 1.1;
+  }
+
+  .v.season-name {
+    font-size: 18px;
+  }
+
+  .hint {
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.25;
+  }
+
+  .footer {
+    margin-top: 12px;
+    padding-top: 10px;
+    gap: 8px;
+  }
+
+  .link {
+    font-size: 12px;
+  }
+}
 </style>

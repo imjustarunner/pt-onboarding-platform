@@ -141,4 +141,40 @@ const settingsIconUrl = computed(() =>
   color: var(--text-secondary);
   line-height: 1.4;
 }
+
+@media (max-width: 768px) {
+  .club-quick-actions h2 {
+    margin-bottom: 14px;
+    font-size: 1.05rem;
+  }
+
+  .actions-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .action-card {
+    padding: 14px 12px;
+    gap: 12px;
+    border-radius: 10px;
+  }
+
+  .action-icon-placeholder,
+  .action-icon-img {
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+    border-radius: 8px;
+  }
+
+  .action-content h3 {
+    font-size: 0.95rem;
+    margin-bottom: 4px;
+  }
+
+  .action-content p {
+    font-size: 12px;
+    line-height: 1.3;
+  }
+}
 </style>

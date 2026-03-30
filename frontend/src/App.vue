@@ -64,6 +64,7 @@
                 </div>
               </div>
               <h1 v-if="navTitleText" class="nav-title">{{ navTitleText }}</h1>
+              <span v-if="isSummitStatsChallengeChrome" class="ssc-nav-brand-label">{{ summitTeamBrandLabel }}</span>
             </div>
             <div class="nav-links-wrapper" :class="{ 'nav-menus-open': navDropdownOpen }">
               <div class="nav-links">
@@ -533,6 +534,7 @@
           <div class="mobile-sidebar-header">
             <BrandingLogo size="medium" class="mobile-logo" />
             <h2 v-if="navTitleText" class="mobile-title">{{ navTitleText }}</h2>
+            <p v-if="isSummitStatsChallengeChrome" class="mobile-brand-label">{{ summitTeamBrandLabel }}</p>
             <button class="mobile-close" @click="mobileMenuOpen = false" aria-label="Close menu">×</button>
           </div>
           <div class="mobile-nav-links">
@@ -1053,6 +1055,7 @@ const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const isSummitStatsChallengeChrome = useSummitStatsChallengeChrome();
+const summitTeamBrandLabel = 'Summit Stats: Team Challenge';
 
 const currentAgencyIdForAddon = computed(() => agencyStore.currentAgency?.id ?? null);
 const { momentumListEnabled } = useMomentumListAddon(currentAgencyIdForAddon);
@@ -2926,6 +2929,22 @@ onUnmounted(() => {
   background: white;
 }
 
+/* In preview frames, keep drawer/overlay constrained to the frame canvas. */
+.preview-root[data-preview-viewport="tablet"] .mobile-sidebar,
+.preview-root[data-preview-viewport="mobile"] .mobile-sidebar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  max-height: 100%;
+}
+
+.preview-root[data-preview-viewport="tablet"] .mobile-overlay,
+.preview-root[data-preview-viewport="mobile"] .mobile-overlay {
+  position: absolute;
+  inset: 0;
+}
+
 .preview-root[data-preview-viewport="tablet"] #app {
   width: 768px;
   max-width: 768px;
@@ -3306,6 +3325,19 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   flex-shrink: 1;
   min-width: 0;
+}
+
+.ssc-nav-brand-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #1e3a8a;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  padding: 4px 10px;
+  line-height: 1;
 }
 
 /* Wrapper for nav-links to enable horizontal scrolling */
@@ -4033,20 +4065,20 @@ onUnmounted(() => {
   padding: 0;
   z-index: 1001;
   flex-shrink: 0;
-  margin-right: 16px;
-  margin-left: -24px; /* Pull to far left, offset container padding */
+  margin-right: 12px;
+  margin-left: 0;
   order: -1; /* Place before nav-brand */
 }
 
 @media (min-width: 768px) {
   .navbar .mobile-menu-toggle {
-    margin-left: -40px;
+    margin-left: 0;
   }
 }
 
 @media (min-width: 1200px) {
   .navbar .mobile-menu-toggle {
-    margin-left: -60px;
+    margin-left: 0;
   }
 }
 
@@ -4118,6 +4150,16 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mobile-brand-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  max-width: calc(100% - 70px);
 }
 
 .mobile-close {

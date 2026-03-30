@@ -63,7 +63,7 @@ const displayLogoUrl = computed(() => {
 });
 
 const displaySubtitle = computed(() => {
-  const name = orgSlug.value && loginTheme.value?.agency?.name ? loginTheme.value.agency.name : 'Summit Stats';
+  const name = orgSlug.value && loginTheme.value?.agency?.name ? loginTheme.value.agency.name : 'Summit Stats: Team Challenge';
   return `Sign up to create and manage your fitness club on ${name}.`;
 });
 

@@ -1,7 +1,48 @@
 <template>
-  <div class="login-page">
-    <div class="login-container" :style="{ background: loginBackground }">
-      <div class="login-card" :class="{ 'login-card--wide': intakesPanelOpen && showIntakesTrigger }">
+  <div class="login-page" :class="{ 'login-page--ssc': isSSCLogin, 'login-page--app-like': isAppLike }">
+    <div v-if="showAppPreviewToggle" class="app-preview-toggle-group" aria-label="Local preview mode">
+      <button
+        type="button"
+        class="app-preview-toggle"
+        :class="{ active: appPreviewMode === 'off' }"
+        @click="setAppPreviewMode('off')"
+        title="Show web login preview"
+      >
+        Preview: Web
+      </button>
+      <button
+        type="button"
+        class="app-preview-toggle"
+        :class="{ active: appPreviewMode === 'phone' }"
+        @click="setAppPreviewMode('phone')"
+        title="Show phone app preview"
+      >
+        Preview: App
+      </button>
+      <button
+        type="button"
+        class="app-preview-toggle"
+        :class="{ active: appPreviewMode === 'ipad' }"
+        @click="setAppPreviewMode('ipad')"
+        title="Show iPad app preview"
+      >
+        Preview: iPad
+      </button>
+    </div>
+    <div class="login-container" :class="{ 'login-container--app': isAppLike, 'login-container--ipad': isIpadPreviewMode }" :style="loginContainerStyle">
+      <div class="login-card" :class="{ 'login-card--wide': intakesPanelOpen && showIntakesTrigger, 'login-card--app': isAppLike, 'login-card--ipad': isIpadPreviewMode }">
+        <div v-if="isIpadPreviewMode && !loginParentBranding" class="ipad-hero-panel">
+          <img
+            v-if="displayLogoUrl"
+            :src="displayLogoUrl"
+            alt="Summit Stats Team Challenge"
+            class="ipad-hero-logo"
+            @error="handleLogoError"
+          />
+          <div class="ipad-hero-copy">
+            <p class="subtitle">{{ primaryLoginSubtitle }}</p>
+          </div>
+        </div>
         <div
           v-if="loginParentBranding && (loginParentBranding.name || loginParentBranding.logoUrl)"
           class="login-dual-brand"
@@ -30,13 +71,13 @@
             <div v-if="loginTheme?.agency?.name" class="login-dual-brand__name">{{ loginTheme.agency.name }}</div>
           </div>
         </div>
-        <div v-else class="login-logo">
+        <div v-else-if="!isIpadPreviewMode" class="login-logo">
           <img :src="displayLogoUrl" alt="Logo" class="logo-image" @error="handleLogoError" v-if="displayLogoUrl" />
         </div>
-        <h2 v-if="loginParentBranding">{{ portalLoginHeadline }}</h2>
-        <h2 v-else>{{ displayTitle }}</h2>
-        <p v-if="loginParentBranding" class="subtitle">{{ portalLoginSubtitle }}</p>
-        <p v-else class="subtitle">{{ defaultLoginSubtitle }}</p>
+        <h2 v-if="!isAppLike && !isSSCLogin && loginParentBranding">{{ portalLoginHeadline }}</h2>
+        <h2 v-else-if="!isAppLike && !isSSCLogin">{{ primaryLoginTitle }}</h2>
+        <p v-if="!isAppLike && !isSSCLogin && loginParentBranding" class="subtitle">{{ portalLoginSubtitle }}</p>
+        <p v-else-if="!isAppLike" class="subtitle">{{ primaryLoginSubtitle }}</p>
         
         <div v-if="error" class="error" v-html="formatError(error)"></div>
         <div v-if="verifiedSuccess" class="success">{{ verifiedSuccess }}</div>
@@ -152,94 +193,107 @@
           </span>
         </button>
 
-        <form @submit.prevent="handleSubmit" class="login-form">
-          <div
-            class="login-credentials-wrap"
-            :class="{ 'login-credentials-wrap--school-split': schoolPortalCredentialsRow }"
-          >
-            <div class="form-group login-credentials-username">
-              <label for="username">{{ usernameFieldLabel }}</label>
-              <input
-                id="username"
-                name="username"
-                v-model="username"
-                type="text"
-                required
-                :placeholder="usernameFieldPlaceholder"
-                autocomplete="username"
-                :disabled="loading || verifying"
-                @input="onUsernameInput"
-                @blur="maybeVerify"
-              />
+        <div :class="{ 'app-auth-panel': isAppLike, 'ipad-auth-panel': isIpadPreviewMode }">
+          <form @submit.prevent="handleSubmit" class="login-form">
+            <div
+              class="login-credentials-wrap"
+              :class="{ 'login-credentials-wrap--school-split': schoolPortalCredentialsRow }"
+            >
+              <div class="form-group login-credentials-username">
+                <label for="username">{{ usernameFieldLabel }}</label>
+                <input
+                  id="username"
+                  name="username"
+                  v-model="username"
+                  type="text"
+                  required
+                  :placeholder="usernameFieldPlaceholder"
+                  autocomplete="username"
+                  :disabled="loading || verifying"
+                  @input="onUsernameInput"
+                  @blur="maybeVerify"
+                />
+              </div>
+
+              <div v-if="needsOrgChoice" class="form-group login-credentials-org">
+                <label for="orgChoice">Choose your organization</label>
+                <select id="orgChoice" v-model="selectedOrgSlug" :disabled="verifying || loading" required>
+                  <option disabled value="">Select an organization</option>
+                  <option v-for="o in orgOptions" :key="o.portal_url || o.slug || o.id" :value="(o.portal_url || o.slug || '').toLowerCase()">
+                    {{ o.name }}{{ o.organization_type ? ` (${o.organization_type})` : '' }}
+                  </option>
+                </select>
+              </div>
+
+              <div v-if="showPassword && !needsOrgChoice" class="form-group login-credentials-password">
+                <label for="password">Password</label>
+                <input
+                  id="password"
+                  name="password"
+                  v-model="password"
+                  type="password"
+                  required
+                  placeholder="Enter your password"
+                  autocomplete="current-password"
+                  :disabled="loading"
+                />
+              </div>
             </div>
 
-            <div v-if="needsOrgChoice" class="form-group login-credentials-org">
-              <label for="orgChoice">Choose your organization</label>
-              <select id="orgChoice" v-model="selectedOrgSlug" :disabled="verifying || loading" required>
-                <option disabled value="">Select an organization</option>
-                <option v-for="o in orgOptions" :key="o.portal_url || o.slug || o.id" :value="(o.portal_url || o.slug || '').toLowerCase()">
-                  {{ o.name }}{{ o.organization_type ? ` (${o.organization_type})` : '' }}
-                </option>
-              </select>
+            <div v-if="!needsOrgChoice" class="remember-row">
+              <label class="remember-me">
+                <input type="checkbox" v-model="rememberLogin" :disabled="verifying || loading" />
+                Remember username
+              </label>
             </div>
+            
+            <button v-if="needsOrgChoice" type="submit" class="btn btn-primary" :disabled="verifying || loading || !selectedOrgSlug">
+              {{ verifying ? 'Verifying…' : 'Continue' }}
+            </button>
 
-            <div v-if="showPassword && !needsOrgChoice" class="form-group login-credentials-password">
-              <label for="password">Password</label>
-              <input
-                id="password"
-                name="password"
-                v-model="password"
-                type="password"
-                required
-                placeholder="Enter your password"
-                autocomplete="current-password"
-                :disabled="loading"
-              />
-            </div>
-          </div>
+            <button v-else-if="!showPassword" type="submit" class="btn btn-primary" :disabled="verifying || loading || !username.trim()">
+              {{ verifying ? 'Verifying…' : 'Verify' }}
+            </button>
 
-          <div v-if="!needsOrgChoice" class="remember-row">
-            <label class="remember-me">
-              <input type="checkbox" v-model="rememberLogin" :disabled="verifying || loading" />
-              Remember username
-            </label>
-          </div>
+            <button v-else type="submit" class="btn btn-primary" :disabled="loading">
+              {{ loading ? 'Signing in...' : 'Sign In' }}
+            </button>
+
+            <button
+              v-if="showPassword && !needsOrgChoice"
+              type="button"
+              class="btn btn-secondary"
+              :disabled="loading || verifying"
+              @click="resetToUsernameStep"
+            >
+              Change username
+            </button>
+          </form>
           
-          <button v-if="needsOrgChoice" type="submit" class="btn btn-primary" :disabled="verifying || loading || !selectedOrgSlug">
-            {{ verifying ? 'Verifying…' : 'Continue' }}
-          </button>
-
-          <button v-else-if="!showPassword" type="submit" class="btn btn-primary" :disabled="verifying || loading || !username.trim()">
-            {{ verifying ? 'Verifying…' : 'Verify' }}
-          </button>
-
-          <button v-else type="submit" class="btn btn-primary" :disabled="loading">
-            {{ loading ? 'Signing in...' : 'Sign In' }}
-          </button>
-
-          <button
-            v-if="showPassword && !needsOrgChoice"
-            type="button"
-            class="btn btn-secondary"
-            :disabled="loading || verifying"
-            @click="resetToUsernameStep"
-          >
-            Change username
-          </button>
-        </form>
-        
-        <div class="login-help">
-          <a href="#" @click.prevent="showForgotPassword" class="help-link">Forgot Password?</a>
-          <span class="help-separator">|</span>
-          <a href="#" @click.prevent="showForgotUsername" class="help-link">Forgot Username?</a>
-          <template v-if="showClubLinks">
+          <div class="login-help">
+            <a href="#" @click.prevent="showForgotPassword" class="help-link">Forgot Password?</a>
             <span class="help-separator">|</span>
-            <router-link :to="participantSignupPath" class="help-link">Sign up</router-link>
-            <span class="help-separator">|</span>
-            <router-link :to="clubsPath" class="help-link">Browse Clubs</router-link>
-            <span class="help-separator">|</span>
-            <router-link :to="clubManagerSignupPath" class="help-link">Create Club Manager Account</router-link>
-          </template>
+            <a href="#" @click.prevent="showForgotUsername" class="help-link">Forgot Username?</a>
+            <template v-if="showClubLinks && !isAppLike">
+              <span class="help-separator">|</span>
+              <router-link :to="participantSignupPath" class="help-link">Sign up</router-link>
+              <span class="help-separator">|</span>
+              <router-link :to="clubsPath" class="help-link">Browse Clubs</router-link>
+              <span class="help-separator">|</span>
+              <router-link :to="clubManagerSignupPath" class="help-link">Create Club Manager Account</router-link>
+            </template>
+            <template v-else-if="showClubLinks && isAppLike">
+              <span class="help-separator">|</span>
+              <button type="button" class="help-link help-link-button" @click="showAppMoreLinks = !showAppMoreLinks">
+                {{ showAppMoreLinks ? 'Hide options' : 'More options' }}
+              </button>
+            </template>
+          </div>
+          <div v-if="showClubLinks && isAppLike && showAppMoreLinks" class="app-login-links">
+            <router-link :to="participantSignupPath" class="app-login-link-btn">Sign up</router-link>
+            <router-link :to="clubsPath" class="app-login-link-btn">Browse Clubs</router-link>
+            <router-link :to="clubManagerSignupPath" class="app-login-link-btn app-login-link-btn--secondary">Create Club Manager Account</router-link>
+          </div>
         </div>
         
         <!-- Forgot Password Modal -->
@@ -327,7 +381,7 @@
         </div>
       </div>
     </div>
-    <PoweredByFooter />
+    <PoweredByFooter v-if="!isAppLike" />
   </div>
 </template>
 
@@ -360,6 +414,60 @@ const route = useRoute();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
+const APP_PREVIEW_STORAGE_KEY = '__pt_local_app_preview__';
+const showAppPreviewToggle = import.meta.env.DEV;
+const APP_PREVIEW_MODES = new Set(['off', 'phone', 'ipad']);
+const appPreviewMode = ref('off');
+const showAppMoreLinks = ref(false);
+
+const browserIsStandalone = () => {
+  if (typeof window === 'undefined') return false;
+  const mediaStandalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+  const iosStandalone = typeof window.navigator !== 'undefined' && window.navigator.standalone === true;
+  return Boolean(mediaStandalone || iosStandalone);
+};
+
+const applyAppPreviewMode = (mode) => {
+  try {
+    const root = document.documentElement;
+    if (!root) return;
+    const normalized = APP_PREVIEW_MODES.has(String(mode || '').toLowerCase())
+      ? String(mode || '').toLowerCase()
+      : 'off';
+    if (normalized !== 'off') {
+      root.classList.add('is-standalone-pwa');
+      root.setAttribute('data-display-mode', 'standalone');
+      root.setAttribute('data-pt-app-preview', '1');
+      root.setAttribute('data-pt-app-preview-mode', normalized);
+      root.setAttribute('data-preview-viewport', normalized === 'ipad' ? 'tablet' : 'mobile');
+      root.setAttribute('data-preview-nav', 'hamburger');
+      return;
+    }
+    root.removeAttribute('data-pt-app-preview');
+    root.removeAttribute('data-pt-app-preview-mode');
+    root.removeAttribute('data-preview-viewport');
+    root.removeAttribute('data-preview-nav');
+    if (!browserIsStandalone()) {
+      root.classList.remove('is-standalone-pwa');
+      root.setAttribute('data-display-mode', 'browser');
+    }
+  } catch {
+    // ignore
+  }
+};
+
+const setAppPreviewMode = (mode) => {
+  if (!showAppPreviewToggle) return;
+  appPreviewMode.value = APP_PREVIEW_MODES.has(String(mode || '').toLowerCase())
+    ? String(mode || '').toLowerCase()
+    : 'off';
+  applyAppPreviewMode(appPreviewMode.value);
+  try {
+    localStorage.setItem(APP_PREVIEW_STORAGE_KEY, appPreviewMode.value);
+  } catch {
+    // ignore
+  }
+};
 
 // Check if this is an organization-specific login page (supports both legacy agencySlug and new organizationSlug)
 const loginSlug = computed(() => {
@@ -405,6 +513,21 @@ const showClubLinks = computed(() => !!loginTheme.value?.agency?.showClubLinks);
 const isSSCLogin = computed(() => {
   const slug = String(loginSlug.value || '').toLowerCase().trim();
   return slug === 'ssc' || slug === 'summit-stats';
+});
+const isAppPreviewMode = computed(() => appPreviewMode.value !== 'off');
+const isIpadPreviewMode = computed(() => appPreviewMode.value === 'ipad');
+const isAppLike = computed(() => isAppPreviewMode.value || browserIsStandalone());
+const primaryLoginTitle = computed(() => (isSSCLogin.value ? 'Summit Stats: Team Challenge' : displayTitle.value));
+const primaryLoginSubtitle = computed(() =>
+  isSSCLogin.value ? 'Sign in to continue' : defaultLoginSubtitle.value
+);
+const loginContainerStyle = computed(() => {
+  if (isAppLike.value) {
+    return {
+      background: 'linear-gradient(180deg, #0b2447 0%, #16315f 28%, #0f172a 100%)'
+    };
+  }
+  return { background: loginBackground.value };
 });
 const usernameFieldLabel = computed(() => (isSSCLogin.value ? 'Email, username, or phone number' : 'Username'));
 const usernameFieldPlaceholder = computed(() =>
@@ -544,6 +667,19 @@ const fetchLoginTheme = async (portalUrl) => {
 
 // Ensure branding is loaded before rendering
 onMounted(async () => {
+  if (showAppPreviewToggle) {
+    try {
+      const raw = String(localStorage.getItem(APP_PREVIEW_STORAGE_KEY) || '').trim().toLowerCase();
+      // Back-compat: older toggle stored "1"/"0"
+      appPreviewMode.value = raw === '1'
+        ? 'phone'
+        : (raw === '0' ? 'off' : (APP_PREVIEW_MODES.has(raw) ? raw : 'off'));
+    } catch {
+      appPreviewMode.value = 'off';
+    }
+    applyAppPreviewMode(appPreviewMode.value);
+  }
+
   // If we were redirected back from Google callback with an error, show it.
   if (route.query?.error) {
     error.value = String(route.query.error);
@@ -1295,6 +1431,34 @@ const handleLogoError = (event) => {
   flex-direction: column;
 }
 
+.app-preview-toggle-group {
+  position: fixed;
+  top: 12px;
+  right: 10px;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-preview-toggle {
+  border: 1px solid #1d4ed8;
+  background: #ffffff;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.16);
+}
+
+.app-preview-toggle.active {
+  background: #1d4ed8;
+  color: #ffffff;
+}
+
 .login-container {
   display: flex;
   justify-content: center;
@@ -1303,6 +1467,135 @@ const handleLogoError = (event) => {
   /* Use dynamic background from theme */
   background: var(--agency-login-background, linear-gradient(135deg, #C69A2B 0%, #D4B04A 100%));
   transition: background 0.3s ease;
+}
+
+.login-container--app {
+  align-items: flex-start;
+  padding: 24px 14px 16px;
+  position: relative;
+}
+
+.login-container--ipad {
+  padding: 36px 26px 24px;
+}
+
+:global(html[data-pt-app-preview="1"]) .login-page {
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  background: #081a36;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+:global(html[data-pt-app-preview-mode="ipad"]) .login-page {
+  width: min(1024px, 96vw);
+  height: min(768px, 88vh);
+  min-height: 0;
+  max-height: 768px;
+  max-width: 1024px;
+  border-radius: 24px;
+  overflow: hidden;
+  margin: auto;
+  background: #06152f;
+  box-shadow: 0 20px 44px rgba(2, 6, 23, 0.35);
+}
+
+:global(html.is-standalone-pwa) .login-page {
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  background: #081a36;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+:global(html[data-pt-app-preview="1"]) .login-container {
+  align-items: flex-start;
+  padding: 20px 12px 10px;
+  background: transparent !important;
+}
+
+:global(html[data-pt-app-preview-mode="ipad"]) .login-container {
+  height: 100%;
+  padding: 22px 28px;
+  justify-content: center !important;
+  align-items: center !important;
+  background: radial-gradient(120% 140% at 0% 0%, #0f4e95 0%, #0b2f62 42%, #071a3b 100%) !important;
+}
+
+:global(html.is-standalone-pwa) .login-container {
+  align-items: flex-start;
+  padding: 20px 12px 10px;
+  background: transparent !important;
+}
+
+:global(html[data-pt-app-preview="1"]) .login-card {
+  border-radius: 22px;
+  padding: 22px 18px 14px;
+  margin-top: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 22px 46px rgba(2, 6, 23, 0.4);
+}
+
+:global(html[data-pt-app-preview-mode="ipad"]) .login-card {
+  width: min(92%, 860px);
+  max-width: 860px;
+  padding: 0 0 0;
+  margin-top: 0;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+:global(html.is-standalone-pwa) .login-card {
+  border-radius: 22px;
+  padding: 22px 18px 14px;
+  margin-top: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 22px 46px rgba(2, 6, 23, 0.4);
+}
+
+:global(html[data-pt-app-preview="1"]) .login-logo .logo-image,
+:global(html.is-standalone-pwa) .login-logo .logo-image {
+  height: 128px;
+  max-height: 128px;
+}
+
+:global(html[data-pt-app-preview-mode="ipad"]) .login-logo .logo-image {
+  height: 168px;
+  max-height: 168px;
+}
+
+:global(html[data-pt-app-preview="1"]) .login-card h2,
+:global(html.is-standalone-pwa) .login-card h2 {
+  font-size: 31px;
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+
+:global(html[data-pt-app-preview-mode="ipad"]) .login-card h2 {
+  font-size: 40px;
+}
+
+:global(html[data-pt-app-preview="1"]) .subtitle,
+:global(html.is-standalone-pwa) .subtitle {
+  font-size: 20px;
+  margin-bottom: 16px;
+}
+
+:global(html[data-pt-app-preview-mode="ipad"]) .subtitle {
+  font-size: 22px;
+  margin-bottom: 20px;
+}
+
+:global(html[data-pt-app-preview="1"]) .login-help,
+:global(html.is-standalone-pwa) .login-help {
+  margin-top: 14px;
+}
+
+:global(html[data-pt-app-preview-mode="ipad"]) .login-help {
+  margin-top: 18px;
 }
 
 .login-card {
@@ -1314,8 +1607,293 @@ const handleLogoError = (event) => {
   max-width: 400px;
 }
 
+.login-page--ssc .login-card {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.login-page--ssc:not(.login-page--app-like) .login-card {
+  width: min(92vw, 560px);
+  max-width: 560px;
+}
+
+.login-page--ssc .login-logo {
+  margin-bottom: 14px;
+}
+
+.login-page--ssc .login-logo .logo-image {
+  height: 176px;
+  max-height: 176px;
+}
+
+.login-page--ssc:not(.login-page--app-like) .login-logo .logo-image {
+  height: 300px;
+  max-height: 300px;
+}
+
+.login-page--ssc .subtitle {
+  color: #0b1f3d;
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+
+.login-page--ssc:not(.login-page--app-like) .subtitle {
+  font-size: 18px;
+  margin-bottom: 18px;
+}
+
+.login-page--ssc .login-form .form-group label {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.login-page--ssc:not(.login-page--app-like) .login-form .form-group label {
+  font-size: 20px;
+}
+
+.login-page--ssc .login-form .form-group input,
+.login-page--ssc .login-form .form-group select {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.48);
+  color: #0f172a;
+}
+
+.login-page--ssc:not(.login-page--app-like) .login-form .form-group input,
+.login-page--ssc:not(.login-page--app-like) .login-form .form-group select {
+  min-height: 58px;
+  font-size: 24px;
+}
+
+.login-page--ssc .login-form .form-group input::placeholder,
+.login-page--ssc .login-form .form-group select::placeholder {
+  color: #64748b;
+}
+
+.login-page--ssc .remember-me {
+  color: #0f172a;
+}
+
+.login-page--ssc:not(.login-page--app-like) .remember-me {
+  font-size: 20px;
+}
+
+.login-page--ssc .btn-primary {
+  background: linear-gradient(180deg, #67adf0 0%, #3f8fdb 100%);
+  border: 1px solid #69b3fc;
+  box-shadow: 0 8px 20px rgba(16, 72, 133, 0.2);
+}
+
+.login-page--ssc:not(.login-page--app-like) .btn-primary {
+  min-height: 60px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.login-page--ssc .help-link,
+.login-page--ssc .help-link-button {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.login-page--ssc .help-link:hover,
+.login-page--ssc .help-link-button:hover {
+  color: #0b3a75;
+}
+
+.login-page--ssc .help-separator {
+  color: rgba(15, 23, 42, 0.45);
+}
+
+.login-page--ssc:not(.login-page--app-like) .login-help {
+  font-size: 15px;
+}
+
+.login-card--app :deep(.btn-primary),
+.login-card--app .btn-primary {
+  border-radius: 12px;
+  min-height: 50px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  background: linear-gradient(180deg, #4f97e1 0%, #2f7fce 100%);
+  border: 1px solid #2c74bd;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.login-card--app .login-form .form-group input,
+.login-card--app .login-form .form-group select {
+  min-height: 50px;
+  border-radius: 12px;
+  border-color: #d1d5db;
+}
+
+.login-card--app .login-form .form-group label {
+  color: #d9e9ff;
+}
+
+.login-card--app .remember-me {
+  color: #d9e9ff;
+}
+
+.login-card--app .help-link,
+.login-card--app .help-link-button {
+  color: #8ecbff;
+}
+
+.login-card--app .help-separator {
+  color: rgba(216, 232, 255, 0.55);
+}
+
+.login-card--app .login-form .form-group input:focus,
+.login-card--app .login-form .form-group select:focus {
+  border-color: #4f97e1;
+  box-shadow: 0 0 0 3px rgba(79, 151, 225, 0.15);
+}
+
+.login-card--app .remember-me {
+  font-size: 16px;
+}
+
+.login-card--app .help-link {
+  font-size: 13px;
+}
+
 .login-card--wide {
   max-width: 640px;
+}
+
+.login-card--ipad {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.login-card--app {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.login-card--ipad .ipad-hero-panel {
+  margin: 0 0 16px;
+  padding: 8px 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+}
+
+.ipad-hero-logo {
+  width: 100%;
+  max-width: 300px;
+  height: auto;
+  object-fit: contain;
+  justify-self: center;
+  filter: drop-shadow(0 6px 18px rgba(2, 6, 23, 0.35));
+}
+
+.login-card--ipad .ipad-hero-copy .subtitle {
+  margin: 2px 0 0;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 24px;
+  text-align: center;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.login-card--ipad .login-form {
+  border-top: none;
+  padding-top: 0;
+}
+
+.login-card--ipad .login-form .form-group input,
+.login-card--ipad .login-form .form-group select {
+  min-height: 56px;
+  font-size: 18px;
+  background: rgba(8, 19, 43, 0.52);
+  color: #f8fbff;
+  border: 1px solid rgba(194, 222, 255, 0.45);
+}
+
+.login-card--ipad .login-form .form-group label {
+  font-size: 16px;
+  color: #d9e9ff;
+  font-weight: 700;
+}
+
+.login-card--ipad .remember-me {
+  font-size: 18px;
+  color: #d9e9ff;
+}
+
+.login-card--ipad .remember-me input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+}
+
+.login-card--ipad :deep(.btn-primary),
+.login-card--ipad .btn-primary {
+  min-height: 56px;
+  font-size: 22px;
+}
+
+.login-card--ipad .login-help {
+  margin-top: 14px;
+  font-size: 16px;
+}
+
+.login-card--ipad .ipad-auth-panel {
+  background: transparent;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  padding: 6px 8px 8px;
+}
+
+.login-card--app .app-auth-panel {
+  background: transparent;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  padding: 6px 8px 8px;
+}
+
+.login-card--ipad .help-link,
+.login-card--ipad .help-link-button {
+  color: #8ecbff;
+}
+
+.login-card--ipad .help-separator {
+  color: rgba(216, 232, 255, 0.55);
+}
+
+.login-card--ipad .login-form .form-group input::placeholder,
+.login-card--ipad .login-form .form-group select::placeholder {
+  color: rgba(236, 245, 255, 0.72);
+}
+
+.login-card--ipad .login-form .form-group input:focus,
+.login-card--ipad .login-form .form-group select:focus {
+  border-color: #8ecbff;
+  box-shadow: 0 0 0 3px rgba(142, 203, 255, 0.22);
+}
+
+.login-card--ipad .remember-me input[type="checkbox"] {
+  accent-color: #8ecbff;
+}
+
+.login-card--ipad :deep(.btn-primary),
+.login-card--ipad .btn-primary {
+  color: #ffffff;
+  background: linear-gradient(180deg, #67adf0 0%, #3f8fdb 100%);
+  border: 1px solid #69b3fc;
+  box-shadow: 0 8px 20px rgba(16, 72, 133, 0.3);
 }
 
 .intakes-trigger-row {
@@ -1505,6 +2083,29 @@ const handleLogoError = (event) => {
   }
 }
 
+@media (max-width: 760px) {
+  .login-card--ipad .ipad-hero-panel {
+    grid-template-columns: 1fr;
+    text-align: center;
+    padding-top: 16px;
+  }
+
+  .login-card--ipad .ipad-hero-copy h2,
+  .login-card--ipad .ipad-hero-copy .subtitle {
+    text-align: center;
+  }
+
+  .ipad-hero-logo {
+    max-width: 180px;
+  }
+}
+
+@media (max-height: 760px) {
+  :global(html[data-pt-app-preview-mode="ipad"]) .login-page {
+    height: min(700px, 92vh);
+  }
+}
+
 .login-logo {
   margin-bottom: 16px;
   text-align: center;
@@ -1680,6 +2281,39 @@ const handleLogoError = (event) => {
   gap: 0;
   margin: 10px 0 0;
   font-size: 13px;
+}
+
+.help-link-button {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+}
+
+.app-login-links {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.app-login-link-btn {
+  display: block;
+  width: 100%;
+  text-align: center;
+  text-decoration: none;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: #f8fafc;
+}
+
+.app-login-link-btn--secondary {
+  color: #334155;
+  background: #ffffff;
 }
 
 .help-link {

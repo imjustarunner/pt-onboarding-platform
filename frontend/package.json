@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "cap:sync": "npm run build && npx cap sync ios",
+    "cap:open:ios": "npx cap open ios",
+    "cap:run:ios": "npm run build && npx cap run ios",
     "preview": "vite preview",
     "start": "node server.js",
     "test": "vitest run",
@@ -13,6 +16,9 @@
     "postinstall": "npm run build || true"
   },
   "dependencies": {
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
+    "@capacitor/ios": "^8.3.0",
     "@tiptap/extension-image": "^3.15.0",
     "@tiptap/extension-link": "^3.15.0",
     "@tiptap/starter-kit": "^3.15.0",

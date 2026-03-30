@@ -95,9 +95,9 @@
                 v-model="personalInfoForm.username"
                 type="text"
                 :disabled="!editingPersonalInfo"
-                placeholder="e.g. trackrunna24 or 555-867-5309"
+                placeholder="e.g. trackrunna24, you@example.com, or 555-867-5309"
               />
-              <small class="hint" style="margin-top:4px;">Can be a handle or phone number — used as a login shortcut.</small>
+              <small class="hint" style="margin-top:4px;">Can be a handle, email, or phone number — used as a login shortcut.</small>
             </div>
             <!-- Phone number (primary — used for phone login) -->
             <div class="field-item">
@@ -1692,6 +1692,78 @@ onMounted(() => {
   margin-top: 4px;
   font-size: 14px;
   color: var(--text-secondary);
+}
+
+@media (max-width: 860px) {
+  .container {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .page-header {
+    margin-bottom: 14px;
+  }
+
+  .page-header h1 {
+    font-size: 1.75rem;
+    line-height: 1.1;
+  }
+
+  .account-info-content {
+    padding: 14px;
+    border-radius: 10px;
+  }
+
+  .info-section {
+    margin-bottom: 20px;
+    padding-bottom: 14px;
+  }
+
+  .info-section h2 {
+    margin-bottom: 12px;
+    font-size: 1.55rem;
+    line-height: 1.1;
+  }
+
+  .section-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .profile-photo-row {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .photo-preview {
+    width: 72px;
+    height: 72px;
+    border-radius: 14px;
+  }
+
+  .photo-actions {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .btn-large {
+    width: 100%;
+    padding: 11px 14px;
+    font-size: 14px;
+  }
+
+  .fields-grid,
+  .info-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .field-item input,
+  .field-item select,
+  .field-item textarea {
+    font-size: 16px;
+  }
 }
 </style>
 

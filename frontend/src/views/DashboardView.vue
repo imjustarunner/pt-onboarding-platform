@@ -5383,6 +5383,98 @@ h1 {
   }
 }
 
+@media (max-width: 860px) {
+  .dashboard-shell,
+  .dashboard-shell.schedule-focus,
+  .dashboard-shell.schedule-focus.rail-expanded,
+  .dashboard-shell.rail-collapsed,
+  .dashboard-shell.rail-expanded {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .dashboard-rail-wrap {
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .dashboard-rail {
+    position: static;
+    top: auto;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 2px 2px 8px;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .dashboard-rail.rail-collapsed {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .rail-card-row {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  .rail-card {
+    min-width: 62px;
+    padding: 8px 7px;
+    border-left-width: 2px;
+    border-radius: 10px;
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .rail-card-left {
+    gap: 0;
+    justify-content: center;
+  }
+
+  .rail-card-text,
+  .rail-card-cta,
+  .rail-card-help,
+  .rail-dark-mode-text,
+  .dashboard-rail.rail-collapsed .rail-card::after {
+    display: none !important;
+  }
+
+  .rail-card-meta,
+  .dashboard-rail.rail-collapsed .rail-card-meta {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+  }
+
+  .rail-dark-mode-toggle {
+    width: 100%;
+    margin-bottom: 4px;
+    padding-bottom: 6px;
+  }
+
+  .rail-dark-mode-label {
+    width: fit-content;
+    padding: 7px 10px;
+    border-radius: 10px;
+  }
+
+  .dashboard-detail {
+    min-width: 0;
+  }
+
+  .card-content {
+    padding: 14px;
+    border-radius: 10px;
+  }
+}
+
 .dashboard-card-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

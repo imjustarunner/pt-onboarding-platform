@@ -225,7 +225,7 @@
           <small>Additional always-visible footer link ("Platform HIPAA"), commonly used for HIPAA policy docs.</small>
         </div>
         <div class="form-section-divider">
-          <h4>Summit Stats Challenge footer</h4>
+          <h4>Summit Stats: Team Challenge footer</h4>
           <p class="section-description">
             When you add one or more links here, club managers and members on <code>/ssc</code> or any club (affiliation)
             portal see this set instead of the default Privacy / Terms / Public Proof / HIPAA row. Use full

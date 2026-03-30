@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { Capacitor } from '@capacitor/core';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
@@ -28,6 +29,7 @@ const SKILL_BUILDERS_PROGRAM_EVENTS_ROLES = [
 ];
 const PROVIDER_PLUS_EXPERIENCE_ROLES = ['provider_plus', 'clinical_practice_assistant'];
 const TOOLS_AIDS_ROUTE_SEGMENTS = ['/admin/tools-aids', '/admin/note-aid', '/admin/clinical-note-generator'];
+const NATIVE_APP_ORG_SLUG = String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase();
 
 const isNonAgencyOrgType = (value) => {
   const t = String(value || '').toLowerCase();
@@ -1868,6 +1870,44 @@ router.beforeEach(async (to, from, next) => {
   const brandingStore = useBrandingStore();
   const agencyStore = useAgencyStore();
   const organizationStore = useOrganizationStore();
+
+  // Native iOS/Android builds can be pinned to one tenant slug (SSTC by default).
+  // This keeps app launches in the intended branded surface instead of generic /login.
+  if (Capacitor.isNativePlatform() && NATIVE_APP_ORG_SLUG) {
+    const rawPath = String(to.path || '');
+    const isAlreadyScoped =
+      rawPath === `/${NATIVE_APP_ORG_SLUG}` || rawPath.startsWith(`/${NATIVE_APP_ORG_SLUG}/`);
+    const isSummitStatsAlias =
+      rawPath === '/summit-stats' || rawPath.startsWith('/summit-stats/');
+
+    if (isSummitStatsAlias) {
+      const rest = rawPath === '/summit-stats' ? '' : rawPath.slice('/summit-stats'.length);
+      next({ path: `/${NATIVE_APP_ORG_SLUG}${rest}`, query: to.query, hash: to.hash, replace: true });
+      return;
+    }
+
+    const shouldScopeToTenant =
+      !isAlreadyScoped &&
+      !to.meta.organizationSlug &&
+      (rawPath === '/' ||
+        rawPath === '/login' ||
+        rawPath === '/dashboard' ||
+        rawPath === '/mydashboard' ||
+        rawPath === '/account-info' ||
+        rawPath === '/preferences' ||
+        rawPath === '/credentials' ||
+        rawPath === '/challenges' ||
+        rawPath.startsWith('/challenges/') ||
+        rawPath.startsWith('/admin') ||
+        rawPath.startsWith('/on-demand-training') ||
+        rawPath.startsWith('/club-store'));
+
+    if (shouldScopeToTenant) {
+      const scopedPath = rawPath === '/' ? `/${NATIVE_APP_ORG_SLUG}/login` : `/${NATIVE_APP_ORG_SLUG}${rawPath}`;
+      next({ path: scopedPath, query: to.query, hash: to.hash, replace: true });
+      return;
+    }
+  }
 
   // Summit Stats canonical slug redirect: /summit-stats/* → /ssc/*
   // The platform org may have been created with slug "summit-stats" but the canonical
