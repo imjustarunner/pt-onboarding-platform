@@ -85,6 +85,30 @@
                 </div>
               </div>
             </div>
+            <div class="challenge-section">
+              <h2>Club Records</h2>
+              <div v-if="recordBoardsLoading" class="loading-inline">Loading records…</div>
+              <div v-else class="summary-grid">
+                <div class="summary-card">
+                  <h4>Current Season Records</h4>
+                  <ul>
+                    <li v-for="r in recordBoards.seasonRecords || []" :key="`season-record-${r.metricKey}`">
+                      <strong>{{ r.label }}:</strong> {{ r.holderName }} ({{ r.valueText }})
+                    </li>
+                  </ul>
+                  <div v-if="!(recordBoards.seasonRecords || []).length" class="hint">No season records yet.</div>
+                </div>
+                <div class="summary-card">
+                  <h4>Club All-Time Board</h4>
+                  <ul>
+                    <li v-for="r in recordBoards.clubAllTimeRecords || []" :key="`alltime-record-${r.metricKey}`">
+                      <strong>{{ r.label }}:</strong> {{ r.holderName }} ({{ r.valueText }})
+                    </li>
+                  </ul>
+                  <div v-if="!(recordBoards.clubAllTimeRecords || []).length" class="hint">No all-time records yet.</div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="challenge-col-right">
             <div class="challenge-section">
@@ -93,11 +117,16 @@
                 :loading="activityLoading"
                 :challenge-id="challengeId"
                 :my-user-id="authStore.user?.id"
-                @media-uploaded="loadActivity"
+                :is-manager="isChallengeManager"
+                @media-uploaded="refreshAfterActivityAction"
               />
             </div>
             <div class="challenge-section">
-              <ChallengeMessageFeed :challenge-id="challengeId" />
+              <ChallengeMessageFeed
+                :challenge-id="challengeId"
+                :my-user-id="authStore.user?.id"
+                :is-manager="isChallengeManager"
+              />
             </div>
           </div>
         </div>
@@ -109,7 +138,10 @@
           <ChallengeTeamList :teams="teams" :loading="teamsLoading" />
         </div>
         <div class="challenge-section">
-          <ChallengeEliminationBoard :challenge-id="challengeId" />
+          <ChallengeEliminationBoard :challenge-id="challengeId" :is-manager="isChallengeManager" />
+        </div>
+        <div v-if="isChallengeManager || isTeamCaptain" class="challenge-section">
+          <ChallengeDraftReport :challenge-id="challengeId" :can-edit="isChallengeManager" />
         </div>
         <div class="challenge-section">
           <ChallengeWeeklyTasks :challenge-id="challengeId" :my-user-id="authStore.user?.id" />
@@ -186,6 +218,19 @@
                     {{ t.name }}
                   </option>
                 </select>
+                <small class="hint" v-if="selectedTaskProofPolicyLabel">
+                  Proof policy: {{ selectedTaskProofPolicyLabel }}
+                </small>
+              </div>
+              <div class="form-row">
+                <label>
+                  <input v-model="workoutForm.isTreadmill" type="checkbox" />
+                  This was completed on a treadmill
+                </label>
+              </div>
+              <div class="form-row" v-if="workoutForm.isTreadmill">
+                <label>Treadmill photo proof URL/path</label>
+                <input v-model="workoutForm.screenshotFilePath" type="text" placeholder="Required for treadmill entries" />
               </div>
               <div class="form-row">
                 <label>Notes</label>
@@ -258,6 +303,7 @@ import ChallengeWeeklyTasks from '../components/challenge/ChallengeWeeklyTasks.v
 import ChallengeActivityFeed from '../components/challenge/ChallengeActivityFeed.vue';
 import ChallengeTeamWeeklyProgress from '../components/challenge/ChallengeTeamWeeklyProgress.vue';
 import ChallengeMessageFeed from '../components/challenge/ChallengeMessageFeed.vue';
+import ChallengeDraftReport from '../components/challenge/ChallengeDraftReport.vue';
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -278,7 +324,9 @@ const workoutForm = ref({
   caloriesBurned: null,
   points: 0,
   workoutNotes: '',
-  weeklyTaskId: null
+  weeklyTaskId: null,
+  isTreadmill: false,
+  screenshotFilePath: ''
 });
 const workoutSubmitting = ref(false);
 const stravaStatus = ref(null);
@@ -295,6 +343,8 @@ const captainsFinalizeSubmitting = ref(false);
 const weeklyTaskOptions = ref([]);
 const seasonSummary = ref(null);
 const seasonSummaryLoading = ref(false);
+const recordBoards = ref({ seasonRecords: [], clubAllTimeRecords: [] });
+const recordBoardsLoading = ref(false);
 
 const challengeId = computed(() => route.params.id || route.params.challengeId);
 const organizationSlug = computed(() => route.params.organizationSlug || null);
@@ -331,6 +381,22 @@ const eventCategory = computed(() => {
 const isChallengeManager = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
+});
+
+const isTeamCaptain = computed(() => {
+  const myId = Number(authStore.user?.id || 0);
+  return (teams.value || []).some((t) => Number(t.team_manager_user_id) === myId);
+});
+
+const selectedTaskProofPolicyLabel = computed(() => {
+  const id = Number(workoutForm.value.weeklyTaskId || 0);
+  if (!id) return '';
+  const t = (weeklyTaskOptions.value || []).find((x) => Number(x.id) === id);
+  const policy = String(t?.proof_policy || '').toLowerCase();
+  if (policy === 'photo_required') return 'Photo required';
+  if (policy === 'gps_or_photo') return 'GPS or photo required';
+  if (policy === 'gps_required_no_treadmill') return 'GPS required and treadmill not allowed';
+  return policy ? policy : 'No proof required';
 });
 
 const formatStatus = (c) => {
@@ -437,6 +503,23 @@ const loadSeasonSummary = async () => {
   }
 };
 
+const loadRecordBoards = async () => {
+  const id = challengeId.value;
+  if (!id) return;
+  recordBoardsLoading.value = true;
+  try {
+    const r = await api.get(`/learning-program-classes/${id}/record-boards`, { skipGlobalLoading: true });
+    recordBoards.value = {
+      seasonRecords: Array.isArray(r.data?.seasonRecords) ? r.data.seasonRecords : [],
+      clubAllTimeRecords: Array.isArray(r.data?.clubAllTimeRecords) ? r.data.clubAllTimeRecords : []
+    };
+  } catch {
+    recordBoards.value = { seasonRecords: [], clubAllTimeRecords: [] };
+  } finally {
+    recordBoardsLoading.value = false;
+  }
+};
+
 const loadCaptainApplications = async () => {
   const id = challengeId.value;
   if (!id) return;
@@ -490,15 +573,31 @@ const submitWorkout = async () => {
       caloriesBurned: workoutForm.value.caloriesBurned || null,
       points: workoutForm.value.points || 0,
       workoutNotes: workoutForm.value.workoutNotes || null,
-      weeklyTaskId: workoutForm.value.weeklyTaskId || null
+      weeklyTaskId: workoutForm.value.weeklyTaskId || null,
+      isTreadmill: workoutForm.value.isTreadmill === true,
+      screenshotFilePath: workoutForm.value.screenshotFilePath || null
     });
-    workoutForm.value = { activityType: '', distanceValue: null, durationMinutes: null, caloriesBurned: null, points: 0, workoutNotes: '', weeklyTaskId: null };
-    await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary()]);
+    workoutForm.value = {
+      activityType: '',
+      distanceValue: null,
+      durationMinutes: null,
+      caloriesBurned: null,
+      points: 0,
+      workoutNotes: '',
+      weeklyTaskId: null,
+      isTreadmill: false,
+      screenshotFilePath: ''
+    };
+    await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary(), loadRecordBoards()]);
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to submit workout');
   } finally {
     workoutSubmitting.value = false;
   }
+};
+
+const refreshAfterActivityAction = async () => {
+  await Promise.all([loadActivity(), loadLeaderboard(), loadSeasonSummary(), loadRecordBoards()]);
 };
 
 const formatDates = (c) => {
@@ -566,7 +665,7 @@ const importSelectedStrava = async () => {
       activityIds: selectedStravaIds.value
     });
     closeStravaImportModal();
-    await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary()]);
+    await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary(), loadRecordBoards()]);
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to import activities');
   } finally {
@@ -577,7 +676,7 @@ const importSelectedStrava = async () => {
 onMounted(async () => {
   await loadChallenge();
   if (challenge.value) {
-    await Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary()]);
+    await Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary(), loadRecordBoards()]);
     loadStravaStatus();
   }
   if (route.query?.strava === 'import') {
@@ -588,7 +687,7 @@ onMounted(async () => {
 watch(challengeId, () => {
   loadChallenge().then(() => {
     if (challenge.value) {
-      Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary()]);
+      Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary(), loadRecordBoards()]);
     }
   });
 });

@@ -14,7 +14,7 @@ import ChallengeWorkoutMedia from '../models/ChallengeWorkoutMedia.model.js';
 import { queueClubRecordBreakCandidates } from './summitStats.controller.js';
 import { canManageTeam } from '../utils/challengePermissions.js';
 import { canAccessChallenge } from '../utils/challengeAccess.js';
-import { getWeekStartDate } from '../utils/challengeWeekUtils.js';
+import { getWeekStartDate, getWeekDateTimeRange } from '../utils/challengeWeekUtils.js';
 import { enqueueWorkoutVision } from '../services/challengeWorkoutVision.service.js';
 import { challengeMessageBridge } from '../services/challengeMessageBridge.service.js';
 
@@ -40,6 +40,23 @@ const parseJsonObject = (raw, fallback = {}) => {
 const canManageChallenge = (role) => {
   const r = String(role || '').toLowerCase();
   return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
+};
+
+const isCaptainForClass = async ({ classId, userId }) => {
+  const [rows] = await pool.execute(
+    `SELECT 1
+     FROM challenge_teams
+     WHERE learning_class_id = ? AND team_manager_user_id = ?
+     LIMIT 1`,
+    [classId, userId]
+  );
+  return !!rows?.length;
+};
+
+const getWorkoutModerationMode = (settings) => {
+  const mode = String(settings?.workoutModeration?.mode || '').trim().toLowerCase();
+  if (mode === 'all' || mode === 'treadmill_only' || mode === 'none') return mode;
+  return 'treadmill_only';
 };
 
 export const listTeams = async (req, res, next) => {
@@ -184,6 +201,176 @@ export const getLeaderboard = async (req, res, next) => {
   }
 };
 
+const buildRecordMetricMap = async ({ classId, organizationId, selectedMetricKeys = [] }) => {
+  const scopeWhere = {
+    season: {
+      sql: 'w.learning_class_id = ?',
+      params: [classId]
+    },
+    club_all_time: organizationId
+      ? {
+        sql: 'c.organization_id = ?',
+        params: [organizationId]
+      }
+      : null
+  };
+  const metricDefs = [
+    {
+      key: 'longest_run',
+      label: 'Longest Run',
+      where: `LOWER(w.activity_type) LIKE '%run%' AND COALESCE(w.distance_value, 0) > 0`,
+      order: 'w.distance_value DESC, w.completed_at ASC',
+      valueText: (r) => `${Number(r.distance_value || 0).toFixed(2)} mi`
+    },
+    {
+      key: 'fastest_mile',
+      label: 'Fastest Mile',
+      where: `LOWER(w.activity_type) LIKE '%run%' AND COALESCE(w.distance_value, 0) >= 1 AND COALESCE(w.duration_minutes, 0) > 0`,
+      order: '(w.duration_minutes / NULLIF(w.distance_value, 0)) ASC, w.completed_at ASC',
+      valueText: (r) => {
+        const pace = Number(r.duration_minutes || 0) / Number(r.distance_value || 1);
+        const min = Math.floor(pace);
+        const sec = Math.round((pace - min) * 60);
+        return `${String(min)}:${String(sec).padStart(2, '0')} /mi`;
+      }
+    },
+    {
+      key: 'longest_ruck',
+      label: 'Longest Ruck',
+      where: `LOWER(w.activity_type) LIKE '%ruck%' AND COALESCE(w.distance_value, 0) > 0`,
+      order: 'w.distance_value DESC, w.completed_at ASC',
+      valueText: (r) => `${Number(r.distance_value || 0).toFixed(2)} mi`
+    },
+    {
+      key: 'highest_points_workout',
+      label: 'Highest Points (Single Workout)',
+      where: 'COALESCE(w.points, 0) > 0',
+      order: 'w.points DESC, w.completed_at ASC',
+      valueText: (r) => `${Number(r.points || 0)} pts`
+    },
+    {
+      key: 'longest_trail_run',
+      label: 'Longest Trail Run',
+      where: `(LOWER(w.activity_type) LIKE '%trail%' OR LOWER(w.workout_notes) LIKE '%trail%') AND COALESCE(w.distance_value, 0) > 0`,
+      order: 'w.distance_value DESC, w.completed_at ASC',
+      valueText: (r) => `${Number(r.distance_value || 0).toFixed(2)} mi`
+    },
+    {
+      key: 'fastest_5k',
+      label: 'Fastest 5K',
+      where: `LOWER(w.activity_type) LIKE '%run%' AND COALESCE(w.distance_value, 0) >= 3.1 AND COALESCE(w.duration_minutes, 0) > 0`,
+      order: '(w.duration_minutes / NULLIF(w.distance_value, 0)) ASC, w.completed_at ASC',
+      valueText: (r) => {
+        const pace = Number(r.duration_minutes || 0) / Number(r.distance_value || 1);
+        const estimate = pace * 3.10686;
+        const min = Math.floor(estimate);
+        const sec = Math.round((estimate - min) * 60);
+        return `${String(min)}:${String(sec).padStart(2, '0')}`;
+      }
+    },
+    {
+      key: 'longest_walk',
+      label: 'Longest Walk',
+      where: `LOWER(w.activity_type) LIKE '%walk%' AND COALESCE(w.distance_value, 0) > 0`,
+      order: 'w.distance_value DESC, w.completed_at ASC',
+      valueText: (r) => `${Number(r.distance_value || 0).toFixed(2)} mi`
+    },
+    {
+      key: 'longest_duration_workout',
+      label: 'Longest Workout Duration',
+      where: 'COALESCE(w.duration_minutes, 0) > 0',
+      order: 'w.duration_minutes DESC, w.completed_at ASC',
+      valueText: (r) => `${Number(r.duration_minutes || 0)} min`
+    },
+    {
+      key: 'highest_calories_workout',
+      label: 'Highest Calories (Single Workout)',
+      where: 'COALESCE(w.calories_burned, 0) > 0',
+      order: 'w.calories_burned DESC, w.completed_at ASC',
+      valueText: (r) => `${Number(r.calories_burned || 0)} cal`
+    }
+  ];
+  const metricByKey = new Map(metricDefs.map((m) => [m.key, m]));
+  const chosen = Array.isArray(selectedMetricKeys) && selectedMetricKeys.length
+    ? selectedMetricKeys.map((k) => metricByKey.get(String(k || '').trim())).filter(Boolean)
+    : metricDefs.slice(0, 4);
+
+  const fetchBest = async (scopeKey, metric) => {
+    const scope = scopeWhere[scopeKey];
+    if (!scope) return null;
+    const [rows] = await pool.execute(
+      `SELECT
+         w.id AS workout_id,
+         w.user_id,
+         w.team_id,
+         w.activity_type,
+         w.distance_value,
+         w.duration_minutes,
+         w.points,
+         w.completed_at,
+         u.first_name,
+         u.last_name,
+         t.team_name,
+         c.class_name
+       FROM challenge_workouts w
+       INNER JOIN users u ON u.id = w.user_id
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+       LEFT JOIN challenge_teams t ON t.id = w.team_id
+       WHERE ${scope.sql}
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         AND ${metric.where}
+       ORDER BY ${metric.order}
+       LIMIT 1`,
+      scope.params
+    );
+    const row = rows?.[0];
+    if (!row) return null;
+    return {
+      metricKey: metric.key,
+      label: metric.label,
+      holderUserId: Number(row.user_id),
+      holderName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
+      teamName: row.team_name || null,
+      seasonName: row.class_name || null,
+      valueText: metric.valueText(row),
+      workoutId: Number(row.workout_id),
+      completedAt: row.completed_at
+    };
+  };
+
+  const season = [];
+  const clubAllTime = [];
+  for (const metric of chosen) {
+    const s = await fetchBest('season', metric);
+    if (s) season.push(s);
+    const a = await fetchBest('club_all_time', metric);
+    if (a) clubAllTime.push(a);
+  }
+  return { season, clubAllTime };
+};
+
+export const getRecordBoards = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+    const organizationId = Number(access.class?.organization_id || 0) || null;
+    const seasonSettings = parseJsonObject(access.class?.season_settings_json || {});
+    const selectedMetricKeys = Array.isArray(seasonSettings?.records?.metrics)
+      ? seasonSettings.records.metrics.map((k) => String(k || '').trim()).filter(Boolean)
+      : [];
+    const boards = await buildRecordMetricMap({ classId, organizationId, selectedMetricKeys });
+    return res.json({
+      seasonRecords: boards.season,
+      clubAllTimeRecords: boards.clubAllTime,
+      selectedMetricKeys
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getActivityFeed = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);
@@ -238,7 +425,8 @@ export const getMyParticipationSummary = async (req, res, next) => {
        FROM challenge_workouts w
        INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
        INNER JOIN learning_class_provider_memberships m ON m.learning_class_id = w.learning_class_id AND m.provider_user_id = ?
-       WHERE w.user_id = ? AND m.membership_status IN ('active','completed')${orgFilter}`,
+       WHERE w.user_id = ? AND m.membership_status IN ('active','completed')
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)${orgFilter}`,
       statsParams
     );
     const teamsParams = organizationId ? [userId, organizationId] : [userId];
@@ -258,7 +446,8 @@ export const getMyParticipationSummary = async (req, res, next) => {
        INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
        INNER JOIN learning_class_provider_memberships pm ON pm.learning_class_id = c.id AND pm.provider_user_id = ?
        LEFT JOIN challenge_teams t ON t.id = w.team_id
-       WHERE w.user_id = ? AND pm.membership_status IN ('active','completed')${orgFilter}
+       WHERE w.user_id = ? AND pm.membership_status IN ('active','completed')
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)${orgFilter}
        ORDER BY w.completed_at DESC, w.created_at DESC
        LIMIT 10`,
       recentParams
@@ -306,14 +495,20 @@ export const submitWorkout = async (req, res, next) => {
       teamId = team?.id || null;
     }
     const settings = parseJsonObject(access.class?.season_settings_json || {});
+    const schedule = parseJsonObject(settings?.schedule || {});
     const eventCategory = String(settings?.event?.category || 'run_ruck').toLowerCase();
     const scoring = parseJsonObject(settings?.scoring || {});
     const runMilesPerPoint = Number(scoring.runMilesPerPoint || 1) || 1;
     const ruckMilesPerPoint = Number(scoring.ruckMilesPerPoint || 1) || 1;
     const caloriesPerPoint = Number(scoring.caloriesPerPoint || 100) || 100;
     const activityLower = String(activityType || '').toLowerCase();
+    const isTreadmill = asInt(req.body.isTreadmill) === 1 || req.body.isTreadmill === true;
     const distanceValue = req.body.distanceValue != null ? Number(req.body.distanceValue) : null;
     const caloriesBurned = req.body.caloriesBurned != null ? asInt(req.body.caloriesBurned) : null;
+    const treadmillpocalypseEnabled = settings?.treadmillpocalypse?.enabled === true;
+    const treadmillpocalypseStartsAtWeek = String(settings?.treadmillpocalypse?.startsAtWeek || '').slice(0, 10) || null;
+    const moderationMode = getWorkoutModerationMode(settings);
+    const weekCutoffTime = String(schedule?.weekEndsSundayAt || access.class?.week_start_time || '00:00');
     let computedPoints = null;
     if (eventCategory === 'fitness' && caloriesBurned != null && caloriesPerPoint > 0) {
       computedPoints = Math.max(0, Math.floor(caloriesBurned / caloriesPerPoint));
@@ -326,11 +521,39 @@ export const submitWorkout = async (req, res, next) => {
     }
     const points = computedPoints != null ? computedPoints : (asInt(req.body.points) || 0);
     const completedAt = req.body.completedAt ? new Date(req.body.completedAt) : new Date();
-    const weekCutoffTime = String(settings?.schedule?.weekEndsSundayAt || access.class?.week_start_time || '00:00');
     const completedWeekStart = getWeekStartDate(completedAt, weekCutoffTime);
+    if (eventCategory === 'run_ruck' && activityLower.includes('ruck')) {
+      const participation = parseJsonObject(settings?.participation || {});
+      const maxRucksPerWeek = Math.max(0, Number.parseInt(participation?.maxRucksPerWeek, 10) || 0);
+      if (maxRucksPerWeek > 0) {
+        const range = getWeekDateTimeRange(completedWeekStart, weekCutoffTime) || {
+          start: `${String(completedWeekStart).slice(0, 10)} 00:00:00`,
+          end: `${String(completedWeekStart).slice(0, 10)} 23:59:59`
+        };
+        const [ruckRows] = await pool.execute(
+          `SELECT COUNT(*) AS total
+           FROM challenge_workouts w
+           WHERE w.learning_class_id = ?
+             AND w.user_id = ?
+             AND LOWER(w.activity_type) LIKE '%ruck%'
+             AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+             AND w.completed_at >= ?
+             AND w.completed_at < ?`,
+          [classId, req.user.id, range.start, range.end]
+        );
+        const alreadyLogged = Number(ruckRows?.[0]?.total || 0);
+        if (alreadyLogged >= maxRucksPerWeek) {
+          return res.status(400).json({ error: { message: `Weekly ruck limit reached (${maxRucksPerWeek}) for this season` } });
+        }
+      }
+    }
+    if (isTreadmill && treadmillpocalypseEnabled && treadmillpocalypseStartsAtWeek && String(completedWeekStart || '') >= treadmillpocalypseStartsAtWeek) {
+      return res.status(400).json({ error: { message: 'Treadmill workouts are blocked for this week (treadmillpocalypse active).' } });
+    }
     const weeklyTaskId = req.body.weeklyTaskId ? asInt(req.body.weeklyTaskId) : null;
+    let weeklyTask = null;
     if (weeklyTaskId) {
-      const weeklyTask = await ChallengeWeeklyTask.findById(weeklyTaskId);
+      weeklyTask = await ChallengeWeeklyTask.findById(weeklyTaskId);
       if (!weeklyTask || Number(weeklyTask.learning_class_id) !== Number(classId)) {
         return res.status(400).json({ error: { message: 'Invalid weekly challenge tag' } });
       }
@@ -338,19 +561,38 @@ export const submitWorkout = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Weekly challenge tag must belong to the active workout week' } });
       }
     }
+    let proofStatus = (moderationMode === 'all' || (moderationMode === 'treadmill_only' && isTreadmill))
+      ? 'pending'
+      : 'not_required';
+    const hasTreadmillProof = !!String(req.body.screenshotFilePath || '').trim();
+    const taskProofPolicy = String(weeklyTask?.proof_policy || 'none').toLowerCase();
+    if (taskProofPolicy === 'photo_required' && !hasTreadmillProof) {
+      return res.status(400).json({ error: { message: 'This weekly challenge requires photo proof upload.' } });
+    }
+    if (taskProofPolicy === 'gps_required_no_treadmill' && isTreadmill) {
+      return res.status(400).json({ error: { message: 'This weekly challenge does not allow treadmill workouts.' } });
+    }
+    if (isTreadmill) {
+      if (!hasTreadmillProof) {
+        return res.status(400).json({ error: { message: 'Treadmill entries require a treadmill photo upload.' } });
+      }
+    }
     const workout = await ChallengeWorkout.create({
       learningClassId: classId,
       teamId,
       userId: req.user.id,
       activityType,
+      isTreadmill,
       distanceValue,
+      reportedDistanceValue: distanceValue,
       durationMinutes: req.body.durationMinutes != null ? asInt(req.body.durationMinutes) : null,
       caloriesBurned,
       points,
       workoutNotes: req.body.workoutNotes ? String(req.body.workoutNotes).trim() : null,
       screenshotFilePath: req.body.screenshotFilePath ? String(req.body.screenshotFilePath).trim() : null,
       completedAt: completedAt.toISOString().slice(0, 19).replace('T', ' '),
-      weeklyTaskId
+      weeklyTaskId,
+      proofStatus
     });
     if (workout?.id) {
       try {
@@ -375,6 +617,237 @@ export const submitWorkout = async (req, res, next) => {
       }
     }
     return res.status(201).json({ workout });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const reviewWorkoutProof = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const workoutId = asInt(req.params.workoutId);
+    if (!classId || !workoutId) return res.status(400).json({ error: { message: 'Invalid classId/workoutId' } });
+    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+    const workout = await ChallengeWorkout.findById(workoutId);
+    if (!workout || Number(workout.learning_class_id) !== Number(classId)) {
+      return res.status(404).json({ error: { message: 'Workout not found' } });
+    }
+    const status = String(req.body?.proofStatus || '').toLowerCase();
+    if (!['approved', 'rejected', 'pending'].includes(status)) {
+      return res.status(400).json({ error: { message: 'proofStatus must be approved, rejected, or pending' } });
+    }
+    const verifiedDistanceValue = req.body?.verifiedDistanceValue != null ? Number(req.body.verifiedDistanceValue) : null;
+    const nextDistance = status === 'approved' && verifiedDistanceValue != null
+      ? verifiedDistanceValue
+      : (workout.reported_distance_value != null ? Number(workout.reported_distance_value) : Number(workout.distance_value || 0));
+    const nextWorkout = await ChallengeWorkout.updateProofReview(workoutId, {
+      proofStatus: status,
+      verifiedDistanceValue: status === 'approved' ? verifiedDistanceValue : null,
+      distanceValue: nextDistance,
+      proofReviewNote: req.body?.proofReviewNote ? String(req.body.proofReviewNote) : null,
+      proofReviewedByUserId: req.user.id,
+      proofReviewedAt: new Date().toISOString().slice(0, 19).replace('T', ' ')
+    });
+    return res.json({ workout: nextWorkout });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const disqualifyWorkout = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const workoutId = asInt(req.params.workoutId);
+    if (!classId || !workoutId) return res.status(400).json({ error: { message: 'Invalid classId/workoutId' } });
+    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+    const workout = await ChallengeWorkout.findById(workoutId);
+    if (!workout || Number(workout.learning_class_id) !== Number(classId)) {
+      return res.status(404).json({ error: { message: 'Workout not found' } });
+    }
+    const isDisqualified = req.body?.isDisqualified !== false;
+    const reason = req.body?.reason ? String(req.body.reason) : null;
+    const updated = await ChallengeWorkout.updateDisqualification(workoutId, {
+      isDisqualified,
+      reason,
+      byUserId: req.user.id,
+      at: new Date().toISOString().slice(0, 19).replace('T', ' ')
+    });
+    return res.json({ workout: updated });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getDraftReport = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+    const canManage = canManageChallenge(req.user?.role);
+    const isCaptain = await isCaptainForClass({ classId, userId: req.user.id });
+    if (!canManage && !isCaptain) {
+      return res.status(403).json({ error: { message: 'Manager/captain access required' } });
+    }
+    const [members] = await pool.execute(
+      `SELECT pm.provider_user_id, pm.membership_status, u.first_name, u.last_name, u.email
+       FROM learning_class_provider_memberships pm
+       INNER JOIN users u ON u.id = pm.provider_user_id
+       WHERE pm.learning_class_id = ? AND pm.membership_status IN ('active','completed')
+       ORDER BY u.last_name ASC, u.first_name ASC`,
+      [classId]
+    );
+    const [noteRows] = await pool.execute(
+      `SELECT provider_user_id, note_text, updated_at
+       FROM challenge_member_draft_notes
+       WHERE learning_class_id = ?`,
+      [classId]
+    );
+    const notesByUser = new Map((noteRows || []).map((r) => [Number(r.provider_user_id), { note: r.note_text || '', updatedAt: r.updated_at || null }]));
+    let previousSeason = null;
+    const orgId = Number(access.class?.organization_id || 0);
+    if (orgId > 0) {
+      const anchor = access.class?.starts_at || access.class?.created_at || new Date().toISOString().slice(0, 19).replace('T', ' ');
+      const [prevRows] = await pool.execute(
+        `SELECT id, class_name, starts_at
+         FROM learning_program_classes
+         WHERE organization_id = ?
+           AND id <> ?
+           AND COALESCE(starts_at, created_at) < COALESCE(?, NOW())
+         ORDER BY COALESCE(starts_at, created_at) DESC
+         LIMIT 1`,
+        [orgId, classId, anchor]
+      );
+      previousSeason = prevRows?.[0] || null;
+    }
+    const previousByUser = new Map();
+    if (previousSeason?.id) {
+      const [prevStats] = await pool.execute(
+        `SELECT
+           pm.provider_user_id,
+           COALESCE(SUM(w.points), 0) AS total_points,
+           COALESCE(SUM(w.distance_value), 0) AS total_miles,
+           COUNT(w.id) AS workout_count,
+           MAX(t.team_name) AS team_name,
+           MAX(CASE WHEN e.id IS NULL THEN 0 ELSE 1 END) AS was_eliminated
+         FROM learning_class_provider_memberships pm
+         LEFT JOIN challenge_workouts w
+           ON w.learning_class_id = pm.learning_class_id
+           AND w.user_id = pm.provider_user_id
+           AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         LEFT JOIN challenge_team_members ctm ON ctm.provider_user_id = pm.provider_user_id
+         LEFT JOIN challenge_teams t ON t.id = ctm.team_id AND t.learning_class_id = pm.learning_class_id
+         LEFT JOIN challenge_eliminations e
+           ON e.learning_class_id = pm.learning_class_id
+           AND e.provider_user_id = pm.provider_user_id
+         WHERE pm.learning_class_id = ?
+         GROUP BY pm.provider_user_id`,
+        [previousSeason.id]
+      );
+      for (const row of prevStats || []) {
+        previousByUser.set(Number(row.provider_user_id), {
+          totalPoints: Number(row.total_points || 0),
+          totalMiles: Number(row.total_miles || 0),
+          workoutCount: Number(row.workout_count || 0),
+          teamName: row.team_name || null,
+          wasEliminated: Number(row.was_eliminated || 0) === 1
+        });
+      }
+    }
+    const participants = (members || []).map((m) => ({
+      providerUserId: Number(m.provider_user_id),
+      firstName: m.first_name,
+      lastName: m.last_name,
+      email: m.email,
+      membershipStatus: m.membership_status,
+      draftNote: notesByUser.get(Number(m.provider_user_id))?.note || '',
+      draftNoteUpdatedAt: notesByUser.get(Number(m.provider_user_id))?.updatedAt || null,
+      previousSeason: previousByUser.get(Number(m.provider_user_id)) || null
+    }));
+    return res.json({
+      canEditNotes: canManage,
+      previousSeason: previousSeason
+        ? { id: Number(previousSeason.id), className: previousSeason.class_name, startsAt: previousSeason.starts_at || null }
+        : null,
+      participants
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const upsertDraftNote = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const providerUserId = asInt(req.params.providerUserId);
+    if (!classId || !providerUserId) return res.status(400).json({ error: { message: 'Invalid classId/providerUserId' } });
+    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+    const [memberRows] = await pool.execute(
+      `SELECT 1 FROM learning_class_provider_memberships
+       WHERE learning_class_id = ? AND provider_user_id = ? AND membership_status IN ('active','completed')
+       LIMIT 1`,
+      [classId, providerUserId]
+    );
+    if (!memberRows?.length) return res.status(404).json({ error: { message: 'Participant not found in season' } });
+    const noteText = req.body?.noteText != null ? String(req.body.noteText).slice(0, 2000) : null;
+    await pool.execute(
+      `INSERT INTO challenge_member_draft_notes
+       (learning_class_id, provider_user_id, note_text, created_by_user_id, updated_by_user_id)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         note_text = VALUES(note_text),
+         updated_by_user_id = VALUES(updated_by_user_id),
+         updated_at = CURRENT_TIMESTAMP`,
+      [classId, providerUserId, noteText, req.user.id, req.user.id]
+    );
+    return res.json({ ok: true, providerUserId, noteText });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const editOwnImportedTreadmillWorkout = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const workoutId = asInt(req.params.workoutId);
+    if (!classId || !workoutId) return res.status(400).json({ error: { message: 'Invalid classId/workoutId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+    const workout = await ChallengeWorkout.findById(workoutId);
+    if (!workout || Number(workout.learning_class_id) !== Number(classId)) {
+      return res.status(404).json({ error: { message: 'Workout not found' } });
+    }
+    if (Number(workout.user_id) !== Number(req.user.id)) {
+      return res.status(403).json({ error: { message: 'You can only edit your own workouts' } });
+    }
+    if (!workout.strava_activity_id || Number(workout.is_treadmill) !== 1) {
+      return res.status(400).json({ error: { message: 'Only treadmill workouts imported from Strava can be edited' } });
+    }
+    const distanceValue = req.body?.distanceValue != null ? Number(req.body.distanceValue) : null;
+    if (distanceValue == null || !Number.isFinite(distanceValue) || distanceValue < 0) {
+      return res.status(400).json({ error: { message: 'A valid distanceValue is required' } });
+    }
+    const note = req.body?.workoutNotes != null ? String(req.body.workoutNotes).trim() : null;
+    const screenshot = req.body?.screenshotFilePath != null ? String(req.body.screenshotFilePath).trim() : null;
+    const [result] = await pool.execute(
+      `UPDATE challenge_workouts
+       SET distance_value = ?,
+           reported_distance_value = ?,
+           workout_notes = ?,
+           screenshot_file_path = CASE WHEN ? = '' THEN screenshot_file_path ELSE ? END,
+           proof_status = 'pending'
+       WHERE id = ? AND learning_class_id = ? AND user_id = ?`,
+      [distanceValue, distanceValue, note, screenshot || '', screenshot || '', workoutId, classId, req.user.id]
+    );
+    if (!Number(result?.affectedRows || 0)) return res.status(404).json({ error: { message: 'Workout not found' } });
+    const updated = await ChallengeWorkout.findById(workoutId);
+    return res.json({ workout: updated });
   } catch (e) {
     next(e);
   }
@@ -493,9 +966,33 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
     end.setDate(end.getDate() + 7);
     const endStr = end.toISOString().slice(0, 19).replace('T', ' ');
 
-    const individualMinimum = access.class?.individual_min_points_per_week != null
+    const seasonSettings = parseJsonObject(access.class?.season_settings_json || {});
+    const eventCategory = String(seasonSettings?.event?.category || 'run_ruck').toLowerCase();
+    const participation = parseJsonObject(seasonSettings?.participation || {});
+    let individualMinimum = access.class?.individual_min_points_per_week != null
       ? Number.parseInt(access.class.individual_min_points_per_week, 10)
       : null;
+    let teamMinimum = access.class?.team_min_points_per_week != null
+      ? Number.parseInt(access.class.team_min_points_per_week, 10)
+      : null;
+    let metricUnit = 'pts';
+    let metricField = 'weekly_points';
+    if (eventCategory === 'run_ruck') {
+      const cutoff = String(seasonSettings?.schedule?.weekEndsSundayAt || access.class?.week_start_time || '00:00');
+      const baseMiles = Number(participation.runRuckStartMilesPerPerson ?? 0) || 0;
+      const weeklyIncrease = Number(participation.runRuckWeeklyIncreaseMilesPerPerson ?? 2) || 0;
+      const baselineMembers = Math.max(0, Number.parseInt(participation.baselineMemberCount, 10) || 0);
+      const anchorWeek = access.class?.starts_at
+        ? getWeekStartDate(new Date(access.class.starts_at), cutoff)
+        : String(weekStart || '').slice(0, 10);
+      const startAnchor = new Date(`${String(anchorWeek).slice(0, 10)}T00:00:00`);
+      const currentWeek = new Date(`${String(weekStart).slice(0, 10)}T00:00:00`);
+      const weekIndex = Math.max(0, Math.floor((currentWeek.getTime() - startAnchor.getTime()) / (7 * 24 * 60 * 60 * 1000)));
+      individualMinimum = Number((baseMiles + (weekIndex * weeklyIncrease)).toFixed(2));
+      teamMinimum = Number((individualMinimum * baselineMembers).toFixed(2));
+      metricUnit = 'mi';
+      metricField = 'weekly_miles';
+    }
 
     const [rows] = await pool.execute(
       `SELECT
@@ -504,13 +1001,15 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
          u.id AS user_id,
          u.first_name,
          u.last_name,
-         COALESCE(SUM(w.points), 0) AS weekly_points
+         COALESCE(SUM(w.points), 0) AS weekly_points,
+         COALESCE(SUM(w.distance_value), 0) AS weekly_miles
        FROM challenge_teams t
        INNER JOIN challenge_team_members tm ON tm.team_id = t.id
        INNER JOIN users u ON u.id = tm.provider_user_id
        LEFT JOIN challenge_workouts w
          ON w.learning_class_id = t.learning_class_id
          AND w.user_id = tm.provider_user_id
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
          AND w.completed_at >= ?
          AND w.completed_at < ?
        WHERE t.learning_class_id = ?
@@ -530,24 +1029,28 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
           members: []
         });
       }
-      const points = Number(r.weekly_points || 0);
+      const metricValue = Number(r[metricField] || 0);
       const progressStatus = individualMinimum == null
         ? 'tracking'
-        : (points < individualMinimum ? 'behind' : points === individualMinimum ? 'met' : 'ahead');
+        : (metricValue < individualMinimum ? 'behind' : metricValue === individualMinimum ? 'met' : 'ahead');
       const entry = teamsMap.get(tid);
-      entry.totalWeeklyPoints += points;
+      entry.totalWeeklyPoints += Number(r.weekly_points || 0);
+      entry.totalWeeklyMiles = Number((entry.totalWeeklyMiles || 0) + Number(r.weekly_miles || 0));
       entry.members.push({
         userId: Number(r.user_id),
         firstName: r.first_name,
         lastName: r.last_name,
-        weeklyPoints: points,
+        weeklyPoints: Number(r.weekly_points || 0),
+        weeklyMiles: Number(r.weekly_miles || 0),
         progressStatus
       });
     }
 
     return res.json({
-      weekStartDate: startStr,
+      weekStartDate: String(weekStart).slice(0, 10),
       individualMinimum,
+      teamMinimum,
+      metricUnit,
       teams: Array.from(teamsMap.values())
     });
   } catch (e) {
@@ -563,8 +1066,22 @@ export const listChallengeMessages = async (req, res, next) => {
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
     const limit = Math.min(100, asInt(req.query.limit) || 50);
     const offset = asInt(req.query.offset) || 0;
-    const messages = await ChallengeMessage.listByChallenge(classId, { limit, offset });
-    return res.json({ messages });
+    const scope = String(req.query.scope || 'season').toLowerCase() === 'team' ? 'team' : 'season';
+    let teamId = req.query.teamId ? asInt(req.query.teamId) : null;
+    if (scope === 'team' && !teamId) {
+      const team = await ChallengeTeam.getTeamForUser(classId, req.user.id);
+      teamId = team?.id || null;
+    }
+    const messages = await ChallengeMessage.listByChallenge(classId, { limit, offset, scope, teamId });
+    const newestId = messages?.length ? Number(messages[0].id) : null;
+    await ChallengeMessage.markRead({
+      learningClassId: classId,
+      userId: req.user.id,
+      scope,
+      teamId: teamId || 0,
+      lastReadMessageId: newestId
+    });
+    return res.json({ scope, teamId: teamId || null, messages });
   } catch (e) {
     next(e);
   }
@@ -587,10 +1104,17 @@ export const postChallengeMessage = async (req, res, next) => {
     if (!membership?.length && !canManageChallenge(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Join the season before posting messages' } });
     }
-    let teamId = req.body.teamId ? asInt(req.body.teamId) : null;
-    if (!teamId) {
-      const team = await ChallengeTeam.getTeamForUser(classId, req.user.id);
-      teamId = team?.id || null;
+    const scope = String(req.body?.scope || 'season').toLowerCase() === 'team' ? 'team' : 'season';
+    let teamId = null;
+    if (scope === 'team') {
+      teamId = req.body.teamId ? asInt(req.body.teamId) : null;
+      if (!teamId) {
+        const team = await ChallengeTeam.getTeamForUser(classId, req.user.id);
+        teamId = team?.id || null;
+      }
+      if (!teamId) {
+        return res.status(400).json({ error: { message: 'Join a team before posting in team chat' } });
+      }
     }
     const message = await ChallengeMessage.create({
       learningClassId: classId,
@@ -610,6 +1134,66 @@ export const postChallengeMessage = async (req, res, next) => {
       // Non-blocking bridge integration.
     }
     return res.status(201).json({ message });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getChallengeMessageUnreadCounts = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+    let teamId = 0;
+    const team = await ChallengeTeam.getTeamForUser(classId, req.user.id);
+    teamId = team?.id || 0;
+    const unread = await ChallengeMessage.getUnreadCounts({
+      learningClassId: classId,
+      userId: req.user.id,
+      teamId
+    });
+    return res.json({ ...unread, teamId: teamId || null });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteChallengeMessage = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const messageId = asInt(req.params.messageId);
+    if (!classId || !messageId) return res.status(400).json({ error: { message: 'Invalid classId/messageId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+    const message = await ChallengeMessage.findById(messageId);
+    if (!message || Number(message.learning_class_id) !== Number(classId) || message.deleted_at) {
+      return res.status(404).json({ error: { message: 'Message not found' } });
+    }
+    const canDelete = canManageChallenge(req.user?.role) || Number(message.user_id) === Number(req.user.id);
+    if (!canDelete) return res.status(403).json({ error: { message: 'Access denied' } });
+    await ChallengeMessage.softDelete(messageId, req.user.id);
+    return res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const pinChallengeMessage = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const messageId = asInt(req.params.messageId);
+    if (!classId || !messageId) return res.status(400).json({ error: { message: 'Invalid classId/messageId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const message = await ChallengeMessage.findById(messageId);
+    if (!message || Number(message.learning_class_id) !== Number(classId) || message.deleted_at) {
+      return res.status(404).json({ error: { message: 'Message not found' } });
+    }
+    const pinned = req.body?.pinned !== false;
+    const updated = await ChallengeMessage.pin(messageId, pinned, req.user.id);
+    return res.json({ message: updated });
   } catch (e) {
     next(e);
   }

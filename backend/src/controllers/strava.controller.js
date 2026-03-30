@@ -6,6 +6,8 @@
 import pool from '../config/database.js';
 import ChallengeTeam from '../models/ChallengeTeam.model.js';
 import ChallengeWorkout from '../models/ChallengeWorkout.model.js';
+import { queueClubRecordBreakCandidates } from './summitStats.controller.js';
+import { getWeekStartDate, getWeekDateTimeRange } from '../utils/challengeWeekUtils.js';
 import {
   createSignedState,
   verifySignedState,
@@ -21,6 +23,34 @@ import {
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
   return Number.isFinite(n) ? n : null;
+};
+
+const parseJsonObject = (raw, fallback = {}) => {
+  if (!raw) return fallback;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {
+      // ignore
+    }
+  }
+  return fallback;
+};
+
+const getWorkoutModerationMode = (settings) => {
+  const mode = String(settings?.workoutModeration?.mode || '').trim().toLowerCase();
+  if (mode === 'all' || mode === 'treadmill_only' || mode === 'none') return mode;
+  return 'treadmill_only';
+};
+
+const isTreadmillActivity = (activity) => {
+  if (!activity || typeof activity !== 'object') return false;
+  if (activity.trainer === true) return true;
+  const sport = String(activity.sport_type || '').toLowerCase();
+  const type = String(activity.type || '').toLowerCase();
+  return sport.includes('virtualrun') || type.includes('virtualrun') || sport.includes('treadmill') || type.includes('treadmill');
 };
 
 const getValidAccessToken = async (userId) => {
@@ -206,6 +236,18 @@ export const stravaImport = async (req, res, next) => {
       [learningClassId, userId]
     );
     if (!pm?.length) return res.status(403).json({ error: { message: 'You must be a season participant to import workouts' } });
+    const [classRows] = await pool.execute(
+      `SELECT season_settings_json, week_start_time
+       FROM learning_program_classes
+       WHERE id = ?
+       LIMIT 1`,
+      [learningClassId]
+    );
+    const seasonSettings = parseJsonObject(classRows?.[0]?.season_settings_json || {});
+    const moderationMode = getWorkoutModerationMode(seasonSettings);
+    const weekCutoffTime = String(seasonSettings?.schedule?.weekEndsSundayAt || classRows?.[0]?.week_start_time || '00:00');
+    const maxRucksPerWeek = Math.max(0, Number.parseInt(seasonSettings?.participation?.maxRucksPerWeek, 10) || 0);
+    const importedRucksByWeek = new Map();
     let teamId = req.body.teamId ? asInt(req.body.teamId) : null;
     if (!teamId) {
       const team = await ChallengeTeam.getTeamForUser(learningClassId, userId);
@@ -232,19 +274,64 @@ export const stravaImport = async (req, res, next) => {
       const durationMinutes = activity.moving_time ? Math.round(Number(activity.moving_time) / 60) : null;
       const points = computePointsFromStrava(activity);
       const completedAt = activity.start_date ? new Date(activity.start_date).toISOString().slice(0, 19).replace('T', ' ') : null;
+      const treadmill = isTreadmillActivity(activity);
+      const isRuck = String(activityType || '').toLowerCase().includes('ruck');
+      if (isRuck && maxRucksPerWeek > 0) {
+        const completedWeekStart = getWeekStartDate(completedAt ? new Date(completedAt) : new Date(), weekCutoffTime);
+        const weekKey = String(completedWeekStart || '').slice(0, 10);
+        let count = importedRucksByWeek.get(weekKey);
+        if (count == null) {
+          const range = getWeekDateTimeRange(weekKey, weekCutoffTime) || {
+            start: `${weekKey} 00:00:00`,
+            end: `${weekKey} 23:59:59`
+          };
+          const [existingRucks] = await pool.execute(
+            `SELECT COUNT(*) AS total
+             FROM challenge_workouts w
+             WHERE w.learning_class_id = ?
+               AND w.user_id = ?
+               AND LOWER(w.activity_type) LIKE '%ruck%'
+               AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+               AND w.completed_at >= ?
+               AND w.completed_at < ?`,
+            [learningClassId, userId, range.start, range.end]
+          );
+          count = Number(existingRucks?.[0]?.total || 0);
+        }
+        if (count >= maxRucksPerWeek) {
+          skipped.push({ stravaId, reason: 'weekly_ruck_limit_reached' });
+          continue;
+        }
+        importedRucksByWeek.set(weekKey, count + 1);
+      }
+      const proofStatus = (moderationMode === 'all' || (moderationMode === 'treadmill_only' && treadmill)) ? 'pending' : 'not_required';
       const workout = await ChallengeWorkout.create({
         learningClassId,
         teamId,
         userId,
         activityType,
+        isTreadmill: treadmill,
         distanceValue: distanceMiles,
+        reportedDistanceValue: distanceMiles,
         durationMinutes,
         points,
         workoutNotes: activity.name ? String(activity.name).trim() : null,
         completedAt,
-        stravaActivityId: stravaId
+        stravaActivityId: stravaId,
+        proofStatus
       });
-      if (workout) imported.push(workout);
+      if (workout) {
+        imported.push(workout);
+        try {
+          await queueClubRecordBreakCandidates({
+            learningClassId,
+            workoutId: workout.id,
+            userId
+          });
+        } catch {
+          // non-blocking
+        }
+      }
     }
     return res.status(201).json({ imported: imported.length, skipped: skipped.length, workouts: imported });
   } catch (e) {

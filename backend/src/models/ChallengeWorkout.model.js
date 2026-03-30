@@ -22,6 +22,9 @@ const parseJsonMaybe = (raw) => {
 };
 
 class ChallengeWorkout {
+  static _qualifiedClause(alias = 'w') {
+    return `(${alias}.is_disqualified IS NULL OR ${alias}.is_disqualified = 0)`;
+  }
   static _weeklyRange(weekStart, weekCutoffTime = '00:00') {
     const week = String(weekStart || '').slice(0, 10);
     if (!week) return null;
@@ -79,7 +82,10 @@ class ChallengeWorkout {
     teamId = null,
     userId,
     activityType,
+    isTreadmill = false,
     distanceValue = null,
+    reportedDistanceValue = null,
+    verifiedDistanceValue = null,
     durationMinutes = null,
     caloriesBurned = null,
     points = 0,
@@ -87,7 +93,11 @@ class ChallengeWorkout {
     screenshotFilePath = null,
     completedAt = null,
     stravaActivityId = null,
-    weeklyTaskId = null
+    weeklyTaskId = null,
+    proofStatus = 'not_required',
+    proofReviewNote = null,
+    proofReviewedByUserId = null,
+    proofReviewedAt = null
   }) {
     const classId = toInt(learningClassId);
     const uId = toInt(userId);
@@ -95,14 +105,17 @@ class ChallengeWorkout {
     if (!classId || !uId || !activity) return null;
     const [result] = await pool.execute(
       `INSERT INTO challenge_workouts
-       (learning_class_id, team_id, user_id, activity_type, distance_value, duration_minutes, calories_burned, points, workout_notes, screenshot_file_path, completed_at, strava_activity_id, weekly_task_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (learning_class_id, team_id, user_id, activity_type, is_treadmill, distance_value, reported_distance_value, verified_distance_value, duration_minutes, calories_burned, points, workout_notes, screenshot_file_path, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         classId,
         teamId ? toInt(teamId) : null,
         uId,
         activity,
+        isTreadmill ? 1 : 0,
         distanceValue != null ? Number(distanceValue) : null,
+        reportedDistanceValue != null ? Number(reportedDistanceValue) : null,
+        verifiedDistanceValue != null ? Number(verifiedDistanceValue) : null,
         durationMinutes != null ? toInt(durationMinutes) : null,
         caloriesBurned != null ? toInt(caloriesBurned) : null,
         toInt(points) || 0,
@@ -110,10 +123,53 @@ class ChallengeWorkout {
         screenshotFilePath ? String(screenshotFilePath).trim() : null,
         completedAt || null,
         stravaActivityId ? toInt(stravaActivityId) : null,
-        weeklyTaskId ? toInt(weeklyTaskId) : null
+        weeklyTaskId ? toInt(weeklyTaskId) : null,
+        String(proofStatus || 'not_required'),
+        proofReviewNote ? String(proofReviewNote).slice(0, 255) : null,
+        proofReviewedByUserId ? toInt(proofReviewedByUserId) : null,
+        proofReviewedAt || null
       ]
     );
     return this.findById(result.insertId);
+  }
+
+  static async updateProofReview(workoutId, patch = {}) {
+    const id = toInt(workoutId);
+    if (!id) return null;
+    const parts = [];
+    const values = [];
+    if (patch.proofStatus !== undefined) { parts.push('proof_status = ?'); values.push(String(patch.proofStatus)); }
+    if (patch.verifiedDistanceValue !== undefined) { parts.push('verified_distance_value = ?'); values.push(patch.verifiedDistanceValue != null ? Number(patch.verifiedDistanceValue) : null); }
+    if (patch.distanceValue !== undefined) { parts.push('distance_value = ?'); values.push(patch.distanceValue != null ? Number(patch.distanceValue) : null); }
+    if (patch.proofReviewNote !== undefined) { parts.push('proof_review_note = ?'); values.push(patch.proofReviewNote ? String(patch.proofReviewNote).slice(0, 255) : null); }
+    if (patch.proofReviewedByUserId !== undefined) { parts.push('proof_reviewed_by_user_id = ?'); values.push(patch.proofReviewedByUserId ? toInt(patch.proofReviewedByUserId) : null); }
+    if (patch.proofReviewedAt !== undefined) { parts.push('proof_reviewed_at = ?'); values.push(patch.proofReviewedAt || null); }
+    if (!parts.length) return this.findById(id);
+    values.push(id);
+    await pool.execute(`UPDATE challenge_workouts SET ${parts.join(', ')} WHERE id = ?`, values);
+    return this.findById(id);
+  }
+
+  static async updateDisqualification(workoutId, patch = {}) {
+    const id = toInt(workoutId);
+    if (!id) return null;
+    const disq = patch.isDisqualified === true;
+    await pool.execute(
+      `UPDATE challenge_workouts
+       SET is_disqualified = ?,
+           disqualification_reason = ?,
+           disqualified_by_user_id = ?,
+           disqualified_at = ?
+       WHERE id = ?`,
+      [
+        disq ? 1 : 0,
+        disq ? (patch.reason ? String(patch.reason).slice(0, 255) : null) : null,
+        disq ? (patch.byUserId ? toInt(patch.byUserId) : null) : null,
+        disq ? (patch.at || null) : null,
+        id
+      ]
+    );
+    return this.findById(id);
   }
 
   static async getLeaderboardIndividual(learningClassId, { limit = 50 } = {}) {
@@ -123,7 +179,7 @@ class ChallengeWorkout {
       `SELECT w.user_id, u.first_name, u.last_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
-       WHERE w.learning_class_id = ?
+       WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')}
        GROUP BY w.user_id, u.first_name, u.last_name
        ORDER BY total_points DESC
        LIMIT ?`,
@@ -139,7 +195,7 @@ class ChallengeWorkout {
       `SELECT w.team_id, t.team_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
        INNER JOIN challenge_teams t ON t.id = w.team_id
-       WHERE w.learning_class_id = ? AND w.team_id IS NOT NULL
+       WHERE w.learning_class_id = ? AND w.team_id IS NOT NULL AND ${this._qualifiedClause('w')}
        GROUP BY w.team_id, t.team_name
        ORDER BY total_points DESC
        LIMIT ?`,
@@ -158,7 +214,7 @@ class ChallengeWorkout {
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
        LEFT JOIN challenge_teams t ON t.id = w.team_id
-       WHERE w.learning_class_id = ?
+       WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')}
          AND w.completed_at >= ? AND w.completed_at < ?
        GROUP BY w.user_id, u.first_name, u.last_name, w.team_id, t.team_name
        ORDER BY total_points DESC
@@ -177,7 +233,7 @@ class ChallengeWorkout {
       `SELECT w.team_id, t.team_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
        INNER JOIN challenge_teams t ON t.id = w.team_id
-       WHERE w.learning_class_id = ? AND w.team_id IS NOT NULL
+       WHERE w.learning_class_id = ? AND w.team_id IS NOT NULL AND ${this._qualifiedClause('w')}
          AND w.completed_at >= ? AND w.completed_at < ?
        GROUP BY w.team_id, t.team_name
        ORDER BY total_points DESC
@@ -197,7 +253,7 @@ class ChallengeWorkout {
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
        INNER JOIN challenge_teams t ON t.id = w.team_id
-       WHERE w.learning_class_id = ?
+       WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')}
          AND w.completed_at >= ? AND w.completed_at < ?
        GROUP BY w.team_id, w.user_id, u.first_name, u.last_name, t.team_name
        ORDER BY w.team_id, total_points DESC`,
@@ -219,7 +275,7 @@ class ChallengeWorkout {
     if (!range) return 0;
     const [rows] = await pool.execute(
       `SELECT COALESCE(SUM(w.points), 0) AS total FROM challenge_workouts w
-       WHERE w.learning_class_id = ? AND w.user_id = ?
+       WHERE w.learning_class_id = ? AND w.user_id = ? AND ${this._qualifiedClause('w')}
          AND w.completed_at >= ? AND w.completed_at < ?`,
       [classId, uId, range.start, range.end]
     );
@@ -238,7 +294,7 @@ class ChallengeWorkout {
        INNER JOIN users u ON u.id = w.user_id
        LEFT JOIN challenge_teams t ON t.id = w.team_id
        LEFT JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id
-       WHERE w.learning_class_id = ? AND w.completed_at >= ? AND w.completed_at < ?
+       WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')} AND w.completed_at >= ? AND w.completed_at < ?
          AND p.gender = ?
        GROUP BY w.user_id, u.first_name, u.last_name, w.team_id, t.team_name, p.gender
        ORDER BY total_points DESC
@@ -261,7 +317,7 @@ class ChallengeWorkout {
        INNER JOIN users u ON u.id = w.user_id
        LEFT JOIN challenge_teams t ON t.id = w.team_id
        INNER JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id
-       WHERE w.learning_class_id = ? AND w.completed_at >= ? AND w.completed_at < ?
+       WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')} AND w.completed_at >= ? AND w.completed_at < ?
          AND p.date_of_birth IS NOT NULL
          AND TIMESTAMPDIFF(YEAR, p.date_of_birth, ?) >= ?`;
     const params = [classId, range.start, range.end, refDate, threshold];
@@ -284,7 +340,7 @@ class ChallengeWorkout {
     if (!range) return 0;
     const [rows] = await pool.execute(
       `SELECT COALESCE(SUM(w.points), 0) AS total FROM challenge_workouts w
-       WHERE w.learning_class_id = ? AND w.team_id = ?
+       WHERE w.learning_class_id = ? AND w.team_id = ? AND ${this._qualifiedClause('w')}
          AND w.completed_at >= ? AND w.completed_at < ?`,
       [classId, tId, range.start, range.end]
     );

@@ -4,21 +4,26 @@
     <div class="week-row">
       <label>Week of</label>
       <input v-model="weekStart" type="date" @change="load" />
-      <span v-if="individualMinimum != null" class="hint">Member minimum: {{ individualMinimum }} pts</span>
+      <span v-if="individualMinimum != null" class="hint">Member minimum: {{ individualMinimum }} {{ metricUnit }}</span>
+      <span v-if="teamMinimum != null" class="hint">Team minimum: {{ teamMinimum }} {{ metricUnit }}</span>
     </div>
     <div v-if="loading" class="loading-inline">Loading…</div>
     <div v-else class="teams-stack">
       <article v-for="team in teams" :key="`tw-${team.teamId}`" class="team-card">
         <header class="team-head">
           <h3>{{ team.teamName }}</h3>
-          <span class="team-total">{{ team.totalWeeklyPoints }} pts</span>
+          <span class="team-total">
+            {{ metricUnit === 'mi' ? Number(team.totalWeeklyMiles || 0).toFixed(2) : team.totalWeeklyPoints }} {{ metricUnit }}
+          </span>
         </header>
         <div v-if="!team.members?.length" class="empty-hint">No team members yet.</div>
         <div v-else class="members-list">
           <div v-for="m in team.members" :key="`twm-${team.teamId}-${m.userId}`" class="member-row">
             <span class="name">{{ m.firstName }} {{ m.lastName }}</span>
             <span class="status-pill" :class="`status-${m.progressStatus}`">{{ m.progressStatus }}</span>
-            <span class="points">{{ m.weeklyPoints }} pts</span>
+            <span class="points">
+              {{ metricUnit === 'mi' ? Number(m.weeklyMiles || 0).toFixed(2) : m.weeklyPoints }} {{ metricUnit }}
+            </span>
           </div>
         </div>
       </article>
@@ -39,6 +44,8 @@ const weekStart = ref(getThisWeekSunday());
 const loading = ref(false);
 const teams = ref([]);
 const individualMinimum = ref(null);
+const teamMinimum = ref(null);
+const metricUnit = ref('pts');
 
 function getThisWeekSunday() {
   const d = new Date();
@@ -59,9 +66,13 @@ const load = async () => {
     });
     teams.value = Array.isArray(r.data?.teams) ? r.data.teams : [];
     individualMinimum.value = r.data?.individualMinimum ?? null;
+    teamMinimum.value = r.data?.teamMinimum ?? null;
+    metricUnit.value = String(r.data?.metricUnit || 'pts');
   } catch {
     teams.value = [];
     individualMinimum.value = null;
+    teamMinimum.value = null;
+    metricUnit.value = 'pts';
   } finally {
     loading.value = false;
   }

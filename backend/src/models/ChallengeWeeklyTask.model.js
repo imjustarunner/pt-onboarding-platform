@@ -33,16 +33,34 @@ class ChallengeWeeklyTask {
     return rows || [];
   }
 
-  static async create({ learningClassId, weekStartDate, taskIndex, name, description = null }) {
+  static async create({
+    learningClassId,
+    weekStartDate,
+    taskIndex,
+    name,
+    description = null,
+    proofPolicy = 'none',
+    confidenceScore = null,
+    confidenceNotes = null
+  }) {
     const classId = toInt(learningClassId);
     const week = String(weekStartDate || '').trim().slice(0, 10);
     const idx = toInt(taskIndex) || 1;
     const taskName = String(name || '').trim();
     if (!classId || !week || !taskName) return null;
     const [result] = await pool.execute(
-      `INSERT INTO challenge_weekly_tasks (learning_class_id, week_start_date, task_index, name, description)
-       VALUES (?, ?, ?, ?, ?)`,
-      [classId, week, idx, taskName, description ? String(description).trim() : null]
+      `INSERT INTO challenge_weekly_tasks (learning_class_id, week_start_date, task_index, name, description, proof_policy, confidence_score, confidence_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        classId,
+        week,
+        idx,
+        taskName,
+        description ? String(description).trim() : null,
+        String(proofPolicy || 'none').slice(0, 32),
+        confidenceScore != null ? Number(confidenceScore) : null,
+        confidenceNotes ? String(confidenceNotes).slice(0, 255) : null
+      ]
     );
     return this.findById(result.insertId);
   }
@@ -56,7 +74,10 @@ class ChallengeWeeklyTask {
         weekStartDate,
         taskIndex: i + 1,
         name: t?.name || t?.title || `Challenge ${i + 1}`,
-        description: t?.description || null
+        description: t?.description || null,
+        proofPolicy: t?.proofPolicy || t?.proof_policy || 'none',
+        confidenceScore: t?.confidenceScore ?? t?.confidence_score ?? null,
+        confidenceNotes: t?.confidenceNotes ?? t?.confidence_notes ?? null
       });
       if (task) created.push(task);
     }

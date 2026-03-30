@@ -73,6 +73,17 @@ class ChallengeWeeklyAssignment {
     );
     return result.insertId || true;
   }
+
+  static async setCompletionStatus(assignmentId, { isCompleted, completedAt = null, notes = null, attachmentPath = null } = {}) {
+    const aId = toInt(assignmentId);
+    if (!aId) return false;
+    if (isCompleted === false) {
+      await pool.execute(`DELETE FROM challenge_weekly_completions WHERE assignment_id = ?`, [aId]);
+      return true;
+    }
+    await this.markCompleted(aId, { completedAt, notes, attachmentPath });
+    return true;
+  }
 }
 
 export default ChallengeWeeklyAssignment;

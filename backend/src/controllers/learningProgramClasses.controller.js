@@ -64,6 +64,15 @@ const normalizeSeasonSettings = (input = {}) => {
   const teams = src.teams && typeof src.teams === 'object' ? src.teams : {};
   const participation = src.participation && typeof src.participation === 'object' ? src.participation : {};
   const byeWeek = src.byeWeek && typeof src.byeWeek === 'object' ? src.byeWeek : {};
+  const treadmill = src.treadmill && typeof src.treadmill === 'object' ? src.treadmill : {};
+  const treadmillpocalypse = src.treadmillpocalypse && typeof src.treadmillpocalypse === 'object' ? src.treadmillpocalypse : {};
+  const workoutModeration = src.workoutModeration && typeof src.workoutModeration === 'object' ? src.workoutModeration : {};
+  const records = src.records && typeof src.records === 'object' ? src.records : {};
+  const toModerationMode = (v) => {
+    const s = String(v || '').trim().toLowerCase();
+    if (s === 'all' || s === 'treadmill_only' || s === 'none') return s;
+    return 'treadmill_only';
+  };
   return {
     event: {
       category: (String(event.category || '').toLowerCase() === 'fitness') ? 'fitness' : 'run_ruck',
@@ -101,12 +110,29 @@ const normalizeSeasonSettings = (input = {}) => {
     },
     participation: {
       individualMinPointsPerWeek: Math.max(0, numOr(participation.individualMinPointsPerWeek, numOr(scoring.weeklyMinimumPointsPerAthlete, 0))),
-      teamMinPointsPerWeek: Math.max(0, numOr(participation.teamMinPointsPerWeek, numOr(scoring.teamWeeklyTargetPoints, 0)))
+      teamMinPointsPerWeek: Math.max(0, numOr(participation.teamMinPointsPerWeek, numOr(scoring.teamWeeklyTargetPoints, 0))),
+      runRuckStartMilesPerPerson: Math.max(0, floatOr(participation.runRuckStartMilesPerPerson, 0)),
+      runRuckWeeklyIncreaseMilesPerPerson: Math.max(0, floatOr(participation.runRuckWeeklyIncreaseMilesPerPerson, 2)),
+      baselineMemberCount: Math.max(0, numOr(participation.baselineMemberCount, 0)),
+      maxRucksPerWeek: Math.max(0, numOr(participation.maxRucksPerWeek, 0))
     },
     byeWeek: {
       allowByeWeek: asBool(byeWeek.allowByeWeek, false),
       maxByeWeeksPerParticipant: Math.max(0, numOr(byeWeek.maxByeWeeksPerParticipant, 1)),
       requireAdvanceDeclaration: asBool(byeWeek.requireAdvanceDeclaration, true)
+    },
+    treadmill: {
+      photoProofRequired: asBool(treadmill.photoProofRequired, true)
+    },
+    treadmillpocalypse: {
+      enabled: asBool(treadmillpocalypse.enabled, false),
+      startsAtWeek: asNonEmptyString(treadmillpocalypse.startsAtWeek, null)
+    },
+    workoutModeration: {
+      mode: toModerationMode(workoutModeration.mode)
+    },
+    records: {
+      metrics: parseList(records.metrics)
     },
     challengePublish: {
       aiDraftEnabled: asBool(publish.aiDraftEnabled, true),
@@ -759,7 +785,19 @@ export const launchLearningProgramClass = async (req, res, next) => {
       [classId]
     );
     if (!members?.length) return res.status(400).json({ error: { message: 'Add at least one participant before launching' } });
-    await LearningProgramClass.update(classId, { status: 'active' });
+    const [memberCountRows] = await pool.execute(
+      `SELECT COUNT(*) AS total
+       FROM learning_class_provider_memberships
+       WHERE learning_class_id = ? AND membership_status IN ('active','completed')`,
+      [classId]
+    );
+    const baselineMemberCount = Number(memberCountRows?.[0]?.total || 0);
+    const settings = normalizeSeasonSettings(klass?.season_settings_json || {});
+    settings.participation = {
+      ...(settings.participation || {}),
+      baselineMemberCount
+    };
+    await LearningProgramClass.update(classId, { status: 'active', seasonSettingsJson: settings });
     const updated = await LearningProgramClass.findById(classId);
     return res.json({ class: updated, launched: true });
   } catch (e) {

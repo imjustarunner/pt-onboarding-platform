@@ -9,7 +9,7 @@ import ChallengeWorkout from '../models/ChallengeWorkout.model.js';
 import ChallengeWeeklyTask from '../models/ChallengeWeeklyTask.model.js';
 import ChallengeWeeklyAssignment from '../models/ChallengeWeeklyAssignment.model.js';
 import ChallengeElimination from '../models/ChallengeElimination.model.js';
-import { getWeekStartDate } from '../utils/challengeWeekUtils.js';
+import { getWeekStartDate, getWeekDateTimeRange } from '../utils/challengeWeekUtils.js';
 import { canAccessChallenge } from '../utils/challengeAccess.js';
 
 const asInt = (v) => {
@@ -59,6 +59,34 @@ const getWeekCutoffTime = (klass) => {
   return /^\d{1,2}:\d{2}$/.test(raw) ? raw : '00:00';
 };
 
+const getRunRuckProgression = ({ klass, weekStart, fallbackMemberCount = 0 }) => {
+  const settings = parseJsonObject(klass?.season_settings_json || {});
+  const event = parseJsonObject(settings.event || {});
+  if (String(event.category || 'run_ruck').toLowerCase() !== 'run_ruck') return null;
+  const participation = parseJsonObject(settings.participation || {});
+  const cutoff = getWeekCutoffTime(klass);
+  const baseMiles = Number(participation.runRuckStartMilesPerPerson ?? 0) || 0;
+  const weeklyIncrease = Number(participation.runRuckWeeklyIncreaseMilesPerPerson ?? 2) || 0;
+  const baselineMembers = Math.max(
+    0,
+    Number.parseInt(participation.baselineMemberCount, 10) || Number(fallbackMemberCount) || 0
+  );
+  const anchorWeek = klass?.starts_at
+    ? getWeekStartDate(new Date(klass.starts_at), cutoff)
+    : String(weekStart || '').slice(0, 10);
+  const startDate = new Date(`${String(anchorWeek).slice(0, 10)}T00:00:00`);
+  const targetDate = new Date(`${String(weekStart).slice(0, 10)}T00:00:00`);
+  const weekIndex = Math.max(0, Math.floor((targetDate.getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000)));
+  const individualMilesMinimum = Number((baseMiles + (weekIndex * weeklyIncrease)).toFixed(2));
+  const teamMilesMinimum = Number((individualMilesMinimum * baselineMembers).toFixed(2));
+  return {
+    weekIndex,
+    individualMilesMinimum,
+    teamMilesMinimum,
+    baselineMembers
+  };
+};
+
 const buildAiWeeklyTaskDraft = ({ klass, weekStart }) => {
   const settings = parseJsonObject(klass?.season_settings_json || {});
   const event = parseJsonObject(settings.event || {});
@@ -76,22 +104,40 @@ const buildAiWeeklyTaskDraft = ({ klass, weekStart }) => {
   const cleverRunRuckNames = ['Ruck N Roll Relay', 'Trailblazer Sprint', 'Mile Hunter Mission', 'Ruck & Rise'];
   const cleverFitnessNames = ['Calorie Crush Circuit', 'Engine Ignite Session', 'Pulse Peak Builder', 'Sweat Equity Stack'];
   const nameSet = eventCategory === 'fitness' ? cleverFitnessNames : cleverRunRuckNames;
+  const proofPolicyDefault = eventCategory === 'run_ruck' ? 'gps_or_photo' : 'photo_required';
+  const confidenceBase = (() => {
+    let base = 62;
+    if (minimum > 0) base += 10;
+    if (teamTarget > 0) base += 10;
+    if (metrics.length > 0) base += 8;
+    if (challengeMode === 'volunteer_or_elect') base += 5;
+    return Math.min(95, base);
+  })();
   return [
     {
       name: `${nameSet[0]} (${cadence})`,
       description: eventCategory === 'fitness'
         ? `Log fitness sessions and target calories that convert to points, pacing toward ${minimum} minimum points.`
-        : `Log run/ruck mileage and stay on pace for ${minimum} minimum points this week.`
+        : `Log run/ruck mileage and stay on pace for ${minimum} minimum points this week.`,
+      proofPolicy: proofPolicyDefault,
+      confidenceScore: confidenceBase,
+      confidenceNotes: 'Aligned to event type and weekly minimum pacing.'
     },
     {
       name: nameSet[1],
-      description: `Coordinate with your team to collectively push toward ${teamTarget || 100} points this week.`
+      description: `Coordinate with your team to collectively push toward ${teamTarget || 100} points this week.`,
+      proofPolicy: 'none',
+      confidenceScore: Math.max(55, confidenceBase - 6),
+      confidenceNotes: 'High team-level engagement potential.'
     },
     {
       name: metrics.length
         ? `Spotlight: ${metrics[0]}`
         : nameSet[2],
-      description: `Each team should ${challengeMode.includes('elect') ? 'elect' : 'volunteer'} one participant per challenge and complete assignments for week ${wk}.`
+      description: `Each team should ${challengeMode.includes('elect') ? 'elect' : 'volunteer'} one participant per challenge and complete assignments for week ${wk}.`,
+      proofPolicy: proofPolicyDefault,
+      confidenceScore: Math.max(50, confidenceBase - 10),
+      confidenceNotes: 'Depends on consistent captain/team assignment execution.'
     }
   ];
 };
@@ -260,12 +306,19 @@ export const publishWeeklyTasksDraft = async (req, res, next) => {
     const weekCutoffTime = getWeekCutoffTime(access.class);
     const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime);
     const tasksInput = Array.isArray(req.body.tasks) ? req.body.tasks : [];
-    const tasksToPublish = tasksInput.length
+    const treadmillpocalypse = parseJsonObject(parseJsonObject(access.class?.season_settings_json || {})?.treadmillpocalypse || {});
+    const treadmillActive = treadmillpocalypse.enabled === true
+      && treadmillpocalypse.startsAtWeek
+      && String(weekStart) >= String(treadmillpocalypse.startsAtWeek).slice(0, 10);
+    const tasksToPublish = (tasksInput.length
       ? tasksInput.slice(0, 3)
       : (() => {
         const fallback = buildAiWeeklyTaskDraft({ klass: access.class, weekStart });
         return fallback;
-      })();
+      })()).map((t) => ({
+      ...t,
+      proofPolicy: treadmillActive ? 'gps_required_no_treadmill' : (t?.proofPolicy || 'none')
+    }));
     await ChallengeWeeklyTask.deleteByWeek(classId, weekStart);
     const created = await ChallengeWeeklyTask.createBatch(classId, weekStart, tasksToPublish);
     await pool.execute(
@@ -297,6 +350,88 @@ export const listWeeklyAssignments = async (req, res, next) => {
     const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime);
     const assignments = await ChallengeWeeklyAssignment.listByWeek(classId, weekStart);
     return res.json({ weekStartDate: weekStart, assignments });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getSnakeDraftBoard = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const rounds = Math.max(1, Math.min(20, asInt(req.query.rounds) || 3));
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const access = await getAccess(req, classId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const teams = await ChallengeTeam.listByChallenge(classId);
+    const ordered = (teams || []).slice().sort((a, b) => String(a.team_name || '').localeCompare(String(b.team_name || '')));
+    const picks = [];
+    for (let r = 1; r <= rounds; r++) {
+      const row = (r % 2 === 1) ? ordered : ordered.slice().reverse();
+      row.forEach((team, idx) => {
+        picks.push({
+          round: r,
+          pickNumber: (r - 1) * ordered.length + idx + 1,
+          teamId: Number(team.id),
+          teamName: team.team_name
+        });
+      });
+    }
+    return res.json({ rounds, teams: ordered.length, picks });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getNoShowRiskAlerts = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const weekParam = req.query.week || req.query.weekStart;
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const access = await getAccess(req, classId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const weekCutoffTime = getWeekCutoffTime(access.class);
+    const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime);
+    const range = getWeekDateTimeRange(weekStart, weekCutoffTime);
+    const progression = getRunRuckProgression({ klass: access.class, weekStart });
+    const [rows] = await pool.execute(
+      `SELECT
+         u.id AS user_id,
+         u.first_name,
+         u.last_name,
+         COALESCE(SUM(w.points), 0) AS weekly_points,
+         COALESCE(SUM(w.distance_value), 0) AS weekly_miles
+       FROM learning_class_provider_memberships pm
+       INNER JOIN users u ON u.id = pm.provider_user_id
+       LEFT JOIN challenge_workouts w
+         ON w.learning_class_id = pm.learning_class_id
+         AND w.user_id = pm.provider_user_id
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         AND w.completed_at >= ?
+         AND w.completed_at < ?
+       WHERE pm.learning_class_id = ?
+         AND pm.membership_status IN ('active','completed')
+       GROUP BY u.id, u.first_name, u.last_name
+       ORDER BY u.last_name ASC, u.first_name ASC`,
+      [range?.start || `${weekStart} 00:00:00`, range?.end || `${weekStart} 23:59:59`, classId]
+    );
+    const individualMin = progression ? progression.individualMilesMinimum : (access.class?.individual_min_points_per_week != null ? Number(access.class.individual_min_points_per_week) : 0);
+    const metric = progression ? 'miles' : 'points';
+    const atRisk = (rows || []).map((r) => {
+      const value = progression ? Number(r.weekly_miles || 0) : Number(r.weekly_points || 0);
+      const ratio = individualMin > 0 ? (value / individualMin) : 1;
+      return {
+        userId: Number(r.user_id),
+        firstName: r.first_name,
+        lastName: r.last_name,
+        weeklyValue: value,
+        requiredValue: individualMin,
+        metric,
+        riskLevel: ratio < 0.4 ? 'high' : ratio < 0.7 ? 'medium' : ratio < 1 ? 'low' : 'none'
+      };
+    }).filter((r) => r.riskLevel !== 'none');
+    return res.json({ weekStartDate: weekStart, metric, requiredValue: individualMin, alerts: atRisk });
   } catch (e) {
     next(e);
   }
@@ -443,6 +578,33 @@ export const completeWeeklyChallenge = async (req, res, next) => {
   }
 };
 
+export const setWeeklyAssignmentCompletionByManager = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const assignmentId = asInt(req.params.assignmentId);
+    if (!classId || !assignmentId) return res.status(400).json({ error: { message: 'Invalid assignmentId' } });
+    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const assignment = await ChallengeWeeklyAssignment.findById(assignmentId);
+    if (!assignment) return res.status(404).json({ error: { message: 'Assignment not found' } });
+    const task = await ChallengeWeeklyTask.findById(assignment.task_id);
+    if (!task || Number(task.learning_class_id) !== Number(classId)) {
+      return res.status(404).json({ error: { message: 'Assignment not found' } });
+    }
+    const access = await getAccess(req, classId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const isCompleted = req.body?.isCompleted !== false;
+    await ChallengeWeeklyAssignment.setCompletionStatus(assignmentId, {
+      isCompleted,
+      completedAt: req.body?.completedAt || null,
+      notes: req.body?.notes || req.body?.completionNotes || null,
+      attachmentPath: req.body?.attachmentPath || null
+    });
+    return res.json({ ok: true, assignmentId, isCompleted });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const closeWeek = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);
@@ -456,6 +618,7 @@ export const closeWeek = async (req, res, next) => {
     const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime);
     const teamMin = klass.team_min_points_per_week != null ? asInt(klass.team_min_points_per_week) : null;
     const indMin = klass.individual_min_points_per_week != null ? asInt(klass.individual_min_points_per_week) : null;
+    const runRuckProgression = getRunRuckProgression({ klass, weekStart });
 
     const top5Athletes = (await ChallengeWorkout.getWeeklyLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime }))
       .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) }));
@@ -496,7 +659,10 @@ export const closeWeek = async (req, res, next) => {
 
     const eliminations = [];
     const [members] = await pool.execute(
-      `SELECT pm.provider_user_id FROM learning_class_provider_memberships pm
+      `SELECT pm.provider_user_id, tm.team_id
+       FROM learning_class_provider_memberships pm
+       LEFT JOIN challenge_team_members tm ON tm.provider_user_id = pm.provider_user_id
+       LEFT JOIN challenge_teams t ON t.id = tm.team_id AND t.learning_class_id = pm.learning_class_id
        WHERE pm.learning_class_id = ? AND pm.membership_status IN ('active','completed')`,
       [classId]
     );
@@ -511,6 +677,40 @@ export const closeWeek = async (req, res, next) => {
       [classId, weekStart]
     );
     const byeByUser = new Set((byeRows || []).map((r) => Number(r.provider_user_id)));
+    const weekRange = getWeekDateTimeRange(weekStart, weekCutoffTime) || {
+      start: `${weekStart} 00:00:00`,
+      end: `${weekStart} 23:59:59`
+    };
+    const [weekMilesByUserRows] = await pool.execute(
+      `SELECT w.user_id, COALESCE(SUM(w.distance_value), 0) AS weekly_miles
+       FROM challenge_workouts w
+       WHERE w.learning_class_id = ? AND w.completed_at >= ? AND w.completed_at < ?
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+       GROUP BY w.user_id`,
+      [classId, weekRange.start, weekRange.end]
+    );
+    const weeklyMilesByUser = new Map((weekMilesByUserRows || []).map((r) => [Number(r.user_id), Number(r.weekly_miles || 0)]));
+
+    const [weekMilesByTeamRows] = await pool.execute(
+      `SELECT t.id AS team_id, COALESCE(SUM(w.distance_value), 0) AS weekly_miles
+       FROM challenge_teams t
+       LEFT JOIN challenge_workouts w
+         ON w.team_id = t.id
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         AND w.completed_at >= ?
+         AND w.completed_at < ?
+       WHERE t.learning_class_id = ?
+       GROUP BY t.id`,
+      [weekRange.start, weekRange.end, classId]
+    );
+    const weeklyMilesByTeam = new Map((weekMilesByTeamRows || []).map((r) => [Number(r.team_id), Number(r.weekly_miles || 0)]));
+    const failingTeams = new Set();
+    if (runRuckProgression && runRuckProgression.teamMilesMinimum > 0) {
+      for (const [teamId, miles] of weeklyMilesByTeam.entries()) {
+        if (Number(miles || 0) < runRuckProgression.teamMilesMinimum) failingTeams.add(Number(teamId));
+      }
+    }
+
     for (const m of members || []) {
       const pid = m.provider_user_id;
       if (await ChallengeElimination.isEliminated(classId, pid)) continue;
@@ -525,7 +725,11 @@ export const closeWeek = async (req, res, next) => {
       }
       let pointsFailed = false;
       let challengeFailed = false;
-      if (indMin != null) {
+      if (runRuckProgression) {
+        const miles = Number(weeklyMilesByUser.get(Number(pid)) || 0);
+        if (miles < runRuckProgression.individualMilesMinimum) pointsFailed = true;
+        if (Number(m.team_id || 0) && failingTeams.has(Number(m.team_id))) pointsFailed = true;
+      } else if (indMin != null) {
         const pts = await ChallengeWorkout.getWeeklyPointsForUser(classId, pid, weekStart, { weekCutoffTime });
         if (pts < indMin) pointsFailed = true;
       }
@@ -538,10 +742,27 @@ export const closeWeek = async (req, res, next) => {
         await ChallengeElimination.create({
           learningClassId: classId,
           providerUserId: pid,
+          teamId: m.team_id ? Number(m.team_id) : null,
           weekStartDate: weekStart,
           reason,
-          adminComment: req.body.eliminations?.[String(pid)]?.adminComment || null
+          adminComment: req.body.eliminations?.[String(pid)]?.adminComment || null,
+          publicMessage: req.body.eliminations?.[String(pid)]?.publicMessage || null,
+          eliminationMode: 'auto',
+          createdByUserId: req.user.id
         });
+        await pool.execute(
+          `UPDATE learning_class_provider_memberships
+           SET membership_status = 'removed', removed_at = NOW(), updated_at = CURRENT_TIMESTAMP
+           WHERE learning_class_id = ? AND provider_user_id = ?`,
+          [classId, pid]
+        );
+        await pool.execute(
+          `DELETE ctm
+           FROM challenge_team_members ctm
+           INNER JOIN challenge_teams t ON t.id = ctm.team_id
+           WHERE t.learning_class_id = ? AND ctm.provider_user_id = ?`,
+          [classId, pid]
+        );
         eliminations.push({ providerUserId: pid, reason });
       }
     }
@@ -549,7 +770,9 @@ export const closeWeek = async (req, res, next) => {
     return res.json({
       weekStartDate: weekStart,
       scoreboardPosted: true,
-      eliminationsCount: eliminations.length
+      eliminationsCount: eliminations.length,
+      runRuckProgression: runRuckProgression || null,
+      failingTeamIds: Array.from(failingTeams)
     });
   } catch (e) {
     next(e);
@@ -575,7 +798,7 @@ export const getSeasonSummary = async (req, res, next) => {
     const [teamSeasonRows] = await pool.execute(
       `SELECT t.id AS team_id, t.team_name, COALESCE(SUM(w.points), 0) AS total_points
        FROM challenge_teams t
-       LEFT JOIN challenge_workouts w ON w.team_id = t.id
+       LEFT JOIN challenge_workouts w ON w.team_id = t.id AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
        WHERE t.learning_class_id = ?
        GROUP BY t.id, t.team_name
        ORDER BY total_points DESC, t.team_name ASC`,
@@ -585,7 +808,8 @@ export const getSeasonSummary = async (req, res, next) => {
       `SELECT COALESCE(SUM(w.points), 0) AS season_points,
               COALESCE(SUM(w.distance_value), 0) AS season_miles
        FROM challenge_workouts w
-       WHERE w.learning_class_id = ?`,
+       WHERE w.learning_class_id = ?
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)`,
       [classId]
     );
     const mastersThreshold = Number.parseInt(access.class?.masters_age_threshold, 10) || 53;
@@ -596,6 +820,7 @@ export const getSeasonSummary = async (req, res, next) => {
        INNER JOIN challenge_participant_profiles p
          ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id
        WHERE w.learning_class_id = ?
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
          AND p.date_of_birth IS NOT NULL
          AND TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) >= ?
        GROUP BY w.user_id, u.first_name, u.last_name
@@ -610,6 +835,7 @@ export const getSeasonSummary = async (req, res, next) => {
        INNER JOIN challenge_participant_profiles p
          ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id
        WHERE w.learning_class_id = ?
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
          AND p.gender = 'female'
        GROUP BY w.user_id, u.first_name, u.last_name
        ORDER BY total_points DESC
@@ -650,6 +876,60 @@ export const updateEliminationComment = async (req, res, next) => {
     if (!rows?.length) return res.status(404).json({ error: { message: 'Elimination not found' } });
     await ChallengeElimination.updateAdminComment(eliminationId, adminComment);
     return res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const manuallyEliminateParticipant = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const providerUserId = asInt(req.body?.providerUserId);
+    const adminComment = req.body?.adminComment ? String(req.body.adminComment) : null;
+    const publicMessage = req.body?.publicMessage ? String(req.body.publicMessage) : null;
+    if (!classId || !providerUserId) return res.status(400).json({ error: { message: 'classId and providerUserId required' } });
+    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    const access = await getAccess(req, classId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (await ChallengeElimination.isEliminated(classId, providerUserId)) {
+      return res.status(400).json({ error: { message: 'Participant is already eliminated' } });
+    }
+    const weekCutoffTime = getWeekCutoffTime(access.class);
+    const weekStart = String(req.body?.weekStart || req.body?.week || getWeekStartDate(new Date(), weekCutoffTime)).slice(0, 10);
+    const [teamRows] = await pool.execute(
+      `SELECT tm.team_id
+       FROM challenge_team_members tm
+       INNER JOIN challenge_teams t ON t.id = tm.team_id
+       WHERE t.learning_class_id = ? AND tm.provider_user_id = ?
+       LIMIT 1`,
+      [classId, providerUserId]
+    );
+    const teamId = teamRows?.[0]?.team_id ? Number(teamRows[0].team_id) : null;
+    await ChallengeElimination.create({
+      learningClassId: classId,
+      providerUserId,
+      teamId,
+      weekStartDate: weekStart,
+      reason: 'manual_boot',
+      adminComment,
+      publicMessage,
+      eliminationMode: 'manual',
+      createdByUserId: req.user.id
+    });
+    await pool.execute(
+      `UPDATE learning_class_provider_memberships
+       SET membership_status = 'removed', removed_at = NOW(), updated_at = CURRENT_TIMESTAMP
+       WHERE learning_class_id = ? AND provider_user_id = ?`,
+      [classId, providerUserId]
+    );
+    await pool.execute(
+      `DELETE ctm
+       FROM challenge_team_members ctm
+       INNER JOIN challenge_teams t ON t.id = ctm.team_id
+       WHERE t.learning_class_id = ? AND ctm.provider_user_id = ?`,
+      [classId, providerUserId]
+    );
+    return res.status(201).json({ eliminated: true, providerUserId, weekStartDate: weekStart });
   } catch (e) {
     next(e);
   }

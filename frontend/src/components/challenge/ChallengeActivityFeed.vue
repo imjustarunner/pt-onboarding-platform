@@ -22,6 +22,116 @@
           Tagged weekly challenge: <strong>{{ w.weekly_task_name }}</strong>
         </div>
         <div v-if="w.workout_notes" class="activity-notes">{{ w.workout_notes }}</div>
+        <div v-if="Number(w.is_disqualified) === 1" class="disqualified-banner">
+          Disqualified workout{{ w.disqualification_reason ? `: ${w.disqualification_reason}` : '' }}
+        </div>
+        <div v-if="w.strava_activity_id" class="hint" style="margin-top: 4px;">
+          Source: Strava import (ID {{ w.strava_activity_id }})
+        </div>
+        <div v-if="Number(w.is_treadmill) === 1" class="hint" style="margin-top: 4px;">
+          Treadmill entry
+        </div>
+        <div v-if="canEditOwnImportedTreadmill(w)" class="proof-review-card" style="margin-top: 6px;">
+          <div class="proof-review-header">
+            <strong>Edit treadmill import</strong>
+            <button class="btn btn-secondary btn-small" @click="toggleEditImportedWorkout(w)">
+              {{ editOpenByWorkout[w.id] ? 'Hide' : 'Edit' }}
+            </button>
+          </div>
+          <div v-if="editOpenByWorkout[w.id]" class="proof-review-body">
+            <label class="proof-field">
+              <span>Corrected miles</span>
+              <input v-model.number="editDraftByWorkout[w.id].distanceValue" type="number" step="0.01" min="0" />
+            </label>
+            <label class="proof-field">
+              <span>Treadmill proof URL/path (optional now, can add later)</span>
+              <input v-model="editDraftByWorkout[w.id].screenshotFilePath" type="text" maxlength="255" />
+            </label>
+            <label class="proof-field">
+              <span>Notes</span>
+              <input v-model="editDraftByWorkout[w.id].workoutNotes" type="text" maxlength="500" />
+            </label>
+            <div class="proof-actions">
+              <button class="btn btn-primary btn-small" :disabled="!!editSubmitting[w.id]" @click="saveEditImportedWorkout(w.id)">
+                Save Edit
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-if="props.isManager && (w.proof_status || Number(w.is_treadmill) === 1)" class="proof-review-card">
+          <div class="proof-review-header">
+            <strong>Manager proof review</strong>
+            <span class="proof-status" :class="`proof-${String(w.proof_status || '').toLowerCase()}`">
+              {{ String(w.proof_status || 'not_required').replace(/_/g, ' ') }}
+            </span>
+          </div>
+          <div class="proof-review-body">
+            <label class="proof-field">
+              <span>Verified miles (optional)</span>
+              <input
+                v-model.number="proofReviewDraftByWorkout[w.id].verifiedDistanceValue"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Use treadmill photo value if corrected"
+              />
+            </label>
+            <label class="proof-field">
+              <span>Review note (optional)</span>
+              <input
+                v-model="proofReviewDraftByWorkout[w.id].proofReviewNote"
+                type="text"
+                maxlength="255"
+                placeholder="Reason/notes for approval or rejection"
+              />
+            </label>
+            <div class="proof-actions">
+              <button class="btn btn-primary btn-small" :disabled="!!proofSubmitting[w.id]" @click="reviewProof(w.id, 'approved')">
+                Approve
+              </button>
+              <button class="btn btn-secondary btn-small" :disabled="!!proofSubmitting[w.id]" @click="reviewProof(w.id, 'pending')">
+                Mark Pending
+              </button>
+              <button class="btn btn-secondary btn-small" :disabled="!!proofSubmitting[w.id]" @click="reviewProof(w.id, 'rejected')">
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-if="props.isManager" class="proof-review-card">
+          <div class="proof-review-header">
+            <strong>Workout validity</strong>
+          </div>
+          <div class="proof-review-body">
+            <label class="proof-field">
+              <span>Reason (optional)</span>
+              <input
+                v-model="disqualifyDraftByWorkout[w.id]"
+                type="text"
+                maxlength="255"
+                placeholder="e.g., 4.9 miles did not meet 5-mile challenge"
+              />
+            </label>
+            <div class="proof-actions">
+              <button
+                v-if="Number(w.is_disqualified) !== 1"
+                class="btn btn-secondary btn-small"
+                :disabled="!!disqualifySubmitting[w.id]"
+                @click="setWorkoutDisqualification(w.id, true)"
+              >
+                Mark Incomplete / Disqualify
+              </button>
+              <button
+                v-else
+                class="btn btn-primary btn-small"
+                :disabled="!!disqualifySubmitting[w.id]"
+                @click="setWorkoutDisqualification(w.id, false)"
+              >
+                Reinstate Workout
+              </button>
+            </div>
+          </div>
+        </div>
         <div v-if="w.media?.length" class="activity-media">
           <img
             v-for="m in w.media"
@@ -69,14 +179,15 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
   workouts: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   challengeId: { type: [String, Number], required: true },
-  myUserId: { type: [String, Number], default: null }
+  myUserId: { type: [String, Number], default: null },
+  isManager: { type: Boolean, default: false }
 });
 const emit = defineEmits(['media-uploaded']);
 
@@ -84,6 +195,13 @@ const commentsOpen = ref({});
 const commentsLoading = ref({});
 const commentsByWorkout = ref({});
 const commentDraftByWorkout = ref({});
+const proofReviewDraftByWorkout = ref({});
+const proofSubmitting = ref({});
+const editOpenByWorkout = ref({});
+const editDraftByWorkout = ref({});
+const editSubmitting = ref({});
+const disqualifyDraftByWorkout = ref({});
+const disqualifySubmitting = ref({});
 
 const formatActivityType = (t) => {
   if (!t) return '';
@@ -153,6 +271,119 @@ const onUploadMedia = async (event, workoutId) => {
   });
   event.target.value = '';
   emit('media-uploaded');
+};
+
+const ensureProofDraft = (workoutId, workout) => {
+  if (proofReviewDraftByWorkout.value[workoutId]) return;
+  proofReviewDraftByWorkout.value = {
+    ...proofReviewDraftByWorkout.value,
+    [workoutId]: {
+      verifiedDistanceValue: workout?.verified_distance_value != null
+        ? Number(workout.verified_distance_value)
+        : (workout?.distance_value != null ? Number(workout.distance_value) : null),
+      proofReviewNote: workout?.proof_review_note || ''
+    }
+  };
+};
+
+const canEditOwnImportedTreadmill = (workout) => {
+  return Number(workout?.user_id) === Number(props.myUserId)
+    && Number(workout?.is_treadmill) === 1
+    && !!workout?.strava_activity_id;
+};
+
+const ensureEditDraft = (workoutId, workout) => {
+  if (editDraftByWorkout.value[workoutId]) return;
+  editDraftByWorkout.value = {
+    ...editDraftByWorkout.value,
+    [workoutId]: {
+      distanceValue: workout?.distance_value != null ? Number(workout.distance_value) : null,
+      screenshotFilePath: workout?.screenshot_file_path || '',
+      workoutNotes: workout?.workout_notes || ''
+    }
+  };
+};
+
+const toggleEditImportedWorkout = (workout) => {
+  const workoutId = Number(workout?.id);
+  if (!workoutId) return;
+  ensureEditDraft(workoutId, workout);
+  editOpenByWorkout.value = { ...editOpenByWorkout.value, [workoutId]: !editOpenByWorkout.value[workoutId] };
+};
+
+const saveEditImportedWorkout = async (workoutId) => {
+  const draft = editDraftByWorkout.value[workoutId];
+  if (!draft) return;
+  const distanceValue = Number(draft.distanceValue);
+  if (!Number.isFinite(distanceValue) || distanceValue < 0) {
+    alert('Please enter a valid corrected distance.');
+    return;
+  }
+  editSubmitting.value = { ...editSubmitting.value, [workoutId]: true };
+  try {
+    await api.put(`/learning-program-classes/${props.challengeId}/workouts/${workoutId}/import-edit`, {
+      distanceValue,
+      screenshotFilePath: draft.screenshotFilePath || null,
+      workoutNotes: draft.workoutNotes || null
+    });
+    editOpenByWorkout.value = { ...editOpenByWorkout.value, [workoutId]: false };
+    emit('media-uploaded');
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to save workout edit');
+  } finally {
+    editSubmitting.value = { ...editSubmitting.value, [workoutId]: false };
+  }
+};
+
+const setWorkoutDisqualification = async (workoutId, isDisqualified) => {
+  disqualifySubmitting.value = { ...disqualifySubmitting.value, [workoutId]: true };
+  try {
+    await api.put(`/learning-program-classes/${props.challengeId}/workouts/${workoutId}/disqualify`, {
+      isDisqualified,
+      reason: isDisqualified ? (disqualifyDraftByWorkout.value[workoutId] || null) : null
+    });
+    emit('media-uploaded');
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to update workout status');
+  } finally {
+    disqualifySubmitting.value = { ...disqualifySubmitting.value, [workoutId]: false };
+  }
+};
+
+watch(
+  () => props.workouts,
+  (list) => {
+    for (const w of list || []) {
+      ensureProofDraft(w.id, w);
+      ensureEditDraft(w.id, w);
+      if (!Object.prototype.hasOwnProperty.call(disqualifyDraftByWorkout.value, w.id)) {
+        disqualifyDraftByWorkout.value = {
+          ...disqualifyDraftByWorkout.value,
+          [w.id]: w.disqualification_reason || ''
+        };
+      }
+    }
+  },
+  { immediate: true, deep: true }
+);
+
+const reviewProof = async (workoutId, status) => {
+  const workout = (props.workouts || []).find((w) => Number(w.id) === Number(workoutId));
+  ensureProofDraft(workoutId, workout);
+  const draft = proofReviewDraftByWorkout.value[workoutId] || {};
+  proofSubmitting.value = { ...proofSubmitting.value, [workoutId]: true };
+  try {
+    await api.put(`/learning-program-classes/${props.challengeId}/workouts/${workoutId}/proof-review`, {
+      proofStatus: status,
+      verifiedDistanceValue: draft.verifiedDistanceValue != null ? Number(draft.verifiedDistanceValue) : null,
+      proofReviewNote: draft.proofReviewNote ? String(draft.proofReviewNote).trim() : null
+    });
+    emit('media-uploaded');
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to update proof review');
+  } finally {
+    proofSubmitting.value = { ...proofSubmitting.value, [workoutId]: false };
+  }
 };
 </script>
 
@@ -237,6 +468,58 @@ const onUploadMedia = async (event, workoutId) => {
   border: 1px solid #eee;
   border-radius: 6px;
   background: #fff;
+}
+.proof-review-card {
+  margin-top: 8px;
+  border: 1px solid #e6e2ff;
+  border-radius: 8px;
+  background: #faf9ff;
+  padding: 8px;
+}
+.proof-review-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.proof-status {
+  font-size: 0.75rem;
+  border-radius: 999px;
+  padding: 2px 8px;
+  text-transform: capitalize;
+}
+.proof-approved { background: #e8f5e9; color: #2e7d32; }
+.proof-pending { background: #fff8e1; color: #8d6e63; }
+.proof-rejected { background: #ffebee; color: #c62828; }
+.proof-not_required { background: #eceff1; color: #546e7a; }
+.proof-review-body {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+.proof-field {
+  display: grid;
+  gap: 4px;
+  font-size: 0.82rem;
+}
+.proof-field input {
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+.proof-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.disqualified-banner {
+  margin-top: 8px;
+  border-radius: 6px;
+  background: #ffebee;
+  color: #b71c1c;
+  border: 1px solid #ffcdd2;
+  padding: 6px 8px;
+  font-size: 0.85rem;
 }
 .comments-list {
   display: flex;

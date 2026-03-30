@@ -32,6 +32,7 @@ import {
   listTeamMembers,
   upsertTeamMembers,
   getLeaderboard,
+  getRecordBoards,
   getActivityFeed,
   getMyParticipationSummary,
   submitWorkout,
@@ -42,10 +43,18 @@ import {
   getTeamWeeklyProgress,
   listChallengeMessages,
   postChallengeMessage,
+  getChallengeMessageUnreadCounts,
+  deleteChallengeMessage,
+  pinChallengeMessage,
+  getDraftReport,
+  upsertDraftNote,
   listWorkoutComments,
   postWorkoutComment,
   deleteWorkoutComment,
-  uploadWorkoutMedia
+  uploadWorkoutMedia,
+  reviewWorkoutProof,
+  disqualifyWorkout,
+  editOwnImportedTreadmillWorkout
 } from '../controllers/challenges.controller.js';
 import {
   getScoreboard,
@@ -56,12 +65,16 @@ import {
   generateWeeklyTasksDraft,
   publishWeeklyTasksDraft,
   listWeeklyAssignments,
+  getSnakeDraftBoard,
+  getNoShowRiskAlerts,
   listMyByeWeeks,
   declareByeWeek,
   upsertWeeklyAssignment,
   completeWeeklyChallenge,
+  setWeeklyAssignmentCompletionByManager,
   closeWeek,
-  updateEliminationComment
+  updateEliminationComment,
+  manuallyEliminateParticipant
 } from '../controllers/scoreboard.controller.js';
 
 const router = express.Router();
@@ -118,8 +131,12 @@ router.delete('/:classId/teams/:teamId', deleteTeam);
 router.get('/:classId/teams/:teamId/members', listTeamMembers);
 router.put('/:classId/teams/:teamId/members', upsertTeamMembers);
 router.get('/:classId/leaderboard', getLeaderboard);
+router.get('/:classId/record-boards', getRecordBoards);
 router.get('/:classId/activity', getActivityFeed);
 router.post('/:classId/workouts', submitWorkout);
+router.put('/:classId/workouts/:workoutId/proof-review', reviewWorkoutProof);
+router.put('/:classId/workouts/:workoutId/disqualify', disqualifyWorkout);
+router.put('/:classId/workouts/:workoutId/import-edit', editOwnImportedTreadmillWorkout);
 router.get('/:classId/captain-applications', listCaptainApplications);
 router.post('/:classId/captain-applications', applyForCaptain);
 router.put('/:classId/captain-applications/:applicationId', reviewCaptainApplication);
@@ -127,6 +144,11 @@ router.post('/:classId/captains/finalize', finalizeCaptains);
 router.get('/:classId/team-weekly-progress', getTeamWeeklyProgress);
 router.get('/:classId/messages', listChallengeMessages);
 router.post('/:classId/messages', postChallengeMessage);
+router.get('/:classId/messages/unread-counts', getChallengeMessageUnreadCounts);
+router.delete('/:classId/messages/:messageId', deleteChallengeMessage);
+router.put('/:classId/messages/:messageId/pin', pinChallengeMessage);
+router.get('/:classId/draft-report', getDraftReport);
+router.put('/:classId/draft-report/:providerUserId/note', upsertDraftNote);
 router.get('/:classId/workouts/:workoutId/comments', listWorkoutComments);
 router.post('/:classId/workouts/:workoutId/comments', postWorkoutComment);
 router.delete('/:classId/workout-comments/:commentId', deleteWorkoutComment);
@@ -140,12 +162,16 @@ router.get('/:classId/weekly-tasks', listWeeklyTasks);
 router.post('/:classId/weekly-tasks', createWeeklyTasks);
 router.post('/:classId/weekly-tasks/ai-draft', generateWeeklyTasksDraft);
 router.post('/:classId/weekly-tasks/publish', publishWeeklyTasksDraft);
+router.get('/:classId/snake-draft-board', getSnakeDraftBoard);
+router.get('/:classId/no-show-risk-alerts', getNoShowRiskAlerts);
 router.get('/:classId/weekly-assignments', listWeeklyAssignments);
 router.get('/:classId/bye-weeks/my', listMyByeWeeks);
 router.post('/:classId/bye-weeks/declare', declareByeWeek);
 router.post('/:classId/weekly-assignments', upsertWeeklyAssignment);
 router.post('/:classId/weekly-assignments/:assignmentId/complete', completeWeeklyChallenge);
+router.put('/:classId/weekly-assignments/:assignmentId/completion', setWeeklyAssignmentCompletionByManager);
 router.post('/:classId/close-week', closeWeek);
 router.put('/:classId/eliminations/:eliminationId/comment', updateEliminationComment);
+router.post('/:classId/eliminations/manual', manuallyEliminateParticipant);
 
 export default router;

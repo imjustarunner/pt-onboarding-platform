@@ -226,6 +226,27 @@
             </div>
           </div>
           <div class="form-group">
+            <label>Run/Ruck weekly miles progression</label>
+            <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <div class="form-group">
+                <label>Start miles minimum per person (week 1)</label>
+                <input v-model.number="challengeForm.runRuckStartMilesPerPerson" type="number" min="0" step="0.1" />
+              </div>
+              <div class="form-group">
+                <label>Weekly increase miles per person</label>
+                <input v-model.number="challengeForm.runRuckWeeklyIncreaseMilesPerPerson" type="number" min="0" step="0.1" />
+              </div>
+              <div class="form-group" v-if="challengeForm.eventCategory === 'run_ruck'">
+                <label>Max rucks per participant per week</label>
+                <input v-model.number="challengeForm.maxRucksPerWeek" type="number" min="0" step="1" />
+                <small>Set 0 for no cap.</small>
+              </div>
+            </div>
+            <small>
+              Team minimum miles each week are derived from baseline member count at season launch and do not shrink if members are removed.
+            </small>
+          </div>
+          <div class="form-group">
             <label>Team setup</label>
             <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
               <div class="form-group">
@@ -267,8 +288,49 @@
             </div>
           </div>
           <div class="form-group">
+            <label>Treadmill rules</label>
+            <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <div class="form-group">
+                <label>Workout approval mode</label>
+                <select v-model="challengeForm.workoutModerationMode">
+                  <option value="all">Approve every workout</option>
+                  <option value="treadmill_only">Approve treadmill only</option>
+                  <option value="none">No manager approval required</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Treadmill photo proof required</label>
+                <select v-model="challengeForm.treadmillPhotoRequired">
+                  <option :value="true">Yes</option>
+                  <option :value="false">No</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Enable treadmillpocalypse</label>
+                <select v-model="challengeForm.treadmillpocalypseEnabled">
+                  <option :value="false">No</option>
+                  <option :value="true">Yes</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Treadmillpocalypse starts week</label>
+                <input v-model="challengeForm.treadmillpocalypseStartsAtWeek" type="date" />
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
             <label>Weekly recognition metrics (comma-separated)</label>
             <input v-model="challengeForm.additionalMetricsText" type="text" placeholder="e.g., miles, elevation gain, workout streak" />
+          </div>
+          <div class="form-group">
+            <label>Record board metrics</label>
+            <div class="checkbox-group">
+              <label v-for="opt in recordMetricOptions" :key="`record-metric-${opt.value}`">
+                <input v-model="challengeForm.recordMetrics" type="checkbox" :value="opt.value" />
+                {{ opt.label }}
+              </label>
+            </div>
+            <small>Select the records you want shown in season and all-time boards.</small>
           </div>
           <div class="form-actions">
             <button type="button" class="btn btn-secondary" @click="closeChallengeModal">Cancel</button>
@@ -292,6 +354,13 @@
         <div v-show="manageTab === 'teams'" class="manage-panel">
           <div class="panel-actions">
             <button class="btn btn-primary btn-sm" @click="openAddTeamModal" :disabled="!managingChallenge">Add Team</button>
+            <button class="btn btn-secondary btn-sm" :disabled="!managingChallenge" @click="loadSnakeDraftBoard">Snake Draft Board</button>
+          </div>
+          <div v-if="snakeDraftPicks.length" class="mini-list">
+            <h4>Snake Draft Picks</h4>
+            <div v-for="pick in snakeDraftPicks" :key="`pick-${pick.pickNumber}`" class="mini-row">
+              <span>Round {{ pick.round }} · Pick {{ pick.pickNumber }} · {{ pick.teamName }}</span>
+            </div>
           </div>
           <div v-if="teams.length === 0" class="empty-hint">No teams yet. Add teams for team-based competition.</div>
           <ul v-else class="team-list">
@@ -361,11 +430,24 @@
               {{ closeWeekSaving ? 'Closing…' : 'Close Week & Post Scoreboard' }}
             </button>
           </div>
+          <div v-if="noShowAlerts.length" class="error-inline" style="margin-bottom: 8px;">
+            No-show risk alerts ({{ noShowAlerts.length }}):
+            <span class="hint">
+              {{ noShowAlerts.map((a) => `${a.firstName || ''} ${a.lastName || ''}`.trim()).join(', ') }}
+            </span>
+          </div>
           <div class="weekly-tasks-form">
             <div v-for="(t, i) in weeklyTasksForm" :key="i" class="form-group">
               <label>Challenge {{ i + 1 }}</label>
               <input v-model="t.name" type="text" placeholder="e.g., Run 5 miles" />
               <textarea v-model="t.description" rows="2" placeholder="Optional description" />
+              <select v-model="t.proofPolicy">
+                <option value="none">No proof required</option>
+                <option value="photo_required">Photo required</option>
+                <option value="gps_or_photo">GPS or photo proof</option>
+                <option value="gps_required_no_treadmill">GPS required (no treadmill)</option>
+              </select>
+              <div class="hint" v-if="t.confidenceScore != null">Confidence: {{ t.confidenceScore }}%</div>
             </div>
           </div>
           <div v-if="weeklyTasksWithIds.length && teams.length" class="weekly-assignments">
@@ -380,6 +462,13 @@
                   <option v-for="m in getTeamMembers(team.id)" :key="m.provider_user_id" :value="m.provider_user_id">{{ userDisplayName(m) }}</option>
                 </select>
                 <span v-if="getAssignmentFor(t.id, team.id)?.is_completed" class="badge-done">Done</span>
+                <button
+                  v-if="getAssignmentFor(t.id, team.id)"
+                  class="btn btn-secondary btn-sm"
+                  @click="setAssignmentCompletion(getAssignmentFor(t.id, team.id), !getAssignmentFor(t.id, team.id)?.is_completed)"
+                >
+                  {{ getAssignmentFor(t.id, team.id)?.is_completed ? 'Mark Incomplete' : 'Mark Complete' }}
+                </button>
               </div>
             </div>
           </div>
@@ -449,6 +538,26 @@ const router = useRouter();
 const agencyStore = useAgencyStore();
 
 const organizationId = computed(() => agencyStore.currentAgency?.id || null);
+const recordMetricOptions = [
+  { value: 'longest_run', label: 'Longest Run' },
+  { value: 'fastest_mile', label: 'Fastest Mile' },
+  { value: 'longest_ruck', label: 'Longest Ruck' },
+  { value: 'highest_points_workout', label: 'Highest Points (Single Workout)' },
+  { value: 'longest_trail_run', label: 'Longest Trail Run' },
+  { value: 'fastest_5k', label: 'Fastest 5K' },
+  { value: 'longest_walk', label: 'Longest Walk' },
+  { value: 'longest_duration_workout', label: 'Longest Workout Duration' },
+  { value: 'highest_calories_workout', label: 'Highest Calories (Single Workout)' }
+];
+const recordMetricOptionSet = new Set(recordMetricOptions.map((o) => o.value));
+const normalizeRecordMetricSelection = (raw) => {
+  const arr = Array.isArray(raw)
+    ? raw
+    : (typeof raw === 'string' ? raw.split(',') : []);
+  return arr
+    .map((v) => String(v || '').trim())
+    .filter((v) => recordMetricOptionSet.has(v));
+};
 
 const loading = ref(false);
 const error = ref('');
@@ -490,11 +599,23 @@ const challengeForm = ref({
   allowCaptainRenameTeam: true,
   allowByeWeek: false,
   maxByeWeeksPerParticipant: 1,
-  requireAdvanceByeDeclaration: true
+  requireAdvanceByeDeclaration: true,
+  runRuckStartMilesPerPerson: 0,
+  runRuckWeeklyIncreaseMilesPerPerson: 2,
+  maxRucksPerWeek: 0,
+  treadmillPhotoRequired: true,
+  treadmillpocalypseEnabled: false,
+  treadmillpocalypseStartsAtWeek: '',
+  workoutModerationMode: 'treadmill_only',
+  recordMetrics: []
 });
 
 const weeklyTasksWeek = ref(getThisWeekSunday());
-const weeklyTasksForm = ref([{ name: '', description: '' }, { name: '', description: '' }, { name: '', description: '' }]);
+const weeklyTasksForm = ref([
+  { name: '', description: '', proofPolicy: 'none', confidenceScore: null },
+  { name: '', description: '', proofPolicy: 'none', confidenceScore: null },
+  { name: '', description: '', proofPolicy: 'none', confidenceScore: null }
+]);
 const weeklyTasksSaving = ref(false);
 const closeWeekSaving = ref(false);
 const weeklyAiDraftLoading = ref(false);
@@ -502,6 +623,8 @@ const weeklyPublishSaving = ref(false);
 const weeklyAssignments = ref([]);
 const weeklyTasksWithIds = ref([]);
 const teamMembersCache = ref({});
+const snakeDraftPicks = ref([]);
+const noShowAlerts = ref([]);
 
 function getThisWeekSunday() {
   const d = new Date();
@@ -654,7 +777,15 @@ const openCreateModal = () => {
     allowCaptainRenameTeam: true,
     allowByeWeek: false,
     maxByeWeeksPerParticipant: 1,
-    requireAdvanceByeDeclaration: true
+    requireAdvanceByeDeclaration: true,
+    runRuckStartMilesPerPerson: 0,
+    runRuckWeeklyIncreaseMilesPerPerson: 2,
+    maxRucksPerWeek: 0,
+    treadmillPhotoRequired: true,
+    treadmillpocalypseEnabled: false,
+    treadmillpocalypseStartsAtWeek: '',
+    workoutModerationMode: 'treadmill_only',
+    recordMetrics: []
   };
   showChallengeModal.value = true;
 };
@@ -677,6 +808,10 @@ const openEditModal = (c) => {
   const eventSettings = seasonSettings.event || {};
   const teamsSettings = seasonSettings.teams || {};
   const byeSettings = seasonSettings.byeWeek || {};
+  const treadmillSettings = seasonSettings.treadmill || {};
+  const treadmillpocalypseSettings = seasonSettings.treadmillpocalypse || {};
+  const moderationSettings = seasonSettings.workoutModeration || {};
+  const recordsSettings = seasonSettings.records || {};
   challengeForm.value = {
     className: c.class_name || c.className || '',
     description: c.description || '',
@@ -711,7 +846,15 @@ const openEditModal = (c) => {
     allowCaptainRenameTeam: teamsSettings.allowCaptainRenameTeam !== false,
     allowByeWeek: byeSettings.allowByeWeek === true,
     maxByeWeeksPerParticipant: byeSettings.maxByeWeeksPerParticipant ?? 1,
-    requireAdvanceByeDeclaration: byeSettings.requireAdvanceDeclaration !== false
+    requireAdvanceByeDeclaration: byeSettings.requireAdvanceDeclaration !== false,
+    runRuckStartMilesPerPerson: seasonSettings?.participation?.runRuckStartMilesPerPerson ?? 0,
+    runRuckWeeklyIncreaseMilesPerPerson: seasonSettings?.participation?.runRuckWeeklyIncreaseMilesPerPerson ?? 2,
+    maxRucksPerWeek: seasonSettings?.participation?.maxRucksPerWeek ?? 0,
+    treadmillPhotoRequired: treadmillSettings.photoProofRequired !== false,
+    treadmillpocalypseEnabled: treadmillpocalypseSettings.enabled === true,
+    treadmillpocalypseStartsAtWeek: treadmillpocalypseSettings.startsAtWeek || '',
+    workoutModerationMode: moderationSettings.mode || 'treadmill_only',
+    recordMetrics: normalizeRecordMetricSelection(recordsSettings.metrics)
   };
   showChallengeModal.value = true;
 };
@@ -782,12 +925,28 @@ const saveChallenge = async () => {
         },
         participation: {
           individualMinPointsPerWeek: Number(challengeForm.value.individualMinPointsPerWeek ?? 0),
-          teamMinPointsPerWeek: Number(challengeForm.value.teamMinPointsPerWeek ?? 0)
+          teamMinPointsPerWeek: Number(challengeForm.value.teamMinPointsPerWeek ?? 0),
+          runRuckStartMilesPerPerson: Number(challengeForm.value.runRuckStartMilesPerPerson ?? 0),
+          runRuckWeeklyIncreaseMilesPerPerson: Number(challengeForm.value.runRuckWeeklyIncreaseMilesPerPerson ?? 2),
+          maxRucksPerWeek: Number(challengeForm.value.maxRucksPerWeek ?? 0)
         },
         byeWeek: {
           allowByeWeek: challengeForm.value.allowByeWeek === true,
           maxByeWeeksPerParticipant: Number(challengeForm.value.maxByeWeeksPerParticipant ?? 1),
           requireAdvanceDeclaration: challengeForm.value.requireAdvanceByeDeclaration !== false
+        },
+        treadmill: {
+          photoProofRequired: challengeForm.value.treadmillPhotoRequired !== false
+        },
+        treadmillpocalypse: {
+          enabled: challengeForm.value.treadmillpocalypseEnabled === true,
+          startsAtWeek: challengeForm.value.treadmillpocalypseStartsAtWeek || null
+        },
+        workoutModeration: {
+          mode: challengeForm.value.workoutModerationMode || 'treadmill_only'
+        },
+        records: {
+          metrics: normalizeRecordMetricSelection(challengeForm.value.recordMetrics)
         },
         challengePublish: {
           tasksPerWeek: Number(challengeForm.value.tasksPerWeek ?? 3),
@@ -822,6 +981,7 @@ const openManageModal = async (c) => {
   manageTab.value = 'teams';
   showManageModal.value = true;
   await Promise.all([loadTeams(c.id), loadProviderMembers(c.id), loadOrgUsers()]);
+  await loadSnakeDraftBoard();
 };
 
 const launchChallenge = async (c) => {
@@ -937,9 +1097,9 @@ const loadWeeklyTasks = async () => {
     ]);
     const tasks = Array.isArray(tasksRes.data?.tasks) ? tasksRes.data.tasks : [];
     weeklyTasksForm.value = [
-      { name: tasks[0]?.name || '', description: tasks[0]?.description || '' },
-      { name: tasks[1]?.name || '', description: tasks[1]?.description || '' },
-      { name: tasks[2]?.name || '', description: tasks[2]?.description || '' }
+      { name: tasks[0]?.name || '', description: tasks[0]?.description || '', proofPolicy: tasks[0]?.proof_policy || 'none', confidenceScore: tasks[0]?.confidence_score ?? null },
+      { name: tasks[1]?.name || '', description: tasks[1]?.description || '', proofPolicy: tasks[1]?.proof_policy || 'none', confidenceScore: tasks[1]?.confidence_score ?? null },
+      { name: tasks[2]?.name || '', description: tasks[2]?.description || '', proofPolicy: tasks[2]?.proof_policy || 'none', confidenceScore: tasks[2]?.confidence_score ?? null }
     ];
     weeklyAssignments.value = Array.isArray(assignRes.data?.assignments) ? assignRes.data.assignments : [];
     weeklyTasksWithIds.value = tasks;
@@ -953,9 +1113,30 @@ const loadWeeklyTasks = async () => {
         }
       }
     }
+    await loadNoShowAlerts();
   } catch {
-    weeklyTasksForm.value = [{ name: '', description: '' }, { name: '', description: '' }, { name: '', description: '' }];
+    weeklyTasksForm.value = [{ name: '', description: '', proofPolicy: 'none', confidenceScore: null }, { name: '', description: '', proofPolicy: 'none', confidenceScore: null }, { name: '', description: '', proofPolicy: 'none', confidenceScore: null }];
     weeklyAssignments.value = [];
+  }
+};
+
+const loadSnakeDraftBoard = async () => {
+  if (!managingChallenge.value?.id) return;
+  try {
+    const r = await api.get(`/learning-program-classes/${managingChallenge.value.id}/snake-draft-board`, { params: { rounds: 3 } });
+    snakeDraftPicks.value = Array.isArray(r.data?.picks) ? r.data.picks : [];
+  } catch {
+    snakeDraftPicks.value = [];
+  }
+};
+
+const loadNoShowAlerts = async () => {
+  if (!managingChallenge.value?.id) return;
+  try {
+    const r = await api.get(`/learning-program-classes/${managingChallenge.value.id}/no-show-risk-alerts`, { params: { weekStart: weeklyTasksWeek.value } });
+    noShowAlerts.value = Array.isArray(r.data?.alerts) ? r.data.alerts : [];
+  } catch {
+    noShowAlerts.value = [];
   }
 };
 
@@ -979,15 +1160,34 @@ const updateAssignment = async (taskId, teamId, providerUserId) => {
   }
 };
 
+const setAssignmentCompletion = async (assignment, isCompleted) => {
+  if (!managingChallenge.value?.id || !assignment?.id) return;
+  try {
+    await api.put(`/learning-program-classes/${managingChallenge.value.id}/weekly-assignments/${assignment.id}/completion`, {
+      isCompleted
+    });
+    await loadWeeklyTasks();
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to update assignment completion');
+  }
+};
+
 const saveWeeklyTasks = async () => {
   if (!managingChallenge.value?.id) return;
   weeklyTasksSaving.value = true;
   try {
     await api.post(`/learning-program-classes/${managingChallenge.value.id}/weekly-tasks`, {
       week: weeklyTasksWeek.value,
-      tasks: weeklyTasksForm.value.filter((t) => t.name?.trim())
+      tasks: weeklyTasksForm.value
+        .filter((t) => t.name?.trim())
+        .map((t) => ({
+          name: t.name,
+          description: t.description || null,
+          proofPolicy: t.proofPolicy || 'none'
+        }))
     });
     await loadWeeklyTasks();
+    await loadNoShowAlerts();
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to save weekly tasks');
   } finally {
@@ -1004,9 +1204,9 @@ const generateWeeklyAiDraft = async () => {
     });
     const tasks = Array.isArray(r.data?.tasks) ? r.data.tasks : [];
     weeklyTasksForm.value = [
-      { name: tasks[0]?.name || '', description: tasks[0]?.description || '' },
-      { name: tasks[1]?.name || '', description: tasks[1]?.description || '' },
-      { name: tasks[2]?.name || '', description: tasks[2]?.description || '' }
+      { name: tasks[0]?.name || '', description: tasks[0]?.description || '', proofPolicy: tasks[0]?.proofPolicy || 'none', confidenceScore: tasks[0]?.confidenceScore ?? null },
+      { name: tasks[1]?.name || '', description: tasks[1]?.description || '', proofPolicy: tasks[1]?.proofPolicy || 'none', confidenceScore: tasks[1]?.confidenceScore ?? null },
+      { name: tasks[2]?.name || '', description: tasks[2]?.description || '', proofPolicy: tasks[2]?.proofPolicy || 'none', confidenceScore: tasks[2]?.confidenceScore ?? null }
     ];
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to generate weekly AI draft');
@@ -1021,7 +1221,13 @@ const publishWeeklyDraft = async () => {
   try {
     await api.post(`/learning-program-classes/${managingChallenge.value.id}/weekly-tasks/publish`, {
       week: weeklyTasksWeek.value,
-      tasks: weeklyTasksForm.value.filter((t) => t.name?.trim())
+      tasks: weeklyTasksForm.value
+        .filter((t) => t.name?.trim())
+        .map((t) => ({
+          name: t.name,
+          description: t.description || null,
+          proofPolicy: t.proofPolicy || 'none'
+        }))
     });
     await loadWeeklyTasks();
   } catch (e) {
