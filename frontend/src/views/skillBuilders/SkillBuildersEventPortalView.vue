@@ -263,7 +263,7 @@
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
-              v-if="(detail.clients || []).length || viewerCaps.canManageCompanyEvent"
+              v-if="detail.skillsGroup && ((detail.clients || []).length || viewerCaps.canManageCompanyEvent)"
               v-show="railActive === 'clients'"
               rail-mode
               section-id="clients"
@@ -420,6 +420,93 @@
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
+              v-if="!detail.skillsGroup && viewerCaps.canManageCompanyEvent"
+              v-show="railActive === 'participants'"
+              rail-mode
+              section-id="participants"
+              title="Participants"
+              :icon-url="sectionIconUrl('participants')"
+              :badge="`${genericParticipants.length}`"
+            >
+              <p class="muted small sbep-card-lead">
+                Participants enrolled in this program event. Add/remove enrollments directly here.
+              </p>
+              <div v-if="eventBillingAgencyId" class="sbep-add-client-block">
+                <p class="sbep-subh">Add participant</p>
+                <div class="sbep-add-client-row">
+                  <input
+                    v-model="rosterAddQuery"
+                    type="text"
+                    class="input sbep-add-client-input"
+                    placeholder="Search by name or identifier…"
+                    @input="scheduleRosterSearch"
+                  />
+                  <span v-if="rosterAddSearching" class="muted small"> Searching…</span>
+                </div>
+                <p v-if="rosterAddError" class="error-box sbep-add-client-err">{{ rosterAddError }}</p>
+                <p v-if="rosterAddSuccess" class="sbep-flash-ok" role="status">{{ rosterAddSuccess }}</p>
+                <ul v-if="rosterAddResults.length" class="sbep-add-client-results">
+                  <li
+                    v-for="c in rosterAddResults"
+                    :key="`rac-gp-${c.clientId}`"
+                    class="sbep-add-client-result-row"
+                  >
+                    <span class="sbep-add-client-label">
+                      {{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}
+                    </span>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="rosterAddSavingId === c.clientId"
+                      @click="addClientToRoster(c)"
+                    >
+                      {{ rosterAddSavingId === c.clientId ? 'Adding…' : 'Add' }}
+                    </button>
+                  </li>
+                </ul>
+                <p v-else-if="rosterAddSearched && !rosterAddResults.length && rosterAddQuery.trim()" class="muted small">
+                  No matching participants found for this program.
+                </p>
+              </div>
+
+              <p v-if="genericParticipantsLoading" class="muted small">Loading participants…</p>
+              <p v-else-if="genericParticipantsError" class="error-box sbep-add-client-err">{{ genericParticipantsError }}</p>
+              <div v-else-if="genericParticipants.length" class="sbep-roster-summary-block">
+                <p class="sbep-subh sbep-roster-summary-heading">Enrolled participants</p>
+                <div class="sbep-roster-table-wrap">
+                  <table class="sbep-roster-table">
+                    <thead>
+                      <tr>
+                        <th>Participant</th>
+                        <th>Status</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="c in genericParticipants" :key="`gp-${c.clientId}`">
+                        <td>
+                          <router-link
+                            v-if="rosterClientLinkTo({ id: c.clientId })"
+                            :to="rosterClientLinkTo({ id: c.clientId })"
+                            class="sbep-roster-client-link"
+                          >
+                            {{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}
+                          </router-link>
+                          <template v-else>{{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}</template>
+                        </td>
+                        <td class="sbep-roster-docs">{{ c.documentStatus || c.status || '—' }}</td>
+                        <td class="sbep-roster-actions">
+                          <button type="button" class="btn btn-link btn-sm" @click="removeGenericParticipant(c)">Remove</button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <p v-else class="muted small">No participants enrolled yet.</p>
+            </SkillBuildersEventDashboardSection>
+
+            <SkillBuildersEventDashboardSection
               v-show="railActive === 'materials'"
               rail-mode
               section-id="materials"
@@ -489,21 +576,21 @@
 
               <!-- Enrolled client count + quick nav to Clients tab -->
               <div class="sbep-reg-enrolled-summary">
-                <template v-if="(detail.clients || []).length">
+                <template v-if="rosterCount">
                   <p class="muted small">
-                    <strong>{{ detail.clients.length }}</strong>
-                    {{ detail.clients.length === 1 ? 'client' : 'clients' }} currently enrolled on this program's roster.
-                    <button type="button" class="btn btn-link btn-sm sbep-reg-jump-btn" @click="selectRailSection('clients')">
+                    <strong>{{ rosterCount }}</strong>
+                    {{ rosterCount === 1 ? 'client' : 'clients' }} currently enrolled on this program's roster.
+                    <button type="button" class="btn btn-link btn-sm sbep-reg-jump-btn" @click="selectRailSection(rosterSectionId)">
                       View roster &amp; attendance →
                     </button>
                   </p>
                 </template>
                 <p v-else class="muted small">
                   No clients on the roster yet. Families can register through the guardian portal above, or coordinators can
-                  <button type="button" class="btn btn-link btn-sm sbep-reg-jump-btn" @click="selectRailSection('clients')">
+                  <button type="button" class="btn btn-link btn-sm sbep-reg-jump-btn" @click="selectRailSection(rosterSectionId)">
                     add a client manually
                   </button>
-                  from the <strong>Client Management</strong> tab.
+                  from the <strong>{{ rosterSectionLabel }}</strong> tab.
                 </p>
               </div>
             </SkillBuildersEventDashboardSection>
@@ -1046,6 +1133,9 @@ const brandingStore = useBrandingStore();
 const loading = ref(false);
 const error = ref('');
 const detail = ref(null);
+const genericParticipants = ref([]);
+const genericParticipantsLoading = ref(false);
+const genericParticipantsError = ref('');
 const editEventModalOpen = ref(false);
 const sessions = ref([]);
 const sessionsLoading = ref(false);
@@ -1053,6 +1143,12 @@ const sessionsLoadAttempted = ref(false);
 const sessionsLoadError = ref('');
 const kioskSessionId = ref(0);
 const kioskClientId = ref(0);
+
+const rosterSectionId = computed(() => (detail.value?.skillsGroup ? 'clients' : 'participants'));
+const rosterSectionLabel = computed(() => (detail.value?.skillsGroup ? 'Client Management' : 'Participants'));
+const rosterCount = computed(() =>
+  detail.value?.skillsGroup ? (detail.value?.clients || []).length : genericParticipants.value.length
+);
 
 /** @type {Record<number, number[]>} */
 const sessionStaffDraft = reactive({});
@@ -1252,6 +1348,7 @@ function sectionIconUrl(sectionKey) {
     schedule: 'my_schedule',
     calendar: 'my_schedule',
     clients: 'clients',
+    participants: 'clients',
     materials: 'documents',
     'session-details': 'my_schedule',
     'session-virtual': 'communications',
@@ -1293,7 +1390,14 @@ const eventRailItems = computed(() => {
   push('providers', 'Providers', 'Providers', 'providers', nProv > 0);
 
   const nCli = (d.clients || []).length;
-  push('clients', 'Client Management', 'Clients', 'clients', nCli > 0);
+  push('clients', 'Client Management', 'Clients', 'clients', !!d.skillsGroup && nCli > 0);
+  push(
+    'participants',
+    'Participants',
+    'Participants',
+    'participants',
+    !d.skillsGroup && !!v.canManageCompanyEvent
+  );
 
   const role = String(authStore.user?.role || '').toLowerCase();
   const isGuardianPortalUser = role === 'guardian' || role === 'client_guardian';
@@ -1836,14 +1940,21 @@ function scheduleRosterSearch() {
 
 async function doRosterSearch(q) {
   const aid = eventBillingAgencyId.value;
-  if (!aid) return;
+  const eid = eventId.value;
+  if (!aid || !eid) return;
   rosterAddSearching.value = true;
   rosterAddSearched.value = false;
   try {
-    const res = await api.get('/skill-builders/coordinator/master-clients', {
-      params: { agencyId: aid, q },
-      skipGlobalLoading: true
-    });
+    const useSkillsGroupSearch = !!detail.value?.skillsGroup;
+    const res = useSkillsGroupSearch
+      ? await api.get('/skill-builders/coordinator/master-clients', {
+          params: { agencyId: aid, q },
+          skipGlobalLoading: true
+        })
+      : await api.get(`/company-events/${eid}/client-search`, {
+          params: { agencyId: aid, q },
+          skipGlobalLoading: true
+        });
     rosterAddResults.value = Array.isArray(res.data?.clients) ? res.data.clients : [];
   } catch {
     rosterAddResults.value = [];
@@ -1861,18 +1972,69 @@ async function addClientToRoster(c) {
   rosterAddError.value = '';
   rosterAddSuccess.value = '';
   try {
-    await api.post(`/skill-builders/coordinator/clients/${c.clientId}/assign-event`, {
-      agencyId: aid,
-      companyEventId: eid
-    });
-    rosterAddSuccess.value = `${c.initials || c.identifierCode || 'Client'} added to roster.`;
+    if (detail.value?.skillsGroup) {
+      await api.post(`/skill-builders/coordinator/clients/${c.clientId}/assign-event`, {
+        agencyId: aid,
+        companyEventId: eid
+      });
+    } else {
+      await api.post(`/company-events/${eid}/clients`, {
+        agencyId: aid,
+        clientId: c.clientId
+      });
+    }
+    rosterAddSuccess.value = `${c.fullName || c.initials || c.identifierCode || 'Client'} added to roster.`;
     rosterAddResults.value = rosterAddResults.value.filter((r) => r.clientId !== c.clientId);
     rosterAddQuery.value = '';
-    await loadDetail();
+    if (detail.value?.skillsGroup) await loadDetail();
+    else await loadGenericParticipants();
   } catch (e) {
     rosterAddError.value = e.response?.data?.error?.message || e.message || 'Could not add client';
   } finally {
     rosterAddSavingId.value = null;
+  }
+}
+
+async function loadGenericParticipants() {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  if (!aid || !eid || detail.value?.skillsGroup) {
+    genericParticipants.value = [];
+    genericParticipantsError.value = '';
+    genericParticipantsLoading.value = false;
+    return;
+  }
+  genericParticipantsLoading.value = true;
+  genericParticipantsError.value = '';
+  try {
+    const res = await api.get(`/company-events/${eid}/clients`, {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    genericParticipants.value = Array.isArray(res.data?.clients) ? res.data.clients : [];
+  } catch (e) {
+    genericParticipants.value = [];
+    genericParticipantsError.value = e.response?.data?.error?.message || e.message || 'Could not load participants';
+  } finally {
+    genericParticipantsLoading.value = false;
+  }
+}
+
+async function removeGenericParticipant(row) {
+  const aid = eventBillingAgencyId.value;
+  const eid = eventId.value;
+  const clientId = Number(row?.clientId || 0);
+  if (!aid || !eid || !clientId) return;
+  const label = row?.fullName || row?.initials || row?.identifierCode || `Client ${clientId}`;
+  if (!window.confirm(`Remove ${label} from this event?`)) return;
+  try {
+    await api.delete(`/company-events/${eid}/clients/${clientId}`, {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    await loadGenericParticipants();
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Could not remove participant');
   }
 }
 
@@ -2285,11 +2447,14 @@ async function loadDetail() {
     if (bid > 0) params.agencyId = bid;
     const res = await api.get(`/skill-builders/events/${eventId.value}/detail`, params);
     detail.value = res.data;
+    await loadGenericParticipants();
     await loadSessions();
     await loadAttendance();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load';
     detail.value = null;
+    genericParticipants.value = [];
+    genericParticipantsError.value = '';
     sessions.value = [];
   } finally {
     loading.value = false;
@@ -3380,6 +3545,10 @@ watch(
 .sbep-roster-docs {
   color: var(--primary, #0f766e);
   font-weight: 600;
+  white-space: nowrap;
+}
+.sbep-roster-actions {
+  text-align: right;
   white-space: nowrap;
 }
 .sbep-roster-att {

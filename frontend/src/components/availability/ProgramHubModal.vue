@@ -353,6 +353,41 @@
           <div v-show="activeSection === 'clients'" class="pch-panel">
             <SkillBuildersClientManagementPanel v-if="coordinatorAgencyId" :agency-id="coordinatorAgencyId" />
           </div>
+          <div v-show="activeSection === 'enrollees'" class="pch-panel">
+            <p class="pch-muted">
+              Non-Skill-Builders participant roster by event. Pick an event and review enrolled clients.
+            </p>
+            <div v-if="enrolleesEventOptions.length" class="pch-enrollees-picker">
+              <label class="pch-field-label" for="pch-enrollees-event">Event</label>
+              <select id="pch-enrollees-event" v-model="selectedEnrolleeEventId" class="pch-input">
+                <option v-for="ev in enrolleesEventOptions" :key="`enr-ev-${ev.id}`" :value="String(ev.id)">
+                  {{ ev.title }}
+                </option>
+              </select>
+            </div>
+            <p v-else class="pch-muted">No program events yet. Create an event in the Events tab first.</p>
+            <div v-if="enrolleesLoading" class="pch-muted">Loading enrollees…</div>
+            <div v-else-if="enrolleesError" class="pch-error">{{ enrolleesError }}</div>
+            <div v-else-if="eventEnrollees.length" class="pch-enrollees-table-wrap">
+              <table class="pch-enrollees-table">
+                <thead>
+                  <tr>
+                    <th>Client</th>
+                    <th>Status</th>
+                    <th>Document status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in eventEnrollees" :key="`enr-row-${row.clientId}`">
+                    <td>{{ row.fullName || row.initials || row.identifierCode || `Client ${row.clientId}` }}</td>
+                    <td>{{ row.status || '—' }}</td>
+                    <td>{{ row.documentStatus || '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-else-if="selectedEnrolleeEventId" class="pch-muted">No enrolled clients for this event yet.</p>
+          </div>
           <div v-show="activeSection === 'clinical_notes'" class="pch-panel">
             <SkillBuildersClinicalNotesHubPanel v-if="coordinatorAgencyId" :agency-id="coordinatorAgencyId" />
           </div>
@@ -420,6 +455,10 @@ const newEnrollment = ref({
   description: '',
   registrationEligible: true
 });
+const enrolleesLoading = ref(false);
+const enrolleesError = ref('');
+const selectedEnrolleeEventId = ref('');
+const eventEnrollees = ref([]);
 const resolvedOrgId = ref(null);
 const resolvedOrgName = ref('');
 const programClassesForPortal = ref([]);
@@ -526,6 +565,15 @@ const sectionItems = computed(() => {
       icon: '👥',
       description: 'Master list of Skill Builders (skills) clients across the agency.'
     });
+    if (!isSkillBuildersProgram.value) {
+      base.push({
+        id: 'enrollees',
+        label: 'Event enrollees',
+        shortLabel: 'Enrollees',
+        icon: '🧾',
+        description: 'View and manage participant rosters for non-Skill-Builders program events.'
+      });
+    }
   }
   if (coordinatorAgencyId.value) {
     const supIcon = brandingStore.getDashboardCardIconUrl('supervision', coordinatorAgencyId.value);
@@ -552,6 +600,15 @@ const sectionTagline = computed(() => {
   const item = sectionItems.value.find((s) => s.id === activeSection.value);
   return item?.description || '';
 });
+
+const enrolleesEventOptions = computed(() =>
+  (programEvents.value || [])
+    .map((ev) => ({
+      id: Number(ev.id),
+      title: String(ev.title || '').trim() || `Event ${ev.id}`
+    }))
+    .filter((ev) => Number.isFinite(ev.id) && ev.id > 0)
+);
 
 watch(
   () => props.initialSection,
@@ -874,6 +931,27 @@ async function loadCoordinatorEvents() {
   }
 }
 
+async function loadEventEnrolleesForSelection() {
+  enrolleesError.value = '';
+  eventEnrollees.value = [];
+  const aid = Number(props.agencyId);
+  const eid = Number(selectedEnrolleeEventId.value);
+  if (!Number.isFinite(aid) || aid <= 0 || !Number.isFinite(eid) || eid <= 0) return;
+  enrolleesLoading.value = true;
+  try {
+    const res = await api.get(`/company-events/${eid}/clients`, {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    eventEnrollees.value = Array.isArray(res.data?.clients) ? res.data.clients : [];
+  } catch (e) {
+    enrolleesError.value = e.response?.data?.error?.message || e.message || 'Failed to load event enrollees';
+    eventEnrollees.value = [];
+  } finally {
+    enrolleesLoading.value = false;
+  }
+}
+
 async function loadProviderEvents() {
   assignedEvents.value = [];
   upcomingEvents.value = [];
@@ -990,6 +1068,9 @@ watch(
     programClassesForPortal.value = [];
     coordinatorEnrollmentClasses.value = [];
     enrollmentsError.value = '';
+    selectedEnrolleeEventId.value = '';
+    eventEnrollees.value = [];
+    enrolleesError.value = '';
     selectedPortalKey.value = '';
     if (props.mode === 'provider') {
       await loadProgramContext();
@@ -1016,6 +1097,29 @@ watch(
     if (activeSection.value !== 'enrollments') return;
     if (props.mode !== 'coordinator') return;
     await loadCoordinatorLearningClassesList();
+  }
+);
+
+watch(
+  () => [activeSection.value, props.mode, props.agencyId, props.organizationId],
+  async () => {
+    if (activeSection.value !== 'enrollees') return;
+    if (props.mode !== 'coordinator' || isSkillBuildersProgram.value) return;
+    await loadCoordinatorEvents();
+    const options = enrolleesEventOptions.value;
+    const selected = Number(selectedEnrolleeEventId.value);
+    if (!options.some((o) => Number(o.id) === selected)) {
+      selectedEnrolleeEventId.value = options.length ? String(options[0].id) : '';
+    }
+    await loadEventEnrolleesForSelection();
+  }
+);
+
+watch(
+  () => selectedEnrolleeEventId.value,
+  async () => {
+    if (activeSection.value !== 'enrollees') return;
+    await loadEventEnrolleesForSelection();
   }
 );
 
@@ -1537,6 +1641,29 @@ watch(
 .pch-checkbox-field input {
   width: auto;
   margin: 0;
+}
+.pch-enrollees-picker {
+  margin: 10px 0 12px;
+}
+.pch-enrollees-table-wrap {
+  overflow: auto;
+  margin-top: 10px;
+}
+.pch-enrollees-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.pch-enrollees-table th,
+.pch-enrollees-table td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.pch-enrollees-table th {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #64748b);
+  font-weight: 700;
 }
 
 @media (max-width: 560px) {

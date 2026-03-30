@@ -5,12 +5,14 @@
       <div v-else-if="error" class="gsbe-state error-box">{{ error }}</div>
       <template v-else-if="detail">
         <SkillBuildersEventPortalLayout
-          :title="detail.event?.title || 'Skill Builders'"
+          :title="detail.event?.title || (isProgramEventMode ? 'My Event' : 'Skill Builders')"
           :subtitle="guardianSubtitle"
-          kicker="Family · Skill Builders"
+          :kicker="isProgramEventMode ? 'Family · Program Event' : 'Family · Skill Builders'"
         >
           <template #actions>
-            <router-link class="btn btn-secondary btn-sm" :to="backTo">← Skill Builders</router-link>
+            <router-link class="btn btn-secondary btn-sm" :to="backTo">
+              {{ isProgramEventMode ? '← My Programs' : '← Skill Builders' }}
+            </router-link>
           </template>
 
           <div class="gsbe-portal-grid gsbe-dash">
@@ -257,6 +259,11 @@ const brandingStore = useBrandingStore();
 
 const eventId = computed(() => Number(route.params.eventId));
 
+// True when this view is used for a general program event (not Skill Builders)
+const isProgramEventMode = computed(() =>
+  route.name === 'GuardianProgramEvent' || route.name === 'OrganizationGuardianProgramEvent'
+);
+
 function guardianSessionCurriculumHref(sessionId) {
   const base = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
   return `${base}/guardian-portal/skill-builders/events/${eventId.value}/sessions/${sessionId}/curriculum`;
@@ -422,13 +429,23 @@ async function loadAll() {
   loading.value = true;
   error.value = '';
   try {
-    const res = await api.get(`/guardian-portal/skill-builders/events/${eventId.value}/detail`, { skipGlobalLoading: true });
+    const detailUrl = isProgramEventMode.value
+      ? `/guardian-portal/company-events/${eventId.value}/detail`
+      : `/guardian-portal/skill-builders/events/${eventId.value}/detail`;
+    const res = await api.get(detailUrl, { skipGlobalLoading: true });
     detail.value = res.data;
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load';
     detail.value = null;
   } finally {
     loading.value = false;
+  }
+
+  // Posts and chat are only available for Skill Builders events
+  if (isProgramEventMode.value) {
+    posts.value = [];
+    chatMessages.value = [];
+    return;
   }
 
   postsLoading.value = true;

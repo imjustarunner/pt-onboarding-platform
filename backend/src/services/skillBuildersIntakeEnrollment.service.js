@@ -33,7 +33,7 @@ export async function enrollClientsInCompanyEvent({ agencyId, eventId, clientIds
   }
 
   const [evRows] = await pool.execute(
-    `SELECT id, agency_id, registration_eligible, medicaid_eligible, cash_eligible
+    `SELECT id, agency_id, organization_id, registration_eligible, medicaid_eligible, cash_eligible
      FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
     [eid, aid]
   );
@@ -56,7 +56,45 @@ export async function enrollClientsInCompanyEvent({ agencyId, eventId, clientIds
   );
   const sg = sgRows?.[0];
   if (!sg) {
-    return { ok: false, results, error: 'Program is not linked to this event yet' };
+    const programOrgId = Number(ev.organization_id);
+    for (const clientId of ids) {
+      const [cur] = await pool.execute(`SELECT id, agency_id FROM clients WHERE id = ? LIMIT 1`, [clientId]);
+      const cl = cur?.[0];
+      if (!cl || Number(cl.agency_id) !== aid) {
+        results.push({ clientId, ok: false, error: 'Client not in this agency' });
+        continue;
+      }
+      if (Number.isFinite(programOrgId) && programOrgId > 0) {
+        try {
+          await pool.execute(
+            `INSERT INTO client_organization_assignments (client_id, organization_id, is_primary, is_active)
+             VALUES (?, ?, 0, TRUE)
+             ON DUPLICATE KEY UPDATE is_active = TRUE`,
+            [clientId, programOrgId]
+          );
+        } catch (assignErr) {
+          results.push({
+            clientId,
+            ok: false,
+            error: assignErr?.message || 'Client is not affiliated with the event program'
+          });
+          continue;
+        }
+      }
+      try {
+        await pool.execute(
+          `INSERT INTO company_event_clients
+            (company_event_id, agency_id, client_id, enrolled_by_user_id, is_active)
+           VALUES (?, ?, ?, NULL, TRUE)
+           ON DUPLICATE KEY UPDATE is_active = TRUE`,
+          [eid, aid, clientId]
+        );
+        results.push({ clientId, ok: true });
+      } catch (err) {
+        results.push({ clientId, ok: false, error: err?.message || 'Enroll failed' });
+      }
+    }
+    return { ok: true, results };
   }
 
   const schoolOrgId = Number(sg.organization_id);

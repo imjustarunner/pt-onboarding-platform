@@ -529,6 +529,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'client_guardian', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/guardian/program-event/:eventId',
+    name: 'OrganizationGuardianProgramEvent',
+    component: () => import('../views/guardian/GuardianSkillBuildersEventView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'client_guardian', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/guardian/waivers',
     name: 'OrganizationGuardianWaivers',
     component: () => import('../views/guardian/GuardianWaiversView.vue'),
@@ -1173,6 +1179,12 @@ const routes = [
   {
     path: '/guardian/skill-builders/event/:eventId',
     name: 'GuardianSkillBuilderEvent',
+    component: () => import('../views/guardian/GuardianSkillBuildersEventView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'client_guardian' }
+  },
+  {
+    path: '/guardian/program-event/:eventId',
+    name: 'GuardianProgramEvent',
     component: () => import('../views/guardian/GuardianSkillBuildersEventView.vue'),
     meta: { requiresAuth: true, requiresRole: 'client_guardian' }
   },

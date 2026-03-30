@@ -64,9 +64,30 @@
           </div>
         </div>
         <div class="top-card">
-          <div class="top-card-title">At a glance</div>
-          <div class="top-card-desc">
-            Upcoming sessions and announcements will show here. (Coming soon)
+          <div class="top-card-title">My Programs</div>
+          <div v-if="genLoading" class="top-card-desc">Loading…</div>
+          <div v-else-if="genError" class="error" style="font-size:13px;">{{ genError }}</div>
+          <template v-else-if="genEvents.length">
+            <p class="top-card-desc" style="margin-bottom:10px;">
+              Events your children are enrolled in. Tap to view details, sessions, and materials.
+            </p>
+            <div class="sb-g-cards">
+              <router-link
+                v-for="g in genEvents"
+                :key="`ge-${g.companyEventId}`"
+                class="sb-g-card"
+                :to="guardianProgramEventLink(g.companyEventId, g.agencySlug)"
+              >
+                <div class="sb-g-title">{{ g.title }}</div>
+                <div class="sb-g-meta muted">{{ g.programName || g.agencyName || 'Program' }}</div>
+                <div class="sb-g-meta muted">
+                  {{ (g.myClients || []).map(c => c.initials || c.fullName || `#${c.clientId}`).join(', ') }}
+                </div>
+              </router-link>
+            </div>
+          </template>
+          <div v-else class="top-card-desc">
+            When you register your children for program events they will appear here.
           </div>
         </div>
         <div v-if="sbUpcomingGrouped.length" class="top-card top-card--full">
@@ -583,6 +604,10 @@ const sbLoading = ref(false);
 const sbError = ref('');
 const showPastSbEvents = ref(false);
 
+const genEvents = ref([]);
+const genLoading = ref(false);
+const genError = ref('');
+
 const regCatalogItems = ref([]);
 const regCatalogLoading = ref(false);
 const regCatalogError = ref('');
@@ -700,6 +725,13 @@ function guardianEventLink(eventId) {
   const id = Number(eventId || 0);
   if (slug && id) return `/${slug}/guardian/skill-builders/event/${id}`;
   return `/guardian/skill-builders/event/${id}`;
+}
+
+function guardianProgramEventLink(eventId, agencySlug) {
+  const slug = guardianPathSlug.value || agencySlug || '';
+  const id = Number(eventId || 0);
+  if (slug && id) return `/${slug}/guardian/program-event/${id}`;
+  return `/guardian/program-event/${id}`;
 }
 
 const guardianWaiversLink = computed(() => {
@@ -959,6 +991,20 @@ const fetchSkillBuilderEvents = async () => {
   }
 };
 
+const fetchGenEvents = async () => {
+  genLoading.value = true;
+  genError.value = '';
+  try {
+    const resp = await api.get('/guardian-portal/company-events', { skipGlobalLoading: true });
+    genEvents.value = Array.isArray(resp.data?.events) ? resp.data.events : [];
+  } catch (err) {
+    genError.value = err.response?.data?.error?.message || 'Could not load enrolled events';
+    genEvents.value = [];
+  } finally {
+    genLoading.value = false;
+  }
+};
+
 const fetchRegistrationCatalog = async () => {
   const aid = Number(agencyStore.currentAgency?.id || 0);
   if (!aid) {
@@ -1043,6 +1089,7 @@ const submitRegistrationEnroll = async () => {
     closeRegistrationEnroll();
     await fetchRegistrationCatalog();
     await fetchSkillBuilderEvents();
+    if (target.kind === 'company_event') await fetchGenEvents();
   } catch (err) {
     registrationEnrollError.value = err.response?.data?.error?.message || err.message || 'Enrollment failed';
   } finally {
@@ -1068,6 +1115,7 @@ const fetchOverview = async () => {
 
 const refreshAll = async () => {
   await fetchOverview();
+  await fetchGenEvents();
 };
 
 watch(
@@ -1238,6 +1286,7 @@ const closeComingSoon = () => {
 
 onMounted(async () => {
   await fetchOverview();
+  fetchGenEvents();
 });
 
 watch(

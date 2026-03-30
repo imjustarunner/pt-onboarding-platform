@@ -16,6 +16,7 @@ import contentRoutes from './routes/content.routes.js';
 import quizRoutes from './routes/quiz.routes.js';
 import signatureRoutes from './routes/signature.routes.js';
 import agencyRoutes from './routes/agency.routes.js';
+import companyEventClientsRoutes from './routes/companyEventClients.routes.js';
 import trackRoutes from './routes/track.routes.js';
 import acknowledgmentRoutes from './routes/acknowledgment.routes.js';
 import agencyDashboardRoutes from './routes/agencyDashboard.routes.js';
@@ -556,6 +557,7 @@ app.use('/api/signatures', signatureRoutes);
 // login-page branding requests succeed. agencySchools/agencyDepartments use router.use(authenticate)
 // and would 401 all /api/agencies/* requests if mounted before agencyRoutes.
 app.use('/api/agencies', agencyRoutes);
+app.use('/api/company-events', companyEventClientsRoutes);
 app.use('/api/agencies', agencySchoolsRoutes);
 app.use('/api/agencies', agencyDepartmentsRoutes);
 app.use('/api/agencies', agencyDashboardRoutes);

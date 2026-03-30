@@ -13,7 +13,9 @@ import {
   guardianEnrollCompanyEvent,
   guardianEnrollLearningClass,
   listMyClientIntakeSignedDocuments,
-  getMyClientIntakeSignedDocumentDownloadUrl
+  getMyClientIntakeSignedDocumentDownloadUrl,
+  listGuardianCompanyEvents,
+  getGuardianCompanyEventDetail
 } from '../controllers/guardianPortal.controller.js';
 import {
   getMyClientWaiverProfile,
@@ -49,6 +51,10 @@ router.get('/dependents', listGuardianDependentsForAgency);
 router.get('/registration/catalog', listGuardianRegistrationCatalog);
 router.post('/registration/company-events/:eventId/enroll', guardianEnrollCompanyEvent);
 router.post('/registration/learning-classes/:classId/enroll', guardianEnrollLearningClass);
+
+// Non-Skill-Builders program events the guardian's dependents are enrolled in
+router.get('/company-events', listGuardianCompanyEvents);
+router.get('/company-events/:eventId/detail', getGuardianCompanyEventDetail);
 
 // Reusable guardian–client waivers (agency feature: guardianWaiversEnabled)
 router.get('/waivers/clients/:clientId', getMyClientWaiverProfile);
