@@ -69,6 +69,128 @@
               </div>
             </div>
           </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Event category</label>
+              <select v-model="form.eventCategory" class="form-input">
+                <option value="run_ruck">Run/Ruck (distance based)</option>
+                <option value="fitness">Fitness (calories based)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Weekly challenge assignment mode</label>
+              <select v-model="form.challengeAssignmentMode" class="form-input">
+                <option value="volunteer_or_elect">Volunteer or elect</option>
+                <option value="captain_assigns">Captain assigns</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Week ends Sunday at (HH:MM)</label>
+              <input v-model="form.weekEndsSundayAt" type="time" class="form-input" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Run miles per point</label>
+              <input v-model.number="form.runMilesPerPoint" type="number" min="0.1" step="0.1" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label>Ruck miles per point</label>
+              <input v-model.number="form.ruckMilesPerPoint" type="number" min="0.1" step="0.1" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label>Calories per point (fitness)</label>
+              <input v-model.number="form.caloriesPerPoint" type="number" min="1" step="1" class="form-input" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Start miles minimum per person (week 1)</label>
+              <input v-model.number="form.runRuckStartMilesPerPerson" type="number" min="0" step="0.1" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label>Weekly increase miles per person</label>
+              <input v-model.number="form.runRuckWeeklyIncreaseMilesPerPerson" type="number" min="0" step="0.1" class="form-input" />
+            </div>
+            <div class="form-group" v-if="form.eventCategory === 'run_ruck'">
+              <label>Max rucks per participant per week</label>
+              <input v-model.number="form.maxRucksPerWeek" type="number" min="0" step="1" class="form-input" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Number of teams</label>
+              <input v-model.number="form.teamCount" type="number" min="1" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label>Captains can rename teams</label>
+              <select v-model="form.allowCaptainRenameTeam" class="form-input">
+                <option :value="true">Yes</option>
+                <option :value="false">No</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Preset team names (comma-separated)</label>
+              <input v-model="form.presetTeamNamesText" type="text" class="form-input" placeholder="e.g., Team Alpha, Team Bravo" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Allow bye week</label>
+              <select v-model="form.allowByeWeek" class="form-input">
+                <option :value="false">No</option>
+                <option :value="true">Yes</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Max bye weeks per participant</label>
+              <input v-model.number="form.maxByeWeeksPerParticipant" type="number" min="0" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label>Require advance declaration</label>
+              <select v-model="form.requireAdvanceByeDeclaration" class="form-input">
+                <option :value="true">Yes</option>
+                <option :value="false">No</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Workout approval mode</label>
+              <select v-model="form.workoutModerationMode" class="form-input">
+                <option value="all">Approve every workout</option>
+                <option value="treadmill_only">Approve treadmill only</option>
+                <option value="none">No manager approval required</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Treadmill photo proof required</label>
+              <select v-model="form.treadmillPhotoRequired" class="form-input">
+                <option :value="true">Yes</option>
+                <option :value="false">No</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Enable treadmillpocalypse</label>
+              <select v-model="form.treadmillpocalypseEnabled" class="form-input">
+                <option :value="false">No</option>
+                <option :value="true">Yes</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Treadmillpocalypse starts week</label>
+              <input v-model="form.treadmillpocalypseStartsAtWeek" type="date" class="form-input" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Record board metrics</label>
+            <div class="checkbox-group">
+              <label v-for="opt in recordMetricOptions" :key="`metric-${opt.value}`">
+                <input v-model="form.recordMetrics" type="checkbox" :value="opt.value" />
+                {{ opt.label }}
+              </label>
+            </div>
+          </div>
           <div v-if="error" class="error-msg">{{ error }}</div>
           <div class="form-actions">
             <button type="button" class="btn btn-secondary" @click="$emit('close')">Cancel</button>
@@ -97,6 +219,18 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'created']);
 
+const recordMetricOptions = [
+  { value: 'longest_run', label: 'Longest Run' },
+  { value: 'fastest_mile', label: 'Fastest Mile' },
+  { value: 'longest_ruck', label: 'Longest Ruck' },
+  { value: 'highest_points_workout', label: 'Highest Points (Single Workout)' },
+  { value: 'longest_trail_run', label: 'Longest Trail Run' },
+  { value: 'fastest_5k', label: 'Fastest 5K' },
+  { value: 'longest_walk', label: 'Longest Walk' },
+  { value: 'longest_duration_workout', label: 'Longest Workout Duration' },
+  { value: 'highest_calories_workout', label: 'Highest Calories (Single Workout)' }
+];
+
 const form = ref({
   className: '',
   description: '',
@@ -108,7 +242,27 @@ const form = ref({
   teamMinPointsPerWeek: null,
   individualMinPointsPerWeek: null,
   mastersAgeThreshold: 53,
-  recognitionCategories: []
+  recognitionCategories: [],
+  eventCategory: 'run_ruck',
+  challengeAssignmentMode: 'volunteer_or_elect',
+  weekEndsSundayAt: '23:59',
+  runMilesPerPoint: 1,
+  ruckMilesPerPoint: 1,
+  caloriesPerPoint: 100,
+  runRuckStartMilesPerPerson: 0,
+  runRuckWeeklyIncreaseMilesPerPerson: 2,
+  maxRucksPerWeek: 0,
+  teamCount: 2,
+  allowCaptainRenameTeam: true,
+  presetTeamNamesText: '',
+  allowByeWeek: false,
+  maxByeWeeksPerParticipant: 1,
+  requireAdvanceByeDeclaration: true,
+  workoutModerationMode: 'treadmill_only',
+  treadmillPhotoRequired: true,
+  treadmillpocalypseEnabled: false,
+  treadmillpocalypseStartsAtWeek: '',
+  recordMetrics: []
 });
 
 const saving = ref(false);
@@ -129,7 +283,27 @@ watch(() => props.open, (open) => {
       teamMinPointsPerWeek: null,
       individualMinPointsPerWeek: null,
       mastersAgeThreshold: 53,
-      recognitionCategories: []
+      recognitionCategories: [],
+      eventCategory: 'run_ruck',
+      challengeAssignmentMode: 'volunteer_or_elect',
+      weekEndsSundayAt: '23:59',
+      runMilesPerPoint: 1,
+      ruckMilesPerPoint: 1,
+      caloriesPerPoint: 100,
+      runRuckStartMilesPerPerson: 0,
+      runRuckWeeklyIncreaseMilesPerPerson: 2,
+      maxRucksPerWeek: 0,
+      teamCount: 2,
+      allowCaptainRenameTeam: true,
+      presetTeamNamesText: '',
+      allowByeWeek: false,
+      maxByeWeeksPerParticipant: 1,
+      requireAdvanceByeDeclaration: true,
+      workoutModerationMode: 'treadmill_only',
+      treadmillPhotoRequired: true,
+      treadmillpocalypseEnabled: false,
+      treadmillpocalypseStartsAtWeek: '',
+      recordMetrics: []
     };
     error.value = '';
     success.value = false;
@@ -162,7 +336,56 @@ const submit = async () => {
       teamMinPointsPerWeek: form.value.teamMinPointsPerWeek ?? null,
       individualMinPointsPerWeek: form.value.individualMinPointsPerWeek ?? null,
       mastersAgeThreshold: form.value.mastersAgeThreshold ?? 53,
-      recognitionCategoriesJson: form.value.recognitionCategories?.length ? form.value.recognitionCategories : null
+      recognitionCategoriesJson: form.value.recognitionCategories?.length ? form.value.recognitionCategories : null,
+      seasonSettingsJson: {
+        event: {
+          category: form.value.eventCategory || 'run_ruck',
+          challengeAssignmentMode: form.value.challengeAssignmentMode || 'volunteer_or_elect'
+        },
+        schedule: {
+          weekEndsSundayAt: form.value.weekEndsSundayAt || '23:59'
+        },
+        scoring: {
+          weeklyMinimumPointsPerAthlete: form.value.individualMinPointsPerWeek ?? 0,
+          teamWeeklyTargetPoints: form.value.teamMinPointsPerWeek ?? 0,
+          runMilesPerPoint: Number(form.value.runMilesPerPoint ?? 1),
+          ruckMilesPerPoint: Number(form.value.ruckMilesPerPoint ?? 1),
+          caloriesPerPoint: Number(form.value.caloriesPerPoint ?? 100)
+        },
+        teams: {
+          teamCount: Number(form.value.teamCount ?? 2),
+          presetTeamNames: String(form.value.presetTeamNamesText || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
+          allowCaptainRenameTeam: form.value.allowCaptainRenameTeam !== false
+        },
+        participation: {
+          individualMinPointsPerWeek: Number(form.value.individualMinPointsPerWeek ?? 0),
+          teamMinPointsPerWeek: Number(form.value.teamMinPointsPerWeek ?? 0),
+          runRuckStartMilesPerPerson: Number(form.value.runRuckStartMilesPerPerson ?? 0),
+          runRuckWeeklyIncreaseMilesPerPerson: Number(form.value.runRuckWeeklyIncreaseMilesPerPerson ?? 2),
+          maxRucksPerWeek: Number(form.value.maxRucksPerWeek ?? 0)
+        },
+        byeWeek: {
+          allowByeWeek: form.value.allowByeWeek === true,
+          maxByeWeeksPerParticipant: Number(form.value.maxByeWeeksPerParticipant ?? 1),
+          requireAdvanceDeclaration: form.value.requireAdvanceByeDeclaration !== false
+        },
+        treadmill: {
+          photoProofRequired: form.value.treadmillPhotoRequired !== false
+        },
+        treadmillpocalypse: {
+          enabled: form.value.treadmillpocalypseEnabled === true,
+          startsAtWeek: form.value.treadmillpocalypseStartsAtWeek || null
+        },
+        workoutModeration: {
+          mode: form.value.workoutModerationMode || 'treadmill_only'
+        },
+        records: {
+          metrics: Array.isArray(form.value.recordMetrics) ? form.value.recordMetrics : []
+        }
+      }
     };
     const r = await api.post('/learning-program-classes', payload, { skipGlobalLoading: true });
     success.value = true;
