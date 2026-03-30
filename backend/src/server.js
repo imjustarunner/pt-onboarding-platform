@@ -767,17 +767,6 @@ app.use((req, res) => {
 });
 
 // Export app for bootstrap.js (Cloud Run). When run directly (dev), listen here.
-// Mount company-event-clients routes lazily to avoid crashing the import chain
-// if the migration hasn't run yet or the table doesn't exist.
-(async () => {
-  try {
-    const { default: companyEventClientsRoutes } = await import('./routes/companyEventClients.routes.js');
-    app.use('/api/company-events', companyEventClientsRoutes);
-  } catch (err) {
-    console.warn('⚠ company-event-clients routes not loaded:', err?.message || err);
-  }
-})();
-
 export { app };
 const PORT_RAW = process.env.PORT ?? config.port ?? 8080;
 const PORT = Number.parseInt(String(PORT_RAW), 10) || 8080;
