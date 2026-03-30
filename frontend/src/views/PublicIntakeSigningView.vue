@@ -1633,6 +1633,23 @@ const DEFAULT_GUARDIAN_WAIVER_SECTION_KEYS = [
 
 const FLOW_STEP_VISIBILITY = new Set(['always', 'new_client_only', 'existing_client_only']);
 
+const shouldSkipPaymentCollectionStep = () => {
+  const insInfo = intakeResponses.submission?.insuranceInfo;
+  if (insInfo?.primaryIsMedicaid) return true;
+
+  const selections = Array.isArray(intakeResponses.submission?.registrationSelections)
+    ? intakeResponses.submission.registrationSelections
+    : [];
+  if (!selections.length) return false;
+
+  const hasOnlyMedicaidSelections = selections.every((sel) => {
+    const medicaidEligible = sel?.medicaidEligible === true || sel?.medicaidEligible === 1;
+    const cashEligible = sel?.cashEligible === true || sel?.cashEligible === 1;
+    return medicaidEligible && !cashEligible;
+  });
+  return hasOnlyMedicaidSelections;
+};
+
 const flowSteps = computed(() => {
   // Keep this independent from later-declared computed refs to avoid setup TDZ.
   const forceRegistrationStepVisible =
@@ -1665,10 +1682,10 @@ const flowSteps = computed(() => {
           || s?.type === 'communications'
       )
       .filter((s) => {
-        // Skip payment_collection when the guardian selected a Medicaid insurer.
+        // Skip payment_collection when the guardian selected Medicaid coverage
+        // or all selected registrations are Medicaid-only.
         if (s?.type === 'payment_collection') {
-          const insInfo = intakeResponses.submission?.insuranceInfo;
-          if (insInfo?.primaryIsMedicaid) return false;
+          if (shouldSkipPaymentCollectionStep()) return false;
         }
         return stepVisible(s);
       })
@@ -1878,6 +1895,8 @@ const currentRegistrationOptions = computed(() => {
           paymentLinkUrl: String(step?.selfPay?.paymentLinkUrl || '').trim(),
           costDollars: dollars,
           providerUserIdsCsv: String(step.providerUserIdsCsv || '').trim(),
+          medicaidEligible: !!it.medicaidEligible,
+          cashEligible: !!it.cashEligible,
           scheduleBlocks: [],
           frequencyLabel: null,
           termsSummary: null,
@@ -1902,6 +1921,8 @@ const currentRegistrationOptions = computed(() => {
       paymentLinkUrl: String(opt.paymentLinkUrl || step?.selfPay?.paymentLinkUrl || '').trim(),
       costDollars: Math.max(0, Number(opt.costDollars || step?.selfPay?.costDollars || 0) || 0),
       providerUserIdsCsv: String(opt.providerUserIdsCsv || step.providerUserIdsCsv || '').trim(),
+      medicaidEligible: !!opt.medicaidEligible,
+      cashEligible: !!opt.cashEligible,
       scheduleBlocks: Array.isArray(opt.scheduleBlocks)
         ? opt.scheduleBlocks
           .filter((sb) => sb && typeof sb === 'object')
@@ -3611,6 +3632,8 @@ const completeRegistrationStep = async () => {
         lookupField: String(stepMeta.existingLookupField || 'email'),
         lookupValue: participant.alreadyInSystem ? String(participant.lookupValue || '') : ''
       },
+      medicaidEligible: !!opt.medicaidEligible,
+      cashEligible: !!opt.cashEligible,
       selectedAt: new Date().toISOString()
     }));
   intakeResponses.submission.registrationSelectionsByStep[String(stepMeta.id || '')] = selected;
@@ -3768,8 +3791,8 @@ const completePaymentStep = () => {
   const step = currentFlowStep.value;
   if (!step || step.type !== 'payment_collection') return;
   const payInfo = intakeResponses.submission.paymentInfo;
-  if (!payInfo?.cardSaved) {
-    stepError.value = 'Please save your payment method before continuing.';
+  if (!payInfo?.cardSaved && !payInfo?.skipAcknowledged) {
+    stepError.value = 'Please save a payment method, or acknowledge and continue without one.';
     return;
   }
   stepError.value = '';

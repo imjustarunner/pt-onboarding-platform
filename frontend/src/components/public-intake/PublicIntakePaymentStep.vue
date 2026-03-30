@@ -102,6 +102,22 @@
           {{ saving ? 'Saving securely…' : 'Save payment method' }}
         </button>
       </div>
+      <div class="pi-pay-skip">
+        <label class="checkbox-row">
+          <input v-model="skipAcknowledged" type="checkbox" />
+          <span>
+            I understand I may be asked to provide payment information before sessions for copays, deductibles, or other balances.
+          </span>
+        </label>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          :disabled="saving || !skipAcknowledged"
+          @click="skipForNow"
+        >
+          Continue without payment method
+        </button>
+      </div>
     </div>
 
     <!-- Saved card confirmation -->
@@ -145,6 +161,7 @@ const saving = ref(false);
 const formError = ref('');
 const paymentSaved = ref(!!props.modelValue?.cardSaved);
 const savedCardSummary = ref(props.modelValue?.cardSummary || '');
+const skipAcknowledged = ref(!!props.modelValue?.skipAcknowledged);
 
 const currentYear = new Date().getFullYear();
 const expiryYears = computed(() => Array.from({ length: 12 }, (_, i) => currentYear + i));
@@ -196,13 +213,15 @@ async function saveCard() {
     const brand = resp.data?.brand || 'Card';
     savedCardSummary.value = `${brand} ending in ${last4} · expires ${card.value.expMonth}/${card.value.expYear}`;
     paymentSaved.value = true;
+    skipAcknowledged.value = false;
     emit('update:modelValue', {
       cardSaved: true,
       cardSummary: savedCardSummary.value,
       last4,
       brand,
       autoCharge: autoCharge.value,
-      qbCardId: resp.data?.qbCardId || null
+      qbCardId: resp.data?.qbCardId || null,
+      skipAcknowledged: false
     });
     emit('card-saved', { last4, brand, autoCharge: autoCharge.value });
   } catch (e) {
@@ -216,7 +235,20 @@ function resetCard() {
   paymentSaved.value = false;
   savedCardSummary.value = '';
   card.value = { name: '', number: '', expMonth: '', expYear: '', cvc: '', billingZip: '' };
-  emit('update:modelValue', { cardSaved: false });
+  emit('update:modelValue', { cardSaved: false, skipAcknowledged: !!skipAcknowledged.value });
+}
+
+function skipForNow() {
+  formError.value = '';
+  if (!skipAcknowledged.value) {
+    formError.value = 'Please acknowledge the payment responsibility statement to continue.';
+    return;
+  }
+  emit('update:modelValue', {
+    cardSaved: false,
+    skipAcknowledged: true,
+    skipAcknowledgedAt: new Date().toISOString()
+  });
 }
 </script>
 
@@ -327,6 +359,14 @@ function resetCard() {
 }
 .pi-pay-cta {
   margin-top: 12px;
+}
+.pi-pay-skip {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #cbd5e1;
 }
 .pi-pay-saved {
   display: flex;

@@ -5761,7 +5761,18 @@ export const saveGuardianPaymentCard = async (req, res, next) => {
     }
 
     // Resolve guardian user ID from the submission's signer data.
-    const intakeData = submission.intake_data ? JSON.parse(submission.intake_data) : {};
+    const intakeData = (() => {
+      const raw = submission.intake_data;
+      if (!raw) return {};
+      if (typeof raw === 'string') {
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return {};
+        }
+      }
+      return (raw && typeof raw === 'object') ? raw : {};
+    })();
     const signerEmail = String(intakeData?.signerInfo?.email || submission.signer_email || '').trim().toLowerCase();
     let guardianUserId = submission.guardian_user_id || null;
     if (!guardianUserId && signerEmail) {
