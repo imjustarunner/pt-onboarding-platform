@@ -213,12 +213,26 @@
       </button>
     </div>
 
-    <!-- Registration link hint — visible once an event is saved -->
+    <!-- Public event page + registration link — visible once an event is saved -->
     <div v-if="selectedEventIdNum > 0" class="section reg-link-hint">
-      <h4>Public registration link</h4>
-      <p class="muted" style="margin: 0 0 8px;">
-        To let staff register for this event online, create a <strong>Smart Registration</strong>
-        digital form and lock it to this event. Registrants are automatically enrolled when they submit the form.
+      <h4>Public event page</h4>
+      <p class="muted" style="margin: 0 0 10px;">
+        Share this URL so anyone can view event details. Employees who received a tokenized email invitation
+        will see a personalised <strong>"Can't wait to see you there!"</strong> confirmation when they visit
+        after RSVPing.
+      </p>
+      <div class="reg-url-row">
+        <code class="reg-url">{{ eventPublicUrl }}</code>
+        <button type="button" class="btn btn-secondary btn-sm" @click="copyEventUrl">
+          {{ copied ? '✓ Copied' : 'Copy link' }}
+        </button>
+        <a :href="eventPublicUrl" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">
+          Open &rarr;
+        </a>
+      </div>
+      <p class="muted" style="margin: 14px 0 8px;">
+        To let staff register and auto-enroll in this event, create a
+        <strong>Smart Registration</strong> digital form and lock it to this event.
       </p>
       <a href="/admin/digital-forms" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">
         Open Digital Forms &rarr;
@@ -666,6 +680,23 @@ onMounted(async () => {
   }
 });
 
+const eventPublicUrl = computed(() => {
+  if (!selectedEventIdNum.value) return '';
+  const base = String(window.location.origin).replace(/\/$/, '');
+  return `${base}/company-events/${selectedEventIdNum.value}`;
+});
+
+const copied = ref(false);
+const copyEventUrl = async () => {
+  try {
+    await navigator.clipboard.writeText(eventPublicUrl.value);
+    copied.value = true;
+    setTimeout(() => { copied.value = false; }, 2000);
+  } catch {
+    /* fallback: select text */
+  }
+};
+
 defineExpose({
   requestClose
 });
@@ -695,4 +726,6 @@ defineExpose({
 .save-row { margin-top: 12px; display: flex; justify-content: flex-end; }
 .muted { color: #64748b; font-size: 12px; }
 .error { margin: 8px 0; color: #b91c1c; }
+.reg-url-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.reg-url { font-size: 12px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px 10px; color: #0f172a; word-break: break-all; flex: 1 1 0; min-width: 0; }
 </style>

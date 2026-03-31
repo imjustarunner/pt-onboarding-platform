@@ -98,7 +98,17 @@
                 <div v-if="e.weekdaysShort" class="sbes-card-meta"><strong>Days</strong> {{ e.weekdaysShort }}</div>
                 <div v-if="providerLine(e)" class="sbes-card-providers"><strong>Providers</strong> {{ providerLine(e) }}</div>
               </div>
-              <div class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'Open portal' : 'Manage event' }}</div>
+              <div class="sbes-card-cta-row">
+                <span class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'Open portal' : 'Manage event' }}</span>
+                <a
+                  v-if="!isSkillsBuildersEvent(e)"
+                  :href="`/company-events/${e.companyEventId}`"
+                  target="_blank"
+                  class="sbes-card-view-link"
+                  title="View public event page"
+                  @click.stop
+                >View page ↗</a>
+              </div>
             </button>
           </div>
         </section>
@@ -630,12 +640,25 @@ watch(
   margin-top: 4px;
   line-height: 1.35;
 }
+.sbes-card-cta-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
 .sbes-card-cta {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--primary, #15803d);
   white-space: nowrap;
 }
+.sbes-card-view-link {
+  font-size: 0.72rem;
+  color: var(--text-secondary, #64748b);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.sbes-card-view-link:hover { text-decoration: underline; }
 .sbes-muted {
   color: var(--text-secondary, #64748b);
 }

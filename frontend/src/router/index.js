@@ -161,6 +161,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/company-events/:eventId',
+    name: 'CompanyEventPublic',
+    component: () => import('../views/public/CompanyEventPublicView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
     path: '/find-provider/:agencyId',
     name: 'PublicProviderFinder',
     component: () => import('../views/PublicProviderFinderView.vue'),

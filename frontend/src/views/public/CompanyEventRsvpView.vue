@@ -168,6 +168,18 @@ const displayAsset = (value) => {
   return s;
 };
 
+const storeRsvpLocally = (response) => {
+  try {
+    const eid = event.value?.id;
+    if (!eid) return;
+    localStorage.setItem(`rsvp_event_${eid}`, JSON.stringify({
+      response,
+      name: inviteeName.value !== 'there' ? inviteeName.value : '',
+      at: new Date().toISOString()
+    }));
+  } catch { /* ignore */ }
+};
+
 const load = async () => {
   if (!token.value) return;
   loading.value = true;
@@ -181,6 +193,8 @@ const load = async () => {
     invitee.value = resp.data?.invitee || null;
     branding.value = resp.data?.branding || branding.value;
     currentResponse.value = String(resp.data?.invitation?.response || '').toLowerCase();
+    // Persist any existing response so the public event page can show confirmation on return visits.
+    if (currentResponse.value) storeRsvpLocally(currentResponse.value);
     const registrationPayload = resp.data?.invitation?.registrationPayload || null;
     if (registrationPayload && typeof registrationPayload === 'object') {
       registration.value = {
@@ -206,6 +220,7 @@ const respond = async (response) => {
       { skipAuthRedirect: true }
     );
     currentResponse.value = response;
+    storeRsvpLocally(response);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Unable to save RSVP';
   } finally {

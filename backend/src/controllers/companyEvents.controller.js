@@ -3039,3 +3039,91 @@ export const handleCompanyEventInbound = async ({ from, to, body }) => {
   );
   return { handled: true, responseMessage: `Thanks! Recorded: ${parsed.label}.` };
 };
+
+/**
+ * Public (no-auth) endpoint: GET /company-events/public/:id
+ * Returns enough event detail + branding to render a public event landing page.
+ * Intentionally omits any PII or internal-only fields.
+ */
+export const getCompanyEventPublic = async (req, res, next) => {
+  try {
+    const eventId = Number(req.params.id);
+    if (!Number.isFinite(eventId) || eventId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid event id' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT
+         ce.id, ce.title, ce.event_type, ce.description, ce.splash_content,
+         ce.starts_at, ce.ends_at, ce.timezone, ce.rsvp_deadline,
+         ce.event_location_name, ce.event_location_address, ce.event_location_phone,
+         ce.guest_policy, ce.family_provision_note, ce.organizer_providing_json,
+         ce.event_image_url, ce.event_image_urls_json, ce.public_hero_image_url,
+         ce.registration_form_url, ce.potluck_enabled,
+         a.name AS agency_name,
+         a.logo_path AS agency_logo_path,
+         a.color_palette AS agency_color_palette,
+         a.theme_settings AS agency_theme_settings,
+         a.portal_url AS agency_portal_url
+       FROM company_events ce
+       JOIN organizations a ON a.id = ce.agency_id
+       WHERE ce.id = ? AND ce.is_active = 1
+       LIMIT 1`,
+      [eventId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: { message: 'Event not found or not active' } });
+    }
+
+    const row = rows[0];
+    const logoRaw = String(row.agency_logo_path || '').trim();
+    const uploadsBase = String(process.env.UPLOADS_BASE_URL || '').replace(/\/$/, '');
+    const logoUrl = logoRaw
+      ? (logoRaw.startsWith('http') ? logoRaw : `${uploadsBase}/${logoRaw.replace(/^\//, '')}`)
+      : '';
+
+    res.json({
+      event: {
+        id: Number(row.id),
+        title: row.title || '',
+        eventType: row.event_type || 'company_event',
+        description: row.description || '',
+        splashContent: row.splash_content || '',
+        startsAt: row.starts_at || null,
+        endsAt: row.ends_at || null,
+        timezone: row.timezone || 'UTC',
+        rsvpDeadline: row.rsvp_deadline || null,
+        locationName: row.event_location_name || '',
+        locationAddress: row.event_location_address || '',
+        locationPhone: row.event_location_phone || '',
+        guestPolicy: row.guest_policy || 'staff_only',
+        familyProvisionNote: row.family_provision_note || '',
+        organizerProviding: (() => {
+          try { const p = row.organizer_providing_json ? JSON.parse(row.organizer_providing_json) : null; return Array.isArray(p) ? p : []; } catch { return []; }
+        })(),
+        eventImageUrl: row.event_image_url || '',
+        eventImageUrls: (() => {
+          try { const p = row.event_image_urls_json ? JSON.parse(row.event_image_urls_json) : null; return Array.isArray(p) ? p : []; } catch { return []; }
+        })(),
+        publicHeroImageUrl: row.public_hero_image_url || '',
+        registrationFormUrl: row.registration_form_url || '',
+        potluckEnabled: !!(row.potluck_enabled === 1 || row.potluck_enabled === true),
+        agencyName: row.agency_name || ''
+      },
+      branding: {
+        agencyName: row.agency_name || '',
+        logoUrl,
+        portalUrl: row.agency_portal_url || '',
+        colorPalette: (() => {
+          try { return row.agency_color_palette ? JSON.parse(row.agency_color_palette) : null; } catch { return null; }
+        })(),
+        themeSettings: (() => {
+          try { return row.agency_theme_settings ? JSON.parse(row.agency_theme_settings) : null; } catch { return null; }
+        })()
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
