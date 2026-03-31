@@ -619,28 +619,24 @@ const saveEvent = async () => {
       }
     };
     let savedEventId = selectedEventIdNum.value;
+    let savedEventPayload = null;
     if (savedEventId > 0) {
-      await api.put(`/agencies/${props.agencyId}/company-events/${savedEventId}`, payload);
+      const putResp = await api.put(`/agencies/${props.agencyId}/company-events/${savedEventId}`, payload);
+      savedEventPayload = putResp?.data || null;
     } else {
-      const resp = await api.post(`/agencies/${props.agencyId}/company-events`, payload);
-      savedEventId = Number(resp.data?.id || 0);
+      const postResp = await api.post(`/agencies/${props.agencyId}/company-events`, payload);
+      savedEventPayload = postResp?.data || null;
+      savedEventId = Number(savedEventPayload?.id || 0);
       selectedEventId.value = String(savedEventId || '');
     }
     await reloadEvents();
-    if (savedEventId > 0) {
-      // Read back the exact saved event detail (source of truth), avoiding stale list snapshots.
-      try {
-        const detailResp = await api.get(`/agencies/${props.agencyId}/company-events/${savedEventId}`, {
-          params: { _ts: Date.now() }
-        });
-        if (detailResp?.data && typeof detailResp.data === 'object') {
-          populateFromEvent(detailResp.data);
-        }
-      } catch {
-        // Fallback to list payload if detail endpoint readback fails.
-        const updated = events.value.find((e) => Number(e.id) === savedEventId);
-        if (updated) populateFromEvent(updated);
-      }
+    if (savedEventPayload && typeof savedEventPayload === 'object') {
+      // Rehydrate directly from save response (no extra detail endpoint required).
+      populateFromEvent(savedEventPayload);
+    } else if (savedEventId > 0) {
+      // Fallback to refreshed list payload.
+      const updated = events.value.find((e) => Number(e.id) === savedEventId);
+      if (updated) populateFromEvent(updated);
     }
     markClean();
     emit('saved', {
