@@ -350,12 +350,15 @@
             </div>
             <div class="form-group" v-if="form.formType !== 'job_application' && form.formType !== 'medical_records_request'">
               <label>Scope</label>
-              <select v-model="form.scopeType" :disabled="form.formType === 'smart_school_roi'">
+              <select v-model="form.scopeType" :disabled="form.formType === 'smart_school_roi' || form.formType === 'smart_registration'">
                 <option value="agency">Agency</option>
                 <option value="school">School</option>
                 <option value="program">Program</option>
                 <option value="learning_class">Season</option>
               </select>
+              <small v-if="form.formType === 'smart_registration'" class="form-help" style="color:#64748b;font-size:12px;">
+                Smart Registration is always agency-scoped — set above via the agency picker.
+              </small>
             </div>
             <div v-if="form.scopeType !== 'agency' && form.formType !== 'job_application'" class="form-group">
               <label>Organization</label>
@@ -986,10 +989,14 @@
                   <div class="form-group">
                     <label>Registration mode</label>
                     <select v-model="step.participantMode">
-                      <option value="any">New or existing participant</option>
-                      <option value="existing_only">Existing participant only</option>
-                      <option value="new_only">New participant only</option>
+                      <option value="any">{{ registrationFlowAdmin && form.companyEventId ? 'New or existing attendee' : 'New or existing participant' }}</option>
+                      <option value="existing_only">{{ registrationFlowAdmin && form.companyEventId ? 'Existing attendee/member only (recommended for staff events)' : 'Existing participant only' }}</option>
+                      <option value="new_only">{{ registrationFlowAdmin && form.companyEventId ? 'New attendee only' : 'New participant only' }}</option>
                     </select>
+                    <small v-if="registrationFlowAdmin && form.companyEventId" class="form-help" style="color:#64748b;font-size:12px;">
+                      For company events, attendees receive a tokenized invitation and are looked up by email.
+                      "Existing attendee/member only" is recommended since all invitees are already in the system.
+                    </small>
                   </div>
                   <div class="form-group">
                     <label>Existing lookup key</label>
@@ -2157,6 +2164,8 @@ watch(() => form.formType, (newVal) => {
     form.createGuardian = false;
   }
   if (newVal === 'smart_registration') {
+    // Smart Registration is always agency-scoped (tied to a company event).
+    form.scopeType = 'agency';
     form.createClient = true;
     form.createGuardian = true;
     form.requiresAssignment = false;
@@ -2446,7 +2455,7 @@ const save = async () => {
       description: form.description,
       languageCode: form.languageCode,
       formType: form.formType,
-      scopeType: ['job_application', 'medical_records_request'].includes(form.formType)
+      scopeType: ['job_application', 'medical_records_request', 'smart_registration'].includes(form.formType)
         ? 'agency'
         : (form.formType === 'smart_school_roi' ? 'school' : form.scopeType),
       isActive: form.isActive,
@@ -2462,18 +2471,20 @@ const save = async () => {
     if (form.formType === 'job_application' && form.jobDescriptionId) {
       payload.jobDescriptionId = form.jobDescriptionId;
     }
-    if (['job_application', 'medical_records_request'].includes(form.formType) && form.organizationId) {
+    // smart_registration is always agency-scoped — always set organizationId from the picker.
+    if (form.formType === 'smart_registration') {
+      const pickerAgencyId = Number(companyEventsPickerAgencyId.value || 0) || null;
+      if (pickerAgencyId) payload.organizationId = pickerAgencyId;
+    } else if (['job_application', 'medical_records_request'].includes(form.formType) && form.organizationId) {
       payload.organizationId = form.organizationId;
     } else if (form.scopeType !== 'agency' && form.organizationId) {
       payload.organizationId = form.organizationId;
-    }
-    // Smart Registration / intake+registration in agency scope still needs a concrete agency
-    // so backend can validate that the locked company event belongs to this link's agency.
-    if (
+    } else if (
       registrationFlowAdmin.value &&
       (payload.scopeType || form.scopeType) === 'agency' &&
       !payload.organizationId
     ) {
+      // Intake-with-registration-step fallback
       const pickerAgencyId = Number(companyEventsPickerAgencyId.value || 0) || null;
       if (pickerAgencyId) payload.organizationId = pickerAgencyId;
     }
@@ -2999,7 +3010,8 @@ const addStep = (type, options = {}) => {
     step.label = 'Registration';
     step.description = '';
     step.visibility = 'always';
-    step.participantMode = 'any';
+    // Company event links always have existing attendees (employees/staff who received an invite).
+    step.participantMode = registrationFlowAdmin.value && form.companyEventId ? 'existing_only' : 'any';
     step.existingLookupField = 'email';
     step.defaultVideoUrl = '';
     step.providerUserIdsCsv = '';
