@@ -21,7 +21,7 @@
           class="btn btn-primary btn-sm"
           type="button"
           :disabled="!selectedAgencyIdNum"
-          @click="showStaffEventForm = true"
+          @click="() => { manageEventId.value = null; showStaffEventForm = true; }"
         >
           Create Event
         </button>
@@ -39,6 +39,7 @@
       :agency-id="selectedAgencyIdNum"
       :portal-slug="selectedAgencyPortalSlug"
       variant="page"
+      @openCompanyEvent="handleOpenCompanyEvent"
     />
     <SkillBuildersProgramEnrollmentsGuide
       v-if="selectedAgencyIdNum"
@@ -46,13 +47,14 @@
       :agency-portal-slug="selectedAgencyPortalSlug"
     />
 
-    <div v-if="showStaffEventForm" class="modal-overlay" @click.self="attemptCloseStaffEventForm">
+    <div v-if="showStaffEventForm" class="modal-overlay" @click.self="attemptCloseStaffEventFormWrapped">
       <div class="modal-card" @click.stop>
         <StaffEventForm
           ref="staffEventFormRef"
           :agency-id="selectedAgencyIdNum"
+          :initial-event-id="manageEventId"
           @saved="handleStaffEventSaved"
-          @close="showStaffEventForm = false"
+          @close="handleStaffEventFormClose"
         />
       </div>
     </div>
@@ -82,6 +84,8 @@ const showStaffEventForm = ref(false);
 const staffEventFormRef = ref(null);
 const directoryPanelRef = ref(null);
 const directoryRefreshKey = ref(0);
+/** When non-null, StaffEventForm opens in edit mode for this event id. */
+const manageEventId = ref(null);
 
 const selectedAgencyIdNum = computed(() => {
   const n = Number(selectedAgencyId.value || 0);
@@ -126,18 +130,27 @@ onMounted(async () => {
   syncSelectionFromContext();
 });
 
-function attemptCloseStaffEventForm() {
+function handleStaffEventSaved() {
+  directoryRefreshKey.value += 1;
+}
+
+function handleOpenCompanyEvent({ id }) {
+  manageEventId.value = Number(id) || null;
+  showStaffEventForm.value = true;
+}
+
+function handleStaffEventFormClose() {
+  showStaffEventForm.value = false;
+  manageEventId.value = null;
+}
+
+function attemptCloseStaffEventFormWrapped() {
   const form = staffEventFormRef.value;
   if (form && typeof form.requestClose === 'function') {
     form.requestClose();
     return;
   }
-  showStaffEventForm.value = false;
-}
-
-function handleStaffEventSaved() {
-  // Force the page directory panel to refresh so newly-created events appear immediately.
-  directoryRefreshKey.value += 1;
+  handleStaffEventFormClose();
 }
 
 watch(selectedAgencyIdNum, (value) => {

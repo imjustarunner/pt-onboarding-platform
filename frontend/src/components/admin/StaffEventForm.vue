@@ -213,6 +213,18 @@
       </button>
     </div>
 
+    <!-- Registration link hint — visible once an event is saved -->
+    <div v-if="selectedEventIdNum > 0" class="section reg-link-hint">
+      <h4>Public registration link</h4>
+      <p class="muted" style="margin: 0 0 8px;">
+        To let staff register for this event online, create a <strong>Smart Registration</strong>
+        digital form and lock it to this event. Registrants are automatically enrolled when they submit the form.
+      </p>
+      <a href="/admin/intake-links" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">
+        Open Digital Forms &rarr;
+      </a>
+    </div>
+
     <StaffEventInviteePanel
       v-if="selectedEventIdNum > 0"
       :agency-id="agencyId"
@@ -227,7 +239,9 @@ import api from '../../services/api';
 import StaffEventInviteePanel from './StaffEventInviteePanel.vue';
 
 const props = defineProps({
-  agencyId: { type: Number, required: true }
+  agencyId: { type: Number, required: true },
+  /** Pre-select an existing event by id when the modal opens (e.g. from clicking a card). */
+  initialEventId: { type: Number, default: null }
 });
 
 const emit = defineEmits(['saved', 'close']);
@@ -640,6 +654,11 @@ watch(selectedEventId, (value) => {
 onMounted(async () => {
   try {
     await Promise.all([reloadEvents(), loadAudienceOptions()]);
+    // Pre-select event when opened from a card click (initialEventId prop).
+    if (props.initialEventId && !selectedEventId.value) {
+      const found = events.value.find((e) => Number(e.id) === Number(props.initialEventId));
+      if (found) selectedEventId.value = String(found.id);
+    }
     selectedEventCategory.value = deriveCategoryFromEventType(draft.eventType);
     markClean();
   } catch (e) {

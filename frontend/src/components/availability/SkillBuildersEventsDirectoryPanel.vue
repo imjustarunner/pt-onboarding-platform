@@ -89,16 +89,16 @@
                   class="sbes-card-logo-img"
                   @error="onLogoError(e.schoolOrganizationId)"
                 />
-                <div v-else class="sbes-card-logo-fallback">{{ schoolInitials(e.schoolName) }}</div>
+                <div v-else class="sbes-card-logo-fallback">{{ cardFallbackLabel(e) }}</div>
               </div>
               <div class="sbes-card-body">
                 <div class="sbes-card-name">{{ e.title }}</div>
                 <div class="sbes-card-type">{{ eventTypeLine(e) }}</div>
                 <div class="sbes-card-meta">{{ formatDateRange(e.startsAt, e.endsAt) }}</div>
-                <div class="sbes-card-meta"><strong>Days</strong> {{ e.weekdaysShort }}</div>
-                <div class="sbes-card-providers"><strong>Providers</strong> {{ providerLine(e) }}</div>
+                <div v-if="e.weekdaysShort" class="sbes-card-meta"><strong>Days</strong> {{ e.weekdaysShort }}</div>
+                <div v-if="providerLine(e)" class="sbes-card-providers"><strong>Providers</strong> {{ providerLine(e) }}</div>
               </div>
-              <div class="sbes-card-cta">Open portal</div>
+              <div class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'Open portal' : 'Manage event' }}</div>
             </button>
           </div>
         </section>
@@ -117,16 +117,16 @@
               @click="openPortal(e)"
             >
               <div class="sbes-card-logo">
-                <div class="sbes-card-logo-fallback">{{ schoolInitials(e.schoolName) }}</div>
+                <div class="sbes-card-logo-fallback">{{ cardFallbackLabel(e) }}</div>
               </div>
               <div class="sbes-card-body">
                 <div class="sbes-card-name">{{ e.title }}</div>
                 <div class="sbes-card-type">{{ eventTypeLine(e) }}</div>
                 <div class="sbes-card-meta">{{ formatDateRange(e.startsAt, e.endsAt) }}</div>
-                <div class="sbes-card-meta">{{ e.weekdaysShort }}</div>
-                <div class="sbes-card-providers">{{ providerLine(e) }}</div>
+                <div v-if="e.weekdaysShort" class="sbes-card-meta">{{ e.weekdaysShort }}</div>
+                <div v-if="providerLine(e)" class="sbes-card-providers">{{ providerLine(e) }}</div>
               </div>
-              <div class="sbes-card-cta">View</div>
+              <div class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'View' : 'Manage' }}</div>
             </button>
           </div>
         </section>
@@ -151,11 +151,10 @@ const props = defineProps({
   showClose: { type: Boolean, default: false }
 });
 
-defineEmits(['close']);
-
 const router = useRouter();
 const route = useRoute();
 const agencyStore = useAgencyStore();
+const emit = defineEmits(['close', 'openCompanyEvent']);
 
 const mode = ref('all');
 const loading = ref(false);
@@ -175,19 +174,32 @@ function orgSlug() {
   );
 }
 
+function isSkillsBuildersEvent(ev) {
+  return Number(ev?.skillsGroupId || 0) > 0;
+}
+
 function openPortal(eventOrId) {
   let id;
-  let slugFromEvent = '';
+  let ev = null;
   if (eventOrId && typeof eventOrId === 'object' && eventOrId.companyEventId != null) {
     id = Number(eventOrId.companyEventId);
-    slugFromEvent = String(eventOrId.programPortalSlug || '').trim().toLowerCase();
+    ev = eventOrId;
   } else {
     id = Number(eventOrId);
-    const ev = (events.value || []).find((x) => Number(x.companyEventId) === id);
-    if (ev) slugFromEvent = String(ev.programPortalSlug || '').trim().toLowerCase();
+    ev = (events.value || []).find((x) => Number(x.companyEventId) === id) || null;
   }
+  if (!Number.isFinite(id) || id <= 0) return;
+
+  // Non-SB events (company/staff/program events without a skills group) are managed
+  // in the Programs & Events page itself — not the Skill Builders portal.
+  if (ev && !isSkillsBuildersEvent(ev)) {
+    emit('openCompanyEvent', { id, agencyId: props.agencyId });
+    return;
+  }
+
+  const slugFromEvent = ev ? String(ev.programPortalSlug || '').trim().toLowerCase() : '';
   const slug = slugFromEvent || orgSlug();
-  if (!slug || !Number.isFinite(id) || id <= 0) return;
+  if (!slug) return;
   router.push(`/${slug}/skill-builders/event/${id}`);
 }
 
@@ -219,6 +231,17 @@ function schoolOptionLabel(e) {
   return `${e.schoolName} — ${e.title}${range ? ` · ${range}` : ''}`;
 }
 
+function cardFallbackLabel(e) {
+  // For non-SB/agency events use title initials; for SB events use school initials.
+  if (!isSkillsBuildersEvent(e)) {
+    const words = String(e.title || '').trim().split(/\s+/).filter(Boolean);
+    if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return '●';
+  }
+  return schoolInitials(e.schoolName);
+}
+
 function schoolInitials(name) {
   const parts = String(name || '')
     .trim()
@@ -230,6 +253,16 @@ function schoolInitials(name) {
 }
 
 function logoUrl(e) {
+  // For non-SB events prefer the event's own uploaded image.
+  if (!isSkillsBuildersEvent(e)) {
+    const imgs = e.eventImageUrls || [];
+    const first = imgs[0] || e.eventImageUrl || '';
+    const raw = String(first).trim();
+    if (raw) {
+      if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+      return toUploadsUrl(raw);
+    }
+  }
   const raw = String(e.schoolLogoUrl || e.schoolLogoPath || '').trim();
   if (!raw) return null;
   if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
@@ -356,9 +389,11 @@ async function load() {
         endsAt,
         isActive: !!row?.isActive,
         isPast,
-        weekdaysShort: '—',
+        weekdaysShort: '',
         providers: [],
-        eventType: String(row?.eventType || '').trim().toLowerCase()
+        eventType: String(row?.eventType || '').trim().toLowerCase(),
+        eventImageUrl: String(row?.eventImageUrl || '').trim(),
+        eventImageUrls: Array.isArray(row?.eventImageUrls) ? row.eventImageUrls : []
       };
     });
 

@@ -2467,6 +2467,16 @@ const save = async () => {
     } else if (form.scopeType !== 'agency' && form.organizationId) {
       payload.organizationId = form.organizationId;
     }
+    // Smart Registration / intake+registration in agency scope still needs a concrete agency
+    // so backend can validate that the locked company event belongs to this link's agency.
+    if (
+      registrationFlowAdmin.value &&
+      (payload.scopeType || form.scopeType) === 'agency' &&
+      !payload.organizationId
+    ) {
+      const pickerAgencyId = Number(companyEventsPickerAgencyId.value || 0) || null;
+      if (pickerAgencyId) payload.organizationId = pickerAgencyId;
+    }
     if (form.scopeType === 'program' && form.programId) {
       payload.programId = form.programId;
     }
