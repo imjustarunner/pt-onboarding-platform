@@ -3075,6 +3075,7 @@ export const registerForCompanyEventPublic = async (req, res, next) => {
     if (!evRows.length) {
       return res.status(404).json({ error: { message: 'Event not found or not active' } });
     }
+    const eventAgencyId = Number(evRows[0].agency_id);
 
     // Look up user by email to link the registration to a user account.
     const [userRows] = await pool.execute(
@@ -3082,53 +3083,56 @@ export const registerForCompanyEventPublic = async (req, res, next) => {
       [email]
     );
     const userId = userRows.length ? Number(userRows[0].id) : null;
+    if (!userId) {
+      return res.status(400).json({
+        error: {
+          message:
+            'We could not find a user account for that email. Please sign in with your work account first, or use your exact work email.'
+        }
+      });
+    }
 
     // Build registration payload.
     const registrationPayload = JSON.stringify({ guestCount, dietaryNotes, notes });
 
-    if (userId) {
-      // Upsert invitation record for this user+event.
-      const [existing] = await pool.execute(
-        'SELECT id FROM company_event_invitations WHERE company_event_id = ? AND user_id = ? LIMIT 1',
-        [eventId, userId]
+    // Upsert invitation record for this user+event.
+    const [existing] = await pool.execute(
+      'SELECT id FROM company_event_invitations WHERE company_event_id = ? AND user_id = ? LIMIT 1',
+      [eventId, userId]
+    );
+    if (existing.length) {
+      await pool.execute(
+        `UPDATE company_event_invitations
+         SET response = ?, responded_at = NOW(), registration_payload_json = ?, registration_submitted_at = NOW()
+         WHERE id = ?`,
+        [response, registrationPayload, existing[0].id]
       );
-      if (existing.length) {
-        await pool.execute(
-          `UPDATE company_event_invitations
-           SET response = ?, responded_at = NOW(), registration_payload_json = ?
-           WHERE id = ?`,
-          [response, registrationPayload, existing[0].id]
-        );
-      } else {
-        const token = (await import('crypto')).default.randomBytes(32).toString('hex');
-        await pool.execute(
-          `INSERT INTO company_event_invitations
-           (company_event_id, user_id, token, response, responded_at, registration_payload_json)
-           VALUES (?, ?, ?, ?, NOW(), ?)`,
-          [eventId, userId, token, response, registrationPayload]
-        );
-      }
+    } else {
+      const token = (await import('crypto')).default.randomBytes(32).toString('hex');
+      await pool.execute(
+        `INSERT INTO company_event_invitations
+         (company_event_id, agency_id, user_id, token, response, responded_at, registration_payload_json, registration_submitted_at)
+         VALUES (?, ?, ?, ?, ?, NOW(), ?, NOW())`,
+        [eventId, eventAgencyId, userId, token, response, registrationPayload]
+      );
     }
 
-    // Always upsert a response record (even for unmatched emails) so counts are tracked.
-    if (userId) {
-      const option = resolveRsvpOption(
-        { votingConfig: { options: DEFAULT_RSVP_OPTIONS } },
-        response
-      );
-      await pool.execute(
-        `INSERT INTO company_event_responses
-         (company_event_id, user_id, response_key, response_label, response_body, source, received_at)
-         VALUES (?, ?, ?, ?, ?, 'self_registration', NOW())
-         ON DUPLICATE KEY UPDATE
-           response_key = VALUES(response_key),
-           response_label = VALUES(response_label),
-           response_body = VALUES(response_body),
-           source = VALUES(source),
-           received_at = VALUES(received_at)`,
-        [eventId, userId, option?.key || response, option?.label || response, response]
-      );
-    }
+    const option = resolveRsvpOption(
+      { votingConfig: { options: DEFAULT_RSVP_OPTIONS } },
+      response
+    );
+    await pool.execute(
+      `INSERT INTO company_event_responses
+       (company_event_id, user_id, response_key, response_label, response_body, source, received_at)
+       VALUES (?, ?, ?, ?, ?, 'self_registration', NOW())
+       ON DUPLICATE KEY UPDATE
+         response_key = VALUES(response_key),
+         response_label = VALUES(response_label),
+         response_body = VALUES(response_body),
+         source = VALUES(source),
+         received_at = VALUES(received_at)`,
+      [eventId, userId, option?.key || response, option?.label || response, response]
+    );
 
     res.json({ ok: true, userId: userId || null, response });
   } catch (error) {
