@@ -41,6 +41,7 @@ import {
   upsertClientAgencyAffiliation,
   removeClientAgencyAffiliation,
   listClientProviderAssignments,
+  listClientEventAssignments,
   upsertClientProviderAssignment,
   removeClientProviderAssignment,
   deleteClient
@@ -165,6 +166,7 @@ router.delete('/:id/agency-affiliations/:agencyId', removeClientAgencyAffiliatio
 
 // Multi-provider assignments (admin/staff/support/super_admin)
 router.get('/:id/provider-assignments', listClientProviderAssignments);
+router.get('/:id/event-assignments', listClientEventAssignments);
 router.post('/:id/provider-assignments', upsertClientProviderAssignment);
 router.delete('/:id/provider-assignments/:assignmentId', removeClientProviderAssignment);
 

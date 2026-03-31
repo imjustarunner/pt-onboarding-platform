@@ -79,6 +79,15 @@ async function attachAffiliationMeta(orgs) {
     }
 
     // Add hasClinicalOrg/hasLearningOrg from affiliation context for schedule gates.
+    const agencyIdsForFlags = new Set();
+    for (const o of list) {
+      if (!o || !o.id) continue;
+      const t = String(o.organization_type || '').toLowerCase();
+      if (t === 'clinical') continue;
+      const agencyIdForCheck = t === 'agency' ? Number(o.id) : Number(o.affiliated_agency_id || o.id);
+      if (agencyIdForCheck) agencyIdsForFlags.add(agencyIdForCheck);
+    }
+    const flagsByAgency = await OrganizationAffiliation.batchAgencyClinicalLearningFlags([...agencyIdsForFlags]);
     for (const o of list) {
       if (!o || !o.id) continue;
       const t = String(o.organization_type || '').toLowerCase();
@@ -89,10 +98,9 @@ async function attachAffiliationMeta(orgs) {
       }
       const agencyIdForCheck = t === 'agency' ? Number(o.id) : Number(o.affiliated_agency_id || o.id);
       if (agencyIdForCheck) {
-        o.hasClinicalOrg = await OrganizationAffiliation.agencyHasClinicalOrg(agencyIdForCheck);
-        o.hasLearningOrg = OrganizationAffiliation?.agencyHasLearningOrg
-          ? await OrganizationAffiliation.agencyHasLearningOrg(agencyIdForCheck)
-          : false;
+        const f = flagsByAgency.get(agencyIdForCheck);
+        o.hasClinicalOrg = !!f?.hasClinicalOrg;
+        o.hasLearningOrg = !!f?.hasLearningOrg;
       } else {
         o.hasClinicalOrg = false;
         o.hasLearningOrg = false;
@@ -100,13 +108,42 @@ async function attachAffiliationMeta(orgs) {
     }
 
     // For affiliations (e.g. Summit Stats Clubs): add parent_slug for admin routing, inherit branding when missing
+    const parentIds = [
+      ...new Set(
+        list.map((o) => (o && o.affiliated_agency_id ? Number(o.affiliated_agency_id) : 0)).filter((n) => n > 0)
+      )
+    ];
+    let parentById = new Map();
+    if (parentIds.length) {
+      try {
+        const ph = parentIds.map(() => '?').join(',');
+        const [prows] = await pool.execute(
+          `SELECT id, slug, portal_url, color_palette, theme_settings FROM agencies WHERE id IN (${ph})`,
+          parentIds
+        );
+        parentById = new Map((prows || []).map((p) => [Number(p.id), p]));
+      } catch {
+        parentById = new Map();
+      }
+    }
     for (const o of list) {
       if (!o || !o.affiliated_agency_id) continue;
       try {
-        const parent = await Agency.findById(o.affiliated_agency_id);
+        const parent = parentById.get(Number(o.affiliated_agency_id));
         if (parent) {
           o.parent_slug = parent.slug || parent.portal_url || null;
-          const hasPalette = o.color_palette && (typeof o.color_palette === 'string' ? (() => { try { const p = JSON.parse(o.color_palette); return p && (p.primary || p.secondary || p.accent); } catch { return false; } })() : (o.color_palette?.primary || o.color_palette?.secondary || o.color_palette?.accent));
+          const hasPalette =
+            o.color_palette &&
+            (typeof o.color_palette === 'string'
+              ? (() => {
+                  try {
+                    const p = JSON.parse(o.color_palette);
+                    return p && (p.primary || p.secondary || p.accent);
+                  } catch {
+                    return false;
+                  }
+                })()
+              : o.color_palette?.primary || o.color_palette?.secondary || o.color_palette?.accent);
           if (!hasPalette && parent.color_palette) o.color_palette = parent.color_palette;
           if (!o.theme_settings && parent.theme_settings) o.theme_settings = parent.theme_settings;
         }

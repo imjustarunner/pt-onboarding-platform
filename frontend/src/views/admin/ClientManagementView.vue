@@ -35,6 +35,15 @@
         >
           {{ rolloverWorking ? 'Working…' : 'Reset Documentation…' }}
         </button>
+        <button
+          v-if="isSuperAdmin && usingServerPagination"
+          @click="showHiddenTenantsModal = true"
+          class="btn btn-secondary btn-sm"
+          title="Configure which tenants show in the platform-wide client list"
+          type="button"
+        >
+          Tenant Visibility
+        </button>
         <button @click="openCreateClientModal" class="btn btn-primary">Create Client</button>
       </div>
     </div>
@@ -46,16 +55,56 @@
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search by client code..."
+          placeholder="Search clients..."
           class="search-input"
           @input="onSearchInput"
           @keydown.enter.prevent="applyFilters"
           data-tour="clients-search"
         />
-        <select v-model="clientStatusFilter" @change="applyFilters" class="filter-select">
+        <!-- Display mode toggle -->
+        <div class="display-mode-toggle" title="Toggle how clients are identified in the table">
+          <button
+            type="button"
+            :class="['display-mode-btn', { active: displayMode === 'initials' }]"
+            @click="displayMode = 'initials'; applyFilters()"
+            title="Show initials only (private)"
+          >Initials</button>
+          <button
+            type="button"
+            :class="['display-mode-btn', { active: displayMode === 'full_name' }]"
+            @click="displayMode = 'full_name'; applyFilters()"
+            title="Show full name"
+          >Name</button>
+          <button
+            type="button"
+            :class="['display-mode-btn', { active: displayMode === 'code' }]"
+            @click="displayMode = 'code'; applyFilters()"
+            title="Show client code"
+          >Code</button>
+        </div>
+        <select
+          v-if="usingServerPagination"
+          v-model="platformTenantFilter"
+          @change="handlePlatformTenantChange"
+          class="filter-select"
+        >
+          <option value="">All Tenants</option>
+          <option v-for="tenant in availableTenantFilters" :key="tenant.id" :value="String(tenant.id)">
+            {{ tenant.name }}
+          </option>
+        </select>
+        <!-- Per-agency custom statuses when a tenant is scoped -->
+        <select v-if="clientStatuses.length > 0" v-model="clientStatusFilter" @change="applyFilters" class="filter-select">
           <option value="">All Client Statuses</option>
           <option v-for="s in clientStatuses" :key="s.id" :value="String(s.id)">
             {{ s.label }}
+          </option>
+        </select>
+        <!-- Workflow status filter: shown in platform mode (no per-agency statuses loaded) or always as a secondary filter -->
+        <select v-model="workflowStatusFilter" @change="applyFilters" class="filter-select">
+          <option value="">All Workflow Statuses</option>
+          <option v-for="ws in WORKFLOW_STATUS_OPTIONS" :key="ws.value" :value="ws.value">
+            {{ ws.label }}
           </option>
         </select>
         <div v-if="showSchoolSearch" class="school-search">
@@ -110,8 +159,8 @@
         <select v-model="sortBy" @change="applyFilters" class="filter-select">
           <option value="submission_date-desc">Sort: Submission Date (Newest)</option>
           <option value="submission_date-asc">Sort: Submission Date (Oldest)</option>
-          <option value="initials-asc">Sort: Initials (A-Z)</option>
-          <option value="initials-desc">Sort: Initials (Z-A)</option>
+          <option value="initials-asc">Sort: Initials / Name (A-Z)</option>
+          <option value="initials-desc">Sort: Initials / Name (Z-A)</option>
           <option value="organization_name-asc">Sort: Organization (A-Z)</option>
           <option value="organization_name-desc">Sort: Organization (Z-A)</option>
           <option value="district_name-asc">Sort: District (A-Z)</option>
@@ -161,7 +210,7 @@
       <div class="pagination-bar" data-tour="clients-pagination">
         <div class="pagination-left">
           <span class="pagination-meta">
-            Showing {{ pagedClients.length }} of {{ filteredClients.length }}
+            Showing {{ pagedClients.length }} of {{ totalCountForDisplay }}
           </span>
           <select v-model="pageSize" class="filter-select page-size">
             <option :value="25">25 / page</option>
@@ -260,7 +309,7 @@
             <th style="width: 34px;">
               <input type="checkbox" :checked="allPageSelected" @change.stop="toggleSelectAllPage($event)" />
             </th>
-            <th>Initials</th>
+            <th>{{ clientDisplayLabel }}</th>
             <th v-if="columnPrefs.affiliation">Affiliation</th>
             <th v-if="columnPrefs.clientStatus">Client Status</th>
             <th v-if="columnPrefs.provider">Provider</th>
@@ -281,7 +330,7 @@
             <td class="select-cell" @click.stop>
               <input type="checkbox" :checked="selectedIds.has(client.id)" @change.stop="toggleSelected(client.id)" />
             </td>
-            <td>{{ client.initials }}</td>
+            <td class="initials-cell">{{ getClientDisplay(client) }}</td>
             <td v-if="columnPrefs.affiliation">
               <button
                 v-if="client.organization_slug"
@@ -319,21 +368,6 @@
         </tbody>
       </table>
     </div>
-
-    <!-- Client Detail Panel -->
-    <ClientDetailPanel
-      v-if="selectedClient"
-      :key="String(selectedClient?.id || '')"
-      :client="selectedClient"
-      :initial-tab="clientDetailTab"
-      :initial-document-id="Number(route.query?.documentId) || null"
-      :current-client-index="selectedClientIndex"
-      :navigation-count="filteredClients.length"
-      @navigate="navigateClientDetail"
-      @tab-change="handleClientDetailTabChange"
-      @close="closeClientDetail"
-      @updated="handleClientUpdated"
-    />
 
     <!-- Create Client Modal -->
     <div v-if="showCreateModal" class="modal-overlay" @click.self="closeCreateModal">
@@ -778,6 +812,34 @@
       @close="showBulkImportModal = false"
       @imported="handleBulkImported"
     />
+
+    <!-- Superadmin: Hidden Tenants Settings Modal -->
+    <div v-if="showHiddenTenantsModal" class="modal-overlay" @click.self="showHiddenTenantsModal = false">
+      <div class="modal-content" @click.stop style="max-width: 480px;">
+        <h3 style="margin-bottom: 4px;">Platform Tenant Visibility</h3>
+        <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">
+          Choose which tenants appear in the platform-wide client list. Hidden tenants are excluded by default; you can still filter to them individually.
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto;">
+          <label
+            v-for="tenant in allTenantFilters"
+            :key="tenant.id"
+            class="columns-item"
+            style="padding: 8px 10px; border-radius: 8px; background: var(--bg-alt);"
+          >
+            <input
+              type="checkbox"
+              :checked="!hiddenTenantIds.has(Number(tenant.id))"
+              @change="toggleHiddenTenant(tenant.id, $event)"
+            />
+            <span style="font-weight: 500;">{{ tenant.name }}</span>
+          </label>
+        </div>
+        <div class="modal-actions" style="margin-top: 16px; justify-content: flex-end;">
+          <button type="button" class="btn btn-secondary" @click="showHiddenTenantsModal = false">Done</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -787,14 +849,19 @@ import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
-import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import BulkClientImporter from '../../components/admin/BulkClientImporter.vue';
 import { STANDARD_GRADE_SELECT_OPTIONS, normalizeGradeForSave } from '../../utils/clientGrade.js';
+import { useRouteTenantAgencyId } from '../../composables/useRouteTenantAgencyId.js';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const router = useRouter();
 const route = useRoute();
+const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+const tenantSourceOrganizations = computed(() => (
+  isSuperAdmin.value ? (agencyStore.agencies || []) : (agencyStore.userAgencies || [])
+));
+const { routeTenantAgencyId } = useRouteTenantAgencyId(route, tenantSourceOrganizations);
 
 const canBackofficeEdit = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
@@ -850,12 +917,40 @@ const loading = ref(false);
 const error = ref('');
 const searchQuery = ref('');
 const clientStatusFilter = ref('');
+const workflowStatusFilter = ref('');
 const organizationFilter = ref('');
 const providerFilter = ref('');
 const skillsOnly = ref(false);
 const sortBy = ref('submission_date-desc');
-const selectedClient = ref(null);
-const clientDetailTab = ref(String(route.query?.tab || ''));
+
+// Display mode: 'initials' (default/private), 'full_name', 'code'
+const DISPLAY_MODE_STORAGE_KEY = `cmv_display_mode_v1_${authStore.user?.id || 'anon'}`;
+const displayMode = ref(
+  (() => { try { return localStorage.getItem(DISPLAY_MODE_STORAGE_KEY) || 'initials'; } catch { return 'initials'; } })()
+);
+watch(() => displayMode.value, (v) => {
+  try { localStorage.setItem(DISPLAY_MODE_STORAGE_KEY, v); } catch { /* ignore */ }
+});
+const clientDisplayLabel = computed(() => {
+  if (displayMode.value === 'full_name') return 'Name';
+  if (displayMode.value === 'code') return 'Code';
+  return 'Initials';
+});
+const getClientDisplay = (client) => {
+  if (displayMode.value === 'full_name') return client.full_name || client.initials || '-';
+  if (displayMode.value === 'code') return client.identifier_code || client.initials || '-';
+  return client.initials || '-';
+};
+
+const WORKFLOW_STATUS_OPTIONS = [
+  { value: 'PACKET', label: 'Packet' },
+  { value: 'SCREENER', label: 'Screener' },
+  { value: 'RETURNING', label: 'Returning' },
+  { value: 'PENDING_REVIEW', label: 'Pending Review' },
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'ON_HOLD', label: 'On Hold' },
+  { value: 'DECLINED', label: 'Declined' }
+];
 const showCreateModal = ref(false);
 const openCreateClientModal = async () => {
   showCreateModal.value = true;
@@ -1043,12 +1138,15 @@ let searchDebounceTimer = null;
 const onSearchInput = () => {
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
   searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1;
     fetchClients();
   }, 250);
 };
 
 const currentPage = ref(1);
 const pageSize = ref(50);
+const platformTenantFilter = ref('');
+const serverTotal = ref(0);
 
 // Bulk selection + actions
 const selectedIds = ref(new Set());
@@ -1083,7 +1181,13 @@ const dupesMatches = ref([]);
 const dupesForNewClient = ref(null);
 
 const activeAgencyId = computed(() => {
+  if (routeTenantAgencyId.value) return routeTenantAgencyId.value;
+
   const current = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
+  if (!current?.id) {
+    // Platform mode for super-admin is explicit: no current agency means "all tenants".
+    if (isSuperAdmin.value) return null;
+  }
   const currentType = String(current?.organization_type || current?.organizationType || 'agency').toLowerCase();
 
   // Direct agency: use its id
@@ -1104,9 +1208,73 @@ const activeAgencyId = computed(() => {
   }
 
   // Fallback: pick first agency-type org from the user's list
-  const fromStore = authStore.user?.role === 'super_admin' ? agencyStore.agencies : agencyStore.userAgencies;
+  const fromStore = isSuperAdmin.value ? agencyStore.agencies : agencyStore.userAgencies;
   const firstAgency = (fromStore || []).find((a) => String(a?.organization_type || a?.organizationType || 'agency').toLowerCase() === 'agency');
   return firstAgency?.id || null;
+});
+const usingServerPagination = computed(() => isSuperAdmin.value && !activeAgencyId.value);
+
+const effectiveAgencyScopeId = computed(() => {
+  if (activeAgencyId.value) return Number(activeAgencyId.value);
+  const platformTenantId = Number(platformTenantFilter.value || 0);
+  if (platformTenantId > 0) return platformTenantId;
+  return null;
+});
+
+const allTenantFilters = computed(() => {
+  return (tenantSourceOrganizations.value || [])
+    .filter((o) => String(o?.organization_type || o?.organizationType || 'agency').toLowerCase() === 'agency')
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+});
+
+// Hidden-tenant settings (super_admin, per-user, persisted in localStorage)
+const hiddenTenantsStorageKey = computed(() =>
+  `cmv_hidden_tenants_v1_${authStore.user?.id || 'anon'}`
+);
+const hiddenTenantIds = ref(new Set());
+const showHiddenTenantsModal = ref(false);
+
+const loadHiddenTenants = () => {
+  try {
+    const raw = localStorage.getItem(hiddenTenantsStorageKey.value);
+    const arr = raw ? JSON.parse(raw) : [];
+    hiddenTenantIds.value = new Set(Array.isArray(arr) ? arr.map(Number) : []);
+  } catch {
+    hiddenTenantIds.value = new Set();
+  }
+};
+
+const saveHiddenTenants = () => {
+  try {
+    localStorage.setItem(
+      hiddenTenantsStorageKey.value,
+      JSON.stringify(Array.from(hiddenTenantIds.value))
+    );
+  } catch {
+    // ignore
+  }
+};
+
+const toggleHiddenTenant = (id, event) => {
+  const num = Number(id);
+  const visible = !!event?.target?.checked;
+  const next = new Set(hiddenTenantIds.value);
+  if (visible) {
+    next.delete(num);
+  } else {
+    next.add(num);
+  }
+  hiddenTenantIds.value = next;
+  saveHiddenTenants();
+  // Refetch so the list updates immediately
+  currentPage.value = 1;
+  fetchClients();
+};
+
+const availableTenantFilters = computed(() => {
+  return allTenantFilters.value.filter(
+    (o) => !hiddenTenantIds.value.has(Number(o.id))
+  );
 });
 
 // Create-client modal: allow selecting agency when user has multiple agencies
@@ -1371,18 +1539,35 @@ const fetchClients = async () => {
     error.value = '';
     
     const params = new URLSearchParams();
-    // Always scope to the active agency so we don't load every agency's clients (can be huge and slow).
-    if (activeAgencyId.value) params.append('agency_id', String(activeAgencyId.value));
+    const scopedAgencyId = effectiveAgencyScopeId.value;
+    if (scopedAgencyId) params.append('agency_id', String(scopedAgencyId));
     // Archived clients are managed in Settings -> Archive, not in the main client area.
     params.append('includeArchived', 'false');
     if (clientStatusFilter.value) params.append('client_status_id', clientStatusFilter.value);
+    if (workflowStatusFilter.value) params.append('status', workflowStatusFilter.value);
     if (organizationFilter.value) params.append('organization_id', organizationFilter.value);
     if (providerFilter.value) params.append('provider_id', providerFilter.value);
     if (searchQuery.value) params.append('search', searchQuery.value);
     if (skillsOnly.value) params.append('skills', 'true');
+    if (usingServerPagination.value) {
+      params.append('paginate', 'true');
+      params.append('page', String(currentPage.value));
+      params.append('per_page', String(pageSize.value));
+      // When in full platform mode (no tenant filter chosen), exclude hidden tenants.
+      // If a specific tenant is selected, show it regardless of hidden status.
+      if (!scopedAgencyId && hiddenTenantIds.value.size > 0) {
+        const visibleIds = allTenantFilters.value
+          .map((t) => Number(t.id))
+          .filter((id) => !hiddenTenantIds.value.has(id));
+        if (visibleIds.length > 0) {
+          params.append('agency_ids', visibleIds.join(','));
+        }
+      }
+    }
 
     const response = await api.get(`/clients?${params.toString()}`);
-    const raw = response.data || [];
+    const payload = response.data || [];
+    const raw = Array.isArray(payload) ? payload : (payload.items || []);
     const orgById = new Map((linkedOrganizations.value || []).map((o) => [Number(o?.id), o]));
     clients.value = (Array.isArray(raw) ? raw : [])
       .filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED')
@@ -1395,7 +1580,11 @@ const fetchClients = async () => {
         district_name: org?.district_name || ''
       };
     });
-    currentPage.value = 1;
+    if (usingServerPagination.value) {
+      serverTotal.value = Number(payload?.total || 0);
+    } else {
+      serverTotal.value = clients.value.length;
+    }
   } catch (err) {
     console.error('Failed to fetch clients:', err);
     error.value = err.response?.data?.error?.message || 'Failed to load clients';
@@ -1406,7 +1595,7 @@ const fetchClients = async () => {
 
 const fetchClientStatuses = async () => {
   try {
-    const agencyId = activeAgencyId.value;
+    const agencyId = effectiveAgencyScopeId.value;
     if (!agencyId) {
       clientStatuses.value = [];
       return;
@@ -1420,7 +1609,7 @@ const fetchClientStatuses = async () => {
 
 const fetchProviders = async () => {
   try {
-    const agencyId = activeAgencyId.value;
+    const agencyId = effectiveAgencyScopeId.value;
     if (!agencyId) {
       availableProviders.value = [];
       return;
@@ -1433,7 +1622,7 @@ const fetchProviders = async () => {
 };
 
 const fetchProviderAssignmentsForOrg = async () => {
-  const agencyId = activeAgencyId.value;
+  const agencyId = effectiveAgencyScopeId.value;
   const orgId = Number(newClient.value?.organization_id);
   if (!agencyId || !orgId) {
     providerAssignmentsForOrg.value = [];
@@ -1458,7 +1647,7 @@ const fetchProviderAssignmentsForOrg = async () => {
 };
 
 const fetchDeliveryMethodsForSchool = async () => {
-  const agencyId = activeAgencyId.value;
+  const agencyId = effectiveAgencyScopeId.value;
   const orgId = Number(newClient.value?.organization_id);
   if (!agencyId || !orgId || !selectedOrgIsSchool.value) {
     deliveryMethods.value = [];
@@ -1481,8 +1670,15 @@ const filteredClients = computed(() => {
   // Apply sort
   const [sortField, sortOrder] = sortBy.value.split('-');
   filtered.sort((a, b) => {
-    let aVal = a[sortField];
-    let bVal = b[sortField];
+    let aVal, bVal;
+    if (sortField === 'initials') {
+      // Sort by the active display field
+      aVal = getClientDisplay(a);
+      bVal = getClientDisplay(b);
+    } else {
+      aVal = a[sortField];
+      bVal = b[sortField];
+    }
 
     if (sortField === 'submission_date' || sortField === 'last_activity_at') {
       aVal = parseDateForDisplay(aVal);
@@ -1503,18 +1699,24 @@ const filteredClients = computed(() => {
 });
 
 const totalPages = computed(() => {
+  if (usingServerPagination.value) {
+    const total = Number(serverTotal.value || 0);
+    return Math.max(1, Math.ceil(total / pageSize.value));
+  }
   return Math.max(1, Math.ceil(filteredClients.value.length / pageSize.value));
 });
 
 const pagedClients = computed(() => {
+  if (usingServerPagination.value) {
+    return filteredClients.value;
+  }
   const start = (currentPage.value - 1) * pageSize.value;
   return filteredClients.value.slice(start, start + pageSize.value);
 });
 
-const selectedClientIndex = computed(() => {
-  const currentId = Number(selectedClient.value?.id || 0);
-  if (!currentId) return -1;
-  return filteredClients.value.findIndex((client) => Number(client?.id || 0) === currentId);
+const totalCountForDisplay = computed(() => {
+  if (usingServerPagination.value) return Number(serverTotal.value || 0);
+  return filteredClients.value.length;
 });
 
 const allPageSelected = computed(() => {
@@ -1795,7 +1997,22 @@ const bulkSetClientStatus = async () => {
 };
 
 const applyFilters = () => {
+  currentPage.value = 1;
   fetchClients();
+};
+
+const handlePlatformTenantChange = async () => {
+  organizationFilter.value = '';
+  providerFilter.value = '';
+  clientStatusFilter.value = '';
+  workflowStatusFilter.value = '';
+  schoolSearchQuery.value = '';
+  schoolSearchOpen.value = false;
+  currentPage.value = 1;
+  await fetchLinkedOrganizations();
+  await fetchClientStatuses();
+  await fetchProviders();
+  await fetchClients();
 };
 
 const parseDateForDisplay = (dateValue) => {
@@ -1885,41 +2102,13 @@ const cancelEdit = () => {
 
 // Workflow editing removed; "status" is now treated as an internal archive flag.
 
+/** Full-page client profile (same pattern as admin user / provider profiles). */
 const openClientDetail = (client) => {
-  // Pass a fresh object so the modal remount/update path is stable (helps avoid rare
-  // Vue update issues during HMR or when switching clients quickly).
-  if (!selectedClient.value) {
-    clientDetailTab.value = String(route.query?.tab || '');
-  }
-  selectedClient.value = client ? { ...client } : null;
-};
-
-const closeClientDetail = () => {
-  selectedClient.value = null;
-  clientDetailTab.value = String(route.query?.tab || '');
-};
-
-const handleClientUpdated = (payload) => {
-  fetchClients();
-  // Keep the panel open for "light" updates (e.g., toggling Skills boolean)
-  if (payload?.keepOpen) {
-    if (payload?.client) selectedClient.value = payload.client;
-    return;
-  }
-  closeClientDetail();
-};
-
-const handleClientDetailTabChange = (tab) => {
-  clientDetailTab.value = String(tab || '');
-};
-
-const navigateClientDetail = ({ direction }) => {
-  const idx = selectedClientIndex.value;
-  if (idx < 0) return;
-  const nextIdx = String(direction || '').toLowerCase() === 'previous' ? idx - 1 : idx + 1;
-  const nextClient = filteredClients.value[nextIdx] || null;
-  if (!nextClient) return;
-  selectedClient.value = { ...nextClient };
+  const id = Number(client?.id || 0);
+  if (!id) return;
+  const orgSlug = String(route.params?.organizationSlug || '').trim();
+  const path = orgSlug ? `/${orgSlug}/admin/clients/${id}` : `/admin/clients/${id}`;
+  router.push({ path });
 };
 
 const createClient = async () => {
@@ -2066,32 +2255,37 @@ const handleBulkImported = () => {
   fetchClients();
 };
 
+/** Legacy ?clientId= deep links → canonical full-page profile URL. */
 const openClientFromQuery = async () => {
   const raw = route.query?.clientId;
   const id = raw ? parseInt(String(raw), 10) : null;
   if (!id) return;
+  const orgSlug = String(route.params?.organizationSlug || '').trim();
+  const path = orgSlug ? `/${orgSlug}/admin/clients/${id}` : `/admin/clients/${id}`;
+  const query = {};
+  const tab = String(route.query?.tab || '').trim();
+  if (tab) query.tab = tab;
+  const docId = Number(route.query?.documentId);
+  if (Number.isFinite(docId) && docId > 0) query.documentId = String(docId);
   try {
-    // Prefer already-loaded list, fallback to single fetch.
-    const fromList = (clients.value || []).find((c) => Number(c.id) === id) || null;
-    if (fromList) {
-      selectedClient.value = { ...fromList };
-      return;
-    }
-    const r = await api.get(`/clients/${id}`);
-    selectedClient.value = r.data ? { ...(r.data || {}) } : null;
+    await router.replace({ path, query: Object.keys(query).length ? query : {} });
   } catch (e) {
-    // Best-effort; don't block page load.
-    console.warn('Failed to open client from URL:', e?.response?.data?.error?.message || e.message);
+    console.warn('Failed to redirect client deep link:', e?.message || e);
   }
 };
 
 onMounted(async () => {
   loadColumnPrefs();
-  // Super admins need the full agency list for the Create Client agency dropdown.
-  if (authStore.user?.role === 'super_admin') {
-    await agencyStore.fetchAgencies();
+  if (isSuperAdmin.value) {
+    loadHiddenTenants();
   }
-  await agencyStore.fetchUserAgencies();
+  if (isSuperAdmin.value) {
+    // Super admins: fetchAgencies() already populates agencies + userAgencies is unused for them.
+    // Calling fetchUserAgencies() would incorrectly snap currentAgency back to a default tenant.
+    await agencyStore.fetchAgencies();
+  } else {
+    await agencyStore.fetchUserAgencies();
+  }
   // Default the create modal agency to the resolved active agency.
   if (!createAgencyId.value && activeAgencyId.value) {
     createAgencyId.value = String(activeAgencyId.value);
@@ -2180,14 +2374,33 @@ watch(() => route.query?.clientId, async () => {
   await openClientFromQuery();
 });
 
-// Refetch when active agency changes (e.g. user switches org in header, or agency resolves after mount)
+// Refetch when active agency scope changes (route slug or header tenant selection).
 watch(() => activeAgencyId.value, (newId, oldId) => {
-  if (newId && newId !== oldId) {
-    fetchLinkedOrganizations();
-    fetchClientStatuses();
-    fetchProviders();
-    fetchClients();
+  if (newId === oldId) return;
+  currentPage.value = 1;
+  if (!createAgencyId.value && newId) {
+    createAgencyId.value = String(newId);
   }
+  fetchLinkedOrganizations();
+  fetchClientStatuses();
+  fetchProviders();
+  fetchClients();
+});
+
+watch(() => pageSize.value, (newSize, oldSize) => {
+  if (!usingServerPagination.value) return;
+  if (newSize === oldSize) return;
+  if (currentPage.value !== 1) {
+    currentPage.value = 1;
+    return;
+  }
+  fetchClients();
+});
+
+watch(() => currentPage.value, (newPage, oldPage) => {
+  if (!usingServerPagination.value) return;
+  if (newPage === oldPage) return;
+  fetchClients();
 });
 </script>
 
@@ -2259,6 +2472,33 @@ watch(() => activeAgencyId.value, (newId, oldId) => {
   border-radius: 6px;
   font-size: 14px;
   min-width: 150px;
+}
+
+.display-mode-toggle {
+  display: flex;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.display-mode-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg-alt, #f9f9f9);
+  border: none;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--text-secondary, #666);
+  transition: background 0.15s, color 0.15s;
+}
+.display-mode-btn:last-child { border-right: none; }
+.display-mode-btn.active {
+  background: var(--color-primary, #2d6a4f);
+  color: #fff;
+}
+.display-mode-btn:hover:not(.active) {
+  background: var(--border, #e0e0e0);
 }
 
 .school-search {
@@ -2446,6 +2686,13 @@ watch(() => activeAgencyId.value, (newId, oldId) => {
 
 .client-row:hover {
   background: var(--bg-alt);
+}
+
+.client-row .initials-cell {
+  color: var(--primary, #15803d);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .actions-cell {

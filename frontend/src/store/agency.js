@@ -8,6 +8,8 @@ export const useAgencyStore = defineStore('agency', () => {
   const userAgencies = ref([]);
   const tracks = ref([]);
   let userAgenciesInFlight = null;
+  /** Deduplicate parallel GET /agencies (super_admin); avoids 3× 300KB+ responses on one screen load. */
+  let agenciesAllInFlight = null;
   const safeJsonParse = (raw, fallback) => {
     try {
       return JSON.parse(raw);
@@ -16,6 +18,13 @@ export const useAgencyStore = defineStore('agency', () => {
     }
   };
   const currentAgency = ref(safeJsonParse(localStorage.getItem('currentAgency') || 'null', null));
+  /**
+   * platformMode: true when the super-admin explicitly chose "Platform" (no tenant scoping).
+   * Prevents fetchUserAgencies from snapping currentAgency back to a default tenant.
+   * Persisted in sessionStorage so it survives within-tab navigations but resets on new tab/reload
+   * (which re-applies onMounted logic that resets super_admin to platform by default anyway).
+   */
+  const platformMode = ref(sessionStorage.getItem('__pt_platform_mode__') === '1');
 
   const hydrateAgencyById = async (agencyId) => {
     const id = Number(agencyId);
@@ -78,10 +87,20 @@ export const useAgencyStore = defineStore('agency', () => {
   const setCurrentAgency = (agency) => {
     currentAgency.value = agency;
     localStorage.setItem('currentAgency', JSON.stringify(agency));
-    // Best-effort: hydrate with full agency record (includes icon paths + theme settings).
     if (agency?.id) {
+      // Switching to a specific tenant clears explicit platform mode.
+      platformMode.value = false;
+      sessionStorage.removeItem('__pt_platform_mode__');
       hydrateAgencyById(agency.id);
     }
+  };
+
+  /** Explicitly enter platform mode (super-admin only). Clears currentAgency and prevents snap-back. */
+  const setPlatformMode = () => {
+    platformMode.value = true;
+    sessionStorage.setItem('__pt_platform_mode__', '1');
+    currentAgency.value = null;
+    localStorage.setItem('currentAgency', JSON.stringify(null));
   };
 
   const fetchAgencies = async (userId = null) => {
@@ -98,27 +117,34 @@ export const useAgencyStore = defineStore('agency', () => {
           setCurrentAgency(agencies.value[0]);
         }
       } else {
-        // For admins/super admins, fetch agencies.
-        const url = '/agencies';
-        const cached = getCached(url);
-        const response = cached ? { data: cached } : await api.get(url);
-        agencies.value = response.data;
-        if (!cached) setCached(url, {}, response.data);
+        if (!agenciesAllInFlight) {
+          agenciesAllInFlight = (async () => {
+            const url = '/agencies';
+            const cached = getCached(url);
+            const response = cached ? { data: cached } : await api.get(url);
+            agencies.value = response.data;
+            if (!cached) setCached(url, {}, response.data);
 
-        // If this user is NOT a super_admin, treat this as their user-agency list too,
-        // and ensure we set a default current agency for downstream UI (e.g. Quick Actions icon overrides).
-        try {
-          const { useAuthStore } = await import('./auth');
-          const authStore = useAuthStore();
-          const role = String(authStore.user?.role || '').toLowerCase();
-          if (role && role !== 'super_admin') {
-            userAgencies.value = response.data;
-            if (!currentAgency.value && userAgencies.value.length > 0) {
-              setCurrentAgency(userAgencies.value[0]);
+            try {
+              const { useAuthStore } = await import('./auth');
+              const authStore = useAuthStore();
+              const role = String(authStore.user?.role || '').toLowerCase();
+              if (role && role !== 'super_admin') {
+                userAgencies.value = response.data;
+                if (!currentAgency.value && !platformMode.value && userAgencies.value.length > 0) {
+                  setCurrentAgency(userAgencies.value[0]);
+                }
+              }
+            } catch {
+              // ignore; best-effort
             }
-          }
-        } catch {
-          // ignore; best-effort
+            return response.data;
+          })();
+        }
+        try {
+          await agenciesAllInFlight;
+        } finally {
+          agenciesAllInFlight = null;
         }
       }
 
@@ -217,7 +243,8 @@ export const useAgencyStore = defineStore('agency', () => {
         
         // School staff should default to a SCHOOL org (not the parent agency).
         // Users with affiliation (SSC) access should default to the club, not the platform.
-        if (userAgencies.value.length > 0) {
+        // Super-admins: never auto-override — they manage currentAgency explicitly via the brand menu.
+        if (userAgencies.value.length > 0 && roleNorm !== 'super_admin' && !platformMode.value) {
           const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
           const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
           const isAffiliation = currentType === 'affiliation';
@@ -245,7 +272,8 @@ export const useAgencyStore = defineStore('agency', () => {
         
         // School staff should default to a SCHOOL org (not the parent agency).
         // Users with affiliation (SSC) access should default to the club, not the platform.
-        if (userAgencies.value.length > 0) {
+        // Super-admins: never auto-override — they manage currentAgency explicitly via the brand menu.
+        if (userAgencies.value.length > 0 && roleNorm !== 'super_admin' && !platformMode.value) {
           const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
           const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
           const isAffiliation = currentType === 'affiliation';
@@ -330,8 +358,10 @@ export const useAgencyStore = defineStore('agency', () => {
     userAgencies,
     tracks,
     currentAgency,
+    platformMode,
     getAgencyTracks,
     setCurrentAgency,
+    setPlatformMode,
     hydrateAgencyById,
     fetchAgencies,
     fetchUserAgencies,

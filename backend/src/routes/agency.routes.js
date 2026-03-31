@@ -43,6 +43,12 @@ import {
   closeCompanyEventVoting,
   sendCompanyEventVotingSms,
   sendCompanyEventDirectMessage,
+  listCompanyEventNeedList,
+  createCompanyEventNeedListItem,
+  patchCompanyEventNeedListItem,
+  deleteCompanyEventNeedListItem,
+  sendCompanyEventInvitations,
+  saveCompanyEventSmsDraft,
   listCompanyEventTemplates,
   createCompanyEventTemplate,
   updateCompanyEventTemplate,
@@ -487,6 +493,13 @@ router.get('/:id/company-events/:eventId/responses.csv', authenticate, exportCom
 router.post('/:id/company-events/:eventId/close-voting', authenticate, closeCompanyEventVoting);
 router.post('/:id/company-events/:eventId/send-sms-vote', authenticate, sendCompanyEventVotingSms);
 router.post('/:id/company-events/:eventId/send-direct-message', authenticate, sendCompanyEventDirectMessage);
+router.get('/:id/company-events/:eventId/need-list', authenticate, listCompanyEventNeedList);
+router.post('/:id/company-events/:eventId/need-list', authenticate, createCompanyEventNeedListItem);
+router.patch('/:id/company-events/:eventId/need-list/:itemId', authenticate, patchCompanyEventNeedListItem);
+router.delete('/:id/company-events/:eventId/need-list/:itemId', authenticate, deleteCompanyEventNeedListItem);
+router.post('/:id/company-events/:eventId/send-invitations', authenticate, sendCompanyEventInvitations);
+router.post('/:id/company-events/:eventId/sms-compose', authenticate, saveCompanyEventSmsDraft);
+router.post('/:id/company-events/:eventId/sms-schedule', authenticate, saveCompanyEventSmsDraft);
 router.get('/:id/company-events/templates', authenticate, listCompanyEventTemplates);
 router.post('/:id/company-events/templates', authenticate, createCompanyEventTemplate);
 router.put('/:id/company-events/templates/:templateId', authenticate, updateCompanyEventTemplate);

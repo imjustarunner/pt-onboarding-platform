@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, reactive } from 'vue';
 import { useAgencyStore } from './agency';
 import { useAuthStore } from './auth';
 import { getPortalUrl } from '../utils/subdomain';
@@ -118,21 +118,53 @@ export const useBrandingStore = defineStore('branding', () => {
   // For BYOD/custom domains we resolve the portal identifier from the request host via backend.
   const portalHostPortalUrl = ref(null); // e.g., "agency2" (portal_url or slug)
   const portalAgency = ref(null);
-  
+
   // Theme settings from portal agency
   const portalTheme = ref(null);
 
   /**
-   * Portal theme from the app host (e.g. app.itsco.health) is correct for unauthenticated
-   * pages. Once a user has an explicit org context (agency switcher, persisted currentAgency,
-   * or router sync), that org’s branding must drive colors/fonts — otherwise host portal
-   * colors stay stuck while logos/icons update from currentAgency (no refresh needed).
+   * Reactive slug for the CURRENT ROUTE's organization prefix (e.g. "nlu", "itsco", "").
+   * Set by the router guard's beforeEach on EVERY navigation so computeds re-fire correctly.
+   * Using window.location.pathname is NOT reactive — that's why colors only changed once.
+   */
+  const activeRouteSlug = ref('');
+  const setActiveRouteSlug = (slug) => {
+    activeRouteSlug.value = String(slug || '').trim().toLowerCase();
+  };
+
+  /**
+   * Palette cache: slug → colorPalette object.
+   * Using Vue reactive() so that reading _palettesBySlug[slug] inside a computed
+   * automatically creates a dependency — no manual version counter needed.
+   * Persists across navigations: once fetched for a slug, any subsequent swap to
+   * that slug resolves instantly without waiting for the async fetch.
+   */
+  const _palettesBySlug = reactive({});  // slug → colorPalette
+  const _logosBySlug = reactive({});     // slug → logoUrl
+
+  /**
+   * Returns true when portalAgency's theme should override currentAgency.
+   *  1. No portal agency loaded             → false
+   *  2. Not authenticated                    → true  (portal/login page)
+   *  3. activeRouteSlug matches portalSlug   → true  (e.g. /nlu/... with nlu portal loaded)
+   *  4. activeRouteSlug set but no match    → false  (portal data is stale from previous nav)
+   *  5. No route slug (platform/unscoped)    → true only when no currentAgency set
    */
   const shouldApplyPortalAgencyThemeFirst = () => {
     if (!portalAgency.value) return false;
     if (!authStore.isAuthenticated) return true;
-    if (agencyStore.currentAgency) return false;
-    return true;
+
+    const routeSlug = activeRouteSlug.value; // reactive — updates on every navigation ✓
+    const portalSlug = String(portalAgency.value.slug || '').trim().toLowerCase();
+
+    if (routeSlug) {
+      // Route slug is the authority: portal wins only when slugs match.
+      return !!(portalSlug && routeSlug === portalSlug);
+    }
+
+    // No slug-scoped route (platform mode).
+    if (!agencyStore.currentAgency) return true;
+    return false;
   };
   
   // Fetch platform branding
@@ -264,8 +296,25 @@ export const useBrandingStore = defineStore('branding', () => {
       colorPalette: data.colorPalette || {},
       logoUrl: data.logoUrl,
       themeSettings: data.themeSettings || {},
-      terminologySettings: data.terminologySettings || {}
+      terminologySettings: data.terminologySettings || {},
+      slug: String(portalUrl || '').trim().toLowerCase()
     };
+
+    // Persist palette + logo by slug so any future navigation to this slug
+    // resolves colors immediately from _palettesBySlug without waiting for a fetch.
+    // Because _palettesBySlug is reactive(), Vue detects new keys being set and
+    // automatically invalidates any computed that read _palettesBySlug[slugKey].
+    const slugKey = String(portalUrl || '').trim().toLowerCase();
+    if (slugKey) {
+      const cp = data.colorPalette || {};
+      if (Object.keys(cp).length > 0) {
+        _palettesBySlug[slugKey] = cp;
+      }
+      if (data.logoUrl) {
+        _logosBySlug[slugKey] = data.logoUrl;
+      }
+    }
+
     applyTheme(data);
     const portalNorm = String(portalUrl || '').trim().toLowerCase();
     if (authStore.isAuthenticated && agencyStore.currentAgency && !shouldApplyPortalAgencyThemeFirst()) {
@@ -388,6 +437,19 @@ export const useBrandingStore = defineStore('branding', () => {
     if (!authStore.isAuthenticated) return;
     const a = agencyStore.currentAgency;
     if (!a?.id) return;
+    // Guard: if we're on a slug-prefixed route for a DIFFERENT org (e.g. superadmin on
+    // /nlu/admin/... while currentAgency is still ITSCO), do NOT clobber the route's theme.
+    const routeSlug = activeRouteSlug.value;
+    if (routeSlug) {
+      const agSlug = String(a.slug || a.portal_url || a.portalUrl || '').trim().toLowerCase();
+      if (agSlug && agSlug !== routeSlug) return;
+    }
+    // Legacy guard: also check portalAgency.slug mismatch.
+    if (portalAgency.value?.slug) {
+      const agSlug = String(a.slug || a.portal_url || a.portalUrl || '').trim().toLowerCase();
+      const pSlug = String(portalAgency.value.slug).trim().toLowerCase();
+      if (agSlug && pSlug && agSlug !== pSlug) return;
+    }
     let colorPalette = {};
     let themeSettings = {};
     try {
@@ -425,7 +487,8 @@ export const useBrandingStore = defineStore('branding', () => {
       colorPalette: themeData.colorPalette || {},
       logoUrl: themeData.logoUrl || null,
       themeSettings: themeData.themeSettings || {},
-      terminologySettings: themeData.terminologySettings || {}
+      terminologySettings: themeData.terminologySettings || {},
+      slug: portalAgency.value?.slug || portalHostPortalUrl.value || null
     };
     applyTheme(themeData);
   };
@@ -541,77 +604,69 @@ export const useBrandingStore = defineStore('branding', () => {
     return portalThemeInitPromise;
   };
 
+  /**
+   * Resolve which agency's palette to use for color computeds.
+   * Priority (highest → lowest):
+   *   1. portalAgency (fetched from route slug) when slug matches current URL
+   *   2. currentAgency (the agency the user explicitly selected in the brand switcher)
+   *   3. platformBranding fallback
+   * This ensures /nlu/... always shows NLU colors even when currentAgency is ITSCO.
+   */
+  const _resolveActivePalette = () => {
+    const routeSlug = activeRouteSlug.value;
+
+    // 1. Route-slug cached palette — reactive because _palettesBySlug is reactive().
+    //    Persists across swaps; no race with portalAgency.slug.
+    if (routeSlug) {
+      const cached = _palettesBySlug[routeSlug];
+      if (cached && typeof cached === 'object' && Object.keys(cached).length > 0) {
+        return { palette: cached, source: 'portal' };
+      }
+    }
+
+    // 2. currentAgency palette — available immediately after selectAgencyBrand hydrates.
+    //    API may return color_palette (snake) OR colorPalette (camel) depending on endpoint.
+    const agency = agencyStore.currentAgency;
+    if (agency) {
+      const raw = agency.color_palette ?? agency.colorPalette;
+      if (raw) {
+        try {
+          const p = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          if (p && typeof p === 'object' && Object.keys(p).length > 0) {
+            return { palette: p, source: 'currentAgency' };
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
+    return { palette: null, source: 'platform' };
+  };
+
   // Primary color based on branding mode
   const primaryColor = computed(() => {
-    // Portal theme takes precedence (for login page and subdomain portals)
-    if (portalAgency.value?.colorPalette?.primary && shouldApplyPortalAgencyThemeFirst()) {
-      return portalAgency.value.colorPalette.primary;
-    }
-    // Always use platform branding if user is not authenticated (e.g., on login page)
-    if (!authStore.isAuthenticated) {
-      return platformBranding.value?.primary_color || '#C69A2B'; // Auric Gold
-    }
-    // Use agency colors when an agency context is selected (including super_admin).
-    if (agencyStore.currentAgency?.color_palette) {
-      const palette = typeof agencyStore.currentAgency.color_palette === 'string' 
-        ? JSON.parse(agencyStore.currentAgency.color_palette)
-        : agencyStore.currentAgency.color_palette;
-      return palette.primary || (platformBranding.value?.primary_color || '#C69A2B');
-    }
-    return platformBranding.value?.primary_color || '#C69A2B'; // Default
+    if (!authStore.isAuthenticated) return platformBranding.value?.primary_color || '#C69A2B';
+    const { palette } = _resolveActivePalette();
+    return palette?.primary || platformBranding.value?.primary_color || '#C69A2B';
   });
 
   // Secondary color based on branding mode
   const secondaryColor = computed(() => {
-    // Portal theme takes precedence
-    if (portalAgency.value?.colorPalette?.secondary && shouldApplyPortalAgencyThemeFirst()) {
-      return portalAgency.value.colorPalette.secondary;
-    }
-    // Always use platform branding if user is not authenticated (e.g., on login page)
-    if (!authStore.isAuthenticated) {
-      return platformBranding.value?.secondary_color || '#1D2633'; // Deep Ink
-    }
-    // Use agency colors when an agency context is selected (including super_admin).
-    if (agencyStore.currentAgency?.color_palette) {
-      const palette = typeof agencyStore.currentAgency.color_palette === 'string' 
-        ? JSON.parse(agencyStore.currentAgency.color_palette)
-        : agencyStore.currentAgency.color_palette;
-      return palette.secondary || (platformBranding.value?.secondary_color || '#1D2633');
-    }
-    return platformBranding.value?.secondary_color || '#1D2633';
+    if (!authStore.isAuthenticated) return platformBranding.value?.secondary_color || '#1D2633';
+    const { palette } = _resolveActivePalette();
+    return palette?.secondary || platformBranding.value?.secondary_color || '#1D2633';
   });
   
   // Accent color based on branding mode
   const accentColor = computed(() => {
-    // Portal theme takes precedence
-    if (portalAgency.value?.colorPalette?.accent && shouldApplyPortalAgencyThemeFirst()) {
-      return portalAgency.value.colorPalette.accent;
-    }
-    // Always use platform branding if user is not authenticated (e.g., on login page)
-    if (!authStore.isAuthenticated) {
-      return platformBranding.value?.accent_color || '#3A4C6B'; // Slate Blue
-    }
-    // Use agency colors when an agency context is selected (including super_admin).
-    if (agencyStore.currentAgency?.color_palette) {
-      const palette = typeof agencyStore.currentAgency.color_palette === 'string' 
-        ? JSON.parse(agencyStore.currentAgency.color_palette)
-        : agencyStore.currentAgency.color_palette;
-      return palette.accent || (platformBranding.value?.accent_color || '#3A4C6B');
-    }
-    return platformBranding.value?.accent_color || '#3A4C6B';
+    if (!authStore.isAuthenticated) return platformBranding.value?.accent_color || '#3A4C6B';
+    const { palette } = _resolveActivePalette();
+    return palette?.accent || palette?.primary || platformBranding.value?.accent_color || '#3A4C6B';
   });
 
   // Helper: get parsed palette from agency or portal (agency/portal overrides platform)
   const getPalette = () => {
-    const p = portalAgency.value?.colorPalette;
-    if (p && Object.keys(p).length > 0 && shouldApplyPortalAgencyThemeFirst()) return p;
-    const agency = agencyStore.currentAgency;
-    if (agency?.color_palette) {
-      return typeof agency.color_palette === 'string'
-        ? (() => { try { return JSON.parse(agency.color_palette); } catch { return {}; } })()
-        : (agency.color_palette || {});
-    }
-    return null;
+    const { palette } = _resolveActivePalette();
+    return palette;
   };
 
   // Extended palette (optional overrides; fallbacks preserve existing display)
@@ -687,7 +742,13 @@ export const useBrandingStore = defineStore('branding', () => {
 
   // Logo URL: Portal (when applicable), then selected org, then platform template for super_admin
   const logoUrl = computed(() => {
-    if (portalAgency.value?.logoUrl && shouldApplyPortalAgencyThemeFirst()) {
+    const routeSlug = activeRouteSlug.value;
+    // _logosBySlug is reactive() so reading [routeSlug] here creates a dep automatically.
+    if (routeSlug && _logosBySlug[routeSlug]) {
+      return _logosBySlug[routeSlug];
+    }
+    // Legacy fallback: portalAgency (kept for non-slug routes / portal host context)
+    if (portalAgency.value?.logoUrl && !routeSlug) {
       return portalAgency.value.logoUrl;
     }
     const agency = agencyStore.currentAgency;
@@ -766,7 +827,13 @@ export const useBrandingStore = defineStore('branding', () => {
 
   // Display logo URL (portal → selected org → platform template / login)
   const displayLogoUrl = computed(() => {
-    if (portalAgency.value?.logoUrl && shouldApplyPortalAgencyThemeFirst()) {
+    const routeSlug = activeRouteSlug.value;
+    // _logosBySlug is reactive() so reading [routeSlug] here creates a dep automatically.
+    if (routeSlug && _logosBySlug[routeSlug]) {
+      return addCacheBuster(_logosBySlug[routeSlug]);
+    }
+    // Legacy fallback: portalAgency (kept for non-slug routes / portal host context)
+    if (portalAgency.value?.logoUrl && !routeSlug) {
       return addCacheBuster(portalAgency.value.logoUrl);
     }
     const agency = agencyStore.currentAgency;
@@ -1235,7 +1302,10 @@ export const useBrandingStore = defineStore('branding', () => {
     prefetchIconIds,
     iconUrlById,
     iconFilePathById,
-    setPlatformBrandingFromResponse
+    setPlatformBrandingFromResponse,
+    // Route-scoped branding (set by router guard on every navigation)
+    activeRouteSlug,
+    setActiveRouteSlug
   };
 });
 

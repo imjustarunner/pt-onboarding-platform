@@ -20,13 +20,13 @@
             </button>
             <div class="nav-brand">
               <div class="brand-switcher" @click.stop>
-                <button class="brand-trigger" @click="toggleBrandMenu" :title="`Switch Brand (${currentBrandLabel})`">
+                <button class="brand-trigger" @click="toggleBrandMenu" :title="`Switch Tenant (${currentBrandLabel})`">
                   <BrandingLogo :logoUrl="navBrandLogoUrl" size="medium" class="nav-logo" />
                   <span v-if="canOpenBrandMenu" class="brand-caret">▾</span>
                 </button>
 
                 <div v-if="brandMenuOpen && canOpenBrandMenu" class="brand-menu">
-                  <div class="brand-menu-title">Switch Brand</div>
+                  <div class="brand-menu-title">Switch Tenant</div>
 
                   <button
                     v-if="brandingStore.isSuperAdmin"
@@ -37,7 +37,7 @@
                     Platform
                   </button>
 
-                  <div class="brand-menu-section">Agencies</div>
+                  <div class="brand-menu-section">Tenants</div>
                   <button
                     v-for="a in brandAgencies"
                     :key="a.id"
@@ -1418,7 +1418,7 @@ const selectAgencyBrand = async (a) => {
 
 const selectPlatformBrand = async () => {
   closeBrandMenu();
-  agencyStore.setCurrentAgency(null);
+  agencyStore.setPlatformMode();
 
   if (brandingStore.isSuperAdmin) {
     const jump = buildSuperadminPlatformBrandUrl(route);
@@ -1898,7 +1898,7 @@ const canSeeEventsProgramsNavGroup = computed(
     canSeeSkillBuildersMyAvailabilityNav.value
 );
 
-const skillBuildersProgramsDashboardTo = computed(() => orgTo('/admin/skill-builders-program-events'));
+const skillBuildersProgramsDashboardTo = computed(() => orgTo('/admin/program-events'));
 
 /** Same roles as router `SCHEDULE_HUB_ROLES` for /schedule and /buildings/*. */
 const canSeeScheduleBuildingsDirectoryNav = computed(() => {
@@ -2727,13 +2727,28 @@ onMounted(async () => {
   if (route.params.organizationSlug) {
     await organizationStore.fetchBySlug(route.params.organizationSlug);
   }
-  // Initialize portal theme on app load (for subdomain detection)
+  // Initialize portal host context on app load (for subdomain detection).
+  // IMPORTANT: if we're already on a slug route (e.g. /nlu/admin/*), re-apply that slug theme
+  // afterward so host-portal branding (e.g. app.itsco.health) does not override the active route branding.
   await brandingStore.initializePortalTheme();
+  try {
+    const routeSlug = typeof route.params.organizationSlug === 'string'
+      ? String(route.params.organizationSlug).trim()
+      : '';
+    if (routeSlug) {
+      await brandingStore.fetchAgencyTheme(routeSlug);
+    }
+  } catch {
+    // best effort
+  }
 
-  // Load agency list for brand switching (super admins are not shown the legacy selector)
+  // Load agency list for brand switching.
+  // Use authStore role directly — brandingStore.isSuperAdmin may not yet be truthy at this point
+  // if the branding store hasn't finished initializing, causing fetchUserAgencies to run instead
+  // of fetchAgencies and leaving agencyStore.agencies empty (only Platform shown in menu).
   if (isAuthenticated.value) {
     try {
-      if (brandingStore.isSuperAdmin) {
+      if (authStore.user?.role === 'super_admin') {
         await agencyStore.fetchAgencies();
       } else {
         await agencyStore.fetchUserAgencies();
@@ -2784,12 +2799,12 @@ onMounted(async () => {
   }
 
   // Super admin default: Platform context unless we're on a branded (slug) route.
-  // This prevents being "sent" into a random agency due to a persisted currentAgency from a prior session.
+  // Uses setPlatformMode() so subsequent fetchUserAgencies calls don't snap back to a tenant.
   try {
     const role = String(authStore.user?.role || '').toLowerCase();
     const slugFromRoute = route.params.organizationSlug;
     if (role === 'super_admin' && !(typeof slugFromRoute === 'string' && slugFromRoute)) {
-      if (agencyStore.currentAgency) agencyStore.setCurrentAgency(null);
+      agencyStore.setPlatformMode();
     }
   } catch {
     // ignore
@@ -3009,7 +3024,7 @@ onUnmounted(() => {
   gap: 28px;
   max-width: 100%;
   min-width: 0;
-  /* Allow dropdowns (e.g., Switch Brand) to render outside navbar row */
+  /* Allow dropdowns (e.g., Switch Tenant) to render outside navbar row */
   overflow: visible;
   position: relative;
   /* Breathing room so content never jams against the left/right edges */

@@ -1,9 +1,28 @@
 <template>
-  <div class="modal-overlay" @click.self="handleClose">
-    <div class="modal-content large" @click.stop>
+  <div :class="props.fullPage ? 'cdp-page-shell' : 'modal-overlay'" @click.self="props.fullPage ? undefined : handleClose">
+    <div :class="props.fullPage ? 'cdp-page-body' : 'modal-content large'" @click.stop>
       <div class="modal-header">
         <div style="display:flex; flex-direction: column; gap: 6px;">
           <h2 style="margin:0;">Client: {{ client.initials }}</h2>
+          <div style="display:flex; gap: 8px; align-items:center; flex-wrap: wrap;">
+            <span class="muted" style="font-weight: 800;">Type:</span>
+            <span class="badge badge-info">{{ clientTypeLabel }}</span>
+            <template v-if="canEditClientType">
+              <select v-model="clientTypeDraft" class="inline-select" :disabled="savingClientType">
+                <option v-for="opt in clientTypeOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="savingClientType || !clientTypeDraft || clientTypeDraft === effectiveClientType"
+                @click="saveClientType"
+              >
+                {{ savingClientType ? 'Saving…' : 'Update type' }}
+              </button>
+            </template>
+          </div>
           <div v-if="isBackofficeRole" style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap;">
             <template v-if="switchableAgencies.length > 1">
               <span class="muted" style="font-weight: 800;">Agency:</span>
@@ -11,7 +30,7 @@
                 v-model="selectedAgencyId"
                 class="inline-select"
                 :disabled="switchingAgency"
-                @change="onSwitchAgency"
+                @change="onSwitchAgency(true)"
               >
                 <option v-for="a in switchableAgencies" :key="a.id" :value="String(a.id)">
                   {{ a.name }}
@@ -25,6 +44,14 @@
           </div>
         </div>
         <div style="display:flex; align-items:center; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+          <button
+            v-if="canOpenClientDirectoryProfile && !props.fullPage"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="openClientDirectoryProfile"
+          >
+            Open in Client Directory
+          </button>
           <div
             v-if="hasClientNavigation"
             style="display:flex; align-items:center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-alt);"
@@ -39,7 +66,7 @@
               Next
             </button>
           </div>
-          <button @click="handleClose" class="btn-close">×</button>
+          <button v-if="!props.fullPage" @click="handleClose" class="btn-close">×</button>
         </div>
       </div>
 
@@ -122,7 +149,7 @@
               </div>
             </div>
             <div class="info-item">
-              <label>School</label>
+              <label>{{ organizationLabel }}</label>
               <div class="info-value">
                 <template v-if="editingOverview">
                   <select v-model="overviewForm.organization_id" class="inline-select">
@@ -357,7 +384,7 @@
                 </template>
               </div>
             </div>
-            <div class="info-item">
+            <div v-if="showSchoolSpecificOverviewFields" class="info-item">
               <label>School Year</label>
               <div class="info-value">
                 <template v-if="editingOverview">
@@ -386,7 +413,7 @@
                 </template>
               </div>
             </div>
-            <div class="info-item">
+            <div v-if="showSchoolSpecificOverviewFields" class="info-item">
               <label>Skills client</label>
               <div class="info-value">
                 <template v-if="editingOverview">
@@ -717,12 +744,23 @@
                   ({{ new Date(demoCapturedAt).toLocaleDateString() }})
                 </span>
               </h4>
-              <div class="clinical-field-list">
-                <div v-for="f in demoIntakeFields" :key="f.key" class="clinical-field-row">
+              <!-- Client-level intake fields (no section tag) -->
+              <div class="clinical-field-list" style="margin-bottom: 16px;">
+                <div v-for="f in demoIntakeFields.filter(f => !f.section)" :key="f.key" class="clinical-field-row">
                   <div class="clinical-field-label">{{ f.label }}</div>
                   <div class="clinical-field-value">{{ f.value }}</div>
                 </div>
               </div>
+              <!-- Grouped sections (e.g. Guardian / Contact Information) -->
+              <template v-for="sectionName in demoIntakeSections" :key="sectionName">
+                <h5 class="clinical-section-subtitle">{{ sectionName }}</h5>
+                <div class="clinical-field-list" style="margin-bottom: 16px;">
+                  <div v-for="f in demoIntakeFields.filter(f => f.section === sectionName)" :key="f.key" class="clinical-field-row">
+                    <div class="clinical-field-label">{{ f.label }}</div>
+                    <div class="clinical-field-value">{{ f.value }}</div>
+                  </div>
+                </div>
+              </template>
             </div>
           </div>
         </div>
@@ -1127,7 +1165,7 @@
                           type="button"
                           class="btn btn-secondary btn-sm"
                           :disabled="switchingAgency"
-                          @click="selectedAgencyId = String(a.agency_id); onSwitchAgency()"
+                          @click="selectedAgencyId = String(a.agency_id); onSwitchAgency(true)"
                         >
                           Set primary
                         </button>
@@ -1375,6 +1413,69 @@
                 </div>
               </div>
             </div>
+
+            <div class="card" style="border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
+              <h4 style="margin:0 0 10px;">Event assignments</h4>
+              <div class="hint" style="margin-bottom: 10px;">
+                Shows this client’s event enrollments and group assignments by timeline.
+              </div>
+              <div v-if="eventAssignmentsLoading" class="loading">Loading…</div>
+              <div v-else-if="eventAssignmentsError" class="error" style="text-align:left;">{{ eventAssignmentsError }}</div>
+              <div v-else>
+                <div v-if="eventAssignmentsCurrentOrUpcoming.length > 0" style="margin-bottom: 12px;">
+                  <div class="muted" style="font-weight: 800; margin-bottom: 6px;">Current &amp; upcoming</div>
+                  <div class="table-wrap">
+                    <table class="table">
+                      <thead>
+                        <tr>
+                          <th>Event / group</th>
+                          <th>Organization</th>
+                          <th>Dates</th>
+                          <th>Provider active</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="ev in eventAssignmentsCurrentOrUpcoming" :key="`cur-${eventAssignmentRowKey(ev)}`">
+                          <td>{{ eventAssignmentTitle(ev) }}</td>
+                          <td>{{ eventAssignmentOrgLabel(ev) }}</td>
+                          <td>{{ eventAssignmentDateRange(ev) }}</td>
+                          <td>{{ ev.active_for_providers ? 'Yes' : 'No' }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div v-if="eventAssignmentsPast.length > 0">
+                  <div class="muted" style="font-weight: 800; margin-bottom: 6px;">Past</div>
+                  <div class="table-wrap">
+                    <table class="table">
+                      <thead>
+                        <tr>
+                          <th>Event / group</th>
+                          <th>Organization</th>
+                          <th>Dates</th>
+                          <th>Provider active</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="ev in eventAssignmentsPast" :key="`past-${eventAssignmentRowKey(ev)}`">
+                          <td>{{ eventAssignmentTitle(ev) }}</td>
+                          <td>{{ eventAssignmentOrgLabel(ev) }}</td>
+                          <td>{{ eventAssignmentDateRange(ev) }}</td>
+                          <td>{{ ev.active_for_providers ? 'Yes' : 'No' }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div
+                  v-if="eventAssignmentsCurrentOrUpcoming.length === 0 && eventAssignmentsPast.length === 0"
+                  class="hint"
+                >
+                  No event assignments found for this client.
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1572,6 +1673,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import PhiDocumentsPanel from './PhiDocumentsPanel.vue';
@@ -1606,12 +1708,19 @@ const props = defineProps({
   navigationCount: {
     type: Number,
     default: 0
+  },
+  /** When true, renders as a full-page view instead of a modal overlay. */
+  fullPage: {
+    type: Boolean,
+    default: false
   }
 });
 
 const emit = defineEmits(['close', 'updated', 'navigate', 'tab-change']);
 
 const authStore = useAuthStore();
+const route = useRoute();
+const router = useRouter();
 
 const activeTab = ref('overview');
 const hasClientNavigation = computed(() => Number(props.navigationCount || 0) > 1 && Number(props.currentClientIndex || -1) >= 0);
@@ -1713,7 +1822,7 @@ const loadOverviewOptions = async () => {
       api.get('/client-settings/insurance-types', { params: { agencyId } })
     ]);
     overviewOrganizations.value = (orgResp.data || [])
-      .filter((o) => ['school', 'program', 'learning'].includes(String(o?.organization_type || '').toLowerCase()))
+      .filter((o) => ['school', 'program', 'learning', 'clinical'].includes(String(o?.organization_type || '').toLowerCase()))
       .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
     overviewClientStatuses.value = (statusResp.data || []).filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
     overviewInsuranceTypes.value = (insResp.data || []).filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
@@ -1862,6 +1971,7 @@ const hasAgencyAccess = computed(() => {
 });
 
 const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
+const canOpenClientDirectoryProfile = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
 
 const clientAgenciesNote = computed(() => {
   // If user isn't affiliated with the client’s agency (or the client is multi-agency),
@@ -1880,6 +1990,22 @@ const clientAgenciesNote = computed(() => {
   if (names.length) return `Note: client is affiliated with another agency (${names.join(', ')}).`;
   return 'Note: client is affiliated with another agency.';
 });
+
+const openClientDirectoryProfile = () => {
+  if (!canOpenClientDirectoryProfile.value || !props.client?.id) return;
+  const orgSlug = String(route.params?.organizationSlug || '').trim();
+  const tab = String(activeTab.value || 'overview');
+  const path = orgSlug
+    ? `/${orgSlug}/admin/clients/${props.client.id}`
+    : `/admin/clients/${props.client.id}`;
+  const query = tab && tab !== 'overview' ? { tab } : {};
+  const target = router.resolve({ path, query });
+  try {
+    window.open(target.href, '_blank', 'noopener');
+  } catch {
+    router.push(target);
+  }
+};
 
 const addAgencyAffiliationId = ref('');
 const addAgencyMakePrimary = ref(false);
@@ -2070,6 +2196,41 @@ const affiliations = ref([]);
 const SCHOOL_LIKE_ORG_TYPES = new Set(['school', 'program', 'learning']);
 const isSchoolLikeOrgType = (t) => SCHOOL_LIKE_ORG_TYPES.has(String(t || '').trim().toLowerCase());
 
+const CLIENT_TYPE_ORDER = ['basic_nonclinical', 'school', 'learning', 'clinical'];
+const CLIENT_TYPE_LABELS = {
+  basic_nonclinical: 'Basic (Non-Clinical)',
+  school: 'School',
+  learning: 'Learning',
+  clinical: 'Clinical'
+};
+const normalizeClientType = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return CLIENT_TYPE_ORDER.includes(normalized) ? normalized : '';
+};
+
+const explicitClientType = computed(() => normalizeClientType(props.client?.client_type));
+const hasExplicitClientType = computed(() => !!explicitClientType.value);
+const fallbackClientTypeFromOrg = computed(() => {
+  const orgType = String(props.client?.organization_type || '').trim().toLowerCase();
+  if (orgType === 'school') return 'school';
+  if (orgType === 'learning') return 'learning';
+  if (orgType === 'program' || orgType === 'clinical') return 'clinical';
+  if (isSchoolLikeOrgType(orgType)) return 'school';
+  return 'basic_nonclinical';
+});
+const effectiveClientType = computed(() => explicitClientType.value || fallbackClientTypeFromOrg.value);
+const clientTypeLabel = computed(() => CLIENT_TYPE_LABELS[effectiveClientType.value] || effectiveClientType.value || 'Unknown');
+const isSchoolClientType = computed(() => effectiveClientType.value === 'school');
+const showSchoolSpecificOverviewFields = computed(() => isSchoolClientType.value);
+const organizationLabel = computed(() => (isSchoolClientType.value ? 'School' : 'Organization'));
+const clientTypeOptions = CLIENT_TYPE_ORDER.map((value) => ({
+  value,
+  label: CLIENT_TYPE_LABELS[value] || value
+}));
+const canEditClientType = computed(() => isSuperAdmin.value);
+const clientTypeDraft = ref('basic_nonclinical');
+const savingClientType = ref(false);
+
 const isSchoolClientByPrimaryOrg = computed(() => isSchoolLikeOrgType(props.client?.organization_type));
 
 const clientHasSchoolLikeOrgAffiliation = computed(() =>
@@ -2077,7 +2238,9 @@ const clientHasSchoolLikeOrgAffiliation = computed(() =>
 );
 
 const clientQualifiesForSchoolRoiTab = computed(
-  () => isSchoolClientByPrimaryOrg.value || clientHasSchoolLikeOrgAffiliation.value
+  // Strict rule: school ROI for school-type clients.
+  // Legacy fallback: if type is missing, allow school-like org affiliation.
+  () => isSchoolClientType.value || (!hasExplicitClientType.value && (isSchoolClientByPrimaryOrg.value || clientHasSchoolLikeOrgAffiliation.value))
 );
 
 const canManageSchoolRoi = computed(
@@ -2086,11 +2249,13 @@ const canManageSchoolRoi = computed(
 
 const tabs = computed(() => {
   const base = [{ id: 'overview', label: 'Overview' }];
-  if (isSkillsClientFlag(props.client?.skills)) {
+  if (isSchoolClientType.value && isSkillsClientFlag(props.client?.skills)) {
     base.push({ id: 'skill-builders', label: 'Events / groups' });
   }
+  if (isSchoolClientType.value) {
+    base.push({ id: 'checklist', label: 'Checklist' });
+  }
   base.push(
-    { id: 'checklist', label: 'Checklist' },
     { id: 'history', label: 'Status History' },
     { id: 'access', label: 'Access Log' },
     { id: 'messages', label: 'Messages / Notes' },
@@ -2132,6 +2297,9 @@ const savingAffiliation = ref(false);
 const selectedAssignmentOrgId = ref('');
 const providerAssignments = ref([]);
 const providerAssignmentsLoading = ref(false);
+const eventAssignments = ref([]);
+const eventAssignmentsLoading = ref(false);
+const eventAssignmentsError = ref('');
 const providerOptions = ref([]);
 const addProviderUserId = ref('');
 const addProviderDay = ref('');
@@ -2142,6 +2310,13 @@ const editProviderUserId = ref('');
 const editProviderDay = ref('Unknown');
 
 const weekdayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+const eventAssignmentsCurrentOrUpcoming = computed(() =>
+  (eventAssignments.value || []).filter((ev) => String(ev?.timeframe || '').toLowerCase() !== 'past')
+);
+const eventAssignmentsPast = computed(() =>
+  (eventAssignments.value || []).filter((ev) => String(ev?.timeframe || '').toLowerCase() === 'past')
+);
 
 // Overview: show all (primary + secondary) providers across affiliations.
 const overviewProviders = ref([]);
@@ -2342,6 +2517,27 @@ const refreshClient = async () => {
     emit('updated', { keepOpen: true, client: r.data || null });
   } catch {
     // ignore
+  }
+};
+
+const saveClientType = async () => {
+  if (!canEditClientType.value || !props.client?.id) return;
+  const nextType = normalizeClientType(clientTypeDraft.value);
+  if (!nextType || nextType === effectiveClientType.value) return;
+  try {
+    savingClientType.value = true;
+    await api.post(`/clients/${props.client.id}/client-type`, {
+      client_type: nextType,
+      reason: `Super admin changed client type to ${nextType}`,
+      allow_downgrade_override: true
+    });
+    const refreshed = await api.get(`/clients/${props.client.id}`);
+    emit('updated', { keepOpen: true, client: refreshed.data || null });
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to update client type');
+    clientTypeDraft.value = effectiveClientType.value || 'basic_nonclinical';
+  } finally {
+    savingClientType.value = false;
   }
 };
 
@@ -2572,11 +2768,11 @@ const saveOverview = async () => {
       submission_date: overviewForm.value.submission_date ? String(overviewForm.value.submission_date) : null,
       insurance_type_id: overviewForm.value.insurance_type_id ? Number(overviewForm.value.insurance_type_id) : null,
       doc_date: overviewForm.value.doc_date ? String(overviewForm.value.doc_date) : null,
-      school_year: String(overviewForm.value.school_year || '').trim() || null,
+      school_year: isSchoolClientType.value ? (String(overviewForm.value.school_year || '').trim() || null) : null,
       grade: normalizeGradeForSave(overviewForm.value.grade),
       primary_client_language: String(overviewForm.value.primary_client_language || '').trim() || null,
       primary_parent_language: String(overviewForm.value.primary_parent_language || '').trim() || null,
-      skills: !!overviewForm.value.skills,
+      skills: isSchoolClientType.value ? !!overviewForm.value.skills : false,
       referral_date: overviewForm.value.referral_date ? String(overviewForm.value.referral_date) : null,
       source: String(overviewForm.value.source || '').trim() || null
     };
@@ -2811,7 +3007,8 @@ const fetchClientAgencyAffiliations = async () => {
   }
 };
 
-const onSwitchAgency = async () => {
+const onSwitchAgency = async (userInitiated = false) => {
+  if (!userInitiated) return;
   const agencyId = selectedAgencyId.value ? Number(selectedAgencyId.value) : null;
   if (!agencyId || agencyId === Number(props.client?.agency_id)) return;
   try {
@@ -3143,6 +3340,42 @@ const reloadProviderAssignments = async () => {
   }
 };
 
+const fetchEventAssignments = async () => {
+  if (!canEditAccount.value) return;
+  try {
+    eventAssignmentsLoading.value = true;
+    eventAssignmentsError.value = '';
+    const r = await api.get(`/clients/${props.client.id}/event-assignments`);
+    eventAssignments.value = Array.isArray(r.data) ? r.data : [];
+  } catch (e) {
+    eventAssignmentsError.value = e.response?.data?.error?.message || 'Failed to load event assignments';
+    eventAssignments.value = [];
+  } finally {
+    eventAssignmentsLoading.value = false;
+  }
+};
+
+const eventAssignmentRowKey = (ev) => `${ev?.company_event_id || 'none'}-${ev?.skills_group_id || 'none'}`;
+const eventAssignmentTitle = (ev) => String(ev?.company_event_title || ev?.skills_group_name || '—');
+const eventAssignmentOrgLabel = (ev) => {
+  const name = String(ev?.organization_name || '').trim();
+  const type = String(ev?.organization_type || '').trim();
+  if (!name && !type) return '—';
+  if (name && type) return `${name} (${type})`;
+  return name || type;
+};
+const eventAssignmentDateRange = (ev) => {
+  const a = ev?.starts_at ? new Date(ev.starts_at) : null;
+  const b = ev?.ends_at ? new Date(ev.ends_at) : null;
+  const validA = a && Number.isFinite(a.getTime());
+  const validB = b && Number.isFinite(b.getTime());
+  if (!validA && !validB) return '—';
+  const f = (d) => d.toLocaleDateString();
+  if (validA && validB) return `${f(a)} - ${f(b)}`;
+  if (validA) return f(a);
+  return f(b);
+};
+
 const addProviderAssignment = async () => {
   if (!canEditAccount.value) return;
   const orgId = selectedAssignmentOrgId.value ? Number(selectedAssignmentOrgId.value) : null;
@@ -3345,6 +3578,7 @@ watch(() => activeTab.value, (newTab) => {
     fetchClientAffiliations();
     fetchProviderOptions();
     reloadProviderAssignments();
+    fetchEventAssignments();
   } else if (newTab === 'phi') {
     fetchDocChecklist();
     fetchPaperworkStatuses();
@@ -3361,6 +3595,7 @@ watch(() => props.client, async () => {
   // Reset editing states when client changes
   editingStatus.value = false;
   skillsValue.value = isSkillsClientFlag(props.client?.skills);
+  clientTypeDraft.value = effectiveClientType.value || 'basic_nonclinical';
   clientCodeDraft.value = '';
   if (!editingOverview.value) {
     hydrateOverviewForm();
@@ -3468,6 +3703,15 @@ const demoIntakeFields = ref([]);
 const demoCapturedAt = ref(null);
 const demoLoading = ref(false);
 const demoError = ref('');
+// Unique section names from intake fields that have a section tag (preserves order of first appearance)
+const demoIntakeSections = computed(() => {
+  const seen = new Set();
+  const order = [];
+  for (const f of demoIntakeFields.value) {
+    if (f.section && !seen.has(f.section)) { seen.add(f.section); order.push(f.section); }
+  }
+  return order;
+});
 
 const fetchDemographics = async () => {
   if (!props.client?.id) return;
@@ -3511,6 +3755,7 @@ onMounted(async () => {
     await fetchClientAffiliations();
     await fetchProviderOptions();
     await reloadProviderAssignments();
+    await fetchEventAssignments();
   } else if (activeTab.value === 'phi') {
     await fetchPaperworkStatuses();
     await fetchDeliveryMethods();
@@ -4321,6 +4566,14 @@ watch(
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border, #e2e8f0);
 }
+.clinical-section-subtitle {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--primary, #2d6a4f);
+  margin: 0 0 8px;
+}
 
 .clinical-field-list {
   display: grid;
@@ -4342,5 +4595,18 @@ watch(
   font-size: 14px;
   color: var(--text-primary, #1e293b);
   white-space: pre-wrap;
+}
+
+/* Full-page (non-modal) mode */
+.cdp-page-shell {
+  width: 100%;
+  min-height: 100%;
+  background: var(--bg-page, #f8fafc);
+}
+.cdp-page-body {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  background: var(--bg-page, #f8fafc);
 }
 </style>

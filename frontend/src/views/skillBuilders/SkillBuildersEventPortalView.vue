@@ -1895,7 +1895,7 @@ const skillBuildersEventsOverlayHref = computed(() => {
   const s =
     String(detail.value?.agencyPortalSlug || '').trim() || String(organizationSlug.value || '').trim();
   if (!s || !canOpenSkillBuildersEventsOverlay.value) return null;
-  return `/${s}/admin/skill-builders-program-events`;
+  return `/${s}/admin/program-events`;
 });
 
 const canEditEventInPortal = computed(
@@ -2353,7 +2353,10 @@ function rosterClientLinkTo(c) {
     .trim()
     .toLowerCase();
 
-  const adminClientsQuery = { clientId: String(cid), tab: 'skill-builders' };
+  // Only deep-link to the Skill Builders tab when this event is actually tied to a skills group.
+  // Generic program events use the overview tab so non-SB clients aren't routed to a Skill Builders screen.
+  const hasSkillsGroup = !!detail.value?.skillsGroup?.id;
+  const adminClientsQuery = { clientId: String(cid), tab: hasSkillsGroup ? 'skill-builders' : 'overview' };
 
   if (preferAgencyClientUi) {
     if (agencyPortal) {

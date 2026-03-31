@@ -166,7 +166,6 @@ export const searchCompanyEventClients = async (req, res, next) => {
        LEFT JOIN company_event_clients cec
          ON cec.company_event_id = ? AND cec.agency_id = ? AND cec.client_id = c.id
        WHERE c.agency_id = ?
-         AND c.skills = FALSE
          AND cec.client_id IS NULL
          ${searchClause}
        ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code, CONCAT('Client ', c.id)) ASC
@@ -216,6 +215,34 @@ export const addCompanyEventClient = async (req, res, next) => {
     );
 
     res.json({ ok: true, eventId, clientId });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateCompanyEventClientNotes = async (req, res, next) => {
+  try {
+    const eventId = parsePositiveInt(req.params.eventId);
+    const clientId = parsePositiveInt(req.params.clientId);
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    if (!eventId || !agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'eventId, agencyId, and clientId are required' } });
+    }
+    if (!(await canManageProgramEvent(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this event' } });
+    }
+    const event = await loadEventForAgency(eventId, agencyId);
+    if (!event) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    const notes = req.body?.notes != null ? String(req.body.notes) : null;
+    const [r] = await pool.execute(
+      `UPDATE company_event_clients SET notes = ? WHERE company_event_id = ? AND agency_id = ? AND client_id = ?`,
+      [notes, eventId, agencyId, clientId]
+    );
+    if (!Number(r?.affectedRows || 0)) {
+      return res.status(404).json({ error: { message: 'Client is not enrolled in this event' } });
+    }
+    res.json({ ok: true, notes });
   } catch (e) {
     next(e);
   }

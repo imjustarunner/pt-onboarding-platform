@@ -46,6 +46,22 @@ function isBackofficeManager(role) {
   return ['super_admin', 'admin', 'support', 'staff'].includes(normalized);
 }
 
+function normalizeClientType(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (['basic_nonclinical', 'school', 'learning', 'clinical'].includes(normalized)) return normalized;
+  return '';
+}
+
+function resolveEffectiveClientTypeForRules(client) {
+  const explicit = normalizeClientType(client?.client_type);
+  if (explicit) return explicit;
+  const orgType = String(client?.organization_type || '').trim().toLowerCase();
+  if (orgType === 'school') return 'school';
+  if (orgType === 'learning') return 'learning';
+  if (orgType === 'program' || orgType === 'clinical') return 'clinical';
+  return 'basic_nonclinical';
+}
+
 async function requireManagedClient(req, clientId) {
   const client = await Client.findById(clientId, { includeSensitive: true });
   if (!client) {
@@ -382,6 +398,9 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const client = access.client;
+    if (resolveEffectiveClientTypeForRules(client) !== 'school') {
+      return res.status(400).json({ error: { message: 'School ROI access is only available for school clients' } });
+    }
     const schoolOrganizationId = Number(client.organization_id || 0);
     if (!schoolOrganizationId) {
       return res.json({
@@ -460,6 +479,9 @@ export const updateClientSchoolRoiAccess = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const client = access.client;
+    if (resolveEffectiveClientTypeForRules(client) !== 'school') {
+      return res.status(400).json({ error: { message: 'School ROI access is only available for school clients' } });
+    }
     const schoolOrganizationId = Number(client.organization_id || 0);
     if (!schoolOrganizationId) {
       return res.status(400).json({ error: { message: 'Client does not have a school affiliation yet' } });
@@ -528,6 +550,9 @@ export const updateClientSchoolRoiExpiration = async (req, res, next) => {
 
     const access = await requireManagedClient(req, clientId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (resolveEffectiveClientTypeForRules(access.client) !== 'school') {
+      return res.status(400).json({ error: { message: 'School ROI access is only available for school clients' } });
+    }
 
     const roiExpiresAtRaw = req.body?.roi_expires_at === null
       ? ''
@@ -583,6 +608,9 @@ export const updateClientSchoolRoiSigningConfig = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const client = access.client;
+    if (resolveEffectiveClientTypeForRules(client) !== 'school') {
+      return res.status(400).json({ error: { message: 'School ROI access is only available for school clients' } });
+    }
     const schoolOrganizationId = Number(client.organization_id || 0);
     if (!schoolOrganizationId) {
       return res.status(400).json({ error: { message: 'Client does not have a school affiliation yet' } });
@@ -645,6 +673,9 @@ export const issueClientSchoolRoiSigningLink = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const client = access.client;
+    if (resolveEffectiveClientTypeForRules(client) !== 'school') {
+      return res.status(400).json({ error: { message: 'School ROI access is only available for school clients' } });
+    }
     const schoolOrganizationId = Number(client.organization_id || 0);
     if (!schoolOrganizationId) {
       return res.status(400).json({ error: { message: 'Client does not have a school affiliation yet' } });
@@ -733,6 +764,9 @@ export const trackClientSchoolRoiSigningLinkCopied = async (req, res, next) => {
     const access = await requireManagedClient(req, clientId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const client = access.client;
+    if (resolveEffectiveClientTypeForRules(client) !== 'school') {
+      return res.status(400).json({ error: { message: 'School ROI access is only available for school clients' } });
+    }
     const schoolOrganizationId = Number(client.organization_id || 0) || null;
 
     await logAuditEvent(req, {
@@ -772,6 +806,9 @@ export const sendClientSchoolRoiSigningText = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     let client = access.client;
+    if (resolveEffectiveClientTypeForRules(client) !== 'school') {
+      return res.status(400).json({ error: { message: 'School ROI access is only available for school clients' } });
+    }
     const schoolOrganizationId = Number(client.organization_id || 0);
     if (!schoolOrganizationId) {
       return res.status(400).json({ error: { message: 'Client does not have a school affiliation yet' } });
@@ -925,6 +962,9 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
     }
 
     const client = access.client;
+    if (resolveEffectiveClientTypeForRules(client) !== 'school') {
+      return res.status(400).json({ error: { message: 'School ROI access is only available for school clients' } });
+    }
     const schoolOrganizationId = Number(client.organization_id || 0);
     if (!schoolOrganizationId) {
       return res.status(400).json({ error: { message: 'Client does not have a school affiliation yet' } });

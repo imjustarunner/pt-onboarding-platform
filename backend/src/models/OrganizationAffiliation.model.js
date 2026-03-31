@@ -20,6 +20,44 @@ class OrganizationAffiliation {
     return (orgs || []).some((o) => String(o?.organization_type || '').toLowerCase() === 'learning');
   }
 
+  /**
+   * Single grouped query for many parent agency ids — avoids O(n) listActiveOrganizationsForAgency
+   * calls when enriching GET /agencies (super_admin full list).
+   */
+  static async batchAgencyClinicalLearningFlags(agencyIds) {
+    const ids = [
+      ...new Set(
+        (agencyIds || [])
+          .map((x) => parseInt(String(x), 10))
+          .filter((n) => Number.isFinite(n) && n > 0)
+      )
+    ];
+    const map = new Map();
+    if (!ids.length) return map;
+    const placeholders = ids.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT oa.agency_id AS agencyId,
+        MAX(CASE WHEN LOWER(TRIM(COALESCE(org.organization_type, ''))) = 'clinical' THEN 1 ELSE 0 END) AS has_clinical,
+        MAX(CASE WHEN LOWER(TRIM(COALESCE(org.organization_type, ''))) = 'learning' THEN 1 ELSE 0 END) AS has_learning
+       FROM organization_affiliations oa
+       INNER JOIN agencies org ON oa.organization_id = org.id
+       WHERE oa.is_active = TRUE
+         AND (org.is_archived = FALSE OR org.is_archived IS NULL)
+         AND oa.agency_id IN (${placeholders})
+       GROUP BY oa.agency_id`,
+      ids
+    );
+    for (const r of rows || []) {
+      const aid = Number(r.agencyId);
+      if (!aid) continue;
+      map.set(aid, {
+        hasClinicalOrg: Number(r.has_clinical) === 1,
+        hasLearningOrg: Number(r.has_learning) === 1
+      });
+    }
+    return map;
+  }
+
   static async listActiveOrganizationsForAgency(agencyId) {
     const aId = parseInt(agencyId, 10);
     if (!aId) return [];

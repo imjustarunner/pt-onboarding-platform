@@ -17,6 +17,9 @@ import { syncIntegratedSkillsGroupAfterCompanyEventSave } from '../services/skil
 import KioskModel from '../models/Kiosk.model.js';
 import { geocodeAddressWithGoogle } from '../services/googleGeocode.service.js';
 import { ProviderAvailabilityService } from '../services/providerAvailability.service.js';
+import crypto from 'crypto';
+import EmailTemplateService from '../services/emailTemplate.service.js';
+import { sendNotificationEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 
 const DEFAULT_RSVP_OPTIONS = [
   { key: '1', label: 'Yes' },
@@ -193,6 +196,20 @@ function parseResponseInput(body, options = []) {
   return null;
 }
 
+function resolveRsvpOption(event, response) {
+  const normalized = String(response || '').trim().toLowerCase();
+  const votingConfig = parseVotingConfig(event?.votingConfig || {});
+  const options = normalizeVotingOptions(votingConfig.options || []);
+  const byLabel = options.find((o) => String(o.label || '').trim().toLowerCase() === normalized);
+  if (byLabel) return byLabel;
+  const byKey = options.find((o) => String(o.key || '').trim().toLowerCase() === normalized);
+  if (byKey) return byKey;
+  if (normalized === 'yes') return options[0] || { key: 'yes', label: 'Yes' };
+  if (normalized === 'no') return options[1] || { key: 'no', label: 'No' };
+  if (normalized === 'maybe') return options[2] || { key: 'maybe', label: 'Maybe' };
+  return null;
+}
+
 function mapEventRow(row, req, opts = {}) {
   const recurrence = parseJsonMaybe(row.recurrence_json) || { frequency: 'none' };
   const votingConfig = parseVotingConfig(parseJsonMaybe(row.voting_config_json));
@@ -267,7 +284,19 @@ function mapEventRow(row, req, opts = {}) {
     snacksAvailable: row.snacks_available === undefined ? true : !!(row.snacks_available === 1 || row.snacks_available === true),
     snackOptions: (() => { try { const p = row.snack_options_json ? JSON.parse(row.snack_options_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })(),
     mealsAvailable: !!(row.meals_available === 1 || row.meals_available === true),
-    mealOptions: (() => { try { const p = row.meal_options_json ? JSON.parse(row.meal_options_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })()
+    mealOptions: (() => { try { const p = row.meal_options_json ? JSON.parse(row.meal_options_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })(),
+    guestPolicy: String(row.guest_policy || 'staff_only'),
+    potluckEnabled: !!(row.potluck_enabled === 1 || row.potluck_enabled === true),
+    organizerProviding: (() => { try { const p = row.organizer_providing_json ? JSON.parse(row.organizer_providing_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })(),
+    eventImageUrl: row.event_image_url ? String(row.event_image_url).trim() : '',
+    eventImageUrls: (() => { try { const p = row.event_image_urls_json ? JSON.parse(row.event_image_urls_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })(),
+    rsvpDeadline: row.rsvp_deadline || null,
+    eventLocationName: row.event_location_name ? String(row.event_location_name).trim() : '',
+    eventLocationAddress: row.event_location_address ? String(row.event_location_address).trim() : '',
+    eventLocationPhone: row.event_location_phone ? String(row.event_location_phone).trim() : '',
+    familyProvisionNote: row.family_provision_note ? String(row.family_provision_note) : '',
+    registrationFormUrl: row.registration_form_url ? String(row.registration_form_url).trim() : '',
+    smsDraft: (() => { try { return row.sms_draft_json ? JSON.parse(row.sms_draft_json) : null; } catch { return null; } })()
   };
   const nextOccurrence = computeNextOccurrence(base);
   const calendarSource = nextOccurrence || { startsAt, endsAt };
@@ -470,6 +499,48 @@ function parseEventPayload(body = {}) {
   const mealsAvailable = triBool(body.mealsAvailable ?? body.meals_available, false);
   const mealOptions = parseJsonArrayField(body.mealOptions ?? body.meal_options_json);
 
+  const guestPolicyRaw = String(body.guestPolicy ?? body.guest_policy ?? 'staff_only').trim().toLowerCase();
+  const guestPolicyAllowed = new Set(['staff_only', 'family_invited', 'plus_one']);
+  const guestPolicy = guestPolicyAllowed.has(guestPolicyRaw) ? guestPolicyRaw : 'staff_only';
+  const potluckEnabled = triBool(body.potluckEnabled ?? body.potluck_enabled, false);
+  const organizerProviding = parseJsonArrayField(body.organizerProviding ?? body.organizer_providing_json) || [];
+  const eventImageUrlRaw = String(body.eventImageUrl ?? body.event_image_url ?? '').trim();
+  const eventImageUrl = eventImageUrlRaw ? eventImageUrlRaw.slice(0, 500) : null;
+  const eventImageUrls = parseJsonArrayField(body.eventImageUrls ?? body.event_image_urls_json) || [];
+  const familyProvisionNoteRaw = String(body.familyProvisionNote ?? body.family_provision_note ?? '').trim();
+  const familyProvisionNote = familyProvisionNoteRaw ? familyProvisionNoteRaw.slice(0, 20000) : null;
+  const eventLocationNameRaw = String(body.eventLocationName ?? body.event_location_name ?? '').trim();
+  const eventLocationName = eventLocationNameRaw ? eventLocationNameRaw.slice(0, 255) : null;
+  const eventLocationAddressRaw = String(body.eventLocationAddress ?? body.event_location_address ?? '').trim();
+  const eventLocationAddress = eventLocationAddressRaw ? eventLocationAddressRaw.slice(0, 500) : null;
+  const eventLocationPhoneRaw = String(body.eventLocationPhone ?? body.event_location_phone ?? '').trim();
+  const eventLocationPhone = eventLocationPhoneRaw ? eventLocationPhoneRaw.slice(0, 64) : null;
+  const registrationFormUrlRaw = String(body.registrationFormUrl ?? body.registration_form_url ?? '').trim();
+  const registrationFormUrl = registrationFormUrlRaw ? registrationFormUrlRaw.slice(0, 2048) : null;
+  const rsvpDeadlineRaw = body.rsvpDeadline ?? body.rsvp_deadline ?? null;
+  const rsvpDeadline = rsvpDeadlineRaw ? new Date(rsvpDeadlineRaw) : null;
+  if (rsvpDeadlineRaw && !Number.isFinite(rsvpDeadline?.getTime())) {
+    return { error: 'rsvpDeadline must be a valid datetime' };
+  }
+  const rawSmsDraft = body.smsDraft ?? body.sms_draft_json;
+  let smsDraft = null;
+  if (rawSmsDraft !== undefined && rawSmsDraft !== null && rawSmsDraft !== '') {
+    const parsedDraft =
+      typeof rawSmsDraft === 'string'
+        ? (() => { try { return JSON.parse(rawSmsDraft); } catch { return null; } })()
+        : rawSmsDraft;
+    if (!parsedDraft || typeof parsedDraft !== 'object' || Array.isArray(parsedDraft)) {
+      return { error: 'smsDraft must be an object' };
+    }
+    const target = String(parsedDraft.target || '').trim().toLowerCase();
+    const allowedTargets = new Set(['all_invitees', 'non_responders', 'attending', 'all']);
+    smsDraft = {
+      target: allowedTargets.has(target) ? target : 'all_invitees',
+      message: String(parsedDraft.message || '').trim().slice(0, 1000),
+      scheduledFor: parsedDraft.scheduledFor || null
+    };
+  }
+
   let kioskPinOutcome = { mode: 'unchanged' };
   const pinRaw = body.kioskEventPin ?? body.kiosk_event_pin;
   const clearRaw = body.kioskEventPinClear ?? body.kiosk_event_pin_clear;
@@ -497,6 +568,7 @@ function parseEventPayload(body = {}) {
     return { error: 'startsAt and endsAt are required and must be valid dates' };
   }
   if (endsAt <= startsAt) return { error: 'endsAt must be after startsAt' };
+  if (rsvpDeadline && rsvpDeadline > endsAt) return { error: 'rsvpDeadline cannot be after event end' };
   if (votingClosedAtRaw && !Number.isFinite(votingClosedAt?.getTime())) return { error: 'Invalid votingClosedAt value' };
   if (votingConfig.viaSms && !smsCode) return { error: 'smsCode is required when SMS voting is enabled' };
 
@@ -553,7 +625,19 @@ function parseEventPayload(body = {}) {
     snacksAvailable,
     snackOptions,
     mealsAvailable,
-    mealOptions
+    mealOptions,
+    guestPolicy,
+    potluckEnabled,
+    organizerProviding,
+    eventImageUrl,
+    eventImageUrls,
+    rsvpDeadline,
+    eventLocationName,
+    eventLocationAddress,
+    eventLocationPhone,
+    familyProvisionNote,
+    registrationFormUrl,
+    smsDraft
   };
 }
 
@@ -697,6 +781,115 @@ async function loadEventByIdForAgency(eventId, agencyId) {
     [eventId, agencyId]
   );
   return rows?.[0] || null;
+}
+
+function makeInvitationToken() {
+  return crypto.randomBytes(24).toString('hex');
+}
+
+function getFrontendBaseUrl() {
+  return String(process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+}
+
+function formatDateForTemplate(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toLocaleDateString();
+}
+
+function formatTimeForTemplate(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+async function resolveInvitationByToken(token) {
+  const t = String(token || '').trim();
+  if (!t) return null;
+  const [rows] = await pool.execute(
+    `SELECT i.*,
+            ce.id AS event_id,
+            ce.agency_id AS event_agency_id,
+            ce.title AS event_title,
+            ce.event_type AS event_type,
+            ce.starts_at AS event_starts_at,
+            ce.ends_at AS event_ends_at,
+            ce.timezone AS event_timezone,
+            ce.description AS event_description,
+            ce.splash_content AS event_splash_content,
+            ce.rsvp_deadline AS event_rsvp_deadline,
+            ce.event_location_name AS event_location_name,
+            ce.event_location_address AS event_location_address,
+            ce.event_location_phone AS event_location_phone,
+            ce.guest_policy AS event_guest_policy,
+            ce.registration_form_url AS event_registration_form_url,
+            ce.organizer_providing_json AS event_organizer_providing_json,
+            ce.event_image_url AS event_image_url,
+            ce.event_image_urls_json AS event_image_urls_json,
+            ce.public_hero_image_url AS event_public_hero_image_url,
+            ce.family_provision_note AS event_family_provision_note,
+            u.first_name AS user_first_name,
+            u.last_name AS user_last_name,
+            u.email AS user_email,
+            a.name AS agency_name,
+            a.logo_url AS agency_logo_url,
+            a.color_palette AS agency_color_palette,
+            a.theme_settings AS agency_theme_settings,
+            a.portal_url AS agency_portal_url
+     FROM company_event_invitations i
+     INNER JOIN company_events ce ON ce.id = i.company_event_id
+     INNER JOIN users u ON u.id = i.user_id
+     INNER JOIN agencies a ON a.id = i.agency_id
+     WHERE i.token = ?
+     LIMIT 1`,
+    [t]
+  );
+  return rows?.[0] || null;
+}
+
+async function upsertInvitationResponse({ invitationId, response, registrationPayload = null }) {
+  const normalized = String(response || '').trim().toLowerCase();
+  if (!['yes', 'no', 'maybe'].includes(normalized)) return false;
+  const payloadJson = registrationPayload ? JSON.stringify(registrationPayload) : null;
+  await pool.execute(
+    `UPDATE company_event_invitations
+     SET response = ?, responded_at = NOW(),
+         registration_payload_json = COALESCE(?, registration_payload_json),
+         registration_submitted_at = CASE WHEN ? IS NULL THEN registration_submitted_at ELSE NOW() END
+     WHERE id = ?`,
+    [normalized, payloadJson, payloadJson, invitationId]
+  );
+  return true;
+}
+
+async function listNeedListItems(eventId, agencyId) {
+  const [rows] = await pool.execute(
+    `SELECT n.*,
+            u.first_name AS claimed_first_name,
+            u.last_name AS claimed_last_name
+     FROM company_event_need_list_items n
+     LEFT JOIN users u ON u.id = n.claimed_by_user_id
+     WHERE n.company_event_id = ? AND n.agency_id = ?
+     ORDER BY n.created_at ASC, n.id ASC`,
+    [eventId, agencyId]
+  );
+  return (rows || []).map((row) => ({
+    id: Number(row.id),
+    eventId: Number(row.company_event_id),
+    agencyId: Number(row.agency_id),
+    itemName: String(row.item_name || ''),
+    itemNotes: row.item_notes || '',
+    claimedByUserId: row.claimed_by_user_id != null ? Number(row.claimed_by_user_id) : null,
+    claimedByName:
+      row.claimed_by_user_id != null
+        ? `${String(row.claimed_first_name || '').trim()} ${String(row.claimed_last_name || '').trim()}`.trim()
+        : null,
+    claimedAt: row.claimed_at || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }));
 }
 
 async function listEligibleSmsUsersForAgency(agencyId) {
@@ -1208,8 +1401,8 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
 
   const [insertResult] = await pool.execute(
     `INSERT INTO company_events
-     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, public_session_label, public_session_date_range, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, program_cost_billing_mode, program_cost_dollars, per_session_cost_dollars, kiosk_event_pin_hash, snacks_available, snack_options_json, meals_available, meal_options_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, public_session_label, public_session_date_range, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, program_cost_billing_mode, program_cost_dollars, per_session_cost_dollars, kiosk_event_pin_hash, snacks_available, snack_options_json, meals_available, meal_options_json, guest_policy, potluck_enabled, organizer_providing_json, event_image_url, event_image_urls_json, rsvp_deadline, event_location_name, event_location_address, event_location_phone, family_provision_note, registration_form_url, sms_draft_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       agencyId,
       organizationIdForRow,
@@ -1250,7 +1443,19 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
       parsed.snacksAvailable ? 1 : 0,
       parsed.snackOptions?.length ? JSON.stringify(parsed.snackOptions) : null,
       parsed.mealsAvailable ? 1 : 0,
-      parsed.mealOptions?.length ? JSON.stringify(parsed.mealOptions) : null
+      parsed.mealOptions?.length ? JSON.stringify(parsed.mealOptions) : null,
+      parsed.guestPolicy || 'staff_only',
+      parsed.potluckEnabled ? 1 : 0,
+      parsed.organizerProviding?.length ? JSON.stringify(parsed.organizerProviding) : null,
+      parsed.eventImageUrl || null,
+      parsed.eventImageUrls?.length ? JSON.stringify(parsed.eventImageUrls) : null,
+      parsed.rsvpDeadline || null,
+      parsed.eventLocationName || null,
+      parsed.eventLocationAddress || null,
+      parsed.eventLocationPhone || null,
+      parsed.familyProvisionNote || null,
+      parsed.registrationFormUrl || null,
+      parsed.smsDraft ? JSON.stringify(parsed.smsDraft) : null
     ]
   );
   const eventId = Number(insertResult.insertId);
@@ -1411,7 +1616,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
 
   await pool.execute(
     `UPDATE company_events
-     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, public_session_label = ?, public_session_date_range = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?, program_cost_billing_mode = ?, program_cost_dollars = ?, per_session_cost_dollars = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?, snacks_available = ?, snack_options_json = ?, meals_available = ?, meal_options_json = ?
+     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, public_session_label = ?, public_session_date_range = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?, program_cost_billing_mode = ?, program_cost_dollars = ?, per_session_cost_dollars = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?, snacks_available = ?, snack_options_json = ?, meals_available = ?, meal_options_json = ?, guest_policy = ?, potluck_enabled = ?, organizer_providing_json = ?, event_image_url = ?, event_image_urls_json = ?, rsvp_deadline = ?, event_location_name = ?, event_location_address = ?, event_location_phone = ?, family_provision_note = ?, registration_form_url = ?, sms_draft_json = ?
      WHERE id = ? AND agency_id = ?`,
     [
       userId,
@@ -1457,6 +1662,18 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
       parsed.snackOptions?.length ? JSON.stringify(parsed.snackOptions) : null,
       parsed.mealsAvailable ? 1 : 0,
       parsed.mealOptions?.length ? JSON.stringify(parsed.mealOptions) : null,
+      parsed.guestPolicy || 'staff_only',
+      parsed.potluckEnabled ? 1 : 0,
+      parsed.organizerProviding?.length ? JSON.stringify(parsed.organizerProviding) : null,
+      parsed.eventImageUrl || null,
+      parsed.eventImageUrls?.length ? JSON.stringify(parsed.eventImageUrls) : null,
+      parsed.rsvpDeadline || null,
+      parsed.eventLocationName || null,
+      parsed.eventLocationAddress || null,
+      parsed.eventLocationPhone || null,
+      parsed.familyProvisionNote || null,
+      parsed.registrationFormUrl || null,
+      parsed.smsDraft ? JSON.stringify(parsed.smsDraft) : null,
       eventId,
       agencyId
     ]
@@ -1987,6 +2204,421 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
     }
 
     res.json({ ok: true, inAppCount, smsCount });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const listCompanyEventNeedList = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.params.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
+    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+      return res.status(403).json({ error: { message: 'Admin/staff access required' } });
+    }
+    const event = await loadEventByIdForAgency(eventId, agencyId);
+    if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
+    res.json(await listNeedListItems(eventId, agencyId));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createCompanyEventNeedListItem = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.params.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const userId = parsePositiveInt(req.user?.id);
+    const itemName = String(req.body?.itemName || req.body?.item_name || '').trim();
+    const itemNotes = String(req.body?.itemNotes || req.body?.item_notes || '').trim();
+    if (!agencyId || !eventId || !userId || !itemName) {
+      return res.status(400).json({ error: { message: 'itemName is required' } });
+    }
+    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+      return res.status(403).json({ error: { message: 'Admin/staff access required' } });
+    }
+    const event = await loadEventByIdForAgency(eventId, agencyId);
+    if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
+    await pool.execute(
+      `INSERT INTO company_event_need_list_items
+       (company_event_id, agency_id, item_name, item_notes, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      [eventId, agencyId, itemName.slice(0, 255), itemNotes || null, userId]
+    );
+    res.status(201).json(await listNeedListItems(eventId, agencyId));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const patchCompanyEventNeedListItem = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.params.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const itemId = parsePositiveInt(req.params.itemId);
+    const userId = parsePositiveInt(req.user?.id);
+    if (!agencyId || !eventId || !itemId || !userId) {
+      return res.status(400).json({ error: { message: 'Invalid request' } });
+    }
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+    const event = await loadEventByIdForAgency(eventId, agencyId);
+    if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
+
+    const claimRaw = req.body?.claim;
+    const claim = claimRaw === true || claimRaw === 1 || String(claimRaw || '').toLowerCase() === 'true';
+    const unclaimRaw = req.body?.unclaim;
+    const unclaim = unclaimRaw === true || unclaimRaw === 1 || String(unclaimRaw || '').toLowerCase() === 'true';
+    if (!claim && !unclaim) {
+      return res.status(400).json({ error: { message: 'Set claim=true or unclaim=true' } });
+    }
+    if (claim && !unclaim) {
+      await pool.execute(
+        `UPDATE company_event_need_list_items
+         SET claimed_by_user_id = ?, claimed_at = NOW()
+         WHERE id = ? AND company_event_id = ? AND agency_id = ?`,
+        [userId, itemId, eventId, agencyId]
+      );
+    } else {
+      await pool.execute(
+        `UPDATE company_event_need_list_items
+         SET claimed_by_user_id = NULL, claimed_at = NULL
+         WHERE id = ? AND company_event_id = ? AND agency_id = ?`,
+        [itemId, eventId, agencyId]
+      );
+    }
+    res.json(await listNeedListItems(eventId, agencyId));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteCompanyEventNeedListItem = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.params.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const itemId = parsePositiveInt(req.params.itemId);
+    if (!agencyId || !eventId || !itemId) return res.status(400).json({ error: { message: 'Invalid request' } });
+    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+      return res.status(403).json({ error: { message: 'Admin/staff access required' } });
+    }
+    await pool.execute(
+      `DELETE FROM company_event_need_list_items
+       WHERE id = ? AND company_event_id = ? AND agency_id = ?`,
+      [itemId, eventId, agencyId]
+    );
+    res.json(await listNeedListItems(eventId, agencyId));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const saveCompanyEventSmsDraft = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.params.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const target = String(req.body?.target || '').trim().toLowerCase();
+    const message = String(req.body?.message || '').trim();
+    const scheduledFor = req.body?.scheduledFor || null;
+    const allowedTargets = new Set(['all_invitees', 'non_responders', 'attending', 'all']);
+    if (!agencyId || !eventId || !allowedTargets.has(target)) {
+      return res.status(400).json({ error: { message: 'Invalid request' } });
+    }
+    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+      return res.status(403).json({ error: { message: 'Admin/staff access required' } });
+    }
+    const event = await loadEventByIdForAgency(eventId, agencyId);
+    if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
+
+    const draft = {
+      target,
+      message: message.slice(0, 1000),
+      scheduledFor: scheduledFor || null,
+      updatedAt: new Date().toISOString()
+    };
+
+    await pool.execute(
+      `UPDATE company_events
+       SET sms_draft_json = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND agency_id = ?`,
+      [JSON.stringify(draft), eventId, agencyId]
+    );
+
+    const audience = await getAudienceForEvent(eventId);
+    const recipientIds = await resolveRecipientUserIds(agencyId, eventId, audience);
+    const [responseRows] = await pool.execute(
+      `SELECT user_id, response_key
+       FROM company_event_responses
+       WHERE company_event_id = ?`,
+      [eventId]
+    );
+    const byUserResponse = new Map((responseRows || []).map((r) => [Number(r.user_id), String(r.response_key || '').toLowerCase()]));
+    let previewRecipientIds = recipientIds.slice();
+    if (target === 'non_responders') {
+      previewRecipientIds = previewRecipientIds.filter((uid) => !byUserResponse.has(Number(uid)));
+    } else if (target === 'attending') {
+      previewRecipientIds = previewRecipientIds.filter((uid) => {
+        const value = String(byUserResponse.get(Number(uid)) || '').toLowerCase();
+        return value === 'yes' || value === '1';
+      });
+    } else if (target === 'all_invitees') {
+      const [invRows] = await pool.execute(
+        `SELECT user_id FROM company_event_invitations WHERE company_event_id = ?`,
+        [eventId]
+      );
+      const invitedSet = new Set((invRows || []).map((r) => Number(r.user_id)));
+      previewRecipientIds = previewRecipientIds.filter((uid) => invitedSet.has(Number(uid)));
+    }
+
+    res.json({
+      ok: true,
+      draft,
+      previewRecipientCount: previewRecipientIds.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const sendCompanyEventInvitations = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.params.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const actorUserId = parsePositiveInt(req.user?.id);
+    if (!agencyId || !eventId || !actorUserId) {
+      return res.status(400).json({ error: { message: 'Invalid request' } });
+    }
+    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+      return res.status(403).json({ error: { message: 'Admin/staff access required' } });
+    }
+    const row = await loadEventByIdForAgency(eventId, agencyId);
+    if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
+    const event = mapEventRow(row, req);
+    const audience = await getAudienceForEvent(eventId);
+    const recipientIds = await resolveRecipientUserIds(agencyId, eventId, audience);
+    if (!recipientIds.length) return res.status(400).json({ error: { message: 'No recipients found for this event audience' } });
+
+    const [agencyRows] = await pool.execute('SELECT id, name, portal_url FROM agencies WHERE id = ? LIMIT 1', [agencyId]);
+    const agency = agencyRows?.[0];
+    if (!agency) return res.status(404).json({ error: { message: 'Agency not found' } });
+
+    const usersPlaceholders = recipientIds.map(() => '?').join(', ');
+    const [userRows] = await pool.execute(
+      `SELECT id, first_name, last_name, email
+       FROM users
+       WHERE id IN (${usersPlaceholders})`,
+      recipientIds
+    );
+
+    const inviteRows = [];
+    for (const user of userRows || []) {
+      const token = makeInvitationToken();
+      await pool.execute(
+        `INSERT INTO company_event_invitations
+         (company_event_id, agency_id, user_id, token, created_by_user_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+         ON DUPLICATE KEY UPDATE
+           token = VALUES(token),
+           updated_at = NOW(),
+           created_by_user_id = VALUES(created_by_user_id)`,
+        [eventId, agencyId, Number(user.id), token, actorUserId]
+      );
+      inviteRows.push({ user, token });
+    }
+
+    const template = await EmailTemplateService.getTemplateForAgency(agencyId, 'company_event_invitation');
+    const frontendBase = getFrontendBaseUrl();
+    const backendBase = `${req.protocol}://${req.get('host')}`;
+    let sentCount = 0;
+    let failedCount = 0;
+
+    for (const entry of inviteRows) {
+      const user = entry.user;
+      const token = entry.token;
+      const yesApiUrl = `${backendBase}/api/company-events/rsvp/${encodeURIComponent(token)}?r=yes`;
+      const noApiUrl = `${backendBase}/api/company-events/rsvp/${encodeURIComponent(token)}?r=no`;
+      const maybeApiUrl = `${backendBase}/api/company-events/rsvp/${encodeURIComponent(token)}?r=maybe`;
+      const fallbackRsvpUrl = `${frontendBase}/event-rsvp/${encodeURIComponent(token)}`;
+      const parameters = {
+        FIRST_NAME: String(user.first_name || '').trim(),
+        LAST_NAME: String(user.last_name || '').trim(),
+        AGENCY_NAME: String(agency.name || ''),
+        EVENT_TITLE: String(event.title || ''),
+        EVENT_TYPE_LABEL: String(event.eventType || 'Staff Event'),
+        EVENT_DATE: formatDateForTemplate(event.startsAt),
+        EVENT_TIME: `${formatTimeForTemplate(event.startsAt)} - ${formatTimeForTemplate(event.endsAt)}`.trim(),
+        EVENT_LOCATION_NAME: String(event.eventLocationName || event.title || ''),
+        EVENT_LOCATION_ADDRESS: String(event.eventLocationAddress || ''),
+        MENU_STAFF: Array.isArray(event.organizerProviding) ? event.organizerProviding.join(', ') : '',
+        MENU_FAMILY: String(event.familyProvisionNote || ''),
+        RSVP_DEADLINE: formatDateForTemplate(event.rsvpDeadline || event.startsAt),
+        RSVP_YES_URL: yesApiUrl,
+        RSVP_NO_URL: noApiUrl,
+        RSVP_MAYBE_URL: maybeApiUrl,
+        RSVP_LINK: fallbackRsvpUrl
+      };
+
+      let subject = `Invitation: ${event.title}`;
+      let body = `Hi ${parameters.FIRST_NAME}, please RSVP here: ${fallbackRsvpUrl}`;
+      if (template) {
+        try {
+          const rendered = EmailTemplateService.renderTemplate(template, parameters);
+          subject = rendered.subject || subject;
+          body = rendered.body || body;
+        } catch {
+          // Use fallback text if rendering fails.
+        }
+      }
+      try {
+        await sendNotificationEmail({
+          agencyId,
+          triggerKey: 'system_email_test',
+          to: String(user.email || '').trim(),
+          subject,
+          text: body,
+          generatedByUserId: actorUserId,
+          userId: Number(user.id),
+          templateType: 'company_event_invitation',
+          templateId: eventId,
+          source: 'manual'
+        });
+        await pool.execute(
+          'UPDATE company_event_invitations SET email_sent_at = NOW(), updated_at = NOW() WHERE token = ?',
+          [token]
+        );
+        sentCount += 1;
+      } catch (e) {
+        failedCount += 1;
+      }
+    }
+
+    res.json({ ok: true, recipients: inviteRows.length, sentCount, failedCount });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getCompanyEventRsvpByToken = async (req, res, next) => {
+  try {
+    const token = String(req.params.token || '').trim();
+    if (!token) return res.status(400).json({ error: { message: 'Missing token' } });
+    const invitation = await resolveInvitationByToken(token);
+    if (!invitation) return res.status(404).json({ error: { message: 'Invitation not found' } });
+
+    const queryResponse = String(req.query?.r || '').trim().toLowerCase();
+    if (['yes', 'no', 'maybe'].includes(queryResponse)) {
+      await upsertInvitationResponse({ invitationId: invitation.id, response: queryResponse });
+      const option = resolveRsvpOption(
+        { votingConfig: { options: DEFAULT_RSVP_OPTIONS } },
+        queryResponse
+      );
+      await pool.execute(
+        `INSERT INTO company_event_responses
+         (company_event_id, user_id, response_key, response_label, response_body, source, received_at)
+         VALUES (?, ?, ?, ?, ?, 'in_app', NOW())
+         ON DUPLICATE KEY UPDATE
+           response_key = VALUES(response_key),
+           response_label = VALUES(response_label),
+           response_body = VALUES(response_body),
+           source = VALUES(source),
+           received_at = VALUES(received_at)`,
+        [Number(invitation.company_event_id), Number(invitation.user_id), option?.key || queryResponse, option?.label || queryResponse, queryResponse]
+      );
+      const frontendBase = getFrontendBaseUrl();
+      res.redirect(`${frontendBase}/event-rsvp/${encodeURIComponent(token)}?r=${encodeURIComponent(queryResponse)}`);
+      return;
+    }
+
+    res.json({
+      token,
+      invitation: {
+        id: Number(invitation.id),
+        userId: Number(invitation.user_id),
+        response: invitation.response || null,
+        respondedAt: invitation.responded_at || null,
+        emailSentAt: invitation.email_sent_at || null,
+        registrationPayload: (() => { try { return invitation.registration_payload_json ? JSON.parse(invitation.registration_payload_json) : null; } catch { return null; } })()
+      },
+      invitee: {
+        firstName: String(invitation.user_first_name || ''),
+        lastName: String(invitation.user_last_name || ''),
+        email: String(invitation.user_email || '')
+      },
+      event: {
+        id: Number(invitation.event_id),
+        agencyId: Number(invitation.event_agency_id),
+        title: invitation.event_title || '',
+        eventType: invitation.event_type || 'company_event',
+        startsAt: invitation.event_starts_at || null,
+        endsAt: invitation.event_ends_at || null,
+        timezone: invitation.event_timezone || 'UTC',
+        description: invitation.event_description || '',
+        splashContent: invitation.event_splash_content || '',
+        rsvpDeadline: invitation.event_rsvp_deadline || null,
+        locationName: invitation.event_location_name || '',
+        locationAddress: invitation.event_location_address || '',
+        locationPhone: invitation.event_location_phone || '',
+        guestPolicy: invitation.event_guest_policy || 'staff_only',
+        registrationFormUrl: invitation.event_registration_form_url || '',
+        organizerProviding: (() => { try { const p = invitation.event_organizer_providing_json ? JSON.parse(invitation.event_organizer_providing_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })(),
+        eventImageUrl: invitation.event_image_url || '',
+        eventImageUrls: (() => { try { const p = invitation.event_image_urls_json ? JSON.parse(invitation.event_image_urls_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })(),
+        publicHeroImageUrl: invitation.event_public_hero_image_url || '',
+        familyProvisionNote: invitation.event_family_provision_note || '',
+        agencyName: invitation.agency_name || ''
+      },
+      branding: {
+        agencyName: invitation.agency_name || '',
+        logoUrl: invitation.agency_logo_url || '',
+        portalUrl: invitation.agency_portal_url || '',
+        colorPalette: (() => { try { return invitation.agency_color_palette ? JSON.parse(invitation.agency_color_palette) : null; } catch { return null; } })(),
+        themeSettings: (() => { try { return invitation.agency_theme_settings ? JSON.parse(invitation.agency_theme_settings) : null; } catch { return null; } })()
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const postCompanyEventRsvpByToken = async (req, res, next) => {
+  try {
+    const token = String(req.params.token || '').trim();
+    const response = String(req.body?.response || req.body?.r || '').trim().toLowerCase();
+    if (!token || !['yes', 'no', 'maybe'].includes(response)) {
+      return res.status(400).json({ error: { message: 'Invalid request' } });
+    }
+    const invitation = await resolveInvitationByToken(token);
+    if (!invitation) return res.status(404).json({ error: { message: 'Invitation not found' } });
+
+    const existing = String(invitation.response || '').toLowerCase();
+    if ((existing === 'yes' || existing === 'maybe') && response === 'no') {
+      return res.status(409).json({ error: { message: 'Cannot change confirmed RSVP to no from this flow' } });
+    }
+
+    const option = resolveRsvpOption(
+      { votingConfig: { options: DEFAULT_RSVP_OPTIONS } },
+      response
+    );
+    await upsertInvitationResponse({
+      invitationId: invitation.id,
+      response,
+      registrationPayload: req.body?.registration || null
+    });
+    await pool.execute(
+      `INSERT INTO company_event_responses
+       (company_event_id, user_id, response_key, response_label, response_body, source, received_at)
+       VALUES (?, ?, ?, ?, ?, 'in_app', NOW())
+       ON DUPLICATE KEY UPDATE
+         response_key = VALUES(response_key),
+         response_label = VALUES(response_label),
+         response_body = VALUES(response_body),
+         source = VALUES(source),
+         received_at = VALUES(received_at)`,
+      [Number(invitation.company_event_id), Number(invitation.user_id), option?.key || response, option?.label || response, response]
+    );
+    res.json({ ok: true, response, responseKey: option?.key || response, responseLabel: option?.label || response });
   } catch (error) {
     next(error);
   }

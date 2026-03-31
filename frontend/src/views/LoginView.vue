@@ -209,6 +209,10 @@
                   required
                   :placeholder="usernameFieldPlaceholder"
                   autocomplete="username"
+                  autocapitalize="none"
+                  autocorrect="off"
+                  spellcheck="false"
+                  inputmode="email"
                   :disabled="loading || verifying"
                   @input="onUsernameInput"
                   @blur="maybeVerify"
@@ -227,16 +231,29 @@
 
               <div v-if="showPassword && !needsOrgChoice" class="form-group login-credentials-password">
                 <label for="password">Password</label>
-                <input
-                  id="password"
-                  name="password"
-                  v-model="password"
-                  type="password"
-                  required
-                  placeholder="Enter your password"
-                  autocomplete="current-password"
-                  :disabled="loading"
-                />
+                <div class="password-input-wrap">
+                  <input
+                    id="password"
+                    name="password"
+                    v-model="password"
+                    :type="passwordVisible ? 'text' : 'password'"
+                    required
+                    placeholder="Enter your password"
+                    autocomplete="current-password"
+                    autocapitalize="none"
+                    autocorrect="off"
+                    spellcheck="false"
+                    :disabled="loading"
+                  />
+                  <button
+                    type="button"
+                    class="password-toggle-btn"
+                    :aria-label="passwordVisible ? 'Hide password' : 'Show password'"
+                    @click="passwordVisible = !passwordVisible"
+                  >
+                    {{ passwordVisible ? 'Hide' : 'Show' }}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -854,6 +871,7 @@ const error = ref('');
 const verifiedSuccess = ref('');
 const loading = ref(false);
 const verifying = ref(false);
+const passwordVisible = ref(false);
 const showPassword = ref(false);
 const needsOrgChoice = ref(false);
 const orgOptions = ref([]);
@@ -2151,6 +2169,33 @@ const handleLogoError = (event) => {
 }
 
 /* School / program / learning: username + password on one row after verify */
+.password-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.password-input-wrap input {
+  flex: 1;
+  padding-right: 60px;
+}
+.password-toggle-btn {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--primary, #0f766e);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 2px;
+  line-height: 1;
+  user-select: none;
+}
+.password-toggle-btn:focus-visible {
+  outline: 2px solid var(--primary, #0f766e);
+  border-radius: 3px;
+}
+
 .login-credentials-wrap--school-split {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

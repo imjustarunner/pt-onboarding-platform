@@ -30,33 +30,35 @@
               Events your children are enrolled in (Skills program). Tap for schedule, providers, and chat.
             </p>
             <div class="sb-g-cards">
-              <router-link
+              <button
                 v-for="g in sbUpcomingGrouped"
                 :key="g.companyEventId"
+                type="button"
                 class="sb-g-card"
                 :class="{ 'sb-g-card--pulse': sbCardShouldPulse(g) }"
-                :to="guardianEventLink(g.companyEventId)"
+                @click="openInlineSkillBuilderEvent(g)"
               >
                 <div class="sb-g-title">{{ g.title }}</div>
                 <div class="sb-g-meta muted">{{ formatSbCardWhen(g) }}</div>
                 <div class="sb-g-meta muted">{{ g.schoolName || 'School' }} · {{ childLabels(g) }}</div>
-              </router-link>
+              </button>
             </div>
             <label class="sb-g-past-toggle">
               <input v-model="showPastSbEvents" type="checkbox" />
               Show past events
             </label>
             <div v-if="showPastSbEvents && sbPastGrouped.length" class="sb-g-cards sb-g-past">
-              <router-link
+              <button
                 v-for="g in sbPastGrouped"
                 :key="`p-${g.companyEventId}`"
+                type="button"
                 class="sb-g-card sb-g-card-past"
-                :to="guardianEventLink(g.companyEventId)"
+                @click="openInlineSkillBuilderEvent(g)"
               >
                 <div class="sb-g-title">{{ g.title }}</div>
                 <div class="sb-g-meta muted">{{ formatSbCardWhen(g) }}</div>
                 <div class="sb-g-meta muted">{{ childLabels(g) }}</div>
-              </router-link>
+              </button>
             </div>
           </template>
           <div v-else class="top-card-desc">
@@ -72,18 +74,19 @@
               Events your children are enrolled in. Tap to view details, sessions, and materials.
             </p>
             <div class="sb-g-cards">
-              <router-link
+              <button
                 v-for="g in genEvents"
                 :key="`ge-${g.companyEventId}`"
+                type="button"
                 class="sb-g-card"
-                :to="guardianProgramEventLink(g.companyEventId, g.agencySlug)"
+                @click="openInlineProgramEvent(g)"
               >
                 <div class="sb-g-title">{{ g.title }}</div>
                 <div class="sb-g-meta muted">{{ g.programName || g.agencyName || 'Program' }}</div>
                 <div class="sb-g-meta muted">
                   {{ (g.myClients || []).map(c => c.initials || c.fullName || `#${c.clientId}`).join(', ') }}
                 </div>
-              </router-link>
+              </button>
             </div>
           </template>
           <div v-else class="top-card-desc">
@@ -97,11 +100,11 @@
           </p>
           <ul class="reg-events-summary">
             <li v-for="g in sbUpcomingGrouped" :key="`sum-${g.companyEventId}`" class="reg-events-summary-item">
-              <router-link class="reg-events-summary-link" :to="guardianEventLink(g.companyEventId)">
+              <button type="button" class="reg-events-summary-link" @click="openInlineSkillBuilderEvent(g)">
                 <span class="re-title">{{ g.title }}</span>
                 <span class="re-meta muted">{{ g.schoolName || 'School' }} · {{ childLabels(g) }}</span>
                 <span v-if="g.enrolledAt" class="re-enrolled muted small">Registered {{ formatEnrolledAt(g.enrolledAt) }}</span>
-              </router-link>
+              </button>
             </li>
           </ul>
         </div>
@@ -167,7 +170,7 @@
               type="button"
               class="rail-card"
               :class="{ active: isActiveProgram(p) }"
-              @click="selectProgram(p)"
+              @click="openProgramWorkspace(p)"
             >
               <div class="rail-card-title">{{ p.name || 'Program' }}</div>
               <div class="rail-card-sub">
@@ -281,6 +284,43 @@
 
         <div class="detail">
           <div class="panel">
+            <template v-if="activePanel === 'program_overview'">
+              <div class="panel-head">
+                <div class="panel-title">Programs &amp; Events</div>
+                <div class="panel-subtitle">
+                  {{ currentProgramSummary }}
+                </div>
+              </div>
+              <template v-if="selectedInlineEvent">
+                <div class="panel-inline-actions">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="selectedInlineEvent = null">
+                    Back to program cards
+                  </button>
+                </div>
+                <GuardianSkillBuildersEventView
+                  :event-id-prop="selectedInlineEvent.eventId"
+                  :program-event-mode="selectedInlineEvent.programMode"
+                  :inline="true"
+                  :hide-actions="true"
+                />
+              </template>
+              <template v-else>
+                <div v-if="programOverviewEvents.length" class="sb-g-cards">
+                  <button
+                    v-for="evt in programOverviewEvents"
+                    :key="evt.key"
+                    type="button"
+                    class="sb-g-card"
+                    @click="openInlineEventFromWorkspace(evt)"
+                  >
+                    <div class="sb-g-title">{{ evt.title }}</div>
+                    <div class="sb-g-meta muted">{{ evt.metaPrimary }}</div>
+                    <div class="sb-g-meta muted">{{ evt.metaSecondary }}</div>
+                  </button>
+                </div>
+                <p v-else class="hint">No active or upcoming enrolled events right now.</p>
+              </template>
+            </template>
             <template v-if="activePanel === 'modules'">
               <div class="panel-head">
                 <div class="panel-title">Modules</div>
@@ -589,6 +629,7 @@ import GuardianProgramSelector from '../../components/GuardianProgramSelector.vu
 import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue';
 import GuardianPaymentInsuranceTab from '../../components/guardian/GuardianPaymentInsuranceTab.vue';
 import GuardianDependentsTab from '../../components/guardian/GuardianDependentsTab.vue';
+import GuardianSkillBuildersEventView from './GuardianSkillBuildersEventView.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -619,9 +660,10 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref('modules');
+const activePanel = ref('program_overview');
 const selectedChildId = ref(null);
 const comingSoonKey = ref('');
+const selectedInlineEvent = ref(null); // { eventId:number, programMode:boolean } | null
 
 const formatDocStatus = (s) => {
   const m = { NONE: 'None', UPLOADED: 'Uploaded', PACKET: 'Packet', APPROVED: 'Approved', REJECTED: 'Rejected' };
@@ -720,20 +762,6 @@ const guardianPathSlug = computed(() => {
   return String(pick?.slug || pick?.portal_url || '').trim() || '';
 });
 
-function guardianEventLink(eventId) {
-  const slug = guardianPathSlug.value;
-  const id = Number(eventId || 0);
-  if (slug && id) return `/${slug}/guardian/skill-builders/event/${id}`;
-  return `/guardian/skill-builders/event/${id}`;
-}
-
-function guardianProgramEventLink(eventId, agencySlug) {
-  const slug = guardianPathSlug.value || agencySlug || '';
-  const id = Number(eventId || 0);
-  if (slug && id) return `/${slug}/guardian/program-event/${id}`;
-  return `/guardian/program-event/${id}`;
-}
-
 const guardianWaiversLink = computed(() => {
   const slug = guardianPathSlug.value;
   if (slug) return `/${slug}/guardian/waivers`;
@@ -815,6 +843,19 @@ const sbUpcomingGrouped = computed(() => {
 const sbPastGrouped = computed(() => {
   const now = Date.now();
   return sbGrouped.value.filter((g) => sbEndMs(g) > 0 && sbEndMs(g) < now);
+});
+
+function genEndMs(g) {
+  const t = g?.endsAt ? new Date(g.endsAt).getTime() : NaN;
+  return Number.isFinite(t) ? t : 0;
+}
+
+const genCurrentEvents = computed(() => {
+  const now = Date.now();
+  return (genEvents.value || []).filter((g) => {
+    const t = genEndMs(g);
+    return !t || t >= now;
+  });
 });
 
 function formatSbCardWhen(g) {
@@ -918,6 +959,52 @@ const panelTitle = computed(() => {
   return 'My Dashboard';
 });
 
+const currentProgramSummary = computed(() => {
+  const programName = String(agencyStore.currentAgency?.name || '').trim() || 'Selected program';
+  return `Open cards below to view active enrolled events for ${programName}.`;
+});
+
+const programOverviewEvents = computed(() => {
+  const skillRows = sbUpcomingGrouped.value.map((g) => ({
+    key: `sb-${g.companyEventId}`,
+    eventId: Number(g.companyEventId),
+    programMode: false,
+    title: g.title || `Event #${g.companyEventId}`,
+    metaPrimary: formatSbCardWhen(g) || 'Skill Builders event',
+    metaSecondary: `${g.schoolName || 'School'} · ${childLabels(g)}`
+  }));
+  const programRows = genCurrentEvents.value.map((g) => ({
+    key: `pg-${g.companyEventId}`,
+    eventId: Number(g.companyEventId),
+    programMode: true,
+    title: g.title || `Event #${g.companyEventId}`,
+    metaPrimary: g.programName || g.agencyName || 'Program event',
+    metaSecondary: (g.myClients || []).map((c) => c.initials || c.fullName || `#${c.clientId}`).join(', ') || 'Your child'
+  }));
+  return [...skillRows, ...programRows];
+});
+
+function openInlineSkillBuilderEvent(g) {
+  const id = Number(g?.companyEventId || 0);
+  if (!id) return;
+  activePanel.value = 'program_overview';
+  selectedInlineEvent.value = { eventId: id, programMode: false };
+}
+
+function openInlineProgramEvent(g) {
+  const id = Number(g?.companyEventId || 0);
+  if (!id) return;
+  activePanel.value = 'program_overview';
+  selectedInlineEvent.value = { eventId: id, programMode: true };
+}
+
+function openInlineEventFromWorkspace(evt) {
+  const id = Number(evt?.eventId || 0);
+  if (!id) return;
+  activePanel.value = 'program_overview';
+  selectedInlineEvent.value = { eventId: id, programMode: !!evt?.programMode };
+}
+
 const comingSoonMessage = computed(() => {
   const key = String(comingSoonKey.value || '');
   const map = {
@@ -949,6 +1036,12 @@ const selectProgram = async (program) => {
     return;
   }
   await router.push(`/${slug}/guardian`);
+};
+
+const openProgramWorkspace = async (program) => {
+  await selectProgram(program);
+  activePanel.value = 'program_overview';
+  selectedInlineEvent.value = null;
 };
 
 const initProgramContext = async () => {
@@ -1427,6 +1520,12 @@ watch(
   background: var(--bg-alt);
   transition: border-color 0.15s ease;
 }
+button.reg-events-summary-link {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
 
 .reg-events-summary-link:hover {
   border-color: var(--primary);
@@ -1481,6 +1580,12 @@ watch(
   background: var(--bg-alt);
   transition: border-color 0.15s ease;
 }
+button.sb-g-card {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
 .sb-g-card:hover {
   border-color: var(--primary);
 }
@@ -1529,6 +1634,10 @@ watch(
 
 .top-card-desc {
   color: var(--text-secondary);
+}
+
+.panel-inline-actions {
+  margin-bottom: 10px;
 }
 
 .guardian-checkin-hint {

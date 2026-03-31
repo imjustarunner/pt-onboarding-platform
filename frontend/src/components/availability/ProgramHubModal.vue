@@ -1,16 +1,16 @@
 <template>
-  <div class="pch-overlay" @click.self="$emit('close')">
-    <div class="pch-modal" role="dialog" aria-modal="true" :aria-labelledby="titleId">
+  <div :class="props.inline ? 'pch-inline-shell' : 'pch-overlay'" @click.self="onShellClick">
+    <div class="pch-modal" :class="{ 'pch-modal-inline': props.inline }" role="dialog" :aria-modal="props.inline ? undefined : 'true'" :aria-labelledby="titleId">
       <div class="pch-header">
         <div>
           <h2 :id="titleId" class="pch-title">{{ displayName }}</h2>
           <p class="pch-sub">{{ headerSubtitle }}</p>
         </div>
-        <button type="button" class="pch-close" aria-label="Close" @click="$emit('close')">×</button>
+        <button v-if="!props.inline" type="button" class="pch-close" aria-label="Close" @click="$emit('close')">×</button>
       </div>
 
       <!-- Hub: choose section -->
-      <div v-if="!activeSection" class="pch-hub" role="navigation" aria-label="Skill Builders sections">
+      <div v-if="!activeSection" class="pch-hub" role="navigation" :aria-label="`${displayName} sections`">
         <button
           v-for="item in sectionItems"
           :key="item.id"
@@ -55,30 +55,61 @@
 
         <div class="pch-body pch-detail-body">
           <div v-show="activeSection === 'availability'" class="pch-panel">
-            <template v-if="mode === 'coordinator' && resolvedOrgId">
-              <SkillBuildersAvailabilityPanel
-                :agency-id="props.agencyId"
-                :organization-id="resolvedOrgId"
-                :show-scope-filters="false"
-                :show-title="false"
-              />
+            <!-- Skill Builders: dedicated availability panel -->
+            <template v-if="isSkillBuildersProgram">
+              <template v-if="mode === 'coordinator' && resolvedOrgId">
+                <SkillBuildersAvailabilityPanel
+                  :agency-id="props.agencyId"
+                  :organization-id="resolvedOrgId"
+                  :show-scope-filters="false"
+                  :show-title="false"
+                />
+              </template>
+              <template v-else-if="mode === 'provider'">
+                <p class="pch-muted">
+                  Set and confirm availability: program session time plus additional blocks must total 6+ hrs/week (biweekly confirmation).
+                </p>
+                <div class="pch-inline-actions">
+                  <button type="button" class="btn btn-primary btn-sm" @click="$emit('open-skill-builder-availability')">
+                    Manage Skill Builder availability
+                  </button>
+                </div>
+              </template>
             </template>
-            <template v-else-if="mode === 'provider'">
-              <p class="pch-muted">
-                Set and confirm availability: program session time plus additional blocks must total 6+ hrs/week (biweekly confirmation).
-              </p>
-              <div class="pch-inline-actions">
-                <button type="button" class="btn btn-primary btn-sm" @click="$emit('open-skill-builder-availability')">
-                  Manage Skill Builder availability
-                </button>
-              </div>
+            <!-- Non-Skill-Builders: show this program's events and their scheduled meeting times -->
+            <template v-else>
+              <template v-if="mode === 'coordinator'">
+                <p class="pch-muted">Your program events and their scheduled meeting times. Open an event portal to manage assignments and attendance.</p>
+                <div v-if="eventsLoading" class="pch-muted">Loading events…</div>
+                <div v-else-if="eventsError" class="pch-error">{{ eventsError }}</div>
+                <template v-else-if="programEvents.length">
+                  <ul class="pch-event-list">
+                    <li v-for="ev in programEventsSortedByDate" :key="`avail-${ev.id}`" class="pch-event-item">
+                      <button type="button" class="pch-event-open" @click="goEventPortal(ev.id)">
+                        <div class="pch-event-title">{{ ev.title }}</div>
+                        <div class="pch-muted pch-event-dates">{{ formatEventDateRange(ev) }}</div>
+                        <ul v-if="ev.meetings?.length" class="pch-event-meet-list">
+                          <li v-for="(m, i) in ev.meetings" :key="i">
+                            {{ m.weekday }} {{ wallHmToDisplay(formatHm(m.startTime)) }}–{{ wallHmToDisplay(formatHm(m.endTime)) }}
+                          </li>
+                        </ul>
+                        <span class="pch-cta">Event portal →</span>
+                      </button>
+                    </li>
+                  </ul>
+                </template>
+                <p v-else class="pch-muted">No events yet for this program. Create one in the Events section.</p>
+              </template>
+              <template v-else>
+                <p class="pch-muted">Your schedule for this program is set by the program coordinator. Open an event portal from the Events or Portal section to see your upcoming assignments.</p>
+              </template>
             </template>
           </div>
 
           <div v-show="activeSection === 'portal'" class="pch-panel pch-portal-panel">
             <p class="pch-muted pch-portal-lead">
-              Open the workspace for each Skill Builders <strong>event</strong> or <strong>program enrollment</strong> (learning
-              class) you use here — same idea as the assigned portal cards across the top of My Dashboard. Only items for
+              Open the workspace for each <strong>event</strong> or <strong>program enrollment</strong> (learning
+              class) for this program — same idea as the assigned portal cards across the top of My Dashboard. Only items for
               this program appear; providers see events and enrollments they are assigned to.
             </p>
             <div v-if="portalLoading" class="pch-muted">Loading workspaces…</div>
@@ -231,7 +262,7 @@
                   </button>
                 </li>
               </ul>
-              <p v-else class="pch-muted">You are not assigned to any Skill Builders events yet.</p>
+              <p v-else class="pch-muted">You are not assigned to any events for this program yet.</p>
 
               <h3 class="pch-events-sub" style="margin-top: 20px;">Upcoming (apply)</h3>
               <ul v-if="upcomingEvents.length" class="pch-event-list">
@@ -340,7 +371,46 @@
           </div>
 
           <div v-show="activeSection === 'schedule'" class="pch-panel">
-            <SkillBuildersWorkSchedulePanel :agency-id="props.agencyId" :mode="props.mode" />
+            <!-- Skill Builders: dedicated work schedule panel -->
+            <SkillBuildersWorkSchedulePanel v-if="isSkillBuildersProgram" :agency-id="props.agencyId" :mode="props.mode" />
+            <!-- Non-Skill-Builders: inline schedule from program events -->
+            <template v-else>
+              <template v-if="mode === 'coordinator'">
+                <div v-if="eventsLoading" class="pch-muted">Loading schedule…</div>
+                <div v-else-if="eventsError" class="pch-error">{{ eventsError }}</div>
+                <template v-else-if="programEventsSortedByDate.length">
+                  <ul class="pch-event-list">
+                    <li v-for="ev in programEventsSortedByDate" :key="`sched-${ev.id}`" class="pch-event-item">
+                      <button type="button" class="pch-event-open" @click="goEventPortal(ev.id)">
+                        <div class="pch-event-title">{{ ev.title }}</div>
+                        <div class="pch-muted pch-event-dates">{{ formatEventDateRange(ev) }}</div>
+                        <ul v-if="ev.meetings?.length" class="pch-event-meet-list">
+                          <li v-for="(m, i) in ev.meetings" :key="i">
+                            {{ m.weekday }} {{ wallHmToDisplay(formatHm(m.startTime)) }}–{{ wallHmToDisplay(formatHm(m.endTime)) }}
+                          </li>
+                        </ul>
+                        <span class="pch-cta">Event portal →</span>
+                      </button>
+                    </li>
+                  </ul>
+                </template>
+                <p v-else class="pch-muted">No events scheduled for this program yet. Create one in the Events section.</p>
+              </template>
+              <template v-else>
+                <!-- Provider mode: show assigned events already loaded by the Events section -->
+                <h3 class="pch-events-sub">Your assignments</h3>
+                <ul v-if="assignedEvents.length" class="pch-event-list">
+                  <li v-for="ev in assignedEvents" :key="`ps-${ev.id}`" class="pch-event-item">
+                    <button type="button" class="pch-event-open" @click="goEventPortal(ev.id, ev)">
+                      <div class="pch-event-title">{{ ev.title }}</div>
+                      <div class="pch-muted pch-event-dates">{{ formatEventDateRange(ev) }}</div>
+                      <span class="pch-cta">Event portal →</span>
+                    </button>
+                  </li>
+                </ul>
+                <p v-else class="pch-muted">No program event assignments yet. The coordinator will assign you to events.</p>
+              </template>
+            </template>
           </div>
           <div v-show="activeSection === 'documents'" class="pch-panel">
             <SkillBuildersProgramDocumentsPanel
@@ -351,11 +421,58 @@
             <p v-else class="pch-muted">Program organization is required to manage documents.</p>
           </div>
           <div v-show="activeSection === 'clients'" class="pch-panel">
-            <SkillBuildersClientManagementPanel v-if="coordinatorAgencyId" :agency-id="coordinatorAgencyId" />
+            <!-- Skill Builders: dedicated master client list -->
+            <SkillBuildersClientManagementPanel v-if="isSkillBuildersProgram && coordinatorAgencyId" :agency-id="coordinatorAgencyId" />
+            <!-- Non-Skill-Builders: clients by program event, with enrollment notes -->
+            <template v-else-if="mode === 'coordinator'">
+              <p class="pch-muted">Clients registered for this program's events. Select an event to view and manage its client roster and enrollment notes.</p>
+              <div v-if="programEvents.length" class="pch-enrollees-picker">
+                <label class="pch-field-label" for="pch-prog-clients-event">Event</label>
+                <select id="pch-prog-clients-event" v-model="programClientsEventId" class="pch-input">
+                  <option v-for="ev in enrolleesEventOptions" :key="`pce-${ev.id}`" :value="String(ev.id)">
+                    {{ ev.title }}
+                  </option>
+                </select>
+              </div>
+              <p v-else class="pch-muted">No events yet. Create one in the Events section to start registering clients.</p>
+              <div v-if="programClientsLoading" class="pch-muted">Loading clients…</div>
+              <div v-else-if="programClientsError" class="pch-error">{{ programClientsError }}</div>
+              <template v-else-if="programClientsEventId">
+                <div v-if="programClientsList.length" class="pch-prog-clients-list">
+                  <div v-for="c in programClientsList" :key="`pc-${c.clientId}`" class="pch-prog-client-row">
+                    <div class="pch-prog-client-name">
+                      {{ c.fullName || c.initials || c.identifierCode || `Client ${c.clientId}` }}
+                      <span v-if="c.status" class="pch-badge">{{ c.status }}</span>
+                    </div>
+                    <div class="pch-prog-client-note-wrap">
+                      <label class="pch-field-label" :for="`pce-note-${c.clientId}`">Note</label>
+                      <textarea
+                        :id="`pce-note-${c.clientId}`"
+                        v-model="programClientNoteEdits[c.clientId]"
+                        class="pch-input pch-textarea pch-note-textarea"
+                        rows="2"
+                        maxlength="2000"
+                        placeholder="Enrollment notes…"
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm pch-note-save"
+                        :disabled="programClientNoteSaving[c.clientId]"
+                        @click="saveProgramClientNote(c.clientId)"
+                      >
+                        {{ programClientNoteSaving[c.clientId] ? 'Saving…' : 'Save note' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <p v-else class="pch-muted">No clients registered for this event yet.</p>
+              </template>
+            </template>
+            <p v-else class="pch-muted">Client management is handled by program coordinators.</p>
           </div>
           <div v-show="activeSection === 'enrollees'" class="pch-panel">
             <p class="pch-muted">
-              Non-Skill-Builders participant roster by event. Pick an event and review enrolled clients.
+              Participant roster by event. Pick an event and review enrolled clients.
             </p>
             <div v-if="enrolleesEventOptions.length" class="pch-enrollees-picker">
               <label class="pch-field-label" for="pch-enrollees-event">Event</label>
@@ -389,7 +506,7 @@
             <p v-else-if="selectedEnrolleeEventId" class="pch-muted">No enrolled clients for this event yet.</p>
           </div>
           <div v-show="activeSection === 'clinical_notes'" class="pch-panel">
-            <SkillBuildersClinicalNotesHubPanel v-if="coordinatorAgencyId" :agency-id="coordinatorAgencyId" />
+            <SkillBuildersClinicalNotesHubPanel v-if="isSkillBuildersProgram && coordinatorAgencyId" :agency-id="coordinatorAgencyId" />
           </div>
         </div>
       </div>
@@ -417,10 +534,11 @@ const props = defineProps({
   /** Coordinator: program portal slug for `/:slug/skill-builders/event/:id` links. */
   organizationPortalSlug: { type: String, default: '' },
   /** When set (e.g. `documents`), open this section instead of the hub grid. */
-  initialSection: { type: String, default: null }
+  initialSection: { type: String, default: null },
+  inline: { type: Boolean, default: false }
 });
 
-defineEmits(['close', 'open-skill-builder-availability']);
+const emit = defineEmits(['close', 'open-skill-builder-availability']);
 
 const router = useRouter();
 const route = useRoute();
@@ -428,6 +546,9 @@ const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 
 const titleId = `pch-title-${Math.random().toString(36).slice(2, 9)}`;
+const onShellClick = () => {
+  if (!props.inline) emit('close');
+};
 /** null = hub (pick a section); otherwise section id */
 const activeSection = ref(null);
 /** After applying `initialSection` once so we do not override user navigation. */
@@ -459,6 +580,13 @@ const enrolleesLoading = ref(false);
 const enrolleesError = ref('');
 const selectedEnrolleeEventId = ref('');
 const eventEnrollees = ref([]);
+/** Program client management for non-SB programs */
+const programClientsEventId = ref('');
+const programClientsList = ref([]);
+const programClientsLoading = ref(false);
+const programClientsError = ref('');
+const programClientNoteEdits = ref({});
+const programClientNoteSaving = ref({});
 const resolvedOrgId = ref(null);
 const resolvedOrgName = ref('');
 const programClassesForPortal = ref([]);
@@ -468,7 +596,7 @@ const portalError = ref('');
 const selectedPortalKey = ref('');
 
 const displayName = computed(() => {
-  if (props.mode === 'provider') return resolvedOrgName.value || 'Skill Builders';
+  if (props.mode === 'provider') return resolvedOrgName.value || props.organizationName || 'Program';
   return props.organizationName || 'Program';
 });
 
@@ -507,13 +635,16 @@ const agencyPortalSlugForIntake = computed(() => {
 });
 
 const sectionItems = computed(() => {
+  const isSB = isSkillBuildersProgram.value;
   const base = [
     {
       id: 'availability',
       label: 'Availability',
       shortLabel: 'Availability',
       icon: '📅',
-      description: 'Weekly Skill Builder blocks, confirmations, and coordinator view by day.'
+      description: isSB
+        ? 'Weekly Skill Builder blocks, confirmations, and coordinator view by day.'
+        : 'This program\'s event schedule and meeting times.'
     },
     {
       id: 'portal',
@@ -521,16 +652,16 @@ const sectionItems = computed(() => {
       shortLabel: 'Portal',
       icon: '🧭',
       description:
-        'Jump to an event or enrollment workspace — cards work like assigned school/program portals on My Dashboard.'
+        'Jump to an event or enrollment workspace — cards work like assigned program portals on My Dashboard.'
     },
     {
       id: 'events',
       label: 'Events',
       shortLabel: 'Events',
       icon: '🎯',
-      description: isSkillBuildersProgram.value
+      description: isSB
         ? 'Program company events and applications linked to school Skill Builders groups.'
-        : 'Program company events and provider applications (no school link required).'
+        : 'Program events and provider applications (independent of schools).'
     }
   ];
   if (props.mode === 'coordinator' && resolvedCoordinatorOrganizationId.value) {
@@ -545,10 +676,12 @@ const sectionItems = computed(() => {
   }
   base.push({
     id: 'schedule',
-    label: 'Work schedule',
+    label: isSB ? 'Work schedule' : 'Schedule',
     shortLabel: 'Schedule',
     icon: '🗓️',
-    description: 'Upcoming Skill Builders meetings and your assignments.'
+    description: isSB
+      ? 'Upcoming Skill Builders meetings and your assignments.'
+      : 'Upcoming program events and your event assignments.'
   });
   if (props.mode === 'coordinator' && coordinatorAgencyId.value) {
     base.push({
@@ -560,22 +693,15 @@ const sectionItems = computed(() => {
     });
     base.push({
       id: 'clients',
-      label: 'Client management',
+      label: 'Clients',
       shortLabel: 'Clients',
       icon: '👥',
-      description: 'Master list of Skill Builders (skills) clients across the agency.'
+      description: isSB
+        ? 'Master list of Skill Builders (skills) clients across the agency.'
+        : 'Clients registered for this program\'s events, with enrollment notes.'
     });
-    if (!isSkillBuildersProgram.value) {
-      base.push({
-        id: 'enrollees',
-        label: 'Event enrollees',
-        shortLabel: 'Enrollees',
-        icon: '🧾',
-        description: 'View and manage participant rosters for non-Skill-Builders program events.'
-      });
-    }
   }
-  if (coordinatorAgencyId.value) {
+  if (coordinatorAgencyId.value && isSB) {
     const supIcon = brandingStore.getDashboardCardIconUrl('supervision', coordinatorAgencyId.value);
     base.push({
       id: 'clinical_notes',
@@ -608,6 +734,14 @@ const enrolleesEventOptions = computed(() =>
       title: String(ev.title || '').trim() || `Event ${ev.id}`
     }))
     .filter((ev) => Number.isFinite(ev.id) && ev.id > 0)
+);
+
+const programEventsSortedByDate = computed(() =>
+  [...(programEvents.value || [])].sort((a, b) => {
+    const ta = a.startsAt ? new Date(a.startsAt).getTime() : 0;
+    const tb = b.startsAt ? new Date(b.startsAt).getTime() : 0;
+    return ta - tb;
+  })
 );
 
 watch(
@@ -761,7 +895,10 @@ function goEventPortal(eventId, ev = null) {
     ev && ev.programPortalSlug ? String(ev.programPortalSlug).trim().toLowerCase() : '';
   const slug = fromEv || eventPortalSlug();
   const id = Number(eventId);
-  if (slug && Number.isFinite(id) && id > 0) router.push(`/${slug}/skill-builders/event/${id}`);
+  if (slug && Number.isFinite(id) && id > 0) {
+    const segment = isSkillBuildersProgram.value ? 'skill-builders' : 'program';
+    router.push(`/${slug}/${segment}/event/${id}`);
+  }
 }
 
 function openEnrollmentWorkspace(tile) {
@@ -952,6 +1089,57 @@ async function loadEventEnrolleesForSelection() {
   }
 }
 
+async function loadProgramClientsForEvent() {
+  programClientsList.value = [];
+  programClientsError.value = '';
+  const aid = Number(props.agencyId);
+  const eid = Number(programClientsEventId.value);
+  if (!Number.isFinite(aid) || aid <= 0 || !Number.isFinite(eid) || eid <= 0) return;
+  programClientsLoading.value = true;
+  try {
+    const res = await api.get(`/company-events/${eid}/clients`, {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    programClientsList.value = Array.isArray(res.data?.clients) ? res.data.clients : [];
+    const edits = {};
+    for (const c of programClientsList.value) {
+      edits[c.clientId] = c.notes || '';
+    }
+    programClientNoteEdits.value = edits;
+  } catch (e) {
+    programClientsError.value = e.response?.data?.error?.message || e.message || 'Failed to load clients';
+  } finally {
+    programClientsLoading.value = false;
+  }
+}
+
+async function saveProgramClientNote(clientId) {
+  const aid = Number(props.agencyId);
+  const eid = Number(programClientsEventId.value);
+  if (!Number.isFinite(aid) || aid <= 0 || !Number.isFinite(eid) || eid <= 0 || !clientId) return;
+  programClientNoteSaving.value = { ...programClientNoteSaving.value, [clientId]: true };
+  programClientsError.value = '';
+  try {
+    await api.patch(
+      `/company-events/${eid}/clients/${clientId}`,
+      { agencyId: aid, notes: programClientNoteEdits.value[clientId] ?? null },
+      { skipGlobalLoading: true }
+    );
+    const idx = programClientsList.value.findIndex((c) => c.clientId === clientId);
+    if (idx >= 0) {
+      programClientsList.value[idx] = {
+        ...programClientsList.value[idx],
+        notes: programClientNoteEdits.value[clientId] ?? null
+      };
+    }
+  } catch (e) {
+    programClientsError.value = e.response?.data?.error?.message || e.message || 'Failed to save note';
+  } finally {
+    programClientNoteSaving.value = { ...programClientNoteSaving.value, [clientId]: false };
+  }
+}
+
 async function loadProviderEvents() {
   assignedEvents.value = [];
   upcomingEvents.value = [];
@@ -1085,7 +1273,7 @@ watch(
 watch(
   () => [activeSection.value, props.mode, props.agencyId, props.organizationId],
   async () => {
-    if (activeSection.value !== 'events') return;
+    if (!['events', 'availability', 'schedule'].includes(activeSection.value)) return;
     if (props.mode === 'coordinator') await loadCoordinatorEvents();
     else await loadProviderEvents();
   }
@@ -1124,6 +1312,29 @@ watch(
 );
 
 watch(
+  () => [activeSection.value, props.mode, props.agencyId, props.organizationId],
+  async () => {
+    if (activeSection.value !== 'clients') return;
+    if (props.mode !== 'coordinator' || isSkillBuildersProgram.value) return;
+    await loadCoordinatorEvents();
+    const options = enrolleesEventOptions.value;
+    const selected = Number(programClientsEventId.value);
+    if (!options.some((o) => Number(o.id) === selected)) {
+      programClientsEventId.value = options.length ? String(options[0].id) : '';
+    }
+    await loadProgramClientsForEvent();
+  }
+);
+
+watch(
+  () => programClientsEventId.value,
+  async () => {
+    if (activeSection.value !== 'clients' || isSkillBuildersProgram.value) return;
+    await loadProgramClientsForEvent();
+  }
+);
+
+watch(
   () => [activeSection.value, props.mode, props.agencyId, props.organizationId, resolvedOrgId.value],
   async () => {
     if (activeSection.value !== 'portal') return;
@@ -1148,6 +1359,9 @@ watch(
   z-index: 1500;
   padding: 12px;
 }
+.pch-inline-shell {
+  width: 100%;
+}
 .pch-modal {
   width: 100%;
   max-width: 1080px;
@@ -1161,6 +1375,11 @@ watch(
     0 24px 48px -12px rgba(15, 23, 42, 0.18);
   display: flex;
   flex-direction: column;
+}
+.pch-modal-inline {
+  max-width: none;
+  max-height: none;
+  border-radius: 14px;
 }
 .pch-header {
   display: flex;
@@ -1664,6 +1883,52 @@ watch(
   font-size: 0.78rem;
   color: var(--text-secondary, #64748b);
   font-weight: 700;
+}
+
+/* Program client management (non-SB) */
+.pch-prog-clients-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+.pch-prog-client-row {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fff;
+}
+.pch-prog-client-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary, #0f172a);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pch-prog-client-note-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pch-note-textarea {
+  resize: vertical;
+  min-height: 52px;
+  font-size: 0.82rem;
+}
+.pch-note-save {
+  align-self: flex-end;
+}
+.pch-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 2px 6px;
 }
 
 @media (max-width: 560px) {

@@ -33,3 +33,16 @@ export function useSessionJoinWindow(sessionRef) {
 
   return { joinVisible, nowMs };
 }
+
+export function isSessionJoinVisibleAt(sessionLike, nowMs = Date.now()) {
+  const s = sessionLike || null;
+  if (!s) return false;
+  const url = String(s.joinUrl || '').trim();
+  if (!url) return false;
+  const mod = String(s.modality || '').toLowerCase();
+  if (!mod || (mod !== 'virtual' && mod !== 'hybrid')) return false;
+  const st = new Date(s.startsAt || s.starts_at || 0);
+  const en = new Date(s.endsAt || s.ends_at || 0);
+  if (!Number.isFinite(st.getTime()) || !Number.isFinite(en.getTime())) return false;
+  return nowMs >= st.getTime() - 10 * 60 * 1000 && nowMs <= en.getTime();
+}

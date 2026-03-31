@@ -39,6 +39,16 @@ function normalizeClientType(value, fallback = 'basic_nonclinical') {
   return fallback;
 }
 
+function resolveEffectiveClientTypeForRules(client) {
+  const explicit = normalizeClientType(client?.client_type, '');
+  if (explicit) return explicit;
+  const orgType = String(client?.organization_type || '').trim().toLowerCase();
+  if (orgType === 'school') return 'school';
+  if (orgType === 'learning') return 'learning';
+  if (orgType === 'program' || orgType === 'clinical') return 'clinical';
+  return 'basic_nonclinical';
+}
+
 function isValidSchoolInitials(value) {
   const cleaned = String(value || '').trim().toUpperCase();
   return /^[A-Z]{6}$/.test(cleaned);
@@ -169,6 +179,17 @@ async function getSkillBuilderEligibilityForUser(userId) {
 export const getClients = async (req, res, next) => {
   try {
     const { status, organization_id, provider_id, search, client_status_id, paperwork_status_id, insurance_type_id, skills, agency_id } = req.query;
+    // agency_ids: comma-separated list of agency IDs for platform-mode filtered queries (super_admin only).
+    const agencyIdsParam = req.query.agency_ids
+      ? String(req.query.agency_ids).split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isFinite(n) && n > 0)
+      : null;
+    const pageParam = Number.parseInt(String(req.query.page || ''), 10);
+    const perPageParam = Number.parseInt(String(req.query.per_page || req.query.page_size || ''), 10);
+    const paginateRequested =
+      String(req.query.paginate || '').toLowerCase() === 'true' ||
+      String(req.query.paginate || '') === '1' ||
+      Number.isFinite(pageParam) ||
+      Number.isFinite(perPageParam);
     const skillBuildersOnly =
       String(req.query.skillBuildersOnly || req.query.skill_builders_only || '').toLowerCase() === 'true' ||
       String(req.query.skillBuildersOnly || req.query.skill_builders_only || '') === '1';
@@ -202,6 +223,9 @@ export const getClients = async (req, res, next) => {
       } else if (agencyIds.includes(requestedAgencyId)) {
         agencyIds = [requestedAgencyId];
       }
+    } else if (agencyIdsParam && agencyIdsParam.length > 0 && userRole === 'super_admin') {
+      // Platform mode with hidden-tenant filter: restrict to the visible agency subset.
+      agencyIds = agencyIdsParam;
     }
 
     // Build query options
@@ -292,8 +316,24 @@ export const getClients = async (req, res, next) => {
       includeArchived || statusNorm === 'ARCHIVED'
         ? providerScopedClients
         : providerScopedClients.filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+    const shouldPaginate = userRole === 'super_admin' && paginateRequested;
+    if (!shouldPaginate) {
+      return res.json(out);
+    }
 
-    res.json(out);
+    const perPage = Number.isFinite(perPageParam) ? Math.min(Math.max(perPageParam, 1), 200) : 50;
+    const page = Number.isFinite(pageParam) ? Math.max(pageParam, 1) : 1;
+    const total = Array.isArray(out) ? out.length : 0;
+    const start = (page - 1) * perPage;
+    const end = start + perPage;
+    const items = (out || []).slice(start, end);
+
+    return res.json({
+      items,
+      total,
+      page,
+      per_page: perPage
+    });
   } catch (error) {
     console.error('Get clients error:', error);
     next(error);
@@ -798,7 +838,7 @@ export const createClient = async (req, res, next) => {
       created_by_user_id: userId,
       client_status_id: client_status_id ? parseInt(client_status_id, 10) : null,
       insurance_type_id: insurance_type_id ? parseInt(insurance_type_id, 10) : null,
-      school_year: school_year ? String(school_year).trim() : null,
+      school_year: resolvedClientType === 'school' ? (school_year ? String(school_year).trim() : null) : null,
       grade: normalizeGradeForSave(grade),
       doc_date: doc_date ? String(doc_date).slice(0, 10) : null,
 
@@ -807,7 +847,9 @@ export const createClient = async (req, res, next) => {
       paperwork_delivery_method_id: paperwork_delivery_method_id || null,
       primary_client_language: primary_client_language ? String(primary_client_language).trim() : null,
       primary_parent_language: primary_parent_language ? String(primary_parent_language).trim() : null,
-      skills: skills === undefined || skills === null ? undefined : !!skills
+      skills: resolvedClientType === 'school'
+        ? (skills === undefined || skills === null ? undefined : !!skills)
+        : false
     };
     const client = await Client.create(clientCreatePayload);
 
@@ -1833,6 +1875,12 @@ export const updateClient = async (req, res, next) => {
       req.body.client_type_transitioned_at = new Date();
       req.body.client_type_transitioned_by_user_id = userId;
     }
+    const effectiveTypeAfterUpdate = requestedClientType || currentClientType;
+    if (effectiveTypeAfterUpdate !== 'school') {
+      // School-only fields are cleared for non-school client types.
+      req.body.school_year = null;
+      req.body.skills = false;
+    }
 
     // Client identifier code (6-digit, permanent):
     // Use the existing update endpoint so the UI doesn't depend on a brand-new route.
@@ -2289,6 +2337,12 @@ export const graduateClientType = async (req, res, next) => {
     if (!isBackofficeRole(role)) {
       return res.status(403).json({ error: { message: 'Only admin/staff/support/super_admin can graduate client types' } });
     }
+    const superAdminOverrideDowngrade =
+      role === 'super_admin' &&
+      (
+        req.body?.allow_downgrade_override === true
+        || String(req.body?.allow_downgrade_override || '').toLowerCase() === 'true'
+      );
 
     const targetClientType = normalizeClientType(req.body?.client_type, '');
     if (!CLIENT_TYPE_ORDER.includes(targetClientType)) {
@@ -2309,7 +2363,8 @@ export const graduateClientType = async (req, res, next) => {
       });
     }
     const transitionError = getClientTypeTransitionError({ fromType: currentType, toType: targetClientType });
-    if (transitionError) {
+    const isDowngradeError = transitionError === 'Client type cannot be downgraded.';
+    if (transitionError && !(superAdminOverrideDowngrade && isDowngradeError)) {
       return res.status(400).json({ error: { message: transitionError } });
     }
     if (targetClientType === currentType) {
@@ -2317,6 +2372,13 @@ export const graduateClientType = async (req, res, next) => {
     }
 
     const reason = String(req.body?.reason || '').trim().slice(0, 500) || null;
+    const historyNote = (() => {
+      if (reason) return reason;
+      if (superAdminOverrideDowngrade && CLIENT_TYPE_ORDER.indexOf(targetClientType) < CLIENT_TYPE_ORDER.indexOf(currentType)) {
+        return `Super admin override: changed client type from ${currentType} to ${targetClientType}`;
+      }
+      return `Graduated client type from ${currentType} to ${targetClientType}`;
+    })();
     const updated = await Client.update(
       clientId,
       {
@@ -2332,7 +2394,7 @@ export const graduateClientType = async (req, res, next) => {
       field_changed: 'client_type',
       from_value: currentType,
       to_value: targetClientType,
-      note: reason || `Graduated client type from ${currentType} to ${targetClientType}`
+      note: historyNote
     });
     res.json({ client: updated });
   } catch (error) {
@@ -2435,6 +2497,9 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
 
     const currentClient = await Client.findById(clientId, { includeSensitive: true });
     if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
+    if (resolveEffectiveClientTypeForRules(currentClient) !== 'school') {
+      return res.status(400).json({ error: { message: 'Compliance checklist is only available for school clients' } });
+    }
 
     // Permission: provider or provider_plus assigned to client, or agency staff/admin/support/super_admin.
     const isSuper = userRole === 'super_admin';
@@ -3728,6 +3793,71 @@ const DEMO_SKIP_LABEL_PATTERN = /guardian|parent|emergency|pickup|insurance|subs
 const CLINICAL_SKIP_LABEL_PATTERN = /insurance|member id|policy|subscriber|payer|medicaid|medicare|coverage|group|plan|billing|ssn|social security|address|street|city|state|zip|postal|phone|email|contact|relationship|guardian first|guardian last|client first|client last|full name|middle name|date of birth|birthdate|dob|grade|school|legal right|custodian|sms|text message|communication preference|apartment|apt/i;
 const CLINICAL_SKIP_KEY_PATTERN = /legal|custodian|sms|text|communication|apartment|address|phone|email|relationship|client_first|client_last|guardian_first|guardian_last|first_name|last_name|firstname|lastname|dob|birth|grade|school|insurance|zip|city|state|street|postal/i;
 
+// ── Explicit intake key maps ───────────────────────────────────────────────
+// Keys match the exact field keys used in all intake form configurations.
+
+const CLIENT_INTAKE_DEMO_KEYS = [
+  ['client_first',  'First Name'],
+  ['client_last',   'Last Name'],
+  ['client_dob',    'Date of Birth'],
+  ['client_sex',    'Sex / Gender'],
+  ['client_grade',  'Grade'],
+  ['client_street', 'Street Address'],
+  ['client_apt',    'Apt / Unit'],
+  ['client_city',   'City'],
+  ['client_state',  'State'],
+  ['client_zip',    'Zip Code'],
+];
+
+const GUARDIAN_INTAKE_KEYS = [
+  ['guardian_address',    'Guardian Street Address'],
+  ['guardian_apt',        'Guardian Apt / Unit'],
+  ['guardian_city',       'Guardian City'],
+  ['guardian_state',      'Guardian State'],
+  ['guardian_zip',        'Guardian Zip Code'],
+  ['guardian_email_pref', 'Guardian Email'],
+  ['guardian_phone_pref', 'Guardian Phone'],
+  ['emergency_contact',   'Emergency Contact'],
+  ['additional_guardian', 'Additional Guardian'],
+];
+
+const TRAUMA_INTAKE_KEYS = [
+  ['physical_abuse',      'Physical Abuse'],
+  ['physical_when',       'Physical Abuse – When'],
+  ['physical_followup',   'Physical Abuse – Details'],
+  ['neglect',             'Neglect'],
+  ['neglect_when',        'Neglect – When'],
+  // Allow for a typo variant in older submissions
+  ['neglect_additional',  'Neglect – Details'],
+  ['neglect_additioanl',  'Neglect – Details (legacy)'],
+  ['emotional_abuse',     'Emotional Abuse'],
+  ['mental_when',         'Emotional Abuse – When'],
+  ['mental_additional',   'Emotional Abuse – Details'],
+];
+
+const GOALS_INTAKE_KEYS = [
+  ['gain',    'Goals / What They Hope to Gain from Counseling'],
+  ['helpful', 'What Has Been Helpful'],
+];
+
+const ADDITIONAL_INTAKE_KEYS = [
+  ['anything',  'Anything Else to Know'],
+  ['allergies', 'Allergies / Medical Notes'],
+];
+
+// All explicitly-handled clinical keys — exclude from the generic catch-all.
+const EXPLICIT_CLINICAL_KEYS = new Set([
+  ...TRAUMA_INTAKE_KEYS.map(([k]) => k),
+  ...GOALS_INTAKE_KEYS.map(([k]) => k),
+  ...ADDITIONAL_INTAKE_KEYS.map(([k]) => k),
+]);
+
+// All explicitly-handled demographic keys — exclude from generic demo scan.
+const EXPLICIT_DEMO_KEYS = new Set([
+  ...CLIENT_INTAKE_DEMO_KEYS.map(([k]) => k),
+  ...GUARDIAN_INTAKE_KEYS.map(([k]) => k),
+]);
+
 const hasVal = (v) => v !== null && v !== undefined && String(v).trim() !== '';
 const normalizeLabel = (s) => String(s || '').trim();
 
@@ -3855,6 +3985,7 @@ export const getClientClinicalResponses = async (req, res, next) => {
     const legacyScopedFields = intakeFields.filter((f) => f?.scope === 'clinical' && f?.key);
     const legacyScopedResults = [];
     const allSub = {
+      ...((submissionData?.responses?.guardian) || {}),
       ...((submissionData?.responses?.submission) || {}),
       ...(Array.isArray(submissionData?.responses?.clients) ? (submissionData.responses.clients[0] || {}) : {})
     };
@@ -3884,17 +4015,55 @@ export const getClientClinicalResponses = async (req, res, next) => {
       sections.push({ title: 'PSC-17 Behavioral Assessment', fields: pscFields });
     }
 
-    // ── 4. Legacy: all other submission/client fields that look clinical ─────
+    // ── 4. Explicit: trauma / abuse history ─────────────────────────────────
+    const traumaFields = [];
+    for (const [key, label] of TRAUMA_INTAKE_KEYS) {
+      const raw = allSub[key];
+      if (!hasVal(raw)) continue;
+      traumaFields.push({ key, label, value: String(raw).trim() });
+    }
+    if (traumaFields.length) {
+      sections.push({ title: 'Trauma / Abuse History', fields: traumaFields });
+    }
+
+    // ── 5. Explicit: counseling goals ───────────────────────────────────────
+    const goalsFields = [];
+    for (const [key, label] of GOALS_INTAKE_KEYS) {
+      const raw = allSub[key];
+      if (!hasVal(raw)) continue;
+      goalsFields.push({ key, label, value: String(raw).trim() });
+    }
+    if (goalsFields.length) {
+      sections.push({ title: 'Counseling Goals', fields: goalsFields });
+    }
+
+    // ── 6. Explicit: additional / medical notes ──────────────────────────────
+    const additionalFields = [];
+    for (const [key, label] of ADDITIONAL_INTAKE_KEYS) {
+      const raw = allSub[key];
+      if (!hasVal(raw)) continue;
+      additionalFields.push({ key, label, value: String(raw).trim() });
+    }
+    if (additionalFields.length) {
+      sections.push({ title: 'Additional Notes & Medical', fields: additionalFields });
+    }
+
+    // ── 7. Legacy: all other submission/client fields that look clinical ─────
     // (anything not excluded by the clinical summary exclude patterns, and not
     //  already surfaced in the previous sections, and not demographic)
     const seenKeys = new Set([
       ...newClinicalFields.map((f) => f.key),
       ...legacyScopedResults.map((f) => f.key),
-      ...pscFields.map((f) => f.key)
+      ...pscFields.map((f) => f.key),
+      ...traumaFields.map((f) => f.key),
+      ...goalsFields.map((f) => f.key),
+      ...additionalFields.map((f) => f.key),
+      ...EXPLICIT_CLINICAL_KEYS,
     ]);
     const allLabeled = extractLabeledFieldsFromSubmission(submissionData, intakeFields);
     const generalClinicalFields = allLabeled.filter(({ key, label, value }) => {
       if (seenKeys.has(key)) return false;
+      if (EXPLICIT_DEMO_KEYS.has(key)) return false;
       // Skip demographic-looking fields
       if (DEMO_KEY_PATTERN.test(key)) return false;
       if (DEMO_LABEL_PATTERN.test(label) && !DEMO_SKIP_LABEL_PATTERN.test(label)) return false;
@@ -3910,7 +4079,7 @@ export const getClientClinicalResponses = async (req, res, next) => {
       });
     }
 
-    res.json({ sections, capturedAt: sub.created_at || null });
+    res.json({ sections, capturedAt: sub.submitted_at || null });
   } catch (e) {
     next(e);
   }
@@ -3940,8 +4109,11 @@ export const getClientDemographics = async (req, res, next) => {
     let clientRow = {};
     try {
       const [clientRows] = await pool.execute(
-        `SELECT date_of_birth, gender, address_street, address_apt, address_city,
-                address_state, address_zip, ethnicity, preferred_language
+        `SELECT full_name, initials, identifier_code,
+                date_of_birth, gender, address_street, address_apt, address_city,
+                address_state, address_zip, ethnicity, preferred_language,
+                primary_client_language, primary_parent_language,
+                contact_phone, submission_date, source
          FROM clients WHERE id = ? LIMIT 1`,
         [clientId]
       );
@@ -3950,7 +4122,10 @@ export const getClientDemographics = async (req, res, next) => {
       // New address columns may not exist yet (migration pending); fall back to base columns
       try {
         const [clientRows] = await pool.execute(
-          `SELECT date_of_birth, gender FROM clients WHERE id = ? LIMIT 1`,
+          `SELECT full_name, initials, identifier_code, date_of_birth, gender,
+                  primary_client_language, primary_parent_language,
+                  contact_phone, submission_date, source
+           FROM clients WHERE id = ? LIMIT 1`,
           [clientId]
         );
         clientRow = clientRows[0] || {};
@@ -3959,15 +4134,23 @@ export const getClientDemographics = async (req, res, next) => {
 
     // Coerce NULLs to empty strings for consistent handling
     const profileFields = [
-      { key: 'date_of_birth',       label: 'Date of Birth',      value: clientRow.date_of_birth ? String(clientRow.date_of_birth).slice(0, 10) : '' },
-      { key: 'gender',              label: 'Gender',             value: clientRow.gender || '' },
-      { key: 'ethnicity',           label: 'Race / Ethnicity',   value: clientRow.ethnicity || '' },
-      { key: 'preferred_language',  label: 'Preferred Language', value: clientRow.preferred_language || '' },
-      { key: 'address_street',      label: 'Street Address',     value: clientRow.address_street || '' },
-      { key: 'address_apt',         label: 'Apt / Unit',         value: clientRow.address_apt || '' },
-      { key: 'address_city',        label: 'City',               value: clientRow.address_city || '' },
-      { key: 'address_state',       label: 'State',              value: clientRow.address_state || '' },
-      { key: 'address_zip',         label: 'Zip Code',           value: clientRow.address_zip || '' },
+      { key: 'full_name',               label: 'Full Name',             value: clientRow.full_name || '' },
+      { key: 'initials',                label: 'Initials',              value: clientRow.initials || '' },
+      { key: 'identifier_code',         label: 'Client Code',           value: clientRow.identifier_code || '' },
+      { key: 'date_of_birth',           label: 'Date of Birth',         value: clientRow.date_of_birth ? String(clientRow.date_of_birth).slice(0, 10) : '' },
+      { key: 'gender',                  label: 'Gender',                value: clientRow.gender || '' },
+      { key: 'ethnicity',               label: 'Race / Ethnicity',      value: clientRow.ethnicity || '' },
+      { key: 'preferred_language',      label: 'Preferred Language',    value: clientRow.preferred_language || '' },
+      { key: 'primary_client_language', label: 'Client Primary Language', value: clientRow.primary_client_language || '' },
+      { key: 'primary_parent_language', label: 'Guardian Primary Language', value: clientRow.primary_parent_language || '' },
+      { key: 'contact_phone',           label: 'Phone',                 value: clientRow.contact_phone || '' },
+      { key: 'address_street',          label: 'Street Address',        value: clientRow.address_street || '' },
+      { key: 'address_apt',             label: 'Apt / Unit',            value: clientRow.address_apt || '' },
+      { key: 'address_city',            label: 'City',                  value: clientRow.address_city || '' },
+      { key: 'address_state',           label: 'State',                 value: clientRow.address_state || '' },
+      { key: 'address_zip',             label: 'Zip Code',              value: clientRow.address_zip || '' },
+      { key: 'submission_date',         label: 'Submission Date',       value: clientRow.submission_date ? String(clientRow.submission_date).slice(0, 10) : '' },
+      { key: 'source',                  label: 'Source',                value: clientRow.source || '' },
     ].filter((f) => hasVal(f.value));
 
     // ── 2. Latest submitted intake – new-style demographicsInfo block ───────
@@ -4014,28 +4197,70 @@ export const getClientDemographics = async (req, res, next) => {
       const di = submissionData?.responses?.submission?.demographicsInfo;
       if (di && typeof di === 'object') {
         const demoMap = [
+          ['firstName', 'First Name (intake)'],
+          ['lastName', 'Last Name (intake)'],
+          ['fullName', 'Full Name (intake)'],
           ['dob', 'Date of Birth (intake)'],
           ['gender', 'Gender (intake)'],
           ['ethnicity', 'Race / Ethnicity (intake)'],
           ['preferredLanguage', 'Preferred Language (intake)'],
+          ['primaryLanguage', 'Primary Language (intake)'],
+          ['phone', 'Phone (intake)'],
+          ['email', 'Email (intake)'],
           ['addressStreet', 'Street Address (intake)'],
           ['addressApt', 'Apt / Unit (intake)'],
           ['addressCity', 'City (intake)'],
           ['addressState', 'State (intake)'],
-          ['addressZip', 'Zip Code (intake)']
+          ['addressZip', 'Zip Code (intake)'],
+          ['grade', 'Grade (intake)'],
+          ['school', 'School (intake)'],
+          ['referralSource', 'Referral Source (intake)'],
+          ['guardianName', 'Guardian Name (intake)'],
+          ['guardianPhone', 'Guardian Phone (intake)'],
+          ['guardianEmail', 'Guardian Email (intake)'],
+          ['guardianRelationship', 'Guardian Relationship (intake)'],
         ];
         for (const [k, label] of demoMap) {
           if (hasVal(di[k])) intakeDemoFields.push({ key: k, label, value: String(di[k]) });
         }
       }
 
+      // Explicit: client intake demographic fields (client_first, client_last, etc.)
+      const allResponses = {
+        ...((submissionData?.responses?.guardian) || {}),
+        ...((submissionData?.responses?.submission) || {}),
+        ...(Array.isArray(submissionData?.responses?.clients) ? (submissionData.responses.clients[0] || {}) : {})
+      };
+      for (const [key, label] of CLIENT_INTAKE_DEMO_KEYS) {
+        const raw = allResponses[key];
+        if (!hasVal(raw)) continue;
+        if (intakeDemoFields.some((f) => f.key === key)) continue;
+        intakeDemoFields.push({ key, label: labelMap.get(key) || label, value: String(raw).trim() });
+      }
+
+      // Explicit: guardian / contact fields from intake
+      const guardianFields = [];
+      for (const [key, label] of GUARDIAN_INTAKE_KEYS) {
+        const raw = allResponses[key];
+        if (!hasVal(raw)) continue;
+        guardianFields.push({ key, label: labelMap.get(key) || label, value: String(raw).trim() });
+      }
+      if (guardianFields.length) {
+        // Mark guardian fields separately so the frontend can group them
+        for (const f of guardianFields) {
+          f.section = 'Guardian / Contact Information';
+        }
+        intakeDemoFields.push(...guardianFields);
+      }
+
       // Legacy: scan ALL submission fields for demographic-pattern keys/labels
-      // (only include what's not already covered by profileFields)
+      // (only include what's not already covered by profileFields or explicit keys)
       const profileKeys = new Set(profileFields.map((f) => f.key));
       const intakeDemoKeys = new Set(intakeDemoFields.map((f) => f.key));
       const allLabeled = extractLabeledFieldsFromSubmission(submissionData, intakeFields);
       for (const { key, label, value } of allLabeled) {
         if (profileKeys.has(key) || intakeDemoKeys.has(key)) continue;
+        if (EXPLICIT_DEMO_KEYS.has(key) || EXPLICIT_CLINICAL_KEYS.has(key)) continue;
         const matchesKey = DEMO_KEY_PATTERN.test(key);
         const matchesLabel = DEMO_LABEL_PATTERN.test(label) && !DEMO_SKIP_LABEL_PATTERN.test(label);
         if (!matchesKey && !matchesLabel) continue;
@@ -4740,6 +4965,89 @@ export const listClientProviderAssignments = async (req, res, next) => {
         vals
       );
       return res.json((rows || []).map((r) => ({ ...r, is_primary: false })));
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * List client event assignments (Skill Builders groups/events).
+ * GET /api/clients/:id/event-assignments
+ */
+export const listClientEventAssignments = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user.id;
+    const role = req.user.role;
+    if (!isBackofficeRole(role)) return res.status(403).json({ error: { message: 'Admin access required' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const agencyId = parseInt(access.client?.agency_id, 10);
+    if (!agencyId) return res.json([]);
+
+    try {
+      const [rows] = await pool.execute(
+        `SELECT sgc.skills_group_id,
+                sgc.active_for_providers,
+                sg.name AS skills_group_name,
+                sg.start_date AS group_start_date,
+                sg.end_date AS group_end_date,
+                sg.organization_id,
+                org.name AS organization_name,
+                org.organization_type,
+                ce.id AS company_event_id,
+                ce.title AS company_event_title,
+                ce.starts_at AS company_event_starts_at,
+                ce.ends_at AS company_event_ends_at
+         FROM skills_group_clients sgc
+         INNER JOIN skills_groups sg
+           ON sg.id = sgc.skills_group_id
+          AND sg.agency_id = ?
+         LEFT JOIN agencies org ON org.id = sg.organization_id
+         LEFT JOIN company_events ce ON ce.id = sg.company_event_id
+         WHERE sgc.client_id = ?
+         ORDER BY COALESCE(ce.starts_at, sg.start_date) DESC, sg.id DESC`,
+        [agencyId, clientId]
+      );
+
+      const now = Date.now();
+      const parseTimeMs = (value) => {
+        if (!value) return null;
+        const t = new Date(value).getTime();
+        return Number.isFinite(t) ? t : null;
+      };
+
+      return res.json((rows || []).map((row) => {
+        const startsAt = row.company_event_starts_at || row.group_start_date || null;
+        const endsAt = row.company_event_ends_at || row.group_end_date || null;
+        const startMs = parseTimeMs(startsAt);
+        const endMs = parseTimeMs(endsAt);
+        let timeframe = 'upcoming';
+        if (endMs !== null && endMs < now) timeframe = 'past';
+        else if (startMs !== null && startMs <= now && (endMs === null || endMs >= now)) timeframe = 'current';
+        return {
+          skills_group_id: Number(row.skills_group_id || 0) || null,
+          skills_group_name: row.skills_group_name || null,
+          active_for_providers: row.active_for_providers === 1 || row.active_for_providers === true,
+          company_event_id: Number(row.company_event_id || 0) || null,
+          company_event_title: row.company_event_title || null,
+          starts_at: startsAt,
+          ends_at: endsAt,
+          timeframe,
+          organization_id: Number(row.organization_id || 0) || null,
+          organization_name: row.organization_name || null,
+          organization_type: row.organization_type || null
+        };
+      }));
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      if (missing) return res.json([]);
+      throw e;
     }
   } catch (e) {
     next(e);

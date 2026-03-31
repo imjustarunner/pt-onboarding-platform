@@ -1,0 +1,224 @@
+<template>
+  <section class="invitee-panel">
+    <div class="invitee-header">
+      <h4>Invitees & RSVP</h4>
+      <div class="actions">
+        <button class="btn btn-secondary btn-sm" type="button" @click="refresh" :disabled="loading">Refresh</button>
+        <button class="btn btn-primary btn-sm" type="button" @click="sendInvites" :disabled="sendingInvites">
+          {{ sendingInvites ? 'Sending…' : 'Send Invitations' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="summary-row" v-if="summary.length">
+      <span v-for="item in summary" :key="item.key" class="summary-chip">
+        {{ item.label }}: {{ item.total }}
+      </span>
+    </div>
+
+    <div v-if="error" class="error">{{ error }}</div>
+
+    <div class="response-list">
+      <div class="table-title">Responses</div>
+      <div v-if="responses.length === 0" class="muted">No responses yet.</div>
+      <table v-else class="mini-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Response</th>
+            <th>Source</th>
+            <th>When</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in responses" :key="`${row.userId}-${row.receivedAt || row.responseKey}`">
+            <td>{{ row.name }}</td>
+            <td>{{ row.responseLabel || row.responseKey }}</td>
+            <td>{{ row.source }}</td>
+            <td>{{ formatDateTime(row.receivedAt) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="need-list">
+      <div class="table-title">Need List (Potluck)</div>
+      <div class="need-create">
+        <input v-model.trim="newItemName" class="input" placeholder="Item needed (e.g. fruit tray)" />
+        <input v-model.trim="newItemNotes" class="input" placeholder="Notes (optional)" />
+        <button class="btn btn-secondary btn-sm" type="button" @click="addNeedItem" :disabled="addingNeed || !newItemName">
+          Add
+        </button>
+      </div>
+      <div v-if="needItems.length === 0" class="muted">No need-list items yet.</div>
+      <table v-else class="mini-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Notes</th>
+            <th>Claimed by</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in needItems" :key="item.id">
+            <td>{{ item.itemName }}</td>
+            <td>{{ item.itemNotes || '-' }}</td>
+            <td>{{ item.claimedByName || '-' }}</td>
+            <td>
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="toggleClaim(item)"
+                :disabled="claimingId === item.id"
+              >
+                {{ item.claimedByUserId ? 'Unclaim' : 'Claim' }}
+              </button>
+              <button class="btn btn-danger btn-sm" type="button" @click="deleteNeedItem(item)" :disabled="deletingId === item.id">
+                Delete
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</template>
+
+<script setup>
+import { onMounted, ref, watch } from 'vue';
+import api from '../../services/api';
+
+const props = defineProps({
+  agencyId: { type: Number, required: true },
+  eventId: { type: Number, required: true }
+});
+
+const loading = ref(false);
+const error = ref('');
+const sendingInvites = ref(false);
+const addingNeed = ref(false);
+const claimingId = ref(0);
+const deletingId = ref(0);
+
+const summary = ref([]);
+const responses = ref([]);
+const needItems = ref([]);
+const newItemName = ref('');
+const newItemNotes = ref('');
+
+const formatDateTime = (value) => {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return '-';
+  return d.toLocaleString();
+};
+
+const loadResponses = async () => {
+  const resp = await api.get(`/agencies/${props.agencyId}/company-events/${props.eventId}/responses`);
+  summary.value = resp.data?.summary || [];
+  responses.value = resp.data?.responses || [];
+};
+
+const loadNeedList = async () => {
+  const resp = await api.get(`/agencies/${props.agencyId}/company-events/${props.eventId}/need-list`);
+  needItems.value = Array.isArray(resp.data) ? resp.data : [];
+};
+
+const refresh = async () => {
+  if (!props.agencyId || !props.eventId) return;
+  loading.value = true;
+  error.value = '';
+  try {
+    await Promise.all([loadResponses(), loadNeedList()]);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to load invitee panel';
+  } finally {
+    loading.value = false;
+  }
+};
+
+const sendInvites = async () => {
+  sendingInvites.value = true;
+  error.value = '';
+  try {
+    await api.post(`/agencies/${props.agencyId}/company-events/${props.eventId}/send-invitations`, {});
+    await refresh();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to send invitations';
+  } finally {
+    sendingInvites.value = false;
+  }
+};
+
+const addNeedItem = async () => {
+  if (!newItemName.value) return;
+  addingNeed.value = true;
+  error.value = '';
+  try {
+    await api.post(`/agencies/${props.agencyId}/company-events/${props.eventId}/need-list`, {
+      itemName: newItemName.value,
+      itemNotes: newItemNotes.value || null
+    });
+    newItemName.value = '';
+    newItemNotes.value = '';
+    await loadNeedList();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to add need-list item';
+  } finally {
+    addingNeed.value = false;
+  }
+};
+
+const toggleClaim = async (item) => {
+  claimingId.value = Number(item.id);
+  error.value = '';
+  try {
+    await api.patch(`/agencies/${props.agencyId}/company-events/${props.eventId}/need-list/${item.id}`, {
+      claim: !item.claimedByUserId,
+      unclaim: !!item.claimedByUserId
+    });
+    await loadNeedList();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to update claim';
+  } finally {
+    claimingId.value = 0;
+  }
+};
+
+const deleteNeedItem = async (item) => {
+  deletingId.value = Number(item.id);
+  error.value = '';
+  try {
+    await api.delete(`/agencies/${props.agencyId}/company-events/${props.eventId}/need-list/${item.id}`);
+    await loadNeedList();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to delete item';
+  } finally {
+    deletingId.value = 0;
+  }
+};
+
+watch(
+  () => [props.agencyId, props.eventId],
+  () => { refresh(); },
+  { immediate: true }
+);
+
+onMounted(refresh);
+</script>
+
+<style scoped>
+.invitee-panel { border: 1px solid var(--border, #d9d9d9); border-radius: 10px; padding: 14px; margin-top: 14px; background: #fff; }
+.invitee-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.invitee-header h4 { margin: 0; }
+.actions { display: flex; gap: 8px; }
+.summary-row { margin: 10px 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.summary-chip { padding: 4px 8px; border-radius: 999px; background: #eef6ff; border: 1px solid #d5e8ff; font-size: 12px; }
+.response-list, .need-list { margin-top: 12px; }
+.table-title { font-weight: 700; margin-bottom: 8px; }
+.mini-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mini-table th, .mini-table td { border-top: 1px solid #ebebeb; padding: 8px; text-align: left; vertical-align: top; }
+.need-create { display: grid; gap: 8px; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto; margin-bottom: 10px; }
+.error { color: #b91c1c; margin: 8px 0; }
+</style>

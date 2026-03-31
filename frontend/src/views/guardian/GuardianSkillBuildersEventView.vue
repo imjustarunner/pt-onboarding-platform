@@ -9,7 +9,7 @@
           :subtitle="guardianSubtitle"
           :kicker="isProgramEventMode ? 'Family · Program Event' : 'Family · Skill Builders'"
         >
-          <template #actions>
+          <template v-if="!inline && !hideActions" #actions>
             <router-link class="btn btn-secondary btn-sm" :to="backTo">
               {{ isProgramEventMode ? '← My Programs' : '← Skill Builders' }}
             </router-link>
@@ -99,7 +99,7 @@
               <p v-if="registrationPayerLines.length" class="muted small">
                 <strong>Payer options:</strong> {{ registrationPayerLines.join(' · ') }}
               </p>
-              <p v-if="backTo" class="muted small">
+              <p v-if="backTo && !inline" class="muted small">
                 <router-link :to="backTo">Guardian home · Registration</router-link>
               </p>
             </SkillBuildersEventDashboardSection>
@@ -253,15 +253,30 @@ import SkillBuildersEventDashboardSection from '../../components/skillBuilders/S
 import SkillBuildersEventProvidersGrid from '../../components/skillBuilders/SkillBuildersEventProvidersGrid.vue';
 import { useBrandingStore } from '../../store/branding';
 import { formatGradeDisplay } from '../../utils/clientGrade.js';
+import { isSessionJoinVisibleAt } from '../../composables/useSessionJoinWindow';
+
+const props = defineProps({
+  eventIdProp: { type: [Number, String], default: null },
+  programEventMode: { type: Boolean, default: undefined },
+  inline: { type: Boolean, default: false },
+  hideActions: { type: Boolean, default: false },
+  initialSection: { type: String, default: '' }
+});
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
 
-const eventId = computed(() => Number(route.params.eventId));
+const eventId = computed(() => {
+  const direct = Number(props.eventIdProp || 0);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  return Number(route.params.eventId);
+});
 
 // True when this view is used for a general program event (not Skill Builders)
 const isProgramEventMode = computed(() =>
-  route.name === 'GuardianProgramEvent' || route.name === 'OrganizationGuardianProgramEvent'
+  props.programEventMode === undefined
+    ? route.name === 'GuardianProgramEvent' || route.name === 'OrganizationGuardianProgramEvent'
+    : !!props.programEventMode
 );
 
 function guardianSessionCurriculumHref(sessionId) {
@@ -270,7 +285,10 @@ function guardianSessionCurriculumHref(sessionId) {
 }
 const orgSlug = computed(() => String(route.params.organizationSlug || '').trim());
 
-const backTo = computed(() => (orgSlug.value ? `/${orgSlug.value}/guardian` : '/guardian'));
+const backTo = computed(() => {
+  if (props.inline) return '';
+  return orgSlug.value ? `/${orgSlug.value}/guardian` : '/guardian';
+});
 
 const loading = ref(false);
 const error = ref('');
@@ -292,7 +310,10 @@ if (typeof window !== 'undefined') {
   }, 15000);
 }
 
-const sectionQuery = computed(() => String(route.query.section || '').trim());
+const sectionQuery = computed(() => {
+  if (props.inline) return String(props.initialSection || '').trim();
+  return String(route.query.section || '').trim();
+});
 
 function dashSection(id) {
   const q = sectionQuery.value;
@@ -414,14 +435,7 @@ function attendanceForChild(clientId) {
 
 function sessionJoinVisible(s) {
   void joinNowTick.value;
-  if (!s?.joinUrl) return false;
-  const mod = String(s.modality || '').toLowerCase();
-  if (mod !== 'virtual' && mod !== 'hybrid') return false;
-  const st = new Date(s.startsAt);
-  const en = new Date(s.endsAt);
-  if (!Number.isFinite(st.getTime()) || !Number.isFinite(en.getTime())) return false;
-  const t = Date.now();
-  return t >= st.getTime() - 10 * 60 * 1000 && t <= en.getTime();
+  return isSessionJoinVisibleAt(s, Date.now());
 }
 
 async function loadAll() {

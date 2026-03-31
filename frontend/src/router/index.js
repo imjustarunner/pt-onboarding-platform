@@ -155,6 +155,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/event-rsvp/:token',
+    name: 'CompanyEventRsvp',
+    component: () => import('../views/public/CompanyEventRsvpView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
     path: '/find-provider/:agencyId',
     name: 'PublicProviderFinder',
     component: () => import('../views/PublicProviderFinderView.vue'),
@@ -742,6 +748,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/clients/:clientId(\\d+)',
+    name: 'OrganizationClientProfile',
+    component: () => import('../views/admin/ClientProfileView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/clients',
     name: 'OrganizationClientManagement',
     component: () => import('../views/admin/ClientManagementView.vue'),
@@ -891,6 +903,20 @@ const routes = [
   },
   {
     path: '/:organizationSlug/admin/skill-builders-program-events',
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/admin/program-events`,
+      query: to.query,
+      hash: to.hash
+    }),
+    meta: {
+      requiresAuth: true,
+      requiresRole: SKILL_BUILDERS_PROGRAM_EVENTS_ROLES,
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
+    path: '/:organizationSlug/admin/program-events',
     name: 'OrganizationSkillBuildersProgramsEvents',
     component: () => import('../views/admin/SkillBuildersProgramsEventsView.vue'),
     meta: {
@@ -1032,6 +1058,7 @@ const routes = [
   },
   {
     path: '/:organizationSlug/skill-builders/event/:eventId',
+    alias: '/:organizationSlug/program/event/:eventId',
     name: 'SkillBuildersEventPortal',
     component: () => import('../views/skillBuilders/SkillBuildersEventPortalView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
@@ -1325,6 +1352,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
+    path: '/admin/clients/:clientId(\\d+)',
+    name: 'ClientProfile',
+    component: () => import('../views/admin/ClientProfileView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] }
+  },
+  {
     path: '/admin/clients',
     name: 'ClientManagement',
     component: () => import('../views/admin/ClientManagementView.vue'),
@@ -1523,6 +1556,19 @@ const routes = [
   },
   {
     path: '/admin/skill-builders-program-events',
+    redirect: (to) => ({
+      path: '/admin/program-events',
+      query: to.query,
+      hash: to.hash
+    }),
+    meta: {
+      requiresAuth: true,
+      requiresRole: SKILL_BUILDERS_PROGRAM_EVENTS_ROLES,
+      allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/admin/program-events',
     name: 'SkillBuildersProgramsEvents',
     component: () => import('../views/admin/SkillBuildersProgramsEventsView.vue'),
     meta: {
@@ -2012,6 +2058,12 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
+  // Always keep activeRouteSlug in sync — this makes color computeds reactive to every navigation.
+  // Clear on non-slug routes so platform pages don't inherit a stale org slug.
+  if (!to.meta.organizationSlug) {
+    brandingStore.setActiveRouteSlug('');
+  }
+
   // Prevent stale org branding “flash” when leaving a branded portal.
   if (!to.meta.organizationSlug && from.meta.organizationSlug) {
     // On custom-domain portals, /login should remain branded (portalHostPortalUrl is set at boot).
@@ -2057,6 +2109,11 @@ router.beforeEach(async (to, from, next) => {
   // This is what keeps the portal branded consistently across all authenticated pages.
   if (to.meta.organizationSlug) {
     const slug = to.params.organizationSlug;
+
+    // Always update the reactive activeRouteSlug FIRST so color computeds re-fire immediately
+    // for the new org — even before fetchAgencyTheme resolves.
+    brandingStore.setActiveRouteSlug(typeof slug === 'string' ? slug : '');
+
     // Query-only updates (e.g. Skill Builders event portal hub cards set ?section=) must not re-run
     // theme + org hydration — that caused repeated global loading and "stuck" section switches.
     const queryOnlySameOrgRoute =

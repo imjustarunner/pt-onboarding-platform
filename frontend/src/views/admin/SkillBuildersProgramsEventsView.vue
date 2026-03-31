@@ -4,19 +4,29 @@
       <div>
         <h1>Programs &amp; events</h1>
         <p class="sbpe-sub">
-          Skill Builders company events for the selected agency — current &amp; upcoming (and past below). Open a card to go to the event portal.
+          Company events for the selected agency — current &amp; upcoming (and past below). Open a card to go to the event portal.
           Use <strong>Program enrollments</strong> below for individual-service onboarding (learning classes + intake links) and public
           <code>/enroll</code> URLs.
         </p>
       </div>
-      <div v-if="agencies.length > 1 || isSuperAdmin" class="sbpe-agency-field">
-        <label for="sbpe-agency">Agency</label>
-        <select id="sbpe-agency" v-model="selectedAgencyId" class="input sbpe-select">
-          <option value="">Select an agency…</option>
-          <option v-for="a in agencies" :key="`ag-${a.id}`" :value="String(a.id)">{{ a.name }}</option>
-        </select>
+      <div class="sbpe-header-actions">
+        <div v-if="agencies.length > 1 || isSuperAdmin" class="sbpe-agency-field">
+          <label for="sbpe-agency">Agency</label>
+          <select id="sbpe-agency" v-model="selectedAgencyId" class="input sbpe-select">
+            <option value="">Select an agency…</option>
+            <option v-for="a in agencies" :key="`ag-${a.id}`" :value="String(a.id)">{{ a.name }}</option>
+          </select>
+        </div>
+        <button
+          class="btn btn-primary btn-sm"
+          type="button"
+          :disabled="!selectedAgencyIdNum"
+          @click="showStaffEventForm = true"
+        >
+          Create Event
+        </button>
       </div>
-      <p v-else-if="agencies.length === 1" class="sbpe-single-agency muted">
+      <p v-if="!(agencies.length > 1 || isSuperAdmin) && agencies.length === 1" class="sbpe-single-agency muted">
         Showing events for <strong>{{ agencies[0].name }}</strong>
       </p>
     </header>
@@ -33,6 +43,16 @@
       :agency-id="selectedAgencyIdNum"
       :agency-portal-slug="selectedAgencyPortalSlug"
     />
+
+    <div v-if="showStaffEventForm" class="modal-overlay" @click.self="attemptCloseStaffEventForm">
+      <div class="modal-card" @click.stop>
+        <StaffEventForm
+          ref="staffEventFormRef"
+          :agency-id="selectedAgencyIdNum"
+          @close="showStaffEventForm = false"
+        />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -42,6 +62,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import SkillBuildersEventsDirectoryPanel from '../../components/availability/SkillBuildersEventsDirectoryPanel.vue';
 import SkillBuildersProgramEnrollmentsGuide from '../../components/availability/SkillBuildersProgramEnrollmentsGuide.vue';
+import StaffEventForm from '../../components/admin/StaffEventForm.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -54,6 +75,8 @@ const agencies = computed(() => {
 });
 
 const selectedAgencyId = ref('');
+const showStaffEventForm = ref(false);
+const staffEventFormRef = ref(null);
 
 const selectedAgencyIdNum = computed(() => {
   const n = Number(selectedAgencyId.value || 0);
@@ -97,6 +120,19 @@ onMounted(async () => {
   }
   syncSelectionFromContext();
 });
+
+function attemptCloseStaffEventForm() {
+  const form = staffEventFormRef.value;
+  if (form && typeof form.requestClose === 'function') {
+    form.requestClose();
+    return;
+  }
+  showStaffEventForm.value = false;
+}
+
+watch(selectedAgencyIdNum, (value) => {
+  if (!value) showStaffEventForm.value = false;
+});
 </script>
 
 <style scoped>
@@ -127,6 +163,12 @@ onMounted(async () => {
 .sbpe-agency-field {
   min-width: 240px;
 }
+.sbpe-header-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .sbpe-agency-field label {
   display: block;
   font-size: 12px;
@@ -145,5 +187,20 @@ onMounted(async () => {
   margin: 0;
   font-size: 0.95rem;
   align-self: flex-end;
+}
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+}
+.modal-card {
+  width: min(1200px, 98vw);
+  max-height: 92vh;
+  overflow: auto;
 }
 </style>
