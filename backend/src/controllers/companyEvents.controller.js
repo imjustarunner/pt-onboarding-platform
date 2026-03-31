@@ -3041,6 +3041,102 @@ export const handleCompanyEventInbound = async ({ from, to, body }) => {
 };
 
 /**
+ * Public endpoint: POST /company-events/public/:id/register
+ * Self-registration for a company event (no invitation token required).
+ * Looks up the user by email, upserts an invitation record, and saves registration details.
+ */
+export const registerForCompanyEventPublic = async (req, res, next) => {
+  try {
+    const eventId = Number(req.params.id);
+    if (!Number.isFinite(eventId) || eventId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid event id' } });
+    }
+
+    const firstName = String(req.body.firstName || '').trim();
+    const lastName  = String(req.body.lastName  || '').trim();
+    const email     = String(req.body.email     || '').trim().toLowerCase();
+    const response  = String(req.body.response  || '').trim().toLowerCase();
+    const guestCount    = Number(req.body.guestCount    || 1);
+    const dietaryNotes  = String(req.body.dietaryNotes  || '').trim();
+    const notes         = String(req.body.notes         || '').trim();
+
+    if (!firstName || !email) {
+      return res.status(400).json({ error: { message: 'firstName and email are required' } });
+    }
+    if (!['yes', 'no', 'maybe'].includes(response)) {
+      return res.status(400).json({ error: { message: 'response must be yes, no, or maybe' } });
+    }
+
+    // Verify event exists and is active.
+    const [evRows] = await pool.execute(
+      'SELECT id, agency_id, title FROM company_events WHERE id = ? AND is_active = 1 LIMIT 1',
+      [eventId]
+    );
+    if (!evRows.length) {
+      return res.status(404).json({ error: { message: 'Event not found or not active' } });
+    }
+
+    // Look up user by email to link the registration to a user account.
+    const [userRows] = await pool.execute(
+      'SELECT id FROM users WHERE LOWER(email) = ? LIMIT 1',
+      [email]
+    );
+    const userId = userRows.length ? Number(userRows[0].id) : null;
+
+    // Build registration payload.
+    const registrationPayload = JSON.stringify({ guestCount, dietaryNotes, notes });
+
+    if (userId) {
+      // Upsert invitation record for this user+event.
+      const [existing] = await pool.execute(
+        'SELECT id FROM company_event_invitations WHERE company_event_id = ? AND user_id = ? LIMIT 1',
+        [eventId, userId]
+      );
+      if (existing.length) {
+        await pool.execute(
+          `UPDATE company_event_invitations
+           SET response = ?, responded_at = NOW(), registration_payload_json = ?
+           WHERE id = ?`,
+          [response, registrationPayload, existing[0].id]
+        );
+      } else {
+        const token = (await import('crypto')).default.randomBytes(32).toString('hex');
+        await pool.execute(
+          `INSERT INTO company_event_invitations
+           (company_event_id, user_id, token, response, responded_at, registration_payload_json)
+           VALUES (?, ?, ?, ?, NOW(), ?)`,
+          [eventId, userId, token, response, registrationPayload]
+        );
+      }
+    }
+
+    // Always upsert a response record (even for unmatched emails) so counts are tracked.
+    if (userId) {
+      const option = resolveRsvpOption(
+        { votingConfig: { options: DEFAULT_RSVP_OPTIONS } },
+        response
+      );
+      await pool.execute(
+        `INSERT INTO company_event_responses
+         (company_event_id, user_id, response_key, response_label, response_body, source, received_at)
+         VALUES (?, ?, ?, ?, ?, 'self_registration', NOW())
+         ON DUPLICATE KEY UPDATE
+           response_key = VALUES(response_key),
+           response_label = VALUES(response_label),
+           response_body = VALUES(response_body),
+           source = VALUES(source),
+           received_at = VALUES(received_at)`,
+        [eventId, userId, option?.key || response, option?.label || response, response]
+      );
+    }
+
+    res.json({ ok: true, userId: userId || null, response });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Public (no-auth) endpoint: GET /company-events/public/:id
  * Returns enough event detail + branding to render a public event landing page.
  * Intentionally omits any PII or internal-only fields.
