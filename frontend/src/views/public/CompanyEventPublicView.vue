@@ -351,7 +351,18 @@ const prettyType = computed(() => {
 
 const prettyGuestPolicy = computed(() => {
   const p = String(event.value?.guestPolicy || '');
-  return { staff_only: 'Staff only', plus_one: 'Plus one welcome', family: 'Families welcome', open: 'Open to all' }[p] || p;
+  const map = {
+    staff_only: 'Staff only',
+    plus_one: 'Plus one welcome',
+    plus_one_invited: 'Plus one invited',
+    family: 'Families welcome',
+    family_invited: 'Families invited',
+    open: 'Open to all'
+  };
+  if (map[p]) return map[p];
+  return p
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 });
 
 const formatDateRange = (start, end) => {
