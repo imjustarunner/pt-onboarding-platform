@@ -33,7 +33,7 @@
 
     <div v-if="loading" class="sbes-muted" style="padding: 16px;">Loading…</div>
     <div v-else-if="error" class="sbes-error" style="padding: 16px;">{{ error }}</div>
-    <div v-else-if="!events.length" class="sbes-muted" style="padding: 16px;">No Skill Builders events found for this agency.</div>
+    <div v-else-if="!events.length" class="sbes-muted" style="padding: 16px;">No events found for this agency.</div>
 
     <div v-else class="sbes-body">
       <div v-show="mode === 'school'" class="sbes-school-panel">
@@ -93,7 +93,7 @@
               </div>
               <div class="sbes-card-body">
                 <div class="sbes-card-name">{{ e.title }}</div>
-                <div class="sbes-card-type">School · {{ e.schoolName }}</div>
+                <div class="sbes-card-type">{{ eventTypeLine(e) }}</div>
                 <div class="sbes-card-meta">{{ formatDateRange(e.startsAt, e.endsAt) }}</div>
                 <div class="sbes-card-meta"><strong>Days</strong> {{ e.weekdaysShort }}</div>
                 <div class="sbes-card-providers"><strong>Providers</strong> {{ providerLine(e) }}</div>
@@ -121,7 +121,7 @@
               </div>
               <div class="sbes-card-body">
                 <div class="sbes-card-name">{{ e.title }}</div>
-                <div class="sbes-card-type">{{ e.schoolName }}</div>
+                <div class="sbes-card-type">{{ eventTypeLine(e) }}</div>
                 <div class="sbes-card-meta">{{ formatDateRange(e.startsAt, e.endsAt) }}</div>
                 <div class="sbes-card-meta">{{ e.weekdaysShort }}</div>
                 <div class="sbes-card-providers">{{ providerLine(e) }}</div>
@@ -157,7 +157,7 @@ const router = useRouter();
 const route = useRoute();
 const agencyStore = useAgencyStore();
 
-const mode = ref('school');
+const mode = ref('all');
 const loading = ref(false);
 const error = ref('');
 const events = ref([]);
@@ -242,8 +242,31 @@ function providerLine(e) {
   return list.map((p) => `${p.firstName || ''} ${p.lastName || ''}`.trim()).join(', ');
 }
 
+function prettifyEventType(raw) {
+  const k = String(raw || '').trim().toLowerCase();
+  if (!k) return 'Event';
+  const map = {
+    company_event: 'Company event',
+    program_event: 'Program event',
+    staff_event: 'Staff/Internal',
+    skills_group: 'School'
+  };
+  if (map[k]) return map[k];
+  return k
+    .split('_')
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : ''))
+    .join(' ');
+}
+
+function eventTypeLine(e) {
+  const typeLabel = prettifyEventType(e.eventType);
+  const schoolName = String(e.schoolName || '').trim();
+  if (schoolName) return `${typeLabel} · ${schoolName}`;
+  return typeLabel;
+}
+
 const schoolSelectOptions = computed(() => {
-  const list = [...(events.value || [])];
+  const list = [...(events.value || [])].filter((e) => Number(e.schoolOrganizationId) > 0);
   list.sort((a, b) => {
     const s = String(a.schoolName || '').localeCompare(String(b.schoolName || ''), undefined, { sensitivity: 'base' });
     if (s !== 0) return s;
@@ -261,6 +284,8 @@ const filteredEvents = computed(() => {
         e.title,
         e.schoolName,
         e.skillsGroupName,
+        e.eventType,
+        prettifyEventType(e.eventType),
         ...(e.providers || []).map((p) => `${p.firstName} ${p.lastName}`)
       ]
         .join(' ')
@@ -271,7 +296,8 @@ const filteredEvents = computed(() => {
   const sb = sortBy.value;
   list.sort((a, b) => {
     if (sb === 'school-asc') {
-      const c = String(a.schoolName || '').localeCompare(String(b.schoolName || ''), undefined, { sensitivity: 'base' });
+      const c = String(a.schoolName || prettifyEventType(a.eventType) || '')
+        .localeCompare(String(b.schoolName || prettifyEventType(b.eventType) || ''), undefined, { sensitivity: 'base' });
       return c !== 0 ? c : String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' });
     }
     if (sb === 'title-asc') {
@@ -293,11 +319,69 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    const res = await api.get('/skill-builders/events/directory', {
-      params: { agencyId: props.agencyId },
-      skipGlobalLoading: true
+    const [dirRes, companyRes] = await Promise.allSettled([
+      api.get('/skill-builders/events/directory', {
+        params: { agencyId: props.agencyId },
+        skipGlobalLoading: true
+      }),
+      api.get(`/agencies/${props.agencyId}/company-events`, {
+        skipGlobalLoading: true
+      })
+    ]);
+
+    const directoryEvents = dirRes.status === 'fulfilled' && Array.isArray(dirRes.value?.data?.events)
+      ? dirRes.value.data.events
+      : [];
+    const companyEventsRaw = companyRes.status === 'fulfilled' && Array.isArray(companyRes.value?.data)
+      ? companyRes.value.data
+      : [];
+
+    const nowMs = Date.now();
+    const companyEvents = companyEventsRaw.map((row) => {
+      const startsAt = row?.startsAt || null;
+      const endsAt = row?.endsAt || null;
+      const endsMs = new Date(endsAt || 0).getTime();
+      const isPast = Number.isFinite(endsMs) && endsMs < nowMs;
+      return {
+        companyEventId: Number(row?.id || 0),
+        title: String(row?.title || '').trim() || `Event ${row?.id || ''}`.trim(),
+        skillsGroupId: 0,
+        skillsGroupName: '',
+        schoolOrganizationId: 0,
+        schoolName: '',
+        schoolLogoUrl: null,
+        schoolLogoPath: null,
+        programPortalSlug: String(row?.organizationSlug || row?.portalSlug || '').trim().toLowerCase(),
+        startsAt,
+        endsAt,
+        isActive: !!row?.isActive,
+        isPast,
+        weekdaysShort: '—',
+        providers: [],
+        eventType: String(row?.eventType || '').trim().toLowerCase()
+      };
     });
-    events.value = Array.isArray(res.data?.events) ? res.data.events : [];
+
+    // Merge by event id: keep richer Skill Builders payload when present,
+    // append non-SB company events so "All" includes everything.
+    const byId = new Map();
+    for (const e of companyEvents) {
+      if (Number(e.companyEventId) > 0) byId.set(Number(e.companyEventId), e);
+    }
+    for (const e of directoryEvents) {
+      const id = Number(e?.companyEventId || 0);
+      if (!id) continue;
+      const prior = byId.get(id) || {};
+      byId.set(id, {
+        ...prior,
+        ...e,
+        eventType: String(e?.eventType || prior?.eventType || 'skills_group').trim().toLowerCase()
+      });
+    }
+    events.value = [...byId.values()];
+    if (events.value.length === 0 && dirRes.status === 'rejected' && companyRes.status === 'rejected') {
+      throw (companyRes.reason || dirRes.reason || new Error('Failed to load'));
+    }
     selectedEventId.value = 0;
     failedLogos.value = new Set();
   } catch (e) {

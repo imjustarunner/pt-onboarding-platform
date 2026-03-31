@@ -33,6 +33,8 @@
 
     <div v-if="!selectedAgencyIdNum" class="muted sbpe-hint">Choose an agency to load events.</div>
     <SkillBuildersEventsDirectoryPanel
+      :key="`sbes-${selectedAgencyIdNum}-${directoryRefreshKey}`"
+      ref="directoryPanelRef"
       v-else
       :agency-id="selectedAgencyIdNum"
       :portal-slug="selectedAgencyPortalSlug"
@@ -49,6 +51,7 @@
         <StaffEventForm
           ref="staffEventFormRef"
           :agency-id="selectedAgencyIdNum"
+          @saved="handleStaffEventSaved"
           @close="showStaffEventForm = false"
         />
       </div>
@@ -77,6 +80,8 @@ const agencies = computed(() => {
 const selectedAgencyId = ref('');
 const showStaffEventForm = ref(false);
 const staffEventFormRef = ref(null);
+const directoryPanelRef = ref(null);
+const directoryRefreshKey = ref(0);
 
 const selectedAgencyIdNum = computed(() => {
   const n = Number(selectedAgencyId.value || 0);
@@ -128,6 +133,11 @@ function attemptCloseStaffEventForm() {
     return;
   }
   showStaffEventForm.value = false;
+}
+
+function handleStaffEventSaved() {
+  // Force the page directory panel to refresh so newly-created events appear immediately.
+  directoryRefreshKey.value += 1;
 }
 
 watch(selectedAgencyIdNum, (value) => {

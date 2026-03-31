@@ -644,21 +644,18 @@ export const useBrandingStore = defineStore('branding', () => {
 
   // Primary color based on branding mode
   const primaryColor = computed(() => {
-    if (!authStore.isAuthenticated) return platformBranding.value?.primary_color || '#C69A2B';
     const { palette } = _resolveActivePalette();
     return palette?.primary || platformBranding.value?.primary_color || '#C69A2B';
   });
 
   // Secondary color based on branding mode
   const secondaryColor = computed(() => {
-    if (!authStore.isAuthenticated) return platformBranding.value?.secondary_color || '#1D2633';
     const { palette } = _resolveActivePalette();
     return palette?.secondary || platformBranding.value?.secondary_color || '#1D2633';
   });
   
   // Accent color based on branding mode
   const accentColor = computed(() => {
-    if (!authStore.isAuthenticated) return platformBranding.value?.accent_color || '#3A4C6B';
     const { palette } = _resolveActivePalette();
     return palette?.accent || palette?.primary || platformBranding.value?.accent_color || '#3A4C6B';
   });

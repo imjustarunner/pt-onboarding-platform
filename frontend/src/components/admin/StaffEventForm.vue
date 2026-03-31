@@ -535,6 +535,10 @@ const saveEvent = async () => {
       if (updated) populateFromEvent(updated);
     }
     markClean();
+    emit('saved', {
+      agencyId: Number(props.agencyId || 0),
+      eventId: Number(selectedEventIdNum.value || selectedEventId.value || 0)
+    });
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to save event';
   } finally {

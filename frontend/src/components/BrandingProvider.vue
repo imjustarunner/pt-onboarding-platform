@@ -5,7 +5,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
@@ -33,34 +33,6 @@ const isOnDifferentOrgRoute = () => {
   const agSlug = String(a.slug || a.portal_url || a.portalUrl || '').trim().toLowerCase();
   return !!(agSlug && agSlug !== routeSlug);
 };
-
-/**
- * Belt-and-suspenders: imperatively sync :root CSS vars whenever the branding
- * store computeds change. This guarantees the DOM always reflects the current
- * palette even if the inline-style cascade on the BrandingProvider div lags.
- * watchEffect auto-tracks brandingStore.primaryColor etc. as reactive deps.
- */
-watchEffect(() => {
-  const root = document.documentElement;
-  const primary = brandingStore.primaryColor;
-  const secondary = brandingStore.secondaryColor;
-  const accent = brandingStore.accentColor;
-  if (primary) {
-    root.style.setProperty('--primary', primary);
-    root.style.setProperty('--primary-color', primary);
-    root.style.setProperty('--agency-primary-color', primary);
-  }
-  if (secondary) {
-    root.style.setProperty('--secondary', secondary);
-    root.style.setProperty('--secondary-color', secondary);
-    root.style.setProperty('--agency-secondary-color', secondary);
-  }
-  if (accent) {
-    root.style.setProperty('--accent', accent);
-    root.style.setProperty('--accent-color', accent);
-    root.style.setProperty('--agency-accent-color', accent);
-  }
-});
 
 // Track dark mode so we don't override its CSS variables with agency branding
 const isDarkMode = ref(document.documentElement.getAttribute('data-theme') === 'dark');

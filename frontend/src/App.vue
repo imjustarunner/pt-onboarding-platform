@@ -1046,7 +1046,7 @@ import {
   isGoogleTranslateSpanishActive
 } from './utils/publicTranslateWidget.js';
 import { toUploadsUrl } from './utils/uploadsUrl';
-import { buildSuperadminAgencyBrandUrl, buildSuperadminPlatformBrandUrl } from './utils/brandSwitchUrl';
+import { buildSuperadminAgencyBrandUrl } from './utils/brandSwitchUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 import { useSummitStatsChallengeChrome } from './composables/useSummitStatsChallengeChrome';
 import SummitStatsContextBar from './components/summit/SummitStatsContextBar.vue';
@@ -1419,14 +1419,8 @@ const selectAgencyBrand = async (a) => {
 const selectPlatformBrand = async () => {
   closeBrandMenu();
   agencyStore.setPlatformMode();
-
-  if (brandingStore.isSuperAdmin) {
-    const jump = buildSuperadminPlatformBrandUrl(route);
-    if (jump) {
-      window.location.assign(jump);
-      return;
-    }
-  }
+  // Stay on the current authenticated host when switching to Platform.
+  // Cross-host redirects can drop auth cookies and send users to generic login.
 
   stripSlug();
 
