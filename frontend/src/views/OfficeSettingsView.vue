@@ -159,7 +159,7 @@
         <div class="section" data-tour="buildings-settings-slot-rules">
           <div class="section-title">Per-Slot Questionnaire Rules</div>
           <div class="hint">
-            Assign questionnaires or intake links to specific rooms and times. When a client checks in to a matching slot, only these are shown. Reuse intake links for consistent forms. Leave fields blank for "all".
+            Assign questionnaires or digital forms to specific rooms and times. When a client checks in to a matching slot, only these are shown. Reuse digital forms for consistent forms. Leave fields blank for "all".
           </div>
           <div class="row" style="margin-top: 10px; flex-wrap: wrap; gap: 8px;">
             <select v-model="newSlotRule.roomId" :disabled="loading" style="min-width: 140px;">

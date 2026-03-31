@@ -220,7 +220,7 @@
         To let staff register for this event online, create a <strong>Smart Registration</strong>
         digital form and lock it to this event. Registrants are automatically enrolled when they submit the form.
       </p>
-      <a href="/admin/intake-links" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">
+      <a href="/admin/digital-forms" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">
         Open Digital Forms &rarr;
       </a>
     </div>

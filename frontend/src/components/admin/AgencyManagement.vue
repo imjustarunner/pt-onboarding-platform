@@ -430,7 +430,7 @@
             <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);">
               <h4 style="margin: 0; font-size: 16px;">Intake Data Retention</h4>
               <p class="section-description" style="margin-top: 6px;">
-                Overrides the platform default for this agency. Intake links can override this per link.
+                Overrides the platform default for this agency. Digital forms can override this per form.
               </p>
             </div>
             <div class="form-grid">

@@ -92,7 +92,7 @@
             {{ intakesPanelOpen ? 'Hide intakes' : 'Display intakes' }}
           </button>
           <p v-if="!portalOrganizationIdForIntake" class="staff-intake-panel__muted intakes-trigger-hint">
-            Intake links load after this page finishes loading.
+            Digital forms load after this page finishes loading.
           </p>
         </div>
 
@@ -176,7 +176,7 @@
               v-if="!staffIntakeEn && !staffIntakeEs"
               class="staff-intake-panel__empty"
             >
-              No active English or Spanish intake is configured yet. Your administrator can publish them under Intake links for this school or program.
+              No active English or Spanish intake is configured yet. Your administrator can publish them under Digital Forms for this school or program.
             </p>
           </div>
         </section>

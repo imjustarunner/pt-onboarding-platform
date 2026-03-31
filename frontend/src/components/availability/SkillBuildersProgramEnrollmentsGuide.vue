@@ -34,9 +34,9 @@
           <router-link
             v-if="agencyPortalSlug"
             class="btn btn-sm btn-secondary"
-            :to="`/${agencyPortalSlug}/admin/intake-links`"
+            :to="`/${agencyPortalSlug}/admin/digital-forms`"
           >
-            Intake links (agency admin)
+            Digital forms (agency admin)
           </router-link>
         </div>
       </li>

@@ -656,8 +656,8 @@ const quickActions = computed(() => {
   {
     id: 'intake_links',
     title: 'Digital Forms',
-    description: 'Configure digital forms, intake links, and public submissions',
-    to: '/admin/intake-links',
+    description: 'Configure digital forms, documents, and public submissions',
+    to: '/admin/digital-forms',
     emoji: '🔗',
     iconKey: 'intake_links',
     category: 'Documents',

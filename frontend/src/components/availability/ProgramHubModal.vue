@@ -339,11 +339,11 @@
                     </button>
                     <RouterLink
                       v-if="agencyPortalSlugForIntake"
-                      :to="`/${agencyPortalSlugForIntake}/admin/intake-links`"
+                      :to="`/${agencyPortalSlugForIntake}/admin/digital-forms`"
                       class="btn btn-secondary btn-sm"
                       @click="$emit('close')"
                     >
-                      Digital intake links
+                      Digital forms
                     </RouterLink>
                   </div>
                 </form>

@@ -267,7 +267,7 @@
                               No active public links for your access.
                             </div>
                           </template>
-                          <router-link :to="orgTo('/admin/intake-links')" @click.stop>Manage digital forms</router-link>
+                          <router-link :to="orgTo('/admin/digital-forms')" @click.stop>Manage digital forms</router-link>
                         </template>
                       </div>
                     </div>
@@ -692,7 +692,7 @@
                       </div>
                     </template>
                     <router-link
-                      :to="orgTo('/admin/intake-links')"
+                      :to="orgTo('/admin/digital-forms')"
                       class="mobile-nav-link mobile-nav-sublink"
                       @click="closeMobileMenu"
                     >Manage digital forms</router-link>

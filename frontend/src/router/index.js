@@ -730,10 +730,14 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
-    path: '/:organizationSlug/admin/intake-links',
-    name: 'OrganizationIntakeLinks',
+    path: '/:organizationSlug/admin/digital-forms',
+    name: 'OrganizationDigitalForms',
     component: () => import('../views/admin/IntakeLinksView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/intake-links',
+    redirect: (to) => ({ path: `/${to.params.organizationSlug}/admin/digital-forms` })
   },
   {
     path: '/:organizationSlug/admin/users/:userId',
@@ -1334,10 +1338,14 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
-    path: '/admin/intake-links',
-    name: 'IntakeLinks',
+    path: '/admin/digital-forms',
+    name: 'DigitalForms',
     component: () => import('../views/admin/IntakeLinksView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+  },
+  {
+    path: '/admin/intake-links',
+    redirect: '/admin/digital-forms'
   },
   {
     path: '/admin/users/:userId',

@@ -362,7 +362,7 @@ const allCategories = [
         props: { readOnly: false }
       },
       {
-        id: 'intake-links',
+        id: 'digital-forms',
         label: 'Digital Forms',
         icon: '🔗',
         component: 'IntakeLinksView',
