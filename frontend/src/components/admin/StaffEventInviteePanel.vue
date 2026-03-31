@@ -85,9 +85,21 @@
       </table>
     </div>
 
-    <div class="need-list">
+    <div v-if="!potluckEnabled" class="need-list">
+      <div class="table-title">Need List (Potluck)</div>
+      <div class="muted">Enable <strong>Potluck style</strong> in the event setup above to add categorized needed items.</div>
+    </div>
+
+    <div v-else class="need-list">
       <div class="table-title">Need List (Potluck)</div>
       <div class="need-create">
+        <select v-model="newItemCategory" class="input">
+          <option value="food">Food</option>
+          <option value="drinks">Drinks</option>
+          <option value="dessert">Dessert</option>
+          <option value="supplies">Supplies</option>
+          <option value="other">Other</option>
+        </select>
         <input v-model.trim="newItemName" class="input" placeholder="Item needed (e.g. fruit tray)" />
         <input v-model.trim="newItemNotes" class="input" placeholder="Notes (optional)" />
         <button class="btn btn-secondary btn-sm" type="button" @click="addNeedItem" :disabled="addingNeed || !newItemName">
@@ -98,6 +110,7 @@
       <table v-else class="mini-table">
         <thead>
           <tr>
+            <th>Category</th>
             <th>Item</th>
             <th>Notes</th>
             <th>Claimed by</th>
@@ -106,6 +119,7 @@
         </thead>
         <tbody>
           <tr v-for="item in needItems" :key="item.id">
+            <td><span class="cat-chip">{{ formatCategory(item.itemCategory) }}</span></td>
             <td>{{ item.itemName }}</td>
             <td>{{ item.itemNotes || '-' }}</td>
             <td>{{ item.claimedByName || '-' }}</td>
@@ -116,7 +130,7 @@
                 @click="toggleClaim(item)"
                 :disabled="claimingId === item.id"
               >
-                {{ item.claimedByUserId ? 'Unclaim' : 'Claim' }}
+                {{ isItemClaimed(item) ? 'Unclaim' : 'Claim' }}
               </button>
               <button class="btn btn-danger btn-sm" type="button" @click="deleteNeedItem(item)" :disabled="deletingId === item.id">
                 Delete
@@ -135,7 +149,8 @@ import api from '../../services/api';
 
 const props = defineProps({
   agencyId: { type: Number, required: true },
-  eventId: { type: Number, required: true }
+  eventId: { type: Number, required: true },
+  potluckEnabled: { type: Boolean, default: false }
 });
 
 const loading = ref(false);
@@ -151,6 +166,7 @@ const summary = ref([]);
 const responses = ref([]);
 const needItems = ref([]);
 const guestRegistrations = ref([]);
+const newItemCategory = ref('food');
 const newItemName = ref('');
 const newItemNotes = ref('');
 
@@ -238,9 +254,11 @@ const addNeedItem = async () => {
   error.value = '';
   try {
     await api.post(`/agencies/${props.agencyId}/company-events/${props.eventId}/need-list`, {
+      itemCategory: newItemCategory.value || 'other',
       itemName: newItemName.value,
       itemNotes: newItemNotes.value || null
     });
+    newItemCategory.value = 'food';
     newItemName.value = '';
     newItemNotes.value = '';
     await loadNeedList();
@@ -251,13 +269,20 @@ const addNeedItem = async () => {
   }
 };
 
+const formatCategory = (value) => {
+  const key = String(value || '').trim().toLowerCase();
+  if (!key) return 'Other';
+  return key.charAt(0).toUpperCase() + key.slice(1);
+};
+
 const toggleClaim = async (item) => {
   claimingId.value = Number(item.id);
   error.value = '';
   try {
+    const claimed = isItemClaimed(item);
     await api.patch(`/agencies/${props.agencyId}/company-events/${props.eventId}/need-list/${item.id}`, {
-      claim: !item.claimedByUserId,
-      unclaim: !!item.claimedByUserId
+      claim: !claimed,
+      unclaim: claimed
     });
     await loadNeedList();
   } catch (e) {
@@ -266,6 +291,9 @@ const toggleClaim = async (item) => {
     claimingId.value = 0;
   }
 };
+
+const isItemClaimed = (item) =>
+  !!(Number(item?.claimedByUserId || 0) > 0 || String(item?.claimedByGuestEmail || '').trim());
 
 const deleteNeedItem = async (item) => {
   deletingId.value = Number(item.id);
@@ -300,8 +328,9 @@ onMounted(refresh);
 .table-title { font-weight: 700; margin-bottom: 8px; }
 .mini-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .mini-table th, .mini-table td { border-top: 1px solid #ebebeb; padding: 8px; text-align: left; vertical-align: top; }
-.need-create { display: grid; gap: 8px; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto; margin-bottom: 10px; }
+.need-create { display: grid; gap: 8px; grid-template-columns: 140px minmax(180px, 1fr) minmax(180px, 1fr) auto; margin-bottom: 10px; }
 .error { color: #b91c1c; margin: 8px 0; }
 .reminder-result { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 8px 12px; margin: 8px 0; font-size: 13px; color: #166534; }
 .unmatched-badge { display: inline-block; background: #fef9c3; border: 1px solid #fde047; color: #713f12; border-radius: 999px; font-size: 11px; padding: 1px 7px; margin-left: 6px; font-weight: 700; vertical-align: middle; cursor: help; }
+.cat-chip { display: inline-block; border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
 </style>

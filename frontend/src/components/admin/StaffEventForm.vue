@@ -135,7 +135,12 @@
     <div class="section">
       <h4>5) What We're Providing</h4>
       <div class="inline-row">
-        <input v-model.trim="organizerItemInput" class="input" placeholder="Add provided item (drinks, appetizers...)" />
+        <input
+          v-model.trim="organizerItemInput"
+          class="input"
+          placeholder="Add provided item(s) (e.g. drinks, appetizers, dessert)"
+          @keydown.enter.prevent="addOrganizerItem"
+        />
         <button class="btn btn-secondary btn-sm" type="button" @click="addOrganizerItem" :disabled="!organizerItemInput">Add</button>
       </div>
       <div class="tag-list">
@@ -243,6 +248,7 @@
       v-if="selectedEventIdNum > 0"
       :agency-id="agencyId"
       :event-id="selectedEventIdNum"
+      :potluck-enabled="draft.potluckEnabled"
     />
   </div>
 </template>
@@ -514,6 +520,8 @@ const loadAudienceOptions = async () => {
 
 const saveEvent = async () => {
   if (!canSave.value) return;
+  // Ensure anything still typed in the organizer item input is persisted.
+  flushOrganizerItemInput();
   saving.value = true;
   error.value = '';
   try {
@@ -591,11 +599,33 @@ const saveSmsDraft = async () => {
   }
 };
 
-const addOrganizerItem = () => {
-  const value = String(organizerItemInput.value || '').trim();
-  if (!value) return;
-  draft.organizerProviding = [...(draft.organizerProviding || []), value];
+const normalizeOrganizerItems = (raw) => {
+  const parts = String(raw || '')
+    .split(/[\n,;]+/)
+    .map((s) => String(s || '').trim())
+    .filter(Boolean);
+  return parts;
+};
+
+const flushOrganizerItemInput = () => {
+  const typedItems = normalizeOrganizerItems(organizerItemInput.value);
+  if (!typedItems.length) return;
+  const prior = Array.isArray(draft.organizerProviding) ? draft.organizerProviding : [];
+  const seen = new Set(prior.map((s) => String(s || '').trim().toLowerCase()).filter(Boolean));
+  const merged = [...prior];
+  for (const item of typedItems) {
+    const key = item.toLowerCase();
+    if (!seen.has(key)) {
+      merged.push(item);
+      seen.add(key);
+    }
+  }
+  draft.organizerProviding = merged;
   organizerItemInput.value = '';
+};
+
+const addOrganizerItem = () => {
+  flushOrganizerItemInput();
 };
 const removeOrganizerItem = (idx) => {
   draft.organizerProviding = (draft.organizerProviding || []).filter((_, i) => i !== idx);

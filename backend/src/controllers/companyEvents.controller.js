@@ -880,12 +880,16 @@ async function listNeedListItems(eventId, agencyId) {
     eventId: Number(row.company_event_id),
     agencyId: Number(row.agency_id),
     itemName: String(row.item_name || ''),
+    itemCategory: String(row.item_category || '').trim().toLowerCase() || '',
     itemNotes: row.item_notes || '',
     claimedByUserId: row.claimed_by_user_id != null ? Number(row.claimed_by_user_id) : null,
+    claimedByGuestName: row.claimed_by_guest_name ? String(row.claimed_by_guest_name).trim() : '',
+    claimedByGuestEmail: row.claimed_by_guest_email ? String(row.claimed_by_guest_email).trim() : '',
     claimedByName:
       row.claimed_by_user_id != null
         ? `${String(row.claimed_first_name || '').trim()} ${String(row.claimed_last_name || '').trim()}`.trim()
-        : null,
+        : (row.claimed_by_guest_name ? String(row.claimed_by_guest_name).trim() : null),
+    claimedBySource: row.claimed_by_user_id != null ? 'user' : (row.claimed_by_guest_name ? 'guest' : null),
     claimedAt: row.claimed_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -2232,6 +2236,9 @@ export const createCompanyEventNeedListItem = async (req, res, next) => {
     const userId = parsePositiveInt(req.user?.id);
     const itemName = String(req.body?.itemName || req.body?.item_name || '').trim();
     const itemNotes = String(req.body?.itemNotes || req.body?.item_notes || '').trim();
+    const itemCategoryRaw = String(req.body?.itemCategory || req.body?.item_category || '').trim().toLowerCase();
+    const allowedCategories = new Set(['food', 'drinks', 'supplies', 'dessert', 'other']);
+    const itemCategory = itemCategoryRaw && allowedCategories.has(itemCategoryRaw) ? itemCategoryRaw : 'other';
     if (!agencyId || !eventId || !userId || !itemName) {
       return res.status(400).json({ error: { message: 'itemName is required' } });
     }
@@ -2242,9 +2249,9 @@ export const createCompanyEventNeedListItem = async (req, res, next) => {
     if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
     await pool.execute(
       `INSERT INTO company_event_need_list_items
-       (company_event_id, agency_id, item_name, item_notes, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?)`,
-      [eventId, agencyId, itemName.slice(0, 255), itemNotes || null, userId]
+       (company_event_id, agency_id, item_name, item_category, item_notes, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [eventId, agencyId, itemName.slice(0, 255), itemCategory, itemNotes || null, userId]
     );
     res.status(201).json(await listNeedListItems(eventId, agencyId));
   } catch (error) {
@@ -2277,14 +2284,14 @@ export const patchCompanyEventNeedListItem = async (req, res, next) => {
     if (claim && !unclaim) {
       await pool.execute(
         `UPDATE company_event_need_list_items
-         SET claimed_by_user_id = ?, claimed_at = NOW()
+         SET claimed_by_user_id = ?, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NOW()
          WHERE id = ? AND company_event_id = ? AND agency_id = ?`,
         [userId, itemId, eventId, agencyId]
       );
     } else {
       await pool.execute(
         `UPDATE company_event_need_list_items
-         SET claimed_by_user_id = NULL, claimed_at = NULL
+         SET claimed_by_user_id = NULL, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NULL
          WHERE id = ? AND company_event_id = ? AND agency_id = ?`,
         [itemId, eventId, agencyId]
       );
@@ -3205,15 +3212,44 @@ export const registerForCompanyEventPublic = async (req, res, next) => {
 
     // Verify event exists and is active.
     const [evRows] = await pool.execute(
-      'SELECT id, agency_id, title FROM company_events WHERE id = ? AND is_active = 1 LIMIT 1',
+      'SELECT id, agency_id, title, potluck_enabled FROM company_events WHERE id = ? AND is_active = 1 LIMIT 1',
       [eventId]
     );
     if (!evRows.length) {
       return res.status(404).json({ error: { message: 'Event not found or not active' } });
     }
     const eventAgencyId = Number(evRows[0].agency_id);
+    const potluckEnabled = !!(evRows[0].potluck_enabled === 1 || evRows[0].potluck_enabled === true);
+    const needListItemIdRaw = Number(req.body?.needListItemId || req.body?.need_list_item_id || 0);
+    const needListItemId = Number.isFinite(needListItemIdRaw) && needListItemIdRaw > 0 ? needListItemIdRaw : null;
 
     const phone = String(req.body.phone || '').replace(/\D/g, '').slice(-10); // last 10 digits
+
+    // Potluck rule: for "yes" responses, require selecting one unclaimed need-list item
+    // when the event has remaining potluck items.
+    let availableNeedItems = [];
+    if (potluckEnabled) {
+      const [needRows] = await pool.execute(
+        `SELECT id, item_name
+         FROM company_event_need_list_items
+         WHERE company_event_id = ? AND agency_id = ?
+           AND claimed_by_user_id IS NULL
+           AND (claimed_by_guest_email IS NULL OR claimed_by_guest_email = '')
+         ORDER BY created_at ASC, id ASC`,
+        [eventId, eventAgencyId]
+      );
+      availableNeedItems = needRows || [];
+    }
+    if (response === 'yes' && availableNeedItems.length > 0) {
+      const validSelected = needListItemId && availableNeedItems.some((row) => Number(row.id) === needListItemId);
+      if (!validSelected) {
+        return res.status(400).json({
+          error: {
+            message: 'Please choose one remaining potluck item before confirming "Yes".'
+          }
+        });
+      }
+    }
 
     // Attempt to match user account: 1) email, 2) phone, 3) first+last name.
     let userId = null;
@@ -3242,7 +3278,12 @@ export const registerForCompanyEventPublic = async (req, res, next) => {
     }
 
     // Build registration payload.
-    const registrationPayload = JSON.stringify({ guestCount, dietaryNotes, notes });
+    const registrationPayload = JSON.stringify({
+      guestCount,
+      dietaryNotes,
+      notes,
+      needListItemId: needListItemId || null
+    });
 
     if (userId) {
       // Matched user — upsert invitation record.
@@ -3307,6 +3348,71 @@ export const registerForCompanyEventPublic = async (req, res, next) => {
       }
     }
 
+    // If attendee changed away from "yes", release any prior claimed item for this attendee.
+    if (potluckEnabled && response !== 'yes') {
+      if (userId) {
+        await pool.execute(
+          `UPDATE company_event_need_list_items
+           SET claimed_by_user_id = NULL, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NULL
+           WHERE company_event_id = ? AND agency_id = ? AND claimed_by_user_id = ?`,
+          [eventId, eventAgencyId, userId]
+        );
+      } else {
+        await pool.execute(
+          `UPDATE company_event_need_list_items
+           SET claimed_by_user_id = NULL, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NULL
+           WHERE company_event_id = ? AND agency_id = ? AND LOWER(COALESCE(claimed_by_guest_email, '')) = ?`,
+          [eventId, eventAgencyId, email]
+        );
+      }
+    }
+
+    // Claim selected need-list item (if provided and still available).
+    // For matched users we claim by user_id; otherwise by guest name/email.
+    if (needListItemId && response === 'yes' && potluckEnabled) {
+      let claimResult;
+      if (userId) {
+        await pool.execute(
+          `UPDATE company_event_need_list_items
+           SET claimed_by_user_id = NULL, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NULL
+           WHERE company_event_id = ? AND agency_id = ? AND claimed_by_user_id = ?`,
+          [eventId, eventAgencyId, userId]
+        );
+        const [r] = await pool.execute(
+          `UPDATE company_event_need_list_items
+           SET claimed_by_user_id = ?, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NOW()
+           WHERE id = ? AND company_event_id = ? AND agency_id = ?
+             AND claimed_by_user_id IS NULL
+             AND (claimed_by_guest_email IS NULL OR claimed_by_guest_email = '')`,
+          [userId, needListItemId, eventId, eventAgencyId]
+        );
+        claimResult = r;
+      } else {
+        await pool.execute(
+          `UPDATE company_event_need_list_items
+           SET claimed_by_user_id = NULL, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NULL
+           WHERE company_event_id = ? AND agency_id = ? AND LOWER(COALESCE(claimed_by_guest_email, '')) = ?`,
+          [eventId, eventAgencyId, email]
+        );
+        const [r] = await pool.execute(
+          `UPDATE company_event_need_list_items
+           SET claimed_by_user_id = NULL, claimed_by_guest_name = ?, claimed_by_guest_email = ?, claimed_at = NOW()
+           WHERE id = ? AND company_event_id = ? AND agency_id = ?
+             AND claimed_by_user_id IS NULL
+             AND (claimed_by_guest_email IS NULL OR claimed_by_guest_email = '')`,
+          [(`${firstName} ${lastName}`.trim() || firstName).slice(0, 200), email.slice(0, 255), needListItemId, eventId, eventAgencyId]
+        );
+        claimResult = r;
+      }
+      if (!Number(claimResult?.affectedRows || 0)) {
+        return res.status(409).json({
+          error: {
+            message: 'That potluck item was just claimed by someone else. Please pick another item and submit again.'
+          }
+        });
+      }
+    }
+
     res.json({
       ok: true,
       matched: !!userId,
@@ -3359,6 +3465,14 @@ export const getCompanyEventPublic = async (req, res, next) => {
       [eventId]
     );
 
+    const [needRows] = await pool.execute(
+      `SELECT id, item_name, item_category, item_notes, claimed_by_user_id, claimed_by_guest_email
+       FROM company_event_need_list_items
+       WHERE company_event_id = ?
+       ORDER BY created_at ASC, id ASC`,
+      [eventId]
+    );
+
     if (!rows.length) {
       return res.status(404).json({ error: { message: 'Event not found or not active' } });
     }
@@ -3396,6 +3510,21 @@ export const getCompanyEventPublic = async (req, res, next) => {
         publicHeroImageUrl: row.public_hero_image_url || '',
         registrationFormUrl: row.registration_form_url || '',
         potluckEnabled: !!(row.potluck_enabled === 1 || row.potluck_enabled === true),
+        needListItems: (needRows || []).map((n) => ({
+          id: Number(n.id),
+          itemName: String(n.item_name || ''),
+          itemCategory: String(n.item_category || '').trim().toLowerCase() || '',
+          itemNotes: String(n.item_notes || '').trim(),
+          claimed: n.claimed_by_user_id != null || !!String(n.claimed_by_guest_email || '').trim()
+        })),
+        availableNeedListItems: (needRows || [])
+          .filter((n) => n.claimed_by_user_id == null && !String(n.claimed_by_guest_email || '').trim())
+          .map((n) => ({
+            id: Number(n.id),
+            itemName: String(n.item_name || ''),
+            itemCategory: String(n.item_category || '').trim().toLowerCase() || '',
+            itemNotes: String(n.item_notes || '').trim()
+          })),
         agencyName: row.agency_name || '',
         registrationFormPublicKey: formRows.length ? String(formRows[0].public_key || '') : '',
         registrationFormTitle: formRows.length ? String(formRows[0].title || '') : ''

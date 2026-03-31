@@ -97,13 +97,19 @@
           <p v-if="event.splashContent" class="event-splash">{{ event.splashContent }}</p>
         </div>
 
-        <!-- Host providing + family note -->
+        <!-- What's included -->
         <div class="event-section" v-if="event.organizerProviding?.length || event.familyProvisionNote">
           <h3 class="section-heading">What's included</h3>
-          <div v-if="event.organizerProviding?.length" class="provided-list">
-            <span class="provided-chip" v-for="item in event.organizerProviding" :key="item">✓ {{ item }}</span>
+          <div v-if="event.organizerProviding?.length">
+            <p class="included-label">For staff/attendees</p>
+            <div class="provided-list">
+              <span class="provided-chip" v-for="item in event.organizerProviding" :key="item">✓ {{ item }}</span>
+            </div>
           </div>
-          <p v-if="event.familyProvisionNote" class="muted">{{ event.familyProvisionNote }}</p>
+          <div v-if="event.familyProvisionNote" class="family-included-block">
+            <p class="included-label">For family/guests</p>
+            <p class="muted">{{ event.familyProvisionNote }}</p>
+          </div>
         </div>
 
         <!-- Inline RSVP / Registration form -->
@@ -197,6 +203,34 @@
                   <input v-model.trim="regForm.dietaryNotes" class="rsvp-input" placeholder="e.g. vegetarian, nut allergy…" />
                 </div>
               </div>
+              <div
+                v-if="event.potluckEnabled && regForm.response === 'yes' && availableNeedListItems.length"
+                class="rsvp-field"
+              >
+                <label class="rsvp-label">Potluck contribution (required for Yes)</label>
+                <select v-model.number="regForm.needListItemId" class="rsvp-input">
+                  <option :value="0">Choose an item…</option>
+                  <optgroup
+                    v-for="group in availableNeedItemsByCategory"
+                    :key="`cat-${group.key}`"
+                    :label="group.label"
+                  >
+                    <option v-for="item in group.items" :key="`item-${item.id}`" :value="item.id">
+                      {{ item.itemName }}{{ item.itemNotes ? ` — ${item.itemNotes}` : '' }}
+                    </option>
+                  </optgroup>
+                </select>
+                <p class="rsvp-match-hint" style="margin-top:6px;">
+                  Please pick one remaining item to bring.
+                </p>
+              </div>
+              <div
+                v-else-if="event.potluckEnabled && regForm.response === 'yes' && !availableNeedListItems.length"
+                class="rsvp-calendar-hint"
+                style="margin: 0 0 12px; max-width: none;"
+              >
+                ✅ All potluck items are currently claimed. You can still RSVP Yes.
+              </div>
               <div class="rsvp-field">
                 <label class="rsvp-label">Anything else we should know?</label>
                 <textarea v-model.trim="regForm.notes" class="rsvp-input" rows="2" placeholder="Optional notes…" />
@@ -268,6 +302,7 @@ const regForm = reactive({
   phone: '',
   response: '',
   guestCount: 1,
+  needListItemId: 0,
   dietaryNotes: '',
   notes: ''
 });
@@ -304,6 +339,19 @@ const allImages = computed(() => {
 
 const heroImage = computed(() => allImages.value[0] || '');
 const galleryImages = computed(() => allImages.value.slice(1));
+const availableNeedListItems = computed(() =>
+  Array.isArray(event.value?.availableNeedListItems) ? event.value.availableNeedListItems : []
+);
+const availableNeedItemsByCategory = computed(() => {
+  const map = new Map();
+  for (const item of availableNeedListItems.value) {
+    const key = String(item?.itemCategory || 'other').trim().toLowerCase() || 'other';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+  }
+  const label = (key) => key.charAt(0).toUpperCase() + key.slice(1);
+  return [...map.entries()].map(([key, items]) => ({ key, label: label(key), items }));
+});
 
 const cssVars = computed(() => {
   const cp = branding.value?.colorPalette || {};
@@ -334,6 +382,15 @@ const submitRsvp = async () => {
 
   if (!regForm.response) { regError.value = 'Please choose a response.'; return; }
   if (!firstName || !email) { regError.value = 'Please provide your first name and email.'; return; }
+  if (
+    regForm.response === 'yes' &&
+    event.value?.potluckEnabled &&
+    availableNeedListItems.value.length > 0 &&
+    !Number(regForm.needListItemId || 0)
+  ) {
+    regError.value = 'Please choose one remaining potluck contribution item.';
+    return;
+  }
 
   submittingReg.value = true;
   try {
@@ -346,6 +403,7 @@ const submitRsvp = async () => {
         phone,
         response: regForm.response,
         guestCount: Number(regForm.guestCount || 1),
+        needListItemId: Number(regForm.needListItemId || 0) || null,
         dietaryNotes: regForm.dietaryNotes,
         notes: regForm.notes
       },
@@ -587,6 +645,15 @@ onMounted(async () => {
 .section-heading { font-size: 1rem; font-weight: 700; margin: 0 0 10px; color: #0f172a; }
 .event-description, .event-splash { color: #334155; line-height: 1.6; margin: 0 0 8px; }
 .provided-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.included-label {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: #475569;
+}
+.family-included-block { margin-top: 6px; }
 .provided-chip {
   background: #f0fdf4;
   border: 1px solid #86efac;

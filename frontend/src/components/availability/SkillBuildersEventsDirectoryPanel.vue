@@ -93,10 +93,12 @@
               </div>
               <div class="sbes-card-body">
                 <div class="sbes-card-name">{{ e.title }}</div>
-                <div class="sbes-card-type">{{ eventTypeLine(e) }}</div>
+                <div v-if="eventTypeLine(e)" class="sbes-card-type">{{ eventTypeLine(e) }}</div>
                 <div class="sbes-card-meta">{{ formatDateRange(e.startsAt, e.endsAt) }}</div>
+                <div v-if="guestPolicyLine(e)" class="sbes-card-meta"><strong>Guests</strong> {{ guestPolicyLine(e) }}</div>
+                <div v-if="providingLine(e)" class="sbes-card-meta"><strong>Included</strong> {{ providingLine(e) }}</div>
+                <div v-if="familyLine(e)" class="sbes-card-meta"><strong>Family</strong> {{ familyLine(e) }}</div>
                 <div v-if="e.weekdaysShort" class="sbes-card-meta"><strong>Days</strong> {{ e.weekdaysShort }}</div>
-                <div v-if="providerLine(e)" class="sbes-card-providers"><strong>Providers</strong> {{ providerLine(e) }}</div>
               </div>
               <div class="sbes-card-cta-row">
                 <span class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'Open portal' : 'Manage event' }}</span>
@@ -131,10 +133,12 @@
               </div>
               <div class="sbes-card-body">
                 <div class="sbes-card-name">{{ e.title }}</div>
-                <div class="sbes-card-type">{{ eventTypeLine(e) }}</div>
+                <div v-if="eventTypeLine(e)" class="sbes-card-type">{{ eventTypeLine(e) }}</div>
                 <div class="sbes-card-meta">{{ formatDateRange(e.startsAt, e.endsAt) }}</div>
+                <div v-if="guestPolicyLine(e)" class="sbes-card-meta"><strong>Guests</strong> {{ guestPolicyLine(e) }}</div>
+                <div v-if="providingLine(e)" class="sbes-card-meta"><strong>Included</strong> {{ providingLine(e) }}</div>
+                <div v-if="familyLine(e)" class="sbes-card-meta"><strong>Family</strong> {{ familyLine(e) }}</div>
                 <div v-if="e.weekdaysShort" class="sbes-card-meta">{{ e.weekdaysShort }}</div>
-                <div v-if="providerLine(e)" class="sbes-card-providers">{{ providerLine(e) }}</div>
               </div>
               <div class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'View' : 'Manage' }}</div>
             </button>
@@ -279,10 +283,12 @@ function logoUrl(e) {
   return toUploadsUrl(raw);
 }
 
-function providerLine(e) {
-  const list = e.providers || [];
-  if (!list.length) return '—';
-  return list.map((p) => `${p.firstName || ''} ${p.lastName || ''}`.trim()).join(', ');
+function normalizeCompareLabel(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
 }
 
 function prettifyEventType(raw) {
@@ -303,9 +309,39 @@ function prettifyEventType(raw) {
 
 function eventTypeLine(e) {
   const typeLabel = prettifyEventType(e.eventType);
+  // Avoid duplicate "title + type" lines like:
+  //   Title: "Staff Get-Together"
+  //   Type : "Staff Get Together"
+  if (normalizeCompareLabel(typeLabel) === normalizeCompareLabel(e.title)) return '';
   const schoolName = String(e.schoolName || '').trim();
   if (schoolName) return `${typeLabel} · ${schoolName}`;
   return typeLabel;
+}
+
+function guestPolicyLine(e) {
+  if (isSkillsBuildersEvent(e)) return '';
+  const key = String(e.guestPolicy || '').trim().toLowerCase();
+  const map = {
+    staff_only: 'Staff only',
+    family_invited: 'Families invited',
+    plus_one: 'Plus one invited'
+  };
+  return map[key] || '';
+}
+
+function providingLine(e) {
+  if (isSkillsBuildersEvent(e)) return '';
+  const list = Array.isArray(e.organizerProviding) ? e.organizerProviding.filter(Boolean) : [];
+  if (!list.length) return '';
+  if (list.length <= 2) return list.join(', ');
+  return `${list.slice(0, 2).join(', ')} +${list.length - 2} more`;
+}
+
+function familyLine(e) {
+  if (isSkillsBuildersEvent(e)) return '';
+  const s = String(e.familyProvisionNote || '').trim();
+  if (!s) return '';
+  return s.length > 80 ? `${s.slice(0, 80)}…` : s;
 }
 
 const schoolSelectOptions = computed(() => {
@@ -402,6 +438,9 @@ async function load() {
         weekdaysShort: '',
         providers: [],
         eventType: String(row?.eventType || '').trim().toLowerCase(),
+        guestPolicy: String(row?.guestPolicy || '').trim().toLowerCase(),
+        familyProvisionNote: String(row?.familyProvisionNote || '').trim(),
+        organizerProviding: Array.isArray(row?.organizerProviding) ? row.organizerProviding : [],
         eventImageUrl: String(row?.eventImageUrl || '').trim(),
         eventImageUrls: Array.isArray(row?.eventImageUrls) ? row.eventImageUrls : []
       };
