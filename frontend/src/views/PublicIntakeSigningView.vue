@@ -2602,11 +2602,14 @@ const handleMarkerClick = (marker) => {
   currentFieldValues.value[id] = currentFieldValues.value[id] !== true;
   activeMarkerId.value = id;
 };
-const requiresOrganizationId = computed(
-  () =>
-    String(link.value?.scope_type || '') === 'agency' &&
-    String(link.value?.form_type || '').toLowerCase() !== 'medical_records_request'
-);
+const requiresOrganizationId = computed(() => {
+  const scope = String(link.value?.scope_type || '');
+  const ft = String(link.value?.form_type || '').toLowerCase();
+  // smart_registration forms are tied to a company event which already carries the
+  // organization context — the user should never need to type an org ID.
+  if (ft === 'smart_registration' || ft === 'medical_records_request') return false;
+  return scope === 'agency';
+});
 const isSmartSchoolRoi = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi');
 const isSmartRegistration = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_registration');
 /** Catalog, account lookup, client match, enrollment — Smart Registration or Intake that includes a Registration step. */
