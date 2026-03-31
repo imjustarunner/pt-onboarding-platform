@@ -50,17 +50,55 @@
       </div>
       <div class="grid two">
         <div>
-          <label class="lbl">Photo URL</label>
+          <label class="lbl">Card/primary photo URL</label>
           <input v-model.trim="draft.eventImageUrl" class="input" placeholder="/uploads/logos/..." />
         </div>
+        <div>
+          <label class="lbl">Banner photo URL (hero)</label>
+          <input v-model.trim="draft.publicHeroImageUrl" class="input" placeholder="/uploads/logos/... (optional)" />
+        </div>
+      </div>
+      <div class="grid two">
         <div>
           <label class="lbl">Upload photo(s)</label>
           <input type="file" accept="image/*" multiple @change="onPhotoUpload" />
         </div>
+        <div class="muted" style="align-self:end;">
+          Tip: choose one banner image (hero) and keep multiple album images below.
+        </div>
       </div>
       <div class="tag-list" v-if="draft.eventImageUrls.length > 0">
         <span class="tag" v-for="(url, idx) in draft.eventImageUrls" :key="`img-${idx}`">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            style="padding:0 6px;line-height:1.3;"
+            :disabled="idx === 0"
+            title="Move left"
+            @click="moveEventImageLeft(idx)"
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            style="padding:0 6px;line-height:1.3;"
+            :disabled="idx === draft.eventImageUrls.length - 1"
+            title="Move right"
+            @click="moveEventImageRight(idx)"
+          >
+            →
+          </button>
           {{ shortUrl(url) }}
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            style="padding:0 6px;line-height:1.3;"
+            @click="setBannerFromAlbum(url)"
+            :title="draft.publicHeroImageUrl === url ? 'Current banner image' : 'Set as banner image'"
+          >
+            {{ draft.publicHeroImageUrl === url ? 'Banner' : 'Set banner' }}
+          </button>
           <button type="button" class="x" @click="removeEventImage(idx)">x</button>
         </span>
       </div>
@@ -134,6 +172,7 @@
 
     <div class="section">
       <h4>5) What We're Providing</h4>
+      <p class="muted">These items save to this event and display on the public event page under "For staff/attendees".</p>
       <div class="inline-row">
         <input
           v-model.trim="organizerItemInput"
@@ -157,7 +196,7 @@
         <input type="checkbox" v-model="draft.potluckEnabled" />
         <span>Potluck style enabled</span>
       </label>
-      <p class="muted">Need-list claims are managed in the Invitees panel after saving.</p>
+      <p class="muted">Need-list setup and claims are managed in the Invitees panel after saving this event.</p>
     </div>
 
     <div class="section">
@@ -357,6 +396,7 @@ const defaultDraft = () => ({
   familyProvisionNote: '',
   organizerProviding: [],
   eventImageUrls: [],
+  publicHeroImageUrl: '',
   potluckEnabled: false,
   rsvpMode: 'yes_no_maybe',
   votingQuestion: 'Will you attend?',
@@ -430,6 +470,7 @@ const populateFromEvent = (evt) => {
     familyProvisionNote: evt.familyProvisionNote || '',
     organizerProviding: Array.isArray(evt.organizerProviding) ? [...evt.organizerProviding] : [],
     eventImageUrls: Array.isArray(evt.eventImageUrls) ? [...evt.eventImageUrls] : [],
+    publicHeroImageUrl: evt.publicHeroImageUrl || '',
     potluckEnabled: !!evt.potluckEnabled,
     rsvpMode: evt.rsvpMode || 'yes_no_maybe',
     votingQuestion: evt.votingConfig?.question || 'Will you attend?',
@@ -470,6 +511,7 @@ const serializeFormState = () => JSON.stringify({
     familyProvisionNote: draft.familyProvisionNote || '',
     organizerProviding: Array.isArray(draft.organizerProviding) ? [...draft.organizerProviding] : [],
     eventImageUrls: Array.isArray(draft.eventImageUrls) ? [...draft.eventImageUrls] : [],
+    publicHeroImageUrl: draft.publicHeroImageUrl || '',
     potluckEnabled: !!draft.potluckEnabled,
     rsvpMode: draft.rsvpMode || '',
     votingQuestion: draft.votingQuestion || '',
@@ -525,6 +567,22 @@ const saveEvent = async () => {
   saving.value = true;
   error.value = '';
   try {
+    // Extra guard: recompute a merged list from chips + any residual input text.
+    const mergedOrganizerProviding = (() => {
+      const prior = Array.isArray(draft.organizerProviding) ? draft.organizerProviding : [];
+      const typed = normalizeOrganizerItems(organizerItemInput.value);
+      if (!typed.length) return prior;
+      const seen = new Set(prior.map((s) => String(s || '').trim().toLowerCase()).filter(Boolean));
+      const out = [...prior];
+      for (const item of typed) {
+        const key = String(item || '').trim().toLowerCase();
+        if (!key || seen.has(key)) continue;
+        out.push(item);
+        seen.add(key);
+      }
+      return out;
+    })();
+
     const payload = {
       title: draft.title,
       eventType: draft.eventType || selectedEventCategory.value || 'company_event',
@@ -544,9 +602,10 @@ const saveEvent = async () => {
       },
       guestPolicy: draft.guestPolicy,
       potluckEnabled: !!draft.potluckEnabled,
-      organizerProviding: draft.organizerProviding || [],
+      organizerProviding: mergedOrganizerProviding,
       eventImageUrl: draft.eventImageUrl || null,
       eventImageUrls: draft.eventImageUrls || [],
+      publicHeroImageUrl: draft.publicHeroImageUrl || null,
       rsvpDeadline: isoForApi(draft.rsvpDeadlineLocal),
       eventLocationName: draft.eventLocationName || null,
       eventLocationAddress: draft.eventLocationAddress || null,
@@ -559,16 +618,29 @@ const saveEvent = async () => {
         scheduledFor: isoForApi(smsDraft.scheduledFor)
       }
     };
-    if (selectedEventIdNum.value > 0) {
-      await api.put(`/agencies/${props.agencyId}/company-events/${selectedEventIdNum.value}`, payload);
+    let savedEventId = selectedEventIdNum.value;
+    if (savedEventId > 0) {
+      await api.put(`/agencies/${props.agencyId}/company-events/${savedEventId}`, payload);
     } else {
       const resp = await api.post(`/agencies/${props.agencyId}/company-events`, payload);
-      selectedEventId.value = String(resp.data?.id || '');
+      savedEventId = Number(resp.data?.id || 0);
+      selectedEventId.value = String(savedEventId || '');
     }
     await reloadEvents();
-    if (selectedEventIdNum.value > 0) {
-      const updated = events.value.find((e) => Number(e.id) === selectedEventIdNum.value);
-      if (updated) populateFromEvent(updated);
+    if (savedEventId > 0) {
+      // Read back the exact saved event detail (source of truth), avoiding stale list snapshots.
+      try {
+        const detailResp = await api.get(`/agencies/${props.agencyId}/company-events/${savedEventId}`, {
+          params: { _ts: Date.now() }
+        });
+        if (detailResp?.data && typeof detailResp.data === 'object') {
+          populateFromEvent(detailResp.data);
+        }
+      } catch {
+        // Fallback to list payload if detail endpoint readback fails.
+        const updated = events.value.find((e) => Number(e.id) === savedEventId);
+        if (updated) populateFromEvent(updated);
+      }
     }
     markClean();
     emit('saved', {
@@ -654,6 +726,7 @@ const onPhotoUpload = async (event) => {
       const url = String(resp.data?.url || '').trim();
       if (!url) continue;
       if (!draft.eventImageUrl) draft.eventImageUrl = url;
+      if (!draft.publicHeroImageUrl) draft.publicHeroImageUrl = url;
       draft.eventImageUrls = [...(draft.eventImageUrls || []), url];
     }
   } catch (e) {
@@ -664,7 +737,33 @@ const onPhotoUpload = async (event) => {
 };
 
 const removeEventImage = (idx) => {
+  const removed = (draft.eventImageUrls || [])[idx];
   draft.eventImageUrls = (draft.eventImageUrls || []).filter((_, i) => i !== idx);
+  if (removed && draft.publicHeroImageUrl === removed) {
+    draft.publicHeroImageUrl = draft.eventImageUrls[0] || '';
+  }
+};
+
+const setBannerFromAlbum = (url) => {
+  draft.publicHeroImageUrl = String(url || '').trim();
+};
+
+const moveEventImageLeft = (idx) => {
+  const list = Array.isArray(draft.eventImageUrls) ? [...draft.eventImageUrls] : [];
+  if (idx <= 0 || idx >= list.length) return;
+  const tmp = list[idx - 1];
+  list[idx - 1] = list[idx];
+  list[idx] = tmp;
+  draft.eventImageUrls = list;
+};
+
+const moveEventImageRight = (idx) => {
+  const list = Array.isArray(draft.eventImageUrls) ? [...draft.eventImageUrls] : [];
+  if (idx < 0 || idx >= list.length - 1) return;
+  const tmp = list[idx + 1];
+  list[idx + 1] = list[idx];
+  list[idx] = tmp;
+  draft.eventImageUrls = list;
 };
 
 const shortUrl = (value) => {

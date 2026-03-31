@@ -40,7 +40,7 @@
           </div>
         </div>
 
-        <!-- Extra images (non-hero) -->
+        <!-- Extra images (non-hero strip) -->
         <div v-if="galleryImages.length" class="event-gallery">
           <img
             v-for="(img, i) in galleryImages"
@@ -49,6 +49,22 @@
             class="event-gallery-img"
             alt=""
           />
+        </div>
+
+        <!-- Full album (includes hero) -->
+        <div v-if="allImages.length > 0" class="event-section">
+          <h3 class="section-heading">Photo album</h3>
+          <div class="event-album-grid">
+            <button
+              v-for="(img, i) in allImages"
+              :key="`album-${i}`"
+              type="button"
+              class="event-album-item"
+              @click="openAlbum(i)"
+            >
+              <img :src="displayAsset(img)" class="event-album-img" alt="" />
+            </button>
+          </div>
         </div>
 
         <!-- Key details -->
@@ -275,6 +291,15 @@
         </footer>
       </div>
     </template>
+
+    <!-- Album lightbox -->
+    <div v-if="albumOpen" class="album-lightbox" @click.self="closeAlbum">
+      <button type="button" class="album-close" @click="closeAlbum">×</button>
+      <button v-if="allImages.length > 1" type="button" class="album-nav album-prev" @click="prevAlbum">‹</button>
+      <img :src="displayAsset(allImages[albumIndex] || '')" class="album-main-img" alt="" />
+      <button v-if="allImages.length > 1" type="button" class="album-nav album-next" @click="nextAlbum">›</button>
+      <div class="album-caption">{{ albumIndex + 1 }} / {{ allImages.length }}</div>
+    </div>
   </main>
 </template>
 
@@ -348,6 +373,21 @@ const allImages = computed(() => {
 
 const heroImage = computed(() => allImages.value[0] || '');
 const galleryImages = computed(() => allImages.value.slice(1));
+const albumOpen = ref(false);
+const albumIndex = ref(0);
+const openAlbum = (index) => {
+  albumIndex.value = Math.max(0, Math.min(allImages.value.length - 1, Number(index || 0)));
+  albumOpen.value = true;
+};
+const closeAlbum = () => { albumOpen.value = false; };
+const prevAlbum = () => {
+  if (!allImages.value.length) return;
+  albumIndex.value = (albumIndex.value - 1 + allImages.value.length) % allImages.value.length;
+};
+const nextAlbum = () => {
+  if (!allImages.value.length) return;
+  albumIndex.value = (albumIndex.value + 1) % allImages.value.length;
+};
 const availableNeedListItems = computed(() =>
   Array.isArray(event.value?.availableNeedListItems) ? event.value.availableNeedListItems : []
 );
@@ -638,6 +678,74 @@ onMounted(async () => {
   object-fit: cover;
   flex: 1 1 220px;
   max-width: 100%;
+}
+
+.event-album-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+.event-album-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  padding: 0;
+  background: #fff;
+  cursor: pointer;
+}
+.event-album-img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  display: block;
+}
+
+.album-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+.album-main-img {
+  max-width: min(92vw, 1100px);
+  max-height: 82vh;
+  border-radius: 10px;
+  object-fit: contain;
+  background: #0b1220;
+}
+.album-close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 34px;
+  cursor: pointer;
+}
+.album-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  font-size: 28px;
+  cursor: pointer;
+}
+.album-prev { left: 18px; }
+.album-next { right: 18px; }
+.album-caption {
+  position: absolute;
+  bottom: 14px;
+  color: #e2e8f0;
+  font-size: 0.9rem;
 }
 
 /* Details card */
