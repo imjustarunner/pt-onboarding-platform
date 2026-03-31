@@ -106,7 +106,25 @@
           <p v-if="event.familyProvisionNote" class="muted">{{ event.familyProvisionNote }}</p>
         </div>
 
-        <!-- Invitation CTA -->
+        <!-- Registration form CTA -->
+        <div v-if="registrationFormUrl || event.registrationFormUrl" class="event-cta-section event-cta-section--form">
+          <p class="cta-section-label">Registration</p>
+          <p class="cta-hint" style="margin-bottom: 14px;">
+            {{ event.registrationFormTitle ? `"${event.registrationFormTitle}" — ` : '' }}Complete the registration form to confirm your spot and provide any additional details.
+          </p>
+          <div class="cta-actions">
+            <a
+              :href="registrationFormUrl || event.registrationFormUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn-event btn-event-primary"
+            >
+              Register now &rarr;
+            </a>
+          </div>
+        </div>
+
+        <!-- Invitation CTA (shown when no registration form or as supplement) -->
         <div class="event-cta-section">
           <div v-if="!rsvpResponse">
             <p class="cta-hint">
@@ -114,16 +132,10 @@
               Check your email for your personalized RSVP link — click the button inside to confirm your attendance.
             </p>
           </div>
-          <div v-else class="cta-actions">
-            <a
-              v-if="event.registrationFormUrl"
-              :href="event.registrationFormUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="btn-event btn-event-primary"
-            >
-              Open registration form
-            </a>
+          <div v-else class="cta-confirmed">
+            <p class="cta-hint">
+              Your RSVP is on file. Use the registration form above to add guest count and meal preferences.
+            </p>
           </div>
         </div>
 
@@ -142,6 +154,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
 const route = useRoute();
 const eventId = computed(() => Number(route.params.eventId) || 0);
@@ -186,6 +199,12 @@ const cssVars = computed(() => {
   if (cp.secondary) out['--ep-secondary'] = cp.secondary;
   if (ts.fontFamily) out['font-family'] = ts.fontFamily;
   return out;
+});
+
+/** Full public URL for the linked Smart Registration digital form, if one exists. */
+const registrationFormUrl = computed(() => {
+  const key = String(event.value?.registrationFormPublicKey || '').trim();
+  return key ? buildPublicIntakeUrl(key) : '';
 });
 
 const prettyType = computed(() => {
@@ -410,8 +429,20 @@ onMounted(async () => {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 24px;
-  margin-bottom: 32px;
+  margin-bottom: 16px;
   text-align: center;
+}
+.event-cta-section--form {
+  border-color: var(--ep-primary, #15803d);
+  background: #f0fdf4;
+}
+.cta-section-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ep-primary, #15803d);
+  margin: 0 0 6px;
 }
 .cta-hint { color: #475569; line-height: 1.55; margin: 0; }
 .cta-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }

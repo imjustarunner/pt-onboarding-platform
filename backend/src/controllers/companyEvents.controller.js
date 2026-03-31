@@ -3072,6 +3072,14 @@ export const getCompanyEventPublic = async (req, res, next) => {
       [eventId]
     );
 
+    // Also look up any active digital registration form locked to this event.
+    const [formRows] = await pool.execute(
+      `SELECT public_key, title FROM intake_links
+       WHERE company_event_id = ? AND is_active = 1
+       ORDER BY updated_at DESC LIMIT 1`,
+      [eventId]
+    );
+
     if (!rows.length) {
       return res.status(404).json({ error: { message: 'Event not found or not active' } });
     }
@@ -3109,7 +3117,9 @@ export const getCompanyEventPublic = async (req, res, next) => {
         publicHeroImageUrl: row.public_hero_image_url || '',
         registrationFormUrl: row.registration_form_url || '',
         potluckEnabled: !!(row.potluck_enabled === 1 || row.potluck_enabled === true),
-        agencyName: row.agency_name || ''
+        agencyName: row.agency_name || '',
+        registrationFormPublicKey: formRows.length ? String(formRows[0].public_key || '') : '',
+        registrationFormTitle: formRows.length ? String(formRows[0].title || '') : ''
       },
       branding: {
         agencyName: row.agency_name || '',
