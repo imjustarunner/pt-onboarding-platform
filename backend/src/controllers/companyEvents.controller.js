@@ -2500,6 +2500,142 @@ export const sendCompanyEventInvitations = async (req, res, next) => {
   }
 };
 
+/**
+ * Send reminder emails for a company event.
+ * audience: 'attending' | 'no_response' | 'all'
+ */
+export const sendCompanyEventReminders = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.params.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const actorUserId = parsePositiveInt(req.user?.id);
+    const audience = String(req.body?.audience || 'attending').toLowerCase();
+    if (!agencyId || !eventId || !actorUserId) {
+      return res.status(400).json({ error: { message: 'Invalid request' } });
+    }
+    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const row = await loadEventByIdForAgency(eventId, agencyId);
+    if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
+    const event = mapEventRow(row, req);
+
+    const frontendBase = getFrontendBaseUrl();
+
+    // Build recipient query based on audience.
+    let inviteQuery;
+    let inviteParams;
+    if (audience === 'attending') {
+      // Responded yes or maybe.
+      inviteQuery = `SELECT i.user_id, i.token, i.response, u.first_name, u.last_name, u.email
+                     FROM company_event_invitations i
+                     JOIN users u ON u.id = i.user_id
+                     WHERE i.company_event_id = ? AND i.agency_id = ?
+                       AND i.response IN ('yes', 'maybe')`;
+      inviteParams = [eventId, agencyId];
+    } else if (audience === 'no_response') {
+      // Invited but response IS NULL or empty.
+      inviteQuery = `SELECT i.user_id, i.token, i.response, u.first_name, u.last_name, u.email
+                     FROM company_event_invitations i
+                     JOIN users u ON u.id = i.user_id
+                     WHERE i.company_event_id = ? AND i.agency_id = ?
+                       AND (i.response IS NULL OR i.response = '')`;
+      inviteParams = [eventId, agencyId];
+    } else {
+      // All invitees.
+      inviteQuery = `SELECT i.user_id, i.token, i.response, u.first_name, u.last_name, u.email
+                     FROM company_event_invitations i
+                     JOIN users u ON u.id = i.user_id
+                     WHERE i.company_event_id = ? AND i.agency_id = ?`;
+      inviteParams = [eventId, agencyId];
+    }
+
+    const [inviteRows] = await pool.execute(inviteQuery, inviteParams);
+    if (!inviteRows.length) return res.json({ ok: true, sent: 0, message: 'No recipients matched the criteria.' });
+
+    const template = await EmailTemplateService.getTemplateForAgency(agencyId, 'company_event_invitation');
+    const backendBase = `${req.protocol}://${req.get('host')}`;
+    let sentCount = 0;
+
+    for (const inv of inviteRows) {
+      const rsvpUrl = `${frontendBase}/event-rsvp/${encodeURIComponent(inv.token)}`;
+      const publicUrl = `${frontendBase}/company-events/${eventId}`;
+      const yesApiUrl = `${backendBase}/api/company-events/rsvp/${encodeURIComponent(inv.token)}?r=yes`;
+      const noApiUrl = `${backendBase}/api/company-events/rsvp/${encodeURIComponent(inv.token)}?r=no`;
+      const maybeApiUrl = `${backendBase}/api/company-events/rsvp/${encodeURIComponent(inv.token)}?r=maybe`;
+      const parameters = {
+        FIRST_NAME: String(inv.first_name || '').trim(),
+        LAST_NAME: String(inv.last_name || '').trim(),
+        AGENCY_NAME: '',
+        EVENT_TITLE: String(event.title || ''),
+        EVENT_TYPE_LABEL: String(event.eventType || 'Staff Event'),
+        EVENT_DATE: formatDateForTemplate(event.startsAt),
+        EVENT_TIME: `${formatTimeForTemplate(event.startsAt)} - ${formatTimeForTemplate(event.endsAt)}`.trim(),
+        EVENT_LOCATION_NAME: String(event.eventLocationName || ''),
+        EVENT_LOCATION_ADDRESS: String(event.eventLocationAddress || ''),
+        MENU_STAFF: Array.isArray(event.organizerProviding) ? event.organizerProviding.join(', ') : '',
+        MENU_FAMILY: String(event.familyProvisionNote || ''),
+        RSVP_DEADLINE: formatDateForTemplate(event.rsvpDeadline || event.startsAt),
+        RSVP_YES_URL: yesApiUrl,
+        RSVP_NO_URL: noApiUrl,
+        RSVP_MAYBE_URL: maybeApiUrl,
+        RSVP_LINK: rsvpUrl
+      };
+      let subject = `Reminder: ${event.title}`;
+      let body = `Hi ${parameters.FIRST_NAME}, this is a reminder about "${event.title}". View the event page: ${publicUrl}`;
+      if (template) {
+        try {
+          const rendered = EmailTemplateService.renderTemplate(template, parameters);
+          subject = `Reminder: ${rendered.subject || event.title}`;
+          body = rendered.body || body;
+        } catch { /* use fallback */ }
+      }
+      try {
+        await sendNotificationEmail({
+          agencyId,
+          triggerKey: 'system_email_test',
+          to: String(inv.email || '').trim(),
+          subject,
+          text: body,
+          generatedByUserId: actorUserId,
+          userId: Number(inv.user_id),
+          templateType: 'company_event_invitation',
+          templateId: eventId,
+          source: 'reminder'
+        });
+        sentCount += 1;
+      } catch { /* non-blocking */ }
+    }
+    res.json({ ok: true, sent: sentCount });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** List unmatched guest registrations for an event (admins only). */
+export const listCompanyEventGuestRegistrations = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.params.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
+    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const [rows] = await pool.execute(
+      `SELECT id, first_name AS firstName, last_name AS lastName, email, phone,
+              response, guest_count AS guestCount, dietary_notes AS dietaryNotes,
+              notes, matched_user_id AS matchedUserId, created_at AS createdAt
+       FROM company_event_guest_registrations
+       WHERE company_event_id = ? AND agency_id = ?
+       ORDER BY created_at DESC`,
+      [eventId, agencyId]
+    );
+    res.json(rows || []);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getCompanyEventRsvpByToken = async (req, res, next) => {
   try {
     const token = String(req.params.token || '').trim();
@@ -3077,64 +3213,107 @@ export const registerForCompanyEventPublic = async (req, res, next) => {
     }
     const eventAgencyId = Number(evRows[0].agency_id);
 
-    // Look up user by email to link the registration to a user account.
-    const [userRows] = await pool.execute(
+    const phone = String(req.body.phone || '').replace(/\D/g, '').slice(-10); // last 10 digits
+
+    // Attempt to match user account: 1) email, 2) phone, 3) first+last name.
+    let userId = null;
+    let matchMethod = null;
+
+    const [byEmail] = await pool.execute(
       'SELECT id FROM users WHERE LOWER(email) = ? LIMIT 1',
       [email]
     );
-    const userId = userRows.length ? Number(userRows[0].id) : null;
-    if (!userId) {
-      return res.status(400).json({
-        error: {
-          message:
-            'We could not find a user account for that email. Please sign in with your work account first, or use your exact work email.'
-        }
-      });
+    if (byEmail.length) { userId = Number(byEmail[0].id); matchMethod = 'email'; }
+
+    if (!userId && phone.length >= 7) {
+      const [byPhone] = await pool.execute(
+        `SELECT id FROM users WHERE REPLACE(REPLACE(REPLACE(REPLACE(phone,'(',''),')',''),'-',''),' ','') LIKE ? LIMIT 1`,
+        [`%${phone}`]
+      );
+      if (byPhone.length) { userId = Number(byPhone[0].id); matchMethod = 'phone'; }
+    }
+
+    if (!userId && firstName && lastName) {
+      const [byName] = await pool.execute(
+        'SELECT id FROM users WHERE LOWER(first_name) = ? AND LOWER(last_name) = ? LIMIT 1',
+        [firstName.toLowerCase(), lastName.toLowerCase()]
+      );
+      if (byName.length) { userId = Number(byName[0].id); matchMethod = 'name'; }
     }
 
     // Build registration payload.
     const registrationPayload = JSON.stringify({ guestCount, dietaryNotes, notes });
 
-    // Upsert invitation record for this user+event.
-    const [existing] = await pool.execute(
-      'SELECT id FROM company_event_invitations WHERE company_event_id = ? AND user_id = ? LIMIT 1',
-      [eventId, userId]
-    );
-    if (existing.length) {
+    if (userId) {
+      // Matched user — upsert invitation record.
+      const [existing] = await pool.execute(
+        'SELECT id FROM company_event_invitations WHERE company_event_id = ? AND user_id = ? LIMIT 1',
+        [eventId, userId]
+      );
+      if (existing.length) {
+        await pool.execute(
+          `UPDATE company_event_invitations
+           SET response = ?, responded_at = NOW(), registration_payload_json = ?, registration_submitted_at = NOW()
+           WHERE id = ?`,
+          [response, registrationPayload, existing[0].id]
+        );
+      } else {
+        const token = (await import('crypto')).default.randomBytes(32).toString('hex');
+        await pool.execute(
+          `INSERT INTO company_event_invitations
+           (company_event_id, agency_id, user_id, token, response, responded_at, registration_payload_json, registration_submitted_at)
+           VALUES (?, ?, ?, ?, ?, NOW(), ?, NOW())`,
+          [eventId, eventAgencyId, userId, token, response, registrationPayload]
+        );
+      }
+
+      const option = resolveRsvpOption(
+        { votingConfig: { options: DEFAULT_RSVP_OPTIONS } },
+        response
+      );
       await pool.execute(
-        `UPDATE company_event_invitations
-         SET response = ?, responded_at = NOW(), registration_payload_json = ?, registration_submitted_at = NOW()
-         WHERE id = ?`,
-        [response, registrationPayload, existing[0].id]
+        `INSERT INTO company_event_responses
+         (company_event_id, user_id, response_key, response_label, response_body, source, received_at)
+         VALUES (?, ?, ?, ?, ?, 'self_registration', NOW())
+         ON DUPLICATE KEY UPDATE
+           response_key = VALUES(response_key),
+           response_label = VALUES(response_label),
+           response_body = VALUES(response_body),
+           source = VALUES(source),
+           received_at = VALUES(received_at)`,
+        [eventId, userId, option?.key || response, option?.label || response, response]
       );
     } else {
-      const token = (await import('crypto')).default.randomBytes(32).toString('hex');
-      await pool.execute(
-        `INSERT INTO company_event_invitations
-         (company_event_id, agency_id, user_id, token, response, responded_at, registration_payload_json, registration_submitted_at)
-         VALUES (?, ?, ?, ?, ?, NOW(), ?, NOW())`,
-        [eventId, eventAgencyId, userId, token, response, registrationPayload]
+      // No account match — store as a guest registration for admin review.
+      // Upsert by email so re-submits update rather than duplicate.
+      const [existingGuest] = await pool.execute(
+        'SELECT id FROM company_event_guest_registrations WHERE company_event_id = ? AND LOWER(email) = ? LIMIT 1',
+        [eventId, email]
       );
+      if (existingGuest.length) {
+        await pool.execute(
+          `UPDATE company_event_guest_registrations
+           SET response = ?, guest_count = ?, dietary_notes = ?, notes = ?, phone = ?, updated_at = NOW()
+           WHERE id = ?`,
+          [response, guestCount, dietaryNotes || null, notes || null, phone || null, existingGuest[0].id]
+        );
+      } else {
+        await pool.execute(
+          `INSERT INTO company_event_guest_registrations
+           (company_event_id, agency_id, first_name, last_name, email, phone, response, guest_count, dietary_notes, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [eventId, eventAgencyId, firstName, lastName, email, phone || null, response, guestCount, dietaryNotes || null, notes || null]
+        );
+      }
     }
 
-    const option = resolveRsvpOption(
-      { votingConfig: { options: DEFAULT_RSVP_OPTIONS } },
+    res.json({
+      ok: true,
+      matched: !!userId,
+      matchMethod: matchMethod || null,
+      userId: userId || null,
       response
-    );
-    await pool.execute(
-      `INSERT INTO company_event_responses
-       (company_event_id, user_id, response_key, response_label, response_body, source, received_at)
-       VALUES (?, ?, ?, ?, ?, 'self_registration', NOW())
-       ON DUPLICATE KEY UPDATE
-         response_key = VALUES(response_key),
-         response_label = VALUES(response_label),
-         response_body = VALUES(response_body),
-         source = VALUES(source),
-         received_at = VALUES(received_at)`,
-      [eventId, userId, option?.key || response, option?.label || response, response]
-    );
-
-    res.json({ ok: true, userId: userId || null, response });
+    });
   } catch (error) {
     next(error);
   }

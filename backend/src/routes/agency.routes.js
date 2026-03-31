@@ -48,6 +48,8 @@ import {
   patchCompanyEventNeedListItem,
   deleteCompanyEventNeedListItem,
   sendCompanyEventInvitations,
+  sendCompanyEventReminders,
+  listCompanyEventGuestRegistrations,
   saveCompanyEventSmsDraft,
   listCompanyEventTemplates,
   createCompanyEventTemplate,
@@ -498,6 +500,8 @@ router.post('/:id/company-events/:eventId/need-list', authenticate, createCompan
 router.patch('/:id/company-events/:eventId/need-list/:itemId', authenticate, patchCompanyEventNeedListItem);
 router.delete('/:id/company-events/:eventId/need-list/:itemId', authenticate, deleteCompanyEventNeedListItem);
 router.post('/:id/company-events/:eventId/send-invitations', authenticate, sendCompanyEventInvitations);
+router.post('/:id/company-events/:eventId/send-reminders', authenticate, sendCompanyEventReminders);
+router.get('/:id/company-events/:eventId/guest-registrations', authenticate, listCompanyEventGuestRegistrations);
 router.post('/:id/company-events/:eventId/sms-compose', authenticate, saveCompanyEventSmsDraft);
 router.post('/:id/company-events/:eventId/sms-schedule', authenticate, saveCompanyEventSmsDraft);
 router.get('/:id/company-events/templates', authenticate, listCompanyEventTemplates);

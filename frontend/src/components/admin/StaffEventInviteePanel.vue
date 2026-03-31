@@ -4,11 +4,30 @@
       <h4>Invitees & RSVP</h4>
       <div class="actions">
         <button class="btn btn-secondary btn-sm" type="button" @click="refresh" :disabled="loading">Refresh</button>
+        <button
+          class="btn btn-secondary btn-sm"
+          type="button"
+          @click="sendReminders('attending')"
+          :disabled="sendingReminders"
+          title="Email all who RSVPd Yes or Maybe"
+        >
+          {{ sendingReminders ? 'Sending…' : '📧 Remind Attending' }}
+        </button>
+        <button
+          class="btn btn-secondary btn-sm"
+          type="button"
+          @click="sendReminders('no_response')"
+          :disabled="sendingReminders"
+          title="Email everyone who has not responded yet"
+        >
+          {{ sendingReminders ? 'Sending…' : '📧 Nudge Non-responders' }}
+        </button>
         <button class="btn btn-primary btn-sm" type="button" @click="sendInvites" :disabled="sendingInvites">
           {{ sendingInvites ? 'Sending…' : 'Send Invitations' }}
         </button>
       </div>
     </div>
+    <div v-if="reminderResult" class="reminder-result">{{ reminderResult }}</div>
 
     <div class="summary-row" v-if="summary.length">
       <span v-for="item in summary" :key="item.key" class="summary-chip">
@@ -36,6 +55,31 @@
             <td>{{ row.responseLabel || row.responseKey }}</td>
             <td>{{ row.source }}</td>
             <td>{{ formatDateTime(row.receivedAt) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Unmatched guest registrations (no account link) -->
+    <div class="response-list" v-if="guestRegistrations.length">
+      <div class="table-title">
+        Unmatched Guest Registrations
+        <span class="unmatched-badge" title="These attendees submitted an RSVP from the public page but couldn't be linked to an account automatically. Match them manually or ask them to re-submit using their work email.">{{ guestRegistrations.length }}</span>
+      </div>
+      <p class="muted" style="font-size:12px;margin-bottom:8px;">These RSVPs came from the public event page but couldn't be linked to a staff account via email, phone, or name. Ask them to re-submit with their work email or sign in first, and then contact an admin to link the record.</p>
+      <table class="mini-table">
+        <thead>
+          <tr><th>Name</th><th>Email</th><th>Phone</th><th>Response</th><th>Guests</th><th>Dietary</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="g in guestRegistrations" :key="g.id">
+            <td>{{ g.firstName }} {{ g.lastName }}</td>
+            <td>{{ g.email }}</td>
+            <td>{{ g.phone || '-' }}</td>
+            <td>{{ g.response }}</td>
+            <td>{{ g.guestCount }}</td>
+            <td>{{ g.dietaryNotes || '-' }}</td>
+            <td>{{ g.notes || '-' }}</td>
           </tr>
         </tbody>
       </table>
@@ -97,6 +141,8 @@ const props = defineProps({
 const loading = ref(false);
 const error = ref('');
 const sendingInvites = ref(false);
+const sendingReminders = ref(false);
+const reminderResult = ref('');
 const addingNeed = ref(false);
 const claimingId = ref(0);
 const deletingId = ref(0);
@@ -104,6 +150,7 @@ const deletingId = ref(0);
 const summary = ref([]);
 const responses = ref([]);
 const needItems = ref([]);
+const guestRegistrations = ref([]);
 const newItemName = ref('');
 const newItemNotes = ref('');
 
@@ -125,12 +172,21 @@ const loadNeedList = async () => {
   needItems.value = Array.isArray(resp.data) ? resp.data : [];
 };
 
+const loadGuestRegistrations = async () => {
+  try {
+    const resp = await api.get(`/agencies/${props.agencyId}/company-events/${props.eventId}/guest-registrations`);
+    guestRegistrations.value = Array.isArray(resp.data) ? resp.data : [];
+  } catch {
+    guestRegistrations.value = [];
+  }
+};
+
 const refresh = async () => {
   if (!props.agencyId || !props.eventId) return;
   loading.value = true;
   error.value = '';
   try {
-    await Promise.all([loadResponses(), loadNeedList()]);
+    await Promise.all([loadResponses(), loadNeedList(), loadGuestRegistrations()]);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load invitee panel';
   } finally {
@@ -148,6 +204,31 @@ const sendInvites = async () => {
     error.value = e?.response?.data?.error?.message || 'Failed to send invitations';
   } finally {
     sendingInvites.value = false;
+  }
+};
+
+/**
+ * Send email reminders to a subset of invitees:
+ *   'attending'    → response is yes or maybe
+ *   'no_response'  → has not yet responded at all
+ *   'all'          → every invitee
+ */
+const sendReminders = async (audience) => {
+  sendingReminders.value = true;
+  reminderResult.value = '';
+  error.value = '';
+  try {
+    const resp = await api.post(
+      `/agencies/${props.agencyId}/company-events/${props.eventId}/send-reminders`,
+      { audience }
+    );
+    const sent = Number(resp.data?.sent || 0);
+    reminderResult.value = `Reminder sent to ${sent} recipient${sent !== 1 ? 's' : ''}.`;
+    setTimeout(() => { reminderResult.value = ''; }, 5000);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to send reminders';
+  } finally {
+    sendingReminders.value = false;
   }
 };
 
@@ -221,4 +302,6 @@ onMounted(refresh);
 .mini-table th, .mini-table td { border-top: 1px solid #ebebeb; padding: 8px; text-align: left; vertical-align: top; }
 .need-create { display: grid; gap: 8px; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto; margin-bottom: 10px; }
 .error { color: #b91c1c; margin: 8px 0; }
+.reminder-result { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 8px 12px; margin: 8px 0; font-size: 13px; color: #166534; }
+.unmatched-badge { display: inline-block; background: #fef9c3; border: 1px solid #fde047; color: #713f12; border-radius: 999px; font-size: 11px; padding: 1px 7px; margin-left: 6px; font-weight: 700; vertical-align: middle; cursor: help; }
 </style>

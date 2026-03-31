@@ -113,7 +113,25 @@
             <div class="rsvp-done-icon">{{ (regForm.response || rsvpResponse) === 'yes' ? '🎉' : (regForm.response || rsvpResponse) === 'maybe' ? '🤔' : '😔' }}</div>
             <strong class="rsvp-done-title">{{ rsvpBannerTitle }}</strong>
             <p class="rsvp-done-body">{{ rsvpBannerBody }}</p>
-            <button v-if="submitted || rsvpResponse === 'yes' || rsvpResponse === 'maybe'" type="button" class="btn-event btn-event-outline" style="margin-top:12px;" @click="submitted = false; rsvpResponse = ''">
+
+            <!-- Unmatched account notice -->
+            <div v-if="submittedUnmatched" class="rsvp-unmatched-notice">
+              <span class="rsvp-unmatched-icon">ℹ️</span>
+              <div>
+                <strong>Your RSVP is saved!</strong> We couldn't automatically link it to an account using
+                the info provided. An admin can connect it for you, or you can
+                <a :href="`/login?redirect=/company-events/${eventId}`" class="rsvp-link">sign in</a>
+                and re-submit with your work account to link it instantly.
+              </div>
+            </div>
+
+            <!-- Dashboard hint for matched/logged-in users -->
+            <div v-else-if="(regForm.response || rsvpResponse) !== 'no'" class="rsvp-calendar-hint">
+              📅 This event appears in your <strong>dashboard</strong> under "Upcoming company events"
+              with Google Calendar and ICS download links.
+            </div>
+
+            <button v-if="submitted || rsvpResponse === 'yes' || rsvpResponse === 'maybe'" type="button" class="btn-event btn-event-outline" style="margin-top:12px;" @click="submitted = false; rsvpResponse = ''; submittedUnmatched = false">
               Update my registration
             </button>
           </div>
@@ -128,7 +146,7 @@
               Registering as <strong>{{ authUser.firstName || authUser.first_name }} {{ authUser.lastName || authUser.last_name }}</strong> ({{ authUser.email }})
             </div>
 
-            <!-- Name + email for non-logged-in visitors -->
+            <!-- Name + email + phone for non-logged-in visitors -->
             <div v-else class="rsvp-name-row">
               <div class="rsvp-field">
                 <label class="rsvp-label">First name</label>
@@ -139,9 +157,18 @@
                 <input v-model.trim="regForm.lastName" class="rsvp-input" placeholder="Your last name" />
               </div>
               <div class="rsvp-field rsvp-field--wide">
-                <label class="rsvp-label">Email</label>
-                <input v-model.trim="regForm.email" class="rsvp-input" type="email" placeholder="your@email.com" />
+                <label class="rsvp-label">Work email</label>
+                <input v-model.trim="regForm.email" class="rsvp-input" type="email" placeholder="your.name@agency.com" />
               </div>
+              <div class="rsvp-field">
+                <label class="rsvp-label">Phone <span class="rsvp-optional">(backup to find your account)</span></label>
+                <input v-model.trim="regForm.phone" class="rsvp-input" type="tel" placeholder="(719) 555-0100" />
+              </div>
+              <p class="rsvp-match-hint">
+                We'll link your RSVP to your account using your email, phone, or name.
+                Using your <strong>work email</strong> gives the best match.
+                Or <a :href="`/login?redirect=/company-events/${eventId}`" class="rsvp-link">sign in first</a> to skip this.
+              </p>
             </div>
 
             <!-- Attendance choice -->
@@ -238,6 +265,7 @@ const regForm = reactive({
   firstName: '',
   lastName: '',
   email: '',
+  phone: '',
   response: '',
   guestCount: 1,
   dietaryNotes: '',
@@ -246,6 +274,7 @@ const regForm = reactive({
 const submittingReg = ref(false);
 const regError = ref('');
 const submitted = ref(false);
+const submittedUnmatched = ref(false); // true when RSVP saved but no account was linked
 
 const rsvpOptions = [
   { value: 'yes', label: 'Yes, I\'ll be there', emoji: '✅' },
@@ -294,24 +323,27 @@ const registrationFormUrl = computed(() => {
 
 const submitRsvp = async () => {
   regError.value = '';
+  submittedUnmatched.value = false;
   const user = authUser.value;
 
-  // Resolve name + email: prefer logged-in user, fall back to form fields.
+  // Resolve name + email + phone: prefer logged-in user, fall back to form fields.
   const firstName = String(user?.firstName || user?.first_name || regForm.firstName || '').trim();
   const lastName = String(user?.lastName || user?.last_name || regForm.lastName || '').trim();
   const email = String(user?.email || regForm.email || '').trim();
+  const phone = String(user?.phone || regForm.phone || '').trim();
 
   if (!regForm.response) { regError.value = 'Please choose a response.'; return; }
-  if (!firstName || !email) { regError.value = 'Please provide your name and email.'; return; }
+  if (!firstName || !email) { regError.value = 'Please provide your first name and email.'; return; }
 
   submittingReg.value = true;
   try {
-    await api.post(
+    const resp = await api.post(
       `/company-events/public/${eventId.value}/register`,
       {
         firstName,
         lastName,
         email,
+        phone,
         response: regForm.response,
         guestCount: Number(regForm.guestCount || 1),
         dietaryNotes: regForm.dietaryNotes,
@@ -328,6 +360,8 @@ const submitRsvp = async () => {
       }));
     } catch { /* ignore */ }
     submitted.value = true;
+    // Track whether the backend was able to link to an existing account.
+    submittedUnmatched.value = resp?.data?.matched === false;
   } catch (e) {
     regError.value = e?.response?.data?.error?.message || 'Could not save your RSVP. Please try again.';
   } finally {
@@ -640,6 +674,29 @@ onMounted(async () => {
 .rsvp-done-icon { font-size: 2.5rem; }
 .rsvp-done-title { display: block; font-size: 1.1rem; font-weight: 700; color: #0f172a; margin: 8px 0 4px; }
 .rsvp-done-body { color: #475569; font-size: 0.95rem; margin: 0; }
+
+/* Unmatched account notice */
+.rsvp-unmatched-notice {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: #fffbeb; border: 1px solid #fbbf24; border-radius: 8px;
+  padding: 12px 14px; margin: 14px auto 0; max-width: 440px;
+  text-align: left; font-size: 0.88rem; color: #78350f;
+}
+.rsvp-unmatched-icon { flex-shrink: 0; font-size: 1.1rem; }
+
+/* Dashboard hint for matched users */
+.rsvp-calendar-hint {
+  background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;
+  padding: 10px 14px; margin: 14px auto 0; max-width: 440px;
+  font-size: 0.88rem; color: #166534; text-align: left;
+}
+
+/* Match hint + optional label */
+.rsvp-match-hint {
+  grid-column: 1 / -1; font-size: 0.82rem; color: #64748b; margin: 2px 0 0;
+}
+.rsvp-optional { font-size: 0.78rem; color: #94a3b8; font-weight: 400; }
+.rsvp-link { color: var(--ep-primary, #15803d); font-weight: 600; }
 .btn-event-outline {
   background: transparent;
   border: 2px solid var(--ep-primary, #15803d);
