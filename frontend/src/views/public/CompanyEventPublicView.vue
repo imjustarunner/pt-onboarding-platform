@@ -223,6 +223,14 @@
                 <p class="rsvp-match-hint" style="margin-top:6px;">
                   Please pick one remaining item to bring.
                 </p>
+                <div v-if="selectedNeedIsOpenRequest" class="rsvp-field" style="margin-top:8px;">
+                  <label class="rsvp-label">What are you bringing?</label>
+                  <input
+                    v-model.trim="regForm.needListCustomItemName"
+                    class="rsvp-input"
+                    placeholder="e.g. Fruit tray, chips, soda..."
+                  />
+                </div>
               </div>
               <div
                 v-else-if="event.potluckEnabled && regForm.response === 'yes' && !availableNeedListItems.length"
@@ -303,6 +311,7 @@ const regForm = reactive({
   response: '',
   guestCount: 1,
   needListItemId: 0,
+  needListCustomItemName: '',
   dietaryNotes: '',
   notes: ''
 });
@@ -352,6 +361,10 @@ const availableNeedItemsByCategory = computed(() => {
   const label = (key) => key.charAt(0).toUpperCase() + key.slice(1);
   return [...map.entries()].map(([key, items]) => ({ key, label: label(key), items }));
 });
+const selectedNeedListItem = computed(() =>
+  availableNeedListItems.value.find((x) => Number(x?.id) === Number(regForm.needListItemId || 0)) || null
+);
+const selectedNeedIsOpenRequest = computed(() => !!selectedNeedListItem.value?.isOpenRequest);
 
 const cssVars = computed(() => {
   const cp = branding.value?.colorPalette || {};
@@ -391,6 +404,10 @@ const submitRsvp = async () => {
     regError.value = 'Please choose one remaining potluck contribution item.';
     return;
   }
+  if (selectedNeedIsOpenRequest.value && !String(regForm.needListCustomItemName || '').trim()) {
+    regError.value = 'Please type what you are bringing for this category.';
+    return;
+  }
 
   submittingReg.value = true;
   try {
@@ -404,6 +421,7 @@ const submitRsvp = async () => {
         response: regForm.response,
         guestCount: Number(regForm.guestCount || 1),
         needListItemId: Number(regForm.needListItemId || 0) || null,
+        needListCustomItemName: String(regForm.needListCustomItemName || '').trim() || null,
         dietaryNotes: regForm.dietaryNotes,
         notes: regForm.notes
       },

@@ -106,6 +106,25 @@
           Add
         </button>
       </div>
+      <div class="need-bulk-row">
+        <span class="muted">Need more open requests?</span>
+        <select v-model="requestCategory" class="input input-sm">
+          <option value="food">Food</option>
+          <option value="drinks">Drinks</option>
+          <option value="dessert">Dessert</option>
+          <option value="supplies">Supplies</option>
+          <option value="other">Other</option>
+        </select>
+        <input v-model.number="requestCount" class="input input-sm" type="number" min="1" max="12" />
+        <button
+          class="btn btn-secondary btn-sm"
+          type="button"
+          @click="addCategoryRequestSlots"
+          :disabled="requestingSlots || !requestCategory || !requestCount"
+        >
+          {{ requestingSlots ? 'Adding…' : 'Request more' }}
+        </button>
+      </div>
       <div v-if="needItems.length === 0" class="muted">No need-list items yet.</div>
       <table v-else class="mini-table">
         <thead>
@@ -120,7 +139,10 @@
         <tbody>
           <tr v-for="item in needItems" :key="item.id">
             <td><span class="cat-chip">{{ formatCategory(item.itemCategory) }}</span></td>
-            <td>{{ item.itemName }}</td>
+            <td>
+              <span v-if="showOpenRequestSlotLabel(item)" class="open-slot-pill">Open request slot</span>
+              <span v-else>{{ item.itemName }}</span>
+            </td>
             <td>{{ item.itemNotes || '-' }}</td>
             <td>{{ item.claimedByName || '-' }}</td>
             <td>
@@ -159,6 +181,7 @@ const sendingInvites = ref(false);
 const sendingReminders = ref(false);
 const reminderResult = ref('');
 const addingNeed = ref(false);
+const requestingSlots = ref(false);
 const claimingId = ref(0);
 const deletingId = ref(0);
 
@@ -169,6 +192,8 @@ const guestRegistrations = ref([]);
 const newItemCategory = ref('food');
 const newItemName = ref('');
 const newItemNotes = ref('');
+const requestCategory = ref('food');
+const requestCount = ref(3);
 
 const formatDateTime = (value) => {
   if (!value) return '-';
@@ -269,6 +294,28 @@ const addNeedItem = async () => {
   }
 };
 
+const addCategoryRequestSlots = async () => {
+  const count = Math.max(1, Math.min(12, Number(requestCount.value || 0)));
+  if (!count || !requestCategory.value) return;
+  requestingSlots.value = true;
+  error.value = '';
+  try {
+    for (let i = 0; i < count; i += 1) {
+      // openRequestSlot creates a category slot that attendees can fill in by typing what they will bring.
+      await api.post(`/agencies/${props.agencyId}/company-events/${props.eventId}/need-list`, {
+        openRequestSlot: true,
+        itemCategory: requestCategory.value,
+        itemNotes: null
+      });
+    }
+    await loadNeedList();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to add request slots';
+  } finally {
+    requestingSlots.value = false;
+  }
+};
+
 const formatCategory = (value) => {
   const key = String(value || '').trim().toLowerCase();
   if (!key) return 'Other';
@@ -294,6 +341,9 @@ const toggleClaim = async (item) => {
 
 const isItemClaimed = (item) =>
   !!(Number(item?.claimedByUserId || 0) > 0 || String(item?.claimedByGuestEmail || '').trim());
+
+const showOpenRequestSlotLabel = (item) =>
+  !!item?.isOpenRequest && !isItemClaimed(item) && /^open\s+/i.test(String(item?.itemName || ''));
 
 const deleteNeedItem = async (item) => {
   deletingId.value = Number(item.id);
@@ -329,8 +379,11 @@ onMounted(refresh);
 .mini-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .mini-table th, .mini-table td { border-top: 1px solid #ebebeb; padding: 8px; text-align: left; vertical-align: top; }
 .need-create { display: grid; gap: 8px; grid-template-columns: 140px minmax(180px, 1fr) minmax(180px, 1fr) auto; margin-bottom: 10px; }
+.need-bulk-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.input-sm { width: auto; min-width: 110px; max-width: 130px; }
 .error { color: #b91c1c; margin: 8px 0; }
 .reminder-result { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 8px 12px; margin: 8px 0; font-size: 13px; color: #166534; }
 .unmatched-badge { display: inline-block; background: #fef9c3; border: 1px solid #fde047; color: #713f12; border-radius: 999px; font-size: 11px; padding: 1px 7px; margin-left: 6px; font-weight: 700; vertical-align: middle; cursor: help; }
 .cat-chip { display: inline-block; border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
+.open-slot-pill { display: inline-block; border: 1px dashed #94a3b8; background: #f8fafc; color: #475569; border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
 </style>

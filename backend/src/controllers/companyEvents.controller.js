@@ -26,6 +26,7 @@ const DEFAULT_RSVP_OPTIONS = [
   { key: '2', label: 'No' },
   { key: '3', label: 'Maybe' }
 ];
+const OPEN_REQUEST_MARKER = '[OPEN_REQUEST_SLOT]';
 
 const ROLE_AUDIENCE_CODES = {
   provider: 1,
@@ -876,12 +877,22 @@ async function listNeedListItems(eventId, agencyId) {
     [eventId, agencyId]
   );
   return (rows || []).map((row) => ({
+    // Marker in item_notes indicates this was created as an "open request slot"
+    // where attendees can type what they are bringing within a category.
+    // Keep marker internal and strip it from any displayed notes.
+    isOpenRequest:
+      String(row.item_notes || '')
+        .trim()
+        .toUpperCase()
+        .startsWith(OPEN_REQUEST_MARKER),
     id: Number(row.id),
     eventId: Number(row.company_event_id),
     agencyId: Number(row.agency_id),
     itemName: String(row.item_name || ''),
     itemCategory: String(row.item_category || '').trim().toLowerCase() || '',
-    itemNotes: row.item_notes || '',
+    itemNotes: String(row.item_notes || '')
+      .replace(new RegExp(`^${OPEN_REQUEST_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'i'), '')
+      .trim(),
     claimedByUserId: row.claimed_by_user_id != null ? Number(row.claimed_by_user_id) : null,
     claimedByGuestName: row.claimed_by_guest_name ? String(row.claimed_by_guest_name).trim() : '',
     claimedByGuestEmail: row.claimed_by_guest_email ? String(row.claimed_by_guest_email).trim() : '',
@@ -2237,21 +2248,32 @@ export const createCompanyEventNeedListItem = async (req, res, next) => {
     const itemName = String(req.body?.itemName || req.body?.item_name || '').trim();
     const itemNotes = String(req.body?.itemNotes || req.body?.item_notes || '').trim();
     const itemCategoryRaw = String(req.body?.itemCategory || req.body?.item_category || '').trim().toLowerCase();
+    const openRequestRaw = req.body?.openRequestSlot ?? req.body?.open_request_slot;
+    const openRequestSlot =
+      openRequestRaw === true ||
+      openRequestRaw === 1 ||
+      String(openRequestRaw || '').toLowerCase() === 'true';
     const allowedCategories = new Set(['food', 'drinks', 'supplies', 'dessert', 'other']);
     const itemCategory = itemCategoryRaw && allowedCategories.has(itemCategoryRaw) ? itemCategoryRaw : 'other';
-    if (!agencyId || !eventId || !userId || !itemName) {
-      return res.status(400).json({ error: { message: 'itemName is required' } });
+    if (!agencyId || !eventId || !userId || (!itemName && !openRequestSlot)) {
+      return res.status(400).json({ error: { message: 'itemName is required unless openRequestSlot is true' } });
     }
     if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
+    const finalName = openRequestSlot
+      ? `Open ${itemCategory} slot`
+      : itemName.slice(0, 255);
+    const finalNotes = openRequestSlot
+      ? `${OPEN_REQUEST_MARKER}${itemNotes ? ` ${itemNotes}` : ''}`.trim()
+      : (itemNotes || null);
     await pool.execute(
       `INSERT INTO company_event_need_list_items
        (company_event_id, agency_id, item_name, item_category, item_notes, created_by_user_id)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [eventId, agencyId, itemName.slice(0, 255), itemCategory, itemNotes || null, userId]
+      [eventId, agencyId, finalName, itemCategory, finalNotes, userId]
     );
     res.status(201).json(await listNeedListItems(eventId, agencyId));
   } catch (error) {
@@ -3202,6 +3224,9 @@ export const registerForCompanyEventPublic = async (req, res, next) => {
     const guestCount    = Number(req.body.guestCount    || 1);
     const dietaryNotes  = String(req.body.dietaryNotes  || '').trim();
     const notes         = String(req.body.notes         || '').trim();
+    const needListCustomItemName = String(
+      req.body.needListCustomItemName || req.body.need_list_custom_item_name || ''
+    ).trim();
 
     if (!firstName || !email) {
       return res.status(400).json({ error: { message: 'firstName and email are required' } });
@@ -3230,7 +3255,7 @@ export const registerForCompanyEventPublic = async (req, res, next) => {
     let availableNeedItems = [];
     if (potluckEnabled) {
       const [needRows] = await pool.execute(
-        `SELECT id, item_name
+        `SELECT id, item_name, item_notes, item_category
          FROM company_event_need_list_items
          WHERE company_event_id = ? AND agency_id = ?
            AND claimed_by_user_id IS NULL
@@ -3241,11 +3266,25 @@ export const registerForCompanyEventPublic = async (req, res, next) => {
       availableNeedItems = needRows || [];
     }
     if (response === 'yes' && availableNeedItems.length > 0) {
-      const validSelected = needListItemId && availableNeedItems.some((row) => Number(row.id) === needListItemId);
+      const selectedNeedItem = needListItemId
+        ? (availableNeedItems.find((row) => Number(row.id) === needListItemId) || null)
+        : null;
+      const validSelected = !!selectedNeedItem;
       if (!validSelected) {
         return res.status(400).json({
           error: {
             message: 'Please choose one remaining potluck item before confirming "Yes".'
+          }
+        });
+      }
+      const isOpenRequest = String(selectedNeedItem.item_notes || '')
+        .trim()
+        .toUpperCase()
+        .startsWith(OPEN_REQUEST_MARKER);
+      if (isOpenRequest && !needListCustomItemName) {
+        return res.status(400).json({
+          error: {
+            message: 'Please type what you are bringing for this category.'
           }
         });
       }
@@ -3315,7 +3354,7 @@ export const registerForCompanyEventPublic = async (req, res, next) => {
       await pool.execute(
         `INSERT INTO company_event_responses
          (company_event_id, user_id, response_key, response_label, response_body, source, received_at)
-         VALUES (?, ?, ?, ?, ?, 'self_registration', NOW())
+         VALUES (?, ?, ?, ?, ?, 'in_app', NOW())
          ON DUPLICATE KEY UPDATE
            response_key = VALUES(response_key),
            response_label = VALUES(response_label),
@@ -3370,6 +3409,14 @@ export const registerForCompanyEventPublic = async (req, res, next) => {
     // Claim selected need-list item (if provided and still available).
     // For matched users we claim by user_id; otherwise by guest name/email.
     if (needListItemId && response === 'yes' && potluckEnabled) {
+      const selectedNeedItem = availableNeedItems.find((row) => Number(row.id) === needListItemId) || null;
+      const selectedIsOpenRequest = String(selectedNeedItem?.item_notes || '')
+        .trim()
+        .toUpperCase()
+        .startsWith(OPEN_REQUEST_MARKER);
+      const claimedItemName = selectedIsOpenRequest
+        ? needListCustomItemName.slice(0, 255)
+        : String(selectedNeedItem?.item_name || '').trim().slice(0, 255);
       let claimResult;
       if (userId) {
         await pool.execute(
@@ -3380,11 +3427,11 @@ export const registerForCompanyEventPublic = async (req, res, next) => {
         );
         const [r] = await pool.execute(
           `UPDATE company_event_need_list_items
-           SET claimed_by_user_id = ?, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NOW()
+           SET item_name = ?, claimed_by_user_id = ?, claimed_by_guest_name = NULL, claimed_by_guest_email = NULL, claimed_at = NOW()
            WHERE id = ? AND company_event_id = ? AND agency_id = ?
              AND claimed_by_user_id IS NULL
              AND (claimed_by_guest_email IS NULL OR claimed_by_guest_email = '')`,
-          [userId, needListItemId, eventId, eventAgencyId]
+          [claimedItemName, userId, needListItemId, eventId, eventAgencyId]
         );
         claimResult = r;
       } else {
@@ -3396,11 +3443,11 @@ export const registerForCompanyEventPublic = async (req, res, next) => {
         );
         const [r] = await pool.execute(
           `UPDATE company_event_need_list_items
-           SET claimed_by_user_id = NULL, claimed_by_guest_name = ?, claimed_by_guest_email = ?, claimed_at = NOW()
+           SET item_name = ?, claimed_by_user_id = NULL, claimed_by_guest_name = ?, claimed_by_guest_email = ?, claimed_at = NOW()
            WHERE id = ? AND company_event_id = ? AND agency_id = ?
              AND claimed_by_user_id IS NULL
              AND (claimed_by_guest_email IS NULL OR claimed_by_guest_email = '')`,
-          [(`${firstName} ${lastName}`.trim() || firstName).slice(0, 200), email.slice(0, 255), needListItemId, eventId, eventAgencyId]
+          [claimedItemName, (`${firstName} ${lastName}`.trim() || firstName).slice(0, 200), email.slice(0, 255), needListItemId, eventId, eventAgencyId]
         );
         claimResult = r;
       }
@@ -3511,19 +3558,25 @@ export const getCompanyEventPublic = async (req, res, next) => {
         registrationFormUrl: row.registration_form_url || '',
         potluckEnabled: !!(row.potluck_enabled === 1 || row.potluck_enabled === true),
         needListItems: (needRows || []).map((n) => ({
+          isOpenRequest: String(n.item_notes || '').trim().toUpperCase().startsWith(OPEN_REQUEST_MARKER),
           id: Number(n.id),
           itemName: String(n.item_name || ''),
           itemCategory: String(n.item_category || '').trim().toLowerCase() || '',
-          itemNotes: String(n.item_notes || '').trim(),
+          itemNotes: String(n.item_notes || '')
+            .replace(new RegExp(`^${OPEN_REQUEST_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'i'), '')
+            .trim(),
           claimed: n.claimed_by_user_id != null || !!String(n.claimed_by_guest_email || '').trim()
         })),
         availableNeedListItems: (needRows || [])
           .filter((n) => n.claimed_by_user_id == null && !String(n.claimed_by_guest_email || '').trim())
           .map((n) => ({
+            isOpenRequest: String(n.item_notes || '').trim().toUpperCase().startsWith(OPEN_REQUEST_MARKER),
             id: Number(n.id),
             itemName: String(n.item_name || ''),
             itemCategory: String(n.item_category || '').trim().toLowerCase() || '',
-            itemNotes: String(n.item_notes || '').trim()
+            itemNotes: String(n.item_notes || '')
+              .replace(new RegExp(`^${OPEN_REQUEST_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'i'), '')
+              .trim()
           })),
         agencyName: row.agency_name || '',
         registrationFormPublicKey: formRows.length ? String(formRows[0].public_key || '') : '',
