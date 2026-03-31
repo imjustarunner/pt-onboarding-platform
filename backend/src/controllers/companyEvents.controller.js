@@ -211,6 +211,16 @@ function resolveRsvpOption(event, response) {
   return null;
 }
 
+function parseRegistrationPayload(raw) {
+  if (!raw) return {};
+  try {
+    const p = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return p && typeof p === 'object' ? p : {};
+  } catch {
+    return {};
+  }
+}
+
 function mapEventRow(row, req, opts = {}) {
   const recurrence = parseJsonMaybe(row.recurrence_json) || { frequency: 'none' };
   const votingConfig = parseVotingConfig(parseJsonMaybe(row.voting_config_json));
@@ -1780,9 +1790,15 @@ export const listCompanyEventResponses = async (req, res, next) => {
     if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
 
     const [rows] = await pool.execute(
-      `SELECT cer.*, u.first_name, u.last_name, u.email
+      `SELECT cer.*, u.first_name, u.last_name, u.email,
+              i.registration_payload_json, i.registration_submitted_at,
+              n.item_name AS claimed_item_name, n.item_category AS claimed_item_category
        FROM company_event_responses cer
        JOIN users u ON u.id = cer.user_id
+       LEFT JOIN company_event_invitations i
+              ON i.company_event_id = cer.company_event_id AND i.user_id = cer.user_id
+       LEFT JOIN company_event_need_list_items n
+              ON n.company_event_id = cer.company_event_id AND n.claimed_by_user_id = cer.user_id
        WHERE cer.company_event_id = ?
        ORDER BY cer.received_at DESC, cer.id DESC`,
       [eventId]
@@ -1791,12 +1807,16 @@ export const listCompanyEventResponses = async (req, res, next) => {
     res.json({
       summary,
       responses: (rows || []).map((row) => ({
+        ...(parseRegistrationPayload(row.registration_payload_json)),
         userId: Number(row.user_id),
         name: `${String(row.first_name || '').trim()} ${String(row.last_name || '').trim()}`.trim() || row.email,
         responseKey: row.response_key,
         responseLabel: row.response_label || row.response_key,
         source: row.source,
-        receivedAt: row.received_at
+        receivedAt: row.received_at,
+        registrationSubmittedAt: row.registration_submitted_at || null,
+        claimedItemName: row.claimed_item_name ? String(row.claimed_item_name).trim() : '',
+        claimedItemCategory: row.claimed_item_category ? String(row.claimed_item_category).trim().toLowerCase() : ''
       }))
     });
   } catch (error) {
@@ -1887,26 +1907,107 @@ export const exportCompanyEventResponsesCsv = async (req, res, next) => {
     const event = await loadEventByIdForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
     const [rows] = await pool.execute(
-      `SELECT cer.response_key, cer.response_label, cer.source, cer.received_at, u.first_name, u.last_name, u.email
+      `SELECT cer.response_key, cer.response_label, cer.source, cer.received_at,
+              u.first_name, u.last_name, u.email,
+              i.registration_payload_json, i.registration_submitted_at,
+              n.item_name AS claimed_item_name, n.item_category AS claimed_item_category
        FROM company_event_responses cer
        JOIN users u ON u.id = cer.user_id
+       LEFT JOIN company_event_invitations i
+              ON i.company_event_id = cer.company_event_id AND i.user_id = cer.user_id
+       LEFT JOIN company_event_need_list_items n
+              ON n.company_event_id = cer.company_event_id AND n.claimed_by_user_id = cer.user_id
        WHERE cer.company_event_id = ?
        ORDER BY cer.received_at DESC`,
       [eventId]
     );
-    const header = 'name,email,response_key,response_label,source,received_at';
-    const lines = (rows || []).map((row) => {
+    const [needRows] = await pool.execute(
+      `SELECT n.id, n.item_name, n.item_category, n.item_notes, n.claimed_at,
+              n.claimed_by_user_id, n.claimed_by_guest_name, n.claimed_by_guest_email,
+              u.first_name, u.last_name, u.email
+       FROM company_event_need_list_items n
+       LEFT JOIN users u ON u.id = n.claimed_by_user_id
+       WHERE n.company_event_id = ? AND n.agency_id = ?
+       ORDER BY n.item_category ASC, n.created_at ASC, n.id ASC`,
+      [eventId, agencyId]
+    );
+    const [guestRows] = await pool.execute(
+      `SELECT first_name, last_name, email, response, guest_count, dietary_notes, notes, updated_at
+       FROM company_event_guest_registrations
+       WHERE company_event_id = ? AND agency_id = ?
+       ORDER BY updated_at DESC, id DESC`,
+      [eventId, agencyId]
+    );
+
+    const header = 'row_type,name,email,response_key,response_label,source,received_at,guest_count,dietary_notes,notes,registration_submitted_at,claimed_item,claimed_item_category,need_list_item_id,item_name,item_category,item_notes,item_status,claimed_by,claimed_by_email,claimed_at';
+    const lines = [];
+
+    // RSVP responses (matched account users).
+    for (const row of rows || []) {
+      const payload = parseRegistrationPayload(row.registration_payload_json);
       const name = `${String(row.first_name || '').trim()} ${String(row.last_name || '').trim()}`.trim();
       const values = [
+        'response',
         name,
         row.email || '',
         row.response_key || '',
         row.response_label || '',
         row.source || '',
-        row.received_at ? new Date(row.received_at).toISOString() : ''
+        row.received_at ? new Date(row.received_at).toISOString() : '',
+        Number(payload.guestCount || 0) || '',
+        payload.dietaryNotes || '',
+        payload.notes || '',
+        row.registration_submitted_at ? new Date(row.registration_submitted_at).toISOString() : '',
+        row.claimed_item_name || '',
+        row.claimed_item_category || '',
+        Number(payload.needListItemId || 0) || ''
+      , '', '', '', '', '', '', ''
       ];
-      return values.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',');
-    });
+      lines.push(values.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','));
+    }
+
+    // RSVP responses from unmatched guest registrations.
+    for (const row of guestRows || []) {
+      const name = `${String(row.first_name || '').trim()} ${String(row.last_name || '').trim()}`.trim();
+      const values = [
+        'guest_registration',
+        name,
+        row.email || '',
+        String(row.response || '').toLowerCase(),
+        String(row.response || '').toLowerCase(),
+        'public_guest',
+        row.updated_at ? new Date(row.updated_at).toISOString() : '',
+        Number(row.guest_count || 0) || '',
+        row.dietary_notes || '',
+        row.notes || '',
+        row.updated_at ? new Date(row.updated_at).toISOString() : '',
+        '', '', '', '', '', '', '', '', '', ''
+      ];
+      lines.push(values.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','));
+    }
+
+    // Full potluck/need-list status for organizers (claimed + unclaimed).
+    for (const row of needRows || []) {
+      const claimedByUser = row.claimed_by_user_id
+        ? `${String(row.first_name || '').trim()} ${String(row.last_name || '').trim()}`.trim()
+        : '';
+      const claimedByGuest = String(row.claimed_by_guest_name || '').trim();
+      const claimedBy = claimedByUser || claimedByGuest || '';
+      const claimedByEmail = String(row.email || row.claimed_by_guest_email || '').trim();
+      const claimed = !!(row.claimed_by_user_id || claimedByGuest || claimedByEmail);
+      const values = [
+        'need_list_item',
+        '', '', '', '', '', '', '', '', '', '', '', '', '',
+        row.item_name || '',
+        row.item_category || '',
+        row.item_notes || '',
+        claimed ? 'claimed' : 'unclaimed',
+        claimedBy,
+        claimedByEmail,
+        row.claimed_at ? new Date(row.claimed_at).toISOString() : ''
+      ];
+      lines.push(values.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','));
+    }
     const csv = [header, ...lines].join('\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="company-event-${eventId}-responses.csv"`);

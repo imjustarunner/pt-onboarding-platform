@@ -4,6 +4,9 @@
       <h4>Invitees & RSVP</h4>
       <div class="actions">
         <button class="btn btn-secondary btn-sm" type="button" @click="refresh" :disabled="loading">Refresh</button>
+        <button class="btn btn-secondary btn-sm" type="button" @click="exportResponsesCsv" :disabled="exportingCsv">
+          {{ exportingCsv ? 'Exporting…' : 'Export CSV' }}
+        </button>
         <button
           class="btn btn-secondary btn-sm"
           type="button"
@@ -45,6 +48,10 @@
           <tr>
             <th>Name</th>
             <th>Response</th>
+            <th>Guests</th>
+            <th>Potluck item</th>
+            <th>Dietary</th>
+            <th>Notes</th>
             <th>Source</th>
             <th>When</th>
           </tr>
@@ -53,6 +60,16 @@
           <tr v-for="row in responses" :key="`${row.userId}-${row.receivedAt || row.responseKey}`">
             <td>{{ row.name }}</td>
             <td>{{ row.responseLabel || row.responseKey }}</td>
+            <td>{{ row.guestCount || '-' }}</td>
+            <td>
+              <span v-if="row.claimedItemName">
+                {{ row.claimedItemName }}
+                <small v-if="row.claimedItemCategory" class="muted">({{ formatCategory(row.claimedItemCategory) }})</small>
+              </span>
+              <span v-else>-</span>
+            </td>
+            <td>{{ row.dietaryNotes || '-' }}</td>
+            <td>{{ row.notes || '-' }}</td>
             <td>{{ row.source }}</td>
             <td>{{ formatDateTime(row.receivedAt) }}</td>
           </tr>
@@ -179,6 +196,7 @@ const loading = ref(false);
 const error = ref('');
 const sendingInvites = ref(false);
 const sendingReminders = ref(false);
+const exportingCsv = ref(false);
 const reminderResult = ref('');
 const addingNeed = ref(false);
 const requestingSlots = ref(false);
@@ -245,6 +263,20 @@ const sendInvites = async () => {
     error.value = e?.response?.data?.error?.message || 'Failed to send invitations';
   } finally {
     sendingInvites.value = false;
+  }
+};
+
+const exportResponsesCsv = async () => {
+  if (!props.agencyId || !props.eventId) return;
+  exportingCsv.value = true;
+  error.value = '';
+  try {
+    const url = `/api/agencies/${props.agencyId}/company-events/${props.eventId}/responses.csv`;
+    window.open(url, '_blank', 'noopener');
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to export CSV';
+  } finally {
+    exportingCsv.value = false;
   }
 };
 
