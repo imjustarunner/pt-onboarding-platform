@@ -3066,7 +3066,7 @@ export const getCompanyEventPublic = async (req, res, next) => {
          a.theme_settings AS agency_theme_settings,
          a.portal_url AS agency_portal_url
        FROM company_events ce
-       JOIN organizations a ON a.id = ce.agency_id
+       JOIN agencies a ON a.id = ce.agency_id
        WHERE ce.id = ? AND ce.is_active = 1
        LIMIT 1`,
       [eventId]
