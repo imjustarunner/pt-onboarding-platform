@@ -2,7 +2,7 @@
 # Multi-stage build for optimized production image
 
 # Stage 1: Build
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app/frontend
 
@@ -15,7 +15,12 @@ RUN npm config set registry https://registry.npmjs.org/ && \
     npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
-    npm ci --no-audit --no-fund --ignore-scripts
+    for attempt in 1 2 3; do \
+      npm ci --no-audit --no-fund --ignore-scripts && break; \
+      echo "npm ci (frontend) failed on attempt ${attempt}; retrying..." >&2; \
+      if [ "${attempt}" -eq 3 ]; then exit 1; fi; \
+      sleep $((attempt * 15)); \
+    done
 
 # Copy application code
 COPY . .
