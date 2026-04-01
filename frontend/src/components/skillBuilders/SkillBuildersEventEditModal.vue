@@ -642,6 +642,26 @@
               <div class="form-group">
                 <label class="sb-ce-lbl">Hero image URL</label>
                 <input v-model.trim="draft.publicHeroImageUrl" class="input" type="url" placeholder="https://…" />
+                <!-- Focal point picker -->
+                <div
+                  v-if="draft.publicHeroImageUrl"
+                  class="focal-picker"
+                  style="position:relative;margin-top:8px;cursor:crosshair;border-radius:6px;overflow:hidden;line-height:0;"
+                  @click.self="setFocalPoint"
+                >
+                  <img
+                    :src="draft.publicHeroImageUrl"
+                    alt="Banner preview"
+                    style="width:100%;height:140px;object-fit:cover;display:block;pointer-events:none;"
+                  />
+                  <div
+                    :style="focalCrosshairStyle"
+                    style="position:absolute;width:22px;height:22px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.5);transform:translate(-50%,-50%);pointer-events:none;"
+                  ></div>
+                  <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.45);color:#fff;font-size:11px;text-align:center;padding:3px 0;pointer-events:none;">
+                    Click to set focus point &mdash; {{ draft.publicHeroFocalPoint || '50% 50% (center)' }}
+                  </div>
+                </div>
               </div>
               <div class="form-group">
                 <label class="sb-ce-lbl">Upload photo(s)</label>
@@ -1057,6 +1077,7 @@ function emptyDraft() {
     eventImageUrl: '',
     eventImageUrls: [],
     publicHeroImageUrl: '',
+    publicHeroFocalPoint: '',
     registrationFormUrl: '',
     publicListingDetails: '',
     inPersonPublic: false,
@@ -1346,6 +1367,7 @@ function populateFromEvent(event) {
     programCostDollars: event.programCostDollars != null ? Number(event.programCostDollars) : null,
     perSessionCostDollars: event.perSessionCostDollars != null ? Number(event.perSessionCostDollars) : null,
     publicHeroImageUrl: String(event.publicHeroImageUrl || '').trim(),
+    publicHeroFocalPoint: String(event.publicHeroFocalPoint || '').trim(),
     eventImageUrl: String(event.eventImageUrl || '').trim(),
     eventImageUrls: Array.isArray(event.eventImageUrls) ? [...event.eventImageUrls] : [],
     registrationFormUrl: String(event.registrationFormUrl || '').trim(),
@@ -1443,6 +1465,20 @@ function removeEventImage(idx) {
 function setBannerFromAlbum(url) {
   draft.value.publicHeroImageUrl = String(url || '').trim();
 }
+
+function setFocalPoint(e) {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+  const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+  draft.value.publicHeroFocalPoint = `${x}% ${y}%`;
+}
+
+const focalCrosshairStyle = computed(() => {
+  const fp = draft.value.publicHeroFocalPoint || '50% 50%';
+  const m = fp.match(/(\d+)%\s*(\d+)%/);
+  if (!m) return { left: '50%', top: '50%' };
+  return { left: `${m[1]}%`, top: `${m[2]}%` };
+});
 
 function moveEventImageLeft(idx) {
   const list = Array.isArray(draft.value.eventImageUrls) ? [...draft.value.eventImageUrls] : [];
@@ -1874,6 +1910,7 @@ async function save() {
             : null)
         : null,
       publicHeroImageUrl: String(draft.value.publicHeroImageUrl || '').trim() || null,
+      publicHeroFocalPoint: String(draft.value.publicHeroFocalPoint || '').trim() || null,
       eventImageUrl: String(draft.value.eventImageUrl || '').trim() || null,
       eventImageUrls: Array.isArray(draft.value.eventImageUrls) ? [...draft.value.eventImageUrls] : [],
       registrationFormUrl: String(draft.value.registrationFormUrl || '').trim() || null,

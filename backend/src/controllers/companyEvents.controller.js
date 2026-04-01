@@ -314,6 +314,7 @@ function mapEventRow(row, req, opts = {}) {
         : !!(row.virtual_sessions_enabled === 1 || row.virtual_sessions_enabled === true),
     kioskEventPinSet: !!(row.kiosk_event_pin_hash && String(row.kiosk_event_pin_hash).trim()),
     publicHeroImageUrl: row.public_hero_image_url ? String(row.public_hero_image_url).trim() : '',
+    publicHeroFocalPoint: row.public_hero_focal_point ? String(row.public_hero_focal_point).trim() : '',
     publicListingDetails: row.public_listing_details ? String(row.public_listing_details) : '',
     inPersonPublic: !!(row.in_person_public === 1 || row.in_person_public === true),
     publicLocationAddress: row.public_location_address ? String(row.public_location_address) : '',
@@ -495,6 +496,9 @@ function parseEventPayload(body = {}) {
   const publicHeroImageUrl = String(body.publicHeroImageUrl ?? body.public_hero_image_url ?? '')
     .trim()
     .slice(0, 2048);
+  const publicHeroFocalPoint = String(body.publicHeroFocalPoint ?? body.public_hero_focal_point ?? '')
+    .trim()
+    .slice(0, 40) || null;
   const publicListingDetails = String(body.publicListingDetails ?? body.public_listing_details ?? '')
     .trim()
     .slice(0, 20000);
@@ -663,6 +667,7 @@ function parseEventPayload(body = {}) {
     programCostDollars,
     perSessionCostDollars,
     publicHeroImageUrl: publicHeroImageUrl || null,
+    publicHeroFocalPoint: publicHeroFocalPoint || null,
     publicListingDetails: publicListingDetails || null,
     inPersonPublic,
     publicLocationAddress: publicLocationAddress || null,
@@ -1514,7 +1519,7 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
 
   const [insertResult] = await pool.execute(
     `INSERT INTO company_events
-     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, public_session_label, public_session_date_range, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, program_cost_billing_mode, program_cost_dollars, per_session_cost_dollars, kiosk_event_pin_hash, snacks_available, snack_options_json, meals_available, meal_options_json, guest_policy, potluck_enabled, organizer_providing_json, event_image_url, event_image_urls_json, rsvp_deadline, event_location_name, event_location_address, event_location_phone, family_provision_note, registration_form_url, sms_draft_json)
+     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_hero_focal_point, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, public_session_label, public_session_date_range, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, program_cost_billing_mode, program_cost_dollars, per_session_cost_dollars, kiosk_event_pin_hash, snacks_available, snack_options_json, meals_available, meal_options_json, guest_policy, potluck_enabled, organizer_providing_json, event_image_url, event_image_urls_json, rsvp_deadline, event_location_name, event_location_address, event_location_phone, family_provision_note, registration_form_url, sms_draft_json)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       agencyId,
@@ -1526,6 +1531,7 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
       parsed.eventType || null,
       parsed.splashContent || null,
       parsed.publicHeroImageUrl,
+      parsed.publicHeroFocalPoint || null,
       parsed.publicListingDetails,
       parsed.inPersonPublic ? 1 : 0,
       parsed.publicLocationAddress,
@@ -1733,7 +1739,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
 
   await pool.execute(
     `UPDATE company_events
-     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, public_session_label = ?, public_session_date_range = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?, program_cost_billing_mode = ?, program_cost_dollars = ?, per_session_cost_dollars = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?, snacks_available = ?, snack_options_json = ?, meals_available = ?, meal_options_json = ?, guest_policy = ?, potluck_enabled = ?, organizer_providing_json = ?, event_image_url = ?, event_image_urls_json = ?, rsvp_deadline = ?, event_location_name = ?, event_location_address = ?, event_location_phone = ?, family_provision_note = ?, registration_form_url = ?, sms_draft_json = ?
+     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_hero_focal_point = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, public_session_label = ?, public_session_date_range = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?, program_cost_billing_mode = ?, program_cost_dollars = ?, per_session_cost_dollars = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?, snacks_available = ?, snack_options_json = ?, meals_available = ?, meal_options_json = ?, guest_policy = ?, potluck_enabled = ?, organizer_providing_json = ?, event_image_url = ?, event_image_urls_json = ?, rsvp_deadline = ?, event_location_name = ?, event_location_address = ?, event_location_phone = ?, family_provision_note = ?, registration_form_url = ?, sms_draft_json = ?
      WHERE id = ? AND agency_id = ?`,
     [
       userId,
@@ -1743,6 +1749,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
       parsed.eventType || null,
       parsed.splashContent || null,
       parsed.publicHeroImageUrl,
+      parsed.publicHeroFocalPoint || null,
       parsed.publicListingDetails,
       parsed.inPersonPublic ? 1 : 0,
       parsed.publicLocationAddress,
@@ -3712,7 +3719,7 @@ export const getCompanyEventPublic = async (req, res, next) => {
          ce.rsvp_mode,
          ce.event_location_name, ce.event_location_address, ce.event_location_phone,
          ce.guest_policy, ce.family_provision_note, ce.organizer_providing_json,
-         ce.event_image_url, ce.event_image_urls_json, ce.public_hero_image_url,
+         ce.event_image_url, ce.event_image_urls_json, ce.public_hero_image_url, ce.public_hero_focal_point,
          ce.registration_form_url, ce.potluck_enabled,
          a.name AS agency_name,
          a.logo_path AS agency_logo_path,
@@ -3774,6 +3781,7 @@ export const getCompanyEventPublic = async (req, res, next) => {
         eventImageUrl: row.event_image_url || '',
         eventImageUrls: (() => { const p = parseJsonMaybe(row.event_image_urls_json); return Array.isArray(p) ? p : []; })(),
         publicHeroImageUrl: row.public_hero_image_url || '',
+        publicHeroFocalPoint: row.public_hero_focal_point ? String(row.public_hero_focal_point).trim() : '',
         registrationFormUrl: row.registration_form_url || '',
         potluckEnabled: !!(row.potluck_enabled === 1 || row.potluck_enabled === true),
         needListItems: (needRows || []).map((n) => ({

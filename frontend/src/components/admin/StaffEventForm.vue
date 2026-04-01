@@ -56,6 +56,22 @@
         <div>
           <label class="lbl">Banner photo URL (hero)</label>
           <input v-model.trim="draft.publicHeroImageUrl" class="input" placeholder="/uploads/logos/... (optional)" />
+          <!-- Focal point picker -->
+          <div v-if="draft.publicHeroImageUrl" class="focal-picker" @click.self="setFocalPoint" style="position:relative;margin-top:8px;cursor:crosshair;border-radius:6px;overflow:hidden;line-height:0;">
+            <img
+              :src="draft.publicHeroImageUrl"
+              alt="Banner preview"
+              style="width:100%;height:140px;object-fit:cover;display:block;pointer-events:none;"
+            />
+            <div
+              class="focal-crosshair"
+              :style="focalCrosshairStyle"
+              style="position:absolute;width:22px;height:22px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.5);transform:translate(-50%,-50%);pointer-events:none;"
+            ></div>
+            <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.45);color:#fff;font-size:11px;text-align:center;padding:3px 0;pointer-events:none;">
+              Click to set focus point &mdash; {{ draft.publicHeroFocalPoint || '50% 50% (center)' }}
+            </div>
+          </div>
         </div>
       </div>
       <div class="grid two">
@@ -394,6 +410,7 @@ const defaultDraft = () => ({
   organizerProvidingRaw: '',
   eventImageUrls: [],
   publicHeroImageUrl: '',
+  publicHeroFocalPoint: '',
   potluckEnabled: false,
   rsvpMode: 'yes_no_maybe',
   votingQuestion: 'Will you attend?',
@@ -473,6 +490,7 @@ const populateFromEvent = (evt) => {
     organizerProvidingRaw: Array.isArray(evt.organizerProviding) ? evt.organizerProviding.join(', ') : '',
     eventImageUrls: Array.isArray(evt.eventImageUrls) ? [...evt.eventImageUrls] : [],
     publicHeroImageUrl: evt.publicHeroImageUrl || '',
+    publicHeroFocalPoint: evt.publicHeroFocalPoint || '',
     potluckEnabled: !!evt.potluckEnabled,
     rsvpMode: evt.rsvpMode || 'yes_no_maybe',
     votingQuestion: evt.votingConfig?.question || 'Will you attend?',
@@ -515,6 +533,7 @@ const serializeFormState = () => JSON.stringify({
     organizerProvidingRaw: draft.organizerProvidingRaw || '',
     eventImageUrls: Array.isArray(draft.eventImageUrls) ? [...draft.eventImageUrls] : [],
     publicHeroImageUrl: draft.publicHeroImageUrl || '',
+    publicHeroFocalPoint: draft.publicHeroFocalPoint || '',
     potluckEnabled: !!draft.potluckEnabled,
     rsvpMode: draft.rsvpMode || '',
     votingQuestion: draft.votingQuestion || '',
@@ -598,6 +617,7 @@ const saveEvent = async () => {
       eventImageUrl: draft.eventImageUrl || null,
       eventImageUrls: draft.eventImageUrls || [],
       publicHeroImageUrl: draft.publicHeroImageUrl || null,
+      publicHeroFocalPoint: draft.publicHeroFocalPoint || null,
       rsvpDeadline: isoForApi(draft.rsvpDeadlineLocal),
       eventLocationName: draft.eventLocationName || null,
       eventLocationAddress: draft.eventLocationAddress || null,
@@ -704,6 +724,20 @@ const removeEventImage = (idx) => {
 const setBannerFromAlbum = (url) => {
   draft.publicHeroImageUrl = String(url || '').trim();
 };
+
+const setFocalPoint = (e) => {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+  const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+  draft.publicHeroFocalPoint = `${x}% ${y}%`;
+};
+
+const focalCrosshairStyle = computed(() => {
+  const fp = draft.publicHeroFocalPoint || '50% 50%';
+  const m = fp.match(/(\d+)%\s*(\d+)%/);
+  if (!m) return { left: '50%', top: '50%' };
+  return { left: `${m[1]}%`, top: `${m[2]}%` };
+});
 
 const moveEventImageLeft = (idx) => {
   const list = Array.isArray(draft.eventImageUrls) ? [...draft.eventImageUrls] : [];

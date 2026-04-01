@@ -11,7 +11,7 @@
 
     <template v-else-if="event">
       <!-- Hero image -->
-      <div v-if="heroImage" class="event-hero" :style="{ backgroundImage: `url(${displayAsset(heroImage)})` }">
+      <div v-if="heroImage" class="event-hero" :style="{ backgroundImage: `url(${displayAsset(heroImage)})`, backgroundPosition: event.publicHeroFocalPoint || 'center center' }">
         <div class="event-hero-overlay">
           <img v-if="branding.logoUrl" :src="displayAsset(branding.logoUrl)" alt="Logo" class="hero-logo" />
         </div>
@@ -40,31 +40,17 @@
           </div>
         </div>
 
-        <!-- Extra images (non-hero strip) -->
-        <div v-if="galleryImages.length" class="event-gallery">
-          <img
-            v-for="(img, i) in galleryImages"
-            :key="`gal-${i}`"
-            :src="displayAsset(img)"
-            class="event-gallery-img"
-            alt=""
-          />
-        </div>
-
-        <!-- Full album (includes hero) -->
-        <div v-if="allImages.length > 0" class="event-section">
-          <h3 class="section-heading">Photo album</h3>
-          <div class="event-album-grid">
-            <button
-              v-for="(img, i) in allImages"
-              :key="`album-${i}`"
-              type="button"
-              class="event-album-item"
-              @click="openAlbum(i)"
-            >
-              <img :src="displayAsset(img)" class="event-album-img" alt="" />
-            </button>
-          </div>
+        <!-- Photo strip (horizontal scroll, all images) -->
+        <div v-if="allImages.length > 0" class="event-photo-strip">
+          <button
+            v-for="(img, i) in allImages"
+            :key="`strip-${i}`"
+            type="button"
+            class="event-strip-item"
+            @click="openAlbum(i)"
+          >
+            <img :src="displayAsset(img)" class="event-strip-img" alt="" />
+          </button>
         </div>
 
         <!-- Key details -->
@@ -667,21 +653,39 @@ onMounted(async () => {
   line-height: 1.15;
 }
 
-/* Gallery */
-.event-gallery {
+/* Photo strip */
+.event-photo-strip {
   display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding: 0 0 10px;
   margin-bottom: 24px;
+  -webkit-overflow-scrolling: touch;
 }
-.event-gallery-img {
-  height: 160px;
-  width: auto;
+.event-photo-strip::-webkit-scrollbar { height: 5px; }
+.event-photo-strip::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+.event-strip-item {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
   border-radius: 8px;
-  object-fit: cover;
-  flex: 1 1 220px;
-  max-width: 100%;
+  overflow: hidden;
 }
+.event-strip-img {
+  height: 150px;
+  width: auto;
+  min-width: 110px;
+  max-width: 240px;
+  object-fit: cover;
+  display: block;
+  border-radius: 8px;
+  transition: opacity .15s;
+}
+.event-strip-item:hover .event-strip-img { opacity: .88; }
 
 .event-album-grid {
   display: grid;
