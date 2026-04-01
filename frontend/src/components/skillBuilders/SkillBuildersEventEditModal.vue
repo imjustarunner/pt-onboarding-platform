@@ -76,6 +76,10 @@
                 <label class="sb-ce-lbl">End</label>
                 <input v-model="draft.endsAtLocal" class="input" type="datetime-local" />
               </div>
+              <div class="form-group">
+                <label class="sb-ce-lbl">RSVP deadline (optional)</label>
+                <input v-model="draft.rsvpDeadlineLocal" class="input" type="datetime-local" />
+              </div>
               <template v-if="!isSkillsGroupIntegrated">
                 <div class="form-group">
                   <label class="sb-ce-lbl">Recurrence</label>
@@ -551,6 +555,74 @@
             </div>
 
             <div class="sb-ce-section">
+              <strong>Guest policy</strong>
+              <p class="muted small sb-ce-pattern-lead">
+                Choose whether this event is staff-only or allows family/guests, and add what families should expect.
+              </p>
+              <div class="sb-ce-grid sb-ce-grid-tight">
+                <label class="sb-ce-chip">
+                  <input type="radio" value="staff_only" v-model="draft.guestPolicy" />
+                  <span>Staff only</span>
+                </label>
+                <label class="sb-ce-chip">
+                  <input type="radio" value="family_invited" v-model="draft.guestPolicy" />
+                  <span>Family invited</span>
+                </label>
+                <label class="sb-ce-chip">
+                  <input type="radio" value="plus_one" v-model="draft.guestPolicy" />
+                  <span>Plus one</span>
+                </label>
+              </div>
+              <div class="form-group" style="margin-top: 8px;">
+                <label class="sb-ce-lbl">Family provision note</label>
+                <textarea
+                  v-model.trim="draft.familyProvisionNote"
+                  class="input"
+                  rows="2"
+                  placeholder="What is included for family/guests"
+                />
+              </div>
+            </div>
+
+            <div class="sb-ce-section">
+              <strong>What we're providing</strong>
+              <p class="muted small sb-ce-pattern-lead">
+                Items shown on the public page under “For staff/attendees”.
+              </p>
+              <div class="sb-ce-inline-row">
+                <input
+                  v-model.trim="organizerItemInput"
+                  class="input"
+                  placeholder="Add provided item(s): drinks, appetizers, dessert..."
+                  @keydown.enter.prevent="addOrganizerItem"
+                />
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="!organizerItemInput" @click="addOrganizerItem">
+                  Add
+                </button>
+              </div>
+              <div class="sb-ce-tag-list" v-if="draft.organizerProviding.length">
+                <span v-for="(item, idx) in draft.organizerProviding" :key="`org-${idx}`" class="sb-ce-tag">
+                  <span class="sb-ce-tag-url">{{ item }}</span>
+                  <button type="button" class="sb-ce-tag-remove" @click="removeOrganizerItem(idx)">x</button>
+                </span>
+              </div>
+            </div>
+
+            <div class="sb-ce-section">
+              <strong>Potluck / need list</strong>
+              <p class="muted small sb-ce-pattern-lead">
+                When enabled, attendees can claim what they are bringing while RSVPing.
+              </p>
+              <div class="form-group">
+                <label class="sb-ce-lbl">Potluck style enabled</label>
+                <select v-model="draft.potluckEnabled" class="input">
+                  <option :value="false">No</option>
+                  <option :value="true">Yes</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="sb-ce-section">
               <strong>Public registration page</strong>
               <p class="muted small sb-ce-pattern-lead">
                 Shown on the agency public events listing when this event is registration-eligible and has an active
@@ -693,6 +765,19 @@
                   placeholder="e.g. June 1 – June 12, 2026"
                 />
               </div>
+              <div class="sb-ce-public-link-wrap">
+                <label class="sb-ce-lbl">Public event page link</label>
+                <div class="sb-ce-public-link-row">
+                  <code class="sb-ce-code sb-ce-public-link-code">{{ eventPublicUrl }}</code>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="copyEventUrl">
+                    {{ copied ? 'Copied' : 'Copy link' }}
+                  </button>
+                  <a :href="eventPublicUrl" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">Open</a>
+                </div>
+                <p class="muted small sb-ce-pattern-lead" style="margin-top: 6px;">
+                  Share this URL publicly for RSVP/registration.
+                </p>
+              </div>
             </div>
 
             <div v-if="!isServiceProgramEventType" class="sb-ce-section">
@@ -779,6 +864,12 @@
                 {{ saving ? 'Saving…' : 'Save changes' }}
               </button>
             </div>
+
+            <StaffEventInviteePanel
+              :agency-id="agencyId"
+              :event-id="eventId"
+              :potluck-enabled="draft.potluckEnabled"
+            />
           </template>
         </div>
       </div>
@@ -790,6 +881,7 @@
 import { ref, watch, computed } from 'vue';
 import api from '../../services/api';
 import SkillBuildersEventProgramMeetingsCard from './SkillBuildersEventProgramMeetingsCard.vue';
+import StaffEventInviteePanel from '../admin/StaffEventInviteePanel.vue';
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -831,6 +923,8 @@ const eventProviderError = ref('');
 const eventProviderToAdd = ref('');
 const eventProviderAssignments = ref([]);
 const eventProviderDirectory = ref([]);
+const organizerItemInput = ref('');
+const copied = ref(false);
 
 const rosterAssignedIds = computed(() => new Set((roster.value.assignedProviders || []).map((p) => p.id)));
 const addableProviders = computed(() =>
@@ -925,6 +1019,7 @@ function emptyDraft() {
     organizationId: 0,
     startsAtLocal: '',
     endsAtLocal: '',
+    rsvpDeadlineLocal: '',
     votingClosedAtLocal: '',
     recurrence: {
       frequency: 'none',
@@ -952,6 +1047,10 @@ function emptyDraft() {
     },
     reminderOffsetsRaw: '24,2',
     audience: { userIds: [], groupIds: [], roleKeys: [] },
+    guestPolicy: 'staff_only',
+    familyProvisionNote: '',
+    organizerProviding: [],
+    potluckEnabled: false,
     skillBuilderDirectHours: null,
     registrationEligible: false,
     medicaidEligible: false,
@@ -1191,6 +1290,7 @@ function populateFromEvent(event) {
         : 0,
     startsAtLocal: instantToDatetimeLocalInZone(event.startsAt, editTz),
     endsAtLocal: instantToDatetimeLocalInZone(event.endsAt, editTz),
+    rsvpDeadlineLocal: instantToDatetimeLocalInZone(event.rsvpDeadline, editTz),
     votingClosedAtLocal: instantToDatetimeLocalInZone(event.votingClosedAt, editTz),
     recurrence: {
       frequency: String(event.recurrence?.frequency || 'none'),
@@ -1231,6 +1331,10 @@ function populateFromEvent(event) {
       groupIds: Array.isArray(event.audience?.groupIds) ? event.audience.groupIds.map((id) => Number(id)) : [],
       roleKeys: Array.isArray(event.audience?.roleKeys) ? event.audience.roleKeys.map((k) => String(k)) : []
     },
+    guestPolicy: String(event.guestPolicy || 'staff_only').trim().toLowerCase(),
+    familyProvisionNote: String(event.familyProvisionNote || '').trim(),
+    organizerProviding: Array.isArray(event.organizerProviding) ? [...event.organizerProviding] : [],
+    potluckEnabled: !!event.potluckEnabled,
     skillBuilderDirectHours:
       event.skillBuilderDirectHours != null && event.skillBuilderDirectHours !== ''
         ? Number(event.skillBuilderDirectHours)
@@ -1366,6 +1470,48 @@ function shortUrl(value) {
   const s = String(value || '');
   if (s.length <= 42) return s;
   return `${s.slice(0, 36)}...`;
+}
+
+function normalizeOrganizerItems(raw) {
+  return String(raw || '')
+    .split(/[\n,;]+/)
+    .map((s) => String(s || '').trim())
+    .filter(Boolean);
+}
+
+function addOrganizerItem() {
+  const typedItems = normalizeOrganizerItems(organizerItemInput.value);
+  if (!typedItems.length) return;
+  const prior = Array.isArray(draft.value.organizerProviding) ? draft.value.organizerProviding : [];
+  const seen = new Set(prior.map((s) => String(s || '').trim().toLowerCase()).filter(Boolean));
+  const merged = [...prior];
+  for (const item of typedItems) {
+    const key = item.toLowerCase();
+    if (seen.has(key)) continue;
+    merged.push(item);
+    seen.add(key);
+  }
+  draft.value.organizerProviding = merged;
+  organizerItemInput.value = '';
+}
+
+function removeOrganizerItem(idx) {
+  draft.value.organizerProviding = (draft.value.organizerProviding || []).filter((_, i) => i !== idx);
+}
+
+const eventPublicUrl = computed(() => {
+  if (!props.eventId || typeof window === 'undefined') return '';
+  return `${String(window.location.origin).replace(/\/$/, '')}/company-events/${props.eventId}`;
+});
+
+async function copyEventUrl() {
+  try {
+    await navigator.clipboard.writeText(eventPublicUrl.value);
+    copied.value = true;
+    setTimeout(() => { copied.value = false; }, 2000);
+  } catch {
+    copied.value = false;
+  }
 }
 
 function normalizeRecurrenceForPayload(recurrence = {}) {
@@ -1616,6 +1762,7 @@ function close() {
 
 async function save() {
   formError.value = '';
+  addOrganizerItem();
   const tz = String(draft.value.timezone || '').trim();
   if (!isValidTimeZone(tz)) {
     formError.value = 'Enter a valid IANA timezone (e.g. America/Chicago).';
@@ -1646,8 +1793,12 @@ async function save() {
     return;
   }
   let votingClosedAt = null;
+  let rsvpDeadline = null;
   if (draft.value.votingClosedAtLocal) {
     votingClosedAt = datetimeLocalInZoneToIso(draft.value.votingClosedAtLocal, tz);
+  }
+  if (draft.value.rsvpDeadlineLocal) {
+    rsvpDeadline = datetimeLocalInZoneToIso(draft.value.rsvpDeadlineLocal, tz);
   }
 
   saving.value = true;
@@ -1692,6 +1843,12 @@ async function save() {
         groupIds: draft.value.audience.groupIds,
         roleKeys: draft.value.audience.roleKeys
       },
+      guestPolicy: String(draft.value.guestPolicy || 'staff_only').trim().toLowerCase() || 'staff_only',
+      potluckEnabled: !!draft.value.potluckEnabled,
+      organizerProviding: Array.isArray(draft.value.organizerProviding)
+        ? draft.value.organizerProviding.map((s) => String(s || '').trim()).filter(Boolean)
+        : [],
+      familyProvisionNote: String(draft.value.familyProvisionNote || '').trim() || null,
       skillBuilderDirectHours:
         draft.value.skillBuilderDirectHours === '' || draft.value.skillBuilderDirectHours == null
           ? null
@@ -1723,6 +1880,7 @@ async function save() {
       eventImageUrl: String(draft.value.eventImageUrl || '').trim() || null,
       eventImageUrls: Array.isArray(draft.value.eventImageUrls) ? [...draft.value.eventImageUrls] : [],
       registrationFormUrl: String(draft.value.registrationFormUrl || '').trim() || null,
+      rsvpDeadline,
       publicListingDetails: String(draft.value.publicListingDetails || '').trim() || null,
       inPersonPublic: !!draft.value.inPersonPublic,
       publicLocationAddress: draft.value.inPersonPublic
@@ -2098,6 +2256,25 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.84rem;
+}
+.sb-ce-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.sb-ce-public-link-wrap {
+  margin-top: 10px;
+}
+.sb-ce-public-link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sb-ce-public-link-code {
+  flex: 1 1 340px;
+  min-width: 0;
 }
 .sb-ce-tag-move {
   padding: 0 6px;

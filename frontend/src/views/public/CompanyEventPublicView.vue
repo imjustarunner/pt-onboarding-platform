@@ -153,9 +153,12 @@
               with Google Calendar and ICS download links.
             </div>
 
-            <button v-if="submitted || rsvpResponse === 'yes' || rsvpResponse === 'maybe'" type="button" class="btn-event btn-event-outline" style="margin-top:12px;" @click="submitted = false; rsvpResponse = ''; submittedUnmatched = false">
+            <button v-if="submitted || rsvpResponse" type="button" class="btn-event btn-event-outline" style="margin-top:12px;" @click="submitted = false; rsvpResponse = ''; submittedUnmatched = false">
               Update my registration
             </button>
+            <p v-if="rsvpResponse && !authUser" class="rsvp-match-hint" style="margin-top: 8px;">
+              Different person on this device? Click "Update my registration" to submit your own RSVP.
+            </p>
           </div>
 
           <!-- RSVP form -->

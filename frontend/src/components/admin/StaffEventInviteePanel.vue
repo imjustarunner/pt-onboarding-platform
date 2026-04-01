@@ -111,6 +111,7 @@
       <div class="table-title">Need List (Potluck)</div>
       <div class="need-create">
         <select v-model="newItemCategory" class="input">
+          <option value="entree">Entree</option>
           <option value="food">Food</option>
           <option value="drinks">Drinks</option>
           <option value="dessert">Dessert</option>
@@ -126,6 +127,7 @@
       <div class="need-bulk-row">
         <span class="muted">Need more open requests?</span>
         <select v-model="requestCategory" class="input input-sm">
+          <option value="entree">Entree</option>
           <option value="food">Food</option>
           <option value="drinks">Drinks</option>
           <option value="dessert">Dessert</option>
@@ -141,6 +143,11 @@
         >
           {{ requestingSlots ? 'Adding…' : 'Request more' }}
         </button>
+      </div>
+      <div v-if="needSummary.length" class="need-summary-row">
+        <span v-for="s in needSummary" :key="`need-${s.key}`" class="need-summary-chip">
+          {{ s.label }}: {{ s.claimed }}/{{ s.total }} claimed ({{ s.remaining }} left)
+        </span>
       </div>
       <div v-if="needItems.length === 0" class="muted">No need-list items yet.</div>
       <table v-else class="mini-table">
@@ -183,7 +190,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -212,6 +219,22 @@ const newItemName = ref('');
 const newItemNotes = ref('');
 const requestCategory = ref('food');
 const requestCount = ref(3);
+
+const needSummary = computed(() => {
+  const rows = Array.isArray(needItems.value) ? needItems.value : [];
+  const byCategory = new Map();
+  for (const item of rows) {
+    const key = String(item?.itemCategory || 'other').trim().toLowerCase() || 'other';
+    const bucket = byCategory.get(key) || { key, total: 0, claimed: 0, remaining: 0 };
+    bucket.total += 1;
+    if (isItemClaimed(item)) bucket.claimed += 1;
+    else bucket.remaining += 1;
+    byCategory.set(key, bucket);
+  }
+  return [...byCategory.values()]
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map((b) => ({ ...b, label: formatCategory(b.key) }));
+});
 
 const formatDateTime = (value) => {
   if (!value) return '-';
@@ -412,6 +435,8 @@ onMounted(refresh);
 .mini-table th, .mini-table td { border-top: 1px solid #ebebeb; padding: 8px; text-align: left; vertical-align: top; }
 .need-create { display: grid; gap: 8px; grid-template-columns: 140px minmax(180px, 1fr) minmax(180px, 1fr) auto; margin-bottom: 10px; }
 .need-bulk-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.need-summary-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.need-summary-chip { padding: 4px 8px; border-radius: 999px; border: 1px solid #d1d5db; background: #f8fafc; font-size: 12px; color: #334155; }
 .input-sm { width: auto; min-width: 110px; max-width: 130px; }
 .error { color: #b91c1c; margin: 8px 0; }
 .reminder-result { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 8px 12px; margin: 8px 0; font-size: 13px; color: #166534; }
