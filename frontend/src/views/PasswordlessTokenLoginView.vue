@@ -45,6 +45,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
+import { getDashboardRoute } from '../utils/router';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 
 const router = useRouter();
@@ -121,8 +122,8 @@ const attemptLogin = async (lastNameValue = null) => {
         return;
       }
 
-      // Default: go to dashboard
-      router.push('/dashboard');
+      // Default: go to role-aware dashboard
+      router.push(getDashboardRoute());
     }, 1500);
   } catch (err) {
     // If the backend returned a non-JSON body (or axios couldn't parse it), fall back to a deterministic check:

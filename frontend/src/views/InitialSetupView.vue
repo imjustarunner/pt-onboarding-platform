@@ -64,6 +64,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
+import { getDashboardRoute } from '../utils/router';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 
 const router = useRouter();
@@ -159,9 +160,9 @@ const handleSetup = async () => {
       storeUserAgencies(response.data.agencies);
     }
     
-    // Redirect to dashboard
+    // Redirect to role-aware dashboard
     setTimeout(() => {
-      router.push('/dashboard');
+      router.push(getDashboardRoute());
     }, 500);
   } catch (err) {
     const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to set password. Please try again.';

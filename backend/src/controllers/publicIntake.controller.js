@@ -33,6 +33,7 @@ import GuardianInsuranceProfile from '../models/GuardianInsuranceProfile.model.j
 import GuardianPaymentCard from '../models/GuardianPaymentCard.model.js';
 import QuickBooksPaymentsService from '../services/quickbooksPayments.service.js';
 import HiringProfile from '../models/HiringProfile.model.js';
+import HiringResumeParse from '../models/HiringResumeParse.model.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import ProgramStaffAssignment from '../models/ProgramStaffAssignment.model.js';
 import ProgramShiftSignup from '../models/ProgramShiftSignup.model.js';
@@ -82,6 +83,19 @@ const findDateLikeValue = (obj = {}) => {
     }
   }
   return null;
+};
+
+const parseFeatureFlagsSafe = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) || {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
 };
 const parseLinkIntakeSteps = (link) => {
   const raw = link?.intake_steps;
@@ -753,6 +767,7 @@ const resolvePacketCompletionEmailContent = async ({
   expiresInDays = 7,
   registrationLoginEmail = null,
   registrationTempPassword = null,
+  registrationNeedsSetup = false,
   portalLoginUrl = null,
   registrationPasswordlessUrl = null,
   registrationEventSummary = null
@@ -776,6 +791,7 @@ const resolvePacketCompletionEmailContent = async ({
 
   const regLogin = String(registrationLoginEmail || signerEmail || '').trim();
   const regPw = String(registrationTempPassword || '').trim();
+  const needsSetup = !!registrationNeedsSetup;
   const regPlainLogin = String(portalLoginUrl || '').trim();
   const regPasswordless = String(registrationPasswordlessUrl || '').trim();
   const regPortalPrimary = regPasswordless || regPlainLogin;
@@ -795,25 +811,30 @@ const resolvePacketCompletionEmailContent = async ({
     LINK_EXPIRY_DAYS: Number(expiresInDays || 7),
     REGISTRATION_LOGIN_EMAIL: regLogin,
     REGISTRATION_TEMP_PASSWORD: regPw,
+    REGISTRATION_NEEDS_SETUP: needsSetup ? 'true' : 'false',
     PORTAL_LOGIN_URL: regPortalPrimary,
     REGISTRATION_PASSWORDLESS_URL: regPasswordless,
     REGISTRATION_LOGIN_PAGE_URL: regPlainLogin,
     REGISTRATION_EVENT_SUMMARY: regEvent
   };
 
-  const credsBlock = regPw
+  const credsBlock = needsSetup || regPw || regPasswordless
     ? [
         '',
         '— Guardian portal access —',
-        regPasswordless
-          ? `One-time sign-in link (use this to access the portal and set your password):\n${regPasswordless}`
+        regPasswordless && needsSetup
+          ? `Set up your guardian account using this secure link:\n${regPasswordless}`
+          : regPasswordless
+            ? `One-time sign-in link:\n${regPasswordless}`
           : '',
-        `Username (email): ${regLogin}`,
-        `Temporary password (valid 72 hours; you will set a new password after signing in): ${regPw}`,
-        regPlainLogin && regPasswordless && regPlainLogin !== regPasswordless
+        regLogin ? `Username (email): ${regLogin}` : '',
+        regPw ? `Temporary password (valid 72 hours; you will set a new password after signing in): ${regPw}` : '',
+        regPlainLogin && regPasswordless && regPlainLogin !== regPasswordless && regPw
           ? `Main login page (if you prefer to type your email and temporary password): ${regPlainLogin}`
+          : regPlainLogin && regPasswordless && regPlainLogin !== regPasswordless
+            ? `Main login page: ${regPlainLogin}`
           : (!regPasswordless && regPlainLogin ? `Sign in: ${regPlainLogin}` : ''),
-        'If this password expires before you sign in, use "Forgot password" on the login page to receive a reset link.',
+        regPw ? 'If this password expires before you sign in, use "Forgot password" on the login page to receive a reset link.' : '',
         regEvent ? `Event / registration: ${regEvent}` : ''
       ].filter(Boolean).join('\n')
     : '';
@@ -851,13 +872,15 @@ const resolvePacketCompletionEmailContent = async ({
         <p>Thank you for completing the intake packet${params.SCHOOL_NAME ? ` for <strong>${escapeHtml(params.SCHOOL_NAME)}</strong>` : ''}.</p>
         <p>Our staff will be in touch with next steps.</p>
         <p>Once your client is assigned to a provider, they will reach out to schedule intake and begin services.</p>
-        ${regPw
+        ${(needsSetup || regPw || regPasswordless)
           ? `<div style="margin:16px 0;padding:12px;border:1px solid #ddd;border-radius:8px;background:#f9fafb;">
                <p><strong>Guardian portal</strong></p>
-               <p>Username: ${escapeHtml(regLogin)}</p>
-               <p>Temporary password (72h): <code>${escapeHtml(regPw)}</code></p>
-               ${regPasswordless ? `<p><a href="${escapeHtml(regPasswordless)}">One-time sign-in link</a></p>` : ''}
-               ${regPlainLogin && regPasswordless ? `<p style="font-size:13px;color:#555;">Or open the <a href="${escapeHtml(regPlainLogin)}">login page</a> and sign in with your email and temporary password.</p>` : ''}
+               ${regLogin ? `<p>Username: ${escapeHtml(regLogin)}</p>` : ''}
+               ${regPw ? `<p>Temporary password (72h): <code>${escapeHtml(regPw)}</code></p>` : ''}
+               ${regPasswordless && needsSetup ? `<p><a href="${escapeHtml(regPasswordless)}">Set up your guardian account</a></p>` : ''}
+               ${regPasswordless && !needsSetup ? `<p><a href="${escapeHtml(regPasswordless)}">One-time sign-in link</a></p>` : ''}
+               ${regPlainLogin && regPasswordless && regPw ? `<p style="font-size:13px;color:#555;">Or open the <a href="${escapeHtml(regPlainLogin)}">login page</a> and sign in with your email and temporary password.</p>` : ''}
+               ${regPlainLogin && regPasswordless && !regPw ? `<p style="font-size:13px;color:#555;">You can also open the <a href="${escapeHtml(regPlainLogin)}">login page</a> after your setup is complete.</p>` : ''}
                ${!regPasswordless && regPlainLogin ? `<p><a href="${escapeHtml(regPlainLogin)}">Sign in</a></p>` : ''}
                ${regEvent ? `<p><strong>Event:</strong> ${escapeHtml(regEvent)}</p>` : ''}
              </div>`
@@ -2207,6 +2230,114 @@ const toOrgPayload = (org) => {
   };
 };
 
+const toBooleanSafe = (value) => {
+  if (value === true || value === 1) return true;
+  const raw = String(value || '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+};
+
+const parseJobApplicationContext = (intakeData, link = null) => {
+  const submission = intakeData?.responses?.submission && typeof intakeData.responses.submission === 'object'
+    ? intakeData.responses.submission
+    : {};
+  const uploadTextByStep = submission?.uploadTextByStep && typeof submission.uploadTextByStep === 'object'
+    ? submission.uploadTextByStep
+    : {};
+  const intakeSteps = Array.isArray(link?.intake_steps) ? link.intake_steps : [];
+  const findUploadTextByLabel = (matcher) => {
+    const rx = matcher instanceof RegExp ? matcher : null;
+    if (!rx) return null;
+    for (const [stepId, value] of Object.entries(uploadTextByStep)) {
+      if (value === null || value === undefined) continue;
+      const step = intakeSteps.find((s) => String(s?.id || '') === String(stepId || ''));
+      const label = String(step?.label || '').trim().toLowerCase();
+      if (!rx.test(label)) continue;
+      const text = String(value || '').trim();
+      if (text) return text;
+    }
+    return null;
+  };
+  const coverLetterTextRaw =
+    intakeData?.coverLetterText
+    ?? submission.coverLetterText
+    ?? findUploadTextByLabel(/cover/)
+    ?? null;
+  const coverLetterText = coverLetterTextRaw !== null && coverLetterTextRaw !== undefined
+    ? String(coverLetterTextRaw || '').trim().slice(0, 20000) || null
+    : null;
+  const resumeTextRaw =
+    intakeData?.resumeText
+    ?? submission.resumeText
+    ?? findUploadTextByLabel(/resume|cv/)
+    ?? null;
+  const resumeText = resumeTextRaw !== null && resumeTextRaw !== undefined
+    ? String(resumeTextRaw || '').trim().slice(0, 40000) || null
+    : null;
+  const referencesRaw = intakeData?.referencesJson ?? submission.references ?? submission.professionalReferences ?? null;
+  const referencesJson = Array.isArray(referencesRaw) ? referencesRaw.slice(0, 20) : null;
+  const jobAcknowledged = toBooleanSafe(
+    intakeData?.jobDescriptionAcknowledged
+      ?? submission.jobDescriptionAcknowledged
+      ?? submission.jobAcknowledged
+      ?? false
+  );
+  return { coverLetterText, resumeText, referencesJson, jobAcknowledged };
+};
+
+export const listPublicCareers = async (req, res, next) => {
+  try {
+    const agencySlug = String(req.params?.agencySlug || '').trim().toLowerCase();
+    if (!agencySlug) {
+      return res.status(400).json({ error: { message: 'agencySlug is required' } });
+    }
+    const agency = await Agency.findBySlug(agencySlug);
+    if (!agency?.id) {
+      return res.status(404).json({ error: { message: 'Agency not found' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT
+        hjd.id,
+        hjd.title,
+        hjd.description_text,
+        hjd.created_at,
+        il.public_key
+      FROM hiring_job_descriptions hjd
+      LEFT JOIN intake_links il
+        ON il.job_description_id = hjd.id
+       AND il.form_type = 'job_application'
+       AND il.is_active = 1
+      WHERE hjd.agency_id = ?
+        AND hjd.is_active = 1
+      ORDER BY hjd.updated_at DESC, hjd.id DESC`,
+      [agency.id]
+    );
+
+    const jobs = (rows || [])
+      .filter((r) => !!r?.public_key)
+      .map((r) => ({
+        jobId: Number(r.id),
+        title: String(r.title || '').trim(),
+        descriptionText: String(r.description_text || '').trim() || null,
+        postedAt: r.created_at || null,
+        applicationPublicKey: String(r.public_key || '').trim()
+      }));
+
+    return res.json({
+      agency: {
+        id: agency.id,
+        slug: agency.slug || null,
+        name: agency.name || null,
+        officialName: agency.official_name || null,
+        logoUrl: agency.logo_url || null
+      },
+      jobs
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const requiresCaptchaForLink = (organization, agency) => {
   const forAll = String(process.env.RECAPTCHA_REQUIRED_FOR_ALL || '').toLowerCase() === 'true';
   if (forAll) return true;
@@ -2560,6 +2691,28 @@ export const getPublicIntakeLink = async (req, res, next) => {
     }
 
     const templates = await loadAllowedTemplates(link);
+    let jobDescription = null;
+    if (String(link?.form_type || '').trim().toLowerCase() === 'job_application' && Number(link?.job_description_id || 0) > 0) {
+      const jd = await HiringJobDescription.findById(link.job_description_id);
+      if (jd && Number(jd.is_active) === 1) {
+        let fileUrl = null;
+        const storagePath = String(jd.storage_path || '').trim();
+        if (storagePath) {
+          try {
+            fileUrl = await StorageService.getSignedUrl(storagePath, 10);
+          } catch {
+            fileUrl = null;
+          }
+        }
+        jobDescription = {
+          id: Number(jd.id),
+          title: String(jd.title || '').trim() || null,
+          descriptionText: String(jd.description_text || '').trim() || null,
+          fileUrl,
+          fileName: String(jd.original_name || '').trim() || null
+        };
+      }
+    }
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     const isClientBoundRoiLink = !!issuedRoiLink?.client_id;
     const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency);
@@ -2586,6 +2739,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
         program_id: link.program_id,
         learning_class_id: link.learning_class_id ?? null,
         company_event_id: link.company_event_id ?? null,
+        job_description_id: link.job_description_id ?? null,
         create_client: link.create_client,
         create_guardian: link.create_guardian,
         intake_fields: link.intake_fields,
@@ -2621,6 +2775,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
         date_of_birth: boundClient.date_of_birth || boundClient.dob || boundClient.birthdate || boundClient.birth_date || null
       } : null,
       roiContext,
+      jobDescription,
       templates: templates.map(t => ({
         id: t.id,
         name: t.name,
@@ -2976,6 +3131,12 @@ export const getPublicIntakeRegistrationCatalog = async (req, res, next) => {
     const agencyId = Number(agency?.id || 0) || null;
     if (!agencyId) {
       return res.status(400).json({ error: { message: 'Unable to resolve agency for catalog.' } });
+    }
+    const agencyFlags = parseFeatureFlagsSafe(agency?.feature_flags);
+    if (agencyFlags.platformPublicRegistrationEnabled === false) {
+      return res.status(403).json({
+        error: { message: 'Public registration is disabled for this tenant.' }
+      });
     }
     const lockedCompanyEventId = Number(link.company_event_id || 0) || null;
     const items = await fetchRegistrationCatalogItems(agencyId, { lockedCompanyEventId });
@@ -3362,11 +3523,21 @@ export const finalizePublicIntake = async (req, res, next) => {
     const isJobApplication = String(link.form_type || '').toLowerCase() === 'job_application';
     if (String(submission.status || '').toLowerCase() === 'submitted') {
       if (isJobApplication && submission.guardian_user_id) {
+        let downloadUrl = null;
+        if (submission.combined_pdf_path) {
+          try {
+            downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 7);
+          } catch {
+            downloadUrl = null;
+          }
+        }
         return res.json({
           success: true,
           submission,
           jobApplicationSubmitted: true,
-          candidateId: submission.guardian_user_id
+          candidateId: submission.guardian_user_id,
+          downloadUrl,
+          clientBundles: []
         });
       }
       if (submission.combined_pdf_path) {
@@ -3467,6 +3638,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       const gEmail = String(req.body?.guardian?.email || '').trim();
       const gPhone = req.body?.guardian?.phoneNumber !== undefined ? String(req.body.guardian.phoneNumber || '').trim()
   : req.body?.guardian?.phone !== undefined ? String(req.body.guardian.phone || '').trim() : null;
+      const { coverLetterText, resumeText, referencesJson, jobAcknowledged } = parseJobApplicationContext(intakeData, link);
 
       const user = await User.create({
         email: gEmail,
@@ -3480,32 +3652,44 @@ export const finalizePublicIntake = async (req, res, next) => {
       });
       await User.assignToAgency(user.id, agencyId);
 
-      const jobDescriptionId = link.job_description_id ? parseInt(link.job_description_id, 10) : null;
+      let jobDescriptionId = link.job_description_id ? parseInt(link.job_description_id, 10) : null;
+      if (!jobDescriptionId) {
+        const fallbackTitle = String(link?.title || '').replace(/^apply:\s*/i, '').trim();
+        if (fallbackTitle) {
+          try {
+            const [rows] = await pool.execute(
+              `SELECT id
+                 FROM hiring_job_descriptions
+                WHERE agency_id = ?
+                  AND LOWER(TRIM(title)) = LOWER(TRIM(?))
+                ORDER BY is_active DESC, updated_at DESC, id DESC
+                LIMIT 1`,
+              [agencyId, fallbackTitle]
+            );
+            jobDescriptionId = Number(rows?.[0]?.id || 0) || null;
+          } catch {
+            jobDescriptionId = null;
+          }
+        }
+      }
       if (jobDescriptionId) {
         const jd = await HiringJobDescription.findById(jobDescriptionId);
-        if (jd && Number(jd.agency_id) === Number(agencyId) && Number(jd.is_active) === 1) {
-          await HiringProfile.upsert({
-            candidateUserId: user.id,
-            stage: 'applied',
-            appliedRole: null,
-            source: 'job_application_link',
-            jobDescriptionId,
-            coverLetterText: null
-          });
+        if (!jd || Number(jd.agency_id) !== Number(agencyId)) {
+          jobDescriptionId = null;
         }
-      } else {
-        await HiringProfile.upsert({
-          candidateUserId: user.id,
-          stage: 'applied',
-          appliedRole: null,
-          source: 'job_application_link',
-          jobDescriptionId: null,
-          coverLetterText: null
-        });
       }
+      await HiringProfile.upsert({
+        candidateUserId: user.id,
+        stage: 'applied',
+        appliedRole: null,
+        source: 'job_application_link',
+        jobDescriptionId: jobDescriptionId || null,
+        coverLetterText,
+        referencesJson,
+        jobAcknowledged
+      });
 
       // Migrate intake_submission_uploads to user_admin_docs
-      const pool = (await import('../config/database.js')).default;
       let uploadRows = [];
       try {
         const [rows] = await pool.execute(
@@ -3519,6 +3703,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       }
 
+      let hasResumeDoc = false;
       for (const row of uploadRows) {
         const storagePath = String(row?.storage_path || '').trim();
         if (!storagePath) continue;
@@ -3550,20 +3735,110 @@ export const finalizePublicIntake = async (req, res, next) => {
         const filename = `application-${user.id}-${uniqueSuffix}${safeExt}`;
         const storageResult = await StorageService.saveAdminDoc(fileBuffer, filename, mimeType);
         const docType = (row.upload_label || '').toLowerCase().includes('resume') ? 'resume' : 'application_material';
+        if (docType === 'resume') hasResumeDoc = true;
         await pool.execute(
           `INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [user.id, row.upload_label || 'Application material', docType, storageResult.relativePath, originalName, mimeType, user.id]
         );
       }
+      if (!hasResumeDoc && resumeText) {
+        try {
+          const resumeBuffer = Buffer.from(resumeText, 'utf8');
+          const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+          const filename = `resume-${user.id}-${uniqueSuffix}.txt`;
+          const storageResult = await StorageService.saveAdminDoc(resumeBuffer, filename, 'text/plain');
+          let resumeDocId = null;
+          await pool.execute(
+            `INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [user.id, 'Resume (pasted text)', 'resume', storageResult.relativePath, 'resume.txt', 'text/plain', user.id]
+          );
+          try {
+            const [rows] = await pool.execute(
+              `SELECT id
+                 FROM user_admin_docs
+                WHERE user_id = ? AND doc_type = 'resume' AND storage_path = ?
+                ORDER BY id DESC
+                LIMIT 1`,
+              [user.id, storageResult.relativePath]
+            );
+            resumeDocId = Number(rows?.[0]?.id || 0) || null;
+          } catch {
+            resumeDocId = null;
+          }
+          if (resumeDocId) {
+            try {
+              await HiringResumeParse.upsertByResumeDocId({
+                candidateUserId: user.id,
+                resumeDocId,
+                method: 'pdf_text',
+                status: 'completed',
+                extractedText: resumeText,
+                extractedJson: null,
+                errorText: null,
+                createdByUserId: user.id
+              });
+            } catch (e) {
+              if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+            }
+          }
+        } catch {
+          // best effort
+        }
+      }
 
       await IntakeSubmission.updateById(submissionId, { guardian_user_id: user.id });
+      let applicationDownloadUrl = null;
+      try {
+        const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
+        if (answersPdf) {
+          const bundleHash = DocumentSigningService.calculatePDFHash(answersPdf);
+          const bundleResult = await StorageService.saveIntakeBundle({
+            submissionId,
+            fileBuffer: answersPdf,
+            filename: `job-application-${submissionId}.pdf`
+          });
+          await IntakeSubmission.updateById(submissionId, {
+            combined_pdf_path: bundleResult.relativePath,
+            combined_pdf_hash: bundleHash
+          });
+          applicationDownloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 7);
+        }
+      } catch {
+        // best effort: application can still submit without bundle generation
+      }
+      try {
+        const jobTitle = String((await HiringJobDescription.findById(jobDescriptionId))?.title || '').trim()
+          || String(link?.title || 'Job application').trim();
+        await Notification.create({
+          type: 'new_job_application_submitted',
+          severity: 'info',
+          title: 'New applicant submitted',
+          message: `${jobTitle}: ${gFirst} ${gLast} submitted a new application.`,
+          audienceJson: {
+            admin: true,
+            support: true,
+            staff: true,
+            provider: false
+          },
+          userId: null,
+          agencyId,
+          relatedEntityType: 'hiring_candidate',
+          relatedEntityId: user.id,
+          actorUserId: null
+        });
+      } catch {
+        // best effort
+      }
 
       return res.json({
         success: true,
         submission: await IntakeSubmission.findById(submissionId),
         jobApplicationSubmitted: true,
-        candidateId: user.id
+        candidateId: user.id,
+        downloadUrl: applicationDownloadUrl,
+        clientBundles: []
       });
     }
 
@@ -3955,6 +4230,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       });
     }
 
+    let newGuardianCreated = false;
     let newGuardianTemporaryPassword = null;
     let newGuardianPasswordlessLoginUrl = null;
     let createdClients = [];
@@ -3962,6 +4238,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       const {
         clients,
         guardianUser,
+        newGuardianCreated: ngCreated,
         newGuardianTemporaryPassword: ngpw,
         newGuardianPasswordlessLoginUrl: ngMagic
       } = await PublicIntakeClientService.createClientAndGuardian({
@@ -3969,6 +4246,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         payload: req.body
       });
       createdClients = clients || [];
+      newGuardianCreated = !!ngCreated;
       newGuardianTemporaryPassword = ngpw || null;
       newGuardianPasswordlessLoginUrl = ngMagic || null;
       updatedSubmission = await IntakeSubmission.updateById(submissionId, {
@@ -4677,7 +4955,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           const registrationLoginPageUrl = portalBase ? `${portalBase}/login` : '';
           const regFlow = linkSupportsPublicRegistrationFeatures(link);
           const registrationPasswordlessUrl =
-            regFlow && link.create_guardian && newGuardianTemporaryPassword
+            regFlow && link.create_guardian && newGuardianCreated
               ? (newGuardianPasswordlessLoginUrl || '')
               : '';
           const packetEmail = await resolvePacketCompletionEmailContent({
@@ -4691,6 +4969,7 @@ export const finalizePublicIntake = async (req, res, next) => {
             downloadUrl,
             expiresInDays: 7,
             registrationLoginEmail: updatedSubmission.signer_email || '',
+            registrationNeedsSetup: regFlow && link.create_guardian && newGuardianCreated,
             registrationTempPassword: regFlow && link.create_guardian ? (newGuardianTemporaryPassword || '') : '',
             portalLoginUrl: registrationLoginPageUrl,
             registrationPasswordlessUrl,
@@ -4753,7 +5032,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
         const loginPageUrl = portalBase ? `${portalBase}/login` : null;
         const merged = mergeIntakeSubmissionPatch(intakeData, {
-          registration_completion_new_guardian: !!newGuardianTemporaryPassword,
+          registration_completion_new_guardian: !!newGuardianCreated,
           registration_completion_login_email: updatedSubmission.signer_email || null,
           registration_completion_portal_url: newGuardianPasswordlessLoginUrl || loginPageUrl,
           registration_completion_event: registrationEventSummary || null
@@ -4958,6 +5237,7 @@ export const submitPublicIntake = async (req, res, next) => {
       const {
         clients,
         guardianUser,
+        newGuardianCreated: ngCreated,
         newGuardianTemporaryPassword: ngpw,
         newGuardianPasswordlessLoginUrl: ngMagic
       } = await PublicIntakeClientService.createClientAndGuardian({
@@ -4965,6 +5245,7 @@ export const submitPublicIntake = async (req, res, next) => {
         payload: req.body
       });
       createdClients = clients || [];
+      newGuardianCreated = !!ngCreated;
       newGuardianTemporaryPassword = ngpw || null;
       newGuardianPasswordlessLoginUrl = ngMagic || null;
       updatedSubmission = await IntakeSubmission.updateById(submissionId, {
@@ -5243,7 +5524,7 @@ export const submitPublicIntake = async (req, res, next) => {
         const registrationLoginPageUrl = portalBase ? `${portalBase}/login` : '';
         const regFlowEmail = linkSupportsPublicRegistrationFeatures(link);
         const registrationPasswordlessUrl =
-          regFlowEmail && link.create_guardian && newGuardianTemporaryPassword
+          regFlowEmail && link.create_guardian && newGuardianCreated
             ? (newGuardianPasswordlessLoginUrl || '')
             : '';
         const packetEmail = await resolvePacketCompletionEmailContent({
@@ -5257,6 +5538,7 @@ export const submitPublicIntake = async (req, res, next) => {
           downloadUrl,
           expiresInDays: 7,
           registrationLoginEmail: updatedSubmission.signer_email || '',
+          registrationNeedsSetup: regFlowEmail && link.create_guardian && newGuardianCreated,
           registrationTempPassword: regFlowEmail && link.create_guardian ? (newGuardianTemporaryPassword || '') : '',
           portalLoginUrl: registrationLoginPageUrl,
           registrationPasswordlessUrl,
@@ -5315,7 +5597,7 @@ export const submitPublicIntake = async (req, res, next) => {
         const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
         const loginPageUrl = portalBase ? `${portalBase}/login` : null;
         const merged = mergeIntakeSubmissionPatch(intakeData, {
-          registration_completion_new_guardian: !!newGuardianTemporaryPassword,
+          registration_completion_new_guardian: !!newGuardianCreated,
           registration_completion_login_email: updatedSubmission.signer_email || null,
           registration_completion_portal_url: newGuardianPasswordlessLoginUrl || loginPageUrl,
           registration_completion_event: registrationEventSummary || null

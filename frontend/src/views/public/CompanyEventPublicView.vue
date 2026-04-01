@@ -129,7 +129,7 @@
         </div>
 
         <!-- Inline RSVP / Registration form -->
-        <div class="event-rsvp-card" id="rsvp">
+        <div v-if="event.rsvpMode && event.rsvpMode !== 'none'" class="event-rsvp-card" id="rsvp">
           <!-- Already confirmed banner -->
           <div v-if="submitted || rsvpResponse" class="rsvp-done">
             <div class="rsvp-done-icon">{{ (regForm.response || rsvpResponse) === 'yes' ? '🎉' : (regForm.response || rsvpResponse) === 'maybe' ? '🤔' : '😔' }}</div>

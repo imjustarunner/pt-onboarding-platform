@@ -210,14 +210,16 @@
         
         <!-- Tab Navigation -->
         <div class="modal-tabs">
-          <button type="button" :class="['tab-button', { active: activeTab === 'general' }]" @click="activeTab = 'general'">General</button>
+          <button type="button" :class="['tab-button', { active: activeTab === 'general' }]" @click="activeTab = 'general'">
+            General <span class="tab-owner-badge" :class="`owner-${tabOwnerType('general')}`">{{ tabOwnerLabel('general') }}</span>
+          </button>
           <button
             v-if="String(agencyForm.organizationType || 'agency').toLowerCase() !== 'office'"
             type="button"
             :class="['tab-button', { active: activeTab === 'branding' }]"
             @click="activeTab = 'branding'"
           >
-            Branding
+            Branding <span class="tab-owner-badge" :class="`owner-${tabOwnerType('branding')}`">{{ tabOwnerLabel('branding') }}</span>
           </button>
           <button
             v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'agency'"
@@ -225,7 +227,7 @@
             :class="['tab-button', { active: activeTab === 'features' }]"
             @click="activeTab = 'features'"
           >
-            Features
+            Features <span class="tab-owner-badge" :class="`owner-${tabOwnerType('features')}`">{{ tabOwnerLabel('features') }}</span>
           </button>
           <button
             v-if="String(agencyForm.organizationType || 'agency').toLowerCase() !== 'office' && String(agencyForm.organizationType || 'agency').toLowerCase() !== 'school'"
@@ -233,7 +235,7 @@
             :class="['tab-button', { active: activeTab === 'contact' }]"
             @click="activeTab = 'contact'"
           >
-            Contact
+            Contact <span class="tab-owner-badge" :class="`owner-${tabOwnerType('contact')}`">{{ tabOwnerLabel('contact') }}</span>
           </button>
           <button
             v-if="String(agencyForm.organizationType || 'agency').toLowerCase() !== 'office'"
@@ -241,7 +243,7 @@
             :class="['tab-button', { active: activeTab === 'address' }]"
             @click="activeTab = 'address'"
           >
-            Address
+            Address <span class="tab-owner-badge" :class="`owner-${tabOwnerType('address')}`">{{ tabOwnerLabel('address') }}</span>
           </button>
           <button
             v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'school'"
@@ -249,7 +251,7 @@
             :class="['tab-button', { active: activeTab === 'school_providers' }]"
             @click="activeTab = 'school_providers'"
           >
-            Providers
+            Providers <span class="tab-owner-badge" :class="`owner-${tabOwnerType('school_providers')}`">{{ tabOwnerLabel('school_providers') }}</span>
           </button>
           <button
             v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'school'"
@@ -257,7 +259,7 @@
             :class="['tab-button', { active: activeTab === 'school_staff' }]"
             @click="activeTab = 'school_staff'"
           >
-            School Staff
+            School Staff <span class="tab-owner-badge" :class="`owner-${tabOwnerType('school_staff')}`">{{ tabOwnerLabel('school_staff') }}</span>
           </button>
           <button
             v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
@@ -265,7 +267,7 @@
             :class="['tab-button', { active: activeTab === 'sites' }]"
             @click="activeTab = 'sites'"
           >
-            Sites
+            Sites <span class="tab-owner-badge" :class="`owner-${tabOwnerType('sites')}`">{{ tabOwnerLabel('sites') }}</span>
           </button>
           <button
             v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
@@ -273,7 +275,7 @@
             :class="['tab-button', { active: activeTab === 'notifications' }]"
             @click="activeTab = 'notifications'"
           >
-            Notifications
+            Notifications <span class="tab-owner-badge" :class="`owner-${tabOwnerType('notifications')}`">{{ tabOwnerLabel('notifications') }}</span>
           </button>
           <button
             v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
@@ -281,7 +283,7 @@
             :class="['tab-button', { active: activeTab === 'announcements' }]"
             @click="activeTab = 'announcements'"
           >
-            Announcements
+            Announcements <span class="tab-owner-badge" :class="`owner-${tabOwnerType('announcements')}`">{{ tabOwnerLabel('announcements') }}</span>
           </button>
           <button
             v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
@@ -289,7 +291,7 @@
             :class="['tab-button', { active: activeTab === 'company_events' }]"
             @click="activeTab = 'company_events'"
           >
-            Company Events
+            Company Events <span class="tab-owner-badge" :class="`owner-${tabOwnerType('company_events')}`">{{ tabOwnerLabel('company_events') }}</span>
           </button>
           <button
             v-if="userRole === 'super_admin' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
@@ -297,18 +299,24 @@
             :class="['tab-button', { active: activeTab === 'social_feeds' }]"
             @click="activeTab = 'social_feeds'"
           >
-            Social feeds
+            Social feeds <span class="tab-owner-badge" :class="`owner-${tabOwnerType('social_feeds')}`">{{ tabOwnerLabel('social_feeds') }}</span>
           </button>
-          <button type="button" :class="['tab-button', { active: activeTab === 'theme' }]" @click="activeTab = 'theme'">Theme</button>
-          <button type="button" :class="['tab-button', { active: activeTab === 'terminology' }]" @click="activeTab = 'terminology'">Terminology</button>
-          <button type="button" :class="['tab-button', { active: activeTab === 'icons' }]" @click="activeTab = 'icons'">Icons</button>
+          <button type="button" :class="['tab-button', { active: activeTab === 'theme' }]" @click="activeTab = 'theme'">
+            Theme <span class="tab-owner-badge" :class="`owner-${tabOwnerType('theme')}`">{{ tabOwnerLabel('theme') }}</span>
+          </button>
+          <button type="button" :class="['tab-button', { active: activeTab === 'terminology' }]" @click="activeTab = 'terminology'">
+            Terminology <span class="tab-owner-badge" :class="`owner-${tabOwnerType('terminology')}`">{{ tabOwnerLabel('terminology') }}</span>
+          </button>
+          <button type="button" :class="['tab-button', { active: activeTab === 'icons' }]" @click="activeTab = 'icons'">
+            Icons <span class="tab-owner-badge" :class="`owner-${tabOwnerType('icons')}`">{{ tabOwnerLabel('icons') }}</span>
+          </button>
           <button
             v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             type="button"
             :class="['tab-button', { active: activeTab === 'kudos' }]"
             @click="activeTab = 'kudos'"
           >
-            Kudos
+            Kudos <span class="tab-owner-badge" :class="`owner-${tabOwnerType('kudos')}`">{{ tabOwnerLabel('kudos') }}</span>
           </button>
           <button
             v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
@@ -316,12 +324,67 @@
             :class="['tab-button', { active: activeTab === 'payroll' }]"
             @click="openPayrollTab"
           >
-            Payroll
+            Payroll <span class="tab-owner-badge" :class="`owner-${tabOwnerType('payroll')}`">{{ tabOwnerLabel('payroll') }}</span>
           </button>
         </div>
+        <div v-if="editingAgency" class="controls-map">
+          <div class="controls-map-col">
+            <div class="controls-map-title">Platform / Superadmin controls</div>
+            <div class="controls-map-sub">Tenant setup and platform-governed controls.</div>
+            <div class="controls-map-actions">
+              <button
+                v-for="t in superadminQuickTabs"
+                :key="`sa-${t.id}`"
+                type="button"
+                class="tab-button-small"
+                :class="{ active: activeTab === t.id }"
+                @click="goToAgencyTab(t.id)"
+              >
+                {{ t.label }}
+              </button>
+            </div>
+          </div>
+          <div class="controls-map-col">
+            <div class="controls-map-title">Tenant admin operations</div>
+            <div class="controls-map-sub">Daily management controls usually delegated to tenant admins.</div>
+            <div class="controls-map-actions">
+              <button
+                v-for="t in tenantAdminQuickTabs"
+                :key="`ta-${t.id}`"
+                type="button"
+                class="tab-button-small"
+                :class="{ active: activeTab === t.id }"
+                @click="goToAgencyTab(t.id)"
+              >
+                {{ t.label }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-if="editingAgency" class="settings-access-banner" :class="{ readonly: !canEditActiveTab }">
+          <strong>Current role:</strong> {{ settingsRoleLabel }}.
+          <span>{{ settingsRoleSummary }}</span>
+        </div>
+        <div v-if="showOnboardingChecklist" class="onboarding-checklist">
+          <div class="onboarding-checklist-title">Superadmin onboarding checklist</div>
+          <div class="onboarding-checklist-sub">Suggested order for new tenant setup.</div>
+          <ol class="onboarding-checklist-list">
+            <li v-for="step in onboardingChecklistSteps" :key="`onboard-${step.id}`">
+              <button
+                type="button"
+                class="tab-button-small"
+                :class="{ active: activeTab === step.id }"
+                @click="goToAgencyTab(step.id)"
+              >
+                {{ step.label }}
+              </button>
+            </li>
+          </ol>
+        </div>
         
-        <form @submit.prevent="saveAgency">
+        <form @submit.prevent="saveAgency" :class="{ 'settings-readonly': !canEditActiveTab }">
           <!-- Form-based tabs (all but Icons/Payroll) -->
+          <fieldset class="settings-main-fieldset" :disabled="!canEditActiveTab">
           <div v-show="activeTab !== 'icons' && activeTab !== 'payroll'" class="tab-content">
           <div v-if="activeTab === 'general'" class="tab-section">
           <div v-if="editingAgency" class="org-general-header">
@@ -982,6 +1045,46 @@
             <template v-if="activeTab === 'features'">
             <label style="margin-bottom: 8px; display: block;"><strong>Feature toggles (pricing / rollout)</strong></label>
 
+            <div
+              class="form-group"
+              style="margin-top: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: #fff;"
+            >
+              <label><strong>Tenant feature blueprint</strong></label>
+              <select
+                v-model="agencyForm.featureFlags.tenantFeatureProfileKey"
+                :disabled="String(userRole || '').toLowerCase() !== 'super_admin'"
+              >
+                <option
+                  v-for="opt in tenantFeatureProfileOptions"
+                  :key="`tenant-profile-${opt.key}`"
+                  :value="opt.key"
+                >
+                  {{ opt.label }}
+                </option>
+              </select>
+              <small class="hint">
+                {{ selectedTenantFeatureProfileDescription }}
+              </small>
+              <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+                <button
+                  v-if="String(userRole || '').toLowerCase() === 'super_admin'"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="applySelectedFeatureProfile"
+                >
+                  Apply blueprint
+                </button>
+                <button
+                  v-if="String(userRole || '').toLowerCase() === 'super_admin'"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="setFeatureProfileCustom"
+                >
+                  Mark as custom
+                </button>
+              </div>
+            </div>
+
             <div class="form-group" style="margin-top: 10px;">
               <label>Portal Variant</label>
               <select v-model="agencyForm.featureFlags.portalVariant">
@@ -1078,6 +1181,22 @@
               <ToggleSwitch v-model="agencyForm.featureFlags.publicProviderFinderEnabled" compact />
             </div>
             <small class="hint">Enables external/public Find a Provider availability for this agency (requires pricing add-on entitlement).</small>
+
+            <div v-if="userRole === 'super_admin'" class="toggle-row" style="margin-top: 14px;">
+              <span>Allow tenant in platform-shared event marketing</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.platformSharedMarketingEnabled" compact />
+            </div>
+            <small v-if="userRole === 'super_admin'" class="hint">
+              Controls whether this tenant's non-internal company/program event offerings can be surfaced in platform marketing surfaces.
+            </small>
+
+            <div v-if="userRole === 'super_admin'" class="toggle-row" style="margin-top: 10px;">
+              <span>Allow public registration links for tenant marketing</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.platformPublicRegistrationEnabled" compact />
+            </div>
+            <small v-if="userRole === 'super_admin'" class="hint">
+              When off, public registration catalogs via active intake links are disabled for this tenant.
+            </small>
 
             <div v-if="isFeatureAvailable('momentumListEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Momentum List</span>
@@ -3407,6 +3526,7 @@
               </div>
             </div>
           </div>
+          </fieldset>
           
           <div class="modal-actions">
             <button 
@@ -3436,8 +3556,8 @@
               Preview Splash Page
             </button>
             <button type="button" @click="closeModal" class="btn btn-secondary">Cancel</button>
-            <button type="submit" class="btn btn-primary" :disabled="saving">
-              {{ saving ? 'Saving...' : 'Save' }}
+            <button type="submit" class="btn btn-primary" :disabled="saving || !canEditActiveTab">
+              {{ !canEditActiveTab ? 'Read-only' : (saving ? 'Saving...' : 'Save') }}
             </button>
           </div>
         </form>
@@ -3598,6 +3718,39 @@ const brandingStore = useBrandingStore();
 const route = useRoute();
 const router = useRouter();
 const userRole = computed(() => authStore.user?.role);
+const activeTab = ref('general'); // Tab navigation: general|branding|features|contact|address|sites|notifications|theme|terminology|icons|payroll
+const currentUserRoleKey = computed(() => String(userRole.value || '').trim().toLowerCase());
+const canEditAgencySettings = computed(() =>
+  currentUserRoleKey.value === 'super_admin' ||
+  currentUserRoleKey.value === 'admin' ||
+  currentUserRoleKey.value === 'support'
+);
+const adminOnlyEditTabs = new Set(['branding', 'features', 'theme', 'icons']);
+const canEditActiveTab = computed(() => {
+  const tab = String(activeTab.value || '').trim().toLowerCase();
+  const isAdminLevel = currentUserRoleKey.value === 'super_admin' || currentUserRoleKey.value === 'admin';
+  if (adminOnlyEditTabs.has(tab)) return isAdminLevel;
+  return canEditAgencySettings.value;
+});
+const settingsRoleLabel = computed(() => {
+  if (currentUserRoleKey.value === 'super_admin') return 'Super Admin';
+  if (currentUserRoleKey.value === 'admin') return 'Admin';
+  if (currentUserRoleKey.value === 'support') return 'Support';
+  if (currentUserRoleKey.value === 'provider_plus') return 'Provider+';
+  if (currentUserRoleKey.value === 'staff') return 'Staff';
+  if (currentUserRoleKey.value === 'provider') return 'Provider';
+  return currentUserRoleKey.value || 'Unknown';
+});
+const settingsRoleSummary = computed(() => {
+  const tab = String(activeTab.value || '').trim().toLowerCase();
+  if (adminOnlyEditTabs.has(tab) && !canEditActiveTab.value) {
+    return 'This tab is admin-only for editing. You can view settings but cannot change them.';
+  }
+  if (canEditActiveTab.value) {
+    return 'You can edit settings in this panel based on organization type and tab access.';
+  }
+  return 'You can review configuration here, but editing is restricted to Admin, Support, or Super Admin roles.';
+});
 const orgTypeDisplay = (type) => {
   const t = String(type || 'agency').toLowerCase();
   return userRole.value === 'super_admin' && t === 'agency' ? 'tenant' : t;
@@ -3627,6 +3780,96 @@ const isFeatureAvailable = (key) => {
   if (raw == null || (typeof raw === 'object' && Object.keys(raw).length === 0)) return true; // backward compat: all available
   const parsed = typeof raw === 'object' ? raw : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return {}; } })() : {});
   return parsed[key] !== false; // only explicitly false hides the toggle
+};
+
+const TENANT_FEATURE_PROFILES = {
+  essential_baseline: {
+    label: 'Essential baseline',
+    description: 'Core operational settings for a new tenant. Keeps advanced/custom modules off by default.',
+    values: {
+      portalVariant: 'healthcare_provider',
+      submitEnabledForEmployeePortal: false,
+      inSchoolSubmissionsEnabled: true,
+      medcancelEnabled: true,
+      shiftProgramsEnabled: false,
+      presenceEnabled: false,
+      kudosEnabled: false,
+      aiProviderSearchEnabled: false,
+      noteAidEnabled: false,
+      standardsLearningEnabled: false,
+      groupClassSessionsEnabled: false,
+      guardianWaiversEnabled: false,
+      clinicalNoteGeneratorEnabled: false,
+      publicProviderFinderEnabled: false,
+      momentumListEnabled: false,
+      budgetManagementEnabled: false,
+      payrollEnabled: false,
+      hiringEnabled: false,
+      googleSsoEnabled: false,
+      workspaceProvisioningEnabled: false,
+      smsAutoProvisionOnPrehire: false,
+      platformSharedMarketingEnabled: true,
+      platformPublicRegistrationEnabled: true
+    }
+  },
+  standard_healthcare: {
+    label: 'Standard healthcare',
+    description: 'Recommended base profile for healthcare tenants with common operational modules enabled.',
+    values: {
+      portalVariant: 'healthcare_provider',
+      submitEnabledForEmployeePortal: false,
+      inSchoolSubmissionsEnabled: true,
+      medcancelEnabled: true,
+      shiftProgramsEnabled: true,
+      presenceEnabled: true,
+      kudosEnabled: true,
+      aiProviderSearchEnabled: false,
+      noteAidEnabled: false,
+      standardsLearningEnabled: false,
+      groupClassSessionsEnabled: false,
+      guardianWaiversEnabled: true,
+      clinicalNoteGeneratorEnabled: false,
+      publicProviderFinderEnabled: false,
+      momentumListEnabled: true,
+      budgetManagementEnabled: true,
+      payrollEnabled: true,
+      hiringEnabled: true,
+      googleSsoEnabled: false,
+      workspaceProvisioningEnabled: false,
+      smsAutoProvisionOnPrehire: false,
+      platformSharedMarketingEnabled: true,
+      platformPublicRegistrationEnabled: true
+    }
+  },
+  learning_programs: {
+    label: 'Learning / programs',
+    description: 'Profile optimized for program events, guardian workflows, and learning-oriented service delivery.',
+    values: {
+      portalVariant: 'healthcare_provider',
+      submitEnabledForEmployeePortal: false,
+      inSchoolSubmissionsEnabled: true,
+      medcancelEnabled: true,
+      shiftProgramsEnabled: true,
+      presenceEnabled: true,
+      kudosEnabled: true,
+      aiProviderSearchEnabled: false,
+      noteAidEnabled: false,
+      standardsLearningEnabled: true,
+      groupClassSessionsEnabled: true,
+      guardianWaiversEnabled: true,
+      clinicalNoteGeneratorEnabled: false,
+      publicProviderFinderEnabled: false,
+      momentumListEnabled: true,
+      budgetManagementEnabled: true,
+      payrollEnabled: true,
+      hiringEnabled: true,
+      googleSsoEnabled: false,
+      workspaceProvisioningEnabled: false,
+      smsAutoProvisionOnPrehire: false,
+      platformSharedMarketingEnabled: true,
+      platformPublicRegistrationEnabled: true
+    }
+  }
 };
 
 const agencies = ref([]);
@@ -3794,7 +4037,147 @@ const uploadingLogo = ref(false);
 const customParamKeys = ref([]);
   const customParameters = ref({});
   const copiedUrl = ref(null); // Track which URL was copied
-const activeTab = ref('general'); // Tab navigation: general|branding|features|contact|address|sites|notifications|theme|terminology|icons|payroll
+const currentTabOrgType = computed(() =>
+  String(editingAgency.value?.organization_type || agencyForm.value?.organizationType || 'agency').toLowerCase()
+);
+
+const tabAvailable = (tabId) => {
+  const t = String(tabId || '').trim().toLowerCase();
+  const orgType = currentTabOrgType.value;
+  const isAgency = orgType === 'agency';
+  const isSchool = orgType === 'school';
+  if (t === 'general' || t === 'theme' || t === 'terminology' || t === 'icons') return true;
+  if (t === 'branding') return orgType !== 'office';
+  if (t === 'features') return isAgency;
+  if (t === 'contact') return orgType !== 'office' && orgType !== 'school';
+  if (t === 'address') return orgType !== 'office';
+  if (t === 'school_providers' || t === 'school_staff') return isSchool;
+  if (t === 'social_feeds') return String(userRole.value || '').toLowerCase() === 'super_admin' && !!editingAgency.value && isAgency;
+  if (t === 'sites' || t === 'notifications' || t === 'announcements' || t === 'company_events' || t === 'kudos' || t === 'payroll') {
+    return !!editingAgency.value && isAgency;
+  }
+  return false;
+};
+
+const superadminQuickTabs = computed(() => {
+  const base = [
+    { id: 'general', label: 'General' },
+    { id: 'branding', label: 'Branding' },
+    { id: 'features', label: 'Features' },
+    { id: 'theme', label: 'Theme' },
+    { id: 'terminology', label: 'Terminology' },
+    { id: 'icons', label: 'Icons' },
+    { id: 'social_feeds', label: 'Social feeds' }
+  ];
+  return base.filter((x) => tabAvailable(x.id));
+});
+
+const tenantAdminQuickTabs = computed(() => {
+  const base = [
+    { id: 'company_events', label: 'Company Events' },
+    { id: 'notifications', label: 'Notifications' },
+    { id: 'announcements', label: 'Announcements' },
+    { id: 'sites', label: 'Sites' },
+    { id: 'payroll', label: 'Payroll' },
+    { id: 'kudos', label: 'Kudos' },
+    { id: 'contact', label: 'Contact' },
+    { id: 'address', label: 'Address' },
+    { id: 'school_providers', label: 'Providers' },
+    { id: 'school_staff', label: 'School Staff' }
+  ];
+  return base.filter((x) => tabAvailable(x.id));
+});
+
+const goToAgencyTab = (tabId) => {
+  const id = String(tabId || '').trim().toLowerCase();
+  if (!id || !tabAvailable(id)) return;
+  if (id === 'payroll') {
+    openPayrollTab();
+    return;
+  }
+  activeTab.value = id;
+};
+
+const tenantFeatureProfileOptions = computed(() => {
+  const options = Object.entries(TENANT_FEATURE_PROFILES).map(([key, def]) => ({
+    key,
+    label: def?.label || key
+  }));
+  options.push({ key: 'custom', label: 'Custom / mixed' });
+  return options;
+});
+
+const selectedTenantFeatureProfileDescription = computed(() => {
+  const key = String(agencyForm.value?.featureFlags?.tenantFeatureProfileKey || '').trim().toLowerCase();
+  if (key === 'custom') {
+    return 'Custom profile. Use when this tenant has a unique feature mix.';
+  }
+  return TENANT_FEATURE_PROFILES[key]?.description || 'Choose a blueprint, then apply to set baseline features.';
+});
+
+const applySelectedFeatureProfile = () => {
+  if (String(userRole.value || '').toLowerCase() !== 'super_admin') return;
+  const key = String(agencyForm.value?.featureFlags?.tenantFeatureProfileKey || '').trim().toLowerCase();
+  const profile = TENANT_FEATURE_PROFILES[key];
+  if (!profile || typeof profile !== 'object') return;
+  const nextFlags = {
+    ...(agencyForm.value.featureFlags || {}),
+    ...(profile.values || {}),
+    tenantFeatureProfileKey: key
+  };
+  if (nextFlags.googleSsoEnabled !== true) {
+    nextFlags.googleSsoRequiredRoles = Array.isArray(nextFlags.googleSsoRequiredRoles) && nextFlags.googleSsoRequiredRoles.length
+      ? nextFlags.googleSsoRequiredRoles
+      : ['staff', 'admin', 'provider', 'clinical_practice_assistant', 'provider_plus'];
+    nextFlags.googleSsoAllowedDomains = Array.isArray(nextFlags.googleSsoAllowedDomains) ? nextFlags.googleSsoAllowedDomains : [];
+  }
+  agencyForm.value.featureFlags = nextFlags;
+};
+
+const setFeatureProfileCustom = () => {
+  if (String(userRole.value || '').toLowerCase() !== 'super_admin') return;
+  if (!agencyForm.value.featureFlags || typeof agencyForm.value.featureFlags !== 'object') {
+    agencyForm.value.featureFlags = {};
+  }
+  agencyForm.value.featureFlags.tenantFeatureProfileKey = 'custom';
+};
+
+const tabOwnerType = (tabId) => {
+  const t = String(tabId || '').trim().toLowerCase();
+  if (['features', 'theme', 'terminology', 'icons', 'social_feeds'].includes(t)) return 'platform';
+  if (['company_events', 'notifications', 'announcements', 'sites', 'payroll', 'kudos', 'school_providers', 'school_staff'].includes(t)) {
+    return 'tenant';
+  }
+  return 'shared';
+};
+
+const tabOwnerLabel = (tabId) => {
+  const type = tabOwnerType(tabId);
+  if (type === 'platform') return 'Platform';
+  if (type === 'tenant') return 'Tenant';
+  return 'Shared';
+};
+
+const showOnboardingChecklist = computed(() => {
+  return String(userRole.value || '').toLowerCase() === 'super_admin' && currentTabOrgType.value === 'agency' && !!editingAgency.value;
+});
+
+const onboardingChecklistSteps = computed(() => {
+  const base = [
+    { id: 'general', label: '1. General' },
+    { id: 'branding', label: '2. Branding' },
+    { id: 'features', label: '3. Features' },
+    { id: 'theme', label: '4. Theme' },
+    { id: 'terminology', label: '5. Terminology' },
+    { id: 'icons', label: '6. Icons' },
+    { id: 'company_events', label: '7. Company Events' },
+    { id: 'notifications', label: '8. Notifications' },
+    { id: 'announcements', label: '9. Announcements' },
+    { id: 'sites', label: '10. Sites' },
+    { id: 'payroll', label: '11. Payroll' }
+  ];
+  return base.filter((x) => tabAvailable(x.id));
+});
 
 const senderIdentitiesByKey = ref({});
 const senderIdentitiesLoading = ref(false);
@@ -5659,6 +6042,8 @@ const defaultAgencyForm = () => ({
     maxInactivityTimeoutMinutes: null
   },
   featureFlags: {
+    // Blueprint key for repeatable tenant setup
+    tenantFeatureProfileKey: 'essential_baseline',
     // Controls dashboard module set + certain provider-only surfaces
     portalVariant: 'healthcare_provider',
     // When portalVariant is 'employee', enables Submit (mileage, expenses, etc.)
@@ -5712,7 +6097,11 @@ const defaultAgencyForm = () => ({
     workspaceEmailFormat: '',
 
     // SMS auto-provisioning for pre-hire
-    smsAutoProvisionOnPrehire: false
+    smsAutoProvisionOnPrehire: false,
+
+    // Tenant-level marketing controls (super admin)
+    platformSharedMarketingEnabled: true,
+    platformPublicRegistrationEnabled: true
   },
   // Notification icon fields
   statusExpiredIconId: null,
@@ -7052,7 +7441,10 @@ const editAgency = async (agency) => {
       workspaceProvisioningEnabled: featureFlags.workspaceProvisioningEnabled === true,
       workspaceEmailDomain: String(featureFlags.workspaceEmailDomain || ''),
       workspaceEmailFormat: String(featureFlags.workspaceEmailFormat || ''),
-      smsAutoProvisionOnPrehire: featureFlags.smsAutoProvisionOnPrehire === true
+      smsAutoProvisionOnPrehire: featureFlags.smsAutoProvisionOnPrehire === true,
+      tenantFeatureProfileKey: String(featureFlags.tenantFeatureProfileKey || 'essential_baseline').trim().toLowerCase() || 'essential_baseline',
+      platformSharedMarketingEnabled: featureFlags.platformSharedMarketingEnabled !== false,
+      platformPublicRegistrationEnabled: featureFlags.platformPublicRegistrationEnabled !== false
     },
     // Notification icon fields
     statusExpiredIconId: agency.status_expired_icon_id ?? null,
@@ -9587,6 +9979,35 @@ small {
   white-space: nowrap;
 }
 
+.tab-owner-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.6;
+  border: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.tab-owner-badge.owner-platform {
+  background: rgba(79, 70, 229, 0.09);
+  color: var(--primary);
+  border-color: rgba(79, 70, 229, 0.25);
+}
+
+.tab-owner-badge.owner-tenant {
+  background: rgba(16, 185, 129, 0.09);
+  color: #0f766e;
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.tab-owner-badge.owner-shared {
+  background: rgba(59, 130, 246, 0.09);
+  color: #1d4ed8;
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
 .tab-button:hover {
   color: var(--text-primary);
   background: var(--bg-alt);
@@ -9596,6 +10017,99 @@ small {
   color: var(--primary);
   border-bottom-color: var(--primary);
   font-weight: 600;
+}
+
+.controls-map {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: -8px 0 16px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-alt);
+}
+
+.controls-map-col {
+  min-width: 0;
+}
+
+.controls-map-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.controls-map-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.controls-map-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.onboarding-checklist {
+  margin: 0 0 14px;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.onboarding-checklist-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-primary);
+}
+
+.onboarding-checklist-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.onboarding-checklist-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.settings-access-banner {
+  margin: 0 0 12px;
+  padding: 10px;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.08);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.settings-access-banner.readonly {
+  border-color: rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.settings-main-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.settings-readonly .settings-main-fieldset {
+  opacity: 0.9;
 }
 
 .tab-content {

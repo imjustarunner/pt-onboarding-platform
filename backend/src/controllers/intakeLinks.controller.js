@@ -264,10 +264,42 @@ export const createIntakeLinkFromJob = async (req, res, next) => {
     }
 
     const publicKey = crypto.randomBytes(24).toString('hex');
+    const defaultJobSteps = [
+      {
+        id: `step_${Date.now()}_resume`,
+        type: 'upload',
+        label: 'Resume',
+        accept: '.pdf,.doc,.docx,.txt',
+        maxFiles: 1,
+        required: true,
+        visibility: 'always',
+        allowPasteText: true
+      },
+      {
+        id: `step_${Date.now()}_cover_letter`,
+        type: 'upload',
+        label: 'Cover Letter',
+        accept: '.pdf,.doc,.docx,.txt',
+        maxFiles: 1,
+        required: false,
+        visibility: 'always',
+        allowPasteText: true
+      },
+      {
+        id: `step_${Date.now()}_references`,
+        type: 'references',
+        label: 'Professional references',
+        required: true,
+        waivable: true,
+        minReferences: 3,
+        authorizationNotice:
+          'By submitting this information, you authorize [tenant] to contact the individuals listed and obtain information regarding your employment history, educational background, professional conduct, and qualifications for employment.'
+      }
+    ];
     const link = await IntakeLink.create({
       publicKey,
       title: `Apply: ${jd.title || 'Job Application'}`,
-      description: jd.description || null,
+      description: jd.description_text || null,
       languageCode: 'en',
       scopeType: 'agency',
       formType: 'job_application',
@@ -282,7 +314,7 @@ export const createIntakeLinkFromJob = async (req, res, next) => {
       requiresAssignment: true,
       allowedDocumentTemplateIds: [],
       intakeFields: null,
-      intakeSteps: null,
+      intakeSteps: defaultJobSteps,
       retentionPolicy: null,
       customMessages: null,
       createdByUserId: req.user?.id || null

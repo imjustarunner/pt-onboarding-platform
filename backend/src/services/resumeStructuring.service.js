@@ -25,6 +25,63 @@ function extractJsonFromModelText(text) {
   return raw;
 }
 
+function sanitizeLooseJson(text) {
+  let t = String(text || '').trim();
+  if (!t) return t;
+  // Normalize common smart quotes from model output.
+  t = t
+    .replace(/[\u2018\u2019]/g, '\'')
+    .replace(/[\u201C\u201D]/g, '"');
+  // Remove trailing commas before object/array closes.
+  t = t.replace(/,\s*([}\]])/g, '$1');
+  return t;
+}
+
+function tryParseJson(text) {
+  const raw = extractJsonFromModelText(text);
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // fall through
+  }
+  const sanitized = sanitizeLooseJson(raw);
+  try {
+    return JSON.parse(sanitized);
+  } catch {
+    return null;
+  }
+}
+
+function buildFallbackSummaryFromText(resumeText) {
+  const text = String(resumeText || '');
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const skillsLine = lines.find((l) => /^skills?\s*:/i.test(l));
+  const skills = skillsLine
+    ? String(skillsLine.split(':').slice(1).join(':') || '')
+      .split(/[,;|]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 25)
+    : [];
+
+  return {
+    workHistory: [],
+    education: [],
+    licensesAndCertifications: [],
+    skills,
+    credentialingHints: {
+      likelyLicensureStatus: 'unknown',
+      statesMentioned: [],
+      needsSupervision: null,
+      notesForCredentialingTeam:
+        'Fallback summary generated because the model response could not be parsed as JSON. Review the original resume directly.'
+    }
+  };
+}
+
 async function getAccessToken() {
   const scopes = ['https://www.googleapis.com/auth/cloud-platform'];
   const authSource = String(process.env.VERTEX_AUTH_SOURCE || '').trim().toLowerCase(); // 'workspace_service_account' | ''
@@ -44,6 +101,61 @@ async function getAccessToken() {
     throw err;
   }
   return token;
+}
+
+async function callVertexGenerateContent({
+  token,
+  url,
+  model,
+  systemPrompt,
+  userPrompt,
+  maxOutputTokens,
+  timeoutMs,
+  responseMimeType = 'application/json'
+}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const started = Date.now();
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json; charset=utf-8'
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        model,
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens,
+          responseMimeType
+        }
+      })
+    });
+    const latencyMs = Date.now() - started;
+    if (!resp.ok) {
+      const t = String(await resp.text()).slice(0, 2000);
+      const err = new Error('Vertex AI resume summary request failed');
+      err.status = resp.status >= 400 && resp.status < 600 ? resp.status : 502;
+      err.details = t;
+      err.latencyMs = latencyMs;
+      throw err;
+    }
+    const data = await resp.json();
+    const parts = data?.candidates?.[0]?.content?.parts;
+    const text = Array.isArray(parts) ? parts.map((p) => p?.text || '').filter(Boolean).join('') : '';
+    if (!text) {
+      const err = new Error('Model returned empty response');
+      err.status = 502;
+      throw err;
+    }
+    return { text, latencyMs };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function generateResumeSummaryJson({ candidateName, resumeText }) {
@@ -106,55 +218,65 @@ export async function generateResumeSummaryJson({ candidateName, resumeText }) {
     projectId
   )}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(modelId)}:generateContent`;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  const started = Date.now();
   try {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json; charset=utf-8'
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        model: `projects/${projectId}/locations/${location}/publishers/google/models/${modelId}`,
-        generationConfig: { temperature: 0.1, maxOutputTokens }
-      })
+    const model = `projects/${projectId}/locations/${location}/publishers/google/models/${modelId}`;
+    const first = await callVertexGenerateContent({
+      token,
+      url,
+      model,
+      systemPrompt,
+      userPrompt,
+      maxOutputTokens,
+      timeoutMs,
+      responseMimeType: 'application/json'
     });
-
-    const latencyMs = Date.now() - started;
-
-    if (!resp.ok) {
-      const t = String(await resp.text()).slice(0, 2000);
-      const err = new Error('Vertex AI resume summary request failed');
-      err.status = resp.status >= 400 && resp.status < 600 ? resp.status : 502;
-      err.details = t;
-      err.latencyMs = latencyMs;
-      throw err;
-    }
-
-    const data = await resp.json();
-    const parts = data?.candidates?.[0]?.content?.parts;
-    const text = Array.isArray(parts) ? parts.map((p) => p?.text || '').filter(Boolean).join('') : '';
-    if (!text) {
-      const err = new Error('Model returned empty response');
-      err.status = 502;
-      throw err;
-    }
-
-    const jsonText = extractJsonFromModelText(text);
-    let parsed = null;
-    try {
-      parsed = JSON.parse(jsonText);
-    } catch (e) {
-      const err = new Error('Model returned non-JSON resume summary');
-      err.status = 502;
-      err.details = safeTruncate(jsonText, 1800);
-      throw err;
+    const text = first.text;
+    const latencyMs = first.latencyMs;
+    const parsed = tryParseJson(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      const repairSystemPrompt = [
+        'You repair malformed model output into strict JSON.',
+        'Return ONLY valid JSON with the exact schema keys.',
+        'Do not include markdown or commentary.'
+      ].join('\n');
+      const repairUserPrompt = [
+        'Convert this content into valid JSON using the target schema.',
+        'If values are missing, use null or empty arrays.',
+        '',
+        'Target schema keys:',
+        'workHistory, education, licensesAndCertifications, skills, credentialingHints',
+        '',
+        'Malformed content:',
+        text
+      ].join('\n');
+      let repaired = null;
+      try {
+        const second = await callVertexGenerateContent({
+          token,
+          url,
+          model,
+          systemPrompt: repairSystemPrompt,
+          userPrompt: repairUserPrompt,
+          maxOutputTokens,
+          timeoutMs,
+          responseMimeType: 'application/json'
+        });
+        repaired = tryParseJson(second.text);
+      } catch {
+        repaired = null;
+      }
+      if (repaired && typeof repaired === 'object' && !Array.isArray(repaired)) {
+        return {
+          summary: repaired,
+          latencyMs,
+          modelId
+        };
+      }
+      return {
+        summary: buildFallbackSummaryFromText(resume),
+        latencyMs,
+        modelId
+      };
     }
 
     return {
@@ -163,7 +285,7 @@ export async function generateResumeSummaryJson({ candidateName, resumeText }) {
       modelId
     };
   } finally {
-    clearTimeout(timeout);
+    // no-op
   }
 }
 

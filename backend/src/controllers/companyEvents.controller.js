@@ -14,12 +14,14 @@ import {
 } from '../services/companyEvents.service.js';
 import { backfillSkillsGroupCompanyEvents } from '../services/skillBuildersGroupEventBackfill.service.js';
 import { syncIntegratedSkillsGroupAfterCompanyEventSave } from '../services/skillBuildersEventSessions.service.js';
+import { materializeSessionsForEvent } from '../services/companyEventSessionDates.service.js';
 import KioskModel from '../models/Kiosk.model.js';
 import { geocodeAddressWithGoogle } from '../services/googleGeocode.service.js';
 import { ProviderAvailabilityService } from '../services/providerAvailability.service.js';
 import crypto from 'crypto';
 import EmailTemplateService from '../services/emailTemplate.service.js';
 import { sendNotificationEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import { fetchRegistrationCatalogItems } from '../services/registrationCatalog.service.js';
 
 const DEFAULT_RSVP_OPTIONS = [
   { key: '1', label: 'Yes' },
@@ -49,6 +51,21 @@ const ROLE_AUDIENCE_LABELS = {
   clinical_practice_assistant: 'Clinical Practice Assistant',
   intern: 'Intern'
 };
+
+const SERVICE_PROGRAM_EVENT_TYPES = new Set([
+  'guardian_program_class',
+  'program_workshop',
+  'program_orientation',
+  'program_open_house',
+  'program_event'
+]);
+
+function isServiceProgramEventType(eventTypeRaw) {
+  const t = String(eventTypeRaw || '').trim().toLowerCase();
+  if (!t) return false;
+  if (SERVICE_PROGRAM_EVENT_TYPES.has(t)) return true;
+  return t.startsWith('program_');
+}
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
@@ -107,6 +124,32 @@ const userCanManageCompanyEvents = (req) => {
   const role = String(req.user?.role || '').toLowerCase();
   return role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff';
 };
+
+const userCanSeeInternalRegistrationPromos = (req) => {
+  const role = String(req.user?.role || '').toLowerCase();
+  return (
+    role === 'super_admin' ||
+    role === 'admin' ||
+    role === 'support' ||
+    role === 'staff' ||
+    role === 'provider' ||
+    role === 'provider_plus' ||
+    role === 'school_staff'
+  );
+};
+
+async function loadAgencyFeatureFlags(agencyId) {
+  const aid = parsePositiveInt(agencyId);
+  if (!aid) return {};
+  try {
+    const [rows] = await pool.execute(`SELECT feature_flags FROM agencies WHERE id = ? LIMIT 1`, [aid]);
+    const raw = rows?.[0]?.feature_flags;
+    const parsed = parseJsonMaybe(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
 
 function parseFeatureFlags(raw) {
   if (!raw) return {};
@@ -1348,6 +1391,51 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
   }
 };
 
+export const listInternalRegistrationPromosForAgency = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.params.id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+    if (!userCanSeeInternalRegistrationPromos(req)) {
+      return res.status(403).json({ error: { message: 'Role not eligible for registration promos' } });
+    }
+    const featureFlags = await loadAgencyFeatureFlags(agencyId);
+    if (featureFlags.platformSharedMarketingEnabled === false) {
+      return res.json({ ok: true, items: [] });
+    }
+    if (featureFlags.platformPublicRegistrationEnabled === false) {
+      return res.json({ ok: true, items: [] });
+    }
+
+    const items = await fetchRegistrationCatalogItems(agencyId);
+    const nowMs = Date.now();
+    const promos = (items || [])
+      .filter((row) => String(row?.kind || '').toLowerCase() === 'company_event')
+      .filter((row) => String(row?.linkedIntakePublicKey || '').trim().length > 0)
+      .filter((row) => {
+        const startsAtMs = row?.startsAt ? new Date(row.startsAt).getTime() : NaN;
+        return !Number.isFinite(startsAtMs) || startsAtMs >= nowMs - 24 * 60 * 60 * 1000;
+      })
+      .slice(0, 20)
+      .map((row) => ({
+        kind: 'company_event',
+        id: Number(row.id),
+        title: String(row.title || '').trim() || `Event ${row.id}`,
+        startsAt: row.startsAt || null,
+        endsAt: row.endsAt || null,
+        intakeTitle: row.linkedIntakeTitle ? String(row.linkedIntakeTitle).trim() || null : null,
+        intakePublicKey: String(row.linkedIntakePublicKey || '').trim(),
+        intakeFormType: row.linkedIntakeFormType ? String(row.linkedIntakeFormType).trim().toLowerCase() || null : null
+      }));
+
+    res.json({ ok: true, items: promos });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const listCompanyEventAudienceOptions = async (req, res, next) => {
   try {
     const agencyId = parsePositiveInt(req.params.id);
@@ -1610,6 +1698,10 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
 
   const parsed = parseEventPayload(body || {});
   if (parsed.error) return { error: { status: 400, message: parsed.error } };
+  if (isServiceProgramEventType(parsed.eventType)) {
+    parsed.rsvpMode = 'none';
+    parsed.registrationEligible = true;
+  }
 
   let organizationIdForRow = null;
   if (parsed.organizationId) {
@@ -1721,6 +1813,19 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
           'Event was saved but Skill Builders sessions (materials / schedule) could not be rebuilt. Try saving again or contact support.'
       }
     };
+  }
+  try {
+    if (String(parsed.eventType || '').toLowerCase() !== 'skills_group') {
+      await materializeSessionsForEvent(pool, { companyEventId: eventId });
+    }
+  } catch (matErr) {
+    if (matErr?.code !== 'ER_NO_SUCH_TABLE') {
+      console.error('[persistCompanyEventUpdate] Program session materialization failed', {
+        agencyId,
+        eventId,
+        message: matErr?.message
+      });
+    }
   }
 
   const row = await loadEventByIdForAgency(eventId, agencyId);
@@ -2053,6 +2158,11 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
 
     const row = await loadEventByIdForAgency(eventId, agencyId);
     if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
+    if (isServiceProgramEventType(row.event_type)) {
+      return res.status(400).json({
+        error: { message: 'SMS voting is disabled for program service events.' }
+      });
+    }
     const event = mapEventRow(row, req);
     if (!event.votingConfig.enabled || !event.votingConfig.viaSms) {
       return res.status(400).json({ error: { message: 'SMS voting is not enabled for this event' } });
@@ -2525,6 +2635,11 @@ export const sendCompanyEventInvitations = async (req, res, next) => {
     }
     const row = await loadEventByIdForAgency(eventId, agencyId);
     if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
+    if (isServiceProgramEventType(row.event_type)) {
+      return res.status(400).json({
+        error: { message: 'Staff invitations are disabled for program service events.' }
+      });
+    }
     const event = mapEventRow(row, req);
     const audience = await getAudienceForEvent(eventId);
     const recipientIds = await resolveRecipientUserIds(agencyId, eventId, audience);
@@ -2648,6 +2763,11 @@ export const sendCompanyEventReminders = async (req, res, next) => {
     }
     const row = await loadEventByIdForAgency(eventId, agencyId);
     if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
+    if (isServiceProgramEventType(row.event_type)) {
+      return res.status(400).json({
+        error: { message: 'Staff RSVP reminders are disabled for program service events.' }
+      });
+    }
     const event = mapEventRow(row, req);
 
     const frontendBase = getFrontendBaseUrl();

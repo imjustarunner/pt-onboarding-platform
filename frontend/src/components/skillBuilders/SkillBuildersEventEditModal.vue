@@ -13,12 +13,37 @@
             <div v-if="formError" class="error-box sb-ce-msg">{{ formError }}</div>
             <div class="sb-ce-grid">
               <div class="form-group">
+                <label class="sb-ce-lbl">Event category</label>
+                <select v-model="selectedEventCategory" class="input" @change="applyEventCategory">
+                  <option v-for="opt in EVENT_CATEGORY_OPTIONS" :key="`cat-${opt.value}`" :value="opt.value">
+                    {{ opt.label }}
+                  </option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="sb-ce-lbl">Event preset</label>
+                <select v-model="selectedPreset" class="input" @change="applyPreset">
+                  <option value="">Custom</option>
+                  <option v-for="p in EVENT_TYPE_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
+                </select>
+              </div>
+              <div class="form-group">
                 <label class="sb-ce-lbl">Title</label>
                 <input v-model.trim="draft.title" class="input" maxlength="255" />
               </div>
               <div class="form-group">
                 <label class="sb-ce-lbl">Event type</label>
-                <input v-model.trim="draft.eventType" class="input" maxlength="64" />
+                <select v-model="eventTypeSelection" class="input" @change="applyEventTypeSelection">
+                  <option v-for="opt in EVENT_TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  <option value="__custom__">Custom</option>
+                </select>
+                <input
+                  v-if="eventTypeSelection === '__custom__'"
+                  v-model.trim="draft.eventType"
+                  class="input sb-ce-custom-event-type"
+                  maxlength="64"
+                  placeholder="e.g. custom_type"
+                />
               </div>
               <div class="form-group">
                 <label class="sb-ce-lbl">Program (optional)</label>
@@ -36,10 +61,11 @@
               </div>
               <div class="form-group">
                 <label class="sb-ce-lbl">Timezone</label>
-                <input v-model.trim="draft.timezone" class="input" placeholder="e.g. America/Chicago" />
+                <select v-model="draft.timezone" class="input">
+                  <option v-for="tz in TIMEZONE_OPTIONS" :key="tz.value" :value="tz.value">{{ tz.label }}</option>
+                </select>
                 <p class="muted small sb-ce-tz-hint">
-                  Start/end times use this IANA timezone (not your computer clock alone). Integrated events use the
-                  agency’s first office location timezone when synced from the school portal.
+                  {{ selectedTimezoneOffsetLabel }}. Start/end times use this IANA timezone (not your computer clock alone).
                 </p>
               </div>
               <div class="form-group">
@@ -253,6 +279,87 @@
               <p v-else class="muted small">No integrated skills group is linked to this event.</p>
             </div>
 
+            <div class="sb-ce-section">
+              <strong class="sb-ce-subhead">Event providers &amp; roles</strong>
+              <p class="muted small sb-ce-pattern-lead">
+                Add providers/staff from this agency, customize their event role title, and set virtual-session access
+                (<strong>participant</strong>, <strong>presenter</strong>, or <strong>co-presenter</strong>). Mark one person
+                as <strong>primary access</strong> for lead ownership.
+              </p>
+              <div v-if="eventProviderLoading" class="muted small sb-ce-msg">Loading event providers…</div>
+              <div v-else-if="eventProviderError" class="error-box sb-ce-msg">{{ eventProviderError }}</div>
+              <template v-else>
+                <div class="sb-ce-roster-add">
+                  <label class="sb-ce-lbl">Add provider from agency</label>
+                  <div class="sb-ce-roster-row-inner">
+                    <select v-model="eventProviderToAdd" class="input sb-ce-roster-select" :disabled="eventProviderSaving">
+                      <option value="">Choose provider…</option>
+                      <option v-for="p in eventProviderAddOptions" :key="`evp-${p.id}`" :value="String(p.id)">
+                        {{ p.lastName }}, {{ p.firstName }}
+                      </option>
+                    </select>
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="!eventProviderToAdd || eventProviderSaving"
+                      @click="addEventProvider"
+                    >
+                      {{ eventProviderSaving ? 'Saving…' : 'Add' }}
+                    </button>
+                  </div>
+                </div>
+                <ul v-if="eventProviderAssignments.length" class="sb-ce-roster-list" style="margin-top: 10px;">
+                  <li v-for="p in eventProviderAssignments" :key="`assign-${p.id}`" class="sb-ce-event-prov-row">
+                    <div class="sb-ce-event-prov-name">
+                      <strong>{{ p.lastName }}, {{ p.firstName }}</strong>
+                      <span v-if="p.email" class="muted small"> · {{ p.email }}</span>
+                    </div>
+                    <div class="sb-ce-event-prov-grid">
+                      <div class="form-group">
+                        <label class="sb-ce-lbl">Role title (custom)</label>
+                        <input v-model.trim="p.assignmentRoleTitle" class="input" type="text" placeholder="e.g. Lead facilitator" />
+                      </div>
+                      <div class="form-group">
+                        <label class="sb-ce-lbl">Role key</label>
+                        <input v-model.trim="p.assignmentRoleKey" class="input" type="text" placeholder="e.g. lead_facilitator" />
+                      </div>
+                      <div class="form-group">
+                        <label class="sb-ce-lbl">Virtual access role</label>
+                        <select v-model="p.virtualAccessRole" class="input">
+                          <option value="participant">Participant</option>
+                          <option value="co_presenter">Co-presenter</option>
+                          <option value="presenter">Presenter</option>
+                        </select>
+                      </div>
+                      <label class="sb-ce-check-row">
+                        <input v-model="p.isPrimaryAccess" type="checkbox" />
+                        <span>Primary access for this event</span>
+                      </label>
+                    </div>
+                    <div class="sb-ce-event-prov-actions">
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="eventProviderSaving"
+                        @click="saveEventProviderAssignment(p)"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="eventProviderSaving"
+                        @click="removeEventProviderAssignment(p.id)"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </li>
+                </ul>
+                <p v-else class="muted small" style="margin-top: 10px;">No event providers assigned yet.</p>
+              </template>
+            </div>
+
             <div v-if="isSkillsGroupIntegrated" class="sb-ce-section">
               <strong class="sb-ce-subhead">Program station kiosk</strong>
               <p class="muted small sb-ce-pattern-lead">
@@ -357,17 +464,17 @@
               </div>
               <div v-if="draft.cashEligible" class="sb-ce-pricing-block">
                 <p class="muted small sb-ce-pattern-lead">
-                  Set the cost for cash / self-pay families. Choose whether they pay a single total program fee or a per-session amount billed each session.
+                  Set both cash/self-pay price options if needed. Families can choose a full-series package or pay per session.
                 </p>
                 <div class="sb-ce-grid sb-ce-grid-tight">
                   <div class="form-group">
-                    <label class="sb-ce-lbl">Billing mode</label>
+                    <label class="sb-ce-lbl">Default checkout option</label>
                     <select v-model="draft.programCostBillingMode" class="input">
-                      <option value="total">Total program cost (one fee)</option>
-                      <option value="per_session">Per session (billed each session)</option>
+                      <option value="total">Series package (pay upfront)</option>
+                      <option value="per_session">Per session</option>
                     </select>
                   </div>
-                  <div v-if="draft.programCostBillingMode === 'total'" class="form-group">
+                  <div class="form-group">
                     <label class="sb-ce-lbl">Total program cost ($)</label>
                     <input
                       v-model.number="draft.programCostDollars"
@@ -378,7 +485,7 @@
                       placeholder="e.g. 450.00"
                     />
                   </div>
-                  <div v-if="draft.programCostBillingMode === 'per_session'" class="form-group">
+                  <div class="form-group">
                     <label class="sb-ce-lbl">Cost per session ($)</label>
                     <input
                       v-model.number="draft.perSessionCostDollars"
@@ -390,6 +497,9 @@
                     />
                   </div>
                 </div>
+                <p class="muted small sb-ce-pattern-lead" style="margin-top: 2px;">
+                  Leave either field blank to offer only that one payment method.
+                </p>
               </div>
             </div>
 
@@ -446,9 +556,68 @@
                 Shown on the agency public events listing when this event is registration-eligible and has an active
                 Smart Registration intake link locked to this event.
               </p>
+              <div class="sb-ce-grid sb-ce-grid-tight">
+                <div class="form-group">
+                  <label class="sb-ce-lbl">Card/primary photo URL</label>
+                  <input
+                    v-model.trim="draft.eventImageUrl"
+                    class="input"
+                    type="url"
+                    placeholder="https://…"
+                  />
+                </div>
+                <div class="form-group">
+                  <label class="sb-ce-lbl">Registration form URL (optional)</label>
+                  <input
+                    v-model.trim="draft.registrationFormUrl"
+                    class="input"
+                    type="url"
+                    placeholder="https://forms…"
+                  />
+                </div>
+              </div>
               <div class="form-group">
                 <label class="sb-ce-lbl">Hero image URL</label>
                 <input v-model.trim="draft.publicHeroImageUrl" class="input" type="url" placeholder="https://…" />
+              </div>
+              <div class="form-group">
+                <label class="sb-ce-lbl">Upload photo(s)</label>
+                <input type="file" accept="image/*" multiple @change="onPhotoUpload" />
+                <p class="muted small sb-ce-pattern-lead" style="margin-top: 6px;">
+                  Tip: choose one banner image (hero) and keep multiple album images below.
+                </p>
+              </div>
+              <div v-if="draft.eventImageUrls.length" class="sb-ce-tag-list">
+                <span v-for="(url, idx) in draft.eventImageUrls" :key="`img-${idx}`" class="sb-ce-tag">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm sb-ce-tag-move"
+                    :disabled="idx === 0"
+                    title="Move left"
+                    @click="moveEventImageLeft(idx)"
+                  >
+                    ←
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm sb-ce-tag-move"
+                    :disabled="idx === draft.eventImageUrls.length - 1"
+                    title="Move right"
+                    @click="moveEventImageRight(idx)"
+                  >
+                    →
+                  </button>
+                  <span class="sb-ce-tag-url">{{ shortUrl(url) }}</span>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm sb-ce-tag-banner"
+                    :title="draft.publicHeroImageUrl === url ? 'Current banner image' : 'Set as banner image'"
+                    @click="setBannerFromAlbum(url)"
+                  >
+                    {{ draft.publicHeroImageUrl === url ? 'Banner' : 'Set banner' }}
+                  </button>
+                  <button type="button" class="sb-ce-tag-remove" @click="removeEventImage(idx)">x</button>
+                </span>
               </div>
               <div class="form-group">
                 <label class="sb-ce-lbl">Extra public details</label>
@@ -526,7 +695,7 @@
               </div>
             </div>
 
-            <div class="sb-ce-section">
+            <div v-if="!isServiceProgramEventType" class="sb-ce-section">
               <strong>RSVP / voting</strong>
               <div class="sb-ce-grid sb-ce-grid-tight">
                 <div class="form-group">
@@ -656,6 +825,12 @@ const providerToAdd = ref('');
 const providerToAddExpanded = ref('');
 const showExpandedAgencyProviders = ref(false);
 const sdpPromoteNotice = ref('');
+const eventProviderLoading = ref(false);
+const eventProviderSaving = ref(false);
+const eventProviderError = ref('');
+const eventProviderToAdd = ref('');
+const eventProviderAssignments = ref([]);
+const eventProviderDirectory = ref([]);
 
 const rosterAssignedIds = computed(() => new Set((roster.value.assignedProviders || []).map((p) => p.id)));
 const addableProviders = computed(() =>
@@ -664,10 +839,20 @@ const addableProviders = computed(() =>
 const addableAllAgencyProviders = computed(() =>
   (roster.value.allAgencyProviders || []).filter((p) => !rosterAssignedIds.value.has(p.id))
 );
+const eventAssignedProviderIds = computed(
+  () => new Set((eventProviderAssignments.value || []).map((p) => Number(p.id)).filter(Boolean))
+);
+const eventProviderAddOptions = computed(() =>
+  (eventProviderDirectory.value || []).filter((p) => !eventAssignedProviderIds.value.has(Number(p.id)))
+);
 
 const isSkillsGroupIntegrated = computed(
   () => String(draft.value.eventType || '').toLowerCase() === 'skills_group'
 );
+const isServiceProgramEventType = computed(() => {
+  const t = String(draft.value.eventType || '').trim().toLowerCase();
+  return t === 'guardian_program_class' || t === 'program_event' || t.startsWith('program_');
+});
 
 const kioskEntryUrl = computed(() => {
   const s = String(props.portalSlug || '').trim();
@@ -683,6 +868,50 @@ const weekdayOptions = [
   { value: 4, label: 'Thu' },
   { value: 5, label: 'Fri' },
   { value: 6, label: 'Sat' }
+];
+
+const EVENT_CATEGORY_OPTIONS = [
+  { value: 'company_event', label: 'Company Event' },
+  { value: 'program_event', label: 'Program Event' },
+  { value: 'staff_event', label: 'Staff/Internal Event' },
+  { value: 'custom', label: 'Custom Type' }
+];
+
+const EVENT_TYPE_PRESETS = [
+  { value: 'program_orientation', label: 'Program Orientation', eventType: 'program_orientation', title: 'Program Orientation' },
+  { value: 'program_workshop', label: 'Program Workshop', eventType: 'program_workshop', title: 'Program Workshop' },
+  { value: 'program_open_house', label: 'Program Open House', eventType: 'program_open_house', title: 'Program Open House' },
+  { value: 'guardian_program_class', label: 'Guardian Program Class', eventType: 'guardian_program_class', title: 'Guardian Program Class' },
+  { value: 'staff_get_together', label: 'Staff Get-Together', eventType: 'staff_get_together', title: 'Staff Get-Together' },
+  { value: 'team_training', label: 'Team Training', eventType: 'team_training', title: 'Team Training Session' },
+  { value: 'celebration', label: 'Team Celebration', eventType: 'team_celebration', title: 'Team Celebration' },
+  { value: 'retreat', label: 'Team Retreat', eventType: 'team_retreat', title: 'Team Retreat' }
+];
+
+const EVENT_TYPE_OPTIONS = [
+  { value: 'company_event', label: 'Company Event' },
+  { value: 'program_event', label: 'Program Event' },
+  { value: 'guardian_program_class', label: 'Guardian Program Class' },
+  { value: 'program_orientation', label: 'Program Orientation' },
+  { value: 'program_workshop', label: 'Program Workshop' },
+  { value: 'program_open_house', label: 'Program Open House' },
+  { value: 'skills_group', label: 'Skills Group (Integrated)' },
+  { value: 'staff_event', label: 'Staff Event' },
+  { value: 'staff_get_together', label: 'Staff Get-Together' },
+  { value: 'team_training', label: 'Team Training' },
+  { value: 'team_celebration', label: 'Team Celebration' },
+  { value: 'team_retreat', label: 'Team Retreat' }
+];
+
+const TIMEZONE_OPTIONS = [
+  { value: 'America/New_York', label: 'Eastern (New York)' },
+  { value: 'America/Chicago', label: 'Central (Chicago)' },
+  { value: 'America/Denver', label: 'Mountain (Denver)' },
+  { value: 'America/Phoenix', label: 'Mountain no DST (Phoenix)' },
+  { value: 'America/Los_Angeles', label: 'Pacific (Los Angeles)' },
+  { value: 'America/Anchorage', label: 'Alaska (Anchorage)' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii (Honolulu)' },
+  { value: 'UTC', label: 'UTC' }
 ];
 
 function emptyDraft() {
@@ -734,7 +963,10 @@ function emptyDraft() {
     snackOptions: [],
     mealsAvailable: false,
     mealOptions: [],
+    eventImageUrl: '',
+    eventImageUrls: [],
     publicHeroImageUrl: '',
+    registrationFormUrl: '',
     publicListingDetails: '',
     inPersonPublic: false,
     publicLocationAddress: '',
@@ -760,8 +992,56 @@ function wallTimeToInput(v) {
 }
 
 const draft = ref(emptyDraft());
+const selectedPreset = ref('');
+const selectedEventCategory = ref('company_event');
+const eventTypeSelection = ref('company_event');
+const baselineSnapshot = ref('');
+const selectedTimezoneOffsetLabel = computed(() => {
+  const tz = String(draft.value.timezone || 'UTC').trim() || 'UTC';
+  if (!isValidTimeZone(tz)) return 'Timezone offset unavailable';
+  const year = new Date().getUTCFullYear();
+  const jan = new Date(Date.UTC(year, 0, 15, 12, 0, 0));
+  const jul = new Date(Date.UTC(year, 6, 15, 12, 0, 0));
+  const janOffset = Math.round(-getTimeZoneOffsetMs(jan, tz) / 60000);
+  const julOffset = Math.round(-getTimeZoneOffsetMs(jul, tz) / 60000);
+  if (janOffset === julOffset) return `Current offset: ${formatOffsetMinutes(janOffset)}`;
+  const labels = [formatOffsetMinutes(janOffset), formatOffsetMinutes(julOffset)].sort();
+  return `Seasonal offsets: ${labels.join(' / ')}`;
+});
 
 const kioskPinNewDigitCount = computed(() => String(draft.value.kioskEventPinNew || '').replace(/\D/g, '').length);
+const hasUnsavedChanges = computed(() => {
+  if (!props.modelValue || loading.value) return false;
+  return serializeModalState() !== baselineSnapshot.value;
+});
+
+function serializeModalState() {
+  const assignments = (eventProviderAssignments.value || [])
+    .map((p) => ({
+      id: Number(p.id || 0),
+      assignmentRoleTitle: String(p.assignmentRoleTitle || '').trim(),
+      assignmentRoleKey: String(p.assignmentRoleKey || '').trim(),
+      virtualAccessRole: String(p.virtualAccessRole || 'participant'),
+      isPrimaryAccess: !!p.isPrimaryAccess
+    }))
+    .sort((a, b) => a.id - b.id);
+  return JSON.stringify({
+    draft: draft.value,
+    selectedPreset: selectedPreset.value,
+    selectedEventCategory: selectedEventCategory.value,
+    eventTypeSelection: eventTypeSelection.value,
+    eventProviderAssignments: assignments
+  });
+}
+
+function markClean() {
+  baselineSnapshot.value = serializeModalState();
+}
+
+function confirmDiscardIfNeeded() {
+  if (!hasUnsavedChanges.value) return true;
+  return window.confirm('You have unsaved changes. Close this editor and discard them?');
+}
 
 function browserTimeZone() {
   try {
@@ -809,6 +1089,14 @@ function getTimeZoneOffsetMs(date, timeZone) {
     )
   );
   return date.getTime() - asUtc.getTime();
+}
+
+function formatOffsetMinutes(offsetMinutes) {
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const abs = Math.abs(offsetMinutes);
+  const h = String(Math.floor(abs / 60)).padStart(2, '0');
+  const m = String(abs % 60).padStart(2, '0');
+  return `UTC${sign}${h}:${m}`;
 }
 
 /** Format an instant as yyyy-MM-ddTHH:mm in the given IANA zone (for datetime-local inputs). */
@@ -958,6 +1246,9 @@ function populateFromEvent(event) {
     programCostDollars: event.programCostDollars != null ? Number(event.programCostDollars) : null,
     perSessionCostDollars: event.perSessionCostDollars != null ? Number(event.perSessionCostDollars) : null,
     publicHeroImageUrl: String(event.publicHeroImageUrl || '').trim(),
+    eventImageUrl: String(event.eventImageUrl || '').trim(),
+    eventImageUrls: Array.isArray(event.eventImageUrls) ? [...event.eventImageUrls] : [],
+    registrationFormUrl: String(event.registrationFormUrl || '').trim(),
     publicListingDetails: String(event.publicListingDetails || '').trim(),
     inPersonPublic: !!event.inPersonPublic,
     publicLocationAddress: String(event.publicLocationAddress || '').trim(),
@@ -976,6 +1267,105 @@ function populateFromEvent(event) {
     kioskEventPinNew: '',
     kioskEventPinClear: false
   };
+  selectedPreset.value = '';
+  selectedEventCategory.value = deriveCategoryFromEventType(draft.value.eventType);
+  syncEventTypeSelection();
+}
+
+function deriveCategoryFromEventType(rawType) {
+  const t = String(rawType || '').trim().toLowerCase();
+  if (!t || t === 'company_event') return 'company_event';
+  if (t === 'program_event' || t.startsWith('program_') || t === 'guardian_program_class') return 'program_event';
+  if (t === 'staff_event' || t.startsWith('staff_') || t.startsWith('team_')) return 'staff_event';
+  return 'custom';
+}
+
+function syncEventTypeSelection() {
+  const t = String(draft.value.eventType || '').trim().toLowerCase();
+  const known = EVENT_TYPE_OPTIONS.some((opt) => String(opt.value || '').toLowerCase() === t);
+  eventTypeSelection.value = known ? t : '__custom__';
+}
+
+function applyEventTypeSelection() {
+  if (eventTypeSelection.value === '__custom__') return;
+  draft.value.eventType = String(eventTypeSelection.value || 'company_event').trim().toLowerCase();
+  selectedEventCategory.value = deriveCategoryFromEventType(draft.value.eventType);
+}
+
+function applyEventCategory() {
+  const cat = String(selectedEventCategory.value || '').trim().toLowerCase();
+  if (cat === 'custom') return;
+  draft.value.eventType = cat;
+  selectedPreset.value = '';
+  syncEventTypeSelection();
+}
+
+function applyPreset() {
+  const preset = EVENT_TYPE_PRESETS.find((p) => p.value === selectedPreset.value);
+  if (!preset) return;
+  draft.value.eventType = String(preset.eventType || '').trim().toLowerCase();
+  selectedEventCategory.value = deriveCategoryFromEventType(draft.value.eventType);
+  if (!draft.value.title) draft.value.title = String(preset.title || '').trim();
+  syncEventTypeSelection();
+}
+
+async function onPhotoUpload(event) {
+  const files = Array.from(event?.target?.files || []);
+  if (!files.length) return;
+  formError.value = '';
+  try {
+    for (const file of files) {
+      const fd = new FormData();
+      fd.append('logo', file);
+      // eslint-disable-next-line no-await-in-loop
+      const resp = await api.post('/logos/upload', fd, { skipGlobalLoading: true });
+      const url = String(resp.data?.url || '').trim();
+      if (!url) continue;
+      if (!draft.value.eventImageUrl) draft.value.eventImageUrl = url;
+      if (!draft.value.publicHeroImageUrl) draft.value.publicHeroImageUrl = url;
+      draft.value.eventImageUrls = [...(draft.value.eventImageUrls || []), url];
+    }
+  } catch (e) {
+    formError.value = e?.response?.data?.error?.message || 'Photo upload failed';
+  } finally {
+    if (event?.target) event.target.value = '';
+  }
+}
+
+function removeEventImage(idx) {
+  const removed = (draft.value.eventImageUrls || [])[idx];
+  draft.value.eventImageUrls = (draft.value.eventImageUrls || []).filter((_, i) => i !== idx);
+  if (removed && draft.value.publicHeroImageUrl === removed) {
+    draft.value.publicHeroImageUrl = draft.value.eventImageUrls[0] || '';
+  }
+}
+
+function setBannerFromAlbum(url) {
+  draft.value.publicHeroImageUrl = String(url || '').trim();
+}
+
+function moveEventImageLeft(idx) {
+  const list = Array.isArray(draft.value.eventImageUrls) ? [...draft.value.eventImageUrls] : [];
+  if (idx <= 0 || idx >= list.length) return;
+  const tmp = list[idx - 1];
+  list[idx - 1] = list[idx];
+  list[idx] = tmp;
+  draft.value.eventImageUrls = list;
+}
+
+function moveEventImageRight(idx) {
+  const list = Array.isArray(draft.value.eventImageUrls) ? [...draft.value.eventImageUrls] : [];
+  if (idx < 0 || idx >= list.length - 1) return;
+  const tmp = list[idx + 1];
+  list[idx + 1] = list[idx];
+  list[idx] = tmp;
+  draft.value.eventImageUrls = list;
+}
+
+function shortUrl(value) {
+  const s = String(value || '');
+  if (s.length <= 42) return s;
+  return `${s.slice(0, 36)}...`;
 }
 
 function normalizeRecurrenceForPayload(recurrence = {}) {
@@ -1105,6 +1495,92 @@ async function loadAffiliateProgramOrgs() {
   }
 }
 
+async function loadEventProviderAssignments() {
+  eventProviderError.value = '';
+  eventProviderLoading.value = true;
+  eventProviderToAdd.value = '';
+  try {
+    const res = await api.get(`/skill-builders/events/${props.eventId}/provider-assignments`, {
+      params: { agencyId: props.agencyId },
+      skipGlobalLoading: true
+    });
+    eventProviderAssignments.value = Array.isArray(res.data?.assignedProviders)
+      ? res.data.assignedProviders.map((p) => ({
+          ...p,
+          assignmentRoleTitle: String(p.assignmentRoleTitle || '').trim(),
+          assignmentRoleKey: String(p.assignmentRoleKey || '').trim(),
+          virtualAccessRole: String(p.virtualAccessRole || 'participant'),
+          isPrimaryAccess: !!p.isPrimaryAccess
+        }))
+      : [];
+    eventProviderDirectory.value = Array.isArray(res.data?.allAgencyProviders) ? res.data.allAgencyProviders : [];
+  } catch (e) {
+    eventProviderError.value = e.response?.data?.error?.message || e.message || 'Failed to load event providers';
+    eventProviderAssignments.value = [];
+    eventProviderDirectory.value = [];
+  } finally {
+    eventProviderLoading.value = false;
+  }
+}
+
+async function saveEventProviderAssignment(provider) {
+  const pid = Number(provider?.id || 0);
+  if (!pid || eventProviderSaving.value) return;
+  eventProviderSaving.value = true;
+  eventProviderError.value = '';
+  try {
+    await api.put(
+      `/skill-builders/events/${props.eventId}/provider-assignments/${pid}`,
+      {
+        agencyId: props.agencyId,
+        roleTitle: String(provider.assignmentRoleTitle || '').trim() || null,
+        roleKey: String(provider.assignmentRoleKey || '').trim() || null,
+        isPrimaryAccess: !!provider.isPrimaryAccess,
+        virtualAccessRole: String(provider.virtualAccessRole || 'participant')
+      },
+      { skipGlobalLoading: true }
+    );
+    await loadEventProviderAssignments();
+  } catch (e) {
+    eventProviderError.value = e.response?.data?.error?.message || e.message || 'Could not save provider assignment';
+  } finally {
+    eventProviderSaving.value = false;
+  }
+}
+
+async function addEventProvider() {
+  const pid = Number(eventProviderToAdd.value || 0);
+  if (!pid || eventProviderSaving.value) return;
+  const profile = (eventProviderDirectory.value || []).find((p) => Number(p.id) === pid) || null;
+  const fallbackRoleTitle = String(profile?.title || '').trim() || null;
+  await saveEventProviderAssignment({
+    id: pid,
+    assignmentRoleTitle: fallbackRoleTitle,
+    assignmentRoleKey: null,
+    virtualAccessRole: 'participant',
+    isPrimaryAccess: false
+  });
+  eventProviderToAdd.value = '';
+}
+
+async function removeEventProviderAssignment(providerUserId) {
+  const pid = Number(providerUserId || 0);
+  if (!pid || eventProviderSaving.value) return;
+  eventProviderSaving.value = true;
+  eventProviderError.value = '';
+  try {
+    await api.delete(`/skill-builders/events/${props.eventId}/provider-assignments/${pid}`, {
+      params: { agencyId: props.agencyId },
+      skipGlobalLoading: true
+    });
+    await loadEventProviderAssignments();
+  } catch (e) {
+    eventProviderError.value = e.response?.data?.error?.message || e.message || 'Could not remove provider assignment';
+  } finally {
+    eventProviderSaving.value = false;
+  }
+}
+
 async function loadEditBundle() {
   loadError.value = '';
   loading.value = true;
@@ -1115,12 +1591,14 @@ async function loadEditBundle() {
         skipGlobalLoading: true
       }),
       loadAffiliateProgramOrgs(),
-      loadSkillsGroupRoster()
+      loadSkillsGroupRoster(),
+      loadEventProviderAssignments()
     ]);
     skillsGroupMeetingsPreview.value = Array.isArray(evRes.data?.skillsGroupMeetings)
       ? evRes.data.skillsGroupMeetings.map((x) => ({ ...x }))
       : [];
     populateFromEvent(evRes.data?.event);
+    markClean();
   } catch (e) {
     loadError.value = e.response?.data?.error?.message || e.message || 'Failed to load event';
     skillsGroupMeetingsPreview.value = [];
@@ -1132,6 +1610,7 @@ async function loadEditBundle() {
 
 function close() {
   if (saving.value) return;
+  if (!confirmDiscardIfNeeded()) return;
   emit('update:modelValue', false);
 }
 
@@ -1224,14 +1703,26 @@ async function save() {
       registrationEligible: !!draft.value.registrationEligible,
       medicaidEligible: !!draft.value.medicaidEligible,
       cashEligible: !!draft.value.cashEligible,
-      programCostBillingMode: draft.value.cashEligible ? (draft.value.programCostBillingMode || 'total') : null,
-      programCostDollars: draft.value.cashEligible && draft.value.programCostBillingMode === 'total'
-        ? (draft.value.programCostDollars != null ? Number(draft.value.programCostDollars) : null)
+      programCostBillingMode: draft.value.cashEligible
+        ? (
+            draft.value.programCostBillingMode ||
+            (draft.value.programCostDollars != null && draft.value.programCostDollars !== '' ? 'total' : 'per_session')
+          )
         : null,
-      perSessionCostDollars: draft.value.cashEligible && draft.value.programCostBillingMode === 'per_session'
-        ? (draft.value.perSessionCostDollars != null ? Number(draft.value.perSessionCostDollars) : null)
+      programCostDollars: draft.value.cashEligible
+        ? (draft.value.programCostDollars != null && draft.value.programCostDollars !== ''
+            ? Number(draft.value.programCostDollars)
+            : null)
+        : null,
+      perSessionCostDollars: draft.value.cashEligible
+        ? (draft.value.perSessionCostDollars != null && draft.value.perSessionCostDollars !== ''
+            ? Number(draft.value.perSessionCostDollars)
+            : null)
         : null,
       publicHeroImageUrl: String(draft.value.publicHeroImageUrl || '').trim() || null,
+      eventImageUrl: String(draft.value.eventImageUrl || '').trim() || null,
+      eventImageUrls: Array.isArray(draft.value.eventImageUrls) ? [...draft.value.eventImageUrls] : [],
+      registrationFormUrl: String(draft.value.registrationFormUrl || '').trim() || null,
       publicListingDetails: String(draft.value.publicListingDetails || '').trim() || null,
       inPersonPublic: !!draft.value.inPersonPublic,
       publicLocationAddress: draft.value.inPersonPublic
@@ -1278,6 +1769,7 @@ async function save() {
       { agencyId: props.agencyId, ...payload },
       { skipGlobalLoading: true }
     );
+    markClean();
     emit('update:modelValue', false);
     emit('saved');
   } catch (e) {
@@ -1309,8 +1801,14 @@ watch(
       providerToAddExpanded.value = '';
       showExpandedAgencyProviders.value = false;
       sdpPromoteNotice.value = '';
+      eventProviderError.value = '';
+      eventProviderToAdd.value = '';
+      eventProviderAssignments.value = [];
+      eventProviderDirectory.value = [];
+      baselineSnapshot.value = '';
     }
-  }
+  },
+  { immediate: true }
 );
 
 watch(
@@ -1325,6 +1823,20 @@ watch(
   () => {
     if (kioskPinNewDigitCount.value > 0) draft.value.kioskEventPinClear = false;
   }
+);
+
+watch(
+  () => draft.value.eventType,
+  () => {
+    selectedEventCategory.value = deriveCategoryFromEventType(draft.value.eventType);
+    syncEventTypeSelection();
+    if (!isServiceProgramEventType.value) return;
+    draft.value.rsvpMode = 'none';
+    draft.value.votingConfig.enabled = false;
+    draft.value.reminderConfig.enabled = false;
+    draft.value.registrationEligible = true;
+  },
+  { immediate: true }
 );
 </script>
 
@@ -1458,6 +1970,28 @@ watch(
   gap: 10px;
   flex-wrap: wrap;
 }
+.sb-ce-event-prov-row {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 10px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sb-ce-event-prov-name {
+  font-size: 0.92rem;
+}
+.sb-ce-event-prov-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 8px;
+}
+.sb-ce-event-prov-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .sb-ce-roster-name {
   font-size: 0.92rem;
 }
@@ -1538,6 +2072,47 @@ watch(
 }
 .sb-ce-food-row .input {
   flex: 1;
+}
+.sb-ce-custom-event-type {
+  margin-top: 6px;
+}
+.sb-ce-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 2px;
+}
+.sb-ce-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 999px;
+  padding: 4px 8px;
+  max-width: 100%;
+  background: #f8fafc;
+}
+.sb-ce-tag-url {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.84rem;
+}
+.sb-ce-tag-move {
+  padding: 0 6px;
+  line-height: 1.2;
+}
+.sb-ce-tag-banner {
+  white-space: nowrap;
+}
+.sb-ce-tag-remove {
+  border: none;
+  background: none;
+  color: var(--danger, #dc2626);
+  cursor: pointer;
+  font-weight: 700;
+  line-height: 1;
 }
 .sb-ce-food-remove {
   background: none;

@@ -28,6 +28,17 @@
               </span>
             </div>
             <p v-if="p.title" class="sbep-prov-line sbep-prov-strong">{{ p.title }}</p>
+            <p v-if="p.assignmentRoleTitle && p.assignmentRoleTitle !== p.title" class="sbep-prov-line">
+              {{ p.assignmentRoleTitle }}
+            </p>
+            <div
+              v-if="p.isPrimaryAccess || p.virtualAccessRole === 'presenter' || p.virtualAccessRole === 'co_presenter'"
+              class="sbep-prov-role-pills"
+            >
+              <span v-if="p.isPrimaryAccess" class="sbep-prov-pill">Primary access</span>
+              <span v-if="p.virtualAccessRole === 'presenter'" class="sbep-prov-pill">Presenter</span>
+              <span v-else-if="p.virtualAccessRole === 'co_presenter'" class="sbep-prov-pill">Co-presenter</span>
+            </div>
             <p v-if="p.credential" class="sbep-prov-line">{{ p.credential }}</p>
             <p v-if="p.serviceFocus" class="sbep-prov-line">{{ p.serviceFocus }}</p>
             <p v-if="p.languagesSpoken" class="sbep-prov-line muted small">Languages: {{ p.languagesSpoken }}</p>
@@ -236,6 +247,22 @@ function initialsFor(p) {
 .sbep-prov-strong {
   color: var(--text-primary, #334155);
   font-weight: 600;
+}
+.sbep-prov-role-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 2px;
+}
+.sbep-prov-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--border, #d1d5db);
+  background: #f8fafc;
+  color: var(--text-primary, #0f172a);
+  font-size: 0.74rem;
+  padding: 2px 8px;
 }
 .sbep-prov-more-section {
   margin-top: 10px;

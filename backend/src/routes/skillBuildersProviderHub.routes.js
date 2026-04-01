@@ -9,6 +9,7 @@ import {
   getMySkillBuilderWorkSchedule,
   getSkillBuilderEventDetail,
   listSkillBuilderEventSessions,
+  listSkillBuilderProgramSessions,
   putSkillBuilderEventSessionProviders,
   getSkillBuilderEventProviderWorkSchedule,
   putSkillBuilderEventProviderWorkSchedule,
@@ -24,7 +25,13 @@ import {
   putSkillBuilderPortalCompanyEventForEdit,
   getSkillBuilderEventSkillsGroupRoster,
   postSkillBuilderEventSkillsGroupRoster,
+  listSkillBuilderEventProviderAssignments,
+  upsertSkillBuilderEventProviderAssignment,
+  deleteSkillBuilderEventProviderAssignment,
   patchSkillBuilderEventSession,
+  patchSkillBuilderProgramSession,
+  generateVirtualRoomsForProgramSessions,
+  runProgramSessionReminderCron,
   listSkillBuilderEventProviderAttendance,
   listSkillBuilderEventClientAttendance,
   putSkillBuilderClientSessionAttendance,
@@ -128,8 +135,15 @@ router.get('/events/:eventId/company-event-edit', getSkillBuilderPortalCompanyEv
 router.put('/events/:eventId/company-event-edit', putSkillBuilderPortalCompanyEventForEdit);
 router.get('/events/:eventId/skills-group-roster', getSkillBuilderEventSkillsGroupRoster);
 router.post('/events/:eventId/skills-group-roster', postSkillBuilderEventSkillsGroupRoster);
+router.get('/events/:eventId/provider-assignments', listSkillBuilderEventProviderAssignments);
+router.put('/events/:eventId/provider-assignments/:providerUserId', upsertSkillBuilderEventProviderAssignment);
+router.delete('/events/:eventId/provider-assignments/:providerUserId', deleteSkillBuilderEventProviderAssignment);
 router.get('/events/:eventId/sessions', listSkillBuilderEventSessions);
+router.get('/events/:eventId/program-sessions', listSkillBuilderProgramSessions);
 router.patch('/events/:eventId/sessions/:sessionId', patchSkillBuilderEventSession);
+router.patch('/events/:eventId/program-sessions/:sessionId', patchSkillBuilderProgramSession);
+router.post('/events/:eventId/generate-virtual-rooms', generateVirtualRoomsForProgramSessions);
+router.post('/cron/pre-session-reminders', runProgramSessionReminderCron);
 router.get('/events/:eventId/program-documents', listSkillBuilderEventProgramDocuments);
 router.post('/events/:eventId/program-documents', ...postSkillBuilderEventProgramDocument);
 router.delete('/events/:eventId/program-documents/:documentId', deleteSkillBuilderEventProgramDocument);

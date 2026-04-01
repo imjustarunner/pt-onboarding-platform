@@ -98,16 +98,37 @@ export function formatIcsDate(date) {
   return formatGoogleDate(date);
 }
 
+export function computeOccurrenceEnd(startsAtInput, endsAtInput, recurrenceInput) {
+  const startsAt = startsAtInput instanceof Date ? startsAtInput : new Date(startsAtInput || 0);
+  const endsAt = endsAtInput instanceof Date ? endsAtInput : new Date(endsAtInput || 0);
+  if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) return null;
+  const recurrence = normalizeRecurrence(recurrenceInput);
+  if (recurrence.frequency === 'none') return endsAt;
+  const sameDayEnd = new Date(Date.UTC(
+    startsAt.getUTCFullYear(),
+    startsAt.getUTCMonth(),
+    startsAt.getUTCDate(),
+    endsAt.getUTCHours(),
+    endsAt.getUTCMinutes(),
+    endsAt.getUTCSeconds()
+  ));
+  let durationMs = sameDayEnd.getTime() - startsAt.getTime();
+  if (durationMs <= 0) durationMs += 24 * 60 * 60 * 1000;
+  return new Date(startsAt.getTime() + durationMs);
+}
+
 export function makeGoogleCalendarUrl(event) {
   const startsAt = new Date(event?.startsAt || event?.starts_at || 0);
   const endsAt = new Date(event?.endsAt || event?.ends_at || 0);
   if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) return null;
+  const occurrenceEnd = computeOccurrenceEnd(startsAt, endsAt, event?.recurrence);
+  if (!occurrenceEnd) return null;
   const params = new URLSearchParams();
   params.set('action', 'TEMPLATE');
   params.set('text', String(event?.title || 'Company event'));
   const details = String(event?.description || event?.splashContent || '').trim();
   if (details) params.set('details', details);
-  params.set('dates', `${formatGoogleDate(startsAt)}/${formatGoogleDate(endsAt)}`);
+  params.set('dates', `${formatGoogleDate(startsAt)}/${formatGoogleDate(occurrenceEnd)}`);
   const recurrenceRule = recurrenceToRRule(event?.recurrence, startsAt);
   if (recurrenceRule) params.set('recur', recurrenceRule);
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
@@ -117,6 +138,8 @@ export function buildEventIcs(event) {
   const startsAt = new Date(event?.startsAt || event?.starts_at || 0);
   const endsAt = new Date(event?.endsAt || event?.ends_at || 0);
   if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) return null;
+  const occurrenceEnd = computeOccurrenceEnd(startsAt, endsAt, event?.recurrence);
+  if (!occurrenceEnd) return null;
   const recurrenceRule = recurrenceToRRule(event?.recurrence, startsAt);
   const uid = `company-event-${event?.id || 'unknown'}@ptonboardingapp`;
   const lines = [
@@ -129,7 +152,7 @@ export function buildEventIcs(event) {
     `UID:${uid}`,
     `DTSTAMP:${formatIcsDate(new Date())}`,
     `DTSTART:${formatIcsDate(startsAt)}`,
-    `DTEND:${formatIcsDate(endsAt)}`,
+    `DTEND:${formatIcsDate(occurrenceEnd)}`,
     `SUMMARY:${escapeIcsText(event?.title || 'Company event')}`
   ];
   const desc = String(event?.description || event?.splashContent || '').trim();
@@ -146,12 +169,17 @@ export function computeNextOccurrence(event, nowInput = new Date()) {
   if (!Number.isFinite(now.getTime()) || !Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
     return null;
   }
-  if (startsAt >= now) {
-    return { startsAt, endsAt };
-  }
   const recurrence = normalizeRecurrence(event?.recurrence);
+  const firstOccurrenceEnd = computeOccurrenceEnd(startsAt, endsAt, recurrence);
+  if (startsAt >= now) {
+    return { startsAt, endsAt: firstOccurrenceEnd || endsAt };
+  }
   if (recurrence.frequency === 'none') return null;
-  const durationMs = Math.max(60_000, endsAt.getTime() - startsAt.getTime());
+  const occurrenceEnd = firstOccurrenceEnd;
+  const durationMs = Math.max(
+    60_000,
+    Number.isFinite(occurrenceEnd?.getTime()) ? occurrenceEnd.getTime() - startsAt.getTime() : 60_000
+  );
   const until = recurrence.untilDate ? new Date(`${recurrence.untilDate}T23:59:59Z`) : null;
 
   if (recurrence.frequency === 'weekly') {

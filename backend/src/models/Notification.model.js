@@ -110,6 +110,8 @@ class Notification {
     'school_primary_staff_removed',
     // Public form submission (no client) - document landed in Unassigned Documents
     'unassigned_document_submitted',
+    // Hiring
+    'new_job_application_submitted',
     // Medical records release (ROI) - only visible to users with has_medical_records_release_access
     'medical_records_release_submitted',
     // School ROI lifecycle (admin/staff visibility)

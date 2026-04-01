@@ -89,6 +89,68 @@
           <PresenceTeamPreview />
         </div>
       </div>
+
+      <section class="marketing-audit-card">
+        <div class="marketing-audit-head">
+          <div>
+            <h2 style="margin: 0;">Tenant marketing controls</h2>
+            <p class="marketing-audit-sub">
+              Audit which tenants can appear in platform-shared event marketing and use public registration links.
+            </p>
+          </div>
+          <router-link class="btn btn-secondary btn-sm" to="/admin/settings?tab=agencies">
+            Manage tenants
+          </router-link>
+        </div>
+        <div class="marketing-audit-summary">
+          <span class="pill">Shared enabled: {{ marketingSharedEnabledCount }}</span>
+          <span class="pill">Public registration enabled: {{ marketingPublicEnabledCount }}</span>
+          <span class="pill pill-muted">Total tenants: {{ tenantMarketingRows.length }}</span>
+        </div>
+        <div class="marketing-audit-filters">
+          <button
+            v-for="opt in marketingFilterOptions"
+            :key="opt.id"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :class="{ active: marketingFilter === opt.id }"
+            @click="marketingFilter = opt.id"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+        <div class="marketing-audit-table-wrap">
+          <table class="marketing-audit-table">
+            <thead>
+              <tr>
+                <th>Tenant</th>
+                <th>Slug</th>
+                <th>Shared marketing</th>
+                <th>Public registration</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in filteredTenantMarketingRows" :key="`tenant-mkt-${row.id}`">
+                <td>{{ row.name }}</td>
+                <td class="mono">/{{ row.slug }}</td>
+                <td>
+                  <span :class="['badge', row.platformSharedMarketingEnabled ? 'badge-success' : 'badge-secondary']">
+                    {{ row.platformSharedMarketingEnabled ? 'Enabled' : 'Disabled' }}
+                  </span>
+                </td>
+                <td>
+                  <span :class="['badge', row.platformPublicRegistrationEnabled ? 'badge-success' : 'badge-secondary']">
+                    {{ row.platformPublicRegistrationEnabled ? 'Enabled' : 'Disabled' }}
+                  </span>
+                </td>
+              </tr>
+              <tr v-if="!filteredTenantMarketingRows.length">
+                <td colspan="4" class="muted">No tenants match this filter.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
       
       <NotificationCards />
 
@@ -297,6 +359,48 @@ const clinicalNoteGeneratorEnabledForAgency = computed(() =>
     return isTruthyFlag(flags?.noteAidEnabled) || isTruthyFlag(flags?.clinicalNoteGeneratorEnabled);
   })()
 );
+
+const tenantMarketingRows = computed(() => {
+  return (agencies.value || [])
+    .map((a) => {
+      const flags = parseFeatureFlags(a?.feature_flags);
+      return {
+        id: Number(a?.id || 0),
+        name: String(a?.name || '').trim() || 'Tenant',
+        slug: String(a?.slug || a?.portal_url || '').trim().toLowerCase(),
+        platformSharedMarketingEnabled: flags.platformSharedMarketingEnabled !== false,
+        platformPublicRegistrationEnabled: flags.platformPublicRegistrationEnabled !== false
+      };
+    })
+    .filter((r) => r.id > 0)
+    .sort((x, y) => x.name.localeCompare(y.name));
+});
+
+const marketingSharedEnabledCount = computed(
+  () => tenantMarketingRows.value.filter((r) => r.platformSharedMarketingEnabled).length
+);
+const marketingPublicEnabledCount = computed(
+  () => tenantMarketingRows.value.filter((r) => r.platformPublicRegistrationEnabled).length
+);
+const marketingFilter = ref('all');
+const marketingFilterOptions = [
+  { id: 'all', label: 'All' },
+  { id: 'shared_disabled', label: 'Shared disabled' },
+  { id: 'public_disabled', label: 'Public disabled' },
+  { id: 'any_disabled', label: 'Any disabled' }
+];
+const filteredTenantMarketingRows = computed(() => {
+  if (marketingFilter.value === 'shared_disabled') {
+    return tenantMarketingRows.value.filter((r) => !r.platformSharedMarketingEnabled);
+  }
+  if (marketingFilter.value === 'public_disabled') {
+    return tenantMarketingRows.value.filter((r) => !r.platformPublicRegistrationEnabled);
+  }
+  if (marketingFilter.value === 'any_disabled') {
+    return tenantMarketingRows.value.filter((r) => !r.platformSharedMarketingEnabled || !r.platformPublicRegistrationEnabled);
+  }
+  return tenantMarketingRows.value;
+});
 
 const quickActions = computed(() => {
   const base = [
@@ -953,6 +1057,72 @@ onMounted(loadMyOpenTickets);
   flex: 1;
   min-width: 280px;
   max-width: 600px;
+}
+
+.marketing-audit-card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.marketing-audit-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.marketing-audit-sub {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.marketing-audit-summary {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.marketing-audit-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.marketing-audit-filters .btn.active {
+  border-color: var(--primary);
+  background: rgba(79, 70, 229, 0.08);
+  color: var(--text-primary);
+}
+
+.marketing-audit-table-wrap {
+  overflow-x: auto;
+}
+
+.marketing-audit-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.marketing-audit-table th,
+.marketing-audit-table td {
+  border-top: 1px solid var(--border);
+  padding: 10px 8px;
+  text-align: left;
+  font-size: 13px;
+}
+
+.marketing-audit-table th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
 }
 </style>
 

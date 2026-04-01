@@ -62,6 +62,9 @@ export const getGuardianPortalOverview = async (req, res, next) => {
     const dependents = (linkedClients || [])
       .filter((c) => String(c?.relationship_type || '').toLowerCase() !== 'self')
       .map(enrichGuardianClientRow);
+    const linkedClientIds = (linkedClients || [])
+      .map((c) => Number(c?.client_id))
+      .filter((n) => n > 0);
 
     const clientMetaById = new Map(
       (linkedClients || []).map((row) => [Number(row?.client_id), row])
@@ -110,6 +113,119 @@ export const getGuardianPortalOverview = async (req, res, next) => {
     }
 
     const programs = Array.from(byOrgId.values()).sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+    let skillBuilderEvents = [];
+    let programEvents = [];
+    if (linkedClientIds.length) {
+      const ph = linkedClientIds.map(() => '?').join(',');
+
+      const [sbRows] = await pool.execute(
+        `SELECT ce.id AS company_event_id,
+                ce.agency_id,
+                ce.title,
+                ce.starts_at,
+                ce.ends_at,
+                sg.id AS skills_group_id,
+                c.id AS client_id,
+                c.initials AS client_initials,
+                sch.name AS school_name,
+                sch.slug AS school_slug,
+                sgc.created_at AS enrolled_at
+         FROM clients c
+         INNER JOIN skills_group_clients sgc ON sgc.client_id = c.id
+         INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id AND sg.agency_id = c.agency_id
+         INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = c.agency_id
+         LEFT JOIN agencies sch ON sch.id = sg.organization_id
+         WHERE c.id IN (${ph})
+           AND c.skills = TRUE
+         ORDER BY ce.ends_at DESC, ce.starts_at DESC`,
+        linkedClientIds
+      );
+
+      const bySkillBuilderEvent = new Map();
+      for (const row of sbRows || []) {
+        const eventId = Number(row.company_event_id);
+        if (!bySkillBuilderEvent.has(eventId)) {
+          bySkillBuilderEvent.set(eventId, {
+            companyEventId: eventId,
+            agencyId: Number(row.agency_id),
+            title: row.title || `Event ${eventId}`,
+            startsAt: row.starts_at || null,
+            endsAt: row.ends_at || null,
+            skillsGroupId: Number(row.skills_group_id) || null,
+            schoolName: row.school_name || null,
+            schoolSlug: row.school_slug || null,
+            enrolledAt: row.enrolled_at || null,
+            myChildren: []
+          });
+        }
+        bySkillBuilderEvent.get(eventId).myChildren.push({
+          clientId: Number(row.client_id),
+          initials: row.client_initials || null,
+          enrolledAt: row.enrolled_at || null
+        });
+      }
+      skillBuilderEvents = [...bySkillBuilderEvent.values()];
+
+      const [programRows] = await pool.execute(
+        `SELECT ce.id AS company_event_id,
+                ce.agency_id,
+                ce.title,
+                ce.description,
+                ce.starts_at,
+                ce.ends_at,
+                ce.event_type,
+                ce.virtual_sessions_enabled,
+                ag.name AS agency_name,
+                ag.slug AS agency_slug,
+                prog.name AS program_name,
+                prog.slug AS program_slug,
+                c.id AS client_id,
+                c.initials,
+                c.full_name,
+                cec.enrolled_at
+         FROM company_event_clients cec
+         INNER JOIN company_events ce ON ce.id = cec.company_event_id
+         LEFT JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
+         INNER JOIN agencies ag ON ag.id = ce.agency_id
+         LEFT JOIN agencies prog ON prog.id = ce.organization_id
+         INNER JOIN clients c ON c.id = cec.client_id
+         WHERE cec.client_id IN (${ph})
+           AND cec.is_active = 1
+           AND sg.id IS NULL
+         ORDER BY ce.starts_at ASC`,
+        linkedClientIds
+      );
+
+      const byProgramEvent = new Map();
+      for (const row of programRows || []) {
+        const eventId = Number(row.company_event_id);
+        if (!byProgramEvent.has(eventId)) {
+          byProgramEvent.set(eventId, {
+            companyEventId: eventId,
+            agencyId: Number(row.agency_id),
+            agencyName: row.agency_name || null,
+            agencySlug: row.agency_slug || null,
+            programName: row.program_name || null,
+            programSlug: row.program_slug || null,
+            title: row.title || `Event ${eventId}`,
+            description: row.description || null,
+            startsAt: row.starts_at || null,
+            endsAt: row.ends_at || null,
+            eventType: row.event_type || null,
+            virtualSessionsEnabled: !!(row.virtual_sessions_enabled === 1 || row.virtual_sessions_enabled === true),
+            enrolledAt: row.enrolled_at || null,
+            myChildren: []
+          });
+        }
+        byProgramEvent.get(eventId).myChildren.push({
+          clientId: Number(row.client_id),
+          initials: row.initials || null,
+          fullName: row.full_name ? String(row.full_name).trim() || null : null,
+          enrolledAt: row.enrolled_at || null
+        });
+      }
+      programEvents = [...byProgramEvent.values()];
+    }
 
     res.json({
       refreshedAt: new Date().toISOString(),
@@ -117,7 +233,11 @@ export const getGuardianPortalOverview = async (req, res, next) => {
       dependents,
       // Backward-compatible alias consumed by existing UI.
       children: dependents,
-      programs
+      programs,
+      enrollments: {
+        skillBuilderEvents,
+        programEvents
+      }
     });
   } catch (e) {
     next(e);
@@ -616,14 +736,41 @@ export const listGuardianRegistrationCatalog = async (req, res, next) => {
   try {
     const uid = req.user?.id;
     const agencyId = parsePositiveInt(req.query.agencyId);
-    if (!uid || !agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await assertGuardianHasAgencyAccess(uid, agencyId))) {
-      return res.status(403).json({ error: { message: 'No linked dependents for this agency' } });
+    if (!uid) return res.status(400).json({ error: { message: 'Unauthorized' } });
+
+    let agencyIds = [];
+    if (agencyId) {
+      if (!(await assertGuardianHasAgencyAccess(uid, agencyId))) {
+        return res.status(403).json({ error: { message: 'No linked dependents for this agency' } });
+      }
+      agencyIds = [agencyId];
+    } else {
+      const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid });
+      agencyIds = [...new Set((linked || []).map((c) => Number(c?.agency_id)).filter((n) => n > 0))];
+      if (!agencyIds.length) return res.json({ ok: true, items: [] });
     }
 
-    const items = await fetchRegistrationCatalogItems(agencyId);
+    const combined = [];
+    for (const aid of agencyIds) {
+      const rows = await fetchRegistrationCatalogItems(aid);
+      for (const row of rows || []) {
+        combined.push({
+          ...row,
+          agencyId: aid
+        });
+      }
+    }
 
-    res.json({ ok: true, items });
+    const deduped = [];
+    const seen = new Set();
+    for (const item of combined) {
+      const key = `${String(item?.kind || '')}:${Number(item?.id || 0)}:${Number(item?.agencyId || 0)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(item);
+    }
+
+    res.json({ ok: true, items: deduped });
   } catch (e) {
     next(e);
   }

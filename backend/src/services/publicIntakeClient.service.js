@@ -159,6 +159,7 @@ class PublicIntakeClientService {
     }
 
     let guardianUser = null;
+    let newGuardianCreated = false;
     let newGuardianTemporaryPassword = null;
     let newGuardianPasswordlessLoginUrl = null;
     if (createGuardian) {
@@ -174,13 +175,10 @@ class PublicIntakeClientService {
         const firstName = String(guardianPayload.firstName || '').trim() || 'Guardian';
         const lastName = String(guardianPayload.lastName || '').trim() || '';
         const phoneNumber = String(guardianPayload.phone || '').trim() || null;
-        const tempPassword = await User.generateTemporaryPassword();
-        const bcrypt = (await import('bcrypt')).default;
-        const tempPasswordHash = await bcrypt.hash(tempPassword, 10);
 
         guardianUser = await User.create({
           email,
-          passwordHash: tempPasswordHash,
+          passwordHash: null,
           firstName,
           lastName,
           phoneNumber,
@@ -188,10 +186,9 @@ class PublicIntakeClientService {
           role: 'client_guardian',
           status: 'PENDING_SETUP'
         });
+        newGuardianCreated = true;
 
         const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
-        await User.setTemporaryPassword(guardianUser.id, tempPassword, tempHours);
-        newGuardianTemporaryPassword = tempPassword;
         try {
           const agencyRecord = await Agency.findById(agencyId);
           const tokenResult = await User.generatePasswordlessToken(guardianUser.id, tempHours, 'setup');
@@ -219,6 +216,7 @@ class PublicIntakeClientService {
     return {
       clients: createdClients,
       guardianUser,
+      newGuardianCreated,
       newGuardianTemporaryPassword,
       newGuardianPasswordlessLoginUrl
     };

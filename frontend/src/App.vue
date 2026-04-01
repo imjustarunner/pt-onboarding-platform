@@ -126,11 +126,7 @@
                   </button>
                   <div v-if="peopleOpsMenuOpen" class="nav-dropdown-menu">
                     <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/hiring')" >Applicants</router-link>
-                    <a
-                      v-if="hasCapability('canManageHiring')"
-                      href="#"
-                      @click.prevent="openJobDescriptionsNav"
-                    >Job descriptions</a>
+                    <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/careers')" >Careers</router-link>
                     <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" >On-Demand Training</router-link>
                     <router-link
                       :to="orgTo('/admin/modules')"
@@ -838,6 +834,7 @@
       <MomentumStickiesOverlay v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />
       <AddStickyFab v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && momentumListEnabled" />
       <AddToStickyContextMenu v-if="isAuthenticated && momentumListEnabled" />
+      <RegistrationPromoToastRail v-if="isAuthenticated" />
       <HelperWidget v-if="isAuthenticated" />
       <BetaFeedbackWidget v-if="isAuthenticated" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />
@@ -1038,6 +1035,7 @@ import { useMomentumListAddon } from './composables/useMomentumListAddon';
 import { useReminderSnooze } from './composables/useReminderSnooze';
 import WeatherChip from './components/WeatherChip.vue';
 import SessionLockScreen from './components/SessionLockScreen.vue';
+import RegistrationPromoToastRail from './components/RegistrationPromoToastRail.vue';
 import OfficeMandatoryReviewSplash from './components/office/OfficeMandatoryReviewSplash.vue';
 import PublicTranslateWidget from './components/public/PublicTranslateWidget.vue';
 import {
@@ -1216,15 +1214,6 @@ const closeAllNavMenus = () => {
   directoryMenuOpen.value = false;
   managementMenuOpen.value = false;
   engagementMenuOpen.value = false;
-};
-
-const openJobDescriptionsNav = async () => {
-  const targetPath = orgTo('/admin/hiring');
-  const nowToken = String(Date.now());
-  closeAllNavMenus();
-  await router.push({ path: targetPath, query: { openJobs: '1', openJobsTs: nowToken } });
-  // Same-route navigations can be ignored by the router; emit an explicit UI event as a fallback.
-  window.dispatchEvent(new CustomEvent('open-hiring-jobs-modal'));
 };
 
 const onDocumentClick = () => closeAllNavMenus();

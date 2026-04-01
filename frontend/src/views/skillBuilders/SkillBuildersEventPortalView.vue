@@ -110,6 +110,7 @@
                 <li>Program dates: {{ formatDateOnly(detail.skillsGroup.startDate) }} – {{ formatDateOnly(detail.skillsGroup.endDate) }}</li>
               </ul>
               <p class="muted small">{{ headerSubtitle }}</p>
+              <p v-if="eventAboutText" class="muted small sbep-card-lead">{{ eventAboutText }}</p>
               <div v-if="programEventsHref || programEnrollHubHref || dashboardHref" class="sbep-inline-actions sbep-home-links">
                 <router-link v-if="programEnrollHubHref" class="btn btn-secondary btn-sm" :to="programEnrollHubHref">
                   Public enroll page
@@ -181,10 +182,10 @@
                 </ul>
               </div>
 
-              <div v-if="detail.skillsGroup" class="sbep-sched-block">
+              <div class="sbep-sched-block">
                 <p class="sbep-subh">Dates &amp; locations</p>
                 <p class="muted small sbep-card-lead">
-                  Each scheduled occurrence; coordinators can set location and modality in the admin session tools (API).
+                  Each scheduled occurrence. Coordinators can update modality, location, and join links inline.
                 </p>
                 <div v-if="sessionsLoading" class="muted">Loading sessions…</div>
                 <div v-else-if="sessions.length" class="sbep-sessions-table-wrap">
@@ -198,15 +199,57 @@
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="s in sessionsTableRows" :key="`d-${s.id}`">
-                        <td>{{ formatSessionDateDisplay(s.sessionDate) }}</td>
-                        <td>{{ wallHmToDisplay(formatHm(s.startTime)) }}–{{ wallHmToDisplay(formatHm(s.endTime)) }}</td>
-                        <td>{{ s.locationLabel || s.locationAddress || '—' }}</td>
-                        <td>{{ s.modality || '—' }}</td>
-                      </tr>
+                      <template v-for="s in sessionsTableRows" :key="`row-${s.id}`">
+                        <tr>
+                          <td>{{ formatSessionDateDisplay(s.sessionDate) }}</td>
+                          <td>{{ wallHmToDisplay(formatHm(s.startTime)) }}–{{ wallHmToDisplay(formatHm(s.endTime)) }}</td>
+                          <td>{{ s.locationLabel || s.locationAddress || '—' }}</td>
+                          <td>{{ s.modality || '—' }}</td>
+                        </tr>
+                        <tr v-if="viewerCaps.canManageCompanyEvent" class="sbep-sessions-edit-row">
+                          <td colspan="4">
+                            <div class="sbep-inline-edit-grid">
+                              <input
+                                v-model.trim="sessionEditDraft[s.id].locationLabel"
+                                class="input"
+                                type="text"
+                                placeholder="Location label"
+                              />
+                              <input
+                                v-model.trim="sessionEditDraft[s.id].locationAddress"
+                                class="input"
+                                type="text"
+                                placeholder="Location address"
+                              />
+                              <select v-model="sessionEditDraft[s.id].modality" class="input">
+                                <option value="">Modality…</option>
+                                <option value="in_person">In person</option>
+                                <option value="virtual">Virtual</option>
+                                <option value="hybrid">Hybrid</option>
+                              </select>
+                              <input
+                                v-model.trim="sessionEditDraft[s.id].joinUrl"
+                                class="input"
+                                type="url"
+                                placeholder="Join URL (optional)"
+                              />
+                              <button
+                                type="button"
+                                class="btn btn-secondary btn-sm"
+                                :disabled="sessionEditSavingId === s.id"
+                                @click="saveSessionInlineEdits(s.id)"
+                              >
+                                {{ sessionEditSavingId === s.id ? 'Saving…' : 'Save session' }}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      </template>
                     </tbody>
                   </table>
                 </div>
+                <p v-else-if="sessionsLoadError" class="error-box sbep-sessions-err">{{ sessionsLoadError }}</p>
+                <p v-else-if="sessionsLoadAttempted" class="muted">{{ scheduleEmptyMessage }}</p>
                 <p v-else class="muted">No materialized sessions in range.</p>
               </div>
 
@@ -221,12 +264,19 @@
                 </button>
               </div>
 
-              <div
-                v-if="detail.skillsGroup && sessions.length && detail.event?.virtualSessionsEnabled !== false"
-                class="sbep-sched-block"
-              >
+              <div v-if="sessions.length && detail.event?.virtualSessionsEnabled !== false" class="sbep-sched-block">
                 <p class="sbep-subh">Join links (virtual / hybrid)</p>
                 <p class="muted small sbep-card-lead">Join opens 10 minutes before start and stays available through the scheduled end.</p>
+                <div v-if="viewerCaps.canManageCompanyEvent" class="sbep-inline-actions" style="margin-bottom:8px;">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="virtualRoomsGenerating"
+                    @click="generateVirtualRoomsForSessions"
+                  >
+                    {{ virtualRoomsGenerating ? 'Generating rooms…' : 'Generate virtual rooms for all sessions' }}
+                  </button>
+                </div>
                 <ul class="sbep-join-list">
                   <li v-for="s in sessions" :key="`vj-${s.id}`" class="sbep-join-li">
                     <span>{{ formatSessionDateDisplay(s.sessionDate) }} · {{ wallHmToDisplay(formatHm(s.startTime)) }}–{{ wallHmToDisplay(formatHm(s.endTime)) }}</span>
@@ -247,7 +297,7 @@
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
-              v-if="(detail.providers || []).length"
+              v-if="(detail.providers || []).length || viewerCaps.canManageCompanyEvent"
               v-show="railActive === 'providers'"
               rail-mode
               section-id="providers"
@@ -259,7 +309,11 @@
                 Assigned providers — profile and photo from your agency directory (same kind of info as the school portal;
                 no scheduling details here).
               </p>
-              <SkillBuildersEventProvidersGrid :providers="detail.providers || []" />
+              <SkillBuildersEventProvidersGrid v-if="(detail.providers || []).length" :providers="detail.providers || []" />
+              <p v-else class="muted small">
+                No provider roster is linked yet for this event type. If this class needs staffed provider assignment
+                tools, link it to a learning/skills-group-backed program event.
+              </p>
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
@@ -568,11 +622,68 @@
               <p v-if="registrationPayerLines.length" class="muted small">
                 <strong>Payer options:</strong> {{ registrationPayerLines.join(' · ') }}
               </p>
+              <p v-if="registrationRateLines.length" class="muted small">
+                <strong>Rates:</strong> {{ registrationRateLines.join(' · ') }}
+              </p>
               <p v-else class="muted small">Set Medicaid / cash eligibility under <strong>Edit event</strong> (registration catalog).</p>
               <p v-if="guardianRegistrationHref" class="muted small">
                 <router-link :to="guardianRegistrationHref">Open guardian portal</router-link>
                 <span> — Registration section</span>
               </p>
+              <div v-if="linkedIntakeForm" class="sbep-reg-intake-box">
+                <p class="muted small">
+                  <strong>Digital form:</strong>
+                  {{ linkedIntakeForm.title || 'Event registration form' }}
+                  <span v-if="linkedIntakeForm.formType"> · {{ linkedIntakeForm.formType }}</span>
+                  <span v-if="linkedIntakeForm.totalLinksForEvent > 1">
+                    · {{ linkedIntakeForm.totalLinksForEvent }} linked (showing newest active)
+                  </span>
+                </p>
+                <div class="sbep-inline-actions">
+                  <a
+                    v-if="intakeFormUrl"
+                    class="btn btn-secondary btn-sm"
+                    :href="intakeFormUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Open digital form
+                  </a>
+                  <button v-if="intakeFormUrl" type="button" class="btn btn-secondary btn-sm" @click="copyIntakeFormLink">
+                    Copy form link
+                  </button>
+                </div>
+              </div>
+              <div v-if="registrationShareHref || eventPublicPageHref" class="sbep-inline-actions" style="margin-top:8px;">
+                <router-link v-if="registrationShareHref && registrationShareHref.startsWith('/')" class="btn btn-secondary btn-sm" :to="registrationShareHref">
+                  Open registration link
+                </router-link>
+                <a
+                  v-else-if="registrationShareHref"
+                  class="btn btn-secondary btn-sm"
+                  :href="registrationShareHref"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open registration link
+                </a>
+                <a
+                  v-if="eventPublicPageHref"
+                  class="btn btn-secondary btn-sm"
+                  :href="eventPublicPageHref"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Public event page
+                </a>
+                <button v-if="registrationShareHref" type="button" class="btn btn-secondary btn-sm" @click="copyRegistrationLink">
+                  Copy registration link
+                </button>
+                <button v-if="registrationShareHref" type="button" class="btn btn-secondary btn-sm" @click="copyRegistrationShareBlurb">
+                  Copy registration share text
+                </button>
+              </div>
+              <p v-if="copyHint" class="muted small sbep-copy-hint">{{ copyHint }}</p>
 
               <!-- Enrolled client count + quick nav to Clients tab -->
               <div class="sbep-reg-enrolled-summary">
@@ -1123,6 +1234,7 @@ import SkillBuildersEventEditModal from '../../components/skillBuilders/SkillBui
 import SkillBuildersEventProvidersGrid from '../../components/skillBuilders/SkillBuildersEventProvidersGrid.vue';
 import SkillBuildersClinicalNotesHubPanel from '../../components/skillBuilders/SkillBuildersClinicalNotesHubPanel.vue';
 import { useBrandingStore } from '../../store/branding';
+import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
 const route = useRoute();
 const router = useRouter();
@@ -1141,6 +1253,9 @@ const sessions = ref([]);
 const sessionsLoading = ref(false);
 const sessionsLoadAttempted = ref(false);
 const sessionsLoadError = ref('');
+const sessionEditDraft = reactive({});
+const sessionEditSavingId = ref(null);
+const virtualRoomsGenerating = ref(false);
 const kioskSessionId = ref(0);
 const kioskClientId = ref(0);
 
@@ -1158,6 +1273,9 @@ let sessionStaffFlashTimer = null;
 
 const eventId = computed(() => Number(route.params.eventId));
 const organizationSlug = computed(() => String(route.params.organizationSlug || '').trim());
+const isProgramSessionMode = computed(
+  () => !detail.value?.skillsGroup && Number(detail.value?.event?.organizationId || 0) > 0
+);
 
 /** Billing/parent agency id for Skill Builders APIs (not the program portal org from the URL). */
 const eventBillingAgencyId = computed(() => {
@@ -1191,6 +1309,31 @@ const programEnrollHubHref = computed(() => {
   return `/${ag}/programs/${ps}/enroll`;
 });
 
+const eventPublicPageHref = computed(() => {
+  const id = Number(eventId.value || 0);
+  if (!id || typeof window === 'undefined') return '';
+  const origin = String(window.location.origin || '').replace(/\/$/, '');
+  return `${origin}/company-events/${id}`;
+});
+
+const registrationShareHref = computed(() => {
+  if (programEnrollHubHref.value) return programEnrollHubHref.value;
+  if (guardianRegistrationHref.value) return guardianRegistrationHref.value;
+  return eventPublicPageHref.value || '';
+});
+
+const linkedIntakeForm = computed(() => {
+  const li = detail.value?.linkedIntake;
+  if (!li || !li.publicKey) return null;
+  return li;
+});
+
+const intakeFormUrl = computed(() => {
+  const key = String(linkedIntakeForm.value?.publicKey || '').trim();
+  if (!key) return '';
+  return buildPublicIntakeUrl(key);
+});
+
 const dashboardHref = computed(() => {
   const s = organizationSlug.value;
   if (!s) return null;
@@ -1211,6 +1354,35 @@ const registrationPayerLines = computed(() => {
   if (e.medicaidEligible) parts.push('Medicaid');
   if (e.cashEligible) parts.push('Cash / self-pay');
   return parts;
+});
+
+const registrationRateLines = computed(() => {
+  const e = detail.value?.event;
+  if (!e?.cashEligible) return [];
+  const out = [];
+  const total = Number(e.programCostDollars);
+  const perSession = Number(e.perSessionCostDollars);
+  if (Number.isFinite(total) && total > 0) out.push(`Series package $${total.toFixed(2)}`);
+  if (Number.isFinite(perSession) && perSession > 0) out.push(`Per session $${perSession.toFixed(2)}`);
+  if (
+    Number.isFinite(total) &&
+    total > 0 &&
+    Number.isFinite(perSession) &&
+    perSession > 0 &&
+    Number.isFinite(sessions.value?.length) &&
+    sessions.value.length > 0
+  ) {
+    const equiv = total / Math.max(1, sessions.value.length);
+    out.push(`Series equivalent ~$${equiv.toFixed(2)}/session over ${sessions.value.length} sessions`);
+  }
+  return out;
+});
+
+const eventAboutText = computed(() => {
+  const e = detail.value?.event || {};
+  const splash = String(e.splashContent || '').trim();
+  const desc = String(e.description || '').trim();
+  return splash || desc || '';
 });
 
 const crumbProgramLabel = computed(() => detail.value?.programPortal?.name || '');
@@ -1387,7 +1559,7 @@ const eventRailItems = computed(() => {
   push('schedule', 'Schedule', 'Schedule', 'schedule', hasCal || !!d.skillsGroup);
 
   const nProv = (d.providers || []).length;
-  push('providers', 'Providers', 'Providers', 'providers', nProv > 0);
+  push('providers', 'Providers', 'Providers', 'providers', nProv > 0 || !!v.canManageCompanyEvent);
 
   const nCli = (d.clients || []).length;
   push('clients', 'Client Management', 'Clients', 'clients', !!d.skillsGroup && nCli > 0);
@@ -1578,6 +1750,17 @@ function formatDateOnly(d) {
 const SESSIONS_TABLE_LIMIT = 50;
 
 const sessionsTableRows = computed(() => sessions.value.slice(0, SESSIONS_TABLE_LIMIT));
+const scheduleEmptyMessage = computed(() => {
+  const err = String(sessionsLoadError.value || '').toLowerCase();
+  if (err.includes('migration') || err.includes('not migrated') || err.includes('run migration')) {
+    return 'Program sessions are not available yet in this environment. A database migration is required before weekly occurrences can display.';
+  }
+  const hasRecurringRule = !!detail.value?.calendar?.hasRecurrence;
+  if (!hasRecurringRule) {
+    return 'This event has no recurring schedule configured yet. Set recurrence and save, then sessions will appear here.';
+  }
+  return 'Recurrence exists, but no materialized sessions were found in the selected range yet. Save the event again to regenerate session dates.';
+});
 
 const eventAssignmentsUpcoming = computed(() => {
   const today = ymdToday();
@@ -1659,6 +1842,18 @@ function syncSessionStaffDraft() {
   }
 }
 
+function syncSessionEditDraft() {
+  for (const key of Object.keys(sessionEditDraft)) delete sessionEditDraft[key];
+  for (const s of sessions.value) {
+    sessionEditDraft[s.id] = {
+      locationLabel: s.locationLabel || '',
+      locationAddress: s.locationAddress || '',
+      modality: s.modality || '',
+      joinUrl: s.joinUrl || ''
+    };
+  }
+}
+
 async function saveSessionStaff(sessionId) {
   if (!eventBillingAgencyId.value || !eventId.value) return;
   sessionStaffSavingId.value = sessionId;
@@ -1691,6 +1886,50 @@ async function saveSessionStaff(sessionId) {
   }
 }
 
+async function saveSessionInlineEdits(sessionId) {
+  if (!eventBillingAgencyId.value || !eventId.value || !sessionEditDraft[sessionId]) return;
+  sessionEditSavingId.value = sessionId;
+  try {
+    const endpoint = isProgramSessionMode.value
+      ? `/skill-builders/events/${eventId.value}/program-sessions/${sessionId}`
+      : `/skill-builders/events/${eventId.value}/sessions/${sessionId}`;
+    const draft = sessionEditDraft[sessionId];
+    await api.patch(
+      endpoint,
+      {
+        agencyId: eventBillingAgencyId.value,
+        locationLabel: String(draft.locationLabel || '').trim() || null,
+        locationAddress: String(draft.locationAddress || '').trim() || null,
+        modality: String(draft.modality || '').trim().toLowerCase() || null,
+        joinUrl: String(draft.joinUrl || '').trim() || null
+      },
+      { skipGlobalLoading: true }
+    );
+    await loadSessions();
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Could not save session details');
+  } finally {
+    sessionEditSavingId.value = null;
+  }
+}
+
+async function generateVirtualRoomsForSessions() {
+  if (!eventBillingAgencyId.value || !eventId.value) return;
+  virtualRoomsGenerating.value = true;
+  try {
+    await api.post(
+      `/skill-builders/events/${eventId.value}/generate-virtual-rooms`,
+      { agencyId: eventBillingAgencyId.value },
+      { skipGlobalLoading: true }
+    );
+    await loadSessions();
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || e.message || 'Could not generate virtual rooms');
+  } finally {
+    virtualRoomsGenerating.value = false;
+  }
+}
+
 function ymdToday() {
   const d = new Date();
   const y = d.getFullYear();
@@ -1709,8 +1948,16 @@ function ymdAddDays(ymd, delta) {
 
 async function loadSessions() {
   sessionsLoadError.value = '';
-  if (!eventBillingAgencyId.value || !eventId.value || !detail.value?.skillsGroup) {
+  if (!eventBillingAgencyId.value || !eventId.value) {
     sessions.value = [];
+    syncSessionEditDraft();
+    sessionsLoadAttempted.value = false;
+    return;
+  }
+  const shouldLoad = !!detail.value?.skillsGroup || isProgramSessionMode.value;
+  if (!shouldLoad) {
+    sessions.value = [];
+    syncSessionEditDraft();
     sessionsLoadAttempted.value = false;
     return;
   }
@@ -1724,15 +1971,18 @@ async function loadSessions() {
     const ed = sg?.endDate != null ? String(sg.endDate).slice(0, 10) : '';
     if (/^\d{4}-\d{2}-\d{2}$/.test(sd) && sd < from) from = sd;
     if (/^\d{4}-\d{2}-\d{2}$/.test(ed) && ed > to) to = ed;
-    const res = await api.get(`/skill-builders/events/${eventId.value}/sessions`, {
+    const basePath = isProgramSessionMode.value ? 'program-sessions' : 'sessions';
+    const res = await api.get(`/skill-builders/events/${eventId.value}/${basePath}`, {
       params: { agencyId: eventBillingAgencyId.value, from, to },
       skipGlobalLoading: true
     });
     sessions.value = Array.isArray(res.data?.sessions) ? res.data.sessions : [];
     syncSessionStaffDraft();
+    syncSessionEditDraft();
   } catch (e) {
     sessions.value = [];
     syncSessionStaffDraft();
+    syncSessionEditDraft();
     const msg = e.response?.data?.error?.message || e.message || '';
     sessionsLoadError.value = msg
       ? `Could not load sessions: ${msg}`
@@ -2299,6 +2549,64 @@ async function copyShareBlurb() {
   window.setTimeout(() => {
     copyHint.value = '';
   }, 4000);
+}
+
+async function copyRegistrationLink() {
+  const url = registrationShareHref.value;
+  if (!url) return;
+  try {
+    const absolute = url.startsWith('/')
+      ? `${String(window.location.origin || '').replace(/\/$/, '')}${url}`
+      : url;
+    await navigator.clipboard.writeText(absolute);
+    copyHint.value = 'Registration link copied.';
+  } catch {
+    copyHint.value = 'Could not copy registration link.';
+  } finally {
+    setTimeout(() => {
+      copyHint.value = '';
+    }, 2200);
+  }
+}
+
+async function copyRegistrationShareBlurb() {
+  const d = detail.value || {};
+  const e = d.event || {};
+  const url = registrationShareHref.value;
+  if (!url) return;
+  const absolute = url.startsWith('/')
+    ? `${String(window.location.origin || '').replace(/\/$/, '')}${url}`
+    : url;
+  const lines = [
+    String(e.title || 'Program registration').trim() || 'Program registration',
+    registrationRateLines.value.length ? `Rates: ${registrationRateLines.value.join(' · ')}` : '',
+    `Registration link: ${absolute}`
+  ].filter(Boolean);
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'));
+    copyHint.value = 'Registration share text copied.';
+  } catch {
+    copyHint.value = 'Could not copy registration share text.';
+  } finally {
+    setTimeout(() => {
+      copyHint.value = '';
+    }, 2200);
+  }
+}
+
+async function copyIntakeFormLink() {
+  const url = intakeFormUrl.value;
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+    copyHint.value = 'Digital form link copied.';
+  } catch {
+    copyHint.value = 'Could not copy digital form link.';
+  } finally {
+    setTimeout(() => {
+      copyHint.value = '';
+    }, 2200);
+  }
 }
 
 async function loadAttendance() {
@@ -3184,6 +3492,20 @@ watch(
   font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.02em;
+}
+.sbep-sessions-edit-row td {
+  background: #f8fafc;
+}
+.sbep-inline-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  align-items: center;
+}
+@media (max-width: 980px) {
+  .sbep-inline-edit-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .sbep-sessions-staff-cell {
   min-width: 180px;

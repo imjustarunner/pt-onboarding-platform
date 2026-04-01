@@ -32,15 +32,27 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
   try {
     if (lockedId) {
       const [evRows] = await pool.execute(
-        `SELECT id, title, description, starts_at, ends_at,
-                registration_eligible, medicaid_eligible, cash_eligible,
-                snacks_available, snack_options_json, meals_available, meal_options_json
-         FROM company_events
-         WHERE agency_id = ?
-           AND id = ?
-           AND (is_active = 1 OR is_active IS NULL)
-           AND registration_eligible = 1
-           AND (ends_at IS NULL OR ends_at >= NOW())
+        `SELECT ce.id, ce.title, ce.description, ce.starts_at, ce.ends_at,
+                ce.registration_eligible, ce.medicaid_eligible, ce.cash_eligible,
+                ce.snacks_available, ce.snack_options_json, ce.meals_available, ce.meal_options_json,
+                linked_form.title AS linked_form_title,
+                linked_form.public_key AS linked_form_public_key,
+                linked_form.form_type AS linked_form_type
+         FROM company_events ce
+         LEFT JOIN intake_links linked_form
+           ON linked_form.id = (
+             SELECT il2.id
+             FROM intake_links il2
+             WHERE il2.company_event_id = ce.id
+               AND (il2.is_active = 1 OR il2.is_active IS TRUE)
+             ORDER BY il2.updated_at DESC, il2.id DESC
+             LIMIT 1
+           )
+         WHERE ce.agency_id = ?
+           AND ce.id = ?
+           AND (ce.is_active = 1 OR ce.is_active IS NULL)
+           AND ce.registration_eligible = 1
+           AND (ce.ends_at IS NULL OR ce.ends_at >= NOW())
          LIMIT 1`,
         [aid, lockedId]
       );
@@ -60,20 +72,35 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
           snacksAvailable: r.snacks_available === undefined ? true : !!(r.snacks_available === 1 || r.snacks_available === true),
           snackOptions: parseJsonArr(r.snack_options_json),
           mealsAvailable: !!(r.meals_available === 1 || r.meals_available === true),
-          mealOptions: parseJsonArr(r.meal_options_json)
+          mealOptions: parseJsonArr(r.meal_options_json),
+          linkedIntakeTitle: r.linked_form_title ? String(r.linked_form_title).trim() || null : null,
+          linkedIntakePublicKey: r.linked_form_public_key ? String(r.linked_form_public_key).trim() || null : null,
+          linkedIntakeFormType: r.linked_form_type ? String(r.linked_form_type).trim().toLowerCase() || null : null
         });
       }
     } else {
       const [evRows] = await pool.execute(
-        `SELECT id, title, description, starts_at, ends_at,
-                registration_eligible, medicaid_eligible, cash_eligible,
-                snacks_available, snack_options_json, meals_available, meal_options_json
-         FROM company_events
-         WHERE agency_id = ?
-           AND (is_active = 1 OR is_active IS NULL)
-           AND registration_eligible = 1
-           AND (ends_at IS NULL OR ends_at >= NOW())
-         ORDER BY starts_at ASC
+        `SELECT ce.id, ce.title, ce.description, ce.starts_at, ce.ends_at,
+                ce.registration_eligible, ce.medicaid_eligible, ce.cash_eligible,
+                ce.snacks_available, ce.snack_options_json, ce.meals_available, ce.meal_options_json,
+                linked_form.title AS linked_form_title,
+                linked_form.public_key AS linked_form_public_key,
+                linked_form.form_type AS linked_form_type
+         FROM company_events ce
+         LEFT JOIN intake_links linked_form
+           ON linked_form.id = (
+             SELECT il2.id
+             FROM intake_links il2
+             WHERE il2.company_event_id = ce.id
+               AND (il2.is_active = 1 OR il2.is_active IS TRUE)
+             ORDER BY il2.updated_at DESC, il2.id DESC
+             LIMIT 1
+           )
+         WHERE ce.agency_id = ?
+           AND (ce.is_active = 1 OR ce.is_active IS NULL)
+           AND ce.registration_eligible = 1
+           AND (ce.ends_at IS NULL OR ce.ends_at >= NOW())
+         ORDER BY ce.starts_at ASC
          LIMIT 200`,
         [aid]
       );
@@ -90,6 +117,9 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
           snackOptions: parseJsonArr2(r.snack_options_json),
           mealsAvailable: !!(r.meals_available === 1 || r.meals_available === true),
           mealOptions: parseJsonArr2(r.meal_options_json),
+          linkedIntakeTitle: r.linked_form_title ? String(r.linked_form_title).trim() || null : null,
+          linkedIntakePublicKey: r.linked_form_public_key ? String(r.linked_form_public_key).trim() || null : null,
+          linkedIntakeFormType: r.linked_form_type ? String(r.linked_form_type).trim().toLowerCase() || null : null,
           enrollmentOpensAt: null,
           enrollmentClosesAt: null,
           medicaidEligible: !!(r.medicaid_eligible === 1 || r.medicaid_eligible === true),

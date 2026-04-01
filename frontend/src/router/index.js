@@ -149,6 +149,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/careers/:agencySlug',
+    name: 'PublicCareers',
+    component: () => import('../views/public/PublicCareersView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
     path: '/i/:publicKey',
     name: 'PublicIntakeSigningShort',
     component: () => import('../views/PublicIntakeSigningView.vue'),
@@ -1092,6 +1098,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/careers',
+    name: 'OrganizationCareers',
+    component: () => import('../views/admin/CareersView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/availability-intake',
     name: 'OrganizationAvailabilityIntake',
     component: () => import('../views/admin/AvailabilityIntakeView.vue'),
@@ -1730,6 +1742,12 @@ const routes = [
     path: '/admin/hiring',
     name: 'HiringCandidates',
     component: () => import('../views/admin/HiringCandidatesView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
+  },
+  {
+    path: '/admin/careers',
+    name: 'Careers',
+    component: () => import('../views/admin/CareersView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
   },
   {

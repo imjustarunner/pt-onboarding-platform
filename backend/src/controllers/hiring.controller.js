@@ -72,6 +72,7 @@ export const listCandidates = async (req, res, next) => {
 
     const status = req.query.status ? String(req.query.status).trim() : 'PROSPECTIVE';
     const statusNorm = String(status || '').trim().toUpperCase();
+    const stageFilter = String(req.query.stageFilter || '').trim().toLowerCase();
     const q = String(req.query.q || '').trim();
     const jobDescriptionId = req.query.jobDescriptionId ? parseInt(req.query.jobDescriptionId, 10) : null;
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 500);
@@ -84,7 +85,24 @@ export const listCandidates = async (req, res, next) => {
     // hiring_profile and is not marked hired, when the caller asks for PROSPECTIVE.
     const params = [agencyId];
     let whereSql = '';
-    if (statusNorm === 'PROSPECTIVE') {
+    if (stageFilter === 'archived') {
+      whereSql = `
+        WHERE (
+          u.status = 'ARCHIVED'
+          OR (u.is_archived = TRUE)
+        )
+      `;
+    } else if (stageFilter === 'hired') {
+      whereSql = `
+        WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
+          AND LOWER(COALESCE(hp.stage, 'applied')) = 'hired'
+      `;
+    } else if (stageFilter === 'all') {
+      whereSql = `
+        WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
+          AND hp.candidate_user_id IS NOT NULL
+      `;
+    } else if (statusNorm === 'PROSPECTIVE') {
       whereSql = `
         WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
           AND (
@@ -347,6 +365,10 @@ export const updateJobDescription = async (req, res, next) => {
     const titleRaw = req.body?.title;
     const title = titleRaw !== undefined ? String(titleRaw || '').trim().slice(0, 255) : String(existing.title || '').trim();
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
+    const isActiveRaw = req.body?.isActive;
+    const isActive = isActiveRaw === undefined
+      ? undefined
+      : (String(isActiveRaw).trim() === '1' || String(isActiveRaw).trim().toLowerCase() === 'true');
 
     const hasUploadedFile = !!req.file;
     const replaceWithNewVersion = String(req.body?.createNewVersion || '').trim() === '1' || hasUploadedFile;
@@ -401,11 +423,16 @@ export const updateJobDescription = async (req, res, next) => {
 
     // In-place edit for pasted/no-file records.
     if (existing.storage_path && !hasUploadedFile) {
-      return res.status(400).json({
-        error: {
-          message: 'Uploaded job descriptions should be updated by uploading a replacement file.'
-        }
-      });
+      // Allow activation/deactivation and title-only edits without forcing a file upload.
+      const titleChanged = title !== String(existing.title || '').trim();
+      const statusChanged = isActive !== undefined && Number(existing.is_active) !== Number(isActive ? 1 : 0);
+      if (!titleChanged && !statusChanged) {
+        return res.status(400).json({
+          error: {
+            message: 'Uploaded job descriptions should be updated by uploading a replacement file.'
+          }
+        });
+      }
     }
 
     const descriptionText = req.body?.descriptionText !== undefined
@@ -414,7 +441,8 @@ export const updateJobDescription = async (req, res, next) => {
 
     const updated = await HiringJobDescription.updateById(jdId, {
       title,
-      descriptionText: descriptionText || null
+      descriptionText: descriptionText || null,
+      ...(isActive !== undefined ? { isActive } : {})
     });
 
     res.json(updated);
@@ -1281,13 +1309,60 @@ export const generateCandidateResumeSummary = async (req, res, next) => {
     const user = await User.findById(candidateUserId);
     if (!user) return res.status(404).json({ error: { message: 'Candidate not found' } });
 
-    const latest = await HiringResumeParse.findLatestCompletedTextByCandidateUserId(candidateUserId);
-    const resumeText = String(latest?.extracted_text || '').trim();
-    if (!resumeText || !latest?.resume_doc_id) {
+    let latest = await HiringResumeParse.findLatestCompletedTextByCandidateUserId(candidateUserId);
+    let resumeText = String(latest?.extracted_text || '').trim();
+    let resumeDocId = Number(latest?.resume_doc_id || 0) || null;
+    if (!resumeText || !resumeDocId) {
+      // Fallback for pasted/plain-text resumes: read latest stored text resume docs directly.
+      const [docs] = await pool.execute(
+        `SELECT id, storage_path, mime_type, original_name
+         FROM user_admin_docs
+         WHERE user_id = ? AND doc_type = 'resume' AND storage_path IS NOT NULL
+         ORDER BY created_at DESC, id DESC
+         LIMIT 6`,
+        [candidateUserId]
+      );
+      for (const doc of docs || []) {
+        const mime = String(doc?.mime_type || '').trim().toLowerCase();
+        const name = String(doc?.original_name || '').trim().toLowerCase();
+        const isTextLike = mime.startsWith('text/') || name.endsWith('.txt');
+        if (!isTextLike) continue;
+        try {
+          const buf = await StorageService.readObject(doc.storage_path);
+          const raw = Buffer.isBuffer(buf) ? buf.toString('utf8') : String(buf || '');
+          const trimmed = String(raw || '').trim();
+          if (!trimmed) continue;
+          resumeText = trimmed.slice(0, 20000);
+          resumeDocId = Number(doc.id || 0) || null;
+          if (resumeDocId) {
+            try {
+              await HiringResumeParse.upsertByResumeDocId({
+                candidateUserId,
+                resumeDocId,
+                method: 'pdf_text',
+                status: 'completed',
+                extractedText: resumeText,
+                extractedJson: null,
+                errorText: null,
+                createdByUserId: req.user?.id || null
+              });
+              latest = await HiringResumeParse.findLatestCompletedTextByCandidateUserId(candidateUserId);
+              resumeDocId = Number(latest?.resume_doc_id || resumeDocId);
+            } catch (e) {
+              if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+            }
+          }
+          break;
+        } catch {
+          // try next resume doc
+        }
+      }
+    }
+    if (!resumeText || !resumeDocId) {
       return res.status(400).json({
         error: {
           message:
-            'No extracted resume text available yet. Upload a resume PDF (with selectable text) to generate a resume summary.'
+            'No extracted resume text available yet. Upload a text-based resume file or use pasted resume text to generate a resume summary.'
         }
       });
     }
@@ -1303,10 +1378,10 @@ export const generateCandidateResumeSummary = async (req, res, next) => {
       summary: ai.summary
     };
 
-    const updated = await HiringResumeParse.updateExtractedJsonByResumeDocId(latest.resume_doc_id, extractedJson);
+    const updated = await HiringResumeParse.updateExtractedJsonByResumeDocId(resumeDocId, extractedJson);
 
     res.status(201).json({
-      resumeDocId: latest.resume_doc_id,
+      resumeDocId,
       summary: updated?.extracted_json || extractedJson
     });
   } catch (e) {

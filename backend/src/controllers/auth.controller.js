@@ -2851,10 +2851,14 @@ export const initialSetup = async (req, res, next) => {
     // Set password
     await User.changePassword(user.id, password);
 
-    // Update status from PENDING_SETUP to PREHIRE_OPEN when password is first set
+    // Update status when password is first set.
+    // Guardians should immediately become fully active in guardian portal.
     if (user.status === 'PENDING_SETUP') {
-      await User.updateStatus(user.id, 'PREHIRE_OPEN', user.id);
-      console.log(`[initialSetup] User ${user.id} status updated from PENDING_SETUP to PREHIRE_OPEN`);
+      const nextStatus = String(user.role || '').toLowerCase() === 'client_guardian'
+        ? 'ACTIVE_EMPLOYEE'
+        : 'PREHIRE_OPEN';
+      await User.updateStatus(user.id, nextStatus, user.id);
+      console.log(`[initialSetup] User ${user.id} status updated from PENDING_SETUP to ${nextStatus}`);
     }
 
     // Mark token as used (single-use token)

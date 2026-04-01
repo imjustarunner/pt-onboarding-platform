@@ -8,6 +8,7 @@ import {
   createPublicConsent,
   finalizePublicIntake,
   getPublicIntakeLink,
+  listPublicCareers,
   getPublicIntakeRegistrationCatalog,
   lookupPublicRegistrationAccount,
   matchPublicIntakeClient,
@@ -32,6 +33,7 @@ const router = express.Router();
 
 router.use(publicIntakeLimiter);
 
+router.get('/careers/:agencySlug', listPublicCareers);
 router.get('/school/:organizationId', getSchoolIntakeLink);
 router.post(
   '/:publicKey/session',

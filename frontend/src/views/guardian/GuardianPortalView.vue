@@ -4,7 +4,7 @@
       <div class="title">
         <div class="name">My Dashboard</div>
         <div class="subtitle">
-          Access your enrolled program(s), modules, documents, and your child’s information.
+          Access your enrolled program(s), documents, and your child’s information.
         </div>
       </div>
 
@@ -205,13 +205,18 @@
 
           <div class="rail-section">
             <div class="rail-heading">My Dashboard</div>
-            <button type="button" class="rail-card" :class="{ active: activePanel === 'modules' }" @click="activePanel = 'modules'">
-              <div class="rail-card-title">Modules</div>
-              <div class="rail-card-sub">Program materials</div>
-            </button>
             <button type="button" class="rail-card" :class="{ active: activePanel === 'documents' }" @click="activePanel = 'documents'">
               <div class="rail-card-title">Documents</div>
               <div class="rail-card-sub">Forms and signatures</div>
+            </button>
+            <button
+              type="button"
+              class="rail-card"
+              :class="{ active: activePanel === 'registrations', 'rail-card--pulse': upcomingRegistrationCount > 0 }"
+              @click="activePanel = 'registrations'"
+            >
+              <div class="rail-card-title">Upcoming registrations</div>
+              <div class="rail-card-sub">{{ upcomingRegistrationRailSubtitle }}</div>
             </button>
             <router-link
               v-if="!selectedChild?.guardian_portal_locked"
@@ -321,14 +326,42 @@
                 <p v-else class="hint">No active or upcoming enrolled events right now.</p>
               </template>
             </template>
-            <template v-if="activePanel === 'modules'">
+            <template v-else-if="activePanel === 'registrations'">
               <div class="panel-head">
-                <div class="panel-title">Modules</div>
-                <div class="panel-subtitle">Modules are scoped to your selected program.</div>
+                <div class="panel-title">Upcoming registrations</div>
+                <div class="panel-subtitle">Internal registration links available to guardian accounts.</div>
               </div>
-              <TrainingFocusTab />
+              <div class="reg-catalog-head">
+                <div>
+                  <div class="reg-catalog-title">Open events and enrollments</div>
+                  <p class="reg-catalog-sub muted">
+                    Tap <strong>Register</strong> to continue. If an event has a linked digital form, you will be routed directly to it.
+                  </p>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="regCatalogLoading" @click="fetchRegistrationCatalog">
+                  {{ regCatalogLoading ? 'Loading…' : 'Refresh' }}
+                </button>
+              </div>
+              <div v-if="regCatalogError" class="error" style="font-size: 13px;">{{ regCatalogError }}</div>
+              <ul v-else-if="regCatalogItems.length" class="reg-catalog-list">
+                <li v-for="item in regCatalogItems" :key="`panel-${item.kind}-${item.id}`" class="reg-catalog-row">
+                  <div class="reg-catalog-meta">
+                    <div class="reg-catalog-item-title">{{ item.title }}</div>
+                    <div class="muted small">{{ registrationKindLabel(item.kind) }} · {{ formatRegistrationWhen(item) }}</div>
+                    <div v-if="item.medicaidEligible || item.cashEligible" class="muted small">
+                      {{ registrationPayerLine(item) }}
+                    </div>
+                    <div v-if="item.linkedIntakeTitle && item.kind === 'company_event'" class="muted small">
+                      Form: {{ item.linkedIntakeTitle }}
+                    </div>
+                  </div>
+                  <div class="reg-catalog-actions">
+                    <button type="button" class="btn btn-primary btn-sm" @click="openRegistrationEnroll(item)">Register</button>
+                  </div>
+                </li>
+              </ul>
+              <p v-else-if="!regCatalogLoading" class="hint" style="margin: 0;">Nothing is open for registration right now.</p>
             </template>
-
             <template v-else-if="activePanel === 'documents'">
               <div class="panel-head">
                 <div class="panel-title">Documents</div>
@@ -623,7 +656,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
-import TrainingFocusTab from '../../components/dashboard/TrainingFocusTab.vue';
+import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.vue';
 import GuardianProgramSelector from '../../components/GuardianProgramSelector.vue';
 import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue';
@@ -964,6 +997,14 @@ const currentProgramSummary = computed(() => {
   return `Open cards below to view active enrolled events for ${programName}.`;
 });
 
+const upcomingRegistrationCount = computed(() => (regCatalogItems.value || []).length);
+const upcomingRegistrationRailSubtitle = computed(() => {
+  const n = Number(upcomingRegistrationCount.value || 0);
+  if (!n) return 'No open internal registrations';
+  if (n === 1) return '1 event open now';
+  return `${n} events open now`;
+});
+
 const programOverviewEvents = computed(() => {
   const skillRows = sbUpcomingGrouped.value.map((g) => ({
     key: `sb-${g.companyEventId}`,
@@ -1099,18 +1140,14 @@ const fetchGenEvents = async () => {
 };
 
 const fetchRegistrationCatalog = async () => {
-  const aid = Number(agencyStore.currentAgency?.id || 0);
-  if (!aid) {
+  if (!(programs.value || []).length) {
     regCatalogItems.value = [];
     return;
   }
   regCatalogLoading.value = true;
   regCatalogError.value = '';
   try {
-    const resp = await api.get('/guardian-portal/registration/catalog', {
-      params: { agencyId: aid },
-      skipGlobalLoading: true
-    });
+    const resp = await api.get('/guardian-portal/registration/catalog', { skipGlobalLoading: true });
     regCatalogItems.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
   } catch (err) {
     regCatalogError.value = err.response?.data?.error?.message || 'Could not load registration catalog';
@@ -1121,11 +1158,21 @@ const fetchRegistrationCatalog = async () => {
 };
 
 const openRegistrationEnroll = async (item) => {
+  if (item?.kind === 'company_event') {
+    const key = String(item?.linkedIntakePublicKey || '').trim();
+    if (key) {
+      const url = buildPublicIntakeUrl(key);
+      if (url) {
+        window.location.assign(url);
+        return;
+      }
+    }
+  }
   registrationEnrollTarget.value = item;
   registrationEnrollSelected.value = [];
   registrationEnrollPayerType.value = '';
   registrationEnrollError.value = '';
-  const aid = Number(agencyStore.currentAgency?.id || 0);
+  const aid = Number(item?.agencyId || agencyStore.currentAgency?.id || 0);
   if (!aid) return;
   try {
     const resp = await api.get('/guardian-portal/dependents', {
@@ -1151,8 +1198,8 @@ const closeRegistrationEnroll = () => {
 };
 
 const submitRegistrationEnroll = async () => {
-  const aid = Number(agencyStore.currentAgency?.id || 0);
   const target = registrationEnrollTarget.value;
+  const aid = Number(target?.agencyId || agencyStore.currentAgency?.id || 0);
   const ids = (registrationEnrollSelected.value || []).map((x) => Number(x)).filter((n) => n > 0);
   if (!aid || !target || !ids.length) return;
   if (registrationPayerChoiceNeeded.value && !registrationEnrollPayerType.value) return;
@@ -1740,6 +1787,10 @@ a.rail-card {
 .rail-card.active {
   border-color: var(--primary);
   background: rgba(79, 70, 229, 0.06);
+}
+
+.rail-card--pulse {
+  animation: sb-card-pulse-glow 2s ease-in-out infinite;
 }
 
 .rail-card--locked {

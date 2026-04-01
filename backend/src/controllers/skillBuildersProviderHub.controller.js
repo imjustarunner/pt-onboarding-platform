@@ -12,6 +12,10 @@ import { parseJsonMaybe, makeGoogleCalendarUrl, computeNextOccurrence } from '..
 import { replaceSkillsGroupMeetings } from '../services/skillsGroupMeetingsWrite.service.js';
 import { materializeSkillBuildersEventSessions } from '../services/skillBuildersEventSessions.service.js';
 import {
+  materializeSessionsForEvent,
+  listProgramSessionsForEvent
+} from '../services/companyEventSessionDates.service.js';
+import {
   normalizeSkillBuilderBlocks,
   totalMinutesForSkillBuilderBlocks,
   SKILL_BUILDER_MINUTES_PER_WEEK,
@@ -58,6 +62,11 @@ import {
   deleteActivityOptionById,
   getActivityOptionById
 } from '../services/skillBuildersActivityOptions.service.js';
+import { createOrGetRoomByUniqueName } from '../services/twilioVideo.service.js';
+import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import { resolvePreferredSenderIdentityForAgency } from '../services/emailSenderIdentityResolver.service.js';
+import EmailService from '../services/email.service.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
 const curriculumUpload = multer({
   storage: multer.memoryStorage(),
@@ -72,6 +81,121 @@ const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
   return Number.isFinite(value) && value > 0 ? value : null;
 };
+
+function normalizeDbDateToYmd(input) {
+  if (!input) return '';
+  if (input instanceof Date) {
+    if (!Number.isFinite(input.getTime())) return '';
+    return input.toISOString().slice(0, 10);
+  }
+  const raw = String(input).trim();
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const parsed = new Date(raw);
+  if (!Number.isFinite(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
+}
+
+function normalizeBool(v, defaultValue = false) {
+  if (v === undefined || v === null) return !!defaultValue;
+  if (typeof v === 'boolean') return v;
+  const s = String(v).trim().toLowerCase();
+  if (!s) return !!defaultValue;
+  return s === '1' || s === 'true' || s === 'yes' || s === 'y' || s === 'on';
+}
+
+function normalizeEventProviderRoleKey(raw) {
+  if (raw == null) return null;
+  const cleaned = String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_ -]+/g, '')
+    .replace(/\s+/g, '_')
+    .slice(0, 64);
+  return cleaned || null;
+}
+
+function normalizeEventProviderRoleTitle(raw) {
+  if (raw == null) return null;
+  const s = String(raw).trim().slice(0, 255);
+  return s || null;
+}
+
+function normalizeVirtualAccessRole(raw) {
+  const v = String(raw || '').trim().toLowerCase();
+  if (v === 'presenter') return 'presenter';
+  if (v === 'co_presenter' || v === 'co-presenter' || v === 'copresenter') return 'co_presenter';
+  return 'participant';
+}
+
+async function listAgencyProviderDirectoryRows(agencyId) {
+  const aid = Number(agencyId);
+  if (!Number.isFinite(aid) || aid <= 0) return [];
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.first_name, u.last_name, u.email,
+            u.profile_photo_path, u.title, u.credential, u.service_focus, u.languages_spoken,
+            u.provider_school_info_blurb
+     FROM users u
+     INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+     WHERE (u.is_active IS NULL OR u.is_active = TRUE)
+       AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+       AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
+       AND (
+         LOWER(COALESCE(u.role, '')) IN ('provider', 'clinician', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'staff')
+         OR (u.has_provider_access = TRUE)
+       )
+     ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+    [aid]
+  );
+  return rows || [];
+}
+
+function mapProviderDirectoryRow(row) {
+  return {
+    id: Number(row.id),
+    firstName: String(row.first_name || '').trim(),
+    lastName: String(row.last_name || '').trim(),
+    email: row.email != null && String(row.email).trim() ? String(row.email).trim() : null,
+    profilePhotoUrl: publicUploadsUrlFromStoredPath(row.profile_photo_path || null),
+    title: row.title != null && String(row.title).trim() ? String(row.title).trim() : null,
+    credential: row.credential != null && String(row.credential).trim() ? String(row.credential).trim() : null,
+    serviceFocus: row.service_focus != null && String(row.service_focus).trim() ? String(row.service_focus).trim() : null,
+    languagesSpoken: row.languages_spoken != null && String(row.languages_spoken).trim() ? String(row.languages_spoken).trim() : null,
+    schoolInfoBlurb:
+      row.provider_school_info_blurb != null && String(row.provider_school_info_blurb).trim()
+        ? String(row.provider_school_info_blurb).trim()
+        : null
+  };
+}
+
+async function listEventProviderAssignmentsForEvent(eventId) {
+  const eid = Number(eventId);
+  if (!Number.isFinite(eid) || eid <= 0) return [];
+  const [rows] = await pool.execute(
+    `SELECT provider_user_id, role_title, role_key, is_primary_access, virtual_access_role
+     FROM company_event_provider_assignments
+     WHERE company_event_id = ?
+     ORDER BY is_primary_access DESC, updated_at DESC, id DESC`,
+    [eid]
+  );
+  return rows || [];
+}
+
+function mergeAssignedProviderProfile(baseProfile, assignmentRow) {
+  const roleTitle = normalizeEventProviderRoleTitle(assignmentRow?.role_title);
+  const roleKey = normalizeEventProviderRoleKey(assignmentRow?.role_key);
+  const virtualRole = normalizeVirtualAccessRole(assignmentRow?.virtual_access_role);
+  const isPrimaryAccess = !!(assignmentRow?.is_primary_access === 1 || assignmentRow?.is_primary_access === true);
+  return {
+    ...baseProfile,
+    title: roleTitle || baseProfile.title || null,
+    assignmentRoleTitle: roleTitle,
+    assignmentRoleKey: roleKey,
+    isPrimaryAccess,
+    virtualAccessRole: virtualRole,
+    canPresentVirtual: virtualRole === 'presenter' || virtualRole === 'co_presenter'
+  };
+}
 
 /** Before zoned windows, integrated skills_group events used starts_at = date T12:00:00.000Z. */
 function looksLikeLegacySkillsGroupUtcNoonStart(startsAt) {
@@ -1128,7 +1252,33 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
     );
     const sg = sgRows?.[0] || null;
 
-    const providers = sg?.id ? await fetchSkillBuildersGroupProvidersForPortal(sg.id) : [];
+    const sgProviders = sg?.id ? await fetchSkillBuildersGroupProvidersForPortal(sg.id) : [];
+    let providerAssignments = [];
+    try {
+      providerAssignments = await listEventProviderAssignmentsForEvent(eventId);
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      providerAssignments = [];
+    }
+    const assignmentByUserId = new Map(
+      (providerAssignments || []).map((a) => [Number(a.provider_user_id), a])
+    );
+    const providersByUserId = new Map(
+      (sgProviders || []).map((p) => [Number(p.id), mergeAssignedProviderProfile(p, assignmentByUserId.get(Number(p.id)))])
+    );
+    const assignedNotInSkillsGroup = [...assignmentByUserId.keys()].filter((uid) => !providersByUserId.has(uid));
+    if (assignedNotInSkillsGroup.length) {
+      const agencyProviderRows = await listAgencyProviderDirectoryRows(billingAgencyId);
+      const agencyProfileById = new Map(
+        (agencyProviderRows || []).map((r) => [Number(r.id), mapProviderDirectoryRow(r)])
+      );
+      for (const uid of assignedNotInSkillsGroup) {
+        const profile = agencyProfileById.get(uid);
+        if (!profile) continue;
+        providersByUserId.set(uid, mergeAssignedProviderProfile(profile, assignmentByUserId.get(uid)));
+      }
+    }
+    const providers = [...providersByUserId.values()];
     const userId = parsePositiveInt(req.user?.id);
     const staffLike = await isAgencyStaffLikeForSkillBuilders(req, billingAgencyId);
     const coord = await getSkillBuilderCoordinatorAccess(userId);
@@ -1182,8 +1332,30 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
       }
     }
 
+    const [intakeRows] = await pool.execute(
+      `SELECT id, title, public_key, is_active, form_type, updated_at
+       FROM intake_links
+       WHERE company_event_id = ?
+       ORDER BY is_active DESC, updated_at DESC, id DESC
+       LIMIT 5`,
+      [eventId]
+    );
+    const intakeLinksForEvent = intakeRows || [];
+    const primaryIntake = intakeLinksForEvent[0] || null;
+    const linkedIntake = primaryIntake
+      ? {
+          id: Number(primaryIntake.id),
+          title: String(primaryIntake.title || '').trim() || 'Digital registration form',
+          publicKey: String(primaryIntake.public_key || '').trim() || '',
+          isActive: !!(primaryIntake.is_active === 1 || primaryIntake.is_active === true),
+          formType: String(primaryIntake.form_type || '').trim().toLowerCase() || 'intake',
+          totalLinksForEvent: intakeLinksForEvent.length
+        }
+      : null;
+
     let showKioskClockActions = false;
     let isAssignedProvider = false;
+    let canPresentVirtual = false;
     if (sg?.id && userId) {
       const [sgp] = await pool.execute(
         `SELECT 1 AS ok FROM skills_group_providers WHERE skills_group_id = ? AND provider_user_id = ? LIMIT 1`,
@@ -1191,6 +1363,12 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
       );
       showKioskClockActions = !!sgp?.[0]?.ok;
       isAssignedProvider = showKioskClockActions;
+    }
+    if (userId && assignmentByUserId.has(userId)) {
+      const ownAssignment = assignmentByUserId.get(userId);
+      isAssignedProvider = true;
+      const vr = normalizeVirtualAccessRole(ownAssignment?.virtual_access_role);
+      canPresentVirtual = vr === 'presenter' || vr === 'co_presenter';
     }
 
     let meetings = [];
@@ -1241,10 +1419,12 @@ export const getSkillBuilderEventDetail = async (req, res, next) => {
         canManageTeamSchedules,
         canManageCompanyEvent,
         showKioskClockActions,
+        canPresentVirtual,
         canPostEventDiscussion
       },
       calendar,
       event: formatEventRow(evRowForDisplay),
+      linkedIntake,
       skillsGroup: sg
         ? {
             id: Number(sg.id),
@@ -1303,6 +1483,31 @@ function assignSkillBuilderSessionLabels(sessions) {
         s.sessionLabel = `Session ${di}.${i + 1}`;
       });
     }
+  }
+}
+
+function toWallTimeInZone(dateLike, tz) {
+  const d = dateLike instanceof Date ? dateLike : new Date(dateLike || 0);
+  if (!Number.isFinite(d.getTime())) return '';
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: String(tz || 'UTC'),
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+    const parts = fmt.formatToParts(d);
+    const map = {};
+    for (const p of parts) {
+      if (p.type !== 'literal') map[p.type] = p.value;
+    }
+    const h = String(map.hour || '00').padStart(2, '0');
+    const m = String(map.minute || '00').padStart(2, '0');
+    const s = String(map.second || '00').padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  } catch {
+    return '';
   }
 }
 
@@ -1482,6 +1687,313 @@ export const listSkillBuilderEventSessions = async (req, res, next) => {
   }
 };
 
+/** GET /api/skill-builders/events/:eventId/program-sessions?agencyId=&from=YYYY-MM-DD&to=YYYY-MM-DD */
+export const listSkillBuilderProgramSessions = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) {
+      return res.status(400).json({ error: { message: 'agencyId and event id required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const fromY = String(req.query.from || '').trim().slice(0, 10);
+    const toY = String(req.query.to || '').trim().slice(0, 10);
+    // Always rematerialize from the current recurrence/settings so stale historical rows
+    // (from prior save flows or earlier buggy windows) are corrected before listing.
+    await materializeSessionsForEvent(pool, { companyEventId: eventId });
+
+    const rows = await listProgramSessionsForEvent({
+      companyEventId: eventId,
+      fromDate: fromY,
+      toDate: toY
+    });
+    const finalRows = rows || [];
+
+    const sessions = (finalRows || []).map((r) => {
+      const timezone = String(r.timezone || access.row?.timezone || 'UTC').trim() || 'UTC';
+      return {
+        id: Number(r.id),
+        sessionDate: normalizeDbDateToYmd(r.session_date),
+        startsAt: r.starts_at,
+        endsAt: r.ends_at,
+        timezone,
+        startTime: toWallTimeInZone(r.starts_at, timezone),
+        endTime: toWallTimeInZone(r.ends_at, timezone),
+        locationLabel: r.location_label != null ? String(r.location_label).trim() || null : null,
+        locationAddress: r.location_address != null ? String(r.location_address).trim() || null : null,
+        modality: r.modality != null ? String(r.modality).trim().toLowerCase() || null : null,
+        joinUrl: r.join_url != null ? String(r.join_url).trim().slice(0, 1024) || null : null,
+        assignedProviders: [],
+        hasCurriculum: false,
+        curriculumFileName: null,
+        curriculumExtractStatus: null,
+        clinicalNoteCount: 0
+      };
+    });
+    assignSkillBuilderSessionLabels(sessions);
+    res.json({ ok: true, sessions });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Run migration 645 for program sessions' } });
+    }
+    next(e);
+  }
+};
+
+/** PATCH /api/skill-builders/events/:eventId/program-sessions/:sessionId — location, modality, join URL */
+export const patchSkillBuilderProgramSession = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    if (!agencyId || !eventId || !sessionId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and session id required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    if (!(await canManageTeamSchedulesForAgency(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT id, session_date
+       FROM company_event_session_dates
+       WHERE id = ? AND company_event_id = ?
+       LIMIT 1`,
+      [sessionId, eventId]
+    );
+    if (!rows?.[0]) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const b = req.body || {};
+    const locationLabel =
+      b.locationLabel !== undefined ? String(b.locationLabel || '').trim().slice(0, 255) || null : undefined;
+    const locationAddress =
+      b.locationAddress !== undefined
+        ? String(b.locationAddress || '').trim().slice(0, 512) || null
+        : undefined;
+    const modality =
+      b.modality !== undefined ? String(b.modality || '').trim().toLowerCase().slice(0, 32) || null : undefined;
+    const joinUrl =
+      b.joinUrl !== undefined ? (b.joinUrl ? String(b.joinUrl).trim().slice(0, 1024) : null) : undefined;
+
+    const sets = [];
+    const params = [];
+    if (locationLabel !== undefined) {
+      sets.push('location_label = ?');
+      params.push(locationLabel);
+    }
+    if (locationAddress !== undefined) {
+      sets.push('location_address = ?');
+      params.push(locationAddress);
+    }
+    if (modality !== undefined) {
+      sets.push('modality = ?');
+      params.push(modality);
+    }
+    if (joinUrl !== undefined) {
+      sets.push('join_url = ?');
+      params.push(joinUrl);
+    }
+    if (!sets.length) return res.status(400).json({ error: { message: 'No updatable fields' } });
+
+    params.push(sessionId, eventId);
+    await pool.execute(
+      `UPDATE company_event_session_dates
+       SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND company_event_id = ?`,
+      params
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Run migration 645 for program sessions' } });
+    }
+    next(e);
+  }
+};
+
+/** POST /api/skill-builders/events/:eventId/generate-virtual-rooms */
+export const generateVirtualRoomsForProgramSessions = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'agencyId and event id required' } });
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    if (!(await canManageTeamSchedulesForAgency(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+    }
+    const [rows] = await pool.execute(
+      `SELECT id, join_url, modality
+       FROM company_event_session_dates
+       WHERE company_event_id = ?
+       ORDER BY session_date ASC, starts_at ASC, id ASC`,
+      [eventId]
+    );
+    const sessions = rows || [];
+    let updated = 0;
+    for (const row of sessions) {
+      const sid = Number(row.id);
+      const room = await createOrGetRoomByUniqueName(`program-event-${eventId}-session-${sid}`);
+      if (!room?.uniqueName) continue;
+      const joinUrl = `/video/room/${encodeURIComponent(room.uniqueName)}`;
+      // eslint-disable-next-line no-await-in-loop
+      await pool.execute(
+        `UPDATE company_event_session_dates
+         SET join_url = ?, modality = COALESCE(NULLIF(TRIM(modality), ''), 'virtual'), updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND company_event_id = ?`,
+        [joinUrl, sid, eventId]
+      );
+      updated += 1;
+    }
+    res.json({ ok: true, processed: sessions.length, updated });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Run migration 645 for program sessions' } });
+    }
+    next(e);
+  }
+};
+
+/** POST /api/skill-builders/cron/pre-session-reminders (scaffold, idempotent via log table) */
+export const runProgramSessionReminderCron = async (req, res, next) => {
+  try {
+    const secret = String(req.get('x-cron-secret') || req.body?.cronSecret || '').trim();
+    const expected = String(process.env.CRON_SECRET || '').trim();
+    if (!expected || secret !== expected) {
+      return res.status(401).json({ error: { message: 'Unauthorized cron request' } });
+    }
+
+    await pool.execute(
+      `CREATE TABLE IF NOT EXISTS company_event_session_reminder_log (
+         id BIGINT AUTO_INCREMENT PRIMARY KEY,
+         session_id INT NOT NULL,
+         user_id INT NOT NULL,
+         reminder_type VARCHAR(64) NOT NULL DEFAULT 'pre_session_1h',
+         sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+         UNIQUE KEY uniq_company_event_session_reminder (session_id, user_id, reminder_type),
+         INDEX idx_company_event_session_reminder_session (session_id)
+       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+    );
+
+    const [rows] = await pool.execute(
+      `SELECT s.id AS session_id, s.company_event_id, s.starts_at, s.ends_at, s.join_url,
+              ce.agency_id, ce.title
+       FROM company_event_session_dates s
+       INNER JOIN company_events ce ON ce.id = s.company_event_id
+       WHERE s.join_url IS NOT NULL
+         AND TRIM(s.join_url) <> ''
+         AND s.starts_at BETWEEN DATE_ADD(UTC_TIMESTAMP(), INTERVAL 55 MINUTE)
+                             AND DATE_ADD(UTC_TIMESTAMP(), INTERVAL 65 MINUTE)
+       ORDER BY s.starts_at ASC
+       LIMIT 200`
+    );
+
+    let sent = 0;
+    let skipped = 0;
+    for (const session of rows || []) {
+      const [guardianRows] = await pool.execute(
+        `SELECT DISTINCT u.id AS user_id, u.email, u.first_name, u.last_name
+         FROM company_event_clients cec
+         INNER JOIN client_guardians cg ON cg.client_id = cec.client_id
+         INNER JOIN users u ON u.id = cg.user_id
+         WHERE cec.company_event_id = ?
+           AND cec.is_active = 1`,
+        [Number(session.company_event_id)]
+      );
+      for (const g of guardianRows || []) {
+        const userId = Number(g.user_id);
+        if (!userId) continue;
+        const [alreadyRows] = await pool.execute(
+          `SELECT 1 AS ok
+           FROM company_event_session_reminder_log
+           WHERE session_id = ? AND user_id = ? AND reminder_type = 'pre_session_1h'
+           LIMIT 1`,
+          [Number(session.session_id), userId]
+        );
+        if (alreadyRows?.[0]?.ok) {
+          skipped += 1;
+          continue;
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        const tokenResult = await User.generatePasswordlessToken(userId, 2, 'login');
+        const [agRows] = await pool.execute(`SELECT portal_url, slug FROM agencies WHERE id = ? LIMIT 1`, [
+          Number(session.agency_id)
+        ]);
+        const agSlug = String(agRows?.[0]?.portal_url || agRows?.[0]?.slug || '').trim().toLowerCase();
+        const frontendBase = String(process.env.FRONTEND_URL || process.env.FRONTEND_BASE_URL || '').replace(/\/$/, '');
+        const loginUrl = agSlug
+          ? `${frontendBase}/${agSlug}/passwordless-login/${tokenResult.token}`
+          : `${frontendBase}/passwordless-login/${tokenResult.token}`;
+        const to = String(g.email || '').trim();
+        if (!to || !to.includes('@')) {
+          skipped += 1;
+          continue;
+        }
+
+        const subject = `Reminder: ${session.title || 'Program session'} starts in about 1 hour`;
+        const text = [
+          `Hi ${String(g.first_name || 'there').trim()},`,
+          '',
+          `${String(session.title || 'Your class').trim()} starts in about 1 hour.`,
+          '',
+          `Auto-login link: ${loginUrl}`,
+          `Join class: ${String(session.join_url || '').trim()}`,
+          '',
+          'Please do not share this auto-login link.'
+        ].join('\n');
+
+        // eslint-disable-next-line no-await-in-loop
+        const identity = await resolvePreferredSenderIdentityForAgency({
+          agencyId: Number(session.agency_id),
+          preferredKeys: ['notifications', 'system', 'default']
+        });
+        if (identity?.id) {
+          // eslint-disable-next-line no-await-in-loop
+          await sendEmailFromIdentity({
+            senderIdentityId: identity.id,
+            to,
+            subject,
+            text,
+            html: null,
+            source: 'auto'
+          });
+        } else {
+          // eslint-disable-next-line no-await-in-loop
+          await EmailService.sendEmail({
+            to,
+            subject,
+            text,
+            html: null,
+            fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
+            fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+            replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+            source: 'auto',
+            agencyId: Number(session.agency_id) || null
+          });
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await pool.execute(
+          `INSERT INTO company_event_session_reminder_log (session_id, user_id, reminder_type)
+           VALUES (?, ?, 'pre_session_1h')`,
+          [Number(session.session_id), userId]
+        );
+        sent += 1;
+      }
+    }
+
+    res.json({ ok: true, sessionsChecked: (rows || []).length, sent, skipped });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Run migration 645 for program sessions' } });
+    }
+    next(e);
+  }
+};
+
 /** PUT /api/skill-builders/events/:eventId/sessions/:sessionId/providers — replace assigned staff for one occurrence */
 export const putSkillBuilderEventSessionProviders = async (req, res, next) => {
   let conn = null;
@@ -1516,7 +2028,7 @@ export const putSkillBuilderEventSessionProviders = async (req, res, next) => {
     if (!sess) {
       return res.status(404).json({ error: { message: 'Session not found for this event' } });
     }
-    const sessionDateYmd = sess.session_date ? String(sess.session_date).slice(0, 10) : '';
+    const sessionDateYmd = normalizeDbDateToYmd(sess.session_date);
     const todayLocal = new Date();
     const todayYmd = `${todayLocal.getFullYear()}-${String(todayLocal.getMonth() + 1).padStart(2, '0')}-${String(todayLocal.getDate()).padStart(2, '0')}`;
     if (sessionDateYmd && /^\d{4}-\d{2}-\d{2}$/.test(sessionDateYmd) && sessionDateYmd < todayYmd) {
@@ -1613,7 +2125,7 @@ export const patchSkillBuilderEventSession = async (req, res, next) => {
       [agencyId, sessionId, eventId]
     );
     if (!sRows?.[0]) return res.status(404).json({ error: { message: 'Session not found' } });
-    const sessionDateYmd = String(sRows[0].session_date || '').slice(0, 10);
+    const sessionDateYmd = normalizeDbDateToYmd(sRows[0].session_date);
     const todayLocal = new Date();
     const todayYmd = `${todayLocal.getFullYear()}-${String(todayLocal.getMonth() + 1).padStart(2, '0')}-${String(todayLocal.getDate()).padStart(2, '0')}`;
     if (sessionDateYmd && /^\d{4}-\d{2}-\d{2}$/.test(sessionDateYmd) && sessionDateYmd < todayYmd) {
@@ -2362,6 +2874,155 @@ export const postSkillBuilderEventSkillsGroupRoster = async (req, res, next) => 
   }
 };
 
+/** GET /api/skill-builders/events/:eventId/provider-assignments?agencyId= */
+export const listSkillBuilderEventProviderAssignments = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) {
+      return res.status(400).json({ error: { message: 'agencyId and event id required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const userId = parsePositiveInt(req.user?.id);
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const coord = await getSkillBuilderCoordinatorAccess(userId);
+    if (!staffLike && !coord) {
+      return res.status(403).json({ error: { message: 'You do not have permission to manage event providers' } });
+    }
+
+    const directoryRows = await listAgencyProviderDirectoryRows(agencyId);
+    const options = directoryRows.map(mapProviderDirectoryRow);
+    const byUserId = new Map(options.map((o) => [Number(o.id), o]));
+    const assignments = await listEventProviderAssignmentsForEvent(eventId);
+    const assignedProviders = (assignments || [])
+      .map((a) => {
+        const uid = Number(a.provider_user_id);
+        const profile = byUserId.get(uid);
+        if (!profile) return null;
+        return mergeAssignedProviderProfile(profile, a);
+      })
+      .filter(Boolean);
+
+    res.json({
+      ok: true,
+      assignedProviders,
+      allAgencyProviders: options
+    });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Run migration 646 for event provider assignments' } });
+    }
+    next(e);
+  }
+};
+
+/** PUT /api/skill-builders/events/:eventId/provider-assignments/:providerUserId */
+export const upsertSkillBuilderEventProviderAssignment = async (req, res, next) => {
+  let conn = null;
+  try {
+    const agencyId = parsePositiveInt(req.body?.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const providerUserId = parsePositiveInt(req.params.providerUserId);
+    if (!agencyId || !eventId || !providerUserId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and provider user id required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const uid = parsePositiveInt(req.user?.id);
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const coord = await getSkillBuilderCoordinatorAccess(uid);
+    if (!staffLike && !coord) {
+      return res.status(403).json({ error: { message: 'You do not have permission to manage event providers' } });
+    }
+
+    const [uaRows] = await pool.execute(
+      `SELECT 1 AS ok FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      [providerUserId, agencyId]
+    );
+    if (!uaRows?.[0]?.ok) {
+      return res.status(400).json({ error: { message: 'Selected provider must belong to this agency' } });
+    }
+
+    const roleTitle = normalizeEventProviderRoleTitle(req.body?.roleTitle);
+    const roleKey = normalizeEventProviderRoleKey(req.body?.roleKey);
+    const isPrimaryAccess = normalizeBool(req.body?.isPrimaryAccess, false);
+    const virtualAccessRole = normalizeVirtualAccessRole(req.body?.virtualAccessRole);
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    if (isPrimaryAccess) {
+      await conn.execute(
+        `UPDATE company_event_provider_assignments
+         SET is_primary_access = 0, updated_at = CURRENT_TIMESTAMP
+         WHERE company_event_id = ?`,
+        [eventId]
+      );
+    }
+    await conn.execute(
+      `INSERT INTO company_event_provider_assignments
+        (company_event_id, provider_user_id, role_title, role_key, is_primary_access, virtual_access_role)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         role_title = VALUES(role_title),
+         role_key = VALUES(role_key),
+         is_primary_access = VALUES(is_primary_access),
+         virtual_access_role = VALUES(virtual_access_role),
+         updated_at = CURRENT_TIMESTAMP`,
+      [eventId, providerUserId, roleTitle, roleKey, isPrimaryAccess ? 1 : 0, virtualAccessRole]
+    );
+    await conn.commit();
+
+    res.json({ ok: true });
+  } catch (e) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Run migration 646 for event provider assignments' } });
+    }
+    next(e);
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
+/** DELETE /api/skill-builders/events/:eventId/provider-assignments/:providerUserId?agencyId= */
+export const deleteSkillBuilderEventProviderAssignment = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const providerUserId = parsePositiveInt(req.params.providerUserId);
+    if (!agencyId || !eventId || !providerUserId) {
+      return res.status(400).json({ error: { message: 'agencyId, event id, and provider user id required' } });
+    }
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    const uid = parsePositiveInt(req.user?.id);
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const coord = await getSkillBuilderCoordinatorAccess(uid);
+    if (!staffLike && !coord) {
+      return res.status(403).json({ error: { message: 'You do not have permission to manage event providers' } });
+    }
+
+    await pool.execute(
+      `DELETE FROM company_event_provider_assignments
+       WHERE company_event_id = ? AND provider_user_id = ?`,
+      [eventId, providerUserId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Run migration 646 for event provider assignments' } });
+    }
+    next(e);
+  }
+};
+
 async function listSkillsGroupMeetingsForCompanyEvent(agencyId, eventId) {
   const [sgRows] = await pool.execute(
     `SELECT id FROM skills_groups WHERE company_event_id = ? AND agency_id = ? LIMIT 1`,
@@ -2429,6 +3090,11 @@ export const putSkillBuilderPortalCompanyEventForEdit = async (req, res, next) =
     const result = await persistCompanyEventUpdate(req, agencyId, eventId, rest);
     if (result.error) {
       return res.status(result.error.status).json({ error: { message: result.error.message } });
+    }
+    try {
+      await materializeSessionsForEvent(pool, { companyEventId: eventId });
+    } catch (matErr) {
+      if (matErr?.code !== 'ER_NO_SUCH_TABLE') throw matErr;
     }
     res.json({ ok: true, event: result.data });
   } catch (e) {

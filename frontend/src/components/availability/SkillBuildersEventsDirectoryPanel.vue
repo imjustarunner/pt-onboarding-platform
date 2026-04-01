@@ -95,7 +95,7 @@
                 <div class="sbes-card-name">{{ e.title }}</div>
                 <div v-if="eventTypeLine(e)" class="sbes-card-type">{{ eventTypeLine(e) }}</div>
                 <div class="sbes-card-meta">{{ formatDateRange(e.startsAt, e.endsAt) }}</div>
-                <div v-if="guestPolicyLine(e)" class="sbes-card-meta"><strong>Guests</strong> {{ guestPolicyLine(e) }}</div>
+                <div v-if="audienceLine(e)" class="sbes-card-meta"><strong>Audience</strong> {{ audienceLine(e) }}</div>
                 <div v-if="providingLine(e)" class="sbes-card-meta"><strong>Included</strong> {{ providingLine(e) }}</div>
                 <div v-if="familyLine(e)" class="sbes-card-meta"><strong>Family</strong> {{ familyLine(e) }}</div>
                 <div v-if="e.weekdaysShort" class="sbes-card-meta"><strong>Days</strong> {{ e.weekdaysShort }}</div>
@@ -135,7 +135,7 @@
                 <div class="sbes-card-name">{{ e.title }}</div>
                 <div v-if="eventTypeLine(e)" class="sbes-card-type">{{ eventTypeLine(e) }}</div>
                 <div class="sbes-card-meta">{{ formatDateRange(e.startsAt, e.endsAt) }}</div>
-                <div v-if="guestPolicyLine(e)" class="sbes-card-meta"><strong>Guests</strong> {{ guestPolicyLine(e) }}</div>
+                <div v-if="audienceLine(e)" class="sbes-card-meta"><strong>Audience</strong> {{ audienceLine(e) }}</div>
                 <div v-if="providingLine(e)" class="sbes-card-meta"><strong>Included</strong> {{ providingLine(e) }}</div>
                 <div v-if="familyLine(e)" class="sbes-card-meta"><strong>Family</strong> {{ familyLine(e) }}</div>
                 <div v-if="e.weekdaysShort" class="sbes-card-meta">{{ e.weekdaysShort }}</div>
@@ -329,6 +329,19 @@ function guestPolicyLine(e) {
   return map[key] || '';
 }
 
+function isServiceProgramEventType(e) {
+  const t = String(e?.eventType || '').trim().toLowerCase();
+  return t === 'guardian_program_class' || t === 'program_event' || t.startsWith('program_');
+}
+
+function audienceLine(e) {
+  if (isSkillsBuildersEvent(e)) return '';
+  if (isServiceProgramEventType(e)) {
+    return e?.registrationEligible ? 'Guardian/family registration' : 'Registration not enabled';
+  }
+  return guestPolicyLine(e);
+}
+
 function providingLine(e) {
   if (isSkillsBuildersEvent(e)) return '';
   const list = Array.isArray(e.organizerProviding) ? e.organizerProviding.filter(Boolean) : [];
@@ -438,6 +451,7 @@ async function load() {
         weekdaysShort: '',
         providers: [],
         eventType: String(row?.eventType || '').trim().toLowerCase(),
+        registrationEligible: !!row?.registrationEligible,
         guestPolicy: String(row?.guestPolicy || '').trim().toLowerCase(),
         familyProvisionNote: String(row?.familyProvisionNote || '').trim(),
         organizerProviding: Array.isArray(row?.organizerProviding) ? row.organizerProviding : [],
@@ -459,6 +473,10 @@ async function load() {
       byId.set(id, {
         ...prior,
         ...e,
+        registrationEligible:
+          e?.registrationEligible !== undefined
+            ? !!e.registrationEligible
+            : !!prior?.registrationEligible,
         eventType: String(e?.eventType || prior?.eventType || 'skills_group').trim().toLowerCase()
       });
     }

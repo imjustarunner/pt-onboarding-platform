@@ -340,6 +340,25 @@
                 <option v-for="j in jobDescriptionsForForm" :key="j.id" :value="j.id">{{ j.title }}</option>
               </select>
             </div>
+            <div v-if="form.formType === 'job_application'" class="form-group" style="grid-column: 1 / -1;">
+              <label>Application flow shortcuts</label>
+              <div class="row-actions">
+                <button class="btn btn-secondary btn-sm" type="button" @click="addJobApplicationStarterSteps">
+                  Add application defaults
+                </button>
+                <button
+                  v-if="form.jobDescriptionId"
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="openLinkedJobInCareers"
+                >
+                  Open linked job in Careers
+                </button>
+              </div>
+              <small class="form-help">
+                Adds Resume upload, Cover Letter upload/paste, and Professional references steps.
+              </small>
+            </div>
             <div v-if="form.formType === 'medical_records_request'" class="form-group">
               <label>Agency</label>
               <select v-model.number="form.organizationId">
@@ -586,6 +605,14 @@
                 </button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('upload')">+ Add Upload</button>
                 <button
+                  v-if="form.formType === 'job_application'"
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addStep('references')"
+                >
+                  + Add References
+                </button>
+                <button
                   v-if="canAddGuardianWaiverStep"
                   class="btn btn-secondary btn-sm btn-flow-add-guardian"
                   type="button"
@@ -687,8 +714,43 @@
                       Required
                     </label>
                   </div>
+                  <div class="form-group">
+                    <label class="checkbox">
+                      <input v-model="step.allowPasteText" type="checkbox" />
+                      Allow paste text (in addition to file upload)
+                    </label>
+                  </div>
                   <div v-if="registrationFlowAdmin" class="form-group" style="grid-column: 1 / -1;">
                     <label>Show this upload step</label>
+                    <select v-model="step.visibility">
+                      <option value="always">Always</option>
+                      <option value="new_client_only">New clients only (skip when existing client match)</option>
+                      <option value="existing_client_only">Existing clients only (skip for new client match)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div v-else-if="step.type === 'references'" class="form-grid">
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Step title</label>
+                    <input v-model="step.label" type="text" placeholder="Professional references" />
+                  </div>
+                  <div class="form-group">
+                    <label>Minimum references</label>
+                    <input v-model.number="step.minReferences" type="number" min="1" max="5" />
+                  </div>
+                  <div class="form-group">
+                    <label class="checkbox">
+                      <input v-model="step.waivable" type="checkbox" />
+                      Include waiver option
+                    </label>
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Authorization notice</label>
+                    <textarea v-model="step.authorizationNotice" rows="5" />
+                  </div>
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Show this references step</label>
                     <select v-model="step.visibility">
                       <option value="always">Always</option>
                       <option value="new_client_only">New clients only (skip when existing client match)</option>
@@ -1418,6 +1480,14 @@
                 </button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('upload')">+ Add Upload</button>
                 <button
+                  v-if="form.formType === 'job_application'"
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addStep('references')"
+                >
+                  + Add References
+                </button>
+                <button
                   v-if="canAddGuardianWaiverStep"
                   class="btn btn-secondary btn-sm btn-flow-add-guardian"
                   type="button"
@@ -1505,11 +1575,14 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
 /** Stored on the intake link customMessages when the admin picks the built-in parent/class registration email preset. */
 const COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP = 'guardian_partnership';
+const route = useRoute();
+const router = useRouter();
 
 const loading = ref(false);
 const error = ref('');
@@ -1807,6 +1880,7 @@ const getStepTypeLabel = (t) => {
     document: 'Document',
     school_roi: 'School ROI (Programmed)',
     upload: 'Upload',
+    references: 'Professional references',
     guardian_waiver: 'Guardian waivers & safety',
     insurance_info: 'Insurance information',
     payment_collection: 'Payment collection',
@@ -2348,6 +2422,64 @@ const editLink = (link) => {
       void hydrateCompanyEventPickerForEdit(link.company_event_id || null);
     }
   });
+};
+
+const clearEditorQueryParams = async () => {
+  const q = { ...(route.query || {}) };
+  let changed = false;
+  ['editIntakeLinkId', 'editId', 'jobDescriptionId', 'source'].forEach((key) => {
+    if (key in q) {
+      delete q[key];
+      changed = true;
+    }
+  });
+  if (!changed) return;
+  try {
+    await router.replace({ query: q });
+  } catch {
+    // ignore replace failures
+  }
+};
+
+const openEditorFromQuery = async () => {
+  const editRaw = route.query?.editIntakeLinkId ?? route.query?.editId;
+  const jobRaw = route.query?.jobDescriptionId;
+  const editId = Number(editRaw || 0) || null;
+  const jobDescriptionId = Number(jobRaw || 0) || null;
+  if (!editId && !jobDescriptionId) return;
+
+  if (editId) {
+    const existing = (links.value || []).find((l) => Number(l.id) === Number(editId));
+    if (existing) {
+      editLink(existing);
+      await clearEditorQueryParams();
+      return;
+    }
+  }
+
+  if (jobDescriptionId) {
+    let link = (links.value || []).find(
+      (l) =>
+        String(l.form_type || '').toLowerCase() === 'job_application'
+        && Number(l.job_description_id || 0) === Number(jobDescriptionId)
+        && !!l.is_active
+    );
+    if (!link) {
+      try {
+        const created = await api.post(`/intake-links/from-job/${jobDescriptionId}`);
+        if (created?.data?.link?.id) {
+          await fetchData();
+          link = (links.value || []).find((l) => Number(l.id) === Number(created.data.link.id));
+        }
+      } catch {
+        // fallback below
+      }
+    }
+    if (link) {
+      editLink(link);
+      await clearEditorQueryParams();
+    }
+  }
 };
 
 const applyFieldTemplate = (template) => {
@@ -2926,6 +3058,17 @@ const sanitizeSteps = (steps, { formType } = {}) => {
         next.accept = next.accept ?? '.pdf,.doc,.docx';
         next.maxFiles = Math.max(1, Math.min(10, parseInt(next.maxFiles, 10) || 1));
         next.required = next.required !== false;
+        next.allowPasteText = !!next.allowPasteText;
+        next.visibility = ['always', 'new_client_only', 'existing_client_only'].includes(String(next.visibility || '').trim())
+          ? String(next.visibility).trim()
+          : 'always';
+      } else if (next.type === 'references') {
+        next.label = String(next.label || '').trim() || 'Professional references';
+        next.required = next.required !== false;
+        next.waivable = next.waivable !== false;
+        next.minReferences = Math.max(1, Math.min(5, parseInt(next.minReferences, 10) || 3));
+        next.authorizationNotice = String(next.authorizationNotice || '').trim()
+          || 'By submitting this information, you authorize [tenant] to contact the individuals listed and obtain information regarding your employment history, educational background, professional conduct, and qualifications for employment.';
         next.visibility = ['always', 'new_client_only', 'existing_client_only'].includes(String(next.visibility || '').trim())
           ? String(next.visibility).trim()
           : 'always';
@@ -3056,6 +3199,14 @@ const addStep = (type, options = {}) => {
     step.maxFiles = 1;
     step.required = true;
     step.visibility = 'always';
+  } else if (type === 'references') {
+    step.label = 'Professional references';
+    step.visibility = 'always';
+    step.required = true;
+    step.waivable = true;
+    step.minReferences = 3;
+    step.authorizationNotice =
+      'Please provide three (3) professional references who can speak to your work experience, professionalism, and role-related competencies. References should be individuals who have directly supervised or worked closely with you in a professional, academic, or clinical setting. Personal or family references are not accepted.\n\nReference Authorization Notice: By submitting this information, you authorize [tenant] to contact the individuals listed below and to obtain information regarding your employment history, educational background, professional conduct, and qualifications for employment.';
   } else if (type === 'school_roi') {
     step.templateId = null;
     step.checkboxDisclaimer = '';
@@ -3113,6 +3264,44 @@ const addStep = (type, options = {}) => {
   }
   form.intakeSteps.push(step);
   return step;
+};
+
+const addJobApplicationStarterSteps = () => {
+  const existingTypes = new Set((form.intakeSteps || []).map((s) => String(s?.type || '').trim().toLowerCase()));
+  if (!existingTypes.has('upload')) {
+    const resumeStep = addStep('upload');
+    resumeStep.label = 'Resume';
+    resumeStep.required = true;
+    resumeStep.allowPasteText = true;
+    resumeStep.accept = '.pdf,.doc,.docx,.txt';
+  }
+  const hasCover = (form.intakeSteps || []).some((s) => String(s?.type || '').trim().toLowerCase() === 'upload' && /cover/i.test(String(s?.label || '')));
+  if (!hasCover) {
+    const coverStep = addStep('upload');
+    coverStep.label = 'Cover Letter';
+    coverStep.required = false;
+    coverStep.allowPasteText = true;
+    coverStep.accept = '.pdf,.doc,.docx,.txt';
+  }
+  if (!existingTypes.has('references')) {
+    addStep('references');
+  }
+};
+
+const openLinkedJobInCareers = async () => {
+  const aid = Number(form.organizationId || 0) || null;
+  if (!aid) return;
+  try {
+    const org = agencyList.value.find((a) => Number(a.id) === aid);
+    const slug = String(org?.slug || '').trim();
+    if (slug) {
+      await router.push({ path: `/${slug}/admin/careers` });
+      return;
+    }
+  } catch {
+    // fallback below
+  }
+  await router.push({ path: '/admin/careers' });
 };
 
 const addSchoolRoiStep = () => {
@@ -3789,7 +3978,17 @@ const filteredLinks = computed(() => {
   return list;
 });
 
-onMounted(fetchData);
+onMounted(async () => {
+  await fetchData();
+  await openEditorFromQuery();
+});
+
+watch(
+  () => [route.query?.editIntakeLinkId, route.query?.editId, route.query?.jobDescriptionId],
+  async () => {
+    await openEditorFromQuery();
+  }
+);
 </script>
 
 <style scoped>

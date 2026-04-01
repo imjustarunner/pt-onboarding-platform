@@ -17,13 +17,16 @@
         <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
         <button
           class="btn btn-secondary"
-          @click="openJobDescriptions"
-          :disabled="jobsLoading || !effectiveAgencyId"
-          title="Manage job descriptions"
+          @click="goToCareers"
+          :disabled="!effectiveAgencyId"
+          title="Manage careers and job postings"
         >
-          Manage jobs
+          Careers
         </button>
         <button class="btn btn-primary" @click="openCreate">New applicant</button>
+        <span v-if="unreadApplicantsCount > 0" class="pill unread-pill">
+          {{ unreadApplicantsCount }} new
+        </span>
       </div>
     </div>
 
@@ -32,6 +35,12 @@
     <div class="grid" data-tour="hiring-grid">
       <div class="panel list-panel" data-tour="hiring-list-panel">
         <div class="list-controls" data-tour="hiring-search">
+          <select v-model="stageFilter" class="input" @change="refresh" style="max-width: 180px;">
+            <option value="active">Active</option>
+            <option value="all">All stages</option>
+            <option value="hired">Hired</option>
+            <option value="archived">Archived</option>
+          </select>
           <select v-model="filterJobId" class="input" @change="refresh" style="max-width: 200px;">
             <option value="">All jobs</option>
             <option v-for="j in jobDescriptions" :key="j.id" :value="String(j.id)">{{ j.title }}</option>
@@ -225,7 +234,7 @@
             <!-- Resume Summary -->
             <div v-if="tab === 'resumeSummary'" class="tab-body">
               <div class="info-banner">
-                <strong>Internal-only.</strong> This is an AI-structured summary from the uploaded resume text. Verify against the source PDF.
+                <strong>Internal-only.</strong> This is an AI-structured summary from the uploaded/pasted resume text. Verify against the source resume.
               </div>
               <div class="row-actions" style="margin-bottom:10px;">
                 <button class="btn btn-primary" @click="generateResumeSummary" :disabled="resumeSummaryGenerating">
@@ -235,9 +244,17 @@
               <div v-if="resumeSummaryError" class="error-banner">{{ resumeSummaryError }}</div>
               <div v-if="resumeSummaryLoading" class="loading">Loading…</div>
               <div v-else-if="!resumeSummary" class="empty">
-                No resume summary yet. Upload a resume (text-based PDF) and click “Generate from resume”.
+                No resume summary yet. Upload a resume (text-based file) or use pasted resume text, then click “Generate from resume”.
               </div>
               <div v-else class="summary-grid">
+                <div class="summary-card summary-snapshot">
+                  <div class="summary-title">Resume snapshot</div>
+                  <ul v-if="quickResumeBullets.length" class="summary-bullets">
+                    <li v-for="(bullet, idx) in quickResumeBullets" :key="`resume_snapshot_${idx}`">{{ bullet }}</li>
+                  </ul>
+                  <div v-else class="empty">No quick snapshot available yet.</div>
+                </div>
+
                 <div class="summary-card">
                   <div class="summary-title">Credentialing hints</div>
                   <div class="muted small">Suggested only; verify.</div>
@@ -439,7 +456,7 @@
                   {{ j.title }}
                 </option>
               </select>
-              <button class="btn btn-secondary" @click="openJobDescriptions" type="button">Manage jobs</button>
+              <button class="btn btn-secondary" @click="goToCareers" type="button">Open careers</button>
             </div>
             <input v-model="createForm.appliedRole" class="input" placeholder="Applied role (optional override)" />
             <input v-model="createForm.source" class="input" placeholder="Source (optional)" />
@@ -457,7 +474,7 @@
     </div>
 
     <!-- Job descriptions modal -->
-    <div v-if="showJobs" class="modal-overlay" @click.self="closeJobDescriptions">
+    <div v-if="false && showJobs" class="modal-overlay" @click.self="closeJobDescriptions">
       <div class="modal">
         <div class="modal-header">
           <h3>Job descriptions</h3>
@@ -548,12 +565,18 @@ const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
+const orgPath = (path) => {
+  const slug = String(route.params?.organizationSlug || '').trim();
+  if (!slug) return path;
+  return `/${slug}${path}`;
+};
 
 const loading = ref(false);
 const error = ref('');
 const candidates = ref([]);
 const q = ref('');
 const filterJobId = ref('');
+const stageFilter = ref('active');
 
 const selectedId = ref(null);
 const detailLoading = ref(false);
@@ -629,6 +652,19 @@ const applicantsByJob = computed(() => {
     byJob.get(jid).count++;
   }
   return Array.from(byJob.values()).sort((a, b) => b.count - a.count);
+});
+const unreadApplicantsCount = computed(() => {
+  const key = `hiring_last_seen_${effectiveAgencyId.value || 'none'}`;
+  let lastSeen = 0;
+  try {
+    lastSeen = Number(localStorage.getItem(key) || 0) || 0;
+  } catch {
+    lastSeen = 0;
+  }
+  return (candidates.value || []).filter((c) => {
+    const createdAt = new Date(c?.hiring_created_at || c?.hiring_updated_at || 0).getTime();
+    return createdAt > lastSeen;
+  }).length;
 });
 
 const downloadApplicantsCsv = () => {
@@ -736,6 +772,10 @@ const deleteApplicant = async () => {
   }
 };
 
+const goToCareers = () => {
+  router.push(orgPath('/admin/careers'));
+};
+
 marked.setOptions({ gfm: true, breaks: true });
 const preScreenHtml = computed(() => {
   const md = String(detail.value?.latestPreScreen?.report_text || '').trim();
@@ -771,12 +811,17 @@ const refresh = async () => {
     const r = await api.get('/hiring/candidates', {
       params: {
         agencyId: effectiveAgencyId.value,
-        status: 'PROSPECTIVE',
+        status: stageFilter.value === 'archived' ? 'ARCHIVED' : 'PROSPECTIVE',
+        stageFilter: stageFilter.value || 'active',
         q: q.value || undefined,
         jobDescriptionId: filterJobId.value || undefined
       }
     });
     candidates.value = r.data || [];
+    if (stageFilter.value === 'active') {
+      const key = `hiring_last_seen_${effectiveAgencyId.value || 'none'}`;
+      try { localStorage.setItem(key, String(Date.now())); } catch { /* ignore */ }
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load applicants';
   } finally {
@@ -820,6 +865,56 @@ const resumeSummaryLoading = ref(false);
 const resumeSummaryGenerating = ref(false);
 const resumeSummaryError = ref('');
 const resumeSummary = ref(null);
+const quickResumeBullets = computed(() => {
+  const s = resumeSummary.value?.summary || {};
+  const work = Array.isArray(s.workHistory) ? s.workHistory : [];
+  const education = Array.isArray(s.education) ? s.education : [];
+  const licenses = Array.isArray(s.licensesAndCertifications) ? s.licensesAndCertifications : [];
+  const skills = Array.isArray(s.skills) ? s.skills.filter(Boolean) : [];
+  const hints = s.credentialingHints || {};
+  const bullets = [];
+
+  const recent = work[0] || null;
+  if (recent) {
+    const role = String(recent.title || '').trim() || 'Recent role';
+    const employer = String(recent.employer || '').trim();
+    const when = [recent.startDate, recent.endDate].filter(Boolean).join(' - ');
+    bullets.push(
+      `Most recent: ${role}${employer ? ` at ${employer}` : ''}${when ? ` (${when})` : ''}.`
+    );
+  }
+
+  if (education[0]) {
+    const ed = education[0];
+    const degree = [ed.degree, ed.field].filter(Boolean).join(' in ');
+    const school = String(ed.school || '').trim();
+    if (degree || school) {
+      bullets.push(`Education: ${degree || 'Degree listed'}${school ? ` (${school})` : ''}.`);
+    }
+  }
+
+  if (licenses.length) {
+    const names = licenses
+      .map((l) => String(l?.name || '').trim())
+      .filter(Boolean)
+      .slice(0, 3);
+    if (names.length) bullets.push(`Licenses/certs: ${names.join(', ')}${licenses.length > 3 ? ', ...' : ''}.`);
+  }
+
+  if (skills.length) {
+    bullets.push(`Top skills: ${skills.slice(0, 8).join(', ')}${skills.length > 8 ? ', ...' : ''}.`);
+  }
+
+  const licensure = String(hints.likelyLicensureStatus || '').trim();
+  const states = Array.isArray(hints.statesMentioned) ? hints.statesMentioned.filter(Boolean) : [];
+  if (licensure || states.length) {
+    bullets.push(
+      `Credentialing hint: ${licensure || 'unknown'}${states.length ? ` • states: ${states.join(', ')}` : ''}.`
+    );
+  }
+
+  return bullets.slice(0, 6);
+});
 
 const loadResumeSummary = async () => {
   if (!selectedId.value || !effectiveAgencyId.value) return;
@@ -1403,6 +1498,9 @@ onMounted(async () => {
       selectedAgencyId.value = String(agencyChoices.value[0].id);
     }
   }
+  if (route.query?.filterJobId) {
+    filterJobId.value = String(route.query.filterJobId);
+  }
   await loadJobDescriptions();
   await refresh();
 
@@ -1567,6 +1665,10 @@ onUnmounted(() => {
   background: #e5e7eb;
   font-size: 12px;
   color: #374151;
+}
+.unread-pill {
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 .resume-meta {
   display: flex;
@@ -1877,9 +1979,19 @@ onUnmounted(() => {
   padding: 12px;
   background: #ffffff;
 }
+.summary-snapshot {
+  grid-column: 1 / -1;
+  background: #f8fafc;
+}
 .summary-title {
   font-weight: 700;
   margin-bottom: 8px;
+}
+.summary-bullets {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
 }
 .summary-list {
   display: flex;

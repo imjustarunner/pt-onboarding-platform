@@ -58,6 +58,16 @@
         />
       </div>
     </div>
+
+    <SkillBuildersEventEditModal
+      v-if="showProgramEventEditor && manageEventId"
+      v-model="showProgramEventEditor"
+      :agency-id="selectedAgencyIdNum"
+      :event-id="manageEventId"
+      :portal-slug="selectedAgencyPortalSlug"
+      :can-edit-program-week-pattern="true"
+      @saved="handleUnifiedEditorSaved"
+    />
   </div>
 </template>
 
@@ -68,6 +78,7 @@ import { useAgencyStore } from '../../store/agency';
 import SkillBuildersEventsDirectoryPanel from '../../components/availability/SkillBuildersEventsDirectoryPanel.vue';
 import SkillBuildersProgramEnrollmentsGuide from '../../components/availability/SkillBuildersProgramEnrollmentsGuide.vue';
 import StaffEventForm from '../../components/admin/StaffEventForm.vue';
+import SkillBuildersEventEditModal from '../../components/skillBuilders/SkillBuildersEventEditModal.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -81,6 +92,7 @@ const agencies = computed(() => {
 
 const selectedAgencyId = ref('');
 const showStaffEventForm = ref(false);
+const showProgramEventEditor = ref(false);
 const staffEventFormRef = ref(null);
 const directoryPanelRef = ref(null);
 const directoryRefreshKey = ref(0);
@@ -136,7 +148,11 @@ function handleStaffEventSaved() {
 
 function handleOpenCompanyEvent({ id }) {
   manageEventId.value = Number(id) || null;
-  showStaffEventForm.value = true;
+  showProgramEventEditor.value = !!manageEventId.value;
+}
+
+function handleUnifiedEditorSaved() {
+  directoryRefreshKey.value += 1;
 }
 
 function handleStaffEventFormClose() {
@@ -154,7 +170,15 @@ function attemptCloseStaffEventFormWrapped() {
 }
 
 watch(selectedAgencyIdNum, (value) => {
-  if (!value) showStaffEventForm.value = false;
+  if (!value) {
+    showStaffEventForm.value = false;
+    showProgramEventEditor.value = false;
+    manageEventId.value = null;
+  }
+});
+
+watch(showProgramEventEditor, (open) => {
+  if (!open) manageEventId.value = null;
 });
 </script>
 

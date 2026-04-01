@@ -43,7 +43,18 @@
         </div>
         <div class="form-group">
           <label class="lbl">Event type</label>
-          <input v-model.trim="draft.eventType" class="input" maxlength="64" placeholder="book_club" />
+          <select v-model="eventTypeSelection" class="input">
+            <option v-for="opt in EVENT_TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            <option value="__custom__">Custom</option>
+          </select>
+          <input
+            v-if="eventTypeSelection === '__custom__'"
+            v-model.trim="draft.eventType"
+            class="input"
+            maxlength="64"
+            placeholder="book_club"
+            style="margin-top:6px;"
+          />
         </div>
         <div class="form-group">
           <label class="lbl">Program (optional)</label>
@@ -52,6 +63,12 @@
             <option v-for="o in affiliateProgramOrgs" :key="o.id" :value="o.id">{{ o.name }}</option>
           </select>
           <small class="hint">Link this event to a specific affiliated program for sub-coordinator dashboards.</small>
+        </div>
+        <div class="form-group">
+          <label class="lbl">Timezone</label>
+          <select v-model="draft.timezone" class="input">
+            <option v-for="tz in TIMEZONE_OPTIONS" :key="tz.value" :value="tz.value">{{ tz.label }}</option>
+          </select>
         </div>
         <div class="form-group">
           <label class="lbl">Start</label>
@@ -173,7 +190,7 @@
         </div>
       </div>
 
-      <div class="voting-block">
+      <div v-if="!isServiceProgramEventType" class="voting-block">
         <strong>RSVP / voting</strong>
         <div class="grid" style="margin-top: 8px;">
           <div class="form-group">
@@ -343,7 +360,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 
 const affiliateProgramOrgs = ref([]);
@@ -398,12 +415,42 @@ const weekdayOptions = [
   { value: 6, label: 'Sat' }
 ];
 
+const TIMEZONE_OPTIONS = [
+  { value: 'America/New_York', label: 'Eastern (New York)' },
+  { value: 'America/Chicago', label: 'Central (Chicago)' },
+  { value: 'America/Denver', label: 'Mountain (Denver)' },
+  { value: 'America/Phoenix', label: 'Mountain no DST (Phoenix)' },
+  { value: 'America/Los_Angeles', label: 'Pacific (Los Angeles)' },
+  { value: 'America/Anchorage', label: 'Alaska (Anchorage)' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii (Honolulu)' },
+  { value: 'UTC', label: 'UTC' }
+];
+
+const EVENT_TYPE_OPTIONS = [
+  { value: 'company_event', label: 'Company Event' },
+  { value: 'program_event', label: 'Program Event' },
+  { value: 'staff_event', label: 'Staff/Internal Event' },
+  { value: 'skills_group', label: 'Skills Group' },
+  { value: 'program_orientation', label: 'Program Orientation' },
+  { value: 'guardian_program_class', label: 'Guardian Program Class' },
+  { value: 'direct_notice', label: 'Direct Notice' }
+];
+
+function browserTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
 const emptyDraft = () => ({
   id: null,
   organizationId: 0,
   title: '',
   description: '',
   eventType: 'company_event',
+  timezone: browserTimeZone(),
   splashContent: '',
   startsAtLocal: '',
   endsAtLocal: '',
@@ -451,6 +498,30 @@ const emptyDraft = () => ({
 });
 
 const draft = ref(emptyDraft());
+const eventTypeSelection = computed({
+  get() {
+    const raw = String(draft.value.eventType || '').trim();
+    return EVENT_TYPE_OPTIONS.some((opt) => opt.value === raw) ? raw : '__custom__';
+  },
+  set(next) {
+    const value = String(next || '').trim();
+    if (value === '__custom__') {
+      if (!draft.value.eventType || EVENT_TYPE_OPTIONS.some((opt) => opt.value === draft.value.eventType)) {
+        draft.value.eventType = '';
+      }
+      return;
+    }
+    draft.value.eventType = value;
+    if (value === 'guardian_program_class') {
+      draft.value.rsvpMode = 'none';
+      draft.value.registrationEligible = true;
+    }
+  }
+});
+const isServiceProgramEventType = computed(() => {
+  const t = String(draft.value.eventType || '').trim().toLowerCase();
+  return t === 'guardian_program_class' || t === 'program_event' || t.startsWith('program_');
+});
 
 const formatDate = (dateLike) => {
   const date = new Date(dateLike || 0);
@@ -591,6 +662,7 @@ const editEvent = (event) => {
     title: event.title || '',
     description: event.description || '',
     eventType: event.eventType || 'company_event',
+    timezone: String(event.timezone || '').trim() || browserTimeZone(),
     splashContent: event.splashContent || '',
     startsAtLocal: toLocalInput(event.startsAt),
     endsAtLocal: toLocalInput(event.endsAt),
@@ -690,8 +762,9 @@ const saveEvent = async () => {
       splashContent: draft.value.splashContent,
       startsAt: startsAt.toISOString(),
       endsAt: endsAt.toISOString(),
+      timezone: String(draft.value.timezone || '').trim() || browserTimeZone(),
       recurrence: normalizeRecurrenceForPayload(draft.value.recurrence),
-      rsvpMode: draft.value.rsvpMode,
+      rsvpMode: isServiceProgramEventType.value ? 'none' : draft.value.rsvpMode,
       smsCode: draft.value.smsCode || null,
       votingConfig: {
         enabled: !!draft.value.votingConfig.enabled,
@@ -715,11 +788,13 @@ const saveEvent = async () => {
           sms: !!draft.value.reminderConfig.channels.sms
         }
       },
-      audience: {
-        userIds: draft.value.audience.userIds,
-        groupIds: draft.value.audience.groupIds,
-        roleKeys: draft.value.audience.roleKeys
-      },
+      audience: isServiceProgramEventType.value
+        ? { userIds: [], groupIds: [], roleKeys: [] }
+        : {
+            userIds: draft.value.audience.userIds,
+            groupIds: draft.value.audience.groupIds,
+            roleKeys: draft.value.audience.roleKeys
+          },
       skillBuilderDirectHours:
         draft.value.skillBuilderDirectHours === '' || draft.value.skillBuilderDirectHours == null
           ? null

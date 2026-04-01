@@ -142,7 +142,7 @@
       </div>
     </div>
 
-    <div class="section">
+    <div v-if="!isServiceProgramDraft" class="section">
       <h4>3) Who's Invited</h4>
       <div class="chips">
         <label v-for="role in audienceRoles" :key="role.key" class="chip-toggle">
@@ -202,7 +202,7 @@
     <div class="section">
       <h4>7) RSVP & Registration</h4>
       <div class="grid two">
-        <div>
+        <div v-if="!isServiceProgramDraft">
           <label class="lbl">RSVP mode</label>
           <select v-model="draft.rsvpMode" class="input">
             <option value="yes_no_maybe">Yes / No / Maybe</option>
@@ -215,12 +215,15 @@
           <input v-model.trim="draft.registrationFormUrl" class="input" placeholder="https://forms..." />
         </div>
       </div>
-      <div class="grid two">
+      <div v-if="!isServiceProgramDraft" class="grid two">
         <div>
           <label class="lbl">RSVP question</label>
           <input v-model.trim="draft.votingQuestion" class="input" placeholder="Will you attend?" />
         </div>
       </div>
+      <p v-if="isServiceProgramDraft" class="muted">
+        Program service events disable staff RSVP/invite flows automatically. Families register through the linked program intake flow.
+      </p>
     </div>
 
     <div class="section section-disabled">
@@ -346,6 +349,13 @@ const eventTypePresets = [
     votingQuestion: 'Will you attend this program open house?'
   },
   {
+    value: 'guardian_program_class',
+    label: 'Guardian Program Class',
+    eventType: 'guardian_program_class',
+    title: 'Guardian Program Class',
+    votingQuestion: ''
+  },
+  {
     value: 'staff_get_together',
     label: 'Staff Get-Together',
     eventType: 'staff_get_together',
@@ -410,6 +420,10 @@ const baselineSnapshot = ref('');
 const selectedEventIdNum = computed(() => {
   const n = Number(selectedEventId.value || 0);
   return Number.isFinite(n) && n > 0 ? n : 0;
+});
+const isServiceProgramDraft = computed(() => {
+  const t = String(draft.eventType || '').trim().toLowerCase();
+  return t === 'guardian_program_class' || t === 'program_event' || t.startsWith('program_');
 });
 
 const canSave = computed(() => !!(draft.title && draft.startsAtLocal && draft.endsAtLocal));
@@ -592,12 +606,14 @@ const saveEvent = async () => {
       endsAt: isoForApi(draft.endsAtLocal),
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
       recurrence: { frequency: 'none', interval: 1, byWeekday: [] },
-      rsvpMode: draft.rsvpMode || 'yes_no_maybe',
-      votingConfig: { enabled: true, viaSms: false, question: draft.votingQuestion || 'Will you attend?', options: [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }, { key: 'maybe', label: 'Maybe' }] },
+      rsvpMode: isServiceProgramDraft.value ? 'none' : (draft.rsvpMode || 'yes_no_maybe'),
+      votingConfig: isServiceProgramDraft.value
+        ? { enabled: false, viaSms: false, question: '', options: [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }, { key: 'maybe', label: 'Maybe' }] }
+        : { enabled: true, viaSms: false, question: draft.votingQuestion || 'Will you attend?', options: [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }, { key: 'maybe', label: 'Maybe' }] },
       reminderConfig: { enabled: false, channels: { sms: false }, offsetsHours: [] },
       audience: {
-        userIds: draft.audience.userIds || [],
-        roleKeys: draft.audience.roleKeys || [],
+        userIds: isServiceProgramDraft.value ? [] : (draft.audience.userIds || []),
+        roleKeys: isServiceProgramDraft.value ? [] : (draft.audience.roleKeys || []),
         groupIds: []
       },
       guestPolicy: draft.guestPolicy,

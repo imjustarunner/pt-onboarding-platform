@@ -67,8 +67,39 @@
           <div v-if="introIndex === 0" class="cover-subtitle">
             {{ t('formTimeLimit') }}
           </div>
+          <div v-if="isJobApplication && introIndex === introScreens.length - 1 && jobDescriptionSummary" class="job-ack-card">
+            <h4>{{ jobDescriptionSummary.title || 'Job description' }}</h4>
+            <p v-if="jobDescriptionSummary.descriptionText" class="muted job-ack-text">{{ jobDescriptionSummary.descriptionText }}</p>
+            <div v-if="jobDescriptionSummary.fileUrl" class="job-ack-file">
+              <div class="muted small" style="margin-bottom: 8px;">
+                Attached description{{ jobDescriptionSummary.fileName ? `: ${jobDescriptionSummary.fileName}` : '' }}
+              </div>
+              <div class="job-ack-zoom-controls">
+                <button type="button" class="btn btn-secondary btn-xs" @click="decreaseJobAckPdfZoom">-</button>
+                <span class="muted small">Zoom {{ jobAckPdfZoom }}%</span>
+                <button type="button" class="btn btn-secondary btn-xs" @click="increaseJobAckPdfZoom">+</button>
+              </div>
+              <iframe
+                class="job-ack-pdf"
+                :src="jobAckPdfViewerUrl"
+                title="Job description PDF"
+              />
+              <div style="margin-top: 8px;">
+                <a :href="jobDescriptionSummary.fileUrl" target="_blank" rel="noopener noreferrer">Open full PDF</a>
+              </div>
+            </div>
+            <label class="checkbox-row">
+              <input v-model="jobDescriptionAcknowledged" type="checkbox" />
+              <span>I have read and acknowledge this job description.</span>
+            </label>
+          </div>
           <div class="actions">
-            <button class="btn btn-primary" type="button" @click="advanceIntro">
+            <button
+              class="btn btn-primary"
+              type="button"
+              :disabled="isJobApplication && introIndex === introScreens.length - 1 && !jobDescriptionAcknowledged"
+              @click="advanceIntro"
+            >
               {{ t('acknowledgeAndContinue') }}
             </button>
           </div>
@@ -143,8 +174,20 @@
             </div>
           </div>
           <div class="form-group">
-            <label>{{ (intakeForSelf || isMedicalRecordsRequest || isJobApplication) ? t('yourPhoneOptional') : t('guardianPhoneOptional') }}</label>
-            <input v-model="guardianPhone" type="tel" />
+            <label>
+              {{
+                isJobApplication
+                  ? 'Applicant phone'
+                  : ((intakeForSelf || isMedicalRecordsRequest) ? t('yourPhoneOptional') : t('guardianPhoneOptional'))
+              }}
+            </label>
+            <input
+              id="guardianPhone"
+              v-model="guardianPhone"
+              type="tel"
+              :class="{ 'input-error': !!consentErrors.guardianPhone }"
+            />
+            <div v-if="consentErrors.guardianPhone" class="error-text">{{ consentErrors.guardianPhone }}</div>
           </div>
           <div v-if="!isMedicalRecordsRequest && !isJobApplication && !intakeForSelf" class="form-group">
             <label>{{ t('relationship') }}</label>
@@ -466,6 +509,9 @@
         <h3 v-else-if="currentFlowStep?.type === 'clinical_questions'">
           {{ currentFlowStep?.label || 'Clinical Questions' }}
         </h3>
+        <h3 v-else-if="currentFlowStep?.type === 'references'">
+          {{ currentFlowStep?.label || 'Professional references' }}
+        </h3>
         <h3 v-else-if="currentFlowStep?.type === 'questions'">Questions</h3>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
         <div v-if="currentFlowStep?.type === 'school_roi'" class="school-roi-step">
@@ -482,12 +528,30 @@
         </div>
         <div v-if="currentFlowStep?.type === 'upload'" class="upload-step">
           <p class="muted">{{ currentFlowStep?.label || 'Upload' }} ({{ currentFlowStep?.required ? 'required' : 'optional' }})</p>
+          <div v-if="isUploadPasteEnabled" class="radio-group" style="margin-bottom: 8px;">
+            <label class="radio-row">
+              <input v-model="coverLetterInputMode" type="radio" value="upload" />
+              <span>Upload file</span>
+            </label>
+            <label class="radio-row">
+              <input v-model="coverLetterInputMode" type="radio" value="paste" />
+              <span>Paste text</span>
+            </label>
+          </div>
           <input
+            v-if="!isUploadPasteEnabled || coverLetterInputMode === 'upload'"
             ref="uploadStepInputRef"
             type="file"
             :accept="currentFlowStep?.accept || '.pdf,.doc,.docx'"
             :multiple="(currentFlowStep?.maxFiles || 1) > 1"
             @change="onUploadStepFilesChange"
+          />
+          <textarea
+            v-if="isUploadPasteEnabled && coverLetterInputMode === 'paste'"
+            v-model="coverLetterPastedText"
+            rows="8"
+            class="textarea"
+            :placeholder="uploadPastePlaceholder"
           />
           <div v-if="uploadStepFiles.length" class="uploaded-files">
             <div v-for="(f, i) in uploadStepFiles" :key="i" class="uploaded-file-row">
@@ -495,6 +559,23 @@
               <button type="button" class="btn btn-secondary btn-xs" @click="removeUploadStepFile(i)">Remove</button>
             </div>
           </div>
+        </div>
+        <div v-if="currentFlowStep?.type === 'references'" class="references-step">
+          <p class="muted">{{ currentFlowStep?.authorizationNotice || defaultReferencesAuthorizationNotice }}</p>
+          <div v-for="(refEntry, idx) in referencesEntries" :key="`ref_${idx}`" class="reference-card">
+            <h4>Reference {{ idx + 1 }}</h4>
+            <div class="form-grid">
+              <div class="form-group"><label>Name</label><input v-model="refEntry.name" type="text" /></div>
+              <div class="form-group"><label>Relationship / Title</label><input v-model="refEntry.relationship" type="text" /></div>
+              <div class="form-group"><label>Organization</label><input v-model="refEntry.organization" type="text" /></div>
+              <div class="form-group"><label>Phone</label><input v-model="refEntry.phone" type="tel" /></div>
+              <div class="form-group" style="grid-column: 1 / -1;"><label>Email</label><input v-model="refEntry.email" type="email" /></div>
+            </div>
+          </div>
+          <label v-if="currentFlowStep?.waivable !== false" class="checkbox-row">
+            <input v-model="referencesWaived" type="checkbox" />
+            <span>I waive my right to view these references.</span>
+          </label>
         </div>
         <div v-if="currentFlowStep?.type === 'registration'" class="registration-step">
           <p v-if="currentFlowStep?.description" class="muted">{{ currentFlowStep.description }}</p>
@@ -999,7 +1080,7 @@
           <button
             class="btn btn-primary"
             type="button"
-            :disabled="submitLoading || (currentFlowStep?.type === 'upload' && currentFlowStep?.required && uploadStepFiles.length === 0)"
+            :disabled="submitLoading || isUploadStepBlockingContinue"
             @click="handleCurrentFlowContinue"
           >
             {{ submitLoading ? t('submitting') : currentFlowContinueLabel }}
@@ -1085,10 +1166,22 @@
           <p v-else-if="downloadUrl">{{ completionEmailMessage }}</p>
           <p v-else-if="formTypeKey !== 'smart_registration'">{{ completionEmailMessage }}</p>
         </template>
-        <p v-if="downloadUrl && !jobApplicationSubmitted" class="muted">Download links expire in 7 days.</p>
-        <div v-if="downloadUrl && !jobApplicationSubmitted" class="actions">
-          <a class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">{{ formTypeKey === 'smart_school_roi' ? 'View Signed ROI' : 'View Packet PDF' }}</a>
-          <a class="btn btn-secondary" :href="downloadUrl" download>{{ formTypeKey === 'smart_school_roi' ? 'Download Signed ROI' : 'Download Packet PDF' }}</a>
+        <p v-if="downloadUrl" class="muted">Download links expire in 7 days.</p>
+        <div v-if="downloadUrl" class="actions">
+          <a class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">
+            {{
+              formTypeKey === 'smart_school_roi'
+                ? 'View Signed ROI'
+                : (jobApplicationSubmitted ? 'View Application Copy' : 'View Packet PDF')
+            }}
+          </a>
+          <a class="btn btn-secondary" :href="downloadUrl" download>
+            {{
+              formTypeKey === 'smart_school_roi'
+                ? 'Download Signed ROI'
+                : (jobApplicationSubmitted ? 'Download Application Copy' : 'Download Packet PDF')
+            }}
+          </a>
         </div>
         <div v-if="clientBundleLinks.length && !jobApplicationSubmitted" class="bundle-list">
           <div class="bundle-title">{{ formTypeKey === 'smart_school_roi' ? 'Download per-client releases' : 'Download per-child packets' }}</div>
@@ -1680,6 +1773,9 @@ const flowSteps = computed(() => {
           || s?.type === 'insurance_info'
           || s?.type === 'payment_collection'
           || s?.type === 'communications'
+          || s?.type === 'references'
+          || s?.type === 'demographics'
+          || s?.type === 'clinical_questions'
       )
       .filter((s) => {
         // Skip payment_collection when the guardian selected Medicaid coverage
@@ -1697,6 +1793,9 @@ const flowSteps = computed(() => {
         if (s.type === 'insurance_info') return { ...s };
         if (s.type === 'payment_collection') return { ...s };
         if (s.type === 'communications') return { ...s };
+        if (s.type === 'references') return { ...s };
+        if (s.type === 'demographics') return { ...s };
+        if (s.type === 'clinical_questions') return { ...s };
         const template = templates.value.find((t) => Number(t.id) === Number(s.templateId));
         return { ...s, template };
       });
@@ -1705,6 +1804,37 @@ const flowSteps = computed(() => {
 });
 const currentFlowIndex = ref(0);
 const currentFlowStep = computed(() => flowSteps.value[currentFlowIndex.value] || null);
+const isUploadPasteEnabled = computed(() => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'upload') return false;
+  const label = String(step.label || '').toLowerCase();
+  return !!step.allowPasteText || label.includes('cover') || label.includes('resume') || label.includes('cv');
+});
+const isCoverLetterStep = computed(() => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'upload') return false;
+  const label = String(step.label || '').toLowerCase();
+  return label.includes('cover');
+});
+const isResumeStep = computed(() => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'upload') return false;
+  const label = String(step.label || '').toLowerCase();
+  return label.includes('resume') || label.includes('cv');
+});
+const uploadPastePlaceholder = computed(() => {
+  if (isResumeStep.value) return 'Paste your resume here';
+  if (isCoverLetterStep.value) return 'Paste your cover letter here';
+  return 'Paste your text here';
+});
+const isUploadStepBlockingContinue = computed(() => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'upload' || !step.required) return false;
+  if (isUploadPasteEnabled.value && coverLetterInputMode.value === 'paste') {
+    return String(coverLetterPastedText.value || '').trim().length === 0;
+  }
+  return uploadStepFiles.value.length === 0;
+});
 
 const currentGuardianWaiverSectionKeys = computed(() => {
   const step = currentFlowStep.value;
@@ -2007,6 +2137,19 @@ const docStatus = reactive({});
 const uploadStatus = reactive({});
 const uploadStepFiles = ref([]);
 const uploadStepInputRef = ref(null);
+const coverLetterInputMode = ref('upload');
+const coverLetterPastedText = ref('');
+const referencesEntries = ref([
+  { name: '', relationship: '', organization: '', phone: '', email: '' },
+  { name: '', relationship: '', organization: '', phone: '', email: '' },
+  { name: '', relationship: '', organization: '', phone: '', email: '' }
+]);
+const referencesWaived = ref(false);
+const jobDescriptionSummary = ref(null);
+const jobAckPdfZoom = ref(125);
+const jobDescriptionAcknowledged = ref(false);
+const defaultReferencesAuthorizationNotice =
+  'By submitting this information, you authorize [tenant] to contact the individuals listed and obtain information regarding your employment history, educational background, professional conduct, and qualifications for employment.';
 const embeddedSmartSchoolRoi = ref(null);
 const agencyRegistrationCatalog = ref([]);
 
@@ -2118,6 +2261,7 @@ const consentErrors = reactive({
   guardianFirstName: '',
   guardianLastName: '',
   guardianEmail: '',
+  guardianPhone: '',
   clientFirstName: '',
   clientLastName: '',
   organizationId: ''
@@ -2607,7 +2751,7 @@ const requiresOrganizationId = computed(() => {
   const ft = String(link.value?.form_type || '').toLowerCase();
   // smart_registration forms are tied to a company event which already carries the
   // organization context — the user should never need to type an org ID.
-  if (ft === 'smart_registration' || ft === 'medical_records_request') return false;
+  if (ft === 'smart_registration' || ft === 'medical_records_request' || ft === 'job_application') return false;
   return scope === 'agency';
 });
 const isSmartSchoolRoi = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi');
@@ -2623,6 +2767,18 @@ const isExistingClientByMatch = computed(() =>
 );
 const isJobApplication = computed(() => String(link.value?.form_type || '').toLowerCase() === 'job_application');
 const isMedicalRecordsRequest = computed(() => String(link.value?.form_type || '').toLowerCase() === 'medical_records_request');
+const jobAckPdfViewerUrl = computed(() => {
+  const base = String(jobDescriptionSummary.value?.fileUrl || '').trim();
+  if (!base) return '';
+  const withoutFragment = base.split('#')[0];
+  return `${withoutFragment}#zoom=${Math.max(75, Math.min(250, Number(jobAckPdfZoom.value || 125) || 125))}`;
+});
+const increaseJobAckPdfZoom = () => {
+  jobAckPdfZoom.value = Math.min(250, Number(jobAckPdfZoom.value || 125) + 25);
+};
+const decreaseJobAckPdfZoom = () => {
+  jobAckPdfZoom.value = Math.max(75, Number(jobAckPdfZoom.value || 125) - 25);
+};
 const intakeFields = computed(() => Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : []);
 const guardianFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'guardian'));
 const submissionFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'submission'));
@@ -2965,6 +3121,7 @@ const loadLink = async () => {
     templates.value = resp.data?.templates || [];
     agencyInfo.value = resp.data?.agency || null;
     organizationInfo.value = resp.data?.organization || null;
+    jobDescriptionSummary.value = resp.data?.jobDescription || null;
     const recaptchaConfig = resp.data?.recaptcha || {};
     recaptchaSiteKey.value = String(recaptchaConfig.siteKey || '').trim();
     recaptchaForceWidget.value = recaptchaConfig.forceWidget === true;
@@ -2973,6 +3130,7 @@ const loadLink = async () => {
     }
     if (
       !templates.value.length
+      && !intakeSteps.value.length
       && String(link.value?.form_type || '').toLowerCase() !== 'smart_school_roi'
       && String(link.value?.form_type || '').toLowerCase() !== 'smart_registration'
       && !hasProgrammedSchoolRoiStep.value
@@ -2986,6 +3144,7 @@ const loadLink = async () => {
     }
     if (String(link.value?.form_type || '').toLowerCase() === 'job_application') {
       intakeForSelf.value = true;
+      jobDescriptionAcknowledged.value = false;
     }
     if (boundClient.value?.id) {
       const nameParts = splitClientName(boundClient.value.full_name);
@@ -3330,6 +3489,7 @@ const submitConsent = async () => {
   consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : t('required');
   consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : t('required');
   consentErrors.guardianLastName = isJobApplication.value && !guardianLastName.value.trim() ? t('required') : '';
+  consentErrors.guardianPhone = isJobApplication.value && !guardianPhone.value.trim() ? t('required') : '';
   const clientFirst = intakeForSelf.value ? guardianFirstName.value : clients.value?.[0]?.firstName;
   const clientLast = intakeForSelf.value ? guardianLastName.value : clients.value?.[0]?.lastName;
   consentErrors.clientFirstName = (isJobApplication.value || isClientBound.value) ? '' : (String(clientFirst || '').trim() ? '' : t('required'));
@@ -3343,6 +3503,7 @@ const submitConsent = async () => {
     consentErrors.guardianFirstName
     || consentErrors.guardianEmail
     || consentErrors.guardianLastName
+    || consentErrors.guardianPhone
     || consentErrors.clientFirstName
     || consentErrors.clientLastName
     || consentErrors.organizationId
@@ -3366,6 +3527,8 @@ const submitConsent = async () => {
         ? 'guardianEmail'
         : consentErrors.guardianLastName
           ? 'guardianLastName'
+          : consentErrors.guardianPhone
+            ? 'guardianPhone'
           : consentErrors.clientFirstName
             ? (intakeForSelf.value ? 'guardianFirstName' : 'clientFirstName_0')
             : consentErrors.clientLastName
@@ -3901,6 +4064,7 @@ const handleCurrentFlowContinue = () => {
   if (currentFlowStep.value?.type === 'document') return completeCurrentDocument();
   if (currentFlowStep.value?.type === 'upload') return completeUploadStep();
   if (currentFlowStep.value?.type === 'registration') return completeRegistrationStep();
+  if (currentFlowStep.value?.type === 'references') return completeReferencesStep();
   if (currentFlowStep.value?.type === 'guardian_waiver') return completeGuardianWaiverStep();
   if (currentFlowStep.value?.type === 'insurance_info') return completeInsuranceStep();
   if (currentFlowStep.value?.type === 'payment_collection') return completePaymentStep();
@@ -3911,6 +4075,7 @@ const handleCurrentFlowContinue = () => {
 };
 const currentFlowContinueLabel = computed(() => {
   if (currentFlowStep.value?.type === 'upload') return 'Continue';
+  if (currentFlowStep.value?.type === 'references') return 'Save references & continue';
   if (currentFlowStep.value?.type === 'guardian_waiver') return t('continue');
   if (currentFlowStep.value?.type === 'insurance_info') return 'Save & continue';
   if (currentFlowStep.value?.type === 'payment_collection') return 'Continue';
@@ -3979,7 +4144,19 @@ const finalizePacket = async () => {
           relationship: guardianRelationship.value
         },
         approval: approvalContext.value || null,
-        smartSchoolRoi: embeddedSmartSchoolRoi.value || null
+        smartSchoolRoi: embeddedSmartSchoolRoi.value || null,
+        coverLetterText: String(coverLetterPastedText.value || '').trim() || null,
+        referencesJson: referencesEntries.value
+          .map((r) => ({
+            name: String(r?.name || '').trim(),
+            relationship: String(r?.relationship || '').trim(),
+            organization: String(r?.organization || '').trim(),
+            phone: String(r?.phone || '').trim(),
+            email: String(r?.email || '').trim()
+          }))
+          .filter((r) => r.name || r.email || r.phone || r.organization || r.relationship),
+        jobDescriptionAcknowledged: !!jobDescriptionAcknowledged.value,
+        referencesWaived: !!referencesWaived.value
       }
     });
     downloadUrl.value = resp.data?.downloadUrl || '';
@@ -4045,12 +4222,23 @@ const resetIntakeState = () => {
   guardianPhone.value = '';
   guardianRelationship.value = '';
   jobApplicationSubmitted.value = false;
+  coverLetterInputMode.value = 'upload';
+  coverLetterPastedText.value = '';
+  referencesWaived.value = false;
+  referencesEntries.value = [
+    { name: '', relationship: '', organization: '', phone: '', email: '' },
+    { name: '', relationship: '', organization: '', phone: '', email: '' },
+    { name: '', relationship: '', organization: '', phone: '', email: '' }
+  ];
+  jobDescriptionAcknowledged.value = false;
+  jobAckPdfZoom.value = 125;
   signerInitials.value = '';
   clients.value = [{ firstName: '', lastName: '' }];
   intakeResponses.guardian = {};
   intakeResponses.submission = {};
   intakeResponses.clients = [{}];
   embeddedSmartSchoolRoi.value = null;
+  jobDescriptionSummary.value = null;
   downloadUrl.value = '';
   emailDeliveryStatus.value = null;
   clientBundleLinks.value = [];
@@ -4332,6 +4520,9 @@ watch(guardianEmail, (val) => {
     lookupRegistrationAccount(email);
   }, 350);
 });
+watch(guardianPhone, (val) => {
+  if (String(val || '').trim()) consentErrors.guardianPhone = '';
+});
 watch(usesRegistrationFeatures, (val) => {
   if (!val) return;
   applyRegistrationAccountState(false);
@@ -4480,8 +4671,15 @@ const removeUploadStepFile = (idx) => {
 const completeUploadStep = async () => {
   const s = currentFlowStep.value;
   if (!s || s.type !== 'upload') return;
-  if (s.required && uploadStepFiles.value.length === 0) {
+  const usingPasteMode = isUploadPasteEnabled.value && coverLetterInputMode.value === 'paste';
+  if (s.required && !usingPasteMode && uploadStepFiles.value.length === 0) {
     stepError.value = 'Please select at least one file to upload.';
+    return;
+  }
+  if (s.required && usingPasteMode && !String(coverLetterPastedText.value || '').trim()) {
+    stepError.value = isResumeStep.value
+      ? 'Please paste your resume text before continuing.'
+      : 'Please paste your text before continuing.';
     return;
   }
   if (!submissionId.value) {
@@ -4491,14 +4689,25 @@ const completeUploadStep = async () => {
   try {
     submitLoading.value = true;
     stepError.value = '';
-    const formData = new FormData();
-    formData.append('stepId', s.id);
-    formData.append('label', s.label || 'Upload');
-    uploadStepFiles.value.forEach((f, i) => {
-      formData.append('files', f);
-    });
-    await api.post(`/public-intake/${publicKey}/${submissionId.value}/upload`, formData);
-    uploadStatus[s.id] = true;
+    if (!usingPasteMode) {
+      const formData = new FormData();
+      formData.append('stepId', s.id);
+      formData.append('label', s.label || 'Upload');
+      uploadStepFiles.value.forEach((f) => {
+        formData.append('files', f);
+      });
+      await api.post(`/public-intake/${publicKey}/${submissionId.value}/upload`, formData);
+      uploadStatus[s.id] = true;
+    } else {
+      uploadStatus[s.id] = true;
+      const pastedText = String(coverLetterPastedText.value || '').trim();
+      if (!intakeResponses.submission.uploadTextByStep || typeof intakeResponses.submission.uploadTextByStep !== 'object') {
+        intakeResponses.submission.uploadTextByStep = {};
+      }
+      intakeResponses.submission.uploadTextByStep[s.id] = pastedText;
+      if (isCoverLetterStep.value) intakeResponses.submission.coverLetterText = pastedText;
+      if (isResumeStep.value) intakeResponses.submission.resumeText = pastedText;
+    }
     uploadStepFiles.value = [];
     await nextFlowStep();
   } catch (e) {
@@ -4506,6 +4715,29 @@ const completeUploadStep = async () => {
   } finally {
     submitLoading.value = false;
   }
+};
+
+const completeReferencesStep = () => {
+  const s = currentFlowStep.value;
+  if (!s || s.type !== 'references') return;
+  const minimum = Math.max(1, Number(s.minReferences || 3) || 3);
+  const provided = referencesEntries.value
+    .map((r) => ({
+      name: String(r?.name || '').trim(),
+      relationship: String(r?.relationship || '').trim(),
+      organization: String(r?.organization || '').trim(),
+      phone: String(r?.phone || '').trim(),
+      email: String(r?.email || '').trim()
+    }))
+    .filter((r) => r.name || r.email || r.phone || r.organization || r.relationship);
+  if (!referencesWaived.value && provided.length < minimum) {
+    stepError.value = `Please provide at least ${minimum} professional references, or select the waiver option.`;
+    return;
+  }
+  intakeResponses.submission.references = provided;
+  intakeResponses.submission.referencesWaived = !!referencesWaived.value;
+  stepError.value = '';
+  void nextFlowStep();
 };
 
 const loadAgencyRegistrationCatalog = async () => {
@@ -4532,6 +4764,8 @@ const preselectLinkedCompanyEvent = (regStep) => {
 watch(currentFlowStep, async (step) => {
   if (step?.type === 'upload') {
     uploadStepFiles.value = [];
+    coverLetterInputMode.value = 'upload';
+    coverLetterPastedText.value = '';
   }
   if (step?.type === 'registration') {
     ensureRegistrationMaps();
@@ -5057,6 +5291,42 @@ onBeforeUnmount(() => {
 }
 .upload-step {
   margin: 16px 0;
+}
+.job-ack-card {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #f8fbff;
+}
+.job-ack-text {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  margin-bottom: 10px;
+}
+.job-ack-file {
+  margin-bottom: 10px;
+}
+.job-ack-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.job-ack-pdf {
+  width: 100%;
+  min-height: 420px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #fff;
+}
+.reference-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: #fff;
 }
 .registration-step {
   margin: 16px 0;

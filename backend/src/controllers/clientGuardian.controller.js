@@ -90,7 +90,7 @@ export const upsertClientGuardian = async (req, res, next) => {
         lastName,
         personalEmail: email,
         role: 'client_guardian',
-        status: 'ACTIVE_EMPLOYEE'
+        status: 'PENDING_SETUP'
       });
       created = true;
     }
@@ -120,8 +120,8 @@ export const upsertClientGuardian = async (req, res, next) => {
       // best effort
     }
 
-    // Generate a passwordless token link so the admin can send it (48 hours).
-    const tokenResult = await User.generatePasswordlessToken(guardian.id, 48);
+    // Generate a setup token link (48 hours).
+    const tokenResult = await User.generatePasswordlessToken(guardian.id, 48, 'setup');
     const config = (await import('../config/config.js')).default;
     const frontendBase = String(config.frontendUrl || '').replace(/\/$/, '');
     const userOrgs = await User.getAgencies(guardian.id);
@@ -130,9 +130,70 @@ export const upsertClientGuardian = async (req, res, next) => {
       ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`
       : `${frontendBase}/passwordless-login/${tokenResult.token}`;
 
+    let setupEmailSent = false;
+    if (created) {
+      const to = [guardian.email, guardian.username, guardian.work_email, guardian.personal_email]
+        .filter(Boolean)
+        .map((e) => String(e).trim().toLowerCase())
+        .find((e) => e.includes('@'));
+      if (to) {
+        try {
+          const Agency = (await import('../models/Agency.model.js')).default;
+          const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
+          const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
+          const { resolvePreferredSenderIdentityForAgency } = await import('../services/emailSenderIdentityResolver.service.js');
+          const EmailService = (await import('../services/email.service.js')).default;
+          const agencyId = userOrgs?.[0]?.id || null;
+          const agency = agencyId ? await Agency.findById(agencyId) : null;
+          const template = await EmailTemplateService.getTemplateForAgency(agencyId, 'invitation');
+          let subject = 'Set up your guardian account';
+          let body = `You have been added as a guardian. Set up your account using this link (expires in 48 hours):\n${passwordlessTokenLink}`;
+          if (template?.body) {
+            const params = await EmailTemplateService.collectParameters(guardian, agency, {
+              passwordlessToken: tokenResult.token,
+              senderName: req.user?.first_name || req.user?.email || 'Admin'
+            });
+            const rendered = EmailTemplateService.renderTemplate(template, params);
+            subject = rendered.subject || subject;
+            body = rendered.body || body;
+          }
+          const identity = await resolvePreferredSenderIdentityForAgency({
+            agencyId: agencyId || null,
+            preferredKeys: ['login_recovery', 'system', 'default', 'notifications']
+          });
+          if (identity?.id) {
+            await sendEmailFromIdentity({
+              senderIdentityId: identity.id,
+              to,
+              subject,
+              text: body,
+              html: null,
+              source: 'auto'
+            });
+          } else {
+            await EmailService.sendEmail({
+              to,
+              subject,
+              text: body,
+              html: null,
+              fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
+              fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+              replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+              source: 'auto',
+              agencyId: agencyId || null
+            });
+          }
+          setupEmailSent = true;
+        } catch (emailErr) {
+          console.error('[upsertClientGuardian] Failed to send guardian setup email:', emailErr);
+        }
+      }
+    }
+
     res.status(created ? 201 : 200).json({
       ok: true,
       createdGuardianUser: created,
+      setupEmailSent,
       guardianUser: {
         id: guardian.id,
         email: guardian.email,
