@@ -587,24 +587,15 @@
             <div class="sb-ce-section">
               <strong>What we're providing</strong>
               <p class="muted small sb-ce-pattern-lead">
-                Items shown on the public page under “For staff/attendees”.
+                Items shown on the public page under “For staff/attendees”. Separate multiple items with commas or new lines.
               </p>
-              <div class="sb-ce-inline-row">
-                <input
-                  v-model.trim="organizerItemInput"
+              <div class="form-group">
+                <textarea
+                  v-model.trim="draft.organizerProvidingRaw"
                   class="input"
-                  placeholder="Add provided item(s): drinks, appetizers, dessert..."
-                  @keydown.enter.prevent="addOrganizerItem"
+                  rows="2"
+                  placeholder="e.g. drinks, appetizers, dessert"
                 />
-                <button type="button" class="btn btn-secondary btn-sm" :disabled="!organizerItemInput" @click="addOrganizerItem">
-                  Add
-                </button>
-              </div>
-              <div class="sb-ce-tag-list" v-if="draft.organizerProviding.length">
-                <span v-for="(item, idx) in draft.organizerProviding" :key="`org-${idx}`" class="sb-ce-tag">
-                  <span class="sb-ce-tag-url">{{ item }}</span>
-                  <button type="button" class="sb-ce-tag-remove" @click="removeOrganizerItem(idx)">x</button>
-                </span>
               </div>
             </div>
 
@@ -1050,6 +1041,7 @@ function emptyDraft() {
     guestPolicy: 'staff_only',
     familyProvisionNote: '',
     organizerProviding: [],
+    organizerProvidingRaw: '',
     potluckEnabled: false,
     skillBuilderDirectHours: null,
     registrationEligible: false,
@@ -1200,7 +1192,10 @@ function formatOffsetMinutes(offsetMinutes) {
 
 /** Format an instant as yyyy-MM-ddTHH:mm in the given IANA zone (for datetime-local inputs). */
 function instantToDatetimeLocalInZone(dateLike, timeZone) {
-  const date = new Date(dateLike || 0);
+  if (dateLike === null || dateLike === undefined) return '';
+  const date = dateLike instanceof Date
+    ? new Date(dateLike.getTime())
+    : (typeof dateLike === 'number' ? new Date(dateLike) : new Date(String(dateLike).trim()));
   if (!Number.isFinite(date.getTime())) return '';
   const tz = String(timeZone || 'UTC').trim() || 'UTC';
   if (tz === 'UTC') {
@@ -1334,6 +1329,7 @@ function populateFromEvent(event) {
     guestPolicy: String(event.guestPolicy || 'staff_only').trim().toLowerCase(),
     familyProvisionNote: String(event.familyProvisionNote || '').trim(),
     organizerProviding: Array.isArray(event.organizerProviding) ? [...event.organizerProviding] : [],
+    organizerProvidingRaw: Array.isArray(event.organizerProviding) ? event.organizerProviding.join(', ') : '',
     potluckEnabled: !!event.potluckEnabled,
     skillBuilderDirectHours:
       event.skillBuilderDirectHours != null && event.skillBuilderDirectHours !== ''
@@ -1845,9 +1841,10 @@ async function save() {
       },
       guestPolicy: String(draft.value.guestPolicy || 'staff_only').trim().toLowerCase() || 'staff_only',
       potluckEnabled: !!draft.value.potluckEnabled,
-      organizerProviding: Array.isArray(draft.value.organizerProviding)
-        ? draft.value.organizerProviding.map((s) => String(s || '').trim()).filter(Boolean)
-        : [],
+      organizerProviding: String(draft.value.organizerProvidingRaw || '')
+        .split(/[\n,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean),
       familyProvisionNote: String(draft.value.familyProvisionNote || '').trim() || null,
       skillBuilderDirectHours:
         draft.value.skillBuilderDirectHours === '' || draft.value.skillBuilderDirectHours == null

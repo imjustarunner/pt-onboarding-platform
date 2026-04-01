@@ -3709,6 +3709,7 @@ export const getCompanyEventPublic = async (req, res, next) => {
       `SELECT
          ce.id, ce.title, ce.event_type, ce.description, ce.splash_content,
          ce.starts_at, ce.ends_at, ce.timezone, ce.rsvp_deadline,
+         ce.rsvp_mode,
          ce.event_location_name, ce.event_location_address, ce.event_location_phone,
          ce.guest_policy, ce.family_provision_note, ce.organizer_providing_json,
          ce.event_image_url, ce.event_image_urls_json, ce.public_hero_image_url,
@@ -3763,6 +3764,7 @@ export const getCompanyEventPublic = async (req, res, next) => {
         endsAt: row.ends_at || null,
         timezone: row.timezone || 'UTC',
         rsvpDeadline: row.rsvp_deadline || null,
+        rsvpMode: String(row.rsvp_mode || 'none').trim().toLowerCase(),
         locationName: row.event_location_name || '',
         locationAddress: row.event_location_address || '',
         locationPhone: row.event_location_phone || '',
