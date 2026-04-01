@@ -336,21 +336,21 @@ function mapEventRow(row, req, opts = {}) {
     publicSessionLabel: row.public_session_label ? String(row.public_session_label).trim() : '',
     publicSessionDateRange: row.public_session_date_range ? String(row.public_session_date_range).trim() : '',
     snacksAvailable: row.snacks_available === undefined ? true : !!(row.snacks_available === 1 || row.snacks_available === true),
-    snackOptions: (() => { try { const p = row.snack_options_json ? JSON.parse(row.snack_options_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })(),
+    snackOptions: (() => { const p = parseJsonMaybe(row.snack_options_json); return Array.isArray(p) ? p : []; })(),
     mealsAvailable: !!(row.meals_available === 1 || row.meals_available === true),
-    mealOptions: (() => { try { const p = row.meal_options_json ? JSON.parse(row.meal_options_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })(),
+    mealOptions: (() => { const p = parseJsonMaybe(row.meal_options_json); return Array.isArray(p) ? p : []; })(),
     guestPolicy: String(row.guest_policy || 'staff_only'),
     potluckEnabled: !!(row.potluck_enabled === 1 || row.potluck_enabled === true),
-    organizerProviding: (() => { try { const p = row.organizer_providing_json ? JSON.parse(row.organizer_providing_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })(),
+    organizerProviding: (() => { const p = parseJsonMaybe(row.organizer_providing_json); return Array.isArray(p) ? p : []; })(),
     eventImageUrl: row.event_image_url ? String(row.event_image_url).trim() : '',
-    eventImageUrls: (() => { try { const p = row.event_image_urls_json ? JSON.parse(row.event_image_urls_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })(),
+    eventImageUrls: (() => { const p = parseJsonMaybe(row.event_image_urls_json); return Array.isArray(p) ? p : []; })(),
     rsvpDeadline: row.rsvp_deadline || null,
     eventLocationName: row.event_location_name ? String(row.event_location_name).trim() : '',
     eventLocationAddress: row.event_location_address ? String(row.event_location_address).trim() : '',
     eventLocationPhone: row.event_location_phone ? String(row.event_location_phone).trim() : '',
     familyProvisionNote: row.family_provision_note ? String(row.family_provision_note) : '',
     registrationFormUrl: row.registration_form_url ? String(row.registration_form_url).trim() : '',
-    smsDraft: (() => { try { return row.sms_draft_json ? JSON.parse(row.sms_draft_json) : null; } catch { return null; } })()
+    smsDraft: parseJsonMaybe(row.sms_draft_json)
   };
   const nextOccurrence = computeNextOccurrence(base);
   const calendarSource = nextOccurrence || { startsAt, endsAt };
@@ -2948,9 +2948,9 @@ export const getCompanyEventRsvpByToken = async (req, res, next) => {
         locationPhone: invitation.event_location_phone || '',
         guestPolicy: invitation.event_guest_policy || 'staff_only',
         registrationFormUrl: invitation.event_registration_form_url || '',
-        organizerProviding: (() => { try { const p = invitation.event_organizer_providing_json ? JSON.parse(invitation.event_organizer_providing_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })(),
+        organizerProviding: (() => { const p = parseJsonMaybe(invitation.event_organizer_providing_json); return Array.isArray(p) ? p : []; })(),
         eventImageUrl: invitation.event_image_url || '',
-        eventImageUrls: (() => { try { const p = invitation.event_image_urls_json ? JSON.parse(invitation.event_image_urls_json) : null; return Array.isArray(p) ? p : []; } catch { return []; } })(),
+        eventImageUrls: (() => { const p = parseJsonMaybe(invitation.event_image_urls_json); return Array.isArray(p) ? p : []; })(),
         publicHeroImageUrl: invitation.event_public_hero_image_url || '',
         familyProvisionNote: invitation.event_family_provision_note || '',
         agencyName: invitation.agency_name || ''
@@ -3770,13 +3770,9 @@ export const getCompanyEventPublic = async (req, res, next) => {
         locationPhone: row.event_location_phone || '',
         guestPolicy: row.guest_policy || 'staff_only',
         familyProvisionNote: row.family_provision_note || '',
-        organizerProviding: (() => {
-          try { const p = row.organizer_providing_json ? JSON.parse(row.organizer_providing_json) : null; return Array.isArray(p) ? p : []; } catch { return []; }
-        })(),
+        organizerProviding: (() => { const p = parseJsonMaybe(row.organizer_providing_json); return Array.isArray(p) ? p : []; })(),
         eventImageUrl: row.event_image_url || '',
-        eventImageUrls: (() => {
-          try { const p = row.event_image_urls_json ? JSON.parse(row.event_image_urls_json) : null; return Array.isArray(p) ? p : []; } catch { return []; }
-        })(),
+        eventImageUrls: (() => { const p = parseJsonMaybe(row.event_image_urls_json); return Array.isArray(p) ? p : []; })(),
         publicHeroImageUrl: row.public_hero_image_url || '',
         registrationFormUrl: row.registration_form_url || '',
         potluckEnabled: !!(row.potluck_enabled === 1 || row.potluck_enabled === true),
