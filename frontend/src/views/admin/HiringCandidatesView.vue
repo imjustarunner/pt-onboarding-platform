@@ -36,10 +36,10 @@
       <div class="panel list-panel" data-tour="hiring-list-panel">
         <div class="list-controls" data-tour="hiring-search">
           <select v-model="stageFilter" class="input" @change="refresh" style="max-width: 180px;">
-            <option value="active">Active</option>
+            <option value="active">Applicants</option>
             <option value="all">All stages</option>
             <option value="hired">Hired</option>
-            <option value="archived">Archived</option>
+            <option value="not_hired">Not hired</option>
           </select>
           <select v-model="filterJobId" class="input" @change="refresh" style="max-width: 200px;">
             <option value="">All jobs</option>
@@ -47,6 +47,8 @@
           </select>
           <input v-model="q" class="input" placeholder="Search name/email…" @keyup.enter="refresh" />
           <button class="btn btn-secondary" @click="refresh" :disabled="loading">Search</button>
+          <button class="btn btn-secondary btn-sm" @click="setStageFilter('active')" :disabled="stageFilter === 'active'">Show applicants</button>
+          <button class="btn btn-secondary btn-sm" @click="setStageFilter('not_hired')" :disabled="stageFilter === 'not_hired'">Show not hired</button>
         </div>
 
         <div v-if="loading" class="loading">Loading applicants…</div>
@@ -56,13 +58,14 @@
             :key="c.id"
             class="list-item"
             data-tour="hiring-candidate-row"
-            :class="{ active: selectedId === c.id }"
+            :class="{ active: selectedId === c.id, 'list-item-duplicate': Number(c.duplicate_application_count || 0) > 1 }"
             @click="selectCandidate(c.id)"
           >
             <div class="name">{{ c.first_name }} {{ c.last_name }}</div>
             <div class="meta">
               <span class="pill">{{ c.stage || 'applied' }}</span>
               <span v-if="c.job_title" class="muted small">{{ c.job_title }}</span>
+              <span v-if="Number(c.duplicate_application_count || 0) > 1" class="pill pill-duplicate">Repeat applicant</span>
               <span class="email">{{ c.personal_email || c.email }}</span>
             </div>
           </button>
@@ -112,8 +115,8 @@
                 <button class="btn btn-primary" @click="promote" :disabled="promoting || !selectedId">
                   {{ promoting ? 'Promoting…' : 'Mark hired (start setup)' }}
                 </button>
-                <button class="btn btn-danger" @click="archiveApplicant" :disabled="archivingApplicant || !selectedId">
-                  {{ archivingApplicant ? 'Archiving…' : 'Archive' }}
+                <button class="btn btn-danger" @click="markNotHired" :disabled="markingNotHired || !selectedId">
+                  {{ markingNotHired ? 'Saving…' : 'Not hired' }}
                 </button>
                 <button v-if="canHardDeleteApplicant" class="btn btn-danger" @click="deleteApplicant" :disabled="deletingApplicant || !selectedId">
                   {{ deletingApplicant ? 'Deleting…' : 'Delete' }}
@@ -190,6 +193,10 @@
                 <div class="v">
                   <pre class="pre light-pre">{{ detail.profile?.cover_letter_text || '—' }}</pre>
                 </div>
+              </div>
+              <div class="kv">
+                <div class="k">Fluent languages</div>
+                <div class="v">{{ fluentLanguagesDisplay }}</div>
               </div>
             </div>
 
@@ -641,6 +648,21 @@ const candidateName = computed(() => {
   if (!u) return '';
   return `${u.first_name || ''} ${u.last_name || ''}`.trim();
 });
+const fluentLanguagesDisplay = computed(() => {
+  const raw = detail.value?.profile?.fluent_languages_json ?? detail.value?.profile?.fluentLanguagesJson ?? null;
+  let list = [];
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) list = parsed;
+    } catch {
+      list = raw.split(',').map((v) => String(v || '').trim()).filter(Boolean);
+    }
+  }
+  return list.length ? list.join(', ') : '—';
+});
 
 const applicantsByJob = computed(() => {
   const list = candidates.value || [];
@@ -735,31 +757,32 @@ const transferAgency = async () => {
 };
 
 const canHardDeleteApplicant = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
-const archivingApplicant = ref(false);
+const markingNotHired = ref(false);
 const deletingApplicant = ref(false);
 
-const archiveApplicant = async () => {
+const markNotHired = async () => {
   if (!selectedId.value || !effectiveAgencyId.value) return;
   // eslint-disable-next-line no-alert
-  const ok = confirm('Archive this applicant? They will be removed from the Applicants list.');
+  const ok = confirm('Mark this applicant as not hired? They will be removed from Applicants and available under the Not hired list.');
   if (!ok) return;
   try {
-    archivingApplicant.value = true;
-    await api.post(`/hiring/candidates/${selectedId.value}/archive`, {}, { params: { agencyId: effectiveAgencyId.value } });
+    markingNotHired.value = true;
+    await api.post(`/hiring/candidates/${selectedId.value}/not-hired`, {}, { params: { agencyId: effectiveAgencyId.value } });
     selectedId.value = null;
+    stageFilter.value = 'active';
     await refresh();
   } catch (e) {
-    alert(e.response?.data?.error?.message || 'Failed to archive applicant');
+    alert(e.response?.data?.error?.message || 'Failed to update applicant');
   } finally {
-    archivingApplicant.value = false;
+    markingNotHired.value = false;
   }
 };
 
 const deleteApplicant = async () => {
   if (!selectedId.value || !effectiveAgencyId.value) return;
   // eslint-disable-next-line no-alert
-  const ok = confirm('Permanently delete this applicant? This cannot be undone.');
-  if (!ok) return;
+  const typed = prompt('Type "delete" to permanently delete this applicant. This cannot be undone.');
+  if (String(typed || '').trim().toLowerCase() !== 'delete') return;
   try {
     deletingApplicant.value = true;
     await api.delete(`/hiring/candidates/${selectedId.value}`, { params: { agencyId: effectiveAgencyId.value } });
@@ -811,7 +834,7 @@ const refresh = async () => {
     const r = await api.get('/hiring/candidates', {
       params: {
         agencyId: effectiveAgencyId.value,
-        status: stageFilter.value === 'archived' ? 'ARCHIVED' : 'PROSPECTIVE',
+        status: 'PROSPECTIVE',
         stageFilter: stageFilter.value || 'active',
         q: q.value || undefined,
         jobDescriptionId: filterJobId.value || undefined
@@ -827,6 +850,11 @@ const refresh = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const setStageFilter = async (value) => {
+  stageFilter.value = String(value || 'active');
+  await refresh();
 };
 
 const selectCandidate = async (id) => {
@@ -1643,6 +1671,10 @@ onUnmounted(() => {
   border-color: #2563eb;
   background: #eff6ff;
 }
+.list-item-duplicate {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.25);
+}
 .name {
   font-weight: 600;
 }
@@ -1665,6 +1697,11 @@ onUnmounted(() => {
   background: #e5e7eb;
   font-size: 12px;
   color: #374151;
+}
+.pill-duplicate {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
 }
 .unread-pill {
   background: #dbeafe;

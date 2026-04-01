@@ -45,11 +45,23 @@
       <div class="form-grid">
         <input v-model="createForm.title" class="input" type="text" placeholder="Job title" />
         <input ref="jobFileRef" class="input" type="file" @change="onCreateFileChange" />
+        <input v-model="createForm.city" class="input" type="text" placeholder="City" />
+        <input v-model="createForm.state" class="input" type="text" placeholder="State" />
+        <input v-model="createForm.postedDate" class="input" type="date" />
+        <select v-model="createForm.educationLevel" class="input">
+          <option value="">Education level (optional)</option>
+          <option v-for="opt in educationLevelOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+        </select>
+        <label class="checkbox-inline">
+          <input v-model="createForm.ongoing" type="checkbox" />
+          Ongoing (no deadline)
+        </label>
+        <input v-model="createForm.applicationDeadline" class="input" type="date" :disabled="createForm.ongoing" />
         <textarea
           v-model="createForm.descriptionText"
           class="textarea"
           rows="4"
-          placeholder="Job description text"
+          placeholder="Quick description shown on careers page"
           style="grid-column: 1 / -1;"
         />
       </div>
@@ -69,6 +81,9 @@
             <th>Job</th>
             <th>Status</th>
             <th>Applicants</th>
+            <th>Posted</th>
+            <th>Deadline</th>
+            <th>Location</th>
             <th>Application form</th>
             <th>Actions</th>
           </tr>
@@ -84,7 +99,13 @@
                 {{ row.isActive ? 'Active' : 'Inactive' }}
               </span>
             </td>
-            <td>{{ row.applicantCount }}</td>
+            <td>
+              <div>{{ row.activeApplicantCount }} active</div>
+              <div class="muted small">{{ row.inactiveApplicantCount }} inactive</div>
+            </td>
+            <td>{{ formatDate(row.postedDate) || '—' }}</td>
+            <td>{{ row.applicationDeadline ? formatDate(row.applicationDeadline) : 'Ongoing' }}</td>
+            <td>{{ [row.city, row.state].filter(Boolean).join(', ') || '—' }}</td>
             <td>
               <template v-if="row.applicationUrl">
                 <a :href="row.applicationUrl" target="_blank" rel="noopener noreferrer">Open link</a>
@@ -106,7 +127,7 @@
             </td>
           </tr>
           <tr v-if="jobRows.length === 0">
-            <td colspan="5" class="muted">No jobs created yet.</td>
+            <td colspan="8" class="muted">No jobs created yet.</td>
           </tr>
         </tbody>
       </table>
@@ -122,11 +143,29 @@
           <div class="form-grid">
             <input v-model="editForm.title" class="input" type="text" placeholder="Job title" />
             <input ref="editFileRef" class="input" type="file" @change="onEditFileChange" />
+            <div v-if="editingRow?.hasFile" class="muted small">
+              Current file: {{ editingRow.originalName || 'Uploaded file' }}
+              <button type="button" class="btn btn-secondary btn-sm" style="margin-left:8px;" @click="openJobFile(editingRow)">
+                View
+              </button>
+            </div>
+            <input v-model="editForm.city" class="input" type="text" placeholder="City" />
+            <input v-model="editForm.state" class="input" type="text" placeholder="State" />
+            <input v-model="editForm.postedDate" class="input" type="date" />
+            <select v-model="editForm.educationLevel" class="input">
+              <option value="">Education level (optional)</option>
+              <option v-for="opt in educationLevelOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+            <label class="checkbox-inline">
+              <input v-model="editForm.ongoing" type="checkbox" />
+              Ongoing (no deadline)
+            </label>
+            <input v-model="editForm.applicationDeadline" class="input" type="date" :disabled="editForm.ongoing" />
             <textarea
               v-model="editForm.descriptionText"
               class="textarea"
               rows="4"
-              placeholder="Job description text"
+              placeholder="Quick description shown on careers page"
               style="grid-column: 1 / -1;"
             />
           </div>
@@ -162,8 +201,28 @@ const jobs = ref([]);
 const links = ref([]);
 const applicantCounts = ref({});
 
-const createForm = ref({ title: '', descriptionText: '', file: null });
-const editForm = ref({ title: '', descriptionText: '', file: null });
+const createForm = ref({
+  title: '',
+  descriptionText: '',
+  postedDate: '',
+  applicationDeadline: '',
+  ongoing: true,
+  city: '',
+  state: '',
+  educationLevel: '',
+  file: null
+});
+const editForm = ref({
+  title: '',
+  descriptionText: '',
+  postedDate: '',
+  applicationDeadline: '',
+  ongoing: true,
+  city: '',
+  state: '',
+  educationLevel: '',
+  file: null
+});
 const editingRow = ref(null);
 const jobFileRef = ref(null);
 const editFileRef = ref(null);
@@ -192,6 +251,11 @@ const effectiveAgencyId = computed(() => {
 const selectedAgency = computed(() =>
   agencyChoices.value.find((a) => Number(a?.id) === Number(effectiveAgencyId.value)) || null
 );
+const educationLevelOptions = [
+  { value: 'bachelors', label: 'Bachelors' },
+  { value: 'masters_level_intern', label: 'Masters level intern' },
+  { value: 'masters_or_doctoral', label: 'Masters/Doctoral level' }
+];
 const publicCareersUrl = computed(() => {
   const slug = String(selectedAgency.value?.slug || '').trim();
   if (!slug) return '';
@@ -205,17 +269,33 @@ const jobRows = computed(() => {
     if (!jdId) continue;
     if (!mapByJob.has(jdId)) mapByJob.set(jdId, l);
   }
-  return (jobs.value || []).map((j) => {
+  return (jobs.value || [])
+    .slice()
+    .sort((a, b) => {
+      const aActive = a?.isActive ? 1 : 0;
+      const bActive = b?.isActive ? 1 : 0;
+      if (aActive !== bActive) return bActive - aActive;
+      return String(b?.updatedAt || '').localeCompare(String(a?.updatedAt || ''));
+    })
+    .map((j) => {
     const link = mapByJob.get(Number(j.id)) || null;
     return {
       ...j,
       linkId: link?.id || null,
       linkPublicKey: link?.public_key || link?.publicKey || null,
       applicationUrl: link?.public_key || link?.publicKey ? buildPublicIntakeUrl(link.public_key || link.publicKey) : '',
-      applicantCount: Number(applicantCounts.value?.[j.id] || 0)
+      activeApplicantCount: Number(applicantCounts.value?.[j.id]?.active || 0),
+      inactiveApplicantCount: Number(applicantCounts.value?.[j.id]?.inactive || 0)
     };
   });
 });
+const formatDate = (v) => {
+  const raw = String(v || '').trim();
+  if (!raw) return '';
+  const dt = new Date(raw);
+  if (!Number.isFinite(dt.getTime())) return raw;
+  return dt.toLocaleDateString();
+};
 
 const onCreateFileChange = (e) => {
   createForm.value.file = e?.target?.files?.[0] || null;
@@ -258,13 +338,16 @@ const loadLinks = async () => {
 
 const loadApplicantCounts = async () => {
   if (!effectiveAgencyId.value) return;
-  const r = await api.get('/hiring/candidates', { params: { agencyId: effectiveAgencyId.value, status: 'PROSPECTIVE' } });
+  const r = await api.get('/hiring/candidates', { params: { agencyId: effectiveAgencyId.value, stageFilter: 'all', status: 'PROSPECTIVE' } });
   const list = Array.isArray(r.data) ? r.data : [];
   const counts = {};
   for (const row of list) {
     const id = Number(row.job_description_id || 0);
     if (!id) continue;
-    counts[id] = Number(counts[id] || 0) + 1;
+    if (!counts[id]) counts[id] = { active: 0, inactive: 0 };
+    const stage = String(row.stage || '').trim().toLowerCase();
+    if (stage === 'not_hired') counts[id].inactive += 1;
+    else if (stage !== 'hired') counts[id].active += 1;
   }
   applicantCounts.value = counts;
 };
@@ -303,11 +386,30 @@ const createJob = async () => {
     fd.append('agencyId', String(effectiveAgencyId.value));
     fd.append('title', String(createForm.value.title || '').trim());
     if (String(createForm.value.descriptionText || '').trim()) fd.append('descriptionText', String(createForm.value.descriptionText || '').trim());
+    if (String(createForm.value.postedDate || '').trim()) fd.append('postedDate', String(createForm.value.postedDate || '').trim());
+    if (!createForm.value.ongoing && String(createForm.value.applicationDeadline || '').trim()) {
+      fd.append('applicationDeadline', String(createForm.value.applicationDeadline || '').trim());
+    } else {
+      fd.append('applicationDeadline', '');
+    }
+    if (String(createForm.value.city || '').trim()) fd.append('city', String(createForm.value.city || '').trim());
+    if (String(createForm.value.state || '').trim()) fd.append('state', String(createForm.value.state || '').trim());
+    if (String(createForm.value.educationLevel || '').trim()) fd.append('educationLevel', String(createForm.value.educationLevel || '').trim());
     if (createForm.value.file) fd.append('file', createForm.value.file);
     const r = await api.post('/hiring/job-descriptions', fd);
     const jobId = Number(r.data?.id || 0);
     if (jobId) await ensureApplicationLink(jobId);
-    createForm.value = { title: '', descriptionText: '', file: null };
+    createForm.value = {
+      title: '',
+      descriptionText: '',
+      postedDate: '',
+      applicationDeadline: '',
+      ongoing: true,
+      city: '',
+      state: '',
+      educationLevel: '',
+      file: null
+    };
     if (jobFileRef.value) jobFileRef.value.value = '';
     await refresh();
   } catch (e) {
@@ -322,13 +424,29 @@ const openEdit = (row) => {
   editForm.value = {
     title: row.title || '',
     descriptionText: row.descriptionText || '',
+    postedDate: row.postedDate || '',
+    applicationDeadline: row.applicationDeadline || '',
+    ongoing: !row.applicationDeadline,
+    city: row.city || '',
+    state: row.state || '',
+    educationLevel: row.educationLevel || '',
     file: null
   };
   if (editFileRef.value) editFileRef.value.value = '';
 };
 const closeEdit = () => {
   editingRow.value = null;
-  editForm.value = { title: '', descriptionText: '', file: null };
+  editForm.value = {
+    title: '',
+    descriptionText: '',
+    postedDate: '',
+    applicationDeadline: '',
+    ongoing: true,
+    city: '',
+    state: '',
+    educationLevel: '',
+    file: null
+  };
 };
 
 const saveEdit = async () => {
@@ -339,6 +457,11 @@ const saveEdit = async () => {
     fd.append('agencyId', String(effectiveAgencyId.value));
     fd.append('title', String(editForm.value.title || '').trim());
     fd.append('descriptionText', String(editForm.value.descriptionText || '').trim());
+    fd.append('postedDate', String(editForm.value.postedDate || '').trim());
+    fd.append('applicationDeadline', editForm.value.ongoing ? '' : String(editForm.value.applicationDeadline || '').trim());
+    fd.append('city', String(editForm.value.city || '').trim());
+    fd.append('state', String(editForm.value.state || '').trim());
+    fd.append('educationLevel', String(editForm.value.educationLevel || '').trim());
     if (editForm.value.file) fd.append('file', editForm.value.file);
     await api.put(`/hiring/job-descriptions/${editingRow.value.id}`, fd);
     closeEdit();
@@ -360,6 +483,19 @@ const toggleActive = async (row) => {
     await refresh();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to update status';
+  }
+};
+const openJobFile = async (row) => {
+  if (!row?.id || !effectiveAgencyId.value) return;
+  try {
+    const r = await api.get(`/hiring/job-descriptions/${row.id}/view`, {
+      params: { agencyId: effectiveAgencyId.value }
+    });
+    const url = String(r.data?.url || '').trim();
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } catch {
+    // ignore
   }
 };
 
@@ -444,6 +580,7 @@ onMounted(async () => {
 .public-link-panel { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .form-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .input, .textarea { width: 100%; border: 1px solid #d1d5db; border-radius: 8px; padding: 10px; font-size: 14px; }
+.checkbox-inline { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #374151; }
 .actions { margin-top: 10px; display: flex; gap: 8px; }
 .table { width: 100%; border-collapse: collapse; }
 .table th, .table td { border-bottom: 1px solid #e5e7eb; padding: 10px; vertical-align: top; text-align: left; }

@@ -10,6 +10,11 @@ class HiringJobDescription {
     agencyId,
     title,
     descriptionText = null,
+    postedDate = null,
+    applicationDeadline = null,
+    city = null,
+    state = null,
+    educationLevel = null,
     storagePath = null,
     originalName = null,
     mimeType = null,
@@ -18,14 +23,19 @@ class HiringJobDescription {
   }) {
     const [result] = await pool.execute(
       `INSERT INTO hiring_job_descriptions (
-        agency_id, title, description_text,
+        agency_id, title, description_text, posted_date, application_deadline, city, state, education_level,
         storage_path, original_name, mime_type,
         is_active, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         parseIntParam(agencyId),
         String(title || '').trim().slice(0, 255),
         descriptionText !== undefined && descriptionText !== null ? String(descriptionText) : null,
+        postedDate || null,
+        applicationDeadline || null,
+        city !== undefined && city !== null ? String(city).trim().slice(0, 120) : null,
+        state !== undefined && state !== null ? String(state).trim().slice(0, 120) : null,
+        educationLevel !== undefined && educationLevel !== null ? String(educationLevel).trim().slice(0, 80) : null,
         storagePath || null,
         originalName || null,
         mimeType || null,
@@ -62,7 +72,19 @@ class HiringJobDescription {
     return rows || [];
   }
 
-  static async updateById(id, { title, descriptionText, storagePath, originalName, mimeType, isActive } = {}) {
+  static async updateById(id, {
+    title,
+    descriptionText,
+    postedDate,
+    applicationDeadline,
+    city,
+    state,
+    educationLevel,
+    storagePath,
+    originalName,
+    mimeType,
+    isActive
+  } = {}) {
     const updates = [];
     const params = [];
 
@@ -73,6 +95,26 @@ class HiringJobDescription {
     if (descriptionText !== undefined) {
       updates.push('description_text = ?');
       params.push(descriptionText !== null ? String(descriptionText) : null);
+    }
+    if (postedDate !== undefined) {
+      updates.push('posted_date = ?');
+      params.push(postedDate || null);
+    }
+    if (applicationDeadline !== undefined) {
+      updates.push('application_deadline = ?');
+      params.push(applicationDeadline || null);
+    }
+    if (city !== undefined) {
+      updates.push('city = ?');
+      params.push(city !== null ? String(city).trim().slice(0, 120) : null);
+    }
+    if (state !== undefined) {
+      updates.push('state = ?');
+      params.push(state !== null ? String(state).trim().slice(0, 120) : null);
+    }
+    if (educationLevel !== undefined) {
+      updates.push('education_level = ?');
+      params.push(educationLevel !== null ? String(educationLevel).trim().slice(0, 80) : null);
     }
     if (storagePath !== undefined) {
       updates.push('storage_path = ?');

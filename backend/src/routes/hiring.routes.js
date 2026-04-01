@@ -21,6 +21,7 @@ import {
   generateCandidateResumeSummary,
   transferCandidateAgency,
   archiveCandidate,
+  markCandidateNotHired,
   deleteCandidate,
   requestCandidateResearch,
   generateCandidatePreScreenReport,
@@ -73,6 +74,7 @@ router.get('/candidates/:userId/resume-summary', getCandidateResumeSummary);
 router.post('/candidates/:userId/resume-summary', generateCandidateResumeSummary);
 router.post('/candidates/:userId/transfer-agency', transferCandidateAgency);
 router.post('/candidates/:userId/archive', archiveCandidate);
+router.post('/candidates/:userId/not-hired', markCandidateNotHired);
 router.delete('/candidates/:userId', deleteCandidate);
 router.post('/candidates/:userId/research', requestCandidateResearch);
 router.post('/candidates/:userId/prescreen', generateCandidatePreScreenReport);

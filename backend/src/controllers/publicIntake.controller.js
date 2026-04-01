@@ -2275,13 +2275,21 @@ const parseJobApplicationContext = (intakeData, link = null) => {
     : null;
   const referencesRaw = intakeData?.referencesJson ?? submission.references ?? submission.professionalReferences ?? null;
   const referencesJson = Array.isArray(referencesRaw) ? referencesRaw.slice(0, 20) : null;
+  const fluentLanguagesRaw =
+    intakeData?.fluentLanguages
+    ?? submission.fluentLanguages
+    ?? submission.languagesSpoken
+    ?? null;
+  const fluentLanguagesJson = Array.isArray(fluentLanguagesRaw)
+    ? fluentLanguagesRaw.map((v) => String(v || '').trim()).filter(Boolean).slice(0, 30)
+    : [];
   const jobAcknowledged = toBooleanSafe(
     intakeData?.jobDescriptionAcknowledged
       ?? submission.jobDescriptionAcknowledged
       ?? submission.jobAcknowledged
       ?? false
   );
-  return { coverLetterText, resumeText, referencesJson, jobAcknowledged };
+  return { coverLetterText, resumeText, referencesJson, fluentLanguagesJson, jobAcknowledged };
 };
 
 export const listPublicCareers = async (req, res, next) => {
@@ -2295,11 +2303,22 @@ export const listPublicCareers = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Agency not found' } });
     }
 
+    const cityFilter = String(req.query?.city || '').trim().toLowerCase();
+    const stateFilter = String(req.query?.state || '').trim().toLowerCase();
+    const educationFilter = String(req.query?.educationLevel || '').trim().toLowerCase();
+
     const [rows] = await pool.execute(
       `SELECT
         hjd.id,
         hjd.title,
         hjd.description_text,
+        hjd.posted_date,
+        hjd.application_deadline,
+        hjd.city,
+        hjd.state,
+        hjd.education_level,
+        hjd.storage_path,
+        hjd.original_name,
         hjd.created_at,
         il.public_key
       FROM hiring_job_descriptions hjd
@@ -2315,13 +2334,33 @@ export const listPublicCareers = async (req, res, next) => {
 
     const jobs = (rows || [])
       .filter((r) => !!r?.public_key)
+      .filter((r) => (cityFilter ? String(r.city || '').trim().toLowerCase() === cityFilter : true))
+      .filter((r) => (stateFilter ? String(r.state || '').trim().toLowerCase() === stateFilter : true))
+      .filter((r) => (educationFilter ? String(r.education_level || '').trim().toLowerCase() === educationFilter : true))
       .map((r) => ({
         jobId: Number(r.id),
         title: String(r.title || '').trim(),
         descriptionText: String(r.description_text || '').trim() || null,
+        postedDate: r.posted_date || null,
+        applicationDeadline: r.application_deadline || null,
+        city: String(r.city || '').trim() || null,
+        state: String(r.state || '').trim() || null,
+        educationLevel: String(r.education_level || '').trim() || null,
+        jobDescriptionFileUrl: null,
+        jobDescriptionFileName: String(r.original_name || '').trim() || null,
         postedAt: r.created_at || null,
         applicationPublicKey: String(r.public_key || '').trim()
       }));
+    for (const job of jobs) {
+      const source = (rows || []).find((r) => Number(r.id) === Number(job.jobId));
+      const storagePath = String(source?.storage_path || '').trim();
+      if (!storagePath) continue;
+      try {
+        job.jobDescriptionFileUrl = await StorageService.getSignedUrl(storagePath, 30);
+      } catch {
+        job.jobDescriptionFileUrl = null;
+      }
+    }
 
     return res.json({
       agency: {
@@ -3638,7 +3677,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       const gEmail = String(req.body?.guardian?.email || '').trim();
       const gPhone = req.body?.guardian?.phoneNumber !== undefined ? String(req.body.guardian.phoneNumber || '').trim()
   : req.body?.guardian?.phone !== undefined ? String(req.body.guardian.phone || '').trim() : null;
-      const { coverLetterText, resumeText, referencesJson, jobAcknowledged } = parseJobApplicationContext(intakeData, link);
+      const { coverLetterText, resumeText, referencesJson, fluentLanguagesJson, jobAcknowledged } = parseJobApplicationContext(intakeData, link);
 
       const user = await User.create({
         email: gEmail,
@@ -3686,6 +3725,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         jobDescriptionId: jobDescriptionId || null,
         coverLetterText,
         referencesJson,
+        fluentLanguagesJson,
         jobAcknowledged
       });
 

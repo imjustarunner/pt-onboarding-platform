@@ -65,6 +65,15 @@ function parseMetadata(metadata) {
   return null;
 }
 
+function normalizeDateOnly(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const dt = new Date(raw);
+  if (!Number.isFinite(dt.getTime())) return null;
+  return dt.toISOString().slice(0, 10);
+}
+
 export const listCandidates = async (req, res, next) => {
   try {
     const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
@@ -92,6 +101,11 @@ export const listCandidates = async (req, res, next) => {
           OR (u.is_archived = TRUE)
         )
       `;
+    } else if (stageFilter === 'not_hired') {
+      whereSql = `
+        WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
+          AND LOWER(COALESCE(hp.stage, 'applied')) = 'not_hired'
+      `;
     } else if (stageFilter === 'hired') {
       whereSql = `
         WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
@@ -109,7 +123,7 @@ export const listCandidates = async (req, res, next) => {
           u.status = 'PROSPECTIVE'
           OR (
             hp.candidate_user_id IS NOT NULL
-            AND LOWER(COALESCE(hp.stage, 'applied')) != 'hired'
+            AND LOWER(COALESCE(hp.stage, 'applied')) NOT IN ('hired', 'not_hired')
           )
         )
       `;
@@ -148,12 +162,30 @@ export const listCandidates = async (req, res, next) => {
         hp.source,
         hp.job_description_id,
         jd.title AS job_title,
+        COALESCE(email_dupe.cnt, 0) AS duplicate_application_count,
         hp.created_at AS hiring_created_at,
         hp.updated_at AS hiring_updated_at
       FROM users u
       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
       LEFT JOIN hiring_profiles hp ON hp.candidate_user_id = u.id
       LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id
+      LEFT JOIN (
+        SELECT
+          ua2.agency_id,
+          LOWER(TRIM(COALESCE(NULLIF(u2.personal_email, ''), u2.email))) AS email_key,
+          COUNT(*) AS cnt
+        FROM users u2
+        JOIN user_agencies ua2 ON ua2.user_id = u2.id
+        LEFT JOIN hiring_profiles hp2 ON hp2.candidate_user_id = u2.id
+        WHERE hp2.candidate_user_id IS NOT NULL
+          AND u2.status != 'ARCHIVED'
+          AND (u2.is_archived = FALSE OR u2.is_archived IS NULL)
+          AND COALESCE(NULLIF(u2.personal_email, ''), u2.email) IS NOT NULL
+          AND TRIM(COALESCE(NULLIF(u2.personal_email, ''), u2.email)) != ''
+        GROUP BY ua2.agency_id, LOWER(TRIM(COALESCE(NULLIF(u2.personal_email, ''), u2.email)))
+      ) email_dupe
+        ON email_dupe.agency_id = ua.agency_id
+       AND email_dupe.email_key = LOWER(TRIM(COALESCE(NULLIF(u.personal_email, ''), u.email)))
       ${whereSql}
       -- Note: users table does not consistently have updated_at; prefer created_at for stable ordering.
       ORDER BY COALESCE(hp.updated_at, hp.created_at, u.created_at) DESC, u.id DESC
@@ -286,6 +318,11 @@ export const listJobDescriptions = async (req, res, next) => {
         hasFile: !!r.storage_path,
         originalName: r.original_name || null,
         mimeType: r.mime_type || null,
+        postedDate: r.posted_date || null,
+        applicationDeadline: r.application_deadline || null,
+        city: r.city || null,
+        state: r.state || null,
+        educationLevel: r.education_level || null,
         isActive: r.is_active === 1 || r.is_active === true,
         createdAt: r.created_at,
         updatedAt: r.updated_at
@@ -304,6 +341,11 @@ export const createJobDescription = async (req, res, next) => {
     const title = String(req.body?.title || '').trim().slice(0, 255);
     const descriptionTextRaw = req.body?.descriptionText !== undefined ? String(req.body.descriptionText || '') : '';
     let descriptionText = descriptionTextRaw.trim();
+    const postedDate = req.body?.postedDate !== undefined ? normalizeDateOnly(req.body.postedDate) : null;
+    const applicationDeadline = req.body?.applicationDeadline !== undefined ? normalizeDateOnly(req.body.applicationDeadline) : null;
+    const city = req.body?.city !== undefined ? String(req.body.city || '').trim().slice(0, 120) : null;
+    const state = req.body?.state !== undefined ? String(req.body.state || '').trim().slice(0, 120) : null;
+    const educationLevel = req.body?.educationLevel !== undefined ? String(req.body.educationLevel || '').trim().slice(0, 80) : null;
 
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
 
@@ -336,6 +378,11 @@ export const createJobDescription = async (req, res, next) => {
       agencyId,
       title,
       descriptionText: descriptionText || null,
+      postedDate,
+      applicationDeadline,
+      city: city || null,
+      state: state || null,
+      educationLevel: educationLevel || null,
       storagePath,
       originalName,
       mimeType,
@@ -383,6 +430,17 @@ export const updateJobDescription = async (req, res, next) => {
         ? String(req.body.descriptionText || '')
         : String(existing.description_text || '');
       let descriptionText = descriptionTextRaw.trim();
+      const postedDate = req.body?.postedDate !== undefined
+        ? normalizeDateOnly(req.body.postedDate)
+        : normalizeDateOnly(existing.posted_date);
+      const applicationDeadline = req.body?.applicationDeadline !== undefined
+        ? normalizeDateOnly(req.body.applicationDeadline)
+        : normalizeDateOnly(existing.application_deadline);
+      const city = req.body?.city !== undefined ? String(req.body.city || '').trim().slice(0, 120) : String(existing.city || '').trim();
+      const state = req.body?.state !== undefined ? String(req.body.state || '').trim().slice(0, 120) : String(existing.state || '').trim();
+      const educationLevel = req.body?.educationLevel !== undefined
+        ? String(req.body.educationLevel || '').trim().slice(0, 80)
+        : String(existing.education_level || '').trim();
 
       if (hasUploadedFile) {
         const fileBuffer = req.file.buffer;
@@ -408,6 +466,11 @@ export const updateJobDescription = async (req, res, next) => {
         agencyId,
         title,
         descriptionText: descriptionText || null,
+        postedDate,
+        applicationDeadline,
+        city: city || null,
+        state: state || null,
+        educationLevel: educationLevel || null,
         storagePath: storagePath || null,
         originalName: originalName || null,
         mimeType: mimeType || null,
@@ -438,10 +501,24 @@ export const updateJobDescription = async (req, res, next) => {
     const descriptionText = req.body?.descriptionText !== undefined
       ? String(req.body.descriptionText || '').trim()
       : existing.description_text;
+    const postedDate = req.body?.postedDate !== undefined ? normalizeDateOnly(req.body.postedDate) : undefined;
+    const applicationDeadline = req.body?.applicationDeadline !== undefined
+      ? normalizeDateOnly(req.body.applicationDeadline)
+      : undefined;
+    const city = req.body?.city !== undefined ? String(req.body.city || '').trim().slice(0, 120) : undefined;
+    const state = req.body?.state !== undefined ? String(req.body.state || '').trim().slice(0, 120) : undefined;
+    const educationLevel = req.body?.educationLevel !== undefined
+      ? String(req.body.educationLevel || '').trim().slice(0, 80)
+      : undefined;
 
     const updated = await HiringJobDescription.updateById(jdId, {
       title,
       descriptionText: descriptionText || null,
+      postedDate,
+      applicationDeadline,
+      city: city !== undefined ? (city || null) : undefined,
+      state: state !== undefined ? (state || null) : undefined,
+      educationLevel: educationLevel !== undefined ? (educationLevel || null) : undefined,
       ...(isActive !== undefined ? { isActive } : {})
     });
 
@@ -1484,6 +1561,35 @@ export const archiveCandidate = async (req, res, next) => {
     if (!ok) return res.status(404).json({ error: { message: 'Candidate not found' } });
 
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const markCandidateNotHired = async (req, res, next) => {
+  try {
+    ensureCanArchiveOrDelete(req);
+
+    const agencyId = parseIntParam(req.query.agencyId || req.body?.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const existing = await HiringProfile.findByCandidateUserId(candidateUserId);
+    await HiringProfile.upsert({
+      candidateUserId,
+      stage: 'not_hired',
+      appliedRole: existing?.applied_role || existing?.appliedRole || null,
+      source: existing?.source || null,
+      jobDescriptionId: existing?.job_description_id || existing?.jobDescriptionId || null,
+      coverLetterText: existing?.cover_letter_text || existing?.coverLetterText || null
+    });
+
+    res.json({ ok: true, stage: 'not_hired' });
   } catch (e) {
     next(e);
   }

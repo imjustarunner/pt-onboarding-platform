@@ -189,6 +189,15 @@
             />
             <div v-if="consentErrors.guardianPhone" class="error-text">{{ consentErrors.guardianPhone }}</div>
           </div>
+          <div v-if="isJobApplication" class="form-group" style="grid-column: 1 / -1;">
+            <label>Languages spoken fluently</label>
+            <input
+              v-model="fluentLanguagesInput"
+              type="text"
+              placeholder="e.g., English, Spanish, ASL"
+            />
+            <div class="muted small" style="margin-top:4px;">Add comma-separated languages.</div>
+          </div>
           <div v-if="!isMedicalRecordsRequest && !isJobApplication && !intakeForSelf" class="form-group">
             <label>{{ t('relationship') }}</label>
             <input v-model="guardianRelationship" type="text" :placeholder="t('relationshipPlaceholder')" />
@@ -2253,6 +2262,7 @@ const guardianFirstName = ref('');
 const guardianLastName = ref('');
 const guardianEmail = ref('');
 const guardianPhone = ref('');
+const fluentLanguagesInput = ref('');
 const guardianRelationship = ref('');
 const downloadUrl = ref('');
 const clientBundleLinks = ref([]);
@@ -3552,6 +3562,13 @@ const submitConsent = async () => {
     if (organizationId.value) {
       intakeResponses.submission.organizationId = Number(organizationId.value) || organizationId.value;
     }
+    if (isJobApplication.value) {
+      intakeResponses.submission.fluentLanguages = String(fluentLanguagesInput.value || '')
+        .split(',')
+        .map((v) => String(v || '').trim())
+        .filter(Boolean)
+        .slice(0, 30);
+    }
     const clientPayloads = buildClientPayloads();
     const payload = {
       sessionToken: sessionToken.value || null,
@@ -4220,6 +4237,7 @@ const resetIntakeState = () => {
   guardianLastName.value = '';
   guardianEmail.value = '';
   guardianPhone.value = '';
+  fluentLanguagesInput.value = '';
   guardianRelationship.value = '';
   jobApplicationSubmitted.value = false;
   coverLetterInputMode.value = 'upload';

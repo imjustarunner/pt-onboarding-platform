@@ -18,22 +18,65 @@
     <div v-else-if="!jobs.length" class="careers-empty">
       <p>No open positions right now.</p>
     </div>
-    <ul v-else class="careers-list">
-      <li v-for="job in jobs" :key="`job-${job.jobId}`">
-        <a
-          class="careers-card"
-          :href="buildPublicIntakeUrl(job.applicationPublicKey)"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+    <div v-else class="careers-filters">
+      <select v-model="selectedEducation" class="careers-select">
+        <option value="">All education levels</option>
+        <option v-for="opt in educationLevelOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+      </select>
+      <select v-model="selectedState" class="careers-select">
+        <option value="">All states</option>
+        <option v-for="st in availableStates" :key="st" :value="st">{{ st }}</option>
+      </select>
+      <select v-model="sortBy" class="careers-select">
+        <option value="posted_desc">Newest posted</option>
+        <option value="posted_asc">Oldest posted</option>
+        <option value="city_asc">City/State (A-Z)</option>
+      </select>
+    </div>
+    <ul v-if="filteredJobs.length" class="careers-list">
+      <li v-for="job in filteredJobs" :key="`job-${job.jobId}`">
+        <div class="careers-card">
           <div class="careers-card-body">
             <h2 class="careers-card-title">{{ job.title }}</h2>
             <p class="careers-card-meta">{{ trimText(job.descriptionText, 260) }}</p>
+            <div class="careers-card-meta small">
+              <span v-if="job.city || job.state">{{ [job.city, job.state].filter(Boolean).join(', ') }}</span>
+              <span v-if="job.educationLevel"> • {{ educationLabel(job.educationLevel) }}</span>
+              <span v-if="job.postedDate"> • Posted {{ formatDate(job.postedDate) }}</span>
+              <span> • {{ job.applicationDeadline ? `Apply by ${formatDate(job.applicationDeadline)}` : 'Ongoing' }}</span>
+            </div>
           </div>
-          <span class="careers-card-cta">Apply</span>
-        </a>
+          <div class="careers-actions">
+            <button class="btn btn-secondary btn-sm" type="button" @click="openLearnMore(job)">Learn more</button>
+            <a
+              class="careers-card-cta"
+              :href="buildPublicIntakeUrl(job.applicationPublicKey)"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Apply now
+            </a>
+          </div>
+        </div>
       </li>
     </ul>
+    <div v-else class="careers-empty"><p>No jobs match the selected filters.</p></div>
+
+    <div v-if="learnMoreJob" class="careers-modal-overlay" @click.self="closeLearnMore">
+      <div class="careers-modal">
+        <div class="careers-modal-header">
+          <h3>{{ learnMoreJob.title }}</h3>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeLearnMore">Close</button>
+        </div>
+        <div class="careers-modal-body">
+          <p class="careers-card-meta">{{ learnMoreJob.descriptionText || 'No quick description provided.' }}</p>
+          <div v-if="learnMoreJob.jobDescriptionFileUrl" class="careers-embed-wrap">
+            <iframe :src="learnMoreJob.jobDescriptionFileUrl" class="careers-embed" title="Job description" />
+          </div>
+          <div v-else class="muted small">No attached job description document.</div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -52,6 +95,15 @@ const loading = ref(false);
 const error = ref('');
 const jobs = ref([]);
 const agencyName = ref('');
+const selectedState = ref('');
+const selectedEducation = ref('');
+const sortBy = ref('posted_desc');
+const learnMoreJob = ref(null);
+const educationLevelOptions = [
+  { value: 'bachelors', label: 'Bachelors' },
+  { value: 'masters_level_intern', label: 'Masters level intern' },
+  { value: 'masters_or_doctoral', label: 'Masters/Doctoral level' }
+];
 
 const pageTitle = computed(() => (agencyName.value ? `${agencyName.value} Careers` : 'Careers'));
 const headerLogoUrl = computed(() => {
@@ -68,6 +120,35 @@ const rootFontStyle = computed(() => {
   if (!raw) return {};
   return { fontFamily: String(raw).trim() };
 });
+const availableStates = computed(() =>
+  Array.from(new Set((jobs.value || []).map((j) => String(j?.state || '').trim()).filter(Boolean))).sort()
+);
+const filteredJobs = computed(() => {
+  let list = (jobs.value || []).slice();
+  if (selectedState.value) list = list.filter((j) => String(j.state || '').trim() === selectedState.value);
+  if (selectedEducation.value) {
+    list = list.filter((j) => String(j.educationLevel || '').trim().toLowerCase() === selectedEducation.value);
+  }
+  if (sortBy.value === 'city_asc') {
+    list.sort((a, b) => `${a.city || ''} ${a.state || ''}`.localeCompare(`${b.city || ''} ${b.state || ''}`));
+  } else if (sortBy.value === 'posted_asc') {
+    list.sort((a, b) => String(a.postedDate || '').localeCompare(String(b.postedDate || '')));
+  } else {
+    list.sort((a, b) => String(b.postedDate || '').localeCompare(String(a.postedDate || '')));
+  }
+  return list;
+});
+const formatDate = (v) => {
+  const raw = String(v || '').trim();
+  if (!raw) return '';
+  const dt = new Date(raw);
+  if (!Number.isFinite(dt.getTime())) return raw;
+  return dt.toLocaleDateString();
+};
+const educationLabel = (key) =>
+  educationLevelOptions.find((o) => o.value === String(key || '').trim().toLowerCase())?.label || key || 'Education not specified';
+const openLearnMore = (job) => { learnMoreJob.value = job || null; };
+const closeLearnMore = () => { learnMoreJob.value = null; };
 
 const trimText = (text, maxLen = 220) => {
   const raw = String(text || '').trim();
@@ -175,7 +256,6 @@ watch(slug, () => loadCareers(), { immediate: true });
   border-radius: 12px;
   border: 1px solid #e2e8f0;
   background: #fff;
-  text-decoration: none;
   color: inherit;
   box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -183,6 +263,25 @@ watch(slug, () => loadCareers(), { immediate: true });
 .careers-card:hover {
   border-color: var(--primary, #15803d);
   box-shadow: 0 4px 14px rgb(15 23 42 / 8%);
+}
+.careers-filters {
+  max-width: 860px;
+  margin: 12px auto 0;
+  padding: 0 20px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.careers-select {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.careers-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 .careers-card-title {
   margin: 0;
@@ -199,5 +298,42 @@ watch(slug, () => loadCareers(), { immediate: true });
   font-size: 0.9rem;
   color: var(--primary, #15803d);
   white-space: nowrap;
+  text-decoration: none;
+}
+.careers-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+}
+.careers-modal {
+  width: min(980px, 96vw);
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+}
+.careers-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.careers-modal-body {
+  padding: 12px;
+}
+.careers-embed-wrap {
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.careers-embed {
+  width: 100%;
+  min-height: 560px;
+  border: 0;
 }
 </style>

@@ -9,14 +9,15 @@ class HiringProfile {
     jobDescriptionId = null,
     coverLetterText = null,
     referencesJson = null,
-    jobAcknowledged = false
+    jobAcknowledged = false,
+    fluentLanguagesJson = null
   }) {
     // Backward compatibility: some DBs may not have newer hiring columns yet.
     try {
       await pool.execute(
         `INSERT INTO hiring_profiles (
-          candidate_user_id, stage, applied_role, source, job_description_id, cover_letter_text, references_json, job_acknowledged
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          candidate_user_id, stage, applied_role, source, job_description_id, cover_letter_text, references_json, job_acknowledged, fluent_languages_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            stage = VALUES(stage),
            applied_role = VALUES(applied_role),
@@ -24,7 +25,8 @@ class HiringProfile {
            job_description_id = VALUES(job_description_id),
            cover_letter_text = VALUES(cover_letter_text),
            references_json = VALUES(references_json),
-           job_acknowledged = VALUES(job_acknowledged)`,
+           job_acknowledged = VALUES(job_acknowledged),
+           fluent_languages_json = VALUES(fluent_languages_json)`,
         [
           candidateUserId,
           stage,
@@ -33,7 +35,8 @@ class HiringProfile {
           jobDescriptionId,
           coverLetterText,
           referencesJson ? JSON.stringify(referencesJson) : null,
-          jobAcknowledged ? 1 : 0
+          jobAcknowledged ? 1 : 0,
+          fluentLanguagesJson ? JSON.stringify(fluentLanguagesJson) : null
         ]
       );
     } catch (e) {
