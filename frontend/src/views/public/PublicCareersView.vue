@@ -27,6 +27,10 @@
         <option value="">All states</option>
         <option v-for="st in availableStates" :key="st" :value="st">{{ st }}</option>
       </select>
+      <select v-if="availableCities.length > 1" v-model="selectedCity" class="careers-select">
+        <option value="">All cities</option>
+        <option v-for="ct in availableCities" :key="ct" :value="ct">{{ ct }}</option>
+      </select>
       <select v-model="sortBy" class="careers-select">
         <option value="posted_desc">Newest posted</option>
         <option value="posted_asc">Oldest posted</option>
@@ -96,6 +100,7 @@ const error = ref('');
 const jobs = ref([]);
 const agencyName = ref('');
 const selectedState = ref('');
+const selectedCity = ref('');
 const selectedEducation = ref('');
 const sortBy = ref('posted_desc');
 const learnMoreJob = ref(null);
@@ -123,9 +128,16 @@ const rootFontStyle = computed(() => {
 const availableStates = computed(() =>
   Array.from(new Set((jobs.value || []).map((j) => String(j?.state || '').trim()).filter(Boolean))).sort()
 );
+const availableCities = computed(() => {
+  const base = selectedState.value
+    ? (jobs.value || []).filter((j) => String(j.state || '').trim() === selectedState.value)
+    : (jobs.value || []);
+  return Array.from(new Set(base.map((j) => String(j?.city || '').trim()).filter(Boolean))).sort();
+});
 const filteredJobs = computed(() => {
   let list = (jobs.value || []).slice();
   if (selectedState.value) list = list.filter((j) => String(j.state || '').trim() === selectedState.value);
+  if (selectedCity.value) list = list.filter((j) => String(j.city || '').trim() === selectedCity.value);
   if (selectedEducation.value) {
     list = list.filter((j) => String(j.educationLevel || '').trim().toLowerCase() === selectedEducation.value);
   }
@@ -181,6 +193,7 @@ const loadCareers = async () => {
   }
 };
 
+watch(selectedState, () => { selectedCity.value = ''; });
 watch(slug, () => loadCareers(), { immediate: true });
 </script>
 

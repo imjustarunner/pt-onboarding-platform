@@ -484,19 +484,9 @@ export const updateJobDescription = async (req, res, next) => {
       });
     }
 
-    // In-place edit for pasted/no-file records.
-    if (existing.storage_path && !hasUploadedFile) {
-      // Allow activation/deactivation and title-only edits without forcing a file upload.
-      const titleChanged = title !== String(existing.title || '').trim();
-      const statusChanged = isActive !== undefined && Number(existing.is_active) !== Number(isActive ? 1 : 0);
-      if (!titleChanged && !statusChanged) {
-        return res.status(400).json({
-          error: {
-            message: 'Uploaded job descriptions should be updated by uploading a replacement file.'
-          }
-        });
-      }
-    }
+    // For uploaded-file jobs: metadata fields (title, city, state, education level,
+    // description, dates) can always be edited in-place. Only the document itself
+    // requires uploading a replacement file, which is handled above via createNewVersion.
 
     const descriptionText = req.body?.descriptionText !== undefined
       ? String(req.body.descriptionText || '').trim()
