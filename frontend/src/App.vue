@@ -244,6 +244,20 @@
                                 {{ hub.title }}
                               </a>
                             </template>
+                            <template v-if="directoryPublicLinksData.publicEventPages.length">
+                              <div class="nav-dropdown-group-label">Event pages</div>
+                              <a
+                                v-for="row in directoryPublicLinksData.publicEventPages"
+                                :key="'events-page-' + row.url"
+                                class="nav-dropdown-external-link"
+                                :href="row.url"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                @click.stop
+                              >
+                                {{ row.label }}
+                              </a>
+                            </template>
                             <template v-if="directoryPublicLinksData.providerFinder">
                               <div class="nav-dropdown-group-label">Provider availability</div>
                               <a
@@ -264,6 +278,13 @@
                             </div>
                           </template>
                           <router-link :to="orgTo('/admin/digital-forms')" @click.stop>Manage digital forms</router-link>
+                          <router-link
+                            v-if="String(user?.role || '').toLowerCase() === 'super_admin'"
+                            :to="orgTo('/admin/public-marketing-pages')"
+                            @click.stop
+                          >
+                            Manage public pages
+                          </router-link>
                         </template>
                       </div>
                     </div>
@@ -668,6 +689,18 @@
                       >
                         {{ hub.title }}
                       </a>
+                      <div v-if="directoryPublicLinksData.publicEventPages.length" class="nav-dropdown-group-label mobile-nav-sublabel">Event pages</div>
+                      <a
+                        v-for="row in directoryPublicLinksData.publicEventPages"
+                        :key="'m-events-page-' + row.url"
+                        class="mobile-nav-link mobile-nav-sublink nav-dropdown-external-link"
+                        :href="row.url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        @click="closeMobileMenu"
+                      >
+                        {{ row.label }}
+                      </a>
                       <template v-if="directoryPublicLinksData.providerFinder">
                         <div class="nav-dropdown-group-label mobile-nav-sublabel">Provider availability</div>
                         <a
@@ -692,6 +725,12 @@
                       class="mobile-nav-link mobile-nav-sublink"
                       @click="closeMobileMenu"
                     >Manage digital forms</router-link>
+                    <router-link
+                      v-if="String(user?.role || '').toLowerCase() === 'super_admin'"
+                      :to="orgTo('/admin/public-marketing-pages')"
+                      class="mobile-nav-link mobile-nav-sublink"
+                      @click="closeMobileMenu"
+                    >Manage public pages</router-link>
                   </template>
                 </template>
               </div>
@@ -1194,7 +1233,8 @@ const directoryPublicLinksError = ref('');
 const directoryPublicLinksData = ref({
   intakeLinks: [],
   marketingHubs: [],
-  providerFinder: null
+  providerFinder: null,
+  publicEventPages: []
 });
 const managementMenuOpen = ref(false);
 const engagementMenuOpen = ref(false);
@@ -1720,7 +1760,8 @@ const hasDirectoryPublicLinkRows = computed(() => {
   return (
     (d.intakeLinks?.length || 0) > 0 ||
     (d.marketingHubs?.length || 0) > 0 ||
-    !!d.providerFinder
+    !!d.providerFinder ||
+    (d.publicEventPages?.length || 0) > 0
   );
 });
 
@@ -1756,11 +1797,12 @@ const loadDirectoryPublicLinks = async () => {
     directoryPublicLinksData.value = {
       intakeLinks: data?.intakeLinks || [],
       marketingHubs: data?.marketingHubs || [],
-      providerFinder: data?.providerFinder || null
+      providerFinder: data?.providerFinder || null,
+      publicEventPages: data?.publicEventPages || []
     };
   } catch (e) {
     directoryPublicLinksError.value = e.response?.data?.error?.message || 'Failed to load public links';
-    directoryPublicLinksData.value = { intakeLinks: [], marketingHubs: [], providerFinder: null };
+    directoryPublicLinksData.value = { intakeLinks: [], marketingHubs: [], providerFinder: null, publicEventPages: [] };
   } finally {
     directoryPublicLinksLoading.value = false;
   }

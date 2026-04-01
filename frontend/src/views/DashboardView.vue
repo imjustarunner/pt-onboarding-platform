@@ -1480,6 +1480,10 @@ const isSkillBuilderCoordinator = computed(() => {
     u.has_skill_builder_coordinator_access === '1'
   );
 });
+const hasSkillBuilderCoordinatorToolsAccess = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'super_admin' || isSkillBuilderCoordinator.value;
+});
 
 const isProviderLikeForSkillBuildersSchedule = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -2842,7 +2846,7 @@ const isOnboardingComplete = computed(() => {
 
 async function loadSubCoordinatorProgramOrgs() {
   subCoordinatorProgramOrgs.value = [];
-  if (!isSkillBuilderCoordinator.value || !isOnboardingComplete.value) return;
+  if (!hasSkillBuilderCoordinatorToolsAccess.value || !isOnboardingComplete.value) return;
   const aid = currentAgencyId.value;
   if (!aid) return;
   try {
@@ -2860,7 +2864,7 @@ async function loadSubCoordinatorProgramOrgs() {
 }
 
 watch(
-  () => [isSkillBuilderCoordinator.value, currentAgencyId.value, isOnboardingComplete.value],
+  () => [hasSkillBuilderCoordinatorToolsAccess.value, currentAgencyId.value, isOnboardingComplete.value],
   () => {
     loadSubCoordinatorProgramOrgs();
   }
@@ -3395,7 +3399,7 @@ const dashboardCards = computed(() => {
 
     // Sub Coordinator access (backed by users.has_skill_builder_coordinator_access)
     // grants elevated affiliated-org tools.
-    if (isSkillBuilderCoordinator.value) {
+    if (hasSkillBuilderCoordinatorToolsAccess.value) {
       const orgOverride = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
       cards.push({
         id: 'sub_coordinator_school_overview',

@@ -36,6 +36,16 @@ function buildProviderFinderPublicUrl({ agencyId, key }) {
   return `${base}/find-provider/${Number(agencyId)}${qs}`;
 }
 
+function getFrontendOrigin() {
+  const rawBase = String(
+    process.env.FRONTEND_URL ||
+      process.env.APP_BASE_URL ||
+      process.env.CORS_ORIGIN ||
+      'http://localhost:5173'
+  ).trim();
+  return rawBase.replace(/\/+$/, '');
+}
+
 async function resolveAgencyIdForDirectory(req) {
   const raw = req.query.agencyId ?? req.user?.agencyId ?? null;
   const agencyId = asNumberOrNull(raw);
@@ -134,6 +144,7 @@ export const listDirectoryPublicLinks = async (req, res, next) => {
     }
 
     let providerFinder = null;
+    let publicEventPages = [];
     const agencyId = await resolveAgencyIdForDirectory(req);
     if (agencyId) {
       const ok = await assertAgencyMembership(req, res, agencyId);
@@ -158,13 +169,81 @@ export const listDirectoryPublicLinks = async (req, res, next) => {
           url: buildProviderFinderPublicUrl({ agencyId, key })
         };
       }
+
+      const agencySlug = String(agency?.slug || '').trim().toLowerCase();
+      if (agencySlug) {
+        const origin = getFrontendOrigin();
+        publicEventPages.push({
+          label: 'Agency events',
+          kind: 'agency_events',
+          url: `${origin}/${encodeURIComponent(agencySlug)}/events`
+        });
+        publicEventPages.push({
+          label: 'Skill Builders events',
+          kind: 'skill_builders_events',
+          url: `${origin}/open-events/${encodeURIComponent(agencySlug)}/skill-builders`
+        });
+
+        let hasAffiliatedAgencyId = false;
+        try {
+          const [colRows] = await pool.execute(
+            "SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'affiliated_agency_id'"
+          );
+          hasAffiliatedAgencyId = Number(colRows?.[0]?.cnt || 0) > 0;
+        } catch {
+          hasAffiliatedAgencyId = false;
+        }
+
+        const childWhere = hasAffiliatedAgencyId
+          ? `(
+              EXISTS (
+                SELECT 1
+                FROM organization_affiliations oa
+                WHERE oa.organization_id = child.id
+                  AND oa.agency_id = ?
+                  AND oa.is_active = TRUE
+              )
+              OR child.affiliated_agency_id = ?
+            )`
+          : `EXISTS (
+              SELECT 1
+              FROM organization_affiliations oa
+              WHERE oa.organization_id = child.id
+                AND oa.agency_id = ?
+                AND oa.is_active = TRUE
+            )`;
+        const childParams = hasAffiliatedAgencyId ? [agencyId, agencyId] : [agencyId];
+        const [programRows] = await pool.execute(
+          `SELECT DISTINCT child.id AS organization_id, child.slug, child.name
+           FROM agencies child
+           WHERE ${childWhere}
+             AND LOWER(COALESCE(child.organization_type, '')) IN ('program', 'learning')
+             AND child.slug IS NOT NULL
+             AND TRIM(child.slug) <> ''
+             AND (child.is_archived = FALSE OR child.is_archived IS NULL)
+             AND (child.is_active = TRUE OR child.is_active IS NULL)
+           ORDER BY child.name ASC, child.id ASC`,
+          childParams
+        );
+        for (const row of programRows || []) {
+          const programSlug = String(row?.slug || '').trim().toLowerCase();
+          if (!programSlug) continue;
+          const programName = String(row?.name || '').trim() || programSlug;
+          publicEventPages.push({
+            label: `${programName} events`,
+            kind: 'program_events',
+            url: `${origin}/${encodeURIComponent(agencySlug)}/programs/${encodeURIComponent(programSlug)}/events`
+          });
+        }
+      }
     }
 
     res.json({
       ok: true,
       intakeLinks: intakeLinksOut,
       marketingHubs,
-      providerFinder
+      providerFinder,
+      publicEventPages
     });
   } catch (e) {
     next(e);

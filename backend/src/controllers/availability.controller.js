@@ -460,18 +460,21 @@ async function loadAffiliatedOrganizationsWithBranding(agencyId) {
   let hasIconId = false;
   let hasProgramOverviewIcon = false;
   let hasLogoPath = false;
+  let hasAffiliatedAgencyId = false;
   try {
     const [cols] = await pool.execute(
-      "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('icon_id','program_overview_icon_id','logo_path')"
+      "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('icon_id','program_overview_icon_id','logo_path','affiliated_agency_id')"
     );
     const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
     hasIconId = names.has('icon_id');
     hasProgramOverviewIcon = names.has('program_overview_icon_id');
     hasLogoPath = names.has('logo_path');
+    hasAffiliatedAgencyId = names.has('affiliated_agency_id');
   } catch {
     hasIconId = false;
     hasProgramOverviewIcon = false;
     hasLogoPath = false;
+    hasAffiliatedAgencyId = false;
   }
 
   let selectSql =
@@ -491,17 +494,23 @@ async function loadAffiliatedOrganizationsWithBranding(agencyId) {
     .filter(Boolean)
     .join('\n       ');
 
+  const affiliationFilter = hasAffiliatedAgencyId
+    ? '(oa.organization_id IS NOT NULL OR child.affiliated_agency_id = ?)'
+    : 'oa.organization_id IS NOT NULL';
+  const queryParams = hasAffiliatedAgencyId ? [agencyId, agencyId] : [agencyId];
   const [rows] = await pool.execute(
-    `SELECT ${selectSql}
-     FROM organization_affiliations oa
-     JOIN agencies child ON child.id = oa.organization_id
+    `SELECT DISTINCT ${selectSql}
+     FROM agencies child
+     LEFT JOIN organization_affiliations oa
+       ON oa.organization_id = child.id
+      AND oa.agency_id = ?
+      AND oa.is_active = TRUE
      ${joins}
-     WHERE oa.agency_id = ?
-       AND oa.is_active = TRUE
+     WHERE ${affiliationFilter}
        AND (child.is_archived = FALSE OR child.is_archived IS NULL)
        AND (child.is_active = TRUE OR child.is_active IS NULL)
      ORDER BY child.name ASC, child.id ASC`,
-    [agencyId]
+    queryParams
   );
 
   return (rows || []).map((r) => {

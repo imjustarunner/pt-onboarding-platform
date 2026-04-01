@@ -37,6 +37,7 @@
             <p class="pel-nearest-sub muted">{{ nearestInlineSubtext }}</p>
             <div class="pel-nearest-controls">
               <input
+                ref="nearestInputEl"
                 v-model="addressInput"
                 class="pel-input"
                 type="text"
@@ -279,7 +280,7 @@
 
 <script setup>
 import DOMPurify from 'dompurify';
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import api from '../../services/api';
@@ -313,6 +314,10 @@ const props = defineProps({
   nearestModalTitle: { type: String, default: '' },
   /** Override modal body (plain text; line breaks preserved). */
   nearestModalHint: { type: String, default: '' },
+  /** Parent can pre-select a public session label (e.g., Session 1). */
+  presetSessionLabel: { type: String, default: '' },
+  /** Parent can pre-filter by school/location text. */
+  presetLocationQuery: { type: String, default: '' },
   /** Hide the top hero (logo/title) — e.g. when embedded under a parent enroll page. */
   hidePelHeader: { type: Boolean, default: false },
   /** Optional link to program enroll hub (shown on events-only pages). */
@@ -351,6 +356,7 @@ const nearestLoading = ref(false);
 const nearestError = ref('');
 const originSummary = ref('');
 const rankedEvents = ref(null);
+const nearestInputEl = ref(null);
 /** Hub only: filter listing to one source agency (logo click). */
 const hubAgencyFilterId = ref(null);
 /** Filter events sharing the same public session label. */
@@ -373,6 +379,18 @@ const displayEvents = computed(() => {
   const sl = String(sessionLabelFilter.value || '').trim();
   if (sl) {
     list = list.filter((ev) => String(ev.publicSessionLabel || '').trim() === sl);
+  }
+  const locQuery = String(props.presetLocationQuery || '').trim().toLowerCase();
+  if (locQuery) {
+    list = list.filter((ev) => {
+      const fields = [
+        ev?.publicLocationAddress,
+        ev?.nearestVenueLabel,
+        ev?.title,
+        ...(Array.isArray(ev?.sessionLocations) ? ev.sessionLocations.map((s) => `${s?.label || ''} ${s?.address || ''}`) : [])
+      ];
+      return fields.some((v) => String(v || '').toLowerCase().includes(locQuery));
+    });
   }
   return list;
 });
@@ -440,6 +458,14 @@ watch(
     hubAgencyFilterId.value = null;
     sessionLabelFilter.value = '';
   }
+);
+
+watch(
+  () => String(props.presetSessionLabel || '').trim(),
+  (next) => {
+    sessionLabelFilter.value = next;
+  },
+  { immediate: true }
 );
 
 function hubPartnerEntries(ev) {
@@ -616,6 +642,14 @@ function clearNearest() {
   originSummary.value = '';
   nearestError.value = '';
 }
+
+async function focusNearestInput() {
+  await nextTick();
+  const el = nearestInputEl.value;
+  if (el && typeof el.focus === 'function') el.focus();
+}
+
+defineExpose({ focusNearestInput });
 </script>
 
 <style scoped>

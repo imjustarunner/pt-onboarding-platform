@@ -12,6 +12,95 @@
     <div v-if="error" class="pmh-fatal">{{ error }}</div>
 
     <div v-else class="pmh-shell">
+      <section v-if="showNavigatorSplash" class="pmh-splash-overlay" role="dialog" aria-modal="true" aria-label="Choose your summer path">
+        <div class="pmh-splash-card">
+          <div class="pmh-splash-logos">
+            <div v-if="logoUrl" class="pmh-splash-program-logo-wrap" title="Program logo">
+              <img class="pmh-splash-program-logo" :src="logoUrl" :alt="`${displayHeadline} logo`" />
+            </div>
+            <div v-if="splashTenantLogos.length" class="pmh-splash-tenant-logos">
+              <div
+                v-for="p in splashTenantLogos"
+                :key="`splash-tenant-${p.agencyId}`"
+                class="pmh-splash-tenant-logo-wrap"
+                :title="p.agencyName"
+              >
+                <img v-if="p.logoUrl" class="pmh-splash-tenant-logo" :src="p.logoUrl" :alt="`${p.agencyName} logo`" />
+                <span v-else class="pmh-splash-tenant-fallback">{{ agencyFooterInitials(p.agencyName) }}</span>
+              </div>
+            </div>
+          </div>
+          <p class="pmh-pathfinder-eyebrow">Start here</p>
+          <h1 class="pmh-splash-title">D11 Summer 2026</h1>
+          <p class="pmh-pathfinder-sub">Choose how you want to find the best option for your family.</p>
+
+          <div class="pmh-pathfinder-actions">
+            <button
+              type="button"
+              class="pmh-path-btn"
+              :class="{ active: journeyPrimary === 'learn' }"
+              @click="goLearnMore"
+            >
+              I’d like to learn more
+            </button>
+            <button
+              type="button"
+              class="pmh-path-btn"
+              :class="{ active: journeyPrimary === 'school' }"
+              @click="choosePrimary('school')"
+            >
+              I know my school
+            </button>
+            <button
+              type="button"
+              class="pmh-path-btn"
+              :class="{ active: journeyPrimary === 'program' }"
+              @click="choosePrimary('program')"
+            >
+              I know the D11 Summer program
+            </button>
+          </div>
+
+          <div v-if="journeyPrimary === 'school'" class="pmh-pathfinder-detail">
+            <p class="pmh-pathfinder-detail-title">Choose your location (goes straight to registration)</p>
+            <div class="pmh-chip-row">
+              <button
+                v-for="opt in schoolOptions"
+                :key="`school-splash-${opt.name}`"
+                type="button"
+                class="pmh-chip-btn"
+                :class="{ active: selectedSchoolName === opt.name }"
+                @click="goLocationRegistration(opt)"
+              >
+                {{ opt.name }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="journeyPrimary === 'program'" class="pmh-pathfinder-detail">
+            <p class="pmh-pathfinder-detail-title">What matters most right now?</p>
+            <div class="pmh-pathfinder-actions pmh-pathfinder-actions--nested">
+              <button
+                type="button"
+                class="pmh-path-btn"
+                :class="{ active: journeyProgramMode === 'session' }"
+                @click="goProgramMode('session')"
+              >
+                Dates first (by session)
+              </button>
+              <button
+                type="button"
+                class="pmh-path-btn"
+                :class="{ active: journeyProgramMode === 'location' }"
+                @click="goProgramMode('location')"
+              >
+                Closest to home (by location)
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div class="pmh-ambient" aria-hidden="true">
         <span class="pmh-blob pmh-blob--a" />
         <span class="pmh-blob pmh-blob--b" />
@@ -125,6 +214,78 @@
           <p class="pmh-intro-text">{{ parentIntroResolved }}</p>
         </div>
       </header>
+
+      <section v-if="eventNavigatorEnabled && !showNavigatorSplash" class="pmh-pathfinder">
+        <div class="pmh-pathfinder-card">
+          <p class="pmh-pathfinder-eyebrow">Find your best fit</p>
+          <h2 class="pmh-pathfinder-title">How would you like to explore summer options?</h2>
+          <p class="pmh-pathfinder-sub">Choose a path. You can switch anytime.</p>
+          <div class="pmh-pathfinder-actions">
+            <button
+              type="button"
+              class="pmh-path-btn"
+              :class="{ active: journeyPrimary === 'learn' }"
+              @click="goLearnMore"
+            >
+              I’d like to learn more
+            </button>
+            <button
+              type="button"
+              class="pmh-path-btn"
+              :class="{ active: journeyPrimary === 'school' }"
+              @click="choosePrimary('school')"
+            >
+              I know my school
+            </button>
+            <button
+              type="button"
+              class="pmh-path-btn"
+              :class="{ active: journeyPrimary === 'program' }"
+              @click="choosePrimary('program')"
+            >
+              I know the D11 Summer program
+            </button>
+          </div>
+
+          <div v-if="journeyPrimary === 'school'" class="pmh-pathfinder-detail">
+            <p class="pmh-pathfinder-detail-title">Choose your location (goes straight to registration)</p>
+            <div class="pmh-chip-row">
+              <button
+                v-for="opt in schoolOptions"
+                :key="`school-${opt.name}`"
+                type="button"
+                class="pmh-chip-btn"
+                :class="{ active: selectedSchoolName === opt.name }"
+                @click="goLocationRegistration(opt)"
+              >
+                {{ opt.name }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="journeyPrimary === 'program'" class="pmh-pathfinder-detail">
+            <p class="pmh-pathfinder-detail-title">What matters most right now?</p>
+            <div class="pmh-pathfinder-actions pmh-pathfinder-actions--nested">
+              <button
+                type="button"
+                class="pmh-path-btn"
+                :class="{ active: journeyProgramMode === 'session' }"
+                @click="goProgramMode('session')"
+              >
+                Dates first (by session)
+              </button>
+              <button
+                type="button"
+                class="pmh-path-btn"
+                :class="{ active: journeyProgramMode === 'location' }"
+                @click="goProgramMode('location')"
+              >
+                Closest to home (by location)
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section v-if="whatWeOfferResolved" class="pmh-offer" aria-labelledby="pmh-offer-heading">
         <div class="pmh-offer-card">
@@ -295,6 +456,7 @@
 
       <div id="hub-programs" class="pmh-programs-anchor">
         <PublicEventsListing
+          ref="eventsListingRef"
           v-if="!error"
           :page-title="displayHeadline"
           :page-subtitle="listingSubtitle"
@@ -307,6 +469,8 @@
           :nearest-cta-label="nearestCtaLabel"
           :nearest-modal-title="nearestModalTitle"
           :nearest-modal-hint="nearestModalHint"
+          :preset-location-query="presetLocationQuery"
+          :preset-session-label="presetSessionLabel"
         />
       </div>
 
@@ -411,11 +575,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import api from '../../services/api';
+import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import PoweredByFooter from '../../components/PoweredByFooter.vue';
 import PublicEventsListing from '../../components/public/PublicEventsListing.vue';
 import { hubGalleryPoolUrls, hubGalleryStripUrls } from '../../utils/publicMarketingHubGallery';
@@ -434,6 +599,11 @@ const events = ref([]);
 const footerPartners = ref([]);
 const metricsBlock = ref(null);
 const offerExpanded = ref(false);
+const eventsListingRef = ref(null);
+const journeyPrimary = ref('');
+const journeyProgramMode = ref('');
+const selectedSchoolName = ref('');
+const showNavigatorSplash = ref(false);
 
 const gallerySlideIndex = ref(0);
 let gallerySlideshowTimer = null;
@@ -499,6 +669,41 @@ const displayHeadline = computed(() => {
 });
 
 const listingSubtitle = computed(() => pageMeta.value?.heroSubtitle || '');
+const eventNavigatorEnabled = computed(
+  () => hubSlug.value === 'd11summer2026' || hubBranding.value.enableSummerNavigator === true
+);
+
+const schoolOptions = computed(() => {
+  const byName = new Map();
+  const add = (nameRaw, ev) => {
+    const name = String(nameRaw || '').trim();
+    if (!name) return;
+    if (byName.has(name)) return;
+    byName.set(name, {
+      name,
+      registrationPublicKey: String(ev?.registrationPublicKey || '').trim()
+    });
+  };
+  for (const ev of events.value || []) {
+    const fromAddress = String(ev?.publicLocationAddress || '').split(',')[0].trim();
+    if (fromAddress) add(fromAddress, ev);
+    const nearestName = String(ev?.nearestVenueLabel || '').trim();
+    if (nearestName) add(nearestName, ev);
+    const sessions = Array.isArray(ev?.sessionLocations) ? ev.sessionLocations : [];
+    for (const s of sessions) {
+      const lbl = String(s?.label || '').trim();
+      const addr = String(s?.address || '').split(',')[0].trim();
+      if (lbl) add(lbl, ev);
+      else if (addr) add(addr, ev);
+    }
+  }
+  return [...byName.values()];
+});
+
+const presetLocationQuery = computed(() => (
+  journeyPrimary.value === 'school' ? String(selectedSchoolName.value || '').trim() : ''
+));
+const presetSessionLabel = computed(() => '');
 
 const hubBranding = computed(() => pageMeta.value?.branding || {});
 
@@ -569,6 +774,21 @@ onUnmounted(() => {
 });
 
 const logoUrl = computed(() => String(hubBranding.value.logoUrl || '').trim());
+const splashTenantLogos = computed(() => {
+  const out = [];
+  const seen = new Set();
+  for (const p of footerPartners.value || []) {
+    const id = Number(p?.agencyId || 0);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      agencyId: id,
+      agencyName: String(p?.agencyName || '').trim() || `Agency ${id}`,
+      logoUrl: String(p?.logoUrl || '').trim()
+    });
+  }
+  return out;
+});
 
 const heroVideoUrl = computed(() => String(hubBranding.value.heroVideoUrl || '').trim());
 
@@ -832,6 +1052,73 @@ function isExternalNavHref(href) {
   return /^https?:\/\//i.test(h) || h.startsWith('mailto:') || h.startsWith('tel:');
 }
 
+function choosePrimary(mode) {
+  journeyPrimary.value = mode;
+  if (mode === 'school') {
+    journeyProgramMode.value = '';
+    if (!selectedSchoolName.value && schoolOptions.value.length > 0) {
+      selectedSchoolName.value = schoolOptions.value[0].name;
+    }
+  } else if (mode === 'program') {
+    selectedSchoolName.value = '';
+  } else {
+    journeyProgramMode.value = '';
+    selectedSchoolName.value = '';
+  }
+}
+
+async function goLearnMore() {
+  choosePrimary('learn');
+  showNavigatorSplash.value = false;
+  try {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch {
+    // ignore
+  }
+}
+
+function goLocationRegistration(option) {
+  choosePrimary('school');
+  const name = String(option?.name || '').trim();
+  if (name) selectedSchoolName.value = name;
+  const key = String(option?.registrationPublicKey || '').trim();
+  if (key) {
+    const url = buildPublicIntakeUrl(key);
+    if (url) {
+      showNavigatorSplash.value = false;
+      window.location.assign(url);
+      return;
+    }
+  }
+  showNavigatorSplash.value = false;
+}
+
+async function goProgramMode(mode) {
+  choosePrimary('program');
+  await chooseProgramMode(mode, true);
+}
+
+async function chooseProgramMode(mode, autoProceed = false) {
+  journeyProgramMode.value = mode;
+  if (!autoProceed) return;
+  showNavigatorSplash.value = false;
+  await nextTick();
+  try {
+    document.getElementById('hub-programs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch {
+    // ignore
+  }
+  if (mode === 'location') {
+    try {
+      if (eventsListingRef.value?.focusNearestInput) {
+        await eventsListingRef.value.focusNearestInput();
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+
 async function loadAll() {
   const slug = hubSlug.value;
   if (!slug) {
@@ -880,8 +1167,25 @@ async function loadAll() {
 }
 
 onMounted(loadAll);
+watch(eventNavigatorEnabled, (enabled) => {
+  showNavigatorSplash.value = !!enabled;
+  if (!enabled) return;
+  journeyPrimary.value = '';
+  journeyProgramMode.value = '';
+  selectedSchoolName.value = '';
+}, { immediate: true });
+
+watch(showNavigatorSplash, (open) => {
+  if (typeof document === 'undefined') return;
+  document.body.style.overflow = open ? 'hidden' : '';
+});
+
 watch(hubSlug, () => {
   offerExpanded.value = false;
+  journeyPrimary.value = '';
+  journeyProgramMode.value = '';
+  selectedSchoolName.value = '';
+  showNavigatorSplash.value = !!eventNavigatorEnabled.value;
   loadAll();
 });
 </script>
@@ -1830,6 +2134,241 @@ watch(hubSlug, () => {
   scroll-margin-top: 1rem;
   margin-top: 8px;
   padding: 8px 0 0;
+}
+
+.pmh-pathfinder {
+  margin: 16px 16px 0;
+}
+
+.pmh-splash-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(6, 10, 20, 0.74);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.pmh-splash-card {
+  width: min(860px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  padding: 26px 22px;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid var(--hub-border);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+.pmh-splash-logos {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.pmh-splash-program-logo-wrap {
+  height: 74px;
+  min-width: 220px;
+  max-width: 320px;
+  border: 1px solid var(--hub-border);
+  border-radius: 14px;
+  background: #fff;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.pmh-splash-program-logo {
+  max-height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.pmh-splash-tenant-logos {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.pmh-splash-tenant-logo-wrap {
+  width: 92px;
+  height: 92px;
+  border: 1px solid var(--hub-border);
+  border-radius: 14px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.09);
+  padding: 8px;
+}
+
+.pmh-splash-tenant-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.pmh-splash-tenant-fallback {
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: var(--hub-link-dark);
+}
+
+.pmh-splash-title {
+  margin: 0;
+  font-size: clamp(1.5rem, 4.2vw, 2rem);
+  font-family: var(--hub-font-display);
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.pmh-splash-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.pmh-splash-card .pmh-pathfinder-eyebrow,
+.pmh-splash-card .pmh-pathfinder-title,
+.pmh-splash-card .pmh-pathfinder-sub,
+.pmh-splash-card .pmh-pathfinder-detail-title {
+  text-align: left;
+}
+
+.pmh-splash-card .pmh-pathfinder-sub {
+  color: #475569;
+}
+
+.pmh-splash-card .pmh-pathfinder-actions,
+.pmh-splash-card .pmh-chip-row {
+  justify-content: flex-start;
+}
+
+.pmh-splash-card .pmh-path-btn {
+  background: #fff;
+  border: 1px solid #d9a5a3;
+  color: #7a1f1d;
+}
+
+.pmh-splash-card .pmh-path-btn.active {
+  background: #fff7f6;
+  border-color: #a32623;
+  color: #a32623;
+}
+
+.pmh-splash-card .pmh-cta-primary {
+  min-width: 180px;
+}
+
+@media (max-width: 760px) {
+  .pmh-splash-program-logo-wrap {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .pmh-splash-tenant-logos {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .pmh-splash-tenant-logo-wrap {
+    width: 72px;
+    height: 72px;
+  }
+}
+
+.pmh-pathfinder-card {
+  padding: 20px;
+  background: var(--hub-surface);
+  border: 1px solid var(--hub-border);
+  border-radius: var(--hub-radius-lg);
+  box-shadow: var(--hub-shadow);
+}
+
+.pmh-pathfinder-eyebrow {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: var(--hub-eyebrow);
+}
+
+.pmh-pathfinder-title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+  font-family: var(--hub-font-display);
+}
+
+.pmh-pathfinder-sub {
+  margin: 8px 0 14px;
+  color: var(--hub-text-muted);
+}
+
+.pmh-pathfinder-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pmh-path-btn {
+  border: 1px solid rgba(163, 38, 35, 0.35);
+  background: #fff;
+  color: var(--hub-link-dark);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-weight: 700;
+  font-family: var(--hub-font-display);
+  cursor: pointer;
+}
+
+.pmh-path-btn.active {
+  background: rgba(163, 38, 35, 0.1);
+  border-color: rgba(163, 38, 35, 0.6);
+}
+
+.pmh-pathfinder-detail {
+  margin-top: 14px;
+}
+
+.pmh-pathfinder-detail-title {
+  margin: 0 0 8px;
+  font-weight: 700;
+  color: var(--hub-text-muted);
+}
+
+.pmh-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pmh-chip-btn {
+  border: 1px solid var(--hub-border);
+  background: #f8fafc;
+  color: var(--hub-text);
+  border-radius: 999px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+.pmh-chip-btn.active {
+  border-color: rgba(163, 38, 35, 0.5);
+  background: rgba(163, 38, 35, 0.08);
+  color: var(--hub-link-dark);
 }
 
 .pmh-cta-band {
