@@ -172,22 +172,9 @@
 
     <div class="section">
       <h4>5) What We're Providing</h4>
-      <p class="muted">These items save to this event and display on the public event page under "For staff/attendees".</p>
-      <div class="inline-row">
-        <input
-          v-model.trim="organizerItemInput"
-          class="input"
-          placeholder="Add provided item(s) (e.g. drinks, appetizers, dessert)"
-          @keydown.enter.prevent="addOrganizerItem"
-        />
-        <button class="btn btn-secondary btn-sm" type="button" @click="addOrganizerItem" :disabled="!organizerItemInput">Add</button>
-      </div>
-      <div class="tag-list">
-        <span class="tag" v-for="(item, idx) in draft.organizerProviding" :key="`org-item-${idx}`">
-          {{ item }}
-          <button type="button" class="x" @click="removeOrganizerItem(idx)">x</button>
-        </span>
-      </div>
+      <p class="muted">Shown on the public event page under "For staff/attendees". Separate multiple items with commas or new lines.</p>
+      <label class="lbl">What we're providing note</label>
+      <textarea v-model.trim="draft.organizerProvidingRaw" class="input" rows="2" placeholder="e.g. drinks, appetizers, dessert" />
     </div>
 
     <div class="section">
@@ -315,7 +302,6 @@ const selectedEventId = ref('');
 const saving = ref(false);
 const smsSaving = ref(false);
 const error = ref('');
-const organizerItemInput = ref('');
 const selectedPreset = ref('');
 const selectedEventCategory = ref('company_event');
 
@@ -405,6 +391,7 @@ const defaultDraft = () => ({
   guestPolicy: 'staff_only',
   familyProvisionNote: '',
   organizerProviding: [],
+  organizerProvidingRaw: '',
   eventImageUrls: [],
   publicHeroImageUrl: '',
   potluckEnabled: false,
@@ -483,6 +470,7 @@ const populateFromEvent = (evt) => {
     guestPolicy: evt.guestPolicy || 'staff_only',
     familyProvisionNote: evt.familyProvisionNote || '',
     organizerProviding: Array.isArray(evt.organizerProviding) ? [...evt.organizerProviding] : [],
+    organizerProvidingRaw: Array.isArray(evt.organizerProviding) ? evt.organizerProviding.join(', ') : '',
     eventImageUrls: Array.isArray(evt.eventImageUrls) ? [...evt.eventImageUrls] : [],
     publicHeroImageUrl: evt.publicHeroImageUrl || '',
     potluckEnabled: !!evt.potluckEnabled,
@@ -524,6 +512,7 @@ const serializeFormState = () => JSON.stringify({
     guestPolicy: draft.guestPolicy || '',
     familyProvisionNote: draft.familyProvisionNote || '',
     organizerProviding: Array.isArray(draft.organizerProviding) ? [...draft.organizerProviding] : [],
+    organizerProvidingRaw: draft.organizerProvidingRaw || '',
     eventImageUrls: Array.isArray(draft.eventImageUrls) ? [...draft.eventImageUrls] : [],
     publicHeroImageUrl: draft.publicHeroImageUrl || '',
     potluckEnabled: !!draft.potluckEnabled,
@@ -576,26 +565,13 @@ const loadAudienceOptions = async () => {
 
 const saveEvent = async () => {
   if (!canSave.value) return;
-  // Ensure anything still typed in the organizer item input is persisted.
-  flushOrganizerItemInput();
   saving.value = true;
   error.value = '';
   try {
-    // Extra guard: recompute a merged list from chips + any residual input text.
-    const mergedOrganizerProviding = (() => {
-      const prior = Array.isArray(draft.organizerProviding) ? draft.organizerProviding : [];
-      const typed = normalizeOrganizerItems(organizerItemInput.value);
-      if (!typed.length) return prior;
-      const seen = new Set(prior.map((s) => String(s || '').trim().toLowerCase()).filter(Boolean));
-      const out = [...prior];
-      for (const item of typed) {
-        const key = String(item || '').trim().toLowerCase();
-        if (!key || seen.has(key)) continue;
-        out.push(item);
-        seen.add(key);
-      }
-      return out;
-    })();
+    const mergedOrganizerProviding = String(draft.organizerProvidingRaw || '')
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
 
     const payload = {
       title: draft.title,
@@ -683,37 +659,6 @@ const saveSmsDraft = async () => {
   }
 };
 
-const normalizeOrganizerItems = (raw) => {
-  const parts = String(raw || '')
-    .split(/[\n,;]+/)
-    .map((s) => String(s || '').trim())
-    .filter(Boolean);
-  return parts;
-};
-
-const flushOrganizerItemInput = () => {
-  const typedItems = normalizeOrganizerItems(organizerItemInput.value);
-  if (!typedItems.length) return;
-  const prior = Array.isArray(draft.organizerProviding) ? draft.organizerProviding : [];
-  const seen = new Set(prior.map((s) => String(s || '').trim().toLowerCase()).filter(Boolean));
-  const merged = [...prior];
-  for (const item of typedItems) {
-    const key = item.toLowerCase();
-    if (!seen.has(key)) {
-      merged.push(item);
-      seen.add(key);
-    }
-  }
-  draft.organizerProviding = merged;
-  organizerItemInput.value = '';
-};
-
-const addOrganizerItem = () => {
-  flushOrganizerItemInput();
-};
-const removeOrganizerItem = (idx) => {
-  draft.organizerProviding = (draft.organizerProviding || []).filter((_, i) => i !== idx);
-};
 
 const toggleUser = (id, checked) => {
   const set = new Set(draft.audience.userIds || []);
