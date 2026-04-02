@@ -115,11 +115,12 @@
               <div class="muted" v-if="event.publicSessionDateRange">{{ event.publicSessionDateRange }}</div>
             </div>
           </div>
-          <div class="detail-row" v-if="isProgramEvent && costLabel">
+          <div class="detail-row" v-if="isProgramEvent && (totalProgramCostLabel || perSessionCostLabel)">
             <span class="detail-icon">💵</span>
             <div>
               <strong>Cost</strong>
-              <div>{{ costLabel }}</div>
+              <div v-if="totalProgramCostLabel">Total program cost: {{ totalProgramCostLabel }}</div>
+              <div v-if="perSessionCostLabel">Cost per session: {{ perSessionCostLabel }}</div>
             </div>
           </div>
           <div class="detail-row" v-if="isProgramEvent && (event.medicaidEligible || event.cashEligible)">
@@ -128,7 +129,13 @@
               <strong>Accepted payment options</strong>
               <div class="provided-list">
                 <span v-if="event.medicaidEligible" class="provided-chip">Medicaid eligible</span>
-                <span v-if="event.cashEligible" class="provided-chip">Cash eligible</span>
+                <span v-if="event.cashEligible" class="provided-chip">Cash / self-pay</span>
+              </div>
+              <div v-if="event.medicaidEligible" class="muted payment-note">
+                Medicaid-covered services have no out-of-pocket cost.
+              </div>
+              <div v-if="event.cashEligible && (totalProgramCostLabel || perSessionCostLabel)" class="muted payment-note">
+                Cash/self-pay pricing applies only when insurance does not cover the service.
               </div>
             </div>
           </div>
@@ -477,15 +484,8 @@ const moneyLabel = (value) => {
   if (n <= 0) return 'Free';
   return `$${n.toFixed(2)}`;
 };
-const costLabel = computed(() => {
-  const mode = String(event.value?.programCostBillingMode || '').toLowerCase();
-  const total = moneyLabel(event.value?.programCostDollars);
-  const perSession = moneyLabel(event.value?.perSessionCostDollars);
-  if (mode === 'per_session' && perSession) return `${perSession} per session`;
-  if (mode === 'total' && total) return `${total} total`;
-  if (perSession && total) return `${total} total (${perSession} per session)`;
-  return total || perSession || '';
-});
+const totalProgramCostLabel = computed(() => moneyLabel(event.value?.programCostDollars));
+const perSessionCostLabel = computed(() => moneyLabel(event.value?.perSessionCostDollars));
 
 const submitRsvp = async () => {
   regError.value = '';
@@ -908,6 +908,10 @@ onMounted(async () => {
   padding: 4px 12px;
   border-radius: 999px;
   font-size: 0.9rem;
+}
+.payment-note {
+  margin-top: 6px;
+  line-height: 1.45;
 }
 
 /* CTA */
