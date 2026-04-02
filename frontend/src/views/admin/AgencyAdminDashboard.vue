@@ -511,7 +511,7 @@ const AFFILIATION_HIDDEN_IDS = new Set([
   'school_overview', 'program_overview', 'import_school_directory', 'skill_builders_availability',
   'provider_availability_dashboard', 'provider_scheduling_settings', 'audit_center', 'external_calendar_audit',
   'manage_clients', 'progress_dashboard', 'tools_aids', 'clinical_note_generator', 'manage_modules',
-  'manage_documents', 'intake_links', 'unassigned_documents', 'management_team', 'provider_directory',
+  'manage_documents', 'intake_links', 'surveys', 'unassigned_documents', 'management_team', 'provider_directory',
   'communications', 'chats', 'notifications', 'payroll', 'billing', 'billing_policy_rules'
 ]);
 
@@ -659,6 +659,17 @@ const quickActions = computed(() => {
     description: 'Configure digital forms, documents, and public submissions',
     to: '/admin/digital-forms',
     emoji: '🔗',
+    iconKey: 'intake_links',
+    category: 'Documents',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canSignDocuments']
+  },
+  {
+    id: 'surveys',
+    title: 'Surveys',
+    description: 'Build and push staff/client surveys and review outcomes',
+    to: '/admin/surveys',
+    emoji: '📊',
     iconKey: 'intake_links',
     category: 'Documents',
     roles: ['admin', 'support', 'super_admin', 'staff'],
@@ -877,6 +888,7 @@ const defaultQuickActionIds = computed(() => {
     ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
     'manage_modules',
     'manage_documents',
+    'surveys',
     'manage_users',
     'settings',
     'audit_center',

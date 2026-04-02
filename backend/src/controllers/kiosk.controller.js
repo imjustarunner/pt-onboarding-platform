@@ -1258,6 +1258,77 @@ export const listKioskSkillBuilderEventSessions = async (req, res, next) => {
   }
 };
 
+export const listKioskAttachedSurveys = async (req, res, next) => {
+  try {
+    const { locationId, eventId } = req.params;
+    const agencyId = parseInt(req.query.agencyId, 10);
+    const sessionDateIdRaw = req.query.sessionDateId;
+    const sessionDateId = sessionDateIdRaw == null || sessionDateIdRaw === ''
+      ? null
+      : parseInt(sessionDateIdRaw, 10);
+    if (!agencyId || !Number.isFinite(parseInt(eventId, 10))) {
+      return res.status(400).json({ error: { message: 'agencyId query and event id are required' } });
+    }
+    const a = await assertSkillBuilderKioskLocationAgency(locationId, agencyId);
+    if (a.error) return res.status(a.error.status).json({ error: { message: a.error.message } });
+
+    const [eventRows] = await pool.execute(
+      'SELECT id FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1',
+      [parseInt(eventId, 10), agencyId]
+    );
+    if (!eventRows?.length) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    const params = [parseInt(eventId, 10), agencyId];
+    let sessionPredicate = 'AND (ces.session_date_id IS NULL';
+    if (Number.isFinite(sessionDateId) && sessionDateId > 0) {
+      sessionPredicate += ' OR ces.session_date_id = ?';
+      params.push(sessionDateId);
+    }
+    sessionPredicate += ')';
+
+    const [rows] = await pool.execute(
+      `SELECT
+         ces.id,
+         ces.session_date_id,
+         ces.survey_id,
+         s.title,
+         s.description,
+         s.is_anonymous,
+         s.is_scored,
+         s.questions_json
+       FROM company_event_session_surveys ces
+       JOIN surveys s ON s.id = ces.survey_id
+       WHERE ces.company_event_id = ?
+         AND s.agency_id = ?
+         ${sessionPredicate}
+         AND s.is_active = 1
+       ORDER BY ces.id ASC`,
+      params
+    );
+
+    const surveys = (rows || []).map((r) => {
+      let questions = r.questions_json;
+      if (typeof questions === 'string') {
+        try { questions = JSON.parse(questions); } catch { questions = []; }
+      }
+      return {
+        attachmentId: Number(r.id),
+        sessionDateId: r.session_date_id != null ? Number(r.session_date_id) : null,
+        surveyId: Number(r.survey_id),
+        title: String(r.title || ''),
+        description: String(r.description || ''),
+        isAnonymous: !!Number(r.is_anonymous),
+        isScored: !!Number(r.is_scored),
+        questions: Array.isArray(questions) ? questions : []
+      };
+    });
+
+    res.json({ surveys });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const kioskSkillBuilderEventClockIn = async (req, res, next) => {
   try {
     const { locationId, eventId } = req.params;

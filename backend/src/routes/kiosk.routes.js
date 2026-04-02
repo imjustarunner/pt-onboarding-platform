@@ -25,6 +25,7 @@ import {
   listKioskSkillBuilderEvents,
   listKioskSkillBuilderEventRoster,
   listKioskSkillBuilderEventSessions,
+  listKioskAttachedSurveys,
   kioskSkillBuilderEventClockIn,
   kioskSkillBuilderEventClockOut
 } from '../controllers/kiosk.controller.js';
@@ -36,6 +37,7 @@ router.get('/me/context', authenticate, requireKioskUser, getKioskContext);
 
 // Public kiosk endpoints (backward compatibility)
 router.get('/:locationId/skill-builders-events/:eventId/sessions', listKioskSkillBuilderEventSessions);
+router.get('/:locationId/skill-builders-events/:eventId/attached-surveys', listKioskAttachedSurveys);
 router.get('/:locationId/skill-builders-events/:eventId/roster', listKioskSkillBuilderEventRoster);
 router.post('/:locationId/skill-builders-events/:eventId/clock-in', kioskSkillBuilderEventClockIn);
 router.post('/:locationId/skill-builders-events/:eventId/clock-out', kioskSkillBuilderEventClockOut);

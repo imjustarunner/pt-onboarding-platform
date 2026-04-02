@@ -703,6 +703,46 @@
                 </span>
               </div>
               <div class="form-group">
+                <label class="sb-ce-lbl">Attach surveys to session dates</label>
+                <div class="sb-ce-grid sb-ce-grid-tight">
+                  <div>
+                    <label class="sb-ce-lbl">Survey</label>
+                    <select v-model="attachSurveyId" class="input">
+                      <option value="">Select survey</option>
+                      <option v-for="s in availableSurveys" :key="s.id" :value="String(s.id)">
+                        {{ s.title }}
+                      </option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="sb-ce-lbl">Session date (optional)</label>
+                    <select v-model="attachSessionDateId" class="input">
+                      <option value="">All event dates</option>
+                      <option v-for="sd in eventSessionDates" :key="sd.id" :value="String(sd.id)">
+                        {{ formatDate(sd.sessionDate) }} ({{ formatDate(sd.startsAt) }})
+                      </option>
+                    </select>
+                  </div>
+                </div>
+                <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
+                  <button class="btn btn-secondary btn-sm" type="button" :disabled="!attachSurveyId" @click="attachSurveyToSession">
+                    Attach survey
+                  </button>
+                </div>
+                <div v-if="sessionSurveyAttachments.length" class="sb-ce-select-list" style="margin-top:8px;">
+                  <div v-for="a in sessionSurveyAttachments" :key="a.id" class="sb-ce-select-item">
+                    <span>
+                      <strong>{{ a.surveyTitle }}</strong>
+                      <span class="muted small">
+                        · {{ a.sessionDateId ? `Session ${formatDate(a.sessionDate)}` : 'All dates' }}
+                      </span>
+                    </span>
+                    <button class="btn btn-xs btn-danger" type="button" @click="detachSurveyFromSession(a.id)">Remove</button>
+                  </div>
+                </div>
+                <p v-else class="muted small" style="margin-top:8px;">No surveys attached yet.</p>
+              </div>
+              <div class="form-group">
                 <label class="sb-ce-lbl">Extra public details</label>
                 <textarea
                   v-model.trim="draft.publicListingDetails"
@@ -936,6 +976,11 @@ const eventProviderAssignments = ref([]);
 const eventProviderDirectory = ref([]);
 const organizerItemInput = ref('');
 const copied = ref(false);
+const availableSurveys = ref([]);
+const eventSessionDates = ref([]);
+const sessionSurveyAttachments = ref([]);
+const attachSurveyId = ref('');
+const attachSessionDateId = ref('');
 
 const rosterAssignedIds = computed(() => new Set((roster.value.assignedProviders || []).map((p) => p.id)));
 const addableProviders = computed(() =>
@@ -1504,6 +1549,58 @@ function shortUrl(value) {
   return `${s.slice(0, 36)}...`;
 }
 
+function formatDate(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return '-';
+  return d.toLocaleDateString();
+}
+
+async function loadSurveyOptions() {
+  if (!props.agencyId) return;
+  const res = await api.get('/surveys', {
+    params: { agencyId: props.agencyId, includeInactive: 1 },
+    skipGlobalLoading: true
+  });
+  availableSurveys.value = Array.isArray(res.data) ? res.data : [];
+}
+
+async function loadEventSessionSurveyAttachments() {
+  if (!props.agencyId || !props.eventId) {
+    eventSessionDates.value = [];
+    sessionSurveyAttachments.value = [];
+    return;
+  }
+  const res = await api.get(`/agencies/${props.agencyId}/company-events/${props.eventId}/session-surveys`, {
+    skipGlobalLoading: true
+  });
+  eventSessionDates.value = Array.isArray(res.data?.sessionDates) ? res.data.sessionDates : [];
+  sessionSurveyAttachments.value = Array.isArray(res.data?.attachments) ? res.data.attachments : [];
+}
+
+async function attachSurveyToSession() {
+  if (!attachSurveyId.value || !props.agencyId || !props.eventId) return;
+  await api.post(
+    `/agencies/${props.agencyId}/company-events/${props.eventId}/session-surveys`,
+    {
+      surveyId: Number(attachSurveyId.value),
+      sessionDateId: attachSessionDateId.value ? Number(attachSessionDateId.value) : null
+    },
+    { skipGlobalLoading: true }
+  );
+  attachSurveyId.value = '';
+  attachSessionDateId.value = '';
+  await loadEventSessionSurveyAttachments();
+}
+
+async function detachSurveyFromSession(attachmentId) {
+  if (!attachmentId || !props.agencyId || !props.eventId) return;
+  await api.delete(`/agencies/${props.agencyId}/company-events/${props.eventId}/session-surveys/${attachmentId}`, {
+    skipGlobalLoading: true
+  });
+  await loadEventSessionSurveyAttachments();
+}
+
 function normalizeOrganizerItems(raw) {
   return String(raw || '')
     .split(/[\n,;]+/)
@@ -1770,12 +1867,14 @@ async function loadEditBundle() {
       }),
       loadAffiliateProgramOrgs(),
       loadSkillsGroupRoster(),
-      loadEventProviderAssignments()
+      loadEventProviderAssignments(),
+      loadSurveyOptions()
     ]);
     skillsGroupMeetingsPreview.value = Array.isArray(evRes.data?.skillsGroupMeetings)
       ? evRes.data.skillsGroupMeetings.map((x) => ({ ...x }))
       : [];
     populateFromEvent(evRes.data?.event);
+    await loadEventSessionSurveyAttachments();
     markClean();
   } catch (e) {
     loadError.value = e.response?.data?.error?.message || e.message || 'Failed to load event';

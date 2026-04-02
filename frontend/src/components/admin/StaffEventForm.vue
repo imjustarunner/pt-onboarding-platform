@@ -122,6 +122,50 @@
       <textarea v-model.trim="draft.description" class="input" rows="3" placeholder="Event details for invitees" />
       <label class="lbl">Splash content</label>
       <textarea v-model.trim="draft.splashContent" class="input" rows="2" />
+
+      <div class="section" style="margin-top:12px;">
+        <h4>Attach Surveys To Sessions</h4>
+        <div v-if="selectedEventIdNum < 1" class="muted">Save event first to attach surveys.</div>
+        <template v-else>
+          <div class="grid two">
+            <div>
+              <label class="lbl">Survey</label>
+              <select v-model="attachSurveyId" class="input">
+                <option value="">Select survey</option>
+                <option v-for="s in availableSurveys" :key="s.id" :value="String(s.id)">
+                  {{ s.title }}
+                </option>
+              </select>
+            </div>
+            <div>
+              <label class="lbl">Session date (optional)</label>
+              <select v-model="attachSessionDateId" class="input">
+                <option value="">All event dates</option>
+                <option v-for="sd in eventSessionDates" :key="sd.id" :value="String(sd.id)">
+                  {{ formatDate(sd.sessionDate) }} ({{ formatDate(sd.startsAt) }})
+                </option>
+              </select>
+            </div>
+          </div>
+          <div class="inline-row">
+            <button class="btn btn-secondary btn-sm" type="button" :disabled="!attachSurveyId" @click="attachSurveyToSession">
+              Attach survey
+            </button>
+          </div>
+          <div v-if="sessionSurveyAttachments.length" class="select-list">
+            <div v-for="a in sessionSurveyAttachments" :key="a.id" class="select-item">
+              <span>
+                <strong>{{ a.surveyTitle }}</strong>
+                <span class="muted">
+                  · {{ a.sessionDateId ? `Session ${formatDate(a.sessionDate)}` : 'All dates' }}
+                </span>
+              </span>
+              <button class="btn btn-xs btn-danger" type="button" @click="detachSurveyFromSession(a.id)">Remove</button>
+            </div>
+          </div>
+          <div v-else class="muted small">No surveys attached yet.</div>
+        </template>
+      </div>
     </div>
 
     <div class="section">
@@ -320,6 +364,11 @@ const smsSaving = ref(false);
 const error = ref('');
 const selectedPreset = ref('');
 const selectedEventCategory = ref('company_event');
+const availableSurveys = ref([]);
+const eventSessionDates = ref([]);
+const sessionSurveyAttachments = ref([]);
+const attachSurveyId = ref('');
+const attachSessionDateId = ref('');
 
 const eventCategoryOptions = [
   { value: 'company_event', label: 'Company Event' },
@@ -582,6 +631,40 @@ const loadAudienceOptions = async () => {
   audienceRoles.value = resp.data?.roles || [];
 };
 
+const loadSurveyOptions = async () => {
+  if (!props.agencyId) return;
+  const resp = await api.get('/surveys', { params: { agencyId: props.agencyId, includeInactive: 1 } });
+  availableSurveys.value = Array.isArray(resp.data) ? resp.data : [];
+};
+
+const loadEventSessionSurveyAttachments = async () => {
+  if (!props.agencyId || selectedEventIdNum.value < 1) {
+    eventSessionDates.value = [];
+    sessionSurveyAttachments.value = [];
+    return;
+  }
+  const resp = await api.get(`/agencies/${props.agencyId}/company-events/${selectedEventIdNum.value}/session-surveys`);
+  eventSessionDates.value = Array.isArray(resp.data?.sessionDates) ? resp.data.sessionDates : [];
+  sessionSurveyAttachments.value = Array.isArray(resp.data?.attachments) ? resp.data.attachments : [];
+};
+
+const attachSurveyToSession = async () => {
+  if (!attachSurveyId.value || selectedEventIdNum.value < 1) return;
+  await api.post(`/agencies/${props.agencyId}/company-events/${selectedEventIdNum.value}/session-surveys`, {
+    surveyId: Number(attachSurveyId.value),
+    sessionDateId: attachSessionDateId.value ? Number(attachSessionDateId.value) : null
+  });
+  attachSurveyId.value = '';
+  attachSessionDateId.value = '';
+  await loadEventSessionSurveyAttachments();
+};
+
+const detachSurveyFromSession = async (attachmentId) => {
+  if (!attachmentId || selectedEventIdNum.value < 1) return;
+  await api.delete(`/agencies/${props.agencyId}/company-events/${selectedEventIdNum.value}/session-surveys/${attachmentId}`);
+  await loadEventSessionSurveyAttachments();
+};
+
 const saveEvent = async () => {
   if (!canSave.value) return;
   saving.value = true;
@@ -650,6 +733,7 @@ const saveEvent = async () => {
       const updated = events.value.find((e) => Number(e.id) === savedEventId);
       if (updated) populateFromEvent(updated);
     }
+    await loadEventSessionSurveyAttachments();
     markClean();
     emit('saved', {
       agencyId: Number(props.agencyId || 0),
@@ -780,20 +864,26 @@ const applyEventCategory = () => {
 
 watch(selectedEventId, (value) => {
   const id = Number(value || 0);
-  if (!id) return;
+  if (!id) {
+    eventSessionDates.value = [];
+    sessionSurveyAttachments.value = [];
+    return;
+  }
   const evt = events.value.find((e) => Number(e.id) === id);
   populateFromEvent(evt);
+  loadEventSessionSurveyAttachments().catch(() => {});
 });
 
 onMounted(async () => {
   try {
-    await Promise.all([reloadEvents(), loadAudienceOptions()]);
+    await Promise.all([reloadEvents(), loadAudienceOptions(), loadSurveyOptions()]);
     // Pre-select event when opened from a card click (initialEventId prop).
     if (props.initialEventId && !selectedEventId.value) {
       const found = events.value.find((e) => Number(e.id) === Number(props.initialEventId));
       if (found) selectedEventId.value = String(found.id);
     }
     selectedEventCategory.value = deriveCategoryFromEventType(draft.eventType);
+    if (selectedEventIdNum.value > 0) await loadEventSessionSurveyAttachments();
     markClean();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load event tools';

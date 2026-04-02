@@ -748,6 +748,18 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/surveys',
+    name: 'OrganizationSurveyBuilder',
+    component: () => import('../views/admin/SurveyBuilderView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/surveys/:id/results',
+    name: 'OrganizationSurveyResults',
+    component: () => import('../views/admin/SurveyResultsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/intake-links',
     redirect: (to) => ({ path: `/${to.params.organizationSlug}/admin/digital-forms` })
   },
@@ -1359,6 +1371,18 @@ const routes = [
     path: '/admin/digital-forms',
     name: 'DigitalForms',
     component: () => import('../views/admin/IntakeLinksView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+  },
+  {
+    path: '/admin/surveys',
+    name: 'SurveyBuilder',
+    component: () => import('../views/admin/SurveyBuilderView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+  },
+  {
+    path: '/admin/surveys/:id/results',
+    name: 'SurveyResults',
+    component: () => import('../views/admin/SurveyResultsView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
   },
   {

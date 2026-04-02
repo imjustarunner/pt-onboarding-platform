@@ -504,6 +504,17 @@ const quickActions = computed(() => {
     capabilities: ['canSignDocuments']
   },
   {
+    id: 'surveys',
+    title: 'Surveys',
+    description: 'Build and push staff/client surveys and review outcomes',
+    to: '/admin/surveys',
+    emoji: '📊',
+    iconKey: 'intake_links',
+    category: 'Documents',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canSignDocuments']
+  },
+  {
     id: 'manage_modules',
     title: 'Manage Modules',
     description: 'Create shared modules and manage all training',
@@ -747,6 +758,7 @@ const defaultQuickActionIds = computed(() => ([
   'manage_modules',
   'manage_documents',
   'intake_links',
+  'surveys',
   'manage_users',
   'audit_center',
   'external_calendar_audit',

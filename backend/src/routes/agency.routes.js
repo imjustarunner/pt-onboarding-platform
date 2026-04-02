@@ -57,7 +57,10 @@ import {
   updateCompanyEventTemplate,
   deleteCompanyEventTemplate,
   getCompanyEventAnalytics,
-  exportCompanyEventResponsesCsv
+  exportCompanyEventResponsesCsv,
+  listCompanyEventSessionSurveys,
+  attachCompanyEventSessionSurvey,
+  detachCompanyEventSessionSurvey
 } from '../controllers/companyEvents.controller.js';
 import { listSchoolStaffUsers, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
 import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
@@ -494,6 +497,9 @@ router.get('/:id/company-events/:eventId/responses', authenticate, listCompanyEv
 router.get('/:id/company-events/:eventId/delivery-logs', authenticate, listCompanyEventDeliveryLogs);
 router.get('/:id/company-events/:eventId/analytics', authenticate, getCompanyEventAnalytics);
 router.get('/:id/company-events/:eventId/responses.csv', authenticate, exportCompanyEventResponsesCsv);
+router.get('/:id/company-events/:eventId/session-surveys', authenticate, listCompanyEventSessionSurveys);
+router.post('/:id/company-events/:eventId/session-surveys', authenticate, attachCompanyEventSessionSurvey);
+router.delete('/:id/company-events/:eventId/session-surveys/:attachmentId', authenticate, detachCompanyEventSessionSurvey);
 router.post('/:id/company-events/:eventId/close-voting', authenticate, closeCompanyEventVoting);
 router.post('/:id/company-events/:eventId/send-sms-vote', authenticate, sendCompanyEventVotingSms);
 router.post('/:id/company-events/:eventId/send-direct-message', authenticate, sendCompanyEventDirectMessage);

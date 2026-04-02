@@ -765,6 +765,53 @@
           </div>
         </div>
 
+        <!-- Surveys Tab -->
+        <div v-if="activeTab === 'surveys'" class="detail-section">
+          <div class="form-actions" style="margin-top: 0; justify-content: space-between;">
+            <h3 style="margin:0;">Survey responses</h3>
+            <button class="btn btn-secondary btn-sm" type="button" @click="printSurveyTrends">Print trend</button>
+          </div>
+          <div v-if="clientSurveysLoading" class="loading">Loading survey responses…</div>
+          <div v-else-if="clientSurveysError" class="error">{{ clientSurveysError }}</div>
+          <div v-else-if="!clientSurveyResponses.length" class="empty-state">
+            <p>No client survey responses yet.</p>
+          </div>
+          <div v-else>
+            <div v-if="clientScoreSeries.length" class="chart-block">
+              <h4 class="clinical-section-title" style="margin-top:0;">Total score trend</h4>
+              <svg viewBox="0 0 100 30" preserveAspectRatio="none" class="sparkline">
+                <polyline
+                  fill="none"
+                  stroke="#2563eb"
+                  stroke-width="1.5"
+                  :points="clientSurveySparklinePoints"
+                />
+              </svg>
+              <div class="muted small">Min: {{ clientScoreMin }} · Max: {{ clientScoreMax }}</div>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Survey</th>
+                    <th>Total score</th>
+                    <th>Category scores</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in clientSurveyResponses" :key="row.id">
+                    <td>{{ formatDateTime(row.submitted_at || row.created_at) }}</td>
+                    <td>{{ row.survey_title || `Survey ${row.survey_id}` }}</td>
+                    <td>{{ row.total_score ?? '-' }}</td>
+                    <td>{{ formatCategoryScores(row.category_scores_json) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <!-- Learning Billing Tab -->
         <div v-if="activeTab === 'billing'" class="detail-section">
           <GuardianBillingTab
@@ -2284,6 +2331,10 @@ const tabs = computed(() => {
     const demoIdx = base.findIndex((t) => t.id === 'clinical');
     base.splice(demoIdx < 0 ? base.length : demoIdx, 0, { id: 'demographics', label: 'Demographics' });
   }
+  if (['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value)) {
+    const surveysIdx = base.findIndex((t) => t.id === 'messages');
+    base.splice(surveysIdx < 0 ? base.length : surveysIdx, 0, { id: 'surveys', label: 'Surveys' });
+  }
   return base;
 });
 
@@ -3588,6 +3639,8 @@ watch(() => activeTab.value, (newTab) => {
     fetchClinicalResponses();
   } else if (newTab === 'demographics' && !demoProfileFields.value.length && !demoIntakeFields.value.length) {
     fetchDemographics();
+  } else if (newTab === 'surveys' && clientSurveyResponses.value.length === 0) {
+    fetchClientSurveyResponses();
   }
 });
 
@@ -3729,6 +3782,60 @@ const fetchDemographics = async () => {
   }
 };
 
+// Survey responses tab
+const clientSurveyResponses = ref([]);
+const clientSurveysLoading = ref(false);
+const clientSurveysError = ref('');
+const clientScoreSeries = computed(() =>
+  (clientSurveyResponses.value || [])
+    .map((r) => Number(r.total_score))
+    .filter((n) => Number.isFinite(n))
+);
+const clientScoreMin = computed(() => (clientScoreSeries.value.length ? Math.min(...clientScoreSeries.value) : 0));
+const clientScoreMax = computed(() => (clientScoreSeries.value.length ? Math.max(...clientScoreSeries.value) : 0));
+const clientSurveySparklinePoints = computed(() => {
+  const data = clientScoreSeries.value;
+  if (!data.length) return '';
+  if (data.length === 1) return '0,15 100,15';
+  const min = clientScoreMin.value;
+  const max = clientScoreMax.value;
+  const span = max - min || 1;
+  return data.map((v, i) => {
+    const x = (i / (data.length - 1)) * 100;
+    const y = 30 - (((v - min) / span) * 28 + 1);
+    return `${x},${y}`;
+  }).join(' ');
+});
+
+const formatCategoryScores = (raw) => {
+  if (typeof raw === 'string') {
+    try { raw = JSON.parse(raw); } catch { return '-'; }
+  }
+  if (!raw || typeof raw !== 'object') return '-';
+  const parts = Object.entries(raw)
+    .filter(([k]) => String(k || '').trim())
+    .map(([k, v]) => `${k}: ${v}`);
+  return parts.length ? parts.join(', ') : '-';
+};
+
+const printSurveyTrends = () => {
+  if (typeof window !== 'undefined') window.print();
+};
+
+const fetchClientSurveyResponses = async () => {
+  if (!props.client?.id) return;
+  try {
+    clientSurveysLoading.value = true;
+    clientSurveysError.value = '';
+    const r = await api.get(`/surveys/client/${props.client.id}/responses`);
+    clientSurveyResponses.value = Array.isArray(r.data) ? r.data : [];
+  } catch (e) {
+    clientSurveysError.value = e.response?.data?.error?.message || 'Failed to load survey responses';
+  } finally {
+    clientSurveysLoading.value = false;
+  }
+};
+
 onMounted(async () => {
   if (isBackofficeRole.value) {
     await fetchProviders();
@@ -3764,6 +3871,8 @@ onMounted(async () => {
     await fetchClinicalResponses();
   } else if (activeTab.value === 'demographics') {
     await fetchDemographics();
+  } else if (activeTab.value === 'surveys') {
+    await fetchClientSurveyResponses();
   }
 });
 
@@ -4595,6 +4704,18 @@ watch(
   font-size: 14px;
   color: var(--text-primary, #1e293b);
   white-space: pre-wrap;
+}
+.chart-block {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 12px;
+}
+.sparkline {
+  width: 100%;
+  height: 90px;
+  background: #f8fafc;
+  border-radius: 6px;
 }
 
 /* Full-page (non-modal) mode */

@@ -153,6 +153,7 @@ import meRoutes from './routes/me.routes.js';
 import billingPolicyRoutes from './routes/billingPolicy.routes.js';
 import companyEventClientsRoutes from './routes/companyEventClients.routes.js';
 import companyEventsPublicRoutes from './routes/companyEventsPublic.routes.js';
+import surveyRoutes from './routes/survey.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -668,6 +669,7 @@ app.use('/api/emergency-broadcasts', emergencyBroadcastRoutes);
 app.use('/api/payroll', payrollRoutes);
 app.use('/api/company-car', companyCarRoutes);
 app.use('/api/company-events', companyEventClientsRoutes);
+app.use('/api/surveys', surveyRoutes);
 app.use('/api/budget', (req, res, next) => {
   import('./routes/budget.routes.js')
     .then((m) => m.default(req, res, next))

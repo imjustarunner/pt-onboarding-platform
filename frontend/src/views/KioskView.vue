@@ -244,6 +244,90 @@
         <button type="button" class="btn btn-primary" @click="resetSb">Start over</button>
       </div>
 
+      <div v-else-if="mode === 'skill_builders' && sbStep === 35" class="step">
+        <h3>Complete check-in survey</h3>
+        <p class="muted" style="margin-bottom: 10px;">{{ selectedSbEvent?.title }} · {{ sbSelectedStaffName }}</p>
+        <div v-for="survey in sbAttachedSurveys" :key="survey.attachmentId" class="survey" style="margin-bottom: 14px;">
+          <h4 style="margin:0 0 8px;">{{ survey.title }}</h4>
+          <p v-if="survey.description" class="muted small">{{ survey.description }}</p>
+          <div v-for="q in (survey.questions || [])" :key="`${survey.attachmentId}-${q.id}`" class="q">
+            <label>{{ q.label }}</label>
+
+            <input
+              v-if="['text'].includes(q.type)"
+              v-model="sbSurveyAnswers[sbAnswerKey(survey.attachmentId, q.id)].answer"
+              type="text"
+              autocomplete="off"
+            />
+            <textarea
+              v-else-if="['textarea','written'].includes(q.type)"
+              v-model="sbSurveyAnswers[sbAnswerKey(survey.attachmentId, q.id)].answer"
+              rows="3"
+            ></textarea>
+            <select
+              v-else-if="['select','likert','nps','rating'].includes(q.type)"
+              v-model="sbSurveyAnswers[sbAnswerKey(survey.attachmentId, q.id)].answer"
+            >
+              <option value="">Select…</option>
+              <option
+                v-for="opt in normalizedOptions(q)"
+                :key="String(opt.value)"
+                :value="String(opt.value)"
+              >
+                {{ opt.label }}
+              </option>
+            </select>
+            <div v-else-if="q.type === 'radio'" class="multi-select">
+              <label v-for="opt in normalizedOptions(q)" :key="String(opt.value)" class="multi-select-option">
+                <input
+                  type="radio"
+                  :name="`radio-${survey.attachmentId}-${q.id}`"
+                  :value="String(opt.value)"
+                  v-model="sbSurveyAnswers[sbAnswerKey(survey.attachmentId, q.id)].answer"
+                />
+                <span>{{ opt.label }}</span>
+              </label>
+            </div>
+            <div v-else-if="q.type === 'multiple_choice'" class="multi-select">
+              <label v-for="opt in normalizedOptions(q)" :key="String(opt.value)" class="multi-select-option">
+                <input
+                  type="checkbox"
+                  :checked="Array.isArray(sbSurveyAnswers[sbAnswerKey(survey.attachmentId, q.id)].answer) && sbSurveyAnswers[sbAnswerKey(survey.attachmentId, q.id)].answer.includes(String(opt.value))"
+                  @change="toggleSbMulti(survey.attachmentId, q.id, String(opt.value))"
+                />
+                <span>{{ opt.label }}</span>
+              </label>
+            </div>
+            <input
+              v-else-if="['slider','scale'].includes(q.type)"
+              v-model.number="sbSurveyAnswers[sbAnswerKey(survey.attachmentId, q.id)].answer"
+              type="range"
+              :min="Number(q.scale?.min || 1)"
+              :max="Number(q.scale?.max || 10)"
+            />
+            <input
+              v-else
+              v-model="sbSurveyAnswers[sbAnswerKey(survey.attachmentId, q.id)].answer"
+              type="text"
+              autocomplete="off"
+            />
+            <label v-if="q.allowQuoteMe" class="boolean-row">
+              <input
+                type="checkbox"
+                v-model="sbSurveyAnswers[sbAnswerKey(survey.attachmentId, q.id)].quoteMe"
+              />
+              <span>Quote me</span>
+            </label>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary" :disabled="sbSaving" @click="sbStep = 3">Back</button>
+          <button class="btn btn-primary" :disabled="sbSaving" @click="submitSbSurveyAndClockIn">
+            {{ sbSaving ? 'Submitting…' : 'Complete check-in' }}
+          </button>
+        </div>
+      </div>
+
       <div v-else-if="mode === 'clock' && clockStep === 1" class="step">
         <h3>Clock In or Clock Out</h3>
         <div class="mode-buttons">
@@ -756,6 +840,37 @@ const sbSessions = ref([]);
 const sbSessionPick = ref(0);
 const sbClientPick = ref(0);
 const sbSuccessMessage = ref('');
+const sbAttachedSurveys = ref([]);
+const sbSurveyAnswers = ref({});
+const sbSelectedStaff = ref(null);
+
+const sbSelectedStaffName = computed(() => {
+  const s = sbSelectedStaff.value;
+  if (!s) return '';
+  return s.display_name || `${s.first_name || ''} ${s.last_name || ''}`.trim();
+});
+
+const sbAnswerKey = (attachmentId, questionId) => `${attachmentId}:${questionId}`;
+
+const normalizedOptions = (q) => {
+  if (!Array.isArray(q?.options)) return [];
+  return q.options.map((o) => {
+    if (o && typeof o === 'object') {
+      return { label: String(o.label || o.value || ''), value: String(o.value || o.label || '') };
+    }
+    return { label: String(o || ''), value: String(o || '') };
+  }).filter((o) => o.label || o.value);
+};
+
+const toggleSbMulti = (attachmentId, questionId, value) => {
+  const key = sbAnswerKey(attachmentId, questionId);
+  if (!sbSurveyAnswers.value[key]) sbSurveyAnswers.value[key] = { answer: [], quoteMe: false };
+  const cur = Array.isArray(sbSurveyAnswers.value[key].answer) ? [...sbSurveyAnswers.value[key].answer] : [];
+  const idx = cur.indexOf(value);
+  if (idx >= 0) cur.splice(idx, 1);
+  else cur.push(value);
+  sbSurveyAnswers.value[key].answer = cur;
+};
 
 function sbYmdAddDays(ymd, delta) {
   const [y, mo, da] = String(ymd || '').split('-').map(Number);
@@ -820,13 +935,24 @@ const loadSbRosterAndSessions = async () => {
             params: { agencyId: e.agencyId, from, to }
           })
         : Promise.resolve({ data: { sessions: [] } });
-    const [r1, r2] = await Promise.all([rosterP, sessionsP]);
+    const surveysP =
+      sbAction.value === 'in'
+        ? api.get(`/kiosk/${lid}/skill-builders-events/${e.id}/attached-surveys`, {
+            params: {
+              agencyId: e.agencyId,
+              sessionDateId: sbSessionPick.value || undefined
+            }
+          })
+        : Promise.resolve({ data: { surveys: [] } });
+    const [r1, r2, r3] = await Promise.all([rosterP, sessionsP, surveysP]);
     sbRoster.value = r1.data || { providers: [], clients: [] };
     sbSessions.value = r2.data?.sessions || [];
+    sbAttachedSurveys.value = Array.isArray(r3.data?.surveys) ? r3.data.surveys : [];
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load roster';
     sbRoster.value = { providers: [], clients: [] };
     sbSessions.value = [];
+    sbAttachedSurveys.value = [];
   } finally {
     sbLoading.value = false;
   }
@@ -840,6 +966,17 @@ const doSbClock = async (staff) => {
     sbSaving.value = true;
     error.value = '';
     if (sbAction.value === 'in') {
+      if (sbAttachedSurveys.value.length) {
+        sbSelectedStaff.value = staff;
+        sbSurveyAnswers.value = {};
+        for (const survey of sbAttachedSurveys.value) {
+          for (const q of (survey.questions || [])) {
+            sbSurveyAnswers.value[sbAnswerKey(survey.attachmentId, q.id)] = { answer: '', quoteMe: false };
+          }
+        }
+        sbStep.value = 35;
+        return;
+      }
       const body = { agencyId: e.agencyId, userId: staff.id };
       if (sbSessionPick.value) body.sessionId = sbSessionPick.value;
       if (sbClientPick.value) body.clientId = sbClientPick.value;
@@ -860,11 +997,56 @@ const doSbClock = async (staff) => {
   }
 };
 
+const submitSbSurveyAndClockIn = async () => {
+  const e = selectedSbEvent.value;
+  const lid = locationId.value;
+  const staff = sbSelectedStaff.value;
+  if (!e?.id || !e?.agencyId || !lid || !staff?.id) return;
+  try {
+    sbSaving.value = true;
+    error.value = '';
+    const needsClientIdentity = sbAttachedSurveys.value.some((s) => !s.isAnonymous);
+    if (needsClientIdentity && !sbClientPick.value) {
+      error.value = 'Select a client before completing a non-anonymous survey check-in.';
+      return;
+    }
+    for (const survey of sbAttachedSurveys.value) {
+      const payload = {};
+      for (const q of (survey.questions || [])) {
+        const key = sbAnswerKey(survey.attachmentId, q.id);
+        const entry = sbSurveyAnswers.value[key] || { answer: '' };
+        payload[String(q.id)] = q.allowQuoteMe
+          ? { answer: entry.answer, quoteMe: !!entry.quoteMe }
+          : entry.answer;
+      }
+      await api.post(`/surveys/${survey.surveyId}/respond`, {
+        surveyPushId: null,
+        responseData: payload,
+        clientId: sbClientPick.value || null,
+        companyEventSessionSurveyId: survey.attachmentId
+      });
+    }
+    const body = { agencyId: e.agencyId, userId: staff.id };
+    if (sbSessionPick.value) body.sessionId = sbSessionPick.value;
+    if (sbClientPick.value) body.clientId = sbClientPick.value;
+    await api.post(`/kiosk/${lid}/skill-builders-events/${e.id}/clock-in`, body);
+    sbSuccessMessage.value = 'Survey submitted and check-in complete.';
+    sbStep.value = 4;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Survey/check-in failed';
+  } finally {
+    sbSaving.value = false;
+  }
+};
+
 const resetSb = () => {
   sbStep.value = 1;
   selectedSbEvent.value = null;
   sbRoster.value = { providers: [], clients: [] };
   sbSessions.value = [];
+  sbAttachedSurveys.value = [];
+  sbSurveyAnswers.value = {};
+  sbSelectedStaff.value = null;
   sbSessionPick.value = 0;
   sbClientPick.value = 0;
   sbSuccessMessage.value = '';
@@ -875,6 +1057,11 @@ watch(mode, (m) => {
   if (m === 'skill_builders') {
     resetSb();
   }
+});
+
+watch(sbSessionPick, async () => {
+  if (mode.value !== 'skill_builders' || sbStep.value !== 3 || sbAction.value !== 'in') return;
+  await loadSbRosterAndSessions();
 });
 
 const formatTime = (iso) => {

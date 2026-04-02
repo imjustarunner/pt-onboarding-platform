@@ -6,6 +6,7 @@
         <p class="subtitle">Configure digital forms, documents, and custom fields for your agency.</p>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
+        <router-link class="btn btn-secondary" to="/admin/surveys">Surveys</router-link>
         <button class="btn btn-secondary" type="button" @click="showQuestionSetsPanel = !showQuestionSetsPanel">
           {{ showQuestionSetsPanel ? 'Hide Question Sets' : 'Question Sets' }}
         </button>

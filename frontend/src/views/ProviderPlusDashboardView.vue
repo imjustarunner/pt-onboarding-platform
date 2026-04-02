@@ -31,6 +31,8 @@
       </router-link>
     </section>
 
+    <SurveyPromptCard />
+
     <!-- Personal momentum list / checklist below cards -->
     <section v-if="currentAgencyId" class="momentum-section" aria-label="Your focus">
       <h2 class="momentum-section-title">{{ momentumListEnabled ? 'Your Momentum List' : 'Your Checklist' }}</h2>
@@ -57,6 +59,7 @@ import { useAgencyStore } from '../store/agency';
 import { useMomentumListAddon } from '../composables/useMomentumListAddon';
 import MomentumListTab from '../components/dashboard/MomentumListTab.vue';
 import UnifiedChecklistTab from '../components/dashboard/UnifiedChecklistTab.vue';
+import SurveyPromptCard from '../components/dashboard/SurveyPromptCard.vue';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();

@@ -3825,3 +3825,167 @@ export const getCompanyEventPublic = async (req, res, next) => {
     next(error);
   }
 };
+
+export const listCompanyEventSessionSurveys = async (req, res, next) => {
+  try {
+    if (!userCanManageCompanyEvents(req)) {
+      return res.status(403).json({ error: { message: 'Insufficient role to manage company events' } });
+    }
+    const agencyId = parsePositiveInt(req.params.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid agency/event id' } });
+    const hasAccess = await userHasAgencyAccess(req, agencyId);
+    if (!hasAccess) return res.status(403).json({ error: { message: 'Access denied for this agency' } });
+    const existing = await loadEventByIdForAgency(eventId, agencyId);
+    if (!existing) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    const [sessionRows] = await pool.execute(
+      `SELECT id, session_date, starts_at, ends_at, timezone
+       FROM company_event_session_dates
+       WHERE company_event_id = ?
+       ORDER BY session_date ASC, starts_at ASC, id ASC`,
+      [eventId]
+    );
+    const [attachmentRows] = await pool.execute(
+      `SELECT
+         ces.id,
+         ces.company_event_id,
+         ces.session_date_id,
+         ces.survey_id,
+         ces.created_at,
+         s.title AS survey_title,
+         s.is_active AS survey_is_active,
+         s.is_anonymous AS survey_is_anonymous,
+         s.is_scored AS survey_is_scored,
+         s.questions_json AS survey_questions_json,
+         sd.session_date,
+         sd.starts_at,
+         sd.ends_at
+       FROM company_event_session_surveys ces
+       JOIN surveys s ON s.id = ces.survey_id
+       LEFT JOIN company_event_session_dates sd ON sd.id = ces.session_date_id
+       WHERE ces.company_event_id = ?
+         AND s.agency_id = ?
+       ORDER BY COALESCE(sd.session_date, '9999-12-31') ASC, ces.id ASC`,
+      [eventId, agencyId]
+    );
+
+    res.json({
+      sessionDates: (sessionRows || []).map((r) => ({
+        id: Number(r.id),
+        sessionDate: r.session_date,
+        startsAt: r.starts_at,
+        endsAt: r.ends_at,
+        timezone: r.timezone || 'UTC'
+      })),
+      attachments: (attachmentRows || []).map((r) => ({
+        id: Number(r.id),
+        companyEventId: Number(r.company_event_id),
+        sessionDateId: r.session_date_id != null ? Number(r.session_date_id) : null,
+        surveyId: Number(r.survey_id),
+        surveyTitle: String(r.survey_title || ''),
+        surveyIsActive: !!Number(r.survey_is_active),
+        surveyIsAnonymous: !!Number(r.survey_is_anonymous),
+        surveyIsScored: !!Number(r.survey_is_scored),
+        surveyQuestions: Array.isArray(parseJsonMaybe(r.survey_questions_json))
+          ? parseJsonMaybe(r.survey_questions_json)
+          : [],
+        sessionDate: r.session_date || null,
+        startsAt: r.starts_at || null,
+        endsAt: r.ends_at || null,
+        createdAt: r.created_at || null
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const attachCompanyEventSessionSurvey = async (req, res, next) => {
+  try {
+    if (!userCanManageCompanyEvents(req)) {
+      return res.status(403).json({ error: { message: 'Insufficient role to manage company events' } });
+    }
+    const agencyId = parsePositiveInt(req.params.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const surveyId = parsePositiveInt(req.body?.surveyId);
+    const sessionDateId = req.body?.sessionDateId == null || req.body?.sessionDateId === ''
+      ? null
+      : parsePositiveInt(req.body?.sessionDateId);
+    if (!agencyId || !eventId || !surveyId) {
+      return res.status(400).json({ error: { message: 'agencyId, eventId, and surveyId are required' } });
+    }
+    if (req.body?.sessionDateId != null && req.body?.sessionDateId !== '' && !sessionDateId) {
+      return res.status(400).json({ error: { message: 'Invalid sessionDateId' } });
+    }
+    const hasAccess = await userHasAgencyAccess(req, agencyId);
+    if (!hasAccess) return res.status(403).json({ error: { message: 'Access denied for this agency' } });
+    const existingEvent = await loadEventByIdForAgency(eventId, agencyId);
+    if (!existingEvent) return res.status(404).json({ error: { message: 'Event not found' } });
+    const [surveyRows] = await pool.execute(
+      'SELECT id FROM surveys WHERE id = ? AND agency_id = ? LIMIT 1',
+      [surveyId, agencyId]
+    );
+    if (!surveyRows?.length) return res.status(404).json({ error: { message: 'Survey not found for this agency' } });
+    if (sessionDateId) {
+      const [sessionRows] = await pool.execute(
+        'SELECT id FROM company_event_session_dates WHERE id = ? AND company_event_id = ? LIMIT 1',
+        [sessionDateId, eventId]
+      );
+      if (!sessionRows?.length) return res.status(404).json({ error: { message: 'Session date not found for this event' } });
+    }
+    const [dupeRows] = await pool.execute(
+      `SELECT id
+       FROM company_event_session_surveys
+       WHERE company_event_id = ?
+         AND survey_id = ?
+         AND ((session_date_id IS NULL AND ? IS NULL) OR session_date_id = ?)
+       LIMIT 1`,
+      [eventId, surveyId, sessionDateId, sessionDateId]
+    );
+    if (dupeRows?.length) return res.json({ ok: true, id: Number(dupeRows[0].id), duplicate: true });
+
+    const [result] = await pool.execute(
+      `INSERT INTO company_event_session_surveys (company_event_id, session_date_id, survey_id)
+       VALUES (?, ?, ?)`,
+      [eventId, sessionDateId, surveyId]
+    );
+    res.status(201).json({ ok: true, id: Number(result.insertId), duplicate: false });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const detachCompanyEventSessionSurvey = async (req, res, next) => {
+  try {
+    if (!userCanManageCompanyEvents(req)) {
+      return res.status(403).json({ error: { message: 'Insufficient role to manage company events' } });
+    }
+    const agencyId = parsePositiveInt(req.params.id);
+    const eventId = parsePositiveInt(req.params.eventId);
+    const attachmentId = parsePositiveInt(req.params.attachmentId);
+    if (!agencyId || !eventId || !attachmentId) {
+      return res.status(400).json({ error: { message: 'Invalid agency/event/attachment id' } });
+    }
+    const hasAccess = await userHasAgencyAccess(req, agencyId);
+    if (!hasAccess) return res.status(403).json({ error: { message: 'Access denied for this agency' } });
+    const existingEvent = await loadEventByIdForAgency(eventId, agencyId);
+    if (!existingEvent) return res.status(404).json({ error: { message: 'Event not found' } });
+
+    const [result] = await pool.execute(
+      `DELETE ces
+       FROM company_event_session_surveys ces
+       JOIN surveys s ON s.id = ces.survey_id
+       WHERE ces.id = ?
+         AND ces.company_event_id = ?
+         AND s.agency_id = ?`,
+      [attachmentId, eventId, agencyId]
+    );
+    if (!Number(result?.affectedRows || 0)) {
+      return res.status(404).json({ error: { message: 'Attachment not found' } });
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+};
