@@ -559,7 +559,10 @@ function parseEventPayload(body = {}) {
 
   const guestPolicyRaw = String(body.guestPolicy ?? body.guest_policy ?? 'staff_only').trim().toLowerCase();
   const guestPolicyAllowed = new Set(['staff_only', 'family_invited', 'plus_one']);
-  const guestPolicy = guestPolicyAllowed.has(guestPolicyRaw) ? guestPolicyRaw : 'staff_only';
+  let guestPolicy = guestPolicyAllowed.has(guestPolicyRaw) ? guestPolicyRaw : 'staff_only';
+  if (isServiceProgramEventType(eventType)) {
+    guestPolicy = 'staff_only';
+  }
   const potluckEnabled = triBool(body.potluckEnabled ?? body.potluck_enabled, false);
   const organizerProviding = parseJsonArrayField(body.organizerProviding ?? body.organizer_providing_json) || [];
   const eventImageUrlRaw = String(body.eventImageUrl ?? body.event_image_url ?? '').trim();
@@ -3718,6 +3721,9 @@ export const getCompanyEventPublic = async (req, res, next) => {
          ce.starts_at, ce.ends_at, ce.timezone, ce.rsvp_deadline,
          ce.rsvp_mode,
          ce.event_location_name, ce.event_location_address, ce.event_location_phone,
+         ce.public_age_min, ce.public_age_max, ce.public_session_label, ce.public_session_date_range,
+         ce.medicaid_eligible, ce.cash_eligible,
+         ce.program_cost_billing_mode, ce.program_cost_dollars, ce.per_session_cost_dollars,
          ce.guest_policy, ce.family_provision_note, ce.organizer_providing_json,
          ce.event_image_url, ce.event_image_urls_json, ce.public_hero_image_url, ce.public_hero_focal_point,
          ce.registration_form_url, ce.potluck_enabled,
@@ -3775,6 +3781,15 @@ export const getCompanyEventPublic = async (req, res, next) => {
         locationName: row.event_location_name || '',
         locationAddress: row.event_location_address || '',
         locationPhone: row.event_location_phone || '',
+        publicAgeMin: row.public_age_min != null ? Number(row.public_age_min) : null,
+        publicAgeMax: row.public_age_max != null ? Number(row.public_age_max) : null,
+        publicSessionLabel: row.public_session_label ? String(row.public_session_label).trim() : '',
+        publicSessionDateRange: row.public_session_date_range ? String(row.public_session_date_range).trim() : '',
+        medicaidEligible: !!(row.medicaid_eligible === 1 || row.medicaid_eligible === true),
+        cashEligible: !!(row.cash_eligible === 1 || row.cash_eligible === true),
+        programCostBillingMode: String(row.program_cost_billing_mode || 'total').trim(),
+        programCostDollars: row.program_cost_dollars != null ? Number(row.program_cost_dollars) : null,
+        perSessionCostDollars: row.per_session_cost_dollars != null ? Number(row.per_session_cost_dollars) : null,
         guestPolicy: row.guest_policy || 'staff_only',
         familyProvisionNote: row.family_provision_note || '',
         organizerProviding: (() => { const p = parseJsonMaybe(row.organizer_providing_json); return Array.isArray(p) ? p : []; })(),

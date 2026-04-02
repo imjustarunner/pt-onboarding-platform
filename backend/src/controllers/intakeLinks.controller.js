@@ -48,20 +48,36 @@ async function assertSmartRegistrationCompanyEvent({ companyEventId, scopeType, 
   }
   try {
     const [rows] = await pool.execute(
-      'SELECT id, agency_id FROM company_events WHERE id = ? LIMIT 1',
+      'SELECT id, agency_id, organization_id FROM company_events WHERE id = ? LIMIT 1',
       [ceid]
     );
     if (!rows?.length) return { ok: false, message: 'Company event not found.' };
-    if (Number(rows[0].agency_id) !== Number(agencyId)) {
+    const eventRow = rows[0] || {};
+    if (Number(eventRow.agency_id) !== Number(agencyId)) {
       return {
         ok: false,
         message: 'That company event does not belong to this link’s agency. Choose an event under the resolved agency for this scope.'
+      };
+    }
+    const scope = String(scopeType || '').trim().toLowerCase();
+    const orgId = organizationId ? Number(organizationId) : null;
+    const eventOrgId = eventRow.organization_id != null ? Number(eventRow.organization_id) : null;
+    if (scope !== 'agency' && orgId && eventOrgId !== Number(orgId)) {
+      return {
+        ok: false,
+        message: 'That company event is not associated with the selected organization. Choose an event for that organization.'
       };
     }
   } catch (e) {
     return { ok: false, message: e?.message || 'Failed to validate company event.' };
   }
   return { ok: true };
+}
+
+function normalizeIntakeScopeType(rawScopeType) {
+  const scope = String(rawScopeType || 'agency').trim().toLowerCase();
+  if (scope === 'learning_class') return 'program';
+  return scope;
 }
 
 const parseJsonField = (raw) => {
@@ -159,10 +175,9 @@ export const createIntakeLink = async (req, res, next) => {
     }
 
     const publicKey = crypto.randomBytes(24).toString('hex');
-    const scopeType = req.body.scopeType || 'agency';
+    const scopeType = normalizeIntakeScopeType(req.body.scopeType || 'agency');
     const languageCode = String(req.body.languageCode || 'en').trim().toLowerCase();
     let organizationId = req.body.organizationId ? asNumberOrNull(req.body.organizationId) : null;
-    const learningClassId = req.body.learningClassId ? asNumberOrNull(req.body.learningClassId) : null;
     const userOrgIds = isSuperAdmin(req.user?.role) ? [] : await getUserOrganizationIds(req.user?.id);
     if (!isSuperAdmin(req.user?.role) && organizationId && !userOrgIds.includes(organizationId)) {
       return res.status(403).json({ error: { message: 'Access denied for requested organization.' } });
@@ -181,9 +196,6 @@ export const createIntakeLink = async (req, res, next) => {
     const requiresAssignmentDefault = ['medical_records_request', 'smart_school_roi', 'smart_registration'].includes(formType) ? false : true;
     let jobDescriptionId = req.body.jobDescriptionId ? asNumberOrNull(req.body.jobDescriptionId) : null;
     let effectiveOrgId = organizationId;
-    if (scopeType === 'learning_class') {
-      return res.status(400).json({ error: { message: 'learning_class scope is not yet available' } });
-    }
     if (formType === 'smart_school_roi') {
       if (scopeType !== 'school') {
         return res.status(400).json({ error: { message: 'Smart school ROI forms must use school scope' } });
@@ -227,7 +239,7 @@ export const createIntakeLink = async (req, res, next) => {
       formType,
       organizationId: effectiveOrgId,
       programId: req.body.programId ? parseInt(req.body.programId, 10) : null,
-      learningClassId: scopeType === 'learning_class' ? learningClassId : null,
+      learningClassId: null,
       companyEventId,
       jobDescriptionId: formType === 'job_application' ? jobDescriptionId : null,
       isActive: req.body.isActive !== false,
@@ -348,8 +360,9 @@ export const updateIntakeLink = async (req, res, next) => {
       }
     }
 
-    const scopeType = req.body.scopeType ?? undefined;
-    const requestedScopeType = scopeType || existing.scope_type || 'agency';
+    const scopeTypeRaw = req.body.scopeType ?? undefined;
+    const scopeType = scopeTypeRaw === undefined ? undefined : normalizeIntakeScopeType(scopeTypeRaw);
+    const requestedScopeType = normalizeIntakeScopeType(scopeType || existing.scope_type || 'agency');
     const languageCode =
       req.body.languageCode !== undefined ? String(req.body.languageCode || '').trim().toLowerCase() : undefined;
     const formTypeRaw = req.body.formType !== undefined ? String(req.body.formType || 'intake').toLowerCase() : undefined;
@@ -370,9 +383,6 @@ export const updateIntakeLink = async (req, res, next) => {
       req.body.organizationId !== undefined
         ? asNumberOrNull(req.body.organizationId)
         : asNumberOrNull(existing.organization_id);
-    if (requestedScopeType === 'learning_class') {
-      return res.status(400).json({ error: { message: 'learning_class scope is not yet available' } });
-    }
     const effectiveFormType = formType || String(existing.form_type || 'intake').toLowerCase();
     if (effectiveFormType === 'smart_school_roi') {
       if (requestedScopeType !== 'school') {
@@ -383,7 +393,7 @@ export const updateIntakeLink = async (req, res, next) => {
       }
     }
 
-    const mergedScopeType = scopeType || existing.scope_type || 'agency';
+    const mergedScopeType = normalizeIntakeScopeType(scopeType || existing.scope_type || 'agency');
     const mergedOrganizationId =
       req.body.organizationId !== undefined ? resolvedOrganizationId : asNumberOrNull(existing.organization_id);
     const mergedCompanyEventId =
@@ -411,13 +421,11 @@ export const updateIntakeLink = async (req, res, next) => {
       language_code: languageCode === undefined ? undefined : (languageCode || null),
       scope_type: scopeType,
       form_type: formType,
-      organization_id: requestedScopeType === 'learning_class'
-        ? resolvedOrganizationId
-        : (req.body.organizationId !== undefined ? resolvedOrganizationId : undefined),
+      organization_id: req.body.organizationId !== undefined ? resolvedOrganizationId : undefined,
       program_id: req.body.programId ? parseInt(req.body.programId, 10) : null,
       learning_class_id: req.body.learningClassId !== undefined
         ? resolvedLearningClassId
-        : (requestedScopeType === 'learning_class' ? resolvedLearningClassId : undefined),
+        : undefined,
       company_event_id:
         req.body.companyEventId !== undefined ? asNumberOrNull(req.body.companyEventId) : undefined,
       job_description_id: jobDescriptionId,
@@ -448,7 +456,7 @@ export const updateIntakeLink = async (req, res, next) => {
       updates.create_guardian = 0;
       updates.requires_assignment = 0;
     }
-    if (scopeType && scopeType !== 'learning_class' && req.body.learningClassId === undefined) {
+    if (scopeType && req.body.learningClassId === undefined) {
       updates.learning_class_id = null;
     }
 

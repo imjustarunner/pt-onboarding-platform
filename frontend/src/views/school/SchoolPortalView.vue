@@ -69,6 +69,8 @@
       </div>
     </div>
 
+    <SurveyPromptCard v-if="authStore.user?.id" :splash="true" />
+
     <div class="portal-content">
       <div class="top-row">
         <div class="top-left">
@@ -1290,6 +1292,7 @@ import FaqPanel from '../../components/school/redesign/FaqPanel.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import OrganizationSettingsModal from '../../components/school/OrganizationSettingsModal.vue';
 import QuickChecklistModal from '../../components/school/QuickChecklistModal.vue';
+import SurveyPromptCard from '../../components/dashboard/SurveyPromptCard.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';

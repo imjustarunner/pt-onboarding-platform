@@ -4429,6 +4429,12 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     const allowClientComments = categories.school_portal_client_comments !== false;
     const allowClientMessages = categories.school_portal_client_messages !== false;
     const allowTickets = categories.school_portal_ticket_activity !== false;
+    const schedulerOwnOnly = await isSchedulerSchoolStaff({
+      userId,
+      role: roleNorm,
+      actorEmail: req.user?.email || req.user?.username || null,
+      orgId
+    });
     const allowTicketsForUser = allowTickets && !schedulerOwnOnly;
     const allowClientCreated = categories.school_portal_client_created !== false;
     const allowProviderSlots = categories.school_portal_provider_slots !== false;

@@ -374,7 +374,6 @@
                 <option value="agency">Agency</option>
                 <option value="school">School</option>
                 <option value="program">Program</option>
-                <option value="learning_class">Season</option>
               </select>
               <small v-if="form.formType === 'smart_registration'" class="form-help" style="color:#64748b;font-size:12px;">
                 Smart Registration is always agency-scoped — set above via the agency picker.
@@ -421,7 +420,7 @@
                 required
               >
                 <option :value="null" disabled>Select the event this URL enrolls into</option>
-                <option v-for="e in companyEventsPickerOptions" :key="e.id" :value="e.id">
+                <option v-for="e in companyEventsPickerFilteredOptions" :key="e.id" :value="e.id">
                   {{ e.title || `Event ${e.id}` }} (starts {{ formatCompanyEventPickerLabel(e) }})
                 </option>
               </select>
@@ -1824,12 +1823,23 @@ const loadingShiftSlotsBySite = reactive({});
 const companyEventsPickerAgencyId = ref(null);
 const companyEventsPickerOptions = ref([]);
 const companyEventsPickerLoading = ref(false);
+const companyEventsPickerFilteredOptions = computed(() => {
+  const all = Array.isArray(companyEventsPickerOptions.value) ? companyEventsPickerOptions.value : [];
+  const scope = String(form.scopeType || '').toLowerCase();
+  const orgId = Number(form.organizationId || 0) || null;
+  if (!orgId || scope === 'agency') return all;
+  return all.filter((ev) => Number(ev.organizationId || 0) === Number(orgId));
+});
 
 const organizationsForScope = computed(() => {
   const type = form.scopeType;
   if (type === 'school') return organizations.value.filter((o) => o.organization_type === 'school');
-  if (type === 'program') return organizations.value.filter((o) => o.organization_type === 'program');
-  if (type === 'learning_class') return organizations.value.filter((o) => ['learning', 'affiliation'].includes(String(o?.organization_type || '').toLowerCase()));
+  if (type === 'program') {
+    return organizations.value.filter((o) => {
+      const orgType = String(o?.organization_type || '').toLowerCase();
+      return ['program', 'learning', 'affiliation'].includes(orgType);
+    });
+  }
   return organizations.value;
 });
 
@@ -1910,8 +1920,15 @@ const getFormTypeLabel = (t) => {
   return m[t] || t || 'Intake';
 };
 const getScopeTypeLabel = (t) => {
-  const m = { agency: 'Agency', school: 'School', program: 'Program', learning_class: 'Season' };
+  const m = { agency: 'Agency', school: 'School', program: 'Program / Learning', learning_class: 'Program / Learning' };
   return m[t] || t || '—';
+};
+
+const normalizeScopeType = (value) => {
+  const s = String(value || '').trim().toLowerCase();
+  if (s === 'learning_class') return 'program';
+  if (['agency', 'school', 'program'].includes(s)) return s;
+  return 'school';
 };
 const getFormTypeBadgeClass = (t) => {
   if (t === 'public_form') return 'badge-info';
@@ -1968,7 +1985,8 @@ const fetchCompanyEventsForPicker = async () => {
       .map((ev) => ({
         id: Number(ev.id),
         title: String(ev.title || '').trim(),
-        startsAt: ev.startsAt || ev.starts_at || null
+        startsAt: ev.startsAt || ev.starts_at || null,
+        organizationId: Number(ev.organizationId ?? ev.organization_id ?? 0) || null
       }));
   } catch {
     companyEventsPickerOptions.value = [];
@@ -2012,6 +2030,18 @@ watch(registrationFlowAdmin, (on) => {
     void fetchCompanyEventsForPicker();
   }
 });
+
+watch(
+  () => [form.scopeType, form.organizationId, companyEventsPickerOptions.value.length],
+  () => {
+    const currentEventId = Number(form.companyEventId || 0) || null;
+    if (!currentEventId) return;
+    const exists = companyEventsPickerFilteredOptions.value.some((ev) => Number(ev.id) === currentEventId);
+    if (!exists) {
+      form.companyEventId = null;
+    }
+  }
+);
 
 const resetForm = () => {
   form.title = '';
@@ -2105,7 +2135,7 @@ const applyDraft = (draft) => {
   form.description = data.description ?? '';
   form.languageCode = data.languageCode || 'en';
   form.formType = data.formType || 'intake';
-  form.scopeType = data.scopeType || 'school';
+  form.scopeType = normalizeScopeType(data.scopeType || 'school');
   form.organizationId = data.organizationId ?? null;
   form.programId = data.programId ?? null;
   form.companyEventId = data.companyEventId ?? null;
@@ -2345,7 +2375,7 @@ const editLink = (link) => {
   form.description = link.description || '';
   form.languageCode = link.language_code || 'en';
   form.formType = link.form_type || 'intake';
-  form.scopeType = link.scope_type || 'school';
+  form.scopeType = normalizeScopeType(link.scope_type || 'school');
   form.organizationId = link.organization_id || null;
   form.programId = link.program_id || null;
   form.companyEventId = link.company_event_id ? Number(link.company_event_id) : null;

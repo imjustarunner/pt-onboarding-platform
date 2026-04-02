@@ -75,7 +75,7 @@ class SurveyPush {
        FROM survey_pushes sp
        JOIN surveys s ON s.id = sp.survey_id
        WHERE sp.user_id = ?
-         AND sp.status IN ('pending', 'seen')
+         AND sp.status IN ('pending', 'seen', 'dismissed')
          AND s.is_active = 1
        ORDER BY sp.created_at DESC`,
       [Number(userId)]

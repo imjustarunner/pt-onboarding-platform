@@ -13,12 +13,12 @@
       <!-- Hero image -->
       <div v-if="heroImage" class="event-hero" :style="{ backgroundImage: `url(${displayAsset(heroImage)})`, backgroundPosition: event.publicHeroFocalPoint || 'center center' }">
         <div class="event-hero-overlay">
-          <img v-if="branding.logoUrl" :src="displayAsset(branding.logoUrl)" alt="Logo" class="hero-logo" />
+          <img v-if="branding.logoUrl && !isProgramEvent" :src="displayAsset(branding.logoUrl)" alt="Logo" class="hero-logo" />
         </div>
       </div>
       <!-- No hero: show branded header bar -->
       <header v-else class="event-header-bar">
-        <img v-if="branding.logoUrl" :src="displayAsset(branding.logoUrl)" alt="Logo" class="header-logo" />
+        <img v-if="branding.logoUrl && !isProgramEvent" :src="displayAsset(branding.logoUrl)" alt="Logo" class="header-logo" />
         <span class="header-agency">{{ branding.agencyName }}</span>
       </header>
 
@@ -38,6 +38,15 @@
             <p class="event-type-label">{{ prettyType }}</p>
             <h1 class="event-title">{{ event.title }}</h1>
           </div>
+        </div>
+        <div v-if="isProgramEvent && registrationFormUrl" class="program-cta-banner">
+          <div>
+            <div class="program-cta-label">Ready to enroll?</div>
+            <div class="muted">Families can register directly using this class link.</div>
+          </div>
+          <a :href="registrationFormUrl" class="btn-event btn-event-primary program-cta-btn" target="_blank" rel="noopener">
+            Register now
+          </a>
         </div>
 
         <!-- Photo strip (horizontal scroll, all images) -->
@@ -84,17 +93,49 @@
               <div>{{ formatDate(event.rsvpDeadline) }}</div>
             </div>
           </div>
-          <div class="detail-row" v-if="event.guestPolicy && event.guestPolicy !== 'staff_only'">
+          <div class="detail-row" v-if="!isProgramEvent && event.guestPolicy && event.guestPolicy !== 'staff_only'">
             <span class="detail-icon">👥</span>
             <div>
               <strong>Guests</strong>
               <div>{{ prettyGuestPolicy }}</div>
             </div>
           </div>
+          <div class="detail-row" v-if="isProgramEvent && ageRangeLabel">
+            <span class="detail-icon">🎯</span>
+            <div>
+              <strong>Age group</strong>
+              <div>{{ ageRangeLabel }}</div>
+            </div>
+          </div>
+          <div class="detail-row" v-if="isProgramEvent && (event.publicSessionLabel || event.publicSessionDateRange)">
+            <span class="detail-icon">🗓️</span>
+            <div>
+              <strong>Session</strong>
+              <div v-if="event.publicSessionLabel">{{ event.publicSessionLabel }}</div>
+              <div class="muted" v-if="event.publicSessionDateRange">{{ event.publicSessionDateRange }}</div>
+            </div>
+          </div>
+          <div class="detail-row" v-if="isProgramEvent && costLabel">
+            <span class="detail-icon">💵</span>
+            <div>
+              <strong>Cost</strong>
+              <div>{{ costLabel }}</div>
+            </div>
+          </div>
+          <div class="detail-row" v-if="isProgramEvent && (event.medicaidEligible || event.cashEligible)">
+            <span class="detail-icon">✅</span>
+            <div>
+              <strong>Accepted payment options</strong>
+              <div class="provided-list">
+                <span v-if="event.medicaidEligible" class="provided-chip">Medicaid eligible</span>
+                <span v-if="event.cashEligible" class="provided-chip">Cash eligible</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Description -->
-        <div v-if="event.description || event.splashContent" class="event-section">
+        <div v-if="event.description || event.splashContent" class="event-section" :class="{ 'program-marketing-copy': isProgramEvent }">
           <p v-if="event.description" class="event-description">{{ event.description }}</p>
           <p v-if="event.splashContent" class="event-splash">{{ event.splashContent }}</p>
         </div>
@@ -103,7 +144,7 @@
         <div class="event-section" v-if="event.organizerProviding?.length || event.familyProvisionNote">
           <h3 class="section-heading">What's included</h3>
           <div v-if="event.organizerProviding?.length">
-            <p class="included-label">For staff/attendees</p>
+            <p class="included-label">{{ isProgramEvent ? "What to expect" : "For staff/attendees" }}</p>
             <div class="provided-list">
               <span class="provided-chip" v-for="item in event.organizerProviding" :key="item">✓ {{ item }}</span>
             </div>
@@ -266,16 +307,22 @@
         </div>
 
         <!-- Email invitation note -->
-        <div class="event-cta-section" style="margin-top:0;">
+        <div v-if="!isProgramEvent" class="event-cta-section" style="margin-top:0;">
           <p class="cta-hint">
             <strong>Received a personal invitation email?</strong>
             Use the link in your email for a pre-filled RSVP tied directly to your invitation.
           </p>
         </div>
+        <div v-else-if="registrationFormUrl" class="event-cta-section program-bottom-cta" style="margin-top:0;">
+          <p class="cta-hint">Spots can fill quickly. Complete registration to reserve your place.</p>
+          <div class="cta-actions" style="margin-top: 10px;">
+            <a :href="registrationFormUrl" class="btn-event btn-event-primary" target="_blank" rel="noopener">Register now</a>
+          </div>
+        </div>
 
         <!-- Footer -->
         <footer class="event-footer">
-          <img v-if="branding.logoUrl" :src="displayAsset(branding.logoUrl)" alt="Logo" class="footer-logo" />
+          <img v-if="branding.logoUrl && !isProgramEvent" :src="displayAsset(branding.logoUrl)" alt="Logo" class="footer-logo" />
           <span class="footer-agency">{{ branding.agencyName }}</span>
         </footer>
       </div>
@@ -410,6 +457,35 @@ const registrationFormUrl = computed(() => {
   const key = String(event.value?.registrationFormPublicKey || '').trim();
   return key ? buildPublicIntakeUrl(key) : '';
 });
+const isProgramEvent = computed(() => {
+  const t = String(event.value?.eventType || '').trim().toLowerCase();
+  return t.startsWith('program_') || t === 'guardian_program_class';
+});
+const ageRangeLabel = computed(() => {
+  const min = Number(event.value?.publicAgeMin);
+  const max = Number(event.value?.publicAgeMax);
+  const hasMin = Number.isFinite(min);
+  const hasMax = Number.isFinite(max);
+  if (hasMin && hasMax) return `${min}-${max} years`;
+  if (hasMin) return `${min}+ years`;
+  if (hasMax) return `Up to ${max} years`;
+  return '';
+});
+const moneyLabel = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '';
+  if (n <= 0) return 'Free';
+  return `$${n.toFixed(2)}`;
+};
+const costLabel = computed(() => {
+  const mode = String(event.value?.programCostBillingMode || '').toLowerCase();
+  const total = moneyLabel(event.value?.programCostDollars);
+  const perSession = moneyLabel(event.value?.perSessionCostDollars);
+  if (mode === 'per_session' && perSession) return `${perSession} per session`;
+  if (mode === 'total' && total) return `${total} total`;
+  if (perSession && total) return `${total} total (${perSession} per session)`;
+  return total || perSession || '';
+});
 
 const submitRsvp = async () => {
   regError.value = '';
@@ -483,7 +559,12 @@ const prettyType = computed(() => {
     team_building: 'Team building',
     celebration: 'Celebration',
     meeting: 'Meeting',
-    training: 'Training'
+    training: 'Training',
+    program_workshop: 'Program Workshop',
+    guardian_program_class: 'Guardian Program',
+    program_event: 'Program Event',
+    program_orientation: 'Program Orientation',
+    program_open_house: 'Program Open House'
   };
   return map[t] || t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 });
@@ -616,6 +697,28 @@ onMounted(async () => {
   margin: 0 auto;
   padding: 28px 20px 60px;
 }
+.program-cta-banner {
+  position: sticky;
+  top: 10px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #eff6ff 0%, #ecfeff 100%);
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+.program-cta-label {
+  font-size: .86rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: #1d4ed8;
+}
+.program-cta-btn { white-space: nowrap; }
 
 /* RSVP Banner */
 .rsvp-banner {
@@ -777,6 +880,17 @@ onMounted(async () => {
 .event-section { margin-bottom: 24px; }
 .section-heading { font-size: 1rem; font-weight: 700; margin: 0 0 10px; color: #0f172a; }
 .event-description, .event-splash { color: #334155; line-height: 1.6; margin: 0 0 8px; }
+.program-marketing-copy {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px;
+}
+.program-marketing-copy .event-description,
+.program-marketing-copy .event-splash {
+  font-size: 1.02rem;
+  line-height: 1.7;
+}
 .provided-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .included-label {
   margin: 0 0 8px;
@@ -911,6 +1025,11 @@ onMounted(async () => {
 @media (max-width: 540px) {
   .rsvp-name-row { grid-template-columns: 1fr; }
   .rsvp-details-grid { grid-template-columns: 1fr; }
+  .program-cta-banner {
+    position: static;
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 .btn-event {
   display: inline-block;
@@ -930,6 +1049,10 @@ onMounted(async () => {
 .event-footer { display: flex; align-items: center; justify-content: center; gap: 12px; padding-top: 16px; border-top: 1px solid #e2e8f0; }
 .footer-logo { height: 32px; object-fit: contain; }
 .footer-agency { font-size: 0.9rem; color: #64748b; }
+.program-bottom-cta {
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #f8fbff 0%, #eef8ff 100%);
+}
 
 /* Utility */
 .muted { color: #64748b; font-size: 0.9rem; }

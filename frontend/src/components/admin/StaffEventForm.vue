@@ -219,7 +219,7 @@
       </div>
     </div>
 
-    <div class="section">
+    <div v-if="!isServiceProgramDraft" class="section">
       <h4>4) Guest Policy</h4>
       <div class="grid three">
         <label class="chip-toggle"><input type="radio" value="staff_only" v-model="draft.guestPolicy" /> <span>Staff only</span></label>
