@@ -1,6 +1,6 @@
 <template>
   <div class="gwv-f">
-    <label class="gwv-optout">
+    <label class="gwv-optout" :class="{ 'gwv-optout--pulse': pulse }">
       <input
         type="checkbox"
         :checked="declineEmergencyContacts"
@@ -53,7 +53,8 @@ import { computed } from 'vue';
 
 const props = defineProps({
   modelValue: { type: Object, required: true },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  pulse: { type: Boolean, default: false }
 });
 const emit = defineEmits(['update:modelValue']);
 
@@ -110,6 +111,16 @@ function removeRow(i) {
   align-items: center;
   gap: 8px;
   font-size: 14px;
+  border-radius: 6px;
+  padding: 4px 6px;
+  transition: box-shadow 0.2s;
+}
+.gwv-optout--pulse {
+  animation: emergencyOptOutPulse 0.55s ease-in-out 0s 4 alternate;
+}
+@keyframes emergencyOptOutPulse {
+  0%   { box-shadow: 0 0 0 0px rgba(234, 137, 12, 0); background: transparent; }
+  100% { box-shadow: 0 0 0 5px rgba(234, 137, 12, 0.45); background: rgba(234, 137, 12, 0.08); }
 }
 @media (max-width: 720px) {
   .gwv-grid {

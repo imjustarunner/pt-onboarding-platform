@@ -15,7 +15,10 @@
         <component
           :is="def.fields"
           :model-value="sectionPayload(cIdx, def.key)"
-          v-bind="def.extraProps ? def.extraProps(eventWaiverContext) : {}"
+          v-bind="{
+            ...(def.extraProps ? def.extraProps(eventWaiverContext) : {}),
+            ...(def.key === 'emergency_contacts' ? { pulse: pulseEmergency } : {})
+          }"
           @update:model-value="(v) => setSectionPayload(cIdx, def.key, v)"
         />
 
@@ -60,7 +63,8 @@ const props = defineProps({
    * eventWaiverContext: { snacksAvailable: bool, snackOptions: string[], mealsAvailable: bool, mealOptions: string[] }
    * Passed down from PublicIntakeSigningView once a registration event is selected.
    */
-  eventWaiverContext: { type: Object, default: () => ({}) }
+  eventWaiverContext: { type: Object, default: () => ({}) },
+  pulseEmergency: { type: Boolean, default: false }
 });
 
 const eventWaiverContext = toRef(props, 'eventWaiverContext');

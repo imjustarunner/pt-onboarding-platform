@@ -115,14 +115,6 @@
               <div class="muted" v-if="event.publicSessionDateRange">{{ event.publicSessionDateRange }}</div>
             </div>
           </div>
-          <div class="detail-row" v-if="isProgramEvent && (totalProgramCostLabel || perSessionCostLabel)">
-            <span class="detail-icon">💵</span>
-            <div>
-              <strong>Cost</strong>
-              <div v-if="totalProgramCostLabel">Total program cost: {{ totalProgramCostLabel }}</div>
-              <div v-if="perSessionCostLabel">Cost per session: {{ perSessionCostLabel }}</div>
-            </div>
-          </div>
           <div class="detail-row" v-if="isProgramEvent && (event.medicaidEligible || event.cashEligible)">
             <span class="detail-icon">✅</span>
             <div>
@@ -137,6 +129,15 @@
               <div v-if="event.cashEligible && (totalProgramCostLabel || perSessionCostLabel)" class="muted payment-note">
                 Cash/self-pay pricing applies only when insurance does not cover the service.
               </div>
+            </div>
+          </div>
+          <div class="detail-row" v-if="isProgramEvent && (totalProgramCostLabel || perSessionCostLabel)">
+            <span class="detail-icon">💵</span>
+            <div>
+              <strong>Cost</strong>
+              <div v-if="totalProgramCostLabel">Total program cost: {{ totalProgramCostLabel }}</div>
+              <div v-if="perSessionCostLabel">Cost per session: {{ perSessionCostLabel }}</div>
+              <div class="muted payment-note">Medicaid services have no out-of-pocket costs.</div>
             </div>
           </div>
         </div>

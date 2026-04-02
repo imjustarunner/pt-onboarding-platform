@@ -863,7 +863,25 @@ const resolvePacketCompletionEmailContent = async ({
   const bodyTemplate = customBody || selectedTemplate?.body || fallbackText;
 
   const subject = renderTemplateString(subjectTemplate, params).trim() || fallbackSubject;
-  const text = renderTemplateString(bodyTemplate, params).trim() || fallbackText;
+  let text = renderTemplateString(bodyTemplate, params).trim() || fallbackText;
+
+  // If a custom template was used but it doesn't include portal/login info,
+  // append it automatically when there are credentials to share.
+  const usedCustomTemplate = !!(customBody || selectedTemplate?.body);
+  const hasLoginInfo = !!(regPasswordless || regPw || (regPlainLogin && needsSetup));
+  const textMissesLoginInfo = usedCustomTemplate && hasLoginInfo && !text.includes(regPortalPrimary || regPlainLogin);
+  if (textMissesLoginInfo) {
+    const appendedBlock = [
+      '',
+      '— Guardian portal access —',
+      regPasswordless && needsSetup ? `Set up your account: ${regPasswordless}` : regPasswordless ? `One-time sign-in link: ${regPasswordless}` : '',
+      regLogin ? `Username: ${regLogin}` : '',
+      regPw ? `Temporary password (valid 72h): ${regPw}` : '',
+      (!regPasswordless && regPlainLogin) ? `Login page: ${regPlainLogin}` : ''
+    ].filter(Boolean).join('\n');
+    text = `${text}\n${appendedBlock}`;
+  }
+
   const html = selectedTemplate?.body || customBody
     ? toSimpleHtmlEmail(text)
     : `

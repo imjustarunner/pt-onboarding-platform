@@ -609,11 +609,27 @@
               <p v-if="currentRegistrationOptions[0].summaryText" class="reg-event-summary muted">
                 {{ currentRegistrationOptions[0].summaryText }}
               </p>
-              <p v-if="currentRegistrationOptions[0].displayCost" class="reg-event-cost">
-                Cost: {{ currentRegistrationOptions[0].displayCost }}
+              <p v-if="currentRegistrationOptions[0].description && !currentRegistrationOptions[0].summaryText" class="reg-event-summary muted">
+                {{ currentRegistrationOptions[0].description }}
               </p>
+              <p v-if="currentRegistrationOptions[0].frequencyLabel" class="reg-event-meta">
+                🗓 {{ currentRegistrationOptions[0].frequencyLabel }}
+              </p>
+              <p v-if="currentRegistrationOptions[0].termsSummary" class="reg-event-meta muted">
+                {{ currentRegistrationOptions[0].termsSummary }}
+              </p>
+              <p v-if="currentRegistrationOptions[0].displayCost" class="reg-event-cost">
+                💵 Cost: {{ currentRegistrationOptions[0].displayCost }}
+              </p>
+              <div v-if="currentRegistrationOptions[0].medicaidEligible || currentRegistrationOptions[0].cashEligible" class="reg-event-eligibility">
+                <span v-if="currentRegistrationOptions[0].medicaidEligible" class="reg-eligibility-badge">✅ Medicaid eligible</span>
+                <span v-if="currentRegistrationOptions[0].cashEligible" class="reg-eligibility-badge">💳 Cash / self-pay</span>
+              </div>
               <a v-if="currentRegistrationOptions[0].videoJoinUrl" :href="currentRegistrationOptions[0].videoJoinUrl" target="_blank" rel="noopener" class="reg-event-link">
-                Join link
+                📹 Join link
+              </a>
+              <a v-if="currentRegistrationOptions[0].paymentLinkUrl" :href="currentRegistrationOptions[0].paymentLinkUrl" target="_blank" rel="noopener" class="reg-event-link">
+                💳 Payment link
               </a>
             </div>
             <div class="reg-event-confirm-note">
@@ -690,6 +706,7 @@
             :guardian-default-pickup="guardianDefaultPickup"
             :saved-signature-data="lastSignatureData"
             :event-waiver-context="eventWaiverContext"
+            :pulse-emergency="emergencyPulse"
           />
         </div>
 
@@ -976,6 +993,7 @@
             class="btn btn-secondary btn-sm"
             type="button"
             :disabled="!docStatus[currentDoc?.id]"
+            :class="{ 'doc-nav-btn--pulse': navPulse }"
             @click="goToNext"
           >
             Next
@@ -1012,7 +1030,7 @@
               {{ checkboxDisclaimer }}
             </p>
             <div v-if="reviewTotalPages > 1" class="page-notice-actions" style="margin-top: 12px;">
-              <button class="btn btn-outline btn-sm" type="button" @click="skipToSignaturePage">
+              <button class="btn btn-outline btn-sm" type="button" :class="{ 'doc-nav-btn--pulse': navPulse }" @click="skipToSignaturePage">
                 {{ t('skipToSignaturePage') }}
               </button>
             </div>
@@ -1087,6 +1105,15 @@
 
         <div v-if="currentFlowStep?.type !== 'school_roi'" class="actions">
           <button
+            v-if="currentFlowIndex > 0"
+            class="btn btn-outline"
+            type="button"
+            :disabled="submitLoading"
+            @click="goToPrevious"
+          >
+            ← Back
+          </button>
+          <button
             class="btn btn-primary"
             type="button"
             :disabled="submitLoading || isUploadStepBlockingContinue"
@@ -1121,38 +1148,34 @@
                 </a>
               </div>
             </div>
-            <div v-if="registrationCompletion?.loginEmail" class="reg-success-account">
-              <div class="reg-success-account-label">Your account username</div>
-              <div class="reg-success-username">{{ registrationCompletion.loginEmail }}</div>
-              <div class="reg-success-account-hint">
-                Check your email for a sign-in link. After signing in you will set your password.
+            <div class="reg-success-account">
+              <div class="reg-success-account-label">Your account</div>
+              <div v-if="registrationCompletion?.loginEmail || guardianEmail" class="reg-success-username">
+                {{ registrationCompletion?.loginEmail || guardianEmail }}
               </div>
-              <div class="reg-success-account-actions">
+              <div v-if="registrationCompletion?.portalLoginUrl" class="reg-success-account-actions" style="margin-top: 10px;">
                 <a
-                  v-if="registrationCompletion.portalLoginUrl"
                   :href="registrationCompletion.portalLoginUrl"
                   target="_blank"
                   rel="noopener"
                   class="btn btn-primary btn-sm"
                 >
-                  Sign in to your portal
+                  Sign in to your portal →
                 </a>
               </div>
-              <div style="margin-top: 10px;">
-                <button
-                  type="button"
-                  class="btn btn-outline btn-sm"
-                  :disabled="loginHelpSending"
-                  @click="sendPublicIntakeLoginHelp"
-                >
-                  {{ loginHelpSending ? 'Sending…' : 'Need help signing in? Notify staff' }}
-                </button>
-                <span v-if="loginHelpMessage" class="muted" style="margin-left: 8px;">{{ loginHelpMessage }}</span>
+              <div class="reg-success-account-hint" style="margin-top: 8px;">
+                <span v-if="registrationCompletion?.newGuardianAccount">
+                  A sign-in link has been emailed to you (valid 72 hours). After signing in you will set your password.
+                </span>
+                <span v-else-if="registrationCompletion?.loginEmail">
+                  Use the button above to sign in to your guardian portal. Check your email if you need a sign-in link.
+                </span>
+                <span v-else>
+                  Check your email for a sign-in link to access your guardian portal.
+                </span>
               </div>
-            </div>
-            <div v-else-if="registrationCompletion?.newGuardianAccount" class="reg-success-account">
-              <div class="reg-success-account-hint">
-                Check your email for your sign-in link and username (valid 72 hours).
+              <div v-if="guardianEmail" class="muted" style="font-size: 12px; margin-top: 4px;">
+                Email: {{ guardianEmail }}
               </div>
               <div style="margin-top: 10px;">
                 <button
@@ -2142,6 +2165,10 @@ const reviewTotalPages = ref(0);
 const canProceed = ref(true);
 const pageNotice = ref('');
 let pageNoticeTimer = null;
+const navPulse = ref(false);
+let navPulseTimer = null;
+const emergencyPulse = ref(false);
+let emergencyPulseTimer = null;
 const docStatus = reactive({});
 const uploadStatus = reactive({});
 const uploadStepFiles = ref([]);
@@ -2736,9 +2763,11 @@ const checkboxMarkers = computed(() =>
     }))
 );
 const requiredFieldsForList = computed(() =>
-  displayedFieldDefinitions.value.filter((field) =>
-    !(field?.type === 'checkbox' && field?.x !== undefined && field?.y !== undefined)
-  )
+  displayedFieldDefinitions.value.filter((field) => {
+    if (field?.type === 'checkbox' && field?.x !== undefined && field?.y !== undefined) return false;
+    if (field?.type === 'date' && field?.autoToday) return false;
+    return true;
+  })
 );
 
 const signaturePageNumber = computed(() => {
@@ -3654,6 +3683,9 @@ const completeCurrentDocument = async () => {
       pageNoticeTimer = setTimeout(() => {
         pageNotice.value = '';
       }, 2500);
+      navPulse.value = true;
+      if (navPulseTimer) clearTimeout(navPulseTimer);
+      navPulseTimer = setTimeout(() => { navPulse.value = false; }, 2600);
       return;
     }
     if (currentDoc.value.document_action_type === 'signature' && !signatureData.value) {
@@ -3842,9 +3874,20 @@ const completeGuardianWaiverStep = () => {
     const label = guardianWaiverClientLabels.value[i] || `Child ${i + 1}`;
     for (const key of keys) {
       const sec = gw.clients[i].sections?.[key];
-      if ((key === 'pickup_authorization' || key === 'emergency_contacts')
-        && isOptionalGuardianWaiverSectionSkipped(key, sec?.payload)) {
+      if (key === 'pickup_authorization' && isOptionalGuardianWaiverSectionSkipped(key, sec?.payload)) {
         continue;
+      }
+      if (key === 'emergency_contacts') {
+        const ecPayload = sec?.payload || {};
+        if (ecPayload.declineEmergencyContacts === true) continue;
+        const ecRows = Array.isArray(ecPayload.contacts) ? ecPayload.contacts : [];
+        if (!ecRows.some((row) => hasAnyFilledText([row?.name, row?.relationship, row?.phone]))) {
+          stepError.value = `Please add at least one emergency contact for ${label}, or check "I do not want to list emergency contacts at this time."`;
+          emergencyPulse.value = true;
+          if (emergencyPulseTimer) clearTimeout(emergencyPulseTimer);
+          emergencyPulseTimer = setTimeout(() => { emergencyPulse.value = false; }, 2600);
+          return;
+        }
       }
       if (!sec) {
         stepError.value = `Please complete ${guardianWaiverSectionLabels[key] || 'all waiver sections'} for ${label}.`;
@@ -5405,6 +5448,27 @@ onBeforeUnmount(() => {
 .reg-event-link {
   font-size: 13px;
   color: var(--color-primary, #4db6ac);
+  display: inline-block;
+  margin-bottom: 4px;
+}
+.reg-event-meta {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.reg-event-eligibility {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.reg-eligibility-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #a5d6a7;
 }
 .reg-event-confirm-note {
   background: var(--bg-alt);
@@ -5584,6 +5648,13 @@ onBeforeUnmount(() => {
 @keyframes signatureFlash {
   0%   { box-shadow: 0 0 0 0px rgba(239,68,68,0); }
   100% { box-shadow: 0 0 0 6px rgba(239,68,68,0.55), 0 0 18px rgba(239,68,68,0.3); }
+}
+.doc-nav-btn--pulse {
+  animation: navBtnPulse 0.55s ease-in-out 0s 4 alternate;
+}
+@keyframes navBtnPulse {
+  0%   { box-shadow: 0 0 0 0px rgba(234,137,12,0); transform: scale(1); }
+  100% { box-shadow: 0 0 0 6px rgba(234,137,12,0.45), 0 0 14px rgba(234,137,12,0.25); transform: scale(1.04); }
 }
 .signature-confirm {
   margin-top: 10px;
