@@ -854,6 +854,18 @@
           <!-- Color pickers — only shown for agencies OR when child org explicitly uses own branding -->
           <template v-if="!['school', 'program', 'learning'].includes(String(agencyForm.organizationType || 'agency').toLowerCase()) || agencyForm.themeSettings?.useAffiliatedAgencyBranding === false">
 
+          <!-- Warning when own-branding colors still match parent -->
+          <div v-if="ownBrandingColorsMatchParent" class="own-branding-match-warning">
+            <span class="obm-icon">⚠️</span>
+            <div class="obm-body">
+              <strong>Colors still match affiliated agency.</strong>
+              <span>This portal will look identical to the parent portal. Update the colors below to differentiate it, or click Reset to start from scratch.</span>
+            </div>
+            <button type="button" class="btn btn-xs btn-secondary obm-reset" @click="resetOwnColors">
+              Reset colors
+            </button>
+          </div>
+
           <div class="form-group">
             <label>Primary Color</label>
             <div class="color-input-group">
@@ -7649,6 +7661,35 @@ const parentOrgPalettePreview = computed(() => {
   return result;
 });
 
+// True when user has picked "own branding" but the stored colors are still the parent's
+const ownBrandingColorsMatchParent = computed(() => {
+  if (agencyForm.value.themeSettings?.useAffiliatedAgencyBranding !== false) return false;
+  const parent = selectedAffiliatedAgency.value;
+  if (!parent) return false;
+  const p = getColorPalette(parent.color_palette);
+  if (!p?.primary) return false;
+  const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  return same(agencyForm.value.primaryColor, p.primary) &&
+    same(agencyForm.value.secondaryColor, p.secondary) &&
+    same(agencyForm.value.accentColor, p.accent);
+});
+
+// Clear colors to generic starting defaults so user can set their own
+const resetOwnColors = () => {
+  agencyForm.value.primaryColor = '#1E3A5F';
+  agencyForm.value.secondaryColor = '#2E7D8C';
+  agencyForm.value.accentColor = '#E67E22';
+  agencyForm.value.primaryHover = '';
+  agencyForm.value.backgroundColor = '';
+  agencyForm.value.secondaryBackground = '';
+  agencyForm.value.dividerColor = '';
+  agencyForm.value.successColor = '';
+  agencyForm.value.dataNumbersColor = '';
+  agencyForm.value.textPrimary = '';
+  agencyForm.value.textSecondary = '';
+  agencyForm.value.textMuted = '';
+};
+
 const getOrgAccentColor = (org) => {
   try {
     const p = getColorPalette(org?.color_palette);
@@ -10341,6 +10382,38 @@ small {
   .brand-source-toggle {
     grid-template-columns: 1fr;
   }
+}
+
+.own-branding-match-warning {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(234, 179, 8, 0.1);
+  border: 1.5px solid rgba(234, 179, 8, 0.5);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.obm-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.obm-body {
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.obm-body strong {
+  display: block;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.obm-body span {
+  color: var(--text-secondary);
+}
+.obm-reset {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .settings-readonly .settings-main-fieldset {
