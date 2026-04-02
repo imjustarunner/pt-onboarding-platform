@@ -851,6 +851,54 @@
             </div>
           </div>
 
+          <div
+            v-if="['school', 'program', 'learning'].includes(String(agencyForm.organizationType || 'agency').toLowerCase())"
+            class="form-group brand-source-card"
+            :class="agencyForm.themeSettings?.useAffiliatedAgencyIcons !== false ? 'using-parent-brand' : 'using-local-brand'"
+            style="margin-bottom: 18px;"
+          >
+            <div class="brand-source-head">
+              <div>
+                <div class="brand-source-title">Portal icon source</div>
+                <div class="brand-source-sub">
+                  {{ agencyForm.themeSettings?.useAffiliatedAgencyIcons !== false
+                    ? 'This portal inherits its card icons from the affiliated agency.'
+                    : 'This portal uses this organization\'s own card icons.' }}
+                </div>
+              </div>
+              <span class="brand-source-pill" :class="agencyForm.themeSettings?.useAffiliatedAgencyIcons !== false ? 'pill-parent' : 'pill-local'">
+                {{ agencyForm.themeSettings?.useAffiliatedAgencyIcons !== false ? 'AFFILIATED ICONS' : 'OWN ICONS' }}
+              </span>
+            </div>
+
+            <div class="brand-source-toggle" role="group" aria-label="Portal icon source" style="margin-top:12px;">
+              <button
+                type="button"
+                class="brand-toggle-btn"
+                :class="{ active: agencyForm.themeSettings?.useAffiliatedAgencyIcons !== false }"
+                @click="agencyForm.themeSettings.useAffiliatedAgencyIcons = true"
+              >
+                <span class="btb-icon">🏢</span>
+                <span>
+                  <strong>Affiliated agency icons</strong>
+                  <span class="btb-sub">Use parent agency portal icon set</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="brand-toggle-btn"
+                :class="{ active: agencyForm.themeSettings?.useAffiliatedAgencyIcons === false }"
+                @click="agencyForm.themeSettings.useAffiliatedAgencyIcons = false"
+              >
+                <span class="btb-icon">🧩</span>
+                <span>
+                  <strong>This organization's icons</strong>
+                  <span class="btb-sub">Use this org's own uploaded portal icons</span>
+                </span>
+              </button>
+            </div>
+          </div>
+
           <!-- Color pickers — only shown for agencies OR when child org explicitly uses own branding -->
           <template v-if="!['school', 'program', 'learning'].includes(String(agencyForm.organizationType || 'agency').toLowerCase()) || agencyForm.themeSettings?.useAffiliatedAgencyBranding === false">
 
@@ -6093,6 +6141,7 @@ const defaultAgencyForm = () => ({
     loginBackground: '',
     publicWebsiteUrl: '',
     useAffiliatedAgencyBranding: true,
+    useAffiliatedAgencyIcons: true,
     usePublicEventsOwnBranding: false
   },
   terminologySettings: {
@@ -7461,6 +7510,11 @@ const editAgency = async (agency) => {
       )
         ? (themeSettings.useAffiliatedAgencyBranding !== false)
         : false,
+      useAffiliatedAgencyIcons: ['school', 'program', 'learning'].includes(
+        String(agency.organization_type || agency.organizationType || 'agency').toLowerCase()
+      )
+        ? (themeSettings.useAffiliatedAgencyIcons !== false)
+        : false,
       usePublicEventsOwnBranding:
         String(agency.organization_type || agency.organizationType || 'agency').toLowerCase() === 'program'
           ? themeSettings.usePublicEventsOwnBranding === true
@@ -8157,6 +8211,7 @@ const saveAgency = async () => {
     }
     if (['school', 'program', 'learning'].includes(String(agencyForm.value.organizationType || 'agency').toLowerCase())) {
       themeSettings.useAffiliatedAgencyBranding = agencyForm.value.themeSettings?.useAffiliatedAgencyBranding !== false;
+      themeSettings.useAffiliatedAgencyIcons = agencyForm.value.themeSettings?.useAffiliatedAgencyIcons !== false;
     }
     if (String(agencyForm.value.organizationType || 'agency').toLowerCase() === 'program') {
       themeSettings.usePublicEventsOwnBranding =

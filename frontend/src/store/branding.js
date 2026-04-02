@@ -1040,8 +1040,8 @@ export const useBrandingStore = defineStore('branding', () => {
 
     // Priority 1: Agency-level icon (if agency is specified)
     if (agencyId !== null) {
-      const agency = agencyStore.agencies?.find(a => a.id === agencyId);
-      const url = resolveFromOrg(agency);
+      const agency = resolveAgencyByIdLocal(agencyId);
+      const url = resolveFromOrg(resolveIconSourceOrganization(agency));
       if (url) return url;
     }
 
@@ -1075,6 +1075,49 @@ export const useBrandingStore = defineStore('branding', () => {
       return undefined;
     }
     return organization;
+  };
+
+  const parseThemeSettingsObject = (org) => {
+    const raw = org?.theme_settings ?? org?.themeSettings;
+    if (!raw) return {};
+    if (typeof raw === 'object') return raw || {};
+    try {
+      return JSON.parse(raw) || {};
+    } catch {
+      return {};
+    }
+  };
+
+  const resolveAgencyByIdLocal = (agencyId) => {
+    const id = Number(agencyId);
+    if (!Number.isFinite(id) || id <= 0) return null;
+    const cur = agencyStore.currentAgency;
+    if (cur && Number(cur.id || 0) === id) return cur;
+    const all = Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [];
+    const fromAll = all.find((a) => Number(a?.id || 0) === id);
+    if (fromAll) return fromAll;
+    const mine = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+    return mine.find((a) => Number(a?.id || 0) === id) || null;
+  };
+
+  const resolveIconSourceOrganization = (org) => {
+    if (!org || typeof org !== 'object') return org;
+    const orgType = String(org.organization_type || org.organizationType || 'agency').toLowerCase();
+    const isChildOrg = ['school', 'program', 'learning', 'clinical', 'affiliation'].includes(orgType);
+    if (!isChildOrg) return org;
+    const themeSettings = parseThemeSettingsObject(org);
+    const useAffiliatedAgencyIcons = themeSettings.useAffiliatedAgencyIcons !== false;
+    if (!useAffiliatedAgencyIcons) return org;
+    const parentId = Number(
+      org.affiliated_agency_id ??
+      org.affiliatedAgencyId ??
+      org.agency_id ??
+      org.agencyId ??
+      0
+    );
+    if (!Number.isFinite(parentId) || parentId <= 0 || parentId === Number(org.id || 0)) return org;
+    const parent = resolveAgencyByIdLocal(parentId);
+    return parent || org;
   };
 
   // Get icon URL for a specific "My Dashboard" card
@@ -1114,7 +1157,8 @@ export const useBrandingStore = defineStore('branding', () => {
 
     const idField = field.replace(/_icon_path$/, '_icon_id');
     const orgParam = resolveOrganizationParamForIcons(organization);
-    const org = orgParam === undefined ? agencyStore.currentAgency : orgParam;
+    const orgBase = orgParam === undefined ? agencyStore.currentAgency : orgParam;
+    const org = resolveIconSourceOrganization(orgBase);
     if (org?.[field]) return toUploadsUrl(org[field]);
     if (org?.[idField]) {
       const url = iconUrlById(org[idField]);
@@ -1156,7 +1200,8 @@ export const useBrandingStore = defineStore('branding', () => {
     const idField = field.replace(/_icon_path$/, '_icon_id');
 
     const orgParam = resolveOrganizationParamForIcons(organization);
-    const org = orgParam === undefined ? agencyStore.currentAgency : orgParam;
+    const orgBase = orgParam === undefined ? agencyStore.currentAgency : orgParam;
+    const org = resolveIconSourceOrganization(orgBase);
     if (org?.[field]) return toUploadsUrl(org[field]);
     if (org?.[idField]) {
       const url = iconUrlById(org[idField]);
@@ -1212,7 +1257,7 @@ export const useBrandingStore = defineStore('branding', () => {
     if (!field) return null;
     const idField = field.replace(/_icon_path$/, '_icon_id');
 
-    const org = agencyOverride || agencyStore.currentAgency;
+    const org = resolveIconSourceOrganization(agencyOverride || agencyStore.currentAgency);
     if (org?.[field]) return toUploadsUrl(org[field]);
     if (org?.[idField]) {
       const url = iconUrlById(org[idField]);
@@ -1237,7 +1282,7 @@ export const useBrandingStore = defineStore('branding', () => {
     if (!field) return null;
     const idField = field.replace(/_icon_path$/, '_icon_id');
 
-    const org = agencyOverride || agencyStore.currentAgency;
+    const org = resolveIconSourceOrganization(agencyOverride || agencyStore.currentAgency);
     if (org?.[field]) return toUploadsUrl(org[field]);
     if (org?.[idField]) {
       const url = iconUrlById(org[idField]);
