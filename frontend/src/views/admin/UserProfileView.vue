@@ -1463,6 +1463,119 @@
             </div>
         </div>
 
+        <div v-if="activeTab === 'linked_clients'" class="tab-panel">
+          <h2>Linked Clients</h2>
+          <p class="hint" style="margin-top: -6px;">
+            Manage which clients this guardian can access and sign for.
+          </p>
+
+          <div class="card" style="padding: 12px; margin-bottom: 14px;">
+            <h4 style="margin: 0 0 10px;">Link this guardian to a client</h4>
+            <div class="form-grid" style="grid-template-columns: 1fr 220px 160px auto; gap: 10px;">
+              <div class="form-group">
+                <label>Search clients</label>
+                <input
+                  v-model.trim="guardianClientQuery"
+                  type="text"
+                  placeholder="Type client name..."
+                  @keydown.enter.prevent="searchGuardianClients"
+                />
+              </div>
+              <div class="form-group">
+                <label>Select client</label>
+                <select v-model="guardianSelectedClientId">
+                  <option value="" disabled>Select…</option>
+                  <option v-for="c in guardianClientOptions" :key="c.id" :value="String(c.id)">
+                    {{ c.full_name || c.initials || `Client ${c.id}` }}
+                  </option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Relationship</label>
+                <select v-model="guardianLinkRelationshipType">
+                  <option value="guardian">Guardian</option>
+                  <option value="self">Self</option>
+                  <option value="proxy">Proxy</option>
+                </select>
+              </div>
+              <div class="form-group" style="justify-content: flex-end;">
+                <label>&nbsp;</label>
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  :disabled="guardianSearchLoading || guardianLinkSaving || !guardianSelectedClientId"
+                  @click="linkGuardianToClient"
+                >
+                  {{ guardianLinkSaving ? 'Linking…' : 'Link client' }}
+                </button>
+              </div>
+            </div>
+            <div v-if="guardianSearchLoading" class="muted" style="margin-top: 8px;">Searching…</div>
+            <div v-if="guardianLinkError" class="error" style="margin-top: 8px;">{{ guardianLinkError }}</div>
+          </div>
+
+          <div v-if="guardianLinkedClientsLoading" class="loading">Loading linked clients…</div>
+          <div v-else-if="guardianLinkedClientsError" class="error">{{ guardianLinkedClientsError }}</div>
+          <div v-else-if="guardianLinkedClients.length === 0" class="empty-state">
+            <p>No linked clients yet.</p>
+          </div>
+          <div v-else class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>Organization</th>
+                  <th>Relationship</th>
+                  <th>Enabled</th>
+                  <th class="right"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in guardianLinkedClients" :key="`guardian-client-${row.client_id}`">
+                  <td>
+                    <a href="" @click.prevent="openLinkedClient(row.client_id)">
+                      {{ row.full_name || row.initials || `Client ${row.client_id}` }}
+                    </a>
+                  </td>
+                  <td>{{ row.organization_name || '—' }}</td>
+                  <td style="min-width: 220px;">
+                    <div style="display:flex; gap: 8px;">
+                      <select v-model="row.relationship_type">
+                        <option value="guardian">Guardian</option>
+                        <option value="self">Self</option>
+                        <option value="proxy">Proxy</option>
+                      </select>
+                      <input v-model.trim="row.relationship_title" type="text" placeholder="Relationship title" />
+                    </div>
+                  </td>
+                  <td>
+                    <input v-model="row.access_enabled" type="checkbox" :true-value="1" :false-value="0" />
+                  </td>
+                  <td class="right" style="white-space: nowrap;">
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="guardianLinkSaving"
+                      @click="saveGuardianClientLink(row)"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-danger btn-sm"
+                      :disabled="guardianLinkSaving"
+                      style="margin-left: 8px;"
+                      @click="removeGuardianClientLink(row)"
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div v-if="activeTab === 'additional'" class="tab-panel">
           <h2>Additional</h2>
 
@@ -2246,6 +2359,16 @@ const user = ref(null);
 // Initialize activeTab from query parameter or default to 'account'
 const activeTab = ref(route.query.tab || 'account');
 const saving = ref(false);
+const guardianLinkedClients = ref([]);
+const guardianLinkedClientsLoading = ref(false);
+const guardianLinkedClientsError = ref('');
+const guardianClientQuery = ref('');
+const guardianClientOptions = ref([]);
+const guardianSelectedClientId = ref('');
+const guardianSearchLoading = ref(false);
+const guardianLinkSaving = ref(false);
+const guardianLinkError = ref('');
+const guardianLinkRelationshipType = ref('guardian');
 
 const profilePhotoInput = ref(null);
 const photoUploading = ref(false);
@@ -2407,6 +2530,132 @@ const isViewingGuardian = computed(() => {
   return r === 'client_guardian';
 });
 
+const loadGuardianLinkedClients = async () => {
+  if (!userId.value || !isViewingGuardian.value) return;
+  guardianLinkedClientsLoading.value = true;
+  guardianLinkedClientsError.value = '';
+  try {
+    const response = await api.get(`/users/${userId.value}/guardian-clients`);
+    guardianLinkedClients.value = Array.isArray(response?.data)
+      ? response.data.map((row) => ({
+        ...row,
+        relationship_type: String(row?.relationship_type || 'guardian').toLowerCase(),
+        relationship_title: String(row?.relationship_title || '').trim(),
+        access_enabled: row?.access_enabled === 1 || row?.access_enabled === true ? 1 : 0
+      }))
+      : [];
+  } catch (e) {
+    guardianLinkedClientsError.value = e.response?.data?.error?.message || 'Failed to load linked clients';
+    guardianLinkedClients.value = [];
+  } finally {
+    guardianLinkedClientsLoading.value = false;
+  }
+};
+
+const searchGuardianClients = async () => {
+  const q = String(guardianClientQuery.value || '').trim();
+  if (!q) {
+    guardianClientOptions.value = [];
+    guardianSelectedClientId.value = '';
+    return;
+  }
+  guardianSearchLoading.value = true;
+  guardianLinkError.value = '';
+  try {
+    const response = await api.get('/clients', {
+      params: {
+        search: q,
+        includeArchived: false,
+        paginate: false
+      }
+    });
+    const payload = response?.data || [];
+    const rows = Array.isArray(payload) ? payload : (Array.isArray(payload?.items) ? payload.items : []);
+    guardianClientOptions.value = rows.slice(0, 25);
+    if (!guardianClientOptions.value.find((c) => String(c.id) === String(guardianSelectedClientId.value))) {
+      guardianSelectedClientId.value = guardianClientOptions.value.length ? String(guardianClientOptions.value[0].id) : '';
+    }
+  } catch (e) {
+    guardianLinkError.value = e.response?.data?.error?.message || 'Failed to search clients';
+  } finally {
+    guardianSearchLoading.value = false;
+  }
+};
+
+const linkGuardianToClient = async () => {
+  const clientId = parseInt(String(guardianSelectedClientId.value || ''), 10);
+  if (!clientId || !userId.value) return;
+  const email = String(user.value?.email || '').trim();
+  if (!email) {
+    guardianLinkError.value = 'Guardian account is missing an email. Add an email on the Account tab first.';
+    return;
+  }
+  guardianLinkSaving.value = true;
+  guardianLinkError.value = '';
+  try {
+    const relType = String(guardianLinkRelationshipType.value || 'guardian').toLowerCase();
+    const relationshipTitle = relType === 'self' ? 'Self' : relType === 'proxy' ? 'Proxy' : 'Guardian';
+    await api.post(`/clients/${clientId}/guardians`, {
+      email,
+      firstName: String(user.value?.first_name || '').trim(),
+      lastName: String(user.value?.last_name || '').trim(),
+      relationshipType: relType,
+      relationshipTitle,
+      accessEnabled: true
+    });
+    await loadGuardianLinkedClients();
+  } catch (e) {
+    guardianLinkError.value = e.response?.data?.error?.message || 'Failed to link guardian to client';
+  } finally {
+    guardianLinkSaving.value = false;
+  }
+};
+
+const saveGuardianClientLink = async (row) => {
+  if (!row?.client_id || !userId.value) return;
+  guardianLinkSaving.value = true;
+  guardianLinkError.value = '';
+  try {
+    const relType = String(row.relationship_type || 'guardian').toLowerCase();
+    await api.patch(`/clients/${row.client_id}/guardians/${userId.value}`, {
+      relationshipType: relType,
+      relationshipTitle: String(row.relationship_title || (relType === 'self' ? 'Self' : relType === 'proxy' ? 'Proxy' : 'Guardian')).trim(),
+      accessEnabled: row.access_enabled === 1 || row.access_enabled === true
+    });
+    await loadGuardianLinkedClients();
+  } catch (e) {
+    guardianLinkError.value = e.response?.data?.error?.message || 'Failed to update guardian-client link';
+  } finally {
+    guardianLinkSaving.value = false;
+  }
+};
+
+const removeGuardianClientLink = async (row) => {
+  if (!row?.client_id || !userId.value) return;
+  if (!confirm('Remove this client link from the guardian account?')) return;
+  guardianLinkSaving.value = true;
+  guardianLinkError.value = '';
+  try {
+    await api.delete(`/clients/${row.client_id}/guardians/${userId.value}`);
+    await loadGuardianLinkedClients();
+  } catch (e) {
+    guardianLinkError.value = e.response?.data?.error?.message || 'Failed to remove guardian-client link';
+  } finally {
+    guardianLinkSaving.value = false;
+  }
+};
+
+const openLinkedClient = (clientId) => {
+  const cid = parseInt(String(clientId || ''), 10);
+  if (!cid) return;
+  const orgSlug = String(route.params.organizationSlug || '').trim();
+  if (orgSlug) {
+    router.push(`/${orgSlug}/admin/clients/${cid}`);
+    return;
+  }
+  router.push(`/admin/clients/${cid}`);
+};
+
 const canViewSchoolAffiliation = computed(() => {
   const u = user.value;
   if (!u) return false;
@@ -2444,6 +2693,7 @@ const tabs = computed(() => {
   if (isViewingGuardian.value) {
     return [
       { id: 'account', label: 'Account' },
+      { id: 'linked_clients', label: 'Linked Clients' },
       { id: 'communications', label: 'Communications' },
       { id: 'preferences', label: 'Preferences' },
       ...(canViewActivityLog.value ? [{ id: 'activity', label: 'Activity Log' }] : [])
@@ -3259,6 +3509,10 @@ watch(() => accountForm.value.role, (newRole) => {
 });
 
 watch(activeTab, async (t) => {
+  if (t === 'linked_clients' && isViewingGuardian.value) {
+    await loadGuardianLinkedClients();
+    return;
+  }
   if (isAffiliationTabId(t)) {
     if (!canViewSchoolAffiliation.value) return;
     await loadSchoolAffiliations();
@@ -3266,6 +3520,20 @@ watch(activeTab, async (t) => {
     await loadSchoolAssignments();
     syncProviderSchoolBlurbFromUser();
   }
+});
+
+let guardianClientSearchTimer = null;
+watch(guardianClientQuery, (q) => {
+  if (guardianClientSearchTimer) clearTimeout(guardianClientSearchTimer);
+  const next = String(q || '').trim();
+  if (!next || next.length < 2) {
+    guardianClientOptions.value = [];
+    guardianSelectedClientId.value = '';
+    return;
+  }
+  guardianClientSearchTimer = setTimeout(() => {
+    void searchGuardianClients();
+  }, 250);
 });
 
 watch(selectedSchoolAffiliationId, async () => {
@@ -3839,6 +4107,10 @@ const fetchUser = async () => {
       loadLeaveOfAbsence(),
       fetchAssignedTextingNumbers()
     ]);
+
+    if (isViewingGuardian.value && activeTab.value === 'linked_clients') {
+      void loadGuardianLinkedClients();
+    }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load user';
     console.error('Error fetching user:', err);

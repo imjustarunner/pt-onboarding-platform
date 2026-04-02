@@ -1023,6 +1023,46 @@
               </div>
             </div>
 
+            <div
+              v-if="!hasSelfGuardianLink && !guardiansLoading"
+              class="intake-guardian-placeholder"
+              style="margin-top: 10px;"
+            >
+              <div class="intake-guardian-placeholder-header">
+                <span class="intake-guardian-badge">Self-access portal account</span>
+              </div>
+              <div class="intake-guardian-placeholder-body">
+                <div class="intake-guardian-details">
+                  <div class="intake-guardian-field">
+                    <span class="intake-guardian-label">Client</span>
+                    <span>{{ props.client?.full_name || props.client?.initials || `Client ${props.client?.id}` }}</span>
+                  </div>
+                  <div class="intake-guardian-field">
+                    <span class="intake-guardian-label">Email for login</span>
+                    <input
+                      v-model.trim="selfGuardianEmail"
+                      type="email"
+                      placeholder="client@email.com"
+                      style="min-width: 260px;"
+                    />
+                  </div>
+                </div>
+                <div class="intake-guardian-actions">
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    :disabled="creatingSelfGuardian || !selfGuardianEmail"
+                    @click="createSelfAccessGuardian"
+                  >
+                    {{ creatingSelfGuardian ? 'Creating…' : 'Create self-access account' }}
+                  </button>
+                  <div class="hint" style="margin-top: 6px; text-align: center;">
+                    Creates a guardian login tied to this same client as <strong>Self</strong>.
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div v-if="guardiansLoading" class="loading">Loading guardians…</div>
             <div v-else-if="(guardians || []).length === 0 && (!guardianIntakeProfile || intakeGuardianAlreadyLinked)" class="empty-state">
               <p>No guardians yet.</p>
@@ -2444,9 +2484,14 @@ const addGuardianForm = ref({
 });
 const lastInviteLink = ref('');
 const updatingGuardianId = ref(null);
+const creatingSelfGuardian = ref(false);
+const selfGuardianEmail = ref('');
 const addGuardianPrefilledFromIntake = ref(false);
 
 const addGuardianFormPrefilledFromIntake = computed(() => addGuardianPrefilledFromIntake.value);
+const hasSelfGuardianLink = computed(() =>
+  (guardians.value || []).some((g) => String(g?.relationship_type || '').trim().toLowerCase() === 'self')
+);
 
 const canManageGuardians = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
@@ -3000,6 +3045,55 @@ const createGuardianFromIntake = async () => {
     guardiansError.value = err.response?.data?.error?.message || 'Failed to create guardian from intake';
   } finally {
     creatingIntakeGuardian.value = false;
+  }
+};
+
+const createSelfAccessGuardian = async () => {
+  if (!canManageGuardians.value || hasSelfGuardianLink.value) return;
+  const email = String(selfGuardianEmail.value || '').trim();
+  if (!email) return;
+
+  const fullName = String(props.client?.full_name || '').trim();
+  let firstName = String(props.client?.first_name || '').trim();
+  let lastName = String(props.client?.last_name || '').trim();
+  if (!firstName && fullName) {
+    const parts = fullName.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) {
+      firstName = parts[0];
+      lastName = 'Client';
+    } else if (parts.length > 1) {
+      firstName = parts[0];
+      lastName = parts.slice(1).join(' ');
+    }
+  }
+  if (!firstName) firstName = 'Client';
+  if (!lastName) lastName = 'Self';
+
+  try {
+    creatingSelfGuardian.value = true;
+    guardiansError.value = '';
+    const resp = await api.post(`/clients/${props.client.id}/guardians`, {
+      email,
+      firstName,
+      lastName,
+      relationshipType: 'self',
+      relationshipTitle: 'Self',
+      accessEnabled: true,
+      permissionsJson: {
+        canViewDocs: true,
+        canSignDocs: true,
+        canViewLinks: true,
+        canViewProgramMaterials: true,
+        canViewProgress: true,
+        canMessage: false
+      }
+    });
+    lastInviteLink.value = resp.data?.passwordlessTokenLink || '';
+    await fetchGuardians();
+  } catch (err) {
+    guardiansError.value = err.response?.data?.error?.message || 'Failed to create self-access guardian account';
+  } finally {
+    creatingSelfGuardian.value = false;
   }
 };
 
@@ -3647,6 +3741,7 @@ watch(() => activeTab.value, (newTab) => {
 watch(() => props.client, async () => {
   // Reset editing states when client changes
   editingStatus.value = false;
+  selfGuardianEmail.value = String(props.client?.email || '').trim();
   skillsValue.value = isSkillsClientFlag(props.client?.skills);
   clientTypeDraft.value = effectiveClientType.value || 'basic_nonclinical';
   clientCodeDraft.value = '';

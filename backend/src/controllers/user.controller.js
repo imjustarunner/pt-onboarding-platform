@@ -20,6 +20,7 @@ import ExternalBusyCalendarService from '../services/externalBusyCalendar.servic
 import UserExternalCalendar from '../models/UserExternalCalendar.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
+import ClientGuardian from '../models/ClientGuardian.model.js';
 import pool from '../config/database.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
 import { syncProgramMembershipForSkillBuilderEligibleUser } from '../services/skillBuildersProgramAffiliation.service.js';
@@ -671,6 +672,124 @@ export const getAllUsers = async (req, res, next) => {
     }
 
     res.json(users);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getGuardianUsers = async (req, res, next) => {
+  try {
+    const includeArchived = req.query.includeArchived === 'true';
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    const isSuperAdmin = roleNorm === 'super_admin';
+
+    let scopedAgencyIds = [];
+    if (!isSuperAdmin) {
+      const userAgencies = await User.getAgencies(req.user.id);
+      scopedAgencyIds = (userAgencies || []).map((a) => parseInt(a?.id, 10)).filter((id) => Number.isFinite(id) && id > 0);
+      if (scopedAgencyIds.length === 0) {
+        return res.json([]);
+      }
+    }
+
+    const params = [];
+    let scopeSql = '';
+    if (!isSuperAdmin) {
+      const placeholders = scopedAgencyIds.map(() => '?').join(',');
+      scopeSql = ` AND EXISTS (
+        SELECT 1
+        FROM user_agencies ua_scope
+        WHERE ua_scope.user_id = u.id
+          AND ua_scope.agency_id IN (${placeholders})
+      )`;
+      params.push(...scopedAgencyIds);
+    }
+
+    let archiveSql = '';
+    if (!includeArchived) {
+      archiveSql = ' AND (u.is_archived = FALSE OR u.is_archived IS NULL)';
+    }
+
+    const [rows] = await pool.execute(
+      `
+        SELECT
+          u.id,
+          u.email,
+          u.role,
+          u.status,
+          u.completed_at,
+          u.terminated_at,
+          u.status_expires_at,
+          u.is_active,
+          u.first_name,
+          u.last_name,
+          u.created_at,
+          GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') AS agencies,
+          GROUP_CONCAT(DISTINCT a.id ORDER BY a.id SEPARATOR ',') AS agency_ids,
+          COUNT(DISTINCT CASE WHEN cg.access_enabled = 1 THEN cg.client_id ELSE NULL END) AS linked_clients_count
+        FROM users u
+        LEFT JOIN user_agencies ua ON ua.user_id = u.id
+        LEFT JOIN agencies a ON a.id = ua.agency_id
+        LEFT JOIN client_guardians cg ON cg.guardian_user_id = u.id
+        WHERE LOWER(COALESCE(u.role, '')) = 'client_guardian'
+        ${archiveSql}
+        ${scopeSql}
+        GROUP BY
+          u.id, u.email, u.role, u.status, u.completed_at, u.terminated_at, u.status_expires_at,
+          u.is_active, u.first_name, u.last_name, u.created_at
+        ORDER BY u.created_at DESC
+      `,
+      params
+    );
+
+    res.json(rows || []);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getGuardianLinkedClients = async (req, res, next) => {
+  try {
+    const guardianUserId = parseInt(req.params.id, 10);
+    if (!guardianUserId) {
+      return res.status(400).json({ error: { message: 'Invalid guardian user id' } });
+    }
+
+    const guardian = await User.findById(guardianUserId);
+    if (!guardian) {
+      return res.status(404).json({ error: { message: 'Guardian user not found' } });
+    }
+    if (String(guardian.role || '').toLowerCase() !== 'client_guardian') {
+      return res.status(400).json({ error: { message: 'User is not a guardian account' } });
+    }
+
+    const hasRelationshipType = await ClientGuardian.hasRelationshipTypeColumn();
+    const [rows] = await pool.execute(
+      `SELECT
+         c.id AS client_id,
+         c.initials,
+         c.full_name,
+         c.date_of_birth,
+         c.status,
+         c.document_status,
+         c.organization_id,
+         c.agency_id,
+         c.guardian_portal_enabled,
+         o.name AS organization_name,
+         o.organization_type AS organization_type,
+         a.name AS agency_name,
+         ${hasRelationshipType ? 'cg.relationship_type,' : "'guardian' AS relationship_type,"}
+         cg.relationship_title,
+         cg.access_enabled
+       FROM client_guardians cg
+       JOIN clients c ON c.id = cg.client_id
+       LEFT JOIN agencies o ON o.id = c.organization_id
+       LEFT JOIN agencies a ON a.id = c.agency_id
+       WHERE cg.guardian_user_id = ?
+       ORDER BY o.name, c.initials`,
+      [guardianUserId]
+    );
+    return res.json(rows || []);
   } catch (error) {
     next(error);
   }

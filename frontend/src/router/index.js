@@ -776,6 +776,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/guardians',
+    name: 'OrganizationGuardiansManagement',
+    component: () => import('../views/admin/GuardiansView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/clients/:clientId(\\d+)',
     name: 'OrganizationClientProfile',
     component: () => import('../views/admin/ClientProfileView.vue'),
@@ -1399,6 +1405,12 @@ const routes = [
     path: '/admin/users',
     name: 'UserManager',
     component: () => import('../views/admin/UserManager.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
+  },
+  {
+    path: '/admin/guardians',
+    name: 'GuardiansManagement',
+    component: () => import('../views/admin/GuardiansView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {

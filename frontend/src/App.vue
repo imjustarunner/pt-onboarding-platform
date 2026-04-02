@@ -304,6 +304,7 @@
                       </span>
                     </router-link>
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >{{ isAffiliationContext ? 'Members' : 'Users' }}</router-link>
+                    <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" >Guardians</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" >Clients</router-link>
                   </div>
                 </div>
@@ -336,6 +337,7 @@
                     <div class="nav-dropdown-sep" />
 
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >{{ isAffiliationContext ? 'Members' : 'Users' }}</router-link>
+                    <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" >Guardians</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" >Clients</router-link>
                     <router-link :to="orgTo('/admin/credentialing')" v-if="canSeeCredentialing" >Credentialing</router-link>
 
@@ -775,6 +777,7 @@
                 class="mobile-nav-link"
               >Documents</router-link>
               <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">{{ isAffiliationContext ? 'Members' : 'Users' }}</router-link>
+              <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Guardians</router-link>
               <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
               <router-link
                 :to="orgTo('/admin/communications')"

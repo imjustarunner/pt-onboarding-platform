@@ -178,14 +178,6 @@
               <button
                 type="button"
                 class="btn btn-secondary btn-sm type-filter-btn"
-                :class="{ active: userTypeFilter === 'guardians' }"
-                @click="toggleUserType('guardians')"
-              >
-                Show guardians
-              </button>
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm type-filter-btn"
                 :class="{ active: userTypeFilter === 'supervisors' }"
                 @click="toggleUserType('supervisors')"
               >
@@ -230,7 +222,6 @@
                 <option value="school_staff">School Staff</option>
                 <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
                 <option value="provider_plus">Provider Plus</option>
-                <option value="client_guardian">Guardian</option>
                 <option value="staff">Staff</option>
                 <option value="support">Staff (Admin Tools)</option>
                 <option value="admin">Admin</option>
@@ -3273,7 +3264,7 @@ const getStatusBadgeClassWrapper = (status, isActive = true) => {
 };
 
 const sortedUsers = computed(() => {
-  let filtered = users.value;
+  let filtered = (users.value || []).filter((u) => String(u?.role || '').toLowerCase() !== 'client_guardian');
   const hasSearch = !!(userSearch.value && String(userSearch.value).trim());
 
   const parseOrgIds = (u) => {
@@ -3357,7 +3348,6 @@ const sortedUsers = computed(() => {
     const t = String(userTypeFilter.value);
     filtered = filtered.filter((u) => {
       const r = String(u?.role || '').toLowerCase();
-      if (t === 'guardians') return r === 'client_guardian';
       if (t === 'super_admins') return r === 'super_admin';
       if (t === 'providers') return r === 'provider';
       if (t === 'staff') return r === 'staff' || r === 'support';
