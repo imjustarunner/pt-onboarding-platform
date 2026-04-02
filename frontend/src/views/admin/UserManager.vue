@@ -3043,6 +3043,7 @@ const formatRole = (role) => {
     'provider': 'Provider',
     // 'clinician': 'Provider', // legacy (removed)
     'school_staff': 'School Staff',
+    'client_guardian': 'Guardian',
     'facilitator': 'Provider',
     'intern': 'Provider'
   };

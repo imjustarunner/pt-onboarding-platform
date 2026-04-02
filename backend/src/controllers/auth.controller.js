@@ -3204,6 +3204,8 @@ export const register = async (req, res, next) => {
     const bcrypt = (await import('bcrypt')).default;
     const tempPasswordHash = await bcrypt.hash(tempPassword, 10);
 
+    // Guardians are portal-only accounts and skip the employee onboarding workflow.
+    const isGuardianCreate = String(finalRole || '').toLowerCase() === 'client_guardian';
     const user = await User.create({
       email: resolvedLoginEmail || null, // Set email to personalEmail/email (for login compatibility)
       passwordHash: tempPasswordHash,
@@ -3212,7 +3214,7 @@ export const register = async (req, res, next) => {
       phoneNumber,
       personalEmail: resolvedLoginEmail || null,
       role: finalRole,
-      status: 'PENDING_SETUP' // New users start in PENDING_SETUP status
+      status: isGuardianCreate ? 'ACTIVE_EMPLOYEE' : 'PENDING_SETUP'
     });
     
     // Store the temp password hash + expiry marker (this is what forces /change-password)

@@ -184,7 +184,7 @@ class PublicIntakeClientService {
           phoneNumber,
           personalEmail: email,
           role: 'client_guardian',
-          status: 'PENDING_SETUP'
+          status: 'ACTIVE_EMPLOYEE'
         });
         newGuardianCreated = true;
 

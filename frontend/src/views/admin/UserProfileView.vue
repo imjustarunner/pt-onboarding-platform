@@ -107,6 +107,19 @@
       <div class="tab-content" :key="activeTab" data-tour="user-profile-tab-content">
         <div v-if="activeTab === 'account'" class="tab-panel">
           <h2>Account Information</h2>
+
+          <!-- Guardian-specific info banner -->
+          <div v-if="isViewingGuardian" style="background: #e8f4f8; border: 1px solid #b3d9ea; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; display: flex; align-items: flex-start; gap: 10px;">
+            <span style="font-size: 20px; line-height: 1;">👤</span>
+            <div>
+              <strong>Guardian / Client Portal Account</strong>
+              <p style="margin: 4px 0 0; font-size: 13px; color: #444;">
+                This is a guardian (non-employee) portal account. They can access their client portal to view billing, waivers, and program information for their linked clients.
+                This account does not go through the hiring workflow and has no payroll or contract settings.
+              </p>
+            </div>
+          </div>
+
           <div class="account-layout">
             <div class="account-main">
               <form v-if="canEditUser" @submit.prevent="saveAccount" class="account-form">
@@ -155,11 +168,11 @@
                     Contact email (not used for login).
                   </small>
                 </div>
-                <div class="form-group">
+                <div v-if="!isViewingGuardian" class="form-group">
                   <label>Title</label>
                   <input v-model="accountForm.title" type="text" :disabled="!isEditingAccount" placeholder="e.g. Therapist" />
                 </div>
-                <div class="form-group">
+                <div v-if="!isViewingGuardian" class="form-group">
                   <label>Service Focus</label>
                   <input v-model="accountForm.serviceFocus" type="text" :disabled="!isEditingAccount" placeholder="e.g. School-based, Trauma, Medicaid" />
                 </div>
@@ -182,22 +195,22 @@
                   <label>Personal Phone Number</label>
                   <input v-model="accountForm.personalPhone" type="tel" :disabled="!isEditingAccount" />
                 </div>
-                <div class="form-group">
+                <div v-if="!isViewingGuardian" class="form-group">
                   <label>Work Phone Number</label>
                   <input v-model="accountForm.workPhone" type="tel" :disabled="!isEditingAccount" />
                 </div>
-                <div class="form-group">
+                <div v-if="!isViewingGuardian" class="form-group">
                   <label>Work Phone Extension</label>
                   <input v-model="accountForm.workPhoneExtension" type="text" :disabled="!isEditingAccount" />
                 </div>
-                <div class="form-group">
+                <div v-if="!isViewingGuardian" class="form-group">
                   <label>System Phone Number (masked SMS)</label>
                   <input :value="systemPhoneNumberDisplay" type="tel" disabled />
                   <small class="form-help">
                     This is the system-assigned number used for masked texting. It can’t be edited here.
                   </small>
                 </div>
-                <div class="form-group">
+                <div v-if="!isViewingGuardian" class="form-group">
                   <label>Texting / Calling Number</label>
                   <div class="texting-number-display">
                     <span v-if="textingNumbersLoading">Loading…</span>
@@ -210,7 +223,7 @@
                   </small>
                 </div>
 
-                <div class="form-group form-group-full">
+                <div v-if="!isViewingGuardian" class="form-group form-group-full">
                   <div class="section-divider" style="margin: 8px 0 6px;">
                     <h3 style="margin: 0;">Home Address</h3>
                   </div>
@@ -219,28 +232,28 @@
                   </p>
                 </div>
 
-                <div class="form-group">
+                <div v-if="!isViewingGuardian" class="form-group">
                   <label>Street</label>
                   <input v-model="accountForm.homeStreetAddress" type="text" placeholder="123 Main St" :disabled="!isEditingAccount" />
                 </div>
-                <div class="form-group">
+                <div v-if="!isViewingGuardian" class="form-group">
                   <label>Apt / Unit</label>
                   <input v-model="accountForm.homeAddressLine2" type="text" placeholder="Apt 4B (optional)" :disabled="!isEditingAccount" />
                 </div>
-                <div class="form-group">
+                <div v-if="!isViewingGuardian" class="form-group">
                   <label>City</label>
                   <input v-model="accountForm.homeCity" type="text" placeholder="City" :disabled="!isEditingAccount" />
                 </div>
-                <div class="form-group">
+                <div v-if="!isViewingGuardian" class="form-group">
                   <label>State</label>
                   <input v-model="accountForm.homeState" type="text" placeholder="State" :disabled="!isEditingAccount" />
                 </div>
-                <div class="form-group">
+                <div v-if="!isViewingGuardian" class="form-group">
                   <label>Postal Code</label>
                   <input v-model="accountForm.homePostalCode" type="text" placeholder="ZIP" :disabled="!isEditingAccount" />
                 </div>
 
-                <div v-if="accountForm.externalBusyIcsUrl" class="form-group form-group-full">
+                <div v-if="!isViewingGuardian && accountForm.externalBusyIcsUrl" class="form-group form-group-full">
                   <label>Legacy external busy calendar (deprecated)</label>
                   <input v-model="accountForm.externalBusyIcsUrl" type="url" disabled />
                   <small class="form-help">
@@ -248,7 +261,7 @@
                   </small>
                 </div>
 
-                <div v-if="canEditExternalBusyIcsUrl" class="form-group form-group-full">
+                <div v-if="!isViewingGuardian && canEditExternalBusyIcsUrl" class="form-group form-group-full">
                   <label>External calendars (ICS)</label>
                   <div style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap;">
                     <button type="button" class="btn btn-secondary btn-sm" @click="openExternalCalendarsModal">
@@ -275,6 +288,7 @@
                     <option value="staff">Staff</option>
                     <option value="provider">Provider</option>
                     <option value="school_staff">School Staff</option>
+                    <option value="client_guardian">Guardian (Client Portal)</option>
                   </select>
                   <small v-if="!canChangeRole" class="form-help">You don't have permission to change roles</small>
                   <small v-else-if="!canAssignSuperAdmin && accountForm.role === 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
@@ -283,7 +297,7 @@
                   <small v-else-if="!canAssignAssistantAdmin && accountForm.role === 'assistant_admin'" class="form-help">Only super admins and admins can assign the assistant admin role</small>
                 </div>
 
-                <div class="form-group form-group-full">
+                <div v-if="!isViewingGuardian" class="form-group form-group-full">
                   <label>Credential</label>
                   <input
                     v-model="accountForm.credential"
@@ -476,7 +490,7 @@
             </div>
 
             <div class="account-sidebar">
-              <div class="account-flags-section">
+              <div v-if="!isViewingGuardian" class="account-flags-section">
                 <h3>Contracts &amp; flags</h3>
 
                 <div
@@ -2388,6 +2402,11 @@ const isViewingSchoolStaff = computed(() => {
   return r === 'school_staff';
 });
 
+const isViewingGuardian = computed(() => {
+  const r = String(user.value?.role || '').trim().toLowerCase();
+  return r === 'client_guardian';
+});
+
 const canViewSchoolAffiliation = computed(() => {
   const u = user.value;
   if (!u) return false;
@@ -2421,6 +2440,16 @@ const superviseesLoading = ref(false);
 const supervisorsLoading = ref(false);
 
 const tabs = computed(() => {
+  // Guardian accounts are portal-only (non-employee): show only basic account info.
+  if (isViewingGuardian.value) {
+    return [
+      { id: 'account', label: 'Account' },
+      { id: 'communications', label: 'Communications' },
+      { id: 'preferences', label: 'Preferences' },
+      ...(canViewActivityLog.value ? [{ id: 'activity', label: 'Activity Log' }] : [])
+    ];
+  }
+
   // School staff accounts should be simple (no provider workflow / availability / payroll / etc).
   if (isViewingSchoolStaff.value) {
     const schoolStaffTabs = [
