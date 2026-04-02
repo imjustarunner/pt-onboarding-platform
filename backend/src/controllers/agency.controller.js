@@ -241,6 +241,7 @@ export const createAgency = async (req, res, next) => {
     // For child org types, affiliated agency is required and must be allowed for this user.
     const isChildOrgType = ['school', 'program', 'learning', 'clinical'].includes(requestedType);
     let resolvedAffiliatedAgencyId = null;
+    let resolvedAffiliatedAgency = null;
     if (isChildOrgType) {
       resolvedAffiliatedAgencyId = parseInt(affiliatedAgencyId, 10);
       if (!resolvedAffiliatedAgencyId) {
@@ -251,6 +252,7 @@ export const createAgency = async (req, res, next) => {
       if (!parentAgency) {
         return res.status(404).json({ error: { message: 'Affiliated agency not found' } });
       }
+      resolvedAffiliatedAgency = parentAgency;
       const parentType = String(parentAgency.organization_type || 'agency').toLowerCase();
       if (parentType !== 'agency') {
         return res.status(400).json({ error: { message: 'Affiliated agency must be an organization of type agency' } });
@@ -284,6 +286,34 @@ export const createAgency = async (req, res, next) => {
         formattedThemeSettings = JSON.parse(themeSettings);
       } catch (e) {
         formattedThemeSettings = null;
+      }
+    }
+
+    // Child org default: when using affiliated branding, keep palette aligned with parent agency.
+    // This avoids newly created schools/programs inheriting arbitrary local defaults.
+    const useAffiliatedAgencyBranding = (() => {
+      const raw = formattedThemeSettings && typeof formattedThemeSettings === 'object'
+        ? formattedThemeSettings.useAffiliatedAgencyBranding
+        : undefined;
+      if (raw === undefined || raw === null || raw === '') return isChildOrgType ? true : false;
+      if (raw === true || raw === 1 || raw === '1') return true;
+      const s = String(raw).trim().toLowerCase();
+      if (['true', 'yes', 'on'].includes(s)) return true;
+      if (['false', 'no', 'off', '0'].includes(s)) return false;
+      return isChildOrgType ? true : false;
+    })();
+    if (isChildOrgType && useAffiliatedAgencyBranding && resolvedAffiliatedAgency) {
+      const parentPalette = (() => {
+        const raw = resolvedAffiliatedAgency.color_palette;
+        if (!raw) return null;
+        if (typeof raw === 'object') return raw;
+        if (typeof raw === 'string') {
+          try { return JSON.parse(raw); } catch { return null; }
+        }
+        return null;
+      })();
+      if (parentPalette && typeof parentPalette === 'object') {
+        formattedColorPalette = parentPalette;
       }
     }
     

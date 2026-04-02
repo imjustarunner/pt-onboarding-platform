@@ -784,6 +784,76 @@
                 </div>
               </div>
             </div>
+          <!-- Brand source selector (child orgs only) — appears before colors so it gates editing -->
+          <div
+            v-if="['school', 'program', 'learning'].includes(String(agencyForm.organizationType || 'agency').toLowerCase())"
+            class="form-group brand-source-card"
+            :class="agencyForm.themeSettings?.useAffiliatedAgencyBranding !== false ? 'using-parent-brand' : 'using-local-brand'"
+            style="margin-bottom: 18px;"
+          >
+            <div class="brand-source-head">
+              <div>
+                <div class="brand-source-title">Portal brand source</div>
+                <div class="brand-source-sub">
+                  {{ agencyForm.themeSettings?.useAffiliatedAgencyBranding !== false
+                    ? 'This portal inherits its logo, colors, and theme from the affiliated agency.'
+                    : 'This portal uses this organization\'s own logo, colors, and theme.' }}
+                </div>
+              </div>
+              <span class="brand-source-pill" :class="agencyForm.themeSettings?.useAffiliatedAgencyBranding !== false ? 'pill-parent' : 'pill-local'">
+                {{ agencyForm.themeSettings?.useAffiliatedAgencyBranding !== false ? 'AFFILIATED AGENCY' : 'OWN BRANDING' }}
+              </span>
+            </div>
+
+            <div class="brand-source-toggle" role="group" aria-label="Portal branding source" style="margin-top:12px;">
+              <button
+                type="button"
+                class="brand-toggle-btn"
+                :class="{ active: agencyForm.themeSettings?.useAffiliatedAgencyBranding !== false }"
+                @click="agencyForm.themeSettings.useAffiliatedAgencyBranding = true"
+              >
+                <span class="btb-icon">🏢</span>
+                <span>
+                  <strong>Affiliated agency branding</strong>
+                  <span class="btb-sub">Use parent agency logo &amp; colors</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="brand-toggle-btn"
+                :class="{ active: agencyForm.themeSettings?.useAffiliatedAgencyBranding === false }"
+                @click="agencyForm.themeSettings.useAffiliatedAgencyBranding = false"
+              >
+                <span class="btb-icon">🎨</span>
+                <span>
+                  <strong>This organization's branding</strong>
+                  <span class="btb-sub">Customize colors &amp; logo below</span>
+                </span>
+              </button>
+            </div>
+
+            <!-- Parent palette preview when using affiliated branding -->
+            <div
+              v-if="agencyForm.themeSettings?.useAffiliatedAgencyBranding !== false"
+              class="parent-palette-preview"
+            >
+              <div class="ppp-label">Currently active colors (from affiliated agency)</div>
+              <div class="ppp-swatches">
+                <div
+                  v-for="(hex, key) in parentOrgPalettePreview"
+                  :key="`ppp-${key}`"
+                  class="ppp-swatch"
+                  :style="{ background: hex }"
+                  :title="`${key}: ${hex}`"
+                ></div>
+              </div>
+              <div class="ppp-hint">Switch to &quot;This organization's branding&quot; to set custom colors.</div>
+            </div>
+          </div>
+
+          <!-- Color pickers — only shown for agencies OR when child org explicitly uses own branding -->
+          <template v-if="!['school', 'program', 'learning'].includes(String(agencyForm.organizationType || 'agency').toLowerCase()) || agencyForm.themeSettings?.useAffiliatedAgencyBranding === false">
+
           <div class="form-group">
             <label>Primary Color</label>
             <div class="color-input-group">
@@ -945,6 +1015,8 @@
             </div>
           </div>
 
+          </template><!-- end color-pickers-block -->
+
           <!-- Portal Configuration Section -->
           <div class="form-section-divider" style="margin-top: 24px; margin-bottom: 16px; padding-top: 24px; border-top: 2px solid var(--border);">
             <h4 style="margin: 0 0 16px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Portal Configuration</h4>
@@ -961,20 +1033,6 @@
             <small>Lowercase letters, numbers, and hyphens only. This will be used for subdomain access (e.g., itsco.app.plottwistco.com)</small>
           </div>
 
-          <div
-            v-if="['school', 'program', 'learning'].includes(String(agencyForm.organizationType || 'agency').toLowerCase())"
-            class="form-group"
-            style="padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt);"
-          >
-            <label style="display: flex; align-items: center; gap: 10px; margin: 0;">
-              <input v-model="agencyForm.themeSettings.useAffiliatedAgencyBranding" type="checkbox" />
-              <span><strong>Use affiliated agency branding in portal</strong></span>
-            </label>
-            <small class="hint" style="display: block; margin-top: 8px;">
-              When enabled, this portal inherits branding from its affiliated agency.
-              Turn off to use this organization's own logo/colors/theme.
-            </small>
-          </div>
 
           <div
             v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'program'"
@@ -7577,6 +7635,20 @@ const getColorPalette = (palette) => {
   return typeof palette === 'string' ? JSON.parse(palette) : palette;
 };
 
+// Preview swatches for the affiliated parent's palette (used when useAffiliatedAgencyBranding is ON)
+const parentOrgPalettePreview = computed(() => {
+  const parent = selectedAffiliatedAgency.value;
+  if (!parent) return {};
+  const p = getColorPalette(parent.color_palette);
+  const result = {};
+  if (p?.primary)   result['Primary']   = p.primary;
+  if (p?.secondary) result['Secondary'] = p.secondary;
+  if (p?.accent)    result['Accent']    = p.accent;
+  if (p?.primaryHover)  result['Hover']  = p.primaryHover;
+  if (p?.backgroundColor) result['Background'] = p.backgroundColor;
+  return result;
+});
+
 const getOrgAccentColor = (org) => {
   try {
     const p = getColorPalette(org?.color_palette);
@@ -7984,7 +8056,7 @@ const saveAgency = async () => {
       return Math.min(max, Math.max(min, num));
     };
 
-    const colorPalette = {
+    let colorPalette = {
       primary: validateColor(agencyForm.value.primaryColor),
       secondary: validateColor(agencyForm.value.secondaryColor),
       accent: validateColor(agencyForm.value.accentColor)
@@ -7998,6 +8070,18 @@ const saveAgency = async () => {
         } catch {
           // skip invalid optional color
         }
+      }
+    }
+
+    const isChildOrg = ['school', 'program', 'learning', 'clinical'].includes(orgType);
+    const usesAffiliatedBranding = isChildOrg && (agencyForm.value.themeSettings?.useAffiliatedAgencyBranding !== false);
+    if (usesAffiliatedBranding) {
+      const parentId = parseInt(agencyForm.value.affiliatedAgencyId, 10);
+      const parent = affiliableAgencies.value.find((a) => Number(a?.id) === Number(parentId));
+      const parentPalette = getColorPalette(parent?.color_palette);
+      if (parentPalette && typeof parentPalette === 'object' && Object.keys(parentPalette).length) {
+        // Keep child org palette synced with its affiliated agency when inheritance is enabled.
+        colorPalette = { ...parentPalette };
       }
     }
     
@@ -10106,6 +10190,157 @@ small {
   margin: 0;
   padding: 0;
   min-width: 0;
+}
+
+.brand-source-card {
+  padding: 16px;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.brand-source-card.using-parent-brand {
+  border-color: rgba(5, 150, 105, 0.6);
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.brand-source-card.using-local-brand {
+  border-color: rgba(79, 70, 229, 0.6);
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.brand-source-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.brand-source-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.brand-source-sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 3px;
+  max-width: 400px;
+}
+
+.brand-source-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.brand-source-pill.pill-parent {
+  background: rgba(5, 150, 105, 0.15);
+  color: rgb(5, 120, 85);
+  border: 1px solid rgba(5, 150, 105, 0.3);
+}
+.brand-source-pill.pill-local {
+  background: rgba(99, 102, 241, 0.15);
+  color: rgb(79, 70, 229);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.brand-source-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.brand-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.7);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.3;
+  min-height: 64px;
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, color 0.15s;
+}
+.brand-toggle-btn:hover {
+  border-color: var(--primary);
+  background: rgba(255,255,255,0.95);
+}
+
+.brand-toggle-btn.active {
+  border-color: var(--primary);
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+}
+.brand-toggle-btn strong {
+  display: block;
+  font-weight: 800;
+  font-size: 13px;
+}
+.btb-sub {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.btb-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+/* Parent palette preview strip */
+.parent-palette-preview {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.8);
+  border: 1px solid rgba(5, 150, 105, 0.25);
+  border-radius: 10px;
+}
+.ppp-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.ppp-swatches {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ppp-swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 2px solid rgba(0,0,0,0.1);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+.ppp-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  .brand-source-toggle {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-readonly .settings-main-fieldset {

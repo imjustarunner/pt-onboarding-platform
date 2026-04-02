@@ -203,7 +203,13 @@ export const pushSurvey = async (req, res, next) => {
     if (!pushType) {
       return res.status(400).json({ error: { message: 'Survey pushType is required' } });
     }
-    const userIds = await listTargetUsersForPush({ agencyId: survey.agency_id, pushType });
+    const requestedTargetAgencyId = parseId(req.body?.targetAgencyId);
+    const targetAgencyId = requestedTargetAgencyId || Number(survey.agency_id);
+    if (!canAccessAgency(req, targetAgencyId, userAgencyIds)) {
+      return res.status(403).json({ error: { message: 'Access denied for target agency' } });
+    }
+
+    const userIds = await listTargetUsersForPush({ agencyId: targetAgencyId, pushType });
     const pushes = await SurveyPush.createMany(survey.id, userIds);
 
     for (const uid of userIds) {
@@ -214,7 +220,7 @@ export const pushSurvey = async (req, res, next) => {
           title: 'New survey available',
           message: `${survey.title} is available for you to complete.`,
           userId: uid,
-          agencyId: survey.agency_id,
+          agencyId: targetAgencyId,
           relatedEntityType: 'survey',
           relatedEntityId: survey.id,
           actorUserId: req.user?.id || null,
@@ -225,7 +231,13 @@ export const pushSurvey = async (req, res, next) => {
       }
     }
 
-    res.json({ ok: true, pushType, recipientCount: userIds.length, pushes });
+    res.json({
+      ok: true,
+      pushType,
+      targetAgencyId,
+      recipientCount: userIds.length,
+      pushes
+    });
   } catch (error) {
     next(error);
   }

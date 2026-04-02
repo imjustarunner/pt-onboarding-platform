@@ -22,8 +22,18 @@
           :class="{ active: Number(selectedSurveyId) === Number(s.id) }"
           @click="selectSurvey(s.id)"
         >
-          <strong>{{ s.title || `Survey ${s.id}` }}</strong>
-          <div class="muted small">
+          <div class="survey-list-item-top">
+            <strong>{{ s.title || `Survey ${s.id}` }}</strong>
+            <button
+              class="btn btn-xs btn-danger"
+              type="button"
+              title="Delete survey"
+              @click.stop="deleteSurveyById(s.id)"
+            >
+              Delete
+            </button>
+          </div>
+          <div class="muted small survey-meta">
             {{ s.is_active ? 'Active' : 'Inactive' }} · {{ (s.questions_json || []).length }} questions
           </div>
         </div>
@@ -37,13 +47,12 @@
             <input v-model.trim="draft.title" class="input" type="text" />
           </div>
           <div>
-            <label class="lbl">Push type</label>
+            <label class="lbl">Default push role</label>
             <select v-model="draft.pushType" class="input">
               <option value="">Manual</option>
-              <option value="providers">Providers</option>
-              <option value="all_staff">All staff</option>
-              <option value="school_staff">School staff</option>
-              <option value="all">All</option>
+              <option v-for="opt in pushTypeOptions" :key="`default-push-type-${opt.value}`" :value="opt.value">
+                {{ opt.label }}
+              </option>
             </select>
           </div>
         </div>
@@ -146,13 +155,35 @@
           <button class="btn btn-primary" type="button" :disabled="saving || !draft.title" @click="saveSurvey">
             {{ saving ? 'Saving...' : 'Save survey' }}
           </button>
+          <span class="small muted">Push to</span>
+          <select
+            v-model="draft.pushType"
+            class="input input-copy-target"
+            title="Choose one user role target"
+          >
+            <option value="">Select user role...</option>
+            <option v-for="opt in pushTypeOptions" :key="`action-push-type-${opt.value}`" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+          <select
+            v-if="isSuperAdmin"
+            v-model="pushTargetAgencyId"
+            class="input input-copy-target"
+            title="Choose one organization target"
+          >
+            <option value="">Push to current organization</option>
+            <option v-for="a in pushAgencyOptions" :key="`push-agency-${a.id}`" :value="String(a.id)">
+              {{ a.name }}
+            </option>
+          </select>
           <button
             class="btn btn-secondary"
             type="button"
-            :disabled="!selectedSurveyId || pushSaving"
+            :disabled="!selectedSurveyId || pushSaving || !draft.pushType"
             @click="pushSurveyNow"
           >
-            {{ pushSaving ? 'Sending...' : 'Push now' }}
+            {{ pushSaving ? 'Sending...' : `Push to ${pushRoleLabel} @ ${pushTargetLabel}` }}
           </button>
           <router-link
             v-if="selectedSurveyId"
@@ -161,6 +192,22 @@
           >
             View results
           </router-link>
+          <template v-if="isSuperAdmin && selectedSurveyId">
+            <select v-model="copyTargetAgencyId" class="input input-copy-target">
+              <option value="">Copy to agency...</option>
+              <option v-for="a in copyAgencyOptions" :key="`copy-agency-${a.id}`" :value="String(a.id)">
+                {{ a.name }}
+              </option>
+            </select>
+            <button
+              class="btn btn-secondary"
+              type="button"
+              :disabled="copying || !copyTargetAgencyId"
+              @click="copySurveyToAgency"
+            >
+              {{ copying ? 'Copying...' : 'Copy to other agency' }}
+            </button>
+          </template>
         </div>
 
         <div class="section-head" style="margin-top:16px;">
@@ -386,6 +433,10 @@ const previewAnswers = ref({});
 const previewIndex = ref(0);
 const previewCompleted = ref(false);
 const previewValidationError = ref('');
+const copying = ref(false);
+const copyTargetAgencyId = ref('');
+const agenciesForCopy = ref([]);
+const pushTargetAgencyId = ref('');
 
 const draft = reactive({
   title: '',
@@ -406,6 +457,28 @@ const adminBasePath = computed(() => activeOrgSlug.value ? `/${activeOrgSlug.val
 const surveyResultsPath = computed(() =>
   selectedSurveyId.value ? `${adminBasePath.value}/surveys/${selectedSurveyId.value}/results` : ''
 );
+const isSuperAdmin = computed(() => String(authStore.user?.role || '').trim().toLowerCase() === 'super_admin');
+const pushTypeOptions = [
+  { value: 'providers', label: 'Providers' },
+  { value: 'all_staff', label: 'All staff' },
+  { value: 'school_staff', label: 'School staff' },
+  { value: 'all', label: 'All roles' }
+];
+const pushRoleLabel = computed(() => {
+  const key = String(draft.pushType || '').trim().toLowerCase();
+  return pushTypeOptions.find((o) => o.value === key)?.label || 'selected role';
+});
+const copyAgencyOptions = computed(() => {
+  const current = Number(agencyId());
+  return agenciesForCopy.value.filter((a) => Number(a.id) > 0 && Number(a.id) !== current);
+});
+const pushAgencyOptions = computed(() =>
+  agenciesForCopy.value.filter((a) => Number(a.id) > 0)
+);
+const pushTargetLabel = computed(() => {
+  if (!isSuperAdmin.value || !Number(pushTargetAgencyId.value || 0)) return 'current org';
+  return pushAgencyOptions.value.find((a) => Number(a.id) === Number(pushTargetAgencyId.value))?.name || 'selected org';
+});
 
 const agencyId = () => Number(
   agencyStore.currentAgency?.id
@@ -495,6 +568,19 @@ const fetchSurveys = async () => {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load surveys';
   } finally {
     loading.value = false;
+  }
+};
+
+const fetchAgenciesForCopy = async () => {
+  if (!isSuperAdmin.value) return;
+  try {
+    const resp = await api.get('/agencies');
+    const rows = Array.isArray(resp?.data) ? resp.data : [];
+    agenciesForCopy.value = rows
+      .map((a) => ({ id: Number(a.id || 0), name: String(a.name || a.slug || `Agency ${a.id || ''}`) }))
+      .filter((a) => a.id > 0 && a.name);
+  } catch {
+    agenciesForCopy.value = [];
   }
 };
 
@@ -607,12 +693,64 @@ const saveSurvey = async () => {
   }
 };
 
+const deleteSurveyById = async (id) => {
+  const numericId = Number(id || 0);
+  if (!numericId) return;
+  const target = surveys.value.find((s) => Number(s.id) === numericId);
+  const label = target?.title || `Survey ${numericId}`;
+  const ok = window.confirm(`Delete "${label}"? This cannot be undone.`);
+  if (!ok) return;
+  error.value = '';
+  try {
+    await api.delete(`/surveys/${numericId}`);
+    if (Number(selectedSurveyId.value) === numericId) {
+      selectedSurveyId.value = '';
+      startNewSurvey();
+    }
+    await fetchSurveys();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to delete survey';
+  }
+};
+
+const copySurveyToAgency = async () => {
+  if (!selectedSurveyId.value || !copyTargetAgencyId.value) return;
+  copying.value = true;
+  error.value = '';
+  try {
+    const targetAgencyId = Number(copyTargetAgencyId.value);
+    if (!targetAgencyId || targetAgencyId === Number(agencyId())) {
+      throw new Error('Choose a different agency');
+    }
+    const payload = {
+      agencyId: targetAgencyId,
+      title: `${String(draft.title || 'Untitled Survey').trim()} (Copy)`,
+      description: draft.description || null,
+      isActive: !!draft.isActive,
+      isAnonymous: !!draft.isAnonymous,
+      isScored: !!draft.isScored,
+      pushType: draft.pushType || null,
+      questions: cleanedQuestions()
+    };
+    await api.post('/surveys', payload);
+    copyTargetAgencyId.value = '';
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to copy survey';
+  } finally {
+    copying.value = false;
+  }
+};
+
 const pushSurveyNow = async () => {
   if (!selectedSurveyId.value) return;
   pushSaving.value = true;
   error.value = '';
   try {
-    await api.post(`/surveys/${selectedSurveyId.value}/push`, { pushType: draft.pushType || null });
+    const payload = { pushType: draft.pushType || null };
+    if (isSuperAdmin.value && Number(pushTargetAgencyId.value) > 0) {
+      payload.targetAgencyId = Number(pushTargetAgencyId.value);
+    }
+    await api.post(`/surveys/${selectedSurveyId.value}/push`, payload);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to push survey';
   } finally {
@@ -759,7 +897,7 @@ const formatPreviewResult = (qid) => {
 
 onMounted(async () => {
   await resolveAgencyFromSlug();
-  await fetchSurveys();
+  await Promise.all([fetchSurveys(), fetchAgenciesForCopy()]);
 });
 
 watch(
@@ -770,6 +908,13 @@ watch(
     }
   }
 );
+
+watch(
+  () => isSuperAdmin.value,
+  async (v) => {
+    if (v && !agenciesForCopy.value.length) await fetchAgenciesForCopy();
+  }
+);
 </script>
 
 <style scoped>
@@ -777,6 +922,8 @@ watch(
 .survey-list { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; max-height: 72vh; overflow: auto; }
 .survey-list-item { padding: 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; margin-bottom: 8px; }
 .survey-list-item.active { border-color: #cbd5e1; background: #f8fafc; }
+.survey-list-item-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.survey-meta { margin-top: 4px; }
 .editor { border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; }
 .question-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
 .question-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -786,6 +933,7 @@ watch(
 .grid.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; }
 .grid.four { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 8px; }
 .small { font-size: .85rem; }
+.input-copy-target { min-width: 220px; max-width: 320px; }
 .activePreview { background: #e2e8f0; }
 .preview-card { border: 1px dashed #cbd5e1; border-radius: 10px; padding: 10px; margin-top: 8px; }
 .preview-title { font-size: .9rem; color: #64748b; margin-bottom: 8px; font-weight: 700; }
