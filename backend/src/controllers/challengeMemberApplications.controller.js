@@ -1202,10 +1202,10 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
     if (!member) return res.status(404).json({ error: { message: 'Member not found in this club' } });
 
     const [applicationRows] = await pool.execute(
-      `SELECT first_name, last_name, email, phone, gender, date_of_birth, weight_lbs, height_inches, timezone, custom_fields, status, reviewed_at, created_at
+      `SELECT first_name, last_name, email, phone, gender, date_of_birth, weight_lbs, height_inches, timezone, custom_fields, status, reviewed_at, applied_at
        FROM challenge_member_applications
        WHERE agency_id = ? AND (user_id = ? OR LOWER(email) = LOWER(?))
-       ORDER BY reviewed_at DESC, created_at DESC, id DESC
+       ORDER BY reviewed_at DESC, applied_at DESC, id DESC
        LIMIT 1`,
       [clubId, userId, String(member.email || '').trim().toLowerCase()]
     );

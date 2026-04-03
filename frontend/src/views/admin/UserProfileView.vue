@@ -1280,6 +1280,15 @@
             </div>
           </div>
             
+            <!-- SSC/SSTC member profiles: club status is managed from the Member Management list, not here -->
+            <div v-if="isSscMemberProfileMode" class="ssc-status-note">
+              <span class="ssc-status-icon">ℹ️</span>
+              Club membership status (Active / Inactive) is managed from the
+              <strong>Member Management</strong> page. Use the toggle there to activate or
+              deactivate this member's access to the club.
+            </div>
+
+            <template v-if="!isSscMemberProfileMode">
             <div class="section-divider">
               <h3>Status Management</h3>
             </div>
@@ -1544,6 +1553,7 @@
                 </div>
               </div>
             </div>
+            </template><!-- /v-if="!isSscMemberProfileMode" status management -->
         </div>
 
         <div v-if="activeTab === 'linked_clients'" class="tab-panel">
@@ -6469,6 +6479,21 @@ onMounted(() => {
   color: #856404;
   font-weight: 500;
 }
+
+.ssc-status-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 18px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: #0c4a6e;
+  margin: 18px 0 8px;
+  line-height: 1.5;
+}
+.ssc-status-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
 
 .status-management {
   padding: 0;
