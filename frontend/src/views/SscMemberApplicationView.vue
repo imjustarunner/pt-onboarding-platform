@@ -461,10 +461,10 @@ const handleSubmit = async () => {
 /* ── Hero ───────────────────────────────────────────────── */
 .reg-hero {
   position: relative;
-  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1d4ed8 100%);
+  background: linear-gradient(160deg, #0d1b4b 0%, #1a2f7a 45%, #0e4da8 100%);
   background-size: cover;
   background-position: center;
-  min-height: 220px;
+  min-height: 240px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -473,7 +473,8 @@ const handleSubmit = async () => {
 .reg-hero-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, rgba(10, 8, 40, 0.70) 0%, rgba(10, 8, 40, 0.55) 100%);
+  /* Lighter overlay so a banner image shows through but still dark enough for text */
+  background: linear-gradient(to bottom, rgba(5, 8, 30, 0.60) 0%, rgba(5, 8, 30, 0.40) 60%, rgba(5, 8, 30, 0.70) 100%);
   pointer-events: none;
 }
 .reg-hero-content {
@@ -481,7 +482,7 @@ const handleSubmit = async () => {
   padding: 28px 28px 20px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
 }
 .reg-hero-logos {
   display: flex;
@@ -489,61 +490,69 @@ const handleSubmit = async () => {
   gap: 14px;
 }
 .hero-logo {
-  height: 48px;
+  height: 52px;
   width: auto;
   object-fit: contain;
-  border-radius: 8px;
-  background: rgba(255,255,255,0.1);
-  padding: 4px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.12);
+  padding: 6px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
 }
-.hero-logo--platform { filter: brightness(0) invert(1); opacity: 0.90; }
-.hero-logo--club { background: rgba(255,255,255,0.15); }
+.hero-logo--platform { filter: brightness(0) invert(1); opacity: 0.95; }
+.hero-logo--club { background: rgba(255,255,255,0.18); }
 .hero-logo-divider {
-  width: 1px; height: 32px;
-  background: rgba(255,255,255,0.3);
+  width: 1px; height: 36px;
+  background: rgba(255,255,255,0.35);
   flex-shrink: 0;
 }
-.reg-hero-text { color: #fff; }
+.reg-hero-text {
+  color: #ffffff;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
 .hero-eyebrow {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: .1em;
+  letter-spacing: .12em;
   text-transform: uppercase;
-  opacity: .75;
-  margin-bottom: 4px;
+  color: rgba(255,255,255,0.80);
+  margin-bottom: 6px;
 }
 .hero-club-name {
   margin: 0;
-  font-size: clamp(1.4rem, 4vw, 2rem);
+  font-size: clamp(1.6rem, 5vw, 2.4rem);
   font-weight: 900;
-  line-height: 1.15;
-  letter-spacing: -.01em;
+  line-height: 1.12;
+  letter-spacing: -.02em;
+  color: #ffffff;
+  text-shadow: 0 2px 16px rgba(0,0,0,0.6), 0 1px 3px rgba(0,0,0,0.8);
 }
 .hero-tag {
-  margin-top: 6px;
+  margin-top: 8px;
   display: inline-block;
-  background: rgba(255,255,255,0.18);
-  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.22);
+  border: 1px solid rgba(255,255,255,0.30);
   border-radius: 20px;
-  padding: 3px 12px;
+  padding: 4px 14px;
   font-size: 12px;
   font-weight: 600;
-  backdrop-filter: blur(6px);
+  color: #fff;
+  backdrop-filter: blur(8px);
 }
 .hero-referral {
   margin-top: 6px;
   font-size: 13px;
-  opacity: .85;
+  color: rgba(255,255,255,0.85);
 }
 .reg-hero-platform-strip {
   position: relative;
-  padding: 8px 28px;
+  padding: 9px 28px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: .05em;
-  color: rgba(255,255,255,0.55);
-  background: rgba(0,0,0,0.25);
-  backdrop-filter: blur(4px);
+  letter-spacing: .06em;
+  color: rgba(255,255,255,0.70);
+  background: rgba(0,0,0,0.35);
+  backdrop-filter: blur(6px);
+  border-top: 1px solid rgba(255,255,255,0.10);
 }
 
 /* ── Form card ──────────────────────────────────────────── */
