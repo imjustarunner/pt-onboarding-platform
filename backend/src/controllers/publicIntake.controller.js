@@ -6222,6 +6222,18 @@ export const identifyPreferencesUser = async (req, res, next) => {
       }
     }
 
+    const memberships = await User.getAgencies(user.id);
+    const tenantRows = (memberships || [])
+      .filter((row) => String(row?.organization_type || 'agency').toLowerCase() === 'agency');
+    const tenantMap = new Map();
+    for (const row of tenantRows) {
+      const id = Number(row?.id || 0);
+      const name = String(row?.official_name || row?.name || '').trim();
+      if (!id || !name || tenantMap.has(id)) continue;
+      tenantMap.set(id, { id, name });
+    }
+    const tenants = Array.from(tenantMap.values());
+
     const UserPreferences = (await import('../models/UserPreferences.model.js')).default;
     const prefs = await UserPreferences.findByUserId(user.id) || {};
 
@@ -6236,6 +6248,7 @@ export const identifyPreferencesUser = async (req, res, next) => {
       firstName: user.first_name,
       lastName: user.last_name,
       role: user.role,
+      tenants,
       preferences: {
         email_enabled: prefs.email_enabled ?? true,
         sms_enabled: prefs.sms_enabled ?? false,

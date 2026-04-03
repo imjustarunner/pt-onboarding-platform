@@ -104,20 +104,37 @@
       <section class="pref-section">
         <h3>Internal Workforce SMS Notifications</h3>
         <p class="pref-muted">
-          By opting in, you agree to receive SMS/text messages from {{ agencyName || 'your agency' }} through PlotTwistHQ for
-          operational notifications and reminders, internal announcements, and optional polls/voting related to your participation
-          on the platform. Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time.
-          Reply HELP for help.
+          This preference applies to your participating tenant accounts below.
         </p>
-        <div class="pref-radio-group">
-          <label class="pref-radio-row">
-            <input type="radio" v-model="internalWorkforceOptIn" value="yes" />
-            <span>Yes – I opt in to internal workforce SMS notifications</span>
-          </label>
-          <label class="pref-radio-row">
-            <input type="radio" v-model="internalWorkforceOptIn" value="no" />
-            <span>No – Keep internal notifications off</span>
-          </label>
+        <div class="pref-tenant-disclosures">
+          <div v-for="tenant in campaign4Tenants" :key="tenant.key" class="pref-tenant-block">
+            <p class="pref-muted pref-tenant-disclosure">
+              By opting in, you agree to receive SMS/text messages from {{ tenant.name }} through PlotTwistHQ for
+              operational notifications and reminders, internal announcements, and optional polls/voting related to your participation
+              on the platform. Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time.
+              Reply HELP for help.
+            </p>
+            <div class="pref-radio-group pref-radio-group-tenant">
+              <label class="pref-radio-row">
+                <input
+                  type="radio"
+                  :name="`tenant-opt-${tenant.key}`"
+                  :checked="tenantOptInValue(tenant.key) === 'yes'"
+                  @change="setTenantOptIn(tenant.key, 'yes')"
+                />
+                <span>Yes – I opt in to internal workforce SMS notifications for {{ tenant.name }}</span>
+              </label>
+              <label class="pref-radio-row">
+                <input
+                  type="radio"
+                  :name="`tenant-opt-${tenant.key}`"
+                  :checked="tenantOptInValue(tenant.key) === 'no'"
+                  @change="setTenantOptIn(tenant.key, 'no')"
+                />
+                <span>No – Keep internal notifications off for {{ tenant.name }}</span>
+              </label>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -235,6 +252,7 @@ const step = ref('identify');
 const loading = ref(true);
 const fatalError = ref('');
 const agencyName = ref('');
+const tenantOptions = ref([]);
 
 const emailInput = ref('');
 const identifyError = ref('');
@@ -247,8 +265,20 @@ const fullName = computed(() => [firstName.value, lastName.value].filter(Boolean
 const initials = computed(() =>
   [firstName.value?.[0], lastName.value?.[0]].filter(Boolean).join('').toUpperCase()
 );
+const campaign4Tenants = computed(() => {
+  if (Array.isArray(tenantOptions.value) && tenantOptions.value.length) {
+    return tenantOptions.value
+      .map((t) => ({
+        key: String(t?.id || '').trim() || String(t?.name || '').trim().toLowerCase().replace(/\s+/g, '_'),
+        name: String(t?.name || '').trim()
+      }))
+      .filter((t) => t.key && t.name);
+  }
+  const fallbackName = agencyName.value || 'your agency';
+  return [{ key: 'default', name: fallbackName }];
+});
 
-const internalWorkforceOptIn = ref('no');
+const internalWorkforceByTenant = ref({});
 
 const allDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const quietDaysSelected = ref([]);
@@ -277,6 +307,18 @@ const saveError = ref('');
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
 });
+
+const tenantOptInValue = (tenantKey) => {
+  const raw = internalWorkforceByTenant.value?.[tenantKey];
+  return raw === 'yes' ? 'yes' : 'no';
+};
+
+const setTenantOptIn = (tenantKey, value) => {
+  internalWorkforceByTenant.value = {
+    ...(internalWorkforceByTenant.value || {}),
+    [tenantKey]: value === 'yes' ? 'yes' : 'no',
+  };
+};
 
 const loadLinkMeta = async () => {
   try {
@@ -313,6 +355,14 @@ const identify = async () => {
     userId.value = data.userId;
     firstName.value = data.firstName || '';
     lastName.value = data.lastName || '';
+    tenantOptions.value = Array.isArray(data.tenants)
+      ? data.tenants
+        .map((t) => ({
+          id: Number(t?.id || 0) || null,
+          name: String(t?.name || '').trim(),
+        }))
+        .filter((t) => t.name)
+      : [];
 
     // Hydrate local prefs
     const p = data.preferences || {};
@@ -337,7 +387,16 @@ const identify = async () => {
 
     // Detect Campaign 4 opt-in from notification_categories
     const cats = p.notification_categories || {};
-    internalWorkforceOptIn.value = cats.internal_workforce_sms === true ? 'yes' : 'no';
+    const byTenant = (cats.internal_workforce_sms_by_tenant && typeof cats.internal_workforce_sms_by_tenant === 'object')
+      ? cats.internal_workforce_sms_by_tenant
+      : {};
+    const defaultOpt = cats.internal_workforce_sms === true ? 'yes' : 'no';
+    const nextByTenant = {};
+    for (const tenant of campaign4Tenants.value) {
+      const explicit = byTenant[tenant.key];
+      nextByTenant[tenant.key] = explicit === true ? 'yes' : explicit === false ? 'no' : defaultOpt;
+    }
+    internalWorkforceByTenant.value = nextByTenant;
 
     step.value = 'form';
   } catch (err) {
@@ -355,7 +414,15 @@ const save = async () => {
   try {
     // Merge Campaign 4 opt-in into notification_categories
     const categories = { ...(prefs.notification_categories || {}) };
-    categories.internal_workforce_sms = internalWorkforceOptIn.value === 'yes';
+    const perTenant = {};
+    let anyOptedIn = false;
+    for (const tenant of campaign4Tenants.value) {
+      const enabled = tenantOptInValue(tenant.key) === 'yes';
+      perTenant[tenant.key] = enabled;
+      if (enabled) anyOptedIn = true;
+    }
+    categories.internal_workforce_sms_by_tenant = perTenant;
+    categories.internal_workforce_sms = anyOptedIn;
 
     const payload = {
       ...prefs,
@@ -474,6 +541,23 @@ onMounted(loadLinkMeta);
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+.pref-tenant-disclosures {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.pref-tenant-block {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fff;
+}
+.pref-tenant-disclosure {
+  margin: 0;
+}
+.pref-radio-group-tenant {
+  margin-top: 10px;
 }
 .req { color: #dc2626; }
 
