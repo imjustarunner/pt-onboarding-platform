@@ -2075,6 +2075,14 @@ router.beforeEach(async (to, from, next) => {
       next({ path: `/ssc${rest}`, query: to.query, hash: to.hash, replace: true });
       return;
     }
+    // Also handle /ssc/summit-stats/* → /ssc/*
+    // The "Remember username" logic can store orgSlug='summit-stats' and parentOrgSlug='ssc',
+    // which causes the partner-hub redirect to build /ssc/summit-stats/login. Normalise it.
+    if (rawPath === '/ssc/summit-stats' || rawPath.startsWith('/ssc/summit-stats/')) {
+      const rest = rawPath.slice('/ssc/summit-stats'.length) || '/';
+      next({ path: `/ssc${rest}`, query: to.query, hash: to.hash, replace: true });
+      return;
+    }
   }
 
   // Custom domain / subdomain portals: never keep /{portalSlug}/… in the path (host is already the bucket).

@@ -1164,10 +1164,15 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
 
     // Remember username + portal path (works from platform /login and org pages like /itsco/login).
     if (rememberLogin.value && resolvedSlug) {
+      // When we're already on the correct branded login (e.g. /ssc/login), always store the
+      // current canonical loginSlug rather than the internal org alias ('summit-stats').
+      // This prevents the partner-hub redirect from building /ssc/summit-stats/login on the
+      // next visit and trapping the user in the two-step nested flow.
+      const slugToStore = (isSscLogin && loginSlug.value) ? loginSlug.value : resolvedSlug;
       setRememberedLogin({
         username: u,
-        orgSlug: resolvedSlug,
-        parentOrgSlug: resolveParentForNestedLogin(resolvedSlug)
+        orgSlug: slugToStore,
+        parentOrgSlug: resolveParentForNestedLogin(slugToStore)
       });
     } else if (!rememberLogin.value && reason === 'remembered') {
       clearRememberedLogin();
