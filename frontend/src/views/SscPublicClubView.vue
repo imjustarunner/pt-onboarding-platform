@@ -273,10 +273,12 @@ const albumSlideIndex = ref(0);
 let albumAutoplayTimer = null;
 
 const orgSlug = computed(() => route.params.organizationSlug || 'ssc');
-const clubId  = computed(() => route.params.clubId);
+const clubRef = computed(() => route.params.clubId);
 
 const goJoin = () => {
-  router.push({ path: `/${orgSlug.value}/join`, query: { club: clubId.value } });
+  const numericClubId = Number(clubData.value?.club?.id || 0);
+  if (!numericClubId) return;
+  router.push({ path: `/${orgSlug.value}/join`, query: { club: numericClubId } });
 };
 
 const publicPageConfig = computed(() => clubData.value?.club?.publicPageConfig || {});
@@ -345,16 +347,18 @@ const startAlbumAutoplay = () => {
 };
 
 onMounted(async () => {
-  if (!clubId.value) { error.value = 'Club not found.'; loading.value = false; return; }
+  if (!clubRef.value) { error.value = 'Club not found.'; loading.value = false; return; }
   try {
-    const [pubRes, statsRes] = await Promise.allSettled([
-      api.get(`/summit-stats/clubs/${clubId.value}/public`, { skipAuthRedirect: true }),
-      api.get(`/summit-stats/clubs/${clubId.value}/stats`, { skipAuthRedirect: true })
-    ]);
-    if (pubRes.status === 'fulfilled') clubData.value = pubRes.value.data;
-    else throw new Error(pubRes.reason?.response?.data?.error?.message || 'Could not load this club page.');
-    if (statsRes.status === 'fulfilled' && Array.isArray(statsRes.value?.data?.stats)) {
-      configuredStats.value = statsRes.value.data.stats;
+    const pubRes = await api.get(`/summit-stats/clubs/${clubRef.value}/public`, { skipAuthRedirect: true });
+    clubData.value = pubRes?.data || null;
+    const numericClubId = Number(clubData.value?.club?.id || 0);
+    if (numericClubId) {
+      try {
+        const statsRes = await api.get(`/summit-stats/clubs/${numericClubId}/stats`, { skipAuthRedirect: true });
+        if (Array.isArray(statsRes?.data?.stats)) configuredStats.value = statsRes.data.stats;
+      } catch {
+        // Stats endpoint may require auth in some contexts; public page still renders without it.
+      }
     }
     albumSlideIndex.value = 0;
     startAlbumAutoplay();

@@ -30,8 +30,20 @@ export const authenticate = (req, res, next) => {
     if (requestPath.includes('/verify-club-manager-email')) {
       return next();
     }
-    // Only the club directory listing is public. Keep club detail/records endpoints authenticated.
+    // Summit Stats public endpoints.
     if (req.method === 'GET' && /^\/api\/summit-stats\/clubs\/?$/.test(requestPath)) {
+      return next();
+    }
+    if (req.method === 'GET' && /^\/api\/summit-stats\/clubs\/[^/]+\/public\/?$/.test(requestPath)) {
+      return next();
+    }
+    if (req.method === 'GET' && /^\/api\/summit-stats\/clubs\/invite\/[^/]+\/?$/.test(requestPath)) {
+      return next();
+    }
+    if (req.method === 'POST' && /^\/api\/summit-stats\/clubs\/[^/]+\/apply-form\/?$/.test(requestPath)) {
+      return next();
+    }
+    if (req.method === 'POST' && /^\/api\/summit-stats\/clubs\/invite\/[^/]+\/apply\/?$/.test(requestPath)) {
       return next();
     }
     // Fonts are used on public login/portal pages.

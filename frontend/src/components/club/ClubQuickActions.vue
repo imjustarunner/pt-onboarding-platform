@@ -79,8 +79,9 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useBrandingStore } from '../../store/branding';
+import api from '../../services/api';
 
 const props = defineProps({
   orgSlug: { type: String, default: '' },
@@ -91,6 +92,7 @@ const props = defineProps({
 defineEmits(['add-member', 'add-season']);
 
 const brandingStore = useBrandingStore();
+const publicSlug = ref('');
 
 // ── Icons ──────────────────────────────────────────────────────────
 const addMemberIconUrl = computed(() => brandingStore.getClubQuickActionIconUrl('add_member', props.agency));
@@ -107,8 +109,9 @@ const settingsTo = computed(() => {
 const publicPageUrl = computed(() => {
   const slug = props.orgSlug;
   const id = props.agency?.id;
-  if (!slug || !id) return '#';
-  return `${window.location.origin}/${slug}/clubs/${id}`;
+  const ref = String(publicSlug.value || '').trim() || String(id || '').trim();
+  if (!slug || !ref) return '#';
+  return `${window.location.origin}/${slug}/clubs/${ref}`;
 });
 
 // Invite link: direct join/signup page /:orgSlug/join?club=:clubId
@@ -146,6 +149,28 @@ const copyToClipboard = async (text, flagRef) => {
 
 const copyPublicLink = () => copyToClipboard(publicPageUrl.value, copiedPublic);
 const copyInviteLink = () => copyToClipboard(invitePageUrl.value, copiedInvite);
+
+const loadPublicSlug = async () => {
+  const clubId = Number(props.agency?.id || 0);
+  if (!clubId) {
+    publicSlug.value = '';
+    return;
+  }
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${clubId}/public-page-config`, { skipGlobalLoading: true });
+    publicSlug.value = String(data?.config?.publicSlug || '').trim().toLowerCase();
+  } catch {
+    publicSlug.value = '';
+  }
+};
+
+onMounted(() => {
+  void loadPublicSlug();
+});
+
+watch(() => props.agency?.id, () => {
+  void loadPublicSlug();
+});
 </script>
 
 <style scoped>

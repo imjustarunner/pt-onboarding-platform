@@ -14,6 +14,17 @@ import { callGeminiText } from '../services/geminiText.service.js';
 // ── Helpers ──────────────────────────────────────────────────────
 
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
+const normalizePublicSlug = (v) => {
+  const s = String(v || '').trim().toLowerCase();
+  if (!s) return '';
+  const cleaned = s
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (!cleaned) return '';
+  return cleaned.slice(0, 64);
+};
 
 const canManageClub = (role) => {
   const r = String(role || '').toLowerCase();
@@ -36,6 +47,28 @@ const resolveClub = async (clubId) => {
   const club = rows?.[0];
   if (!club || String(club.organization_type || '').toLowerCase() !== 'affiliation') return null;
   return club;
+};
+
+/** Resolve club by a manager-defined public slug (stored in store_config_json.publicPageConfig.publicSlug). */
+const resolveClubByPublicSlug = async (publicSlug) => {
+  const slug = normalizePublicSlug(publicSlug);
+  if (!slug) return null;
+  const [rows] = await pool.execute(
+    `SELECT id, name, slug, logo_url, logo_path, organization_type, color_palette
+     FROM agencies
+     WHERE organization_type = 'affiliation'
+       AND LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(store_config_json, '$.publicPageConfig.publicSlug')), '')) = ?
+     LIMIT 1`,
+    [slug]
+  );
+  return rows?.[0] || null;
+};
+
+/** Resolve club from either numeric ID or public slug. */
+const resolveClubByPublicRef = async (clubRef) => {
+  const id = toInt(clubRef);
+  if (id) return resolveClub(id);
+  return resolveClubByPublicSlug(clubRef);
 };
 
 /** Assert club manager access. Returns { ok, club } or sends 4xx response. */
@@ -117,6 +150,7 @@ const buildPublicPageConfig = (rawStoreConfig) => {
     : [];
 
   return {
+    publicSlug: normalizePublicSlug(cfg.publicSlug),
     bannerTitle: String(cfg.bannerTitle || '').trim().slice(0, 120),
     bannerSubtitle: String(cfg.bannerSubtitle || '').trim().slice(0, 220),
     bannerImageUrl: String(cfg.bannerImageUrl || '').trim().slice(0, 500),
@@ -146,9 +180,10 @@ const buildPublicStoreConfig = (rawStoreConfig) => {
  */
 export const getPublicClubStats = async (req, res, next) => {
   try {
-    const clubId = toInt(req.params.id);
-    const club = await resolveClub(clubId);
+    const clubRef = String(req.params.id || '').trim();
+    const club = await resolveClubByPublicRef(clubRef);
     if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
+    const clubId = Number(club.id);
 
     // Member count
     const [memberRows] = await pool.execute(
@@ -346,6 +381,7 @@ export const getPublicClubStats = async (req, res, next) => {
         id: club.id,
         name: club.name,
         slug: club.slug,
+        publicSlug: publicPageConfig.publicSlug || null,
         logoUrl,
         publicPageConfig
       },
@@ -408,6 +444,7 @@ export const updatePublicPageConfig = async (req, res, next) => {
     const body = req.body || {};
     const nextConfig = buildPublicPageConfig({
       publicPageConfig: {
+        publicSlug: body.publicSlug,
         bannerTitle: body.bannerTitle,
         bannerSubtitle: body.bannerSubtitle,
         bannerImageUrl: body.bannerImageUrl,
@@ -418,6 +455,20 @@ export const updatePublicPageConfig = async (req, res, next) => {
         albumSlides: body.albumSlides
       }
     });
+    if (nextConfig.publicSlug) {
+      const [dupeRows] = await pool.execute(
+        `SELECT id
+         FROM agencies
+         WHERE id <> ?
+           AND organization_type = 'affiliation'
+           AND LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(store_config_json, '$.publicPageConfig.publicSlug')), '')) = ?
+         LIMIT 1`,
+        [clubId, nextConfig.publicSlug]
+      );
+      if (Array.isArray(dupeRows) && dupeRows.length) {
+        return res.status(409).json({ error: { message: 'That public URL slug is already in use by another club.' } });
+      }
+    }
     const nextStoreObj = {
       ...storeObj,
       publicPageConfig: nextConfig

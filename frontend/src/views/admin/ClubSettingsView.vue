@@ -340,6 +340,21 @@
 
         <div v-else class="store-config-body">
           <div class="field">
+            <label>Public URL slug <span class="cap-opt">(optional)</span></label>
+            <input
+              v-model="publicPageForm.publicSlug"
+              type="text"
+              class="store-input"
+              placeholder="your-club-name"
+              maxlength="64"
+            />
+            <div class="hint">
+              Lowercase letters, numbers, and dashes. If set, your public URL becomes:
+              <code>{{ publicPageUrlPreview }}</code>
+            </div>
+          </div>
+
+          <div class="field">
             <label>Banner title <span class="cap-opt">(optional)</span></label>
             <input
               v-model="publicPageForm.bannerTitle"
@@ -672,6 +687,7 @@ const savingPublicPageConfig = ref(false);
 const publicPageConfigError = ref('');
 const publicPageAlbumInput = ref('');
 const publicPageForm = ref({
+  publicSlug: '',
   bannerTitle: '',
   bannerSubtitle: '',
   bannerImageUrl: '',
@@ -679,6 +695,13 @@ const publicPageForm = ref({
   showActiveParticipants: true,
   showFeaturedWorkout: true,
   showPhotoAlbum: true
+});
+const orgSlugForPreview = computed(() => String(route.params?.organizationSlug || '').trim() || 'ssc');
+const publicPageUrlPreview = computed(() => {
+  const slug = String(publicPageForm.value.publicSlug || '').trim();
+  const ref = slug || String(currentAgencyId.value || '');
+  if (!ref) return `${window.location.origin}/${orgSlugForPreview.value}/clubs`;
+  return `${window.location.origin}/${orgSlugForPreview.value}/clubs/${ref}`;
 });
 
 const loadStoreConfig = async () => {
@@ -716,6 +739,7 @@ const loadPublicPageConfig = async () => {
     const { data } = await api.get(`/summit-stats/clubs/${currentAgencyId.value}/public-page-config`);
     const cfg = data?.config || {};
     publicPageForm.value = {
+      publicSlug: cfg.publicSlug || '',
       bannerTitle: cfg.bannerTitle || '',
       bannerSubtitle: cfg.bannerSubtitle || '',
       bannerImageUrl: cfg.bannerImageUrl || '',
