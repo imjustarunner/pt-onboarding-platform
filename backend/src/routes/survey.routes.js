@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate, requireBackofficeAdmin, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 import {
   createSurvey,
   deleteSurvey,
@@ -24,12 +24,12 @@ router.post('/:id/respond', respondToSurvey);
 
 router.get('/client/:clientId/responses', requireAdmin, listClientSurveyResponses);
 
-router.get('/', requireBackofficeAdmin, listSurveys);
-router.post('/', requireBackofficeAdmin, createSurvey);
-router.put('/:id', requireBackofficeAdmin, updateSurvey);
-router.delete('/:id', requireBackofficeAdmin, deleteSurvey);
-router.post('/:id/push', requireBackofficeAdmin, pushSurvey);
-router.get('/:id/pushes', requireBackofficeAdmin, listSurveyPushes);
-router.get('/:id/responses', requireBackofficeAdmin, listSurveyResponses);
+router.get('/', listSurveys);
+router.post('/', createSurvey);
+router.put('/:id', updateSurvey);
+router.delete('/:id', deleteSurvey);
+router.post('/:id/push', pushSurvey);
+router.get('/:id/pushes', listSurveyPushes);
+router.get('/:id/responses', listSurveyResponses);
 
 export default router;

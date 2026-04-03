@@ -1,5 +1,5 @@
 <template>
-  <div class="club-specs">
+  <div class="club-specs" :class="{ 'club-specs--compact': props.compact }">
     <div class="panel-header">
       <div class="title">
         <h2>{{ title }}</h2>
@@ -67,7 +67,8 @@ import { getCached, setCached } from '../../utils/adminApiCache';
 
 const props = defineProps({
   title: { type: String, default: 'Club Specs' },
-  organizationId: { type: Number, default: null }
+  organizationId: { type: Number, default: null },
+  compact: { type: Boolean, default: false }
 });
 
 const route = useRoute();
@@ -143,8 +144,17 @@ watch(
   border: 1px solid var(--border);
 }
 
+.club-specs--compact {
+  padding: 14px;
+  border-radius: 10px;
+}
+
 .panel-header {
   margin-bottom: 18px;
+}
+
+.club-specs--compact .panel-header {
+  margin-bottom: 10px;
 }
 
 .title h2 {
@@ -152,10 +162,19 @@ watch(
   color: var(--text-primary);
 }
 
+.club-specs--compact .title h2 {
+  font-size: 1rem;
+}
+
 .sub {
   margin: 6px 0 0;
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+.club-specs--compact .sub {
+  margin-top: 3px;
+  font-size: 12px;
 }
 
 .loading {
@@ -179,11 +198,21 @@ watch(
   gap: 14px;
 }
 
+.club-specs--compact .grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
 .metric {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
   background: var(--bg-alt);
+}
+
+.club-specs--compact .metric {
+  border-radius: 10px;
+  padding: 10px;
 }
 
 .metric-wide {
@@ -199,20 +228,38 @@ watch(
   margin-bottom: 8px;
 }
 
+.club-specs--compact .k {
+  margin-bottom: 4px;
+  font-size: 10px;
+}
+
 .v {
   font-size: 28px;
   font-weight: 800;
   color: var(--text-primary);
 }
 
+.club-specs--compact .v {
+  font-size: 22px;
+}
+
 .v.season-name {
   font-size: 20px;
+}
+
+.club-specs--compact .v.season-name {
+  font-size: 16px;
 }
 
 .hint {
   margin-top: 8px;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.club-specs--compact .hint {
+  margin-top: 4px;
+  font-size: 11px;
 }
 
 .season-details {
@@ -227,6 +274,11 @@ watch(
   padding-top: 14px;
   border-top: 1px solid var(--border);
   flex-wrap: wrap;
+}
+
+.club-specs--compact .footer {
+  margin-top: 10px;
+  padding-top: 8px;
 }
 
 .meta {

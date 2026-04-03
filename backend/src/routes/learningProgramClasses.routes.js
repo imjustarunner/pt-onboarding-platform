@@ -33,6 +33,8 @@ import {
   upsertTeamMembers,
   getLeaderboard,
   getRecordBoards,
+  getRaceDivisions,
+  scanWorkoutScreenshot,
   getActivityFeed,
   getMyParticipationSummary,
   submitWorkout,
@@ -70,12 +72,22 @@ import {
   listMyByeWeeks,
   declareByeWeek,
   upsertWeeklyAssignment,
+  getWeeklyTaskDetail,
   completeWeeklyChallenge,
   setWeeklyAssignmentCompletionByManager,
   closeWeek,
   updateEliminationComment,
   manuallyEliminateParticipant
 } from '../controllers/scoreboard.controller.js';
+import {
+  giveKudos,
+  removeKudos,
+  listWorkoutKudos,
+  getKudosStats,
+  getKudosBudget as giveKudosBudget,
+  toggleReaction,
+  listReactions
+} from '../controllers/challengeKudos.controller.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -132,6 +144,8 @@ router.get('/:classId/teams/:teamId/members', listTeamMembers);
 router.put('/:classId/teams/:teamId/members', upsertTeamMembers);
 router.get('/:classId/leaderboard', getLeaderboard);
 router.get('/:classId/record-boards', getRecordBoards);
+router.get('/:classId/race-divisions', getRaceDivisions);
+router.post('/:classId/workouts/scan-screenshot', workoutMediaUpload.single('file'), scanWorkoutScreenshot);
 router.get('/:classId/activity', getActivityFeed);
 router.post('/:classId/workouts', submitWorkout);
 router.put('/:classId/workouts/:workoutId/proof-review', reviewWorkoutProof);
@@ -160,6 +174,7 @@ router.get('/:classId/season-summary', getSeasonSummary);
 router.get('/:classId/elimination-board', getEliminationBoard);
 router.get('/:classId/weekly-tasks', listWeeklyTasks);
 router.post('/:classId/weekly-tasks', createWeeklyTasks);
+router.get('/:classId/weekly-tasks/:taskId/detail', getWeeklyTaskDetail);
 router.post('/:classId/weekly-tasks/ai-draft', generateWeeklyTasksDraft);
 router.post('/:classId/weekly-tasks/publish', publishWeeklyTasksDraft);
 router.get('/:classId/snake-draft-board', getSnakeDraftBoard);
@@ -173,5 +188,16 @@ router.put('/:classId/weekly-assignments/:assignmentId/completion', setWeeklyAss
 router.post('/:classId/close-week', closeWeek);
 router.put('/:classId/eliminations/:eliminationId/comment', updateEliminationComment);
 router.post('/:classId/eliminations/manual', manuallyEliminateParticipant);
+
+// Kudos
+router.get('/:classId/kudos-budget', giveKudosBudget);
+router.get('/:classId/kudos-stats', getKudosStats);
+router.get('/:classId/workouts/:workoutId/kudos', listWorkoutKudos);
+router.post('/:classId/workouts/:workoutId/kudos', giveKudos);
+router.delete('/:classId/workouts/:workoutId/kudos', removeKudos);
+
+// Emoji reactions
+router.post('/:classId/workouts/:workoutId/reactions', toggleReaction);
+router.get('/:classId/workouts/:workoutId/reactions', listReactions);
 
 export default router;

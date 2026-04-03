@@ -9,7 +9,7 @@ import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB
+    fileSize: 8 * 1024 * 1024 // 8MB
   },
   fileFilter: (req, file, cb) => {
     const allowedMimes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
@@ -24,14 +24,19 @@ const canEditTargetUserPhoto = (req, targetUserId) => {
   const requesterRole = String(req.user?.role || '').toLowerCase();
   const tId = parseInt(targetUserId || 0, 10);
   if (!tId) return false;
-  // Only backoffice admins may manage profile photos (no self-service uploads).
-  return requesterRole === 'admin' || requesterRole === 'super_admin';
+  // Backoffice admins can always manage profile photos.
+  if (['admin', 'super_admin', 'support', 'staff', 'provider_plus'].includes(requesterRole)) return true;
+  // Users may upload their own profile photo (self-service, used for SSC).
+  if (Number(req.user?.id) === tId) return true;
+  return false;
 };
 
 /**
- * Upload a user profile photo
+ * Upload a user profile photo.
  * POST /api/users/:id/profile-photo
  * FormData: photo=<file>
+ * Self-service is allowed: any authenticated user can upload for themselves.
+ * Managers/admins can upload for any user.
  */
 export const uploadUserProfilePhoto = async (req, res, next) => {
   try {
@@ -49,22 +54,6 @@ export const uploadUserProfilePhoto = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'No file uploaded. Please select an image file.' } });
     }
 
-    // Ensure column exists (fail loudly so admins run migrations)
-    try {
-      const dbName = process.env.DB_NAME || 'onboarding_stage';
-      const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_photo_path' LIMIT 1",
-        [dbName]
-      );
-      if (!cols || cols.length === 0) {
-        return res.status(500).json({
-          error: { message: 'Database missing users.profile_photo_path. Run migrations (database/migrations/206_users_add_profile_photo_path.sql).' }
-        });
-      }
-    } catch (e) {
-      // If info_schema is unavailable for some reason, let the UPDATE fail loudly below.
-    }
-
     const fileBuffer = req.file.buffer;
     const ext = path.extname(req.file.originalname) || '';
     const safeExt = ext && ext.length <= 8 ? ext : '';
@@ -80,10 +69,24 @@ export const uploadUserProfilePhoto = async (req, res, next) => {
     const storedPath = storageResult.relativePath;
     await pool.execute('UPDATE users SET profile_photo_path = ? WHERE id = ?', [storedPath, targetUserId]);
 
+    // Also create a user_photos record so this appears in the album and can be moderated.
+    // Gracefully skip if the table doesn't exist yet (pre-migration).
+    try {
+      // Clear any previous is_profile=1 flags for this user
+      await pool.execute('UPDATE user_photos SET is_profile = 0 WHERE user_id = ?', [targetUserId]);
+      await pool.execute(
+        `INSERT INTO user_photos (user_id, file_path, is_profile, source)
+         VALUES (?, ?, 1, 'direct_upload')
+         ON DUPLICATE KEY UPDATE is_profile = 1, is_active = 1`,
+        [targetUserId, storedPath]
+      );
+    } catch {
+      // Table may not exist in older environments; non-fatal.
+    }
+
     const url = publicUploadsUrlFromStoredPath(storedPath);
     res.json({ success: true, path: storedPath, url });
   } catch (e) {
     next(e);
   }
 };
-

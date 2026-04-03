@@ -37,6 +37,7 @@
             class="leaderboard-row"
           >
             <span class="rank">#{{ idx + 1 }}</span>
+            <UserAvatar :photo-path="row.profile_photo_path" :first-name="row.first_name" :last-name="row.last_name" size="sm" />
             <span class="name">{{ row.first_name }} {{ row.last_name }}</span>
             <span class="points">{{ row.total_points }} pts</span>
           </div>
@@ -67,6 +68,7 @@
         class="leaderboard-row"
       >
         <span class="rank">#{{ idx + 1 }}</span>
+        <UserAvatar :photo-path="row.profile_photo_path" :first-name="row.first_name" :last-name="row.last_name" size="sm" />
         <span class="name">{{ row.first_name }} {{ row.last_name }}</span>
         <span class="points">{{ row.total_points }} pts</span>
       </div>
@@ -93,7 +95,8 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref } from 'vue';
+import UserAvatar from '@/components/common/UserAvatar.vue';
 
 const props = defineProps({
   leaderboard: { type: Object, default: null },

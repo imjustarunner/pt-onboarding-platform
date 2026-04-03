@@ -372,9 +372,21 @@ const routes = [
     meta: { requiresGuest: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/clubs/:clubId',
+    name: 'SscPublicClub',
+    component: () => import('../views/SscPublicClubView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/clubs',
     name: 'OrganizationClubSearch',
     component: () => import('../views/ClubSearchView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/join',
+    name: 'SscMemberApplication',
+    component: () => import('../views/SscMemberApplicationView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
@@ -757,13 +769,19 @@ const routes = [
     path: '/:organizationSlug/admin/surveys',
     name: 'OrganizationSurveyBuilder',
     component: () => import('../views/admin/SurveyBuilderView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus'], organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/company-events',
+    name: 'OrganizationCompanyEvents',
+    component: () => import('../views/admin/CompanyEventsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/surveys/:id/results',
     name: 'OrganizationSurveyResults',
     component: () => import('../views/admin/SurveyResultsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/intake-links',
@@ -1389,13 +1407,19 @@ const routes = [
     path: '/admin/surveys',
     name: 'SurveyBuilder',
     component: () => import('../views/admin/SurveyBuilderView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus'] }
+  },
+  {
+    path: '/admin/company-events',
+    name: 'CompanyEvents',
+    component: () => import('../views/admin/CompanyEventsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus'] }
   },
   {
     path: '/admin/surveys/:id/results',
     name: 'SurveyResults',
     component: () => import('../views/admin/SurveyResultsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus'] }
   },
   {
     path: '/admin/intake-links',

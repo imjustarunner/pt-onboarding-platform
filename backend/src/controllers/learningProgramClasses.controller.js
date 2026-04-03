@@ -38,6 +38,74 @@ const toTimeHHMM = (v, fallback = '23:59') => {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 };
 
+/**
+ * Normalize recognition_categories_json to the rich-object array format.
+ * Accepts:
+ *   - null / undefined / empty → returns null
+ *   - Old string array: ["fastest_male", "fastest_female", ...]
+ *   - New object array: [{ id, type, label, active, ... }, ...]
+ *   - JSON string of either of the above
+ */
+const LEGACY_CATEGORY_MAP = {
+  fastest_male: { id: 'std_male', type: 'standard', label: 'Fastest Male', active: true, genderFilter: 'male', period: 'weekly', metric: 'points', aggregation: 'most' },
+  fastest_female: { id: 'std_female', type: 'standard', label: 'Fastest Female', active: true, genderFilter: 'female', period: 'weekly', metric: 'points', aggregation: 'most' },
+  fastest_masters_male: { id: 'std_masters_male', type: 'masters', label: 'Masters Male', active: true, genderFilter: 'male', ageOperator: 'gte', ageThreshold: 53, period: 'weekly', metric: 'points', aggregation: 'most' },
+  fastest_masters_female: { id: 'std_masters_female', type: 'masters', label: 'Masters Female', active: true, genderFilter: 'female', ageOperator: 'gte', ageThreshold: 53, period: 'weekly', metric: 'points', aggregation: 'most' }
+};
+
+export function normalizeRecognitionCategories(raw) {
+  let arr;
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try { arr = JSON.parse(raw); } catch { return null; }
+  } else {
+    arr = raw;
+  }
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  return arr.map((item) => {
+    if (typeof item === 'string') {
+      return LEGACY_CATEGORY_MAP[item] ? { ...LEGACY_CATEGORY_MAP[item] } : {
+        id: `legacy_${item}`,
+        type: 'custom',
+        label: item,
+        active: true,
+        period: 'weekly',
+        metric: 'points',
+        aggregation: 'most',
+        criteria: [],
+        genderVariants: []
+      };
+    }
+    if (typeof item === 'object' && item !== null) {
+      const type = item.type || 'custom';
+      // Config/group entries are passed through as-is so the winner computation can read them
+      if (type === 'cfg_masters' || type === 'cfg_heavyweight' || type === '__activity_types__' || type === 'group') {
+        return { ...item };
+      }
+      return {
+        id: item.id || `cat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        type,
+        label: item.label || '',
+        icon: item.icon || null,
+        active: item.active !== false,
+        genderFilter: item.genderFilter || null,
+        ageOperator: item.ageOperator || 'gte',
+        ageThreshold: item.ageThreshold != null ? Number(item.ageThreshold) : undefined,
+        weightOperator: item.weightOperator || 'gte',
+        weightThresholdLbs: item.weightThresholdLbs != null ? Number(item.weightThresholdLbs) : undefined,
+        criteria: Array.isArray(item.criteria) ? item.criteria : undefined,
+        genderVariants: Array.isArray(item.genderVariants) ? item.genderVariants : undefined,
+        period: item.period || 'weekly',
+        metric: item.metric || 'points',
+        aggregation: item.aggregation || 'most',
+        activityType: item.activityType || '',
+        groupFilter: item.groupFilter || ''
+      };
+    }
+    return null;
+  }).filter(Boolean);
+};
+
 const toTimeZone = (v, fallback = 'UTC') => {
   const zone = String(v || '').trim();
   if (!zone) return fallback;
@@ -256,15 +324,9 @@ const canManageAtOrganization = async ({ user, organizationId }) => {
 };
 
 const ensureClassLifecycleStatus = async (klass) => {
-  if (!klass) return null;
-  const status = String(klass.status || '').toLowerCase();
-  const isActive = klass.is_active === 1 || klass.is_active === true;
-  if (!isActive || status !== 'active' || !klass.ends_at) return klass;
-  const now = Date.now();
-  const endsAt = new Date(klass.ends_at).getTime();
-  if (!Number.isFinite(endsAt) || endsAt >= now) return klass;
-  const updated = await LearningProgramClass.update(klass.id, { status: 'closed' });
-  return updated || klass;
+  // Season lifecycle is manager-controlled. We do not auto-close seasons
+  // when the configured end date passes.
+  return klass || null;
 };
 
 const withSeasonSettingsDefaults = (klass) => {
@@ -390,12 +452,7 @@ export const createLearningProgramClass = async (req, res, next) => {
       individualMinPointsPerWeek: req.body.individualMinPointsPerWeek != null ? asInt(req.body.individualMinPointsPerWeek) : null,
       weekStartTime: req.body.weekStartTime || null,
       mastersAgeThreshold: req.body.mastersAgeThreshold != null ? asInt(req.body.mastersAgeThreshold) : 53,
-      recognitionCategoriesJson: (() => {
-        const v = req.body.recognitionCategoriesJson;
-        if (Array.isArray(v)) return v;
-        if (typeof v === 'string' && v.trim()) { try { return JSON.parse(v); } catch { return null; } }
-        return null;
-      })(),
+      recognitionCategoriesJson: normalizeRecognitionCategories(req.body.recognitionCategoriesJson),
       recognitionMetric: req.body.recognitionMetric || 'points',
       captainApplicationOpen: asBool(req.body.captainApplicationOpen ?? req.body.captain_application_open, true),
       captainsFinalized: asBool(req.body.captainsFinalized ?? req.body.captains_finalized, false),
@@ -459,7 +516,7 @@ export const updateLearningProgramClass = async (req, res, next) => {
       weekStartTime: req.body.weekStartTime !== undefined ? (req.body.weekStartTime || null) : undefined,
       mastersAgeThreshold: req.body.mastersAgeThreshold !== undefined ? (req.body.mastersAgeThreshold != null ? asInt(req.body.mastersAgeThreshold) : null) : undefined,
       recognitionCategoriesJson: req.body.recognitionCategoriesJson !== undefined
-        ? (Array.isArray(req.body.recognitionCategoriesJson) ? req.body.recognitionCategoriesJson : (req.body.recognitionCategoriesJson ? JSON.parse(String(req.body.recognitionCategoriesJson)) : null))
+        ? normalizeRecognitionCategories(req.body.recognitionCategoriesJson)
         : undefined,
       recognitionMetric: req.body.recognitionMetric !== undefined ? (req.body.recognitionMetric || null) : undefined,
       captainApplicationOpen: req.body.captainApplicationOpen !== undefined || req.body.captain_application_open !== undefined
@@ -530,7 +587,7 @@ export const duplicateLearningProgramClass = async (req, res, next) => {
       individualMinPointsPerWeek: source.individual_min_points_per_week ?? null,
       weekStartTime: source.week_start_time || null,
       mastersAgeThreshold: source.masters_age_threshold ?? 53,
-      recognitionCategoriesJson: source.recognition_categories_json || null,
+      recognitionCategoriesJson: normalizeRecognitionCategories(source.recognition_categories_json),
       recognitionMetric: source.recognition_metric || 'points',
       captainApplicationOpen: !!(source.captain_application_open === 1 || source.captain_application_open === true),
       captainsFinalized: false,
@@ -964,7 +1021,9 @@ export const upsertParticipantProfile = async (req, res, next) => {
       learningClassId: classId,
       providerUserId,
       gender: req.body.gender || null,
-      dateOfBirth: req.body.dateOfBirth ?? req.body.date_of_birth ?? null
+      dateOfBirth: req.body.dateOfBirth ?? req.body.date_of_birth ?? null,
+      weightLbs: req.body.weightLbs !== undefined ? req.body.weightLbs : (req.body.weight_lbs !== undefined ? req.body.weight_lbs : undefined),
+      heightInches: req.body.heightInches !== undefined ? req.body.heightInches : (req.body.height_inches !== undefined ? req.body.height_inches : undefined)
     });
     return res.json(profile);
   } catch (e) {

@@ -1,0 +1,1433 @@
+/**
+ * SSC Member Application Pipeline
+ * Handles: public-stats, invite-token resolution, application submission,
+ * manager review (approve/deny), invite CRUD, and member referral links.
+ */
+import crypto from 'crypto';
+import pool from '../config/database.js';
+import User from '../models/User.model.js';
+import Agency from '../models/Agency.model.js';
+import ChallengeParticipantProfile from '../models/ChallengeParticipantProfile.model.js';
+import { buildRaceDivisions, buildRecordMetricMap } from './challenges.controller.js';
+import { callGeminiText } from '../services/geminiText.service.js';
+
+// ── Helpers ──────────────────────────────────────────────────────
+
+const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
+
+const canManageClub = (role) => {
+  const r = String(role || '').toLowerCase();
+  return r === 'admin' || r === 'super_admin';
+};
+
+const isMemberOf = (role) => {
+  const r = String(role || '').toLowerCase();
+  return ['admin', 'super_admin', 'staff', 'provider', 'provider_plus'].includes(r);
+};
+
+/** Verify club exists (affiliation type) and return it. */
+const resolveClub = async (clubId) => {
+  if (!clubId) return null;
+  const [rows] = await pool.execute(
+    `SELECT id, name, slug, logo_url, logo_path, organization_type, color_palette
+     FROM agencies WHERE id = ? LIMIT 1`,
+    [clubId]
+  );
+  const club = rows?.[0];
+  if (!club || String(club.organization_type || '').toLowerCase() !== 'affiliation') return null;
+  return club;
+};
+
+/** Assert club manager access. Returns { ok, club } or sends 4xx response. */
+const assertManagerAccess = async (req, res, clubId) => {
+  const user = req.user;
+  if (!user?.id) { res.status(401).json({ error: { message: 'Sign in required' } }); return null; }
+  if (!canManageClub(user.role)) { res.status(403).json({ error: { message: 'Club manager access required' } }); return null; }
+  const club = await resolveClub(clubId);
+  if (!club) { res.status(404).json({ error: { message: 'Club not found' } }); return null; }
+  if (String(user.role).toLowerCase() !== 'super_admin') {
+    const agencies = await User.getAgencies(user.id);
+    if (!(agencies || []).some((a) => Number(a?.id) === clubId)) {
+      res.status(403).json({ error: { message: 'No access to this club' } }); return null;
+    }
+  }
+  return club;
+};
+
+/** Assert current user is a member of the club. */
+const assertMemberAccess = async (req, res, clubId) => {
+  const user = req.user;
+  if (!user?.id) { res.status(401).json({ error: { message: 'Sign in required' } }); return null; }
+  const club = await resolveClub(clubId);
+  if (!club) { res.status(404).json({ error: { message: 'Club not found' } }); return null; }
+  const agencies = await User.getAgencies(user.id);
+  const isMember = (agencies || []).some((a) => Number(a?.id) === clubId);
+  const isManager = canManageClub(user.role);
+  if (!isMember && !isManager) {
+    res.status(403).json({ error: { message: 'You are not a member of this club' } }); return null;
+  }
+  return club;
+};
+
+/** Generate a URL-safe random token. */
+const genToken = (len = 32) => crypto.randomBytes(len).toString('hex').slice(0, len);
+
+/** Generate a short referral code (8 chars). */
+const genReferralCode = () => crypto.randomBytes(6).toString('base64url').slice(0, 8).toUpperCase();
+
+/** Hash a plain-text password using bcrypt (reuse pattern from auth). */
+const hashPassword = async (plain) => {
+  const bcrypt = (await import('bcrypt')).default;
+  return bcrypt.hash(plain, 12);
+};
+
+const parseJsonObject = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const toUploadsPublicUrl = (filePath) => {
+  const p = String(filePath || '').trim();
+  if (!p) return '';
+  if (/^https?:\/\//i.test(p)) return p;
+  const baseUrl = String(process.env.BACKEND_URL || '').trim();
+  const clean = p.replace(/^\/+/, '').replace(/^uploads\//, '');
+  return baseUrl ? `${baseUrl}/uploads/${clean}` : `/uploads/${clean}`;
+};
+
+const buildPublicPageConfig = (rawStoreConfig) => {
+  const storeObj = parseJsonObject(rawStoreConfig);
+  const cfg = parseJsonObject(storeObj?.publicPageConfig);
+  const slides = Array.isArray(cfg.albumSlides)
+    ? cfg.albumSlides
+      .map((s) => (typeof s === 'string'
+        ? { imageUrl: String(s).trim(), caption: '' }
+        : {
+          imageUrl: String(s?.imageUrl || '').trim(),
+          caption: String(s?.caption || '').trim().slice(0, 140)
+        }))
+      .filter((s) => s.imageUrl)
+      .slice(0, 20)
+    : [];
+
+  return {
+    bannerTitle: String(cfg.bannerTitle || '').trim().slice(0, 120),
+    bannerSubtitle: String(cfg.bannerSubtitle || '').trim().slice(0, 220),
+    bannerImageUrl: String(cfg.bannerImageUrl || '').trim().slice(0, 500),
+    showCurrentSeason: cfg.showCurrentSeason !== false,
+    showActiveParticipants: cfg.showActiveParticipants !== false,
+    showFeaturedWorkout: cfg.showFeaturedWorkout !== false,
+    showPhotoAlbum: cfg.showPhotoAlbum !== false,
+    albumSlides: slides
+  };
+};
+
+const buildPublicStoreConfig = (rawStoreConfig) => {
+  const storeObj = parseJsonObject(rawStoreConfig);
+  return {
+    enabled: !!storeObj.enabled && !!String(storeObj.url || '').trim(),
+    title: String(storeObj.title || 'Team Store').trim().slice(0, 120),
+    buttonText: String(storeObj.buttonText || 'Shop Now').trim().slice(0, 60),
+    url: String(storeObj.url || '').trim().slice(0, 500)
+  };
+};
+
+// ── PUBLIC CLUB STATS ─────────────────────────────────────────────────────
+
+/**
+ * GET /summit-stats/clubs/:id/public
+ * Public endpoint — returns club info, aggregate stats, and club records.
+ */
+export const getPublicClubStats = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await resolveClub(clubId);
+    if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
+
+    // Member count
+    const [memberRows] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM user_agencies WHERE agency_id = ? AND is_active = 1`,
+      [clubId]
+    );
+    const memberCount = Number(memberRows?.[0]?.cnt || 0);
+
+    // Aggregate workout stats across all seasons in this club
+    const [statRows] = await pool.execute(
+      `SELECT
+         COALESCE(SUM(w.distance_value), 0)  AS total_miles,
+         COALESCE(SUM(w.points), 0)           AS total_points,
+         COALESCE(SUM(w.duration_minutes), 0) AS total_minutes,
+         COUNT(w.id)                          AS total_workouts
+       FROM challenge_workouts w
+       INNER JOIN learning_program_classes lpc ON lpc.id = w.learning_class_id
+       WHERE lpc.organization_id = ?`,
+      [clubId]
+    );
+    const stats = statRows?.[0] || {};
+
+    // Season count
+    const [seasonCountRows] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM learning_program_classes WHERE organization_id = ?`,
+      [clubId]
+    );
+    const seasonCount = Number(seasonCountRows?.[0]?.cnt || 0);
+
+    // Agency store/page config
+    const [clubRow] = await pool.execute(
+      `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
+      [clubId]
+    );
+
+    // Club records (from dedicated table)
+    let clubRecords = [];
+    try {
+      const [crRows] = await pool.execute(
+        `SELECT records_json FROM summit_stats_club_records WHERE agency_id = ? LIMIT 1`,
+        [clubId]
+      );
+      const raw = crRows?.[0]?.records_json;
+      clubRecords = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [];
+    } catch { clubRecords = []; }
+
+    // Logo URL
+    const baseUrl = process.env.BACKEND_URL || '';
+    let logoUrl = club.logo_url || null;
+    if (club.logo_path) logoUrl = `${baseUrl}/uploads/${club.logo_path.replace(/^uploads\//, '')}`;
+    const publicPageConfig = buildPublicPageConfig(clubRow?.[0]?.store_config_json);
+    const publicStore = buildPublicStoreConfig(clubRow?.[0]?.store_config_json);
+
+    // Current season
+    let currentSeason = null;
+    const [seasonRows] = await pool.execute(
+      `SELECT id, class_name, status, starts_at, ends_at, created_at
+       FROM learning_program_classes
+       WHERE organization_id = ?
+       ORDER BY
+         CASE
+           WHEN LOWER(COALESCE(status, '')) = 'active' THEN 0
+           WHEN LOWER(COALESCE(status, '')) = 'draft' THEN 1
+           WHEN LOWER(COALESCE(status, '')) = 'closed' THEN 2
+           ELSE 3
+         END,
+         COALESCE(starts_at, created_at) DESC
+       LIMIT 1`,
+      [clubId]
+    );
+    const season = seasonRows?.[0] || null;
+    if (season) {
+      currentSeason = {
+        id: Number(season.id),
+        name: season.class_name || `Season ${season.id}`,
+        status: String(season.status || '').toLowerCase() || null,
+        startsAt: season.starts_at || null,
+        endsAt: season.ends_at || null
+      };
+    }
+
+    // Active participants in current season
+    let activeParticipants = [];
+    if (currentSeason?.id) {
+      const [activeRows] = await pool.execute(
+        `SELECT
+           u.id AS user_id,
+           u.first_name,
+           u.last_name,
+           t.team_name
+         FROM learning_class_provider_memberships m
+         INNER JOIN users u ON u.id = m.provider_user_id
+         LEFT JOIN challenge_team_members tm
+           ON tm.learning_class_id = m.learning_class_id
+          AND tm.provider_user_id = m.provider_user_id
+         LEFT JOIN challenge_teams t ON t.id = tm.team_id
+         INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+         WHERE m.learning_class_id = ?
+           AND m.membership_status = 'active'
+           AND ua.is_active = 1
+         ORDER BY u.first_name ASC, u.last_name ASC
+         LIMIT 80`,
+        [clubId, currentSeason.id]
+      );
+      activeParticipants = (activeRows || []).map((r) => ({
+        userId: Number(r.user_id),
+        displayName: `${String(r.first_name || '').trim()} ${String(r.last_name || '').trim().charAt(0)}.`.trim(),
+        teamName: r.team_name || null
+      }));
+    }
+
+    // Featured workout by highest kudos in the current kudos week
+    let featuredWorkout = null;
+    const now = new Date();
+    const utcDay = now.getUTCDay(); // 0 Sun ... 6 Sat
+    const daysSinceMonday = (utcDay + 6) % 7;
+    const weekStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysSinceMonday));
+    const weekStartStr = weekStart.toISOString().slice(0, 10);
+    const [featuredRows] = await pool.execute(
+      `SELECT
+         w.id AS workout_id,
+         w.activity_type,
+         w.distance_value,
+         w.duration_minutes,
+         w.terrain,
+         w.completed_at,
+         w.screenshot_file_path,
+         u.first_name,
+         u.last_name,
+         t.team_name,
+         COUNT(k.id) AS kudos_count
+       FROM challenge_workout_kudos k
+       INNER JOIN challenge_workouts w ON w.id = k.workout_id
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+       INNER JOIN users u ON u.id = w.user_id
+       LEFT JOIN challenge_teams t ON t.id = w.team_id
+       WHERE c.organization_id = ?
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         AND (
+           (k.week_start_date IS NOT NULL AND k.week_start_date = ?)
+           OR (k.given_at IS NOT NULL AND k.given_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY))
+         )
+       GROUP BY
+         w.id, w.activity_type, w.distance_value, w.duration_minutes, w.terrain, w.completed_at, w.screenshot_file_path,
+         u.first_name, u.last_name, t.team_name
+       ORDER BY kudos_count DESC, w.completed_at DESC
+       LIMIT 1`,
+      [clubId, weekStartStr]
+    );
+    const top = featuredRows?.[0] || null;
+    if (top) {
+      featuredWorkout = {
+        workoutId: Number(top.workout_id),
+        activityType: top.activity_type || 'Workout',
+        distanceMiles: Number(top.distance_value || 0),
+        durationMinutes: Number(top.duration_minutes || 0),
+        terrain: top.terrain || '',
+        kudosCount: Number(top.kudos_count || 0),
+        completedAt: top.completed_at || null,
+        teamName: top.team_name || null,
+        // Keep it low-identifying: first name + last initial only.
+        byline: `${String(top.first_name || '').trim()} ${String(top.last_name || '').trim().charAt(0)}.`.trim(),
+        imageUrl: toUploadsPublicUrl(top.screenshot_file_path)
+      };
+    }
+
+    // Public album: manager-curated slides first, fallback to recent workout screenshots.
+    let albumSlides = [...publicPageConfig.albumSlides];
+    if (!albumSlides.length) {
+      const [photoRows] = await pool.execute(
+        `SELECT w.id, w.screenshot_file_path, w.activity_type, w.distance_value
+         FROM challenge_workouts w
+         INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+         WHERE c.organization_id = ?
+           AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+           AND COALESCE(TRIM(w.screenshot_file_path), '') <> ''
+         ORDER BY w.completed_at DESC, w.created_at DESC
+         LIMIT 12`,
+        [clubId]
+      );
+      albumSlides = (photoRows || []).map((r) => ({
+        imageUrl: toUploadsPublicUrl(r.screenshot_file_path),
+        caption: `${String(r.activity_type || 'Workout').trim()}${Number(r.distance_value || 0) > 0 ? ` · ${Number(r.distance_value).toFixed(1)} mi` : ''}`
+      })).filter((s) => s.imageUrl);
+    }
+
+    // Race divisions (all-time for this club)
+    let raceDivisions = { halfMarathon: { allTime: [] }, marathon: { allTime: [] } };
+    try {
+      raceDivisions = await buildRaceDivisions({ classId: 0, organizationId: clubId });
+    } catch { /* non-blocking */ }
+
+    return res.json({
+      club: {
+        id: club.id,
+        name: club.name,
+        slug: club.slug,
+        logoUrl,
+        publicPageConfig
+      },
+      stats: {
+        memberCount,
+        totalMiles:    Number(Number(stats.total_miles || 0).toFixed(1)),
+        totalPoints:   Number(stats.total_points || 0),
+        totalMinutes:  Number(stats.total_minutes || 0),
+        totalWorkouts: Number(stats.total_workouts || 0),
+        seasonCount,
+        halfMarathonCount: raceDivisions.halfMarathon?.allTime?.length || 0,
+        marathonCount:     raceDivisions.marathon?.allTime?.length || 0
+      },
+      clubRecords: Array.isArray(clubRecords) ? clubRecords.filter(r => r?.label) : [],
+      raceDivisions: {
+        halfMarathon: raceDivisions.halfMarathon?.allTime || [],
+        marathon:     raceDivisions.marathon?.allTime || []
+      },
+      currentSeason,
+      activeParticipants,
+      featuredWorkout,
+      albumSlides,
+      publicStore
+    });
+  } catch (e) { next(e); }
+};
+
+/**
+ * GET /summit-stats/clubs/:id/public-page-config
+ * Manager-only — editable public page appearance/content settings.
+ */
+export const getPublicPageConfig = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+    const [rows] = await pool.execute(
+      `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
+      [clubId]
+    );
+    const config = buildPublicPageConfig(rows?.[0]?.store_config_json);
+    return res.json({ config });
+  } catch (e) { next(e); }
+};
+
+/**
+ * PUT /summit-stats/clubs/:id/public-page-config
+ * Manager-only — save editable public page settings.
+ */
+export const updatePublicPageConfig = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+    const [rows] = await pool.execute(
+      `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
+      [clubId]
+    );
+    const storeObj = parseJsonObject(rows?.[0]?.store_config_json);
+    const body = req.body || {};
+    const nextConfig = buildPublicPageConfig({
+      publicPageConfig: {
+        bannerTitle: body.bannerTitle,
+        bannerSubtitle: body.bannerSubtitle,
+        bannerImageUrl: body.bannerImageUrl,
+        showCurrentSeason: body.showCurrentSeason,
+        showActiveParticipants: body.showActiveParticipants,
+        showFeaturedWorkout: body.showFeaturedWorkout,
+        showPhotoAlbum: body.showPhotoAlbum,
+        albumSlides: body.albumSlides
+      }
+    });
+    const nextStoreObj = {
+      ...storeObj,
+      publicPageConfig: nextConfig
+    };
+    await pool.execute(
+      `UPDATE agencies SET store_config_json = ? WHERE id = ?`,
+      [JSON.stringify(nextStoreObj), clubId]
+    );
+    return res.json({ ok: true, config: nextConfig });
+  } catch (e) { next(e); }
+};
+
+// ── INVITE TOKEN RESOLUTION ───────────────────────────────────────────────
+
+/**
+ * GET /summit-stats/clubs/invite/:token
+ * Public — resolves an invite token and returns club info + custom field defs.
+ */
+export const resolveInviteToken = async (req, res, next) => {
+  try {
+    const { token } = req.params;
+    if (!token) return res.status(400).json({ error: { message: 'Token required' } });
+
+    const [rows] = await pool.execute(
+      `SELECT i.*, a.name AS club_name, a.logo_url, a.logo_path, a.id AS club_id
+       FROM challenge_member_invites i
+       JOIN agencies a ON a.id = i.agency_id
+       WHERE i.token = ? AND i.is_active = 1 LIMIT 1`,
+      [token]
+    );
+    const invite = rows?.[0];
+    if (!invite) return res.status(404).json({ error: { message: 'Invite link not found or expired' } });
+    if (invite.used_at) return res.status(410).json({ error: { message: 'This invite link has already been used' } });
+    if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+      return res.status(410).json({ error: { message: 'This invite link has expired' } });
+    }
+
+    // Custom field defs for the club
+    const [fieldRows] = await pool.execute(
+      `SELECT id, label, field_type, is_required FROM challenge_custom_field_definitions
+       WHERE agency_id = ? ORDER BY sort_order ASC, id ASC`,
+      [invite.agency_id]
+    );
+
+    const baseUrl = process.env.BACKEND_URL || '';
+    let logoUrl = invite.logo_url || null;
+    if (invite.logo_path) logoUrl = `${baseUrl}/uploads/${invite.logo_path.replace(/^uploads\//, '')}`;
+
+    return res.json({
+      invite: {
+        clubId:      invite.agency_id,
+        clubName:    invite.club_name,
+        logoUrl,
+        token:       invite.token,
+        email:       invite.email || null,
+        autoApprove: !!invite.auto_approve,
+        label:       invite.label || null
+      },
+      customFields: fieldRows || []
+    });
+  } catch (e) { next(e); }
+};
+
+// ── APPLICATION SUBMISSION ────────────────────────────────────────────────
+
+/** Shared logic: validate and write an application row. */
+const createApplicationRow = async ({
+  clubId, inviteId = null, referrerUserId = null,
+  firstName, lastName, email, phone,
+  gender, dateOfBirth, weightLbs, heightInches, timezone,
+  customFields
+}) => {
+  const [result] = await pool.execute(
+    `INSERT INTO challenge_member_applications
+       (agency_id, invite_id, referrer_user_id,
+        first_name, last_name, email, phone,
+        gender, date_of_birth, weight_lbs, height_inches, timezone,
+        custom_fields, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    [
+      clubId,
+      inviteId || null,
+      referrerUserId || null,
+      String(firstName || '').trim(),
+      String(lastName || '').trim(),
+      String(email || '').trim().toLowerCase(),
+      String(phone || '').trim() || null,
+      gender || null,
+      dateOfBirth || null,
+      weightLbs ? Number(weightLbs) : null,
+      heightInches ? Number(heightInches) : null,
+      timezone || null,
+      customFields ? JSON.stringify(customFields) : null
+    ]
+  );
+  return result.insertId;
+};
+
+/**
+ * POST /summit-stats/clubs/:id/apply-form
+ * Public — submit a member application (from public page or referral link).
+ * Body: { firstName, lastName, email, password, phone?, gender?, dateOfBirth?,
+ *         weightLbs?, heightInches?, timezone?, customFields?, referralCode? }
+ */
+export const submitApplication = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club   = await resolveClub(clubId);
+    if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
+
+    const {
+      firstName, lastName, email, phone,
+      gender, dateOfBirth, weightLbs, heightInches, timezone,
+      customFields, referralCode
+    } = req.body;
+
+    if (!firstName || !lastName) return res.status(400).json({ error: { message: 'First and last name are required' } });
+    if (!email) return res.status(400).json({ error: { message: 'Email is required' } });
+
+    // Check for duplicate pending/approved application
+    const [existing] = await pool.execute(
+      `SELECT id, status FROM challenge_member_applications WHERE agency_id = ? AND email = ? LIMIT 1`,
+      [clubId, String(email).trim().toLowerCase()]
+    );
+    if (existing?.[0]?.status === 'approved') {
+      return res.status(409).json({ error: { message: 'An account with this email is already a member of this club' } });
+    }
+    if (existing?.[0]?.status === 'pending') {
+      return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
+    }
+
+    // Resolve referrer
+    let referrerUserId = null;
+    if (referralCode) {
+      const [refRows] = await pool.execute(
+        `SELECT ua.user_id FROM user_agencies ua
+         WHERE ua.referral_code = ? AND ua.agency_id = ? LIMIT 1`,
+        [String(referralCode).toUpperCase(), clubId]
+      );
+      referrerUserId = refRows?.[0]?.user_id || null;
+    }
+
+    const appId = await createApplicationRow({
+      clubId, referrerUserId,
+      firstName, lastName, email, phone,
+      gender, dateOfBirth, weightLbs, heightInches, timezone,
+      customFields
+    });
+
+    return res.status(201).json({
+      ok: true,
+      applicationId: appId,
+      message: 'Application submitted! Your club manager will review it shortly.'
+    });
+  } catch (e) { next(e); }
+};
+
+/**
+ * POST /summit-stats/clubs/invite/:token/apply
+ * Public — submit a member application via a specific invite token.
+ */
+export const submitInviteApplication = async (req, res, next) => {
+  try {
+    const { token } = req.params;
+    const [inviteRows] = await pool.execute(
+      `SELECT * FROM challenge_member_invites WHERE token = ? AND is_active = 1 LIMIT 1`,
+      [token]
+    );
+    const invite = inviteRows?.[0];
+    if (!invite) return res.status(404).json({ error: { message: 'Invite link not found' } });
+    if (invite.used_at) return res.status(410).json({ error: { message: 'This invite has already been used' } });
+    if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+      return res.status(410).json({ error: { message: 'This invite has expired' } });
+    }
+
+    const clubId = toInt(invite.agency_id);
+    const club   = await resolveClub(clubId);
+    if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
+
+    const {
+      firstName, lastName, email, phone,
+      gender, dateOfBirth, weightLbs, heightInches, timezone,
+      customFields
+    } = req.body;
+
+    if (!firstName || !lastName) return res.status(400).json({ error: { message: 'First and last name are required' } });
+    if (!email) return res.status(400).json({ error: { message: 'Email is required' } });
+
+    const appId = await createApplicationRow({
+      clubId, inviteId: invite.id,
+      firstName, lastName, email, phone,
+      gender, dateOfBirth, weightLbs, heightInches, timezone,
+      customFields
+    });
+
+    // Mark invite as used
+    await pool.execute(
+      `UPDATE challenge_member_invites SET used_at = NOW() WHERE id = ?`,
+      [invite.id]
+    );
+
+    // Auto-approve if the invite flag is set
+    if (invite.auto_approve) {
+      await _approveApplication(appId, null /* no manager */, 'Auto-approved via invite link');
+      return res.status(201).json({
+        ok: true, applicationId: appId,
+        message: 'Welcome! You have been added to the club automatically.'
+      });
+    }
+
+    return res.status(201).json({
+      ok: true, applicationId: appId,
+      message: 'Application submitted! Your club manager will review it shortly.'
+    });
+  } catch (e) { next(e); }
+};
+
+// ── APPROVAL LOGIC (shared) ───────────────────────────────────────────────
+
+/** Internal: approve one application row. Creates/links user, assigns to club, saves profile. */
+const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
+  const [appRows] = await pool.execute(
+    `SELECT * FROM challenge_member_applications WHERE id = ? LIMIT 1`, [appId]
+  );
+  const app = appRows?.[0];
+  if (!app) throw new Error('Application not found');
+
+  // Find or create user account
+  let userId = app.user_id;
+  if (!userId) {
+    // Check if an account with this email already exists
+    const existingUser = await User.findByEmail(app.email);
+    if (existingUser) {
+      userId = existingUser.id;
+    } else {
+      // Create a new participant account (random password — user must reset)
+      const tempPw = genToken(16);
+      const hashedPw = await hashPassword(tempPw);
+      const [insertResult] = await pool.execute(
+        `INSERT INTO users (first_name, last_name, email, password, role, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'provider', 'ACTIVE_EMPLOYEE', NOW(), NOW())`,
+        [app.first_name, app.last_name, app.email, hashedPw]
+      );
+      userId = insertResult.insertId;
+      // TODO: in a real deployment, send a "set your password" email here
+    }
+  }
+
+  // Assign to club (idempotent)
+  const agencies = await User.getAgencies(userId);
+  const alreadyMember = (agencies || []).some((a) => Number(a?.id) === Number(app.agency_id));
+  if (!alreadyMember) await User.assignToAgency(userId, app.agency_id);
+
+  // Save participant profile (gender, DOB, weight, height) to most recent season, or globally
+  if (app.gender || app.date_of_birth || app.weight_lbs || app.height_inches) {
+    // Find the most recent active season for this club
+    const [seasonRows] = await pool.execute(
+      `SELECT id FROM learning_program_classes WHERE organization_id = ? ORDER BY created_at DESC LIMIT 1`,
+      [app.agency_id]
+    );
+    const classId = seasonRows?.[0]?.id;
+    if (classId) {
+      await ChallengeParticipantProfile.upsert({
+        userId,
+        classId,
+        gender:       app.gender || null,
+        dateOfBirth:  app.date_of_birth || null,
+        weightLbs:    app.weight_lbs || null,
+        heightInches: app.height_inches || null
+      });
+    }
+  }
+
+  // Save custom field values
+  if (app.custom_fields) {
+    let fields = {};
+    try { fields = typeof app.custom_fields === 'string' ? JSON.parse(app.custom_fields) : app.custom_fields; } catch { /* */ }
+    for (const [defId, value] of Object.entries(fields || {})) {
+      if (value === undefined || value === null || value === '') continue;
+      await pool.execute(
+        `INSERT INTO challenge_custom_field_values (user_id, field_definition_id, value)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE value = VALUES(value)`,
+        [userId, Number(defId), String(value)]
+      );
+    }
+  }
+
+  // Credit referrer
+  if (app.referrer_user_id) {
+    await pool.execute(
+      `UPDATE user_agencies SET referral_credit_count = referral_credit_count + 1
+       WHERE user_id = ? AND agency_id = ?`,
+      [app.referrer_user_id, app.agency_id]
+    );
+  }
+
+  // Update application record
+  await pool.execute(
+    `UPDATE challenge_member_applications
+     SET status = 'approved', user_id = ?, reviewed_by = ?, reviewed_at = NOW(), manager_notes = ?
+     WHERE id = ?`,
+    [userId, reviewedByUserId || null, notes || null, appId]
+  );
+
+  return { userId };
+};
+
+// ── MANAGER: LIST / REVIEW APPLICATIONS ───────────────────────────────────
+
+/**
+ * GET /summit-stats/clubs/:id/applications
+ * Manager — list applications (default: pending; ?status=all|approved|denied).
+ */
+export const listApplications = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club   = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+
+    const status = req.query.status || 'pending';
+    const whereStatus = status === 'all' ? '' : `AND a.status = ?`;
+    const params = status === 'all' ? [clubId] : [clubId, status];
+
+    const [rows] = await pool.execute(
+      `SELECT a.*,
+              CONCAT(ru.first_name, ' ', ru.last_name) AS referrer_name,
+              i.label AS invite_label, i.token AS invite_token,
+              rb.first_name AS reviewed_by_first, rb.last_name AS reviewed_by_last
+       FROM challenge_member_applications a
+       LEFT JOIN users ru ON ru.id = a.referrer_user_id
+       LEFT JOIN challenge_member_invites i ON i.id = a.invite_id
+       LEFT JOIN users rb ON rb.id = a.reviewed_by
+       WHERE a.agency_id = ? ${whereStatus}
+       ORDER BY a.applied_at DESC`,
+      params
+    );
+
+    return res.json({ applications: rows || [] });
+  } catch (e) { next(e); }
+};
+
+/**
+ * PUT /summit-stats/clubs/:id/applications/:appId
+ * Manager — approve or deny an application.
+ * Body: { action: 'approve'|'deny', notes?: string }
+ */
+export const reviewApplication = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const appId  = toInt(req.params.appId);
+    const club   = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+
+    const { action, notes } = req.body;
+    if (!['approve', 'deny'].includes(action)) {
+      return res.status(400).json({ error: { message: 'action must be "approve" or "deny"' } });
+    }
+
+    // Ensure application belongs to this club
+    const [appRows] = await pool.execute(
+      `SELECT id, status, agency_id FROM challenge_member_applications WHERE id = ? LIMIT 1`, [appId]
+    );
+    const app = appRows?.[0];
+    if (!app || Number(app.agency_id) !== clubId) {
+      return res.status(404).json({ error: { message: 'Application not found' } });
+    }
+    if (app.status !== 'pending') {
+      return res.status(409).json({ error: { message: `Application is already ${app.status}` } });
+    }
+
+    if (action === 'approve') {
+      const { userId } = await _approveApplication(appId, req.user.id, notes);
+      return res.json({ ok: true, userId, message: 'Member approved and added to the club.' });
+    } else {
+      await pool.execute(
+        `UPDATE challenge_member_applications
+         SET status = 'denied', reviewed_by = ?, reviewed_at = NOW(), manager_notes = ?
+         WHERE id = ?`,
+        [req.user.id, notes || null, appId]
+      );
+      return res.json({ ok: true, message: 'Application denied.' });
+    }
+  } catch (e) { next(e); }
+};
+
+// ── MANAGER: INVITE TOKENS ────────────────────────────────────────────────
+
+/**
+ * POST /summit-stats/clubs/:id/invites
+ * Manager — create an invite token.
+ * Body: { email?, label?, autoApprove?, expiresAt? }
+ */
+export const createInvite = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club   = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+
+    const { email, label, autoApprove, expiresAt } = req.body;
+    const token = genToken(32);
+
+    await pool.execute(
+      `INSERT INTO challenge_member_invites
+         (agency_id, created_by, token, email, label, auto_approve, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        clubId,
+        req.user.id,
+        token,
+        email ? String(email).trim().toLowerCase() : null,
+        label ? String(label).trim() : null,
+        autoApprove ? 1 : 0,
+        expiresAt || null
+      ]
+    );
+
+    const baseUrl = process.env.FRONTEND_URL || process.env.VITE_APP_URL || '';
+    // Build join URL using the platform slug  
+    const joinUrl = `${baseUrl}/ssc/join?invite=${token}`;
+
+    return res.status(201).json({ ok: true, token, joinUrl });
+  } catch (e) { next(e); }
+};
+
+/**
+ * GET /summit-stats/clubs/:id/invites
+ * Manager — list active invite tokens.
+ */
+export const listInvites = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club   = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+
+    const [rows] = await pool.execute(
+      `SELECT i.*, CONCAT(u.first_name, ' ', u.last_name) AS created_by_name
+       FROM challenge_member_invites i
+       LEFT JOIN users u ON u.id = i.created_by
+       WHERE i.agency_id = ? AND i.is_active = 1
+       ORDER BY i.created_at DESC`,
+      [clubId]
+    );
+
+    const baseUrl = process.env.FRONTEND_URL || process.env.VITE_APP_URL || '';
+    const invites = (rows || []).map(inv => ({
+      ...inv,
+      joinUrl: `${baseUrl}/ssc/join?invite=${inv.token}`
+    }));
+
+    return res.json({ invites });
+  } catch (e) { next(e); }
+};
+
+/**
+ * DELETE /summit-stats/clubs/:id/invites/:inviteId
+ * Manager — revoke an invite.
+ */
+export const revokeInvite = async (req, res, next) => {
+  try {
+    const clubId   = toInt(req.params.id);
+    const inviteId = toInt(req.params.inviteId);
+    const club     = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+
+    await pool.execute(
+      `UPDATE challenge_member_invites SET is_active = 0 WHERE id = ? AND agency_id = ?`,
+      [inviteId, clubId]
+    );
+    return res.json({ ok: true });
+  } catch (e) { next(e); }
+};
+
+// ── MEMBER: REFERRAL LINK ─────────────────────────────────────────────────
+
+/**
+ * GET /summit-stats/clubs/:id/my-referral-link
+ * Authenticated member — get or generate their personal referral code for this club.
+ */
+export const getMyReferralLink = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const user   = req.user;
+    if (!user?.id) return res.status(401).json({ error: { message: 'Sign in required' } });
+
+    const club = await resolveClub(clubId);
+    if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
+
+    // Check membership
+    const [uaRows] = await pool.execute(
+      `SELECT id, referral_code, referral_credit_count
+       FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      [user.id, clubId]
+    );
+    const ua = uaRows?.[0];
+    if (!ua) return res.status(403).json({ error: { message: 'You are not a member of this club' } });
+
+    let code = ua.referral_code;
+    if (!code) {
+      // Generate unique code
+      let attempts = 0;
+      while (!code && attempts < 10) {
+        const candidate = genReferralCode();
+        try {
+          await pool.execute(
+            `UPDATE user_agencies SET referral_code = ? WHERE user_id = ? AND agency_id = ?`,
+            [candidate, user.id, clubId]
+          );
+          code = candidate;
+        } catch { attempts++; } // UNIQUE constraint violation → retry
+      }
+    }
+
+    const baseUrl = process.env.FRONTEND_URL || process.env.VITE_APP_URL || '';
+    const joinUrl = `${baseUrl}/ssc/join?ref=${code}`;
+
+    return res.json({
+      referralCode: code,
+      joinUrl,
+      creditCount: Number(ua.referral_credit_count || 0)
+    });
+  } catch (e) { next(e); }
+};
+
+// ── PENDING COUNT (for badge) ─────────────────────────────────────────────
+
+/**
+ * GET /summit-stats/clubs/:id/applications/count
+ * Manager — quick count of pending applications for badge display.
+ */
+export const getPendingApplicationCount = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club   = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+
+    const [rows] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM challenge_member_applications WHERE agency_id = ? AND status = 'pending'`,
+      [clubId]
+    );
+    return res.json({ count: Number(rows?.[0]?.cnt || 0) });
+  } catch (e) { next(e); }
+};
+
+// ── CLUB FEED ─────────────────────────────────────────────────────────────
+
+/**
+ * GET /summit-stats/clubs/:id/feed
+ * Authenticated — recent workout activity across all club seasons.
+ * Seasons whose settings have feedSettings.showInClubFeed === false are excluded.
+ */
+export const getClubFeed = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await resolveClub(clubId);
+    if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
+
+    const limit = Math.min(60, parseInt(req.query.limit, 10) || 40);
+
+    // Get all seasons for this club, filter out those with showInClubFeed === false
+    const [seasonRows] = await pool.execute(
+      `SELECT id, class_name, season_settings_json FROM learning_program_classes WHERE organization_id = ? ORDER BY created_at DESC LIMIT 20`,
+      [clubId]
+    );
+    const visibleSeasonIds = (seasonRows || [])
+      .filter((s) => {
+        try {
+          const settings = typeof s.season_settings_json === 'string'
+            ? JSON.parse(s.season_settings_json)
+            : (s.season_settings_json || {});
+          return settings?.feedSettings?.showInClubFeed !== false;
+        } catch { return true; }
+      })
+      .map((s) => s.id);
+
+    if (!visibleSeasonIds.length) return res.json({ items: [] });
+
+    const placeholders = visibleSeasonIds.map(() => '?').join(', ');
+    const seasonMap = new Map((seasonRows || []).map((s) => [s.id, s.class_name]));
+
+    const [workoutRows] = await pool.execute(
+      `SELECT
+         w.id, w.user_id, w.learning_class_id, w.activity_type,
+         w.distance_value, w.duration_minutes, w.points, w.calories_burned,
+         w.workout_notes, w.completed_at, w.is_race,
+         u.first_name, u.last_name
+       FROM challenge_workouts w
+       INNER JOIN users u ON u.id = w.user_id
+       WHERE w.learning_class_id IN (${placeholders})
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+       ORDER BY w.completed_at DESC
+       LIMIT ?`,
+      [...visibleSeasonIds, limit]
+    );
+
+    // Recent manager messages from visible seasons
+    const [msgRows] = await pool.execute(
+      `SELECT
+         cm.id, cm.learning_class_id, cm.message_text, cm.created_at,
+         u.first_name, u.last_name, ua.role
+       FROM challenge_messages cm
+       INNER JOIN users u ON u.id = cm.user_id
+       INNER JOIN user_agencies ua ON ua.user_id = cm.user_id AND ua.agency_id = ?
+       WHERE cm.learning_class_id IN (${placeholders})
+         AND ua.role IN ('admin','staff','provider_plus')
+       ORDER BY cm.created_at DESC
+       LIMIT 20`,
+      [clubId, ...visibleSeasonIds]
+    );
+
+    const feedItems = [
+      ...(workoutRows || []).map((w) => ({
+        type: 'workout',
+        id: `w-${w.id}`,
+        workoutId: Number(w.id),
+        userId: Number(w.user_id),
+        name: `${w.first_name || ''} ${w.last_name || ''}`.trim(),
+        activityType: w.activity_type,
+        distanceMiles: w.distance_value != null ? Number(w.distance_value) : null,
+        durationMinutes: w.duration_minutes != null ? Number(w.duration_minutes) : null,
+        points: Number(w.points || 0),
+        isRace: w.is_race === 1,
+        notes: w.workout_notes || null,
+        seasonName: seasonMap.get(w.learning_class_id) || null,
+        timestamp: w.completed_at
+      })),
+      ...(msgRows || []).map((m) => ({
+        type: 'announcement',
+        id: `m-${m.id}`,
+        userId: null,
+        name: `${m.first_name || ''} ${m.last_name || ''}`.trim(),
+        text: m.message_text,
+        seasonName: seasonMap.get(m.learning_class_id) || null,
+        timestamp: m.created_at
+      }))
+    ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, limit);
+
+    return res.json({ items: feedItems });
+  } catch (e) { next(e); }
+};
+
+// ── CLUB RECORD BOARD ────────────────────────────────────────────────────
+
+/**
+ * GET /summit-stats/clubs/:id/record-board
+ * Authenticated — all-time club record board computed from workout data.
+ */
+export const getClubRecordBoard = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await resolveClub(clubId);
+    if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
+
+    // Use classId=0 (no season scope) and organizationId=clubId for all-time
+    const boards = await buildRecordMetricMap({ classId: 0, organizationId: clubId, selectedMetricKeys: [] });
+    return res.json({ records: boards.clubAllTime || [] });
+  } catch (e) { next(e); }
+};
+
+/**
+ * GET /summit-stats/clubs/:id/members
+ * Manager — list club members with season participation summary.
+ */
+export const listClubMembers = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+
+    const [rows] = await pool.execute(
+      `SELECT
+         u.id,
+         u.email,
+         u.first_name,
+         u.last_name,
+         u.role,
+         u.status,
+         u.created_at,
+         ua.is_active AS club_is_active,
+         ua.role      AS club_role
+       FROM user_agencies ua
+       INNER JOIN users u ON u.id = ua.user_id
+       WHERE ua.agency_id = ?
+         AND (u.is_archived IS NULL OR u.is_archived = 0)
+       ORDER BY u.created_at DESC`,
+      [clubId]
+    );
+
+    const members = Array.isArray(rows) ? rows.map((r) => ({
+      id: Number(r.id),
+      email: r.email || '',
+      firstName: r.first_name || '',
+      lastName: r.last_name || '',
+      role: r.role || '',
+      status: r.status || '',
+      createdAt: r.created_at || null,
+      clubRole: r.club_role || null,
+      isActiveInClub: Number(r.club_is_active || 0) === 1
+    })) : [];
+
+    const memberIds = members.map((m) => m.id).filter((n) => Number.isFinite(n) && n > 0);
+    const seasonsByUser = {};
+    if (memberIds.length) {
+      const placeholders = memberIds.map(() => '?').join(',');
+      const [seasonRows] = await pool.execute(
+        `SELECT
+           m.provider_user_id AS user_id,
+           m.membership_status,
+           c.id AS class_id,
+           c.class_name,
+           c.status AS class_status,
+           c.starts_at,
+           c.ends_at
+         FROM learning_class_provider_memberships m
+         INNER JOIN learning_program_classes c ON c.id = m.learning_class_id
+         WHERE c.organization_id = ?
+           AND m.provider_user_id IN (${placeholders})
+           AND m.membership_status IN ('active','completed')
+         ORDER BY COALESCE(c.starts_at, c.created_at) DESC, c.id DESC`,
+        [clubId, ...memberIds]
+      );
+      for (const row of seasonRows || []) {
+        const uid = Number(row.user_id);
+        if (!uid) continue;
+        if (!seasonsByUser[uid]) seasonsByUser[uid] = [];
+        seasonsByUser[uid].push({
+          classId: Number(row.class_id),
+          className: row.class_name || 'Season',
+          membershipStatus: row.membership_status || null,
+          classStatus: row.class_status || null,
+          startsAt: row.starts_at || null,
+          endsAt: row.ends_at || null
+        });
+      }
+    }
+
+    return res.json({
+      members: members.map((m) => ({
+        ...m,
+        seasons: seasonsByUser[m.id] || []
+      }))
+    });
+  } catch (e) { next(e); }
+};
+
+const normalizeNum = (v, digits = 1) => {
+  const n = Number(v || 0);
+  if (!Number.isFinite(n)) return 0;
+  return Number(n.toFixed(digits));
+};
+
+const buildSeasonHistoryFallbackSummary = ({ firstName, seasonCount, totalMiles, totalPoints, totalWorkouts, bestSeason }) => {
+  const name = String(firstName || 'This member').trim() || 'This member';
+  const seasonText = seasonCount === 1 ? '1 season' : `${seasonCount} seasons`;
+  const bestSeasonText = bestSeason
+    ? `Top season: ${bestSeason.className} (${normalizeNum(bestSeason.totalMiles, 1)} miles, ${Math.round(bestSeason.totalPoints)} points).`
+    : 'No completed workout data has been logged yet.';
+  return `${name} has participated in ${seasonText} with ${normalizeNum(totalMiles, 1)} total miles, ${Math.round(totalPoints)} points, and ${Math.round(totalWorkouts)} logged workouts. ${bestSeasonText}`;
+};
+
+/**
+ * GET /summit-stats/clubs/:id/members/:userId/season-history
+ * Manager — season participation history + registration profile + AI summary.
+ */
+export const getClubMemberSeasonHistory = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const userId = toInt(req.params.userId);
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+
+    const [membershipRows] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.email, ua.is_active
+       FROM user_agencies ua
+       INNER JOIN users u ON u.id = ua.user_id
+       WHERE ua.agency_id = ? AND ua.user_id = ?
+       LIMIT 1`,
+      [clubId, userId]
+    );
+    const member = membershipRows?.[0];
+    if (!member) return res.status(404).json({ error: { message: 'Member not found in this club' } });
+
+    const [applicationRows] = await pool.execute(
+      `SELECT first_name, last_name, email, phone, gender, date_of_birth, weight_lbs, height_inches, timezone, custom_fields, status, reviewed_at, created_at
+       FROM challenge_member_applications
+       WHERE agency_id = ? AND (user_id = ? OR LOWER(email) = LOWER(?))
+       ORDER BY reviewed_at DESC, created_at DESC, id DESC
+       LIMIT 1`,
+      [clubId, userId, String(member.email || '').trim().toLowerCase()]
+    );
+    const latestApplication = applicationRows?.[0] || null;
+
+    const [participantRows] = await pool.execute(
+      `SELECT p.gender, p.date_of_birth, p.weight_lbs, p.height_inches, p.updated_at
+       FROM challenge_participant_profiles p
+       INNER JOIN learning_program_classes c ON c.id = p.learning_class_id
+       WHERE c.organization_id = ? AND p.provider_user_id = ?
+       ORDER BY p.updated_at DESC, p.id DESC
+       LIMIT 1`,
+      [clubId, userId]
+    );
+    const latestParticipantProfile = participantRows?.[0] || null;
+
+    const [seasonRows] = await pool.execute(
+      `SELECT
+         c.id AS class_id,
+         c.class_name,
+         c.status AS class_status,
+         c.starts_at,
+         c.ends_at,
+         c.created_at,
+         m.membership_status,
+         MAX(t.team_name) AS team_name,
+         COUNT(w.id) AS workout_count,
+         COALESCE(SUM(w.distance_value), 0) AS total_miles,
+         COALESCE(SUM(w.points), 0) AS total_points,
+         COALESCE(SUM(w.duration_minutes), 0) AS total_minutes,
+         COALESCE(SUM(w.calories_burned), 0) AS total_calories,
+         SUM(CASE WHEN w.weekly_task_id IS NOT NULL THEN 1 ELSE 0 END) AS challenge_tag_count,
+         SUM(CASE WHEN w.is_race = 1 THEN 1 ELSE 0 END) AS race_count,
+         MAX(CASE
+           WHEN LOWER(COALESCE(w.activity_type, '')) LIKE '%run%' THEN COALESCE(w.distance_value, 0)
+           ELSE 0
+         END) AS longest_run_miles,
+         MIN(CASE
+           WHEN LOWER(COALESCE(w.activity_type, '')) LIKE '%run%'
+             AND COALESCE(w.distance_value, 0) >= 1
+             AND COALESCE(w.duration_minutes, 0) > 0
+           THEN (w.duration_minutes / NULLIF(w.distance_value, 0))
+           ELSE NULL
+         END) AS best_run_pace_min_per_mile,
+         MAX(w.completed_at) AS last_workout_at
+       FROM learning_class_provider_memberships m
+       INNER JOIN learning_program_classes c ON c.id = m.learning_class_id
+       LEFT JOIN challenge_team_members tm
+         ON tm.learning_class_id = c.id
+        AND tm.provider_user_id = m.provider_user_id
+       LEFT JOIN challenge_teams t ON t.id = tm.team_id
+       LEFT JOIN challenge_workouts w
+         ON w.learning_class_id = c.id
+        AND w.user_id = m.provider_user_id
+        AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+       WHERE c.organization_id = ?
+         AND m.provider_user_id = ?
+         AND m.membership_status IN ('active', 'completed')
+       GROUP BY
+         c.id, c.class_name, c.status, c.starts_at, c.ends_at, c.created_at, m.membership_status
+       ORDER BY COALESCE(c.starts_at, c.created_at) DESC, c.id DESC`,
+      [clubId, userId]
+    );
+
+    const seasons = (seasonRows || []).map((row) => ({
+      classId: Number(row.class_id),
+      className: row.class_name || `Season ${row.class_id}`,
+      classStatus: row.class_status || null,
+      membershipStatus: row.membership_status || null,
+      teamName: row.team_name || null,
+      startsAt: row.starts_at || null,
+      endsAt: row.ends_at || null,
+      lastWorkoutAt: row.last_workout_at || null,
+      workoutCount: Number(row.workout_count || 0),
+      totalMiles: normalizeNum(row.total_miles, 1),
+      totalPoints: Number(row.total_points || 0),
+      totalMinutes: Number(row.total_minutes || 0),
+      totalCalories: Number(row.total_calories || 0),
+      challengeTagCount: Number(row.challenge_tag_count || 0),
+      raceCount: Number(row.race_count || 0),
+      longestRunMiles: normalizeNum(row.longest_run_miles, 1),
+      bestRunPaceMinPerMile: row.best_run_pace_min_per_mile != null ? normalizeNum(row.best_run_pace_min_per_mile, 2) : null
+    }));
+
+    const totals = seasons.reduce((acc, s) => {
+      acc.totalMiles += Number(s.totalMiles || 0);
+      acc.totalPoints += Number(s.totalPoints || 0);
+      acc.totalMinutes += Number(s.totalMinutes || 0);
+      acc.totalCalories += Number(s.totalCalories || 0);
+      acc.totalWorkouts += Number(s.workoutCount || 0);
+      acc.totalChallengeTags += Number(s.challengeTagCount || 0);
+      acc.totalRaces += Number(s.raceCount || 0);
+      acc.bestRunPaceMinPerMile = acc.bestRunPaceMinPerMile == null
+        ? s.bestRunPaceMinPerMile
+        : (s.bestRunPaceMinPerMile == null ? acc.bestRunPaceMinPerMile : Math.min(acc.bestRunPaceMinPerMile, s.bestRunPaceMinPerMile));
+      acc.longestRunMiles = Math.max(acc.longestRunMiles, Number(s.longestRunMiles || 0));
+      return acc;
+    }, {
+      totalMiles: 0,
+      totalPoints: 0,
+      totalMinutes: 0,
+      totalCalories: 0,
+      totalWorkouts: 0,
+      totalChallengeTags: 0,
+      totalRaces: 0,
+      bestRunPaceMinPerMile: null,
+      longestRunMiles: 0
+    });
+
+    const bestSeason = seasons.length
+      ? seasons.slice().sort((a, b) => (Number(b.totalPoints || 0) - Number(a.totalPoints || 0)) || (Number(b.totalMiles || 0) - Number(a.totalMiles || 0)))[0]
+      : null;
+
+    const profile = {
+      firstName: latestApplication?.first_name || member.first_name || '',
+      lastName: latestApplication?.last_name || member.last_name || '',
+      email: latestApplication?.email || member.email || '',
+      phone: latestApplication?.phone || null,
+      gender: latestApplication?.gender || latestParticipantProfile?.gender || null,
+      dateOfBirth: latestApplication?.date_of_birth || latestParticipantProfile?.date_of_birth || null,
+      weightLbs: latestApplication?.weight_lbs != null ? Number(latestApplication.weight_lbs) : (latestParticipantProfile?.weight_lbs != null ? Number(latestParticipantProfile.weight_lbs) : null),
+      heightInches: latestApplication?.height_inches != null ? Number(latestApplication.height_inches) : (latestParticipantProfile?.height_inches != null ? Number(latestParticipantProfile.height_inches) : null),
+      timezone: latestApplication?.timezone || null,
+      customFields: (() => {
+        const raw = latestApplication?.custom_fields;
+        if (!raw) return {};
+        if (typeof raw === 'object') return raw;
+        try { return JSON.parse(raw); } catch { return {}; }
+      })(),
+      source: latestApplication ? 'member_application' : (latestParticipantProfile ? 'participant_profile' : 'user_profile')
+    };
+
+    let aiSummary = '';
+    try {
+      const prompt = [
+        'You are writing a short coaching/performance summary for a team captain.',
+        'Use concise plain English. Focus on trends, consistency, strengths, and actionable next-season focus.',
+        'Do not invent data. If data is missing, say so briefly.',
+        'Keep this to 4-6 sentences and under 110 words.',
+        '',
+        `Member: ${profile.firstName || member.first_name || ''} ${profile.lastName || member.last_name || ''}`.trim(),
+        `Seasons participated: ${seasons.length}`,
+        `All-time totals: miles=${normalizeNum(totals.totalMiles, 1)}, points=${Math.round(totals.totalPoints)}, workouts=${Math.round(totals.totalWorkouts)}, challengeTags=${Math.round(totals.totalChallengeTags)}, races=${Math.round(totals.totalRaces)}`,
+        `Longest run miles: ${normalizeNum(totals.longestRunMiles, 1)}`,
+        `Best run pace min/mile: ${totals.bestRunPaceMinPerMile == null ? 'n/a' : normalizeNum(totals.bestRunPaceMinPerMile, 2)}`,
+        `Best season: ${bestSeason ? `${bestSeason.className} (${normalizeNum(bestSeason.totalMiles, 1)} miles, ${Math.round(bestSeason.totalPoints)} points, ${Math.round(bestSeason.workoutCount)} workouts)` : 'n/a'}`,
+        '',
+        'Season details:',
+        ...(seasons || []).slice(0, 8).map((s) =>
+          `- ${s.className}: status=${s.classStatus || 'unknown'}, memberStatus=${s.membershipStatus || 'unknown'}, team=${s.teamName || 'n/a'}, miles=${normalizeNum(s.totalMiles, 1)}, points=${Math.round(s.totalPoints)}, workouts=${Math.round(s.workoutCount)}, races=${Math.round(s.raceCount)}, longestRun=${normalizeNum(s.longestRunMiles, 1)}, bestPace=${s.bestRunPaceMinPerMile == null ? 'n/a' : normalizeNum(s.bestRunPaceMinPerMile, 2)}`
+        )
+      ].join('\n');
+      const ai = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 260 });
+      aiSummary = String(ai?.text || '').trim();
+    } catch {
+      aiSummary = '';
+    }
+    if (!aiSummary) {
+      aiSummary = buildSeasonHistoryFallbackSummary({
+        firstName: profile.firstName || member.first_name,
+        seasonCount: seasons.length,
+        totalMiles: totals.totalMiles,
+        totalPoints: totals.totalPoints,
+        totalWorkouts: totals.totalWorkouts,
+        bestSeason
+      });
+    }
+
+    return res.json({
+      member: {
+        userId: Number(member.id),
+        firstName: member.first_name || '',
+        lastName: member.last_name || '',
+        email: member.email || '',
+        isActiveInClub: Number(member.is_active || 0) === 1
+      },
+      registrationProfile: profile,
+      seasonHistory: {
+        seasonCount: seasons.length,
+        totals: {
+          totalMiles: normalizeNum(totals.totalMiles, 1),
+          totalPoints: Math.round(totals.totalPoints),
+          totalMinutes: Math.round(totals.totalMinutes),
+          totalCalories: Math.round(totals.totalCalories),
+          totalWorkouts: Math.round(totals.totalWorkouts),
+          totalChallengeTags: Math.round(totals.totalChallengeTags),
+          totalRaces: Math.round(totals.totalRaces),
+          longestRunMiles: normalizeNum(totals.longestRunMiles, 1),
+          bestRunPaceMinPerMile: totals.bestRunPaceMinPerMile == null ? null : normalizeNum(totals.bestRunPaceMinPerMile, 2)
+        },
+        bestSeason: bestSeason || null,
+        seasons
+      },
+      aiSummary
+    });
+  } catch (e) { next(e); }
+};
+
+/**
+ * PUT /summit-stats/clubs/:id/members/:userId/status
+ * Manager — set member active/inactive within this club.
+ */
+export const setClubMemberStatus = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const userId = toInt(req.params.userId);
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+
+    const isActive = req.body?.isActive === true || req.body?.isActive === 1 || String(req.body?.isActive || '').toLowerCase() === 'true';
+
+    const [existing] = await pool.execute(
+      `SELECT id FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      [userId, clubId]
+    );
+    if (!existing?.[0]?.id) return res.status(404).json({ error: { message: 'Member not found in this club' } });
+
+    await pool.execute(
+      `UPDATE user_agencies SET is_active = ? WHERE user_id = ? AND agency_id = ?`,
+      [isActive ? 1 : 0, userId, clubId]
+    );
+    return res.json({ ok: true, userId, clubId, isActive });
+  } catch (e) { next(e); }
+};

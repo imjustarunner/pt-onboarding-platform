@@ -30,7 +30,8 @@ export const authenticate = (req, res, next) => {
     if (requestPath.includes('/verify-club-manager-email')) {
       return next();
     }
-    if (requestPath.includes('/summit-stats/clubs') && req.method === 'GET') {
+    // Only the club directory listing is public. Keep club detail/records endpoints authenticated.
+    if (req.method === 'GET' && /^\/api\/summit-stats\/clubs\/?$/.test(requestPath)) {
       return next();
     }
     // Fonts are used on public login/portal pages.

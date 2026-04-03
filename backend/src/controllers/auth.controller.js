@@ -17,6 +17,7 @@ import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSend
 import { resolvePreferredSenderIdentityForAgency } from '../services/emailSenderIdentityResolver.service.js';
 import { getPlatformAgencyId } from './summitStats.controller.js';
 import pool from '../config/database.js';
+import ChallengeParticipantProfile from '../models/ChallengeParticipantProfile.model.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import { SUPPORT_TICKET_SOURCE_KEYS, normalizeSupportTicketSourceKey } from '../constants/supportTicketSources.js';
 
@@ -1136,6 +1137,41 @@ export const identifyLogin = async (req, res, next) => {
       }
     }
 
+    // SSC login: surface the user's club branding so the login page can show a dual-brand split.
+    // Only included when the club has a logo; silently skipped on any error.
+    let affiliationBranding = null;
+    if (requestedOrgSlug === 'ssc' && user?.id) {
+      try {
+        const [clubRows] = await pool.execute(
+          `SELECT a.id, a.name, a.logo_path, a.logo_url
+           FROM learning_class_provider_memberships m
+           INNER JOIN learning_program_classes lpc ON lpc.id = m.learning_class_id
+           INNER JOIN agencies a ON a.id = lpc.agency_id
+           WHERE m.provider_user_id = ?
+             AND m.membership_status IN ('active', 'completed')
+             AND a.organization_type = 'affiliation'
+             AND a.is_active = 1
+           ORDER BY m.created_at DESC
+           LIMIT 1`,
+          [user.id]
+        );
+        const club = clubRows?.[0];
+        if (club) {
+          const uploadsBase = String(process.env.UPLOADS_BASE_URL || '').replace(/\/$/, '');
+          let logoUrl = club.logo_url || null;
+          if (club.logo_path) {
+            const cleaned = String(club.logo_path).replace(/^\/+/, '').replace(/^uploads\//, '');
+            logoUrl = cleaned ? `${uploadsBase}/uploads/${cleaned}` : logoUrl;
+          }
+          if (logoUrl) {
+            affiliationBranding = { name: club.name || null, logoUrl };
+          }
+        }
+      } catch {
+        // best-effort — never block login
+      }
+    }
+
     notifyRescueAttempt({ matched: true, method: loginMethod, resolvedSlug });
     return res.json({
       matched: true,
@@ -1151,6 +1187,7 @@ export const identifyLogin = async (req, res, next) => {
             organization_type: resolved?.organization_type ?? resolved?.organizationType ?? null
           }
         : null,
+      affiliationBranding,
       login:
         loginMethod === 'google'
           ? { method: 'google', googleStartUrl }
@@ -3534,7 +3571,7 @@ export const registerParticipant = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
-    const { email, password, firstName, lastName, portalSlug } = req.body;
+    const { email, password, firstName, lastName, portalSlug, weightLbs, heightInches, gender, dateOfBirth, timezone, clubId, challengeClassId } = req.body;
     const resolvedEmail = String(email || '').trim().toLowerCase();
     if (!resolvedEmail) {
       return res.status(400).json({ error: { message: 'Email is required' } });
@@ -3563,6 +3600,38 @@ export const registerParticipant = async (req, res, next) => {
       role: 'provider',
       status: 'ACTIVE_EMPLOYEE'
     });
+
+    // Persist optional activity-profile fields if provided
+    if (weightLbs || heightInches || gender || dateOfBirth) {
+      try {
+        // Use a provided class id or look up the most recent season for the club
+        let resolvedClassId = challengeClassId ? Number(challengeClassId) : null;
+        if (!resolvedClassId && clubId) {
+          const [seasonRows] = await pool.execute(
+            `SELECT id FROM learning_program_classes WHERE agency_id = ? ORDER BY created_at DESC LIMIT 1`,
+            [Number(clubId)]
+          );
+          resolvedClassId = seasonRows?.[0]?.id || null;
+        }
+        if (resolvedClassId) {
+          await ChallengeParticipantProfile.upsert({
+            userId: user.id,
+            classId: resolvedClassId,
+            gender:      gender || null,
+            dateOfBirth: dateOfBirth || null,
+            weightLbs:   weightLbs ? Number(weightLbs) : null,
+            heightInches: heightInches ? Number(heightInches) : null
+          });
+        }
+      } catch { /* non-fatal — profile can be completed later in Account Info */ }
+    }
+
+    // Persist timezone preference if provided
+    if (timezone) {
+      try {
+        await pool.execute(`UPDATE users SET timezone = ? WHERE id = ?`, [String(timezone).slice(0, 64), user.id]);
+      } catch { /* non-fatal */ }
+    }
 
     res.status(201).json({
       message: 'Account created. You can now log in and join a club.',

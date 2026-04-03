@@ -34,7 +34,7 @@ class ChallengeWorkout {
     const workoutId = toInt(id);
     if (!workoutId) return null;
     const [rows] = await pool.execute(
-      `SELECT w.*, u.first_name, u.last_name
+      `SELECT w.*, u.first_name, u.last_name, u.profile_photo_path
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
        WHERE w.id = ?
@@ -48,7 +48,7 @@ class ChallengeWorkout {
     const classId = toInt(learningClassId);
     if (!classId) return [];
     const [rows] = await pool.execute(
-      `SELECT w.*, u.first_name, u.last_name, t.team_name, wt.name AS weekly_task_name
+      `SELECT w.*, u.first_name, u.last_name, u.profile_photo_path, t.team_name, wt.name AS weekly_task_name
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
        LEFT JOIN challenge_teams t ON t.id = w.team_id
@@ -83,6 +83,8 @@ class ChallengeWorkout {
     userId,
     activityType,
     isTreadmill = false,
+    isRace = false,
+    terrain = null,
     distanceValue = null,
     reportedDistanceValue = null,
     verifiedDistanceValue = null,
@@ -105,14 +107,16 @@ class ChallengeWorkout {
     if (!classId || !uId || !activity) return null;
     const [result] = await pool.execute(
       `INSERT INTO challenge_workouts
-       (learning_class_id, team_id, user_id, activity_type, is_treadmill, distance_value, reported_distance_value, verified_distance_value, duration_minutes, calories_burned, points, workout_notes, screenshot_file_path, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (learning_class_id, team_id, user_id, activity_type, is_treadmill, is_race, terrain, distance_value, reported_distance_value, verified_distance_value, duration_minutes, calories_burned, points, workout_notes, screenshot_file_path, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         classId,
         teamId ? toInt(teamId) : null,
         uId,
         activity,
         isTreadmill ? 1 : 0,
+        isRace ? 1 : 0,
+        terrain ? String(terrain).trim() : null,
         distanceValue != null ? Number(distanceValue) : null,
         reportedDistanceValue != null ? Number(reportedDistanceValue) : null,
         verifiedDistanceValue != null ? Number(verifiedDistanceValue) : null,
@@ -176,11 +180,11 @@ class ChallengeWorkout {
     const classId = toInt(learningClassId);
     if (!classId) return [];
     const [rows] = await pool.execute(
-      `SELECT w.user_id, u.first_name, u.last_name, SUM(w.points) AS total_points
+      `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, SUM(w.points) AS total_points
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
        WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')}
-       GROUP BY w.user_id, u.first_name, u.last_name
+       GROUP BY w.user_id, u.first_name, u.last_name, u.profile_photo_path
        ORDER BY total_points DESC
        LIMIT ?`,
       [classId, limit]
@@ -210,13 +214,13 @@ class ChallengeWorkout {
     const range = this._weeklyRange(weekStart, weekCutoffTime, weekTimeZone);
     if (!range) return [];
     const [rows] = await pool.execute(
-      `SELECT w.user_id, u.first_name, u.last_name, w.team_id, t.team_name, SUM(w.points) AS total_points
+      `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
        LEFT JOIN challenge_teams t ON t.id = w.team_id
        WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')}
          AND w.completed_at >= ? AND w.completed_at < ?
-       GROUP BY w.user_id, u.first_name, u.last_name, w.team_id, t.team_name
+       GROUP BY w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name
        ORDER BY total_points DESC
        LIMIT ?`,
       [classId, range.start, range.end, limit]
@@ -249,13 +253,13 @@ class ChallengeWorkout {
     const range = this._weeklyRange(weekStart, weekCutoffTime, weekTimeZone);
     if (!range) return [];
     const [rows] = await pool.execute(
-      `SELECT w.user_id, u.first_name, u.last_name, w.team_id, t.team_name, SUM(w.points) AS total_points
+      `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
        INNER JOIN challenge_teams t ON t.id = w.team_id
        WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')}
          AND w.completed_at >= ? AND w.completed_at < ?
-       GROUP BY w.team_id, w.user_id, u.first_name, u.last_name, t.team_name
+       GROUP BY w.team_id, w.user_id, u.first_name, u.last_name, u.profile_photo_path, t.team_name
        ORDER BY w.team_id, total_points DESC`,
       [classId, range.start, range.end]
     );
@@ -345,6 +349,291 @@ class ChallengeWorkout {
       [classId, tId, range.start, range.end]
     );
     return Number(rows?.[0]?.total || 0);
+  }
+
+  /**
+   * Generic recognition winner computation.
+   *
+   * @param {number} learningClassId
+   * @param {object} cat  - rich category object from recognition_categories_json
+   * @param {string} weekStart - YYYY-MM-DD
+   * @param {object} classRow - full DB row for the class (needs starts_at, ends_at, week_cutoff_time, week_time_zone)
+   * @returns {Array<{categoryId, label, period, metric, winner}>} – one entry per gender variant (or one if no variants)
+   */
+  static async computeRecognitionWinner(learningClassId, cat, weekStart, classRow = {}) {
+    const classId = toInt(learningClassId);
+    if (!classId || !cat?.active) return [];
+
+    const weekCutoffTime = classRow.week_cutoff_time || classRow.weekCutoffTime || '00:00';
+    const weekTimeZone = classRow.week_time_zone || classRow.weekTimeZone || null;
+    const period = cat.period || 'weekly';
+    const metric = cat.metric || 'points';
+    const aggregation = cat.aggregation || 'most';
+
+    // Determine time range
+    let rangeStart, rangeEnd;
+    if (period === 'weekly') {
+      const range = this._weeklyRange(weekStart, weekCutoffTime, weekTimeZone);
+      if (!range) return [];
+      rangeStart = range.start;
+      rangeEnd = range.end;
+    } else if (period === 'monthly') {
+      const d = new Date(weekStart);
+      const y = d.getFullYear();
+      const mo = d.getMonth();
+      rangeStart = new Date(y, mo, 1).toISOString().slice(0, 19).replace('T', ' ');
+      rangeEnd = new Date(y, mo + 1, 1).toISOString().slice(0, 19).replace('T', ' ');
+    } else {
+      // season
+      const sa = classRow.starts_at || classRow.startsAt;
+      const ea = classRow.ends_at || classRow.endsAt;
+      rangeStart = sa ? new Date(sa).toISOString().slice(0, 19).replace('T', ' ') : '2000-01-01 00:00:00';
+      rangeEnd = ea ? new Date(ea).toISOString().slice(0, 19).replace('T', ' ') : new Date().toISOString().slice(0, 19).replace('T', ' ');
+    }
+
+    // Metric expression — varies by aggregation mode
+    // best_day uses a nested subquery (built below), so metricExpr is only
+    // used for the other aggregation modes.
+    const metricColMap = {
+      points:           'w.points',
+      distance_miles:   'w.distance_value',
+      duration_minutes: 'w.duration_minutes',
+      activities_count: null  // special: COUNT
+    };
+    const metricCol = metricColMap[metric] ?? 'w.points';
+
+    function buildMetricExpr(agg) {
+      if (metric === 'activities_count') return 'COUNT(w.id)';
+      switch (agg) {
+        case 'average':     return `AVG(${metricCol})`;
+        case 'best_single': return `MAX(${metricCol})`;
+        default:            return `SUM(${metricCol})`;  // most, least
+      }
+    }
+    const metricExpr = buildMetricExpr(aggregation);
+
+    // Determine which gender labels to iterate over
+    const genderVariants = Array.isArray(cat.genderVariants) && cat.genderVariants.length > 0
+      ? cat.genderVariants
+      : (cat.genderFilter ? [cat.genderFilter] : [null]);
+
+    const results = [];
+
+    // Resolve the group filter for 'award' type from classRow config entries if available
+    const allCats = Array.isArray(classRow._allCategories) ? classRow._allCategories : [];
+    const cfgMasters     = allCats.find(c => c.type === 'cfg_masters');
+    const cfgHeavyweight = allCats.find(c => c.type === 'cfg_heavyweight');
+
+    for (const genderLabel of genderVariants) {
+      const params = [classId, rangeStart, rangeEnd];
+      let joinClause = `LEFT JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id`;
+      let whereExtra = '';
+
+      // ── Resolve eligibility filter by type or groupFilter ───────
+      const resolvedType = cat.type === 'award' ? 'award' : cat.type;
+
+      if (resolvedType === 'standard') {
+        if (genderLabel) {
+          joinClause = `INNER JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id`;
+          whereExtra += ` AND p.gender = ?`;
+          params.push(String(genderLabel).toLowerCase());
+        }
+      } else if (resolvedType === 'masters') {
+        const threshold = cat.ageThreshold ?? 53;
+        const refDate = String(weekStart).slice(0, 10);
+        joinClause = `INNER JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id`;
+        whereExtra += ` AND p.date_of_birth IS NOT NULL AND TIMESTAMPDIFF(YEAR, p.date_of_birth, ?) >= ?`;
+        params.push(refDate, threshold);
+        if (genderLabel) {
+          whereExtra += ` AND p.gender = ?`;
+          params.push(String(genderLabel).toLowerCase());
+        }
+      } else if (resolvedType === 'heavyweight') {
+        const weightThreshold = cat.weightThresholdLbs ?? 200;
+        joinClause = `INNER JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id`;
+        if (cat.weightOperator === 'lte') {
+          whereExtra += ` AND p.weight_lbs IS NOT NULL AND p.weight_lbs <= ?`;
+        } else {
+          whereExtra += ` AND p.weight_lbs IS NOT NULL AND p.weight_lbs >= ?`;
+        }
+        params.push(weightThreshold);
+        if (genderLabel) {
+          whereExtra += ` AND p.gender = ?`;
+          params.push(String(genderLabel).toLowerCase());
+        }
+      } else if (resolvedType === 'award') {
+        // New flexible award type: apply groupFilter + optional criteria
+        const gf = String(cat.groupFilter || '');
+        if (gf === 'masters') {
+          const threshold = cfgMasters?.ageThreshold ?? cat.ageThreshold ?? 53;
+          const refDate = String(weekStart).slice(0, 10);
+          joinClause = `INNER JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id`;
+          whereExtra += ` AND p.date_of_birth IS NOT NULL AND TIMESTAMPDIFF(YEAR, p.date_of_birth, ?) >= ?`;
+          params.push(refDate, threshold);
+        } else if (gf === 'heavyweight_male' || gf === 'heavyweight_female') {
+          const isMale = gf === 'heavyweight_male';
+          const weight = isMale ? (cfgHeavyweight?.maleWeight ?? 200) : (cfgHeavyweight?.femaleWeight ?? 165);
+          const gender = isMale ? 'male' : 'female';
+          joinClause = `INNER JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id`;
+          whereExtra += ` AND p.weight_lbs IS NOT NULL AND p.weight_lbs >= ? AND p.gender = ?`;
+          params.push(weight, gender);
+        } else if (gf === 'gender_male' || gf === 'gender_female') {
+          // Gender-based eligible group
+          const gender = gf === 'gender_male' ? 'male' : 'female';
+          joinClause = `INNER JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id`;
+          whereExtra += ` AND p.gender = ?`;
+          params.push(gender);
+        } else if (gf.startsWith('group_')) {
+          // Custom eligibility group — look up its criteria
+          const group = allCats.find(c => c.id === gf && c.type === 'group');
+          if (group && Array.isArray(group.criteria) && group.criteria.length > 0) {
+            joinClause = `INNER JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id`;
+            for (const crit of group.criteria) {
+              const op = crit.operator === 'lte' ? '<=' : '>=';
+              const val = Number(crit.value);
+              if (!Number.isFinite(val)) continue;
+              if (crit.field === 'age') {
+                whereExtra += ` AND p.date_of_birth IS NOT NULL AND TIMESTAMPDIFF(YEAR, p.date_of_birth, ?) ${op} ?`;
+                params.push(String(weekStart).slice(0, 10), val);
+              } else if (crit.field === 'weight_lbs') {
+                whereExtra += ` AND p.weight_lbs IS NOT NULL AND p.weight_lbs ${op} ?`;
+                params.push(val);
+              } else if (crit.field === 'height_inches') {
+                whereExtra += ` AND p.height_inches IS NOT NULL AND p.height_inches ${op} ?`;
+                params.push(val);
+              } else if (String(crit.field).startsWith('custom_')) {
+                const fid = toInt(crit.field.replace(/^custom_/, ''));
+                if (!fid) continue;
+                const alias = `cfv_${fid}`;
+                joinClause += ` LEFT JOIN challenge_custom_field_values ${alias} ON ${alias}.user_id = w.user_id AND ${alias}.field_definition_id = ${fid} AND (${alias}.learning_class_id = w.learning_class_id OR ${alias}.learning_class_id IS NULL)`;
+                whereExtra += ` AND ${alias}.value_number IS NOT NULL AND ${alias}.value_number ${op} ?`;
+                params.push(val);
+              }
+            }
+          }
+        }
+        // Gender variant filter for awards
+        if (genderLabel) {
+          if (!joinClause.includes('INNER JOIN challenge_participant_profiles')) {
+            joinClause = `INNER JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id`;
+          }
+          whereExtra += ` AND p.gender = ?`;
+          params.push(String(genderLabel).toLowerCase());
+        }
+      } else if (resolvedType === 'custom') {
+        // Legacy custom with criteria
+        if (Array.isArray(cat.criteria) && cat.criteria.length > 0) {
+          joinClause = `INNER JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id`;
+          let needsProfile = false;
+          for (const crit of cat.criteria) {
+            const op = crit.operator === 'lte' ? '<=' : '>=';
+            const val = Number(crit.value);
+            if (!Number.isFinite(val)) continue;
+            if (crit.field === 'age') {
+              needsProfile = true;
+              whereExtra += ` AND p.date_of_birth IS NOT NULL AND TIMESTAMPDIFF(YEAR, p.date_of_birth, ?) ${op} ?`;
+              params.push(String(weekStart).slice(0, 10), val);
+            } else if (crit.field === 'weight_lbs') {
+              needsProfile = true;
+              whereExtra += ` AND p.weight_lbs IS NOT NULL AND p.weight_lbs ${op} ?`;
+              params.push(val);
+            } else if (crit.field === 'height_inches') {
+              needsProfile = true;
+              whereExtra += ` AND p.height_inches IS NOT NULL AND p.height_inches ${op} ?`;
+              params.push(val);
+            } else if (String(crit.field).startsWith('custom_')) {
+              const fieldDefId = toInt(crit.field.replace(/^custom_/, ''));
+              if (!fieldDefId) continue;
+              const alias = `cfv_${fieldDefId}`;
+              joinClause += ` LEFT JOIN challenge_custom_field_values ${alias} ON ${alias}.user_id = w.user_id AND ${alias}.field_definition_id = ${fieldDefId} AND (${alias}.learning_class_id = w.learning_class_id OR ${alias}.learning_class_id IS NULL)`;
+              whereExtra += ` AND ${alias}.value_number IS NOT NULL AND ${alias}.value_number ${op} ?`;
+              params.push(val);
+            }
+          }
+          if (!needsProfile) {
+            joinClause = `LEFT JOIN challenge_participant_profiles p ON p.learning_class_id = w.learning_class_id AND p.provider_user_id = w.user_id`;
+          }
+        }
+        if (genderLabel) {
+          whereExtra += ` AND p.gender = ?`;
+          params.push(String(genderLabel).toLowerCase());
+        }
+      }
+
+      // ── Activity type filter (applies to all award types) ────────
+      const activityTypeFilter = String(cat.activityType || '').trim();
+      if (activityTypeFilter && activityTypeFilter !== '__add__') {
+        whereExtra += ` AND w.activity_type = ?`;
+        params.push(activityTypeFilter);
+      }
+
+      const displayLabel = genderLabel && genderVariants.length > 1
+        ? `${cat.label} (${genderLabel.charAt(0).toUpperCase() + genderLabel.slice(1)})`
+        : cat.label;
+
+      // For best_day we need a two-level GROUP BY:
+      // 1) sum per user+day, 2) take the max day per user.
+      let sql;
+      if (aggregation === 'best_day') {
+        const dayMetric = metric === 'activities_count' ? 'COUNT(w.id)' : `SUM(${metricCol})`;
+        sql = `
+          SELECT d.user_id, d.first_name, d.last_name, d.profile_photo_path, d.team_id, d.team_name,
+                 MAX(d.day_total) AS metric_value
+          FROM (
+            SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name,
+                   DATE(w.completed_at) AS activity_day,
+                   ${dayMetric} AS day_total
+            FROM challenge_workouts w
+            INNER JOIN users u ON u.id = w.user_id
+            LEFT JOIN challenge_teams t ON t.id = w.team_id
+            ${joinClause}
+            WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')} AND w.completed_at >= ? AND w.completed_at < ?
+              ${whereExtra}
+            GROUP BY w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name, DATE(w.completed_at)
+          ) d
+          GROUP BY d.user_id, d.first_name, d.last_name, d.profile_photo_path, d.team_id, d.team_name
+          ORDER BY metric_value DESC
+          LIMIT 1`;
+      } else {
+        sql = `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name, ${metricExpr} AS metric_value
+         FROM challenge_workouts w
+         INNER JOIN users u ON u.id = w.user_id
+         LEFT JOIN challenge_teams t ON t.id = w.team_id
+         ${joinClause}
+         WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')} AND w.completed_at >= ? AND w.completed_at < ?
+           ${whereExtra}
+         GROUP BY w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name
+         ORDER BY metric_value ${aggregation === 'least' ? 'ASC' : 'DESC'}
+         LIMIT 1`;
+      }
+
+      try {
+        const [rows] = await pool.execute(sql, params);
+        const row = rows?.[0] || null;
+        results.push({
+          categoryId: cat.id,
+          label: displayLabel,
+          icon: cat.icon || null,
+          period,
+          metric,
+          winner: row
+            ? {
+                user_id: row.user_id,
+                first_name: row.first_name,
+                last_name: row.last_name,
+                profile_photo_path: row.profile_photo_path || null,
+                team_name: row.team_name,
+                value: Number(row.metric_value)
+              }
+            : null
+        });
+      } catch (err) {
+        // Don't crash the whole scoreboard if one category fails
+        results.push({ categoryId: cat.id, label: displayLabel, period, metric, winner: null, error: err.message });
+      }
+    }
+
+    return results;
   }
 }
 

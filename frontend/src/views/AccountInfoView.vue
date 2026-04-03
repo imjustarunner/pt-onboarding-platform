@@ -49,6 +49,70 @@
         </div>
       </div>
 
+      <!-- Photo Album (SSC self-service) -->
+      <div v-if="isSsc" class="info-section">
+        <div class="section-header">
+          <h2 style="margin:0;">My Photos</h2>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="hint" style="margin:0;">Photos tagged to workouts automatically appear here.</span>
+            <input
+              ref="albumUploadInput"
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+              style="display:none;"
+              @change="onAlbumFileSelected"
+            />
+            <button
+              class="btn btn-secondary btn-compact"
+              :disabled="albumUploading || !userId"
+              @click="albumUploadInput?.click()"
+            >
+              {{ albumUploading ? 'Uploading…' : '+ Add Photo' }}
+            </button>
+          </div>
+        </div>
+        <div v-if="albumError" class="error" style="margin-top:8px;">{{ albumError }}</div>
+        <div v-if="albumLoading" class="hint" style="margin-top:10px;">Loading photos…</div>
+        <div v-else-if="albumPhotos.length === 0" class="hint" style="margin-top:10px;">
+          No photos yet. Upload a photo or tag a workout to get started.
+        </div>
+        <div v-else class="photo-album-grid">
+          <div
+            v-for="photo in albumPhotos"
+            :key="photo.id"
+            class="album-item"
+            :class="{ 'album-item--profile': photo.isProfile, 'album-item--flagged': photo.isFlagged }"
+          >
+            <img
+              :src="photo.url"
+              :alt="photo.caption || 'Photo'"
+              class="album-img"
+            />
+            <div class="album-item-overlay">
+              <div class="album-source-badge">
+                <span v-if="photo.isProfile" class="badge-profile">Profile ✓</span>
+                <span v-if="photo.isFlagged" class="badge-flagged">Flagged</span>
+                <span v-if="photo.source === 'workout_screenshot'" class="badge-source">Workout</span>
+                <span v-if="photo.source === 'workout_media'" class="badge-source">Workout</span>
+              </div>
+              <div class="album-item-actions">
+                <button
+                  v-if="!photo.isProfile"
+                  class="btn btn-sm btn-primary"
+                  title="Set as profile photo"
+                  @click="setAsProfileFromAlbum(photo)"
+                >Set Profile</button>
+                <button
+                  class="btn btn-sm btn-danger"
+                  title="Remove photo"
+                  @click="deleteAlbumPhoto(photo)"
+                >✕</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Personal Information Section -->
       <div class="info-section">
         <h2>Personal Information</h2>
@@ -183,6 +247,73 @@
           </div>
         </div>
 
+        <!-- ── SSC: Activity Profile (weight / height) ───────────────── -->
+        <div v-if="isSsc" class="card compact-card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin:0;">Activity Profile <span style="font-size:12px;font-weight:400;color:var(--text-secondary);">Optional — used for division recognition (Clydesdale, Athena, age categories)</span></h3>
+            <div style="display:flex;gap:8px;">
+              <button v-if="!editingActivityProfile" class="btn btn-secondary btn-compact" type="button" @click="editingActivityProfile = true">Edit</button>
+              <button v-else class="btn btn-primary btn-compact" type="button" :disabled="savingActivityProfile" @click="saveActivityProfile">{{ savingActivityProfile ? 'Saving…' : 'Save' }}</button>
+              <button v-if="editingActivityProfile" class="btn btn-secondary btn-compact" type="button" :disabled="savingActivityProfile" @click="cancelEditActivityProfile">Cancel</button>
+            </div>
+          </div>
+          <div v-if="activityProfileError" class="error" style="margin-top:8px;">{{ activityProfileError }}</div>
+          <div class="fields-grid" style="margin-top:14px;">
+            <div class="field-item">
+              <label>Weight (lbs) <span class="hint" style="font-weight:400;">optional</span></label>
+              <input v-model.number="activityProfileForm.weightLbs" type="number" min="60" max="600" step="0.1" :disabled="!editingActivityProfile" placeholder="e.g. 185" />
+            </div>
+            <div class="field-item">
+              <label>Height <span class="hint" style="font-weight:400;">optional</span></label>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input v-model.number="activityProfileForm.heightFt" type="number" min="3" max="8" step="1" :disabled="!editingActivityProfile" placeholder="ft" style="width:64px;" />
+                <span style="font-size:13px;color:var(--text-secondary);">ft</span>
+                <input v-model.number="activityProfileForm.heightIn" type="number" min="0" max="11" step="1" :disabled="!editingActivityProfile" placeholder="in" style="width:64px;" />
+                <span style="font-size:13px;color:var(--text-secondary);">in</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── SSC: Club custom field values ────────────────────────── -->
+        <div v-if="isSsc && memberCustomFields.length" class="card compact-card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin:0;">Club Profile Fields <span style="font-size:12px;font-weight:400;color:var(--text-secondary);">Custom attributes defined by your club</span></h3>
+            <div style="display:flex;gap:8px;">
+              <button v-if="!editingCustomFields" class="btn btn-secondary btn-compact" type="button" @click="editingCustomFields = true">Edit</button>
+              <button v-else class="btn btn-primary btn-compact" type="button" :disabled="savingCustomFields" @click="saveCustomFieldValues">{{ savingCustomFields ? 'Saving…' : 'Save' }}</button>
+              <button v-if="editingCustomFields" class="btn btn-secondary btn-compact" type="button" :disabled="savingCustomFields" @click="editingCustomFields = false">Cancel</button>
+            </div>
+          </div>
+          <div v-if="customFieldsError" class="error" style="margin-top:8px;">{{ customFieldsError }}</div>
+          <div class="fields-grid" style="margin-top:14px;">
+            <div v-for="f in memberCustomFields" :key="f.field_definition_id || f.id" class="field-item">
+              <label>{{ f.label }}<template v-if="f.unit_label"> ({{ f.unit_label }})</template></label>
+              <input
+                v-if="f.field_type === 'number'"
+                v-model.number="customFieldDraft[f.field_definition_id]"
+                type="number"
+                :disabled="!editingCustomFields"
+                :placeholder="`Enter ${f.label}`"
+              />
+              <input
+                v-else-if="f.field_type === 'date'"
+                v-model="customFieldDraft[f.field_definition_id]"
+                type="date"
+                :disabled="!editingCustomFields"
+              />
+              <input
+                v-else
+                v-model="customFieldDraft[f.field_definition_id]"
+                type="text"
+                :disabled="!editingCustomFields"
+                :placeholder="`Enter ${f.label}`"
+                maxlength="256"
+              />
+            </div>
+          </div>
+        </div>
+
         <div v-if="isSsc" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">Fitness Integrations</h3>
@@ -206,6 +337,63 @@
               </div>
               <a v-else :href="stravaConnectUrl" class="btn btn-primary btn-compact">Connect Strava</a>
             </div>
+          </div>
+        </div>
+
+        <!-- ── Timezone preference (SSC members) ─────────────────────── -->
+        <div v-if="isSsc" class="card compact-card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin: 0;">My Timezone</h3>
+          </div>
+          <div class="hint" style="margin-top: 6px; margin-bottom: 12px;">
+            Set your local timezone so season deadlines and countdowns display in your local time.
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <select v-model="userTimezone" style="max-width:420px;">
+              <option value="">— Use club default —</option>
+              <optgroup v-for="grp in TIMEZONE_GROUPS" :key="grp.label" :label="grp.label">
+                <option v-for="tz in grp.zones" :key="tz.value" :value="tz.value">{{ tz.label }}</option>
+              </optgroup>
+            </select>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button type="button" class="btn btn-primary btn-compact" :disabled="savingTimezone" @click="saveUserTimezone">
+                {{ savingTimezone ? 'Saving…' : 'Save Timezone' }}
+              </button>
+              <button type="button" class="btn btn-secondary btn-compact" @click="detectAndFillTimezone">
+                Detect my timezone
+              </button>
+              <span v-if="timezoneSaved" style="color:var(--success,#16a34a);font-size:13px;">Saved!</span>
+            </div>
+            <div v-if="timezoneError" class="error">{{ timezoneError }}</div>
+          </div>
+        </div>
+
+        <!-- ── Invite a Friend / Referral Link (SSC members) ─────────── -->
+        <div v-if="isSsc" class="card compact-card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin: 0;">Invite a Friend</h3>
+          </div>
+          <div class="hint" style="margin-top: 6px; margin-bottom: 12px;">
+            Share your personal link — you'll get credit each time someone joins via it.
+          </div>
+          <div v-if="referralLoading" class="hint">Loading…</div>
+          <div v-else-if="referralLink" style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <input
+                :value="referralLink"
+                readonly
+                style="flex:1;min-width:0;padding:7px 10px;border:1px solid var(--border,#e2e8f0);border-radius:7px;font-size:13px;background:var(--surface-2,#f1f5f9);color:var(--text,#0f172a);"
+              />
+              <button type="button" class="btn btn-primary btn-compact" @click="copyReferralLink">
+                {{ referralCopied ? '✓ Copied!' : 'Copy Link' }}
+              </button>
+            </div>
+            <div v-if="referralCredits > 0" style="font-size:13px;color:var(--text-secondary,#64748b);">
+              🎉 <strong>{{ referralCredits }} {{ referralCredits === 1 ? 'person has' : 'people have' }}</strong> joined via your link.
+            </div>
+          </div>
+          <div v-else class="hint">
+            Your referral link could not be loaded. Make sure you are a club member.
           </div>
         </div>
 
@@ -611,6 +799,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../services/api';
+import { TIMEZONE_GROUPS, detectLocalTimezone } from '../utils/timezones.js';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { toUploadsUrl } from '../utils/uploadsUrl';
@@ -637,7 +826,9 @@ const profilePhotoUrl = computed(() => {
 });
 const canManageProfilePhoto = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  return role === 'admin' || role === 'super_admin';
+  if (['admin', 'super_admin', 'staff', 'provider_plus'].includes(role)) return true;
+  // SSC members can upload their own profile photo
+  return !!isSsc.value;
 });
 const initials = computed(() => {
   const f = String(authStore.user?.firstName || '').trim();
@@ -670,16 +861,77 @@ const onPhotoSelected = async (event) => {
     });
 
     await authStore.refreshUser();
+    await loadPhotoAlbum();
   } catch (e) {
     photoError.value = e.response?.data?.error?.message || 'Failed to upload photo';
   } finally {
     photoUploading.value = false;
-    // allow selecting the same file again
     try {
       if (photoInput.value) photoInput.value.value = '';
     } catch {
       // ignore
     }
+  }
+};
+
+// ── Photo album ──────────────────────────────────────────────
+const albumPhotos = ref([]);
+const albumLoading = ref(false);
+const albumError = ref('');
+const albumUploadInput = ref(null);
+const albumUploading = ref(false);
+
+const loadPhotoAlbum = async () => {
+  if (!userId.value) return;
+  albumLoading.value = true;
+  try {
+    const { data } = await api.get(`/users/${userId.value}/photos`);
+    albumPhotos.value = data.photos || [];
+  } catch {
+    // non-fatal
+  } finally {
+    albumLoading.value = false;
+  }
+};
+
+const onAlbumFileSelected = async (event) => {
+  const file = event?.target?.files?.[0];
+  if (!file || !userId.value) return;
+  albumUploading.value = true;
+  albumError.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    await api.post(`/users/${userId.value}/photos`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    await loadPhotoAlbum();
+  } catch (e) {
+    albumError.value = e.response?.data?.error?.message || 'Upload failed';
+  } finally {
+    albumUploading.value = false;
+    try { if (albumUploadInput.value) albumUploadInput.value.value = ''; } catch { /* */ }
+  }
+};
+
+const setAsProfileFromAlbum = async (photo) => {
+  if (!userId.value) return;
+  try {
+    await api.put(`/users/${userId.value}/photos/${photo.id}/set-profile`);
+    await authStore.refreshUser();
+    await loadPhotoAlbum();
+  } catch (e) {
+    albumError.value = e.response?.data?.error?.message || 'Failed to set profile photo';
+  }
+};
+
+const deleteAlbumPhoto = async (photo) => {
+  if (!userId.value) return;
+  if (!confirm('Remove this photo from your album?')) return;
+  try {
+    await api.delete(`/users/${userId.value}/photos/${photo.id}`);
+    await loadPhotoAlbum();
+    await authStore.refreshUser();
+  } catch (e) {
+    albumError.value = e.response?.data?.error?.message || 'Failed to delete photo';
   }
 };
 
@@ -727,6 +979,153 @@ const stravaConnectUrl = computed(() => {
 });
 const formatStravaDate = (d) =>
   (d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+
+// SSC activity profile (weight / height)
+const editingActivityProfile = ref(false);
+const savingActivityProfile = ref(false);
+const activityProfileError = ref('');
+const activityProfileForm = ref({ weightLbs: null, heightFt: null, heightIn: null });
+
+const cancelEditActivityProfile = () => {
+  editingActivityProfile.value = false;
+  activityProfileError.value = '';
+};
+
+// SSC member custom field values
+const memberCustomFields = ref([]);
+const customFieldDraft = ref({});
+const editingCustomFields = ref(false);
+const savingCustomFields = ref(false);
+const customFieldsError = ref('');
+
+// ── User timezone preference ────────────────────────────────
+const userTimezone      = ref('');
+const savingTimezone    = ref(false);
+const timezoneError     = ref('');
+const timezoneSaved     = ref(false);
+
+const loadUserTimezone = async () => {
+  try {
+    const { data } = await api.get('/summit-stats/users/me/timezone');
+    userTimezone.value = data?.timezone || '';
+  } catch { /* non-fatal */ }
+};
+
+const detectAndFillTimezone = () => {
+  if (!userTimezone.value) userTimezone.value = detectLocalTimezone();
+};
+
+const saveUserTimezone = async () => {
+  savingTimezone.value = true;
+  timezoneError.value = '';
+  timezoneSaved.value = false;
+  try {
+    await api.put('/summit-stats/users/me/timezone', { timezone: userTimezone.value || null });
+    timezoneSaved.value = true;
+    setTimeout(() => { timezoneSaved.value = false; }, 3000);
+  } catch (e) {
+    timezoneError.value = e?.response?.data?.error?.message || 'Failed to save timezone';
+  } finally {
+    savingTimezone.value = false;
+  }
+};
+
+// ── Member referral link ─────────────────────────────────────
+const referralLink    = ref('');
+const referralCode    = ref('');
+const referralCredits = ref(0);
+const referralLoading = ref(false);
+const referralCopied  = ref(false);
+
+const loadReferralLink = async () => {
+  const clubId = accountInfo.value?.organizationId ?? accountInfo.value?.agencyId ?? null;
+  if (!clubId) return;
+  referralLoading.value = true;
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${clubId}/my-referral-link`);
+    referralLink.value    = data?.joinUrl || '';
+    referralCode.value    = data?.referralCode || '';
+    referralCredits.value = data?.creditCount || 0;
+  } catch { /* non-fatal */ } finally {
+    referralLoading.value = false;
+  }
+};
+
+const copyReferralLink = async () => {
+  if (!referralLink.value) return;
+  try {
+    await navigator.clipboard.writeText(referralLink.value);
+    referralCopied.value = true;
+    setTimeout(() => { referralCopied.value = false; }, 2500);
+  } catch { /* fallback */ }
+};
+
+const loadMemberCustomFields = async () => {
+  try {
+    const clubId = accountInfo.value?.organizationId ?? accountInfo.value?.agencyId ?? null;
+    const classId = accountInfo.value?.challengeClassId ?? accountInfo.value?.learningClassId ?? null;
+    if (!clubId || !userId.value) return;
+    const { data } = await api.get(
+      `/summit-stats/clubs/${clubId}/seasons/${classId || 0}/participants/${userId.value}/custom-values`,
+      { skipGlobalLoading: true, skipAuthRedirect: true }
+    );
+    memberCustomFields.value = Array.isArray(data?.values) ? data.values : [];
+    const draft = {};
+    for (const f of memberCustomFields.value) {
+      draft[f.field_definition_id] = f.value_number ?? f.value_text ?? f.value_date ?? null;
+    }
+    customFieldDraft.value = draft;
+  } catch {
+    memberCustomFields.value = [];
+  }
+};
+
+const saveCustomFieldValues = async () => {
+  const clubId = accountInfo.value?.organizationId ?? accountInfo.value?.agencyId ?? null;
+  const classId = accountInfo.value?.challengeClassId ?? accountInfo.value?.learningClassId ?? null;
+  if (!clubId || !userId.value) return;
+  savingCustomFields.value = true;
+  customFieldsError.value = '';
+  try {
+    for (const f of memberCustomFields.value) {
+      const val = customFieldDraft.value[f.field_definition_id];
+      if (val == null || val === '') continue;
+      await api.put(
+        `/summit-stats/clubs/${clubId}/seasons/${classId || 0}/participants/${userId.value}/custom-values/${f.field_definition_id}`,
+        { value: val },
+        { skipGlobalLoading: true }
+      );
+    }
+    editingCustomFields.value = false;
+  } catch (e) {
+    customFieldsError.value = e?.response?.data?.error?.message || 'Failed to save custom fields';
+  } finally {
+    savingCustomFields.value = false;
+  }
+};
+
+const saveActivityProfile = async () => {
+  savingActivityProfile.value = true;
+  activityProfileError.value = '';
+  try {
+    const classId = accountInfo.value?.challengeClassId ?? accountInfo.value?.learningClassId ?? null;
+    if (!classId || !userId.value) throw new Error('No active season found for this profile.');
+    const wt = activityProfileForm.value.weightLbs > 0 ? activityProfileForm.value.weightLbs : null;
+    const ft = Number(activityProfileForm.value.heightFt) || 0;
+    const inches = Number(activityProfileForm.value.heightIn) || 0;
+    const totalInches = ft > 0 || inches > 0 ? ft * 12 + inches : null;
+    await api.put(
+      `/learning-program-classes/${classId}/participants/${userId.value}/profile`,
+      { weightLbs: wt, heightInches: totalInches },
+      { skipGlobalLoading: true }
+    );
+    editingActivityProfile.value = false;
+  } catch (e) {
+    activityProfileError.value = e?.response?.data?.error?.message || e?.message || 'Failed to save activity profile';
+  } finally {
+    savingActivityProfile.value = false;
+  }
+};
 
 const startEditPersonalInfo = () => {
   personalInfoForm.value = {
@@ -1163,6 +1562,13 @@ const fetchAccountInfo = async () => {
     };
     savedHomeAddressSnapshot.value = { ...homeAddressForm.value };
     editingHomeAddress.value = false;
+    // Load SSC-specific data when applicable
+    if (isSsc.value) {
+      loadMemberCustomFields().catch(() => {});
+      loadPhotoAlbum().catch(() => {});
+      loadUserTimezone().catch(() => {});
+      loadReferralLink().catch(() => {});
+    }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load account information';
   } finally {
@@ -1764,6 +2170,112 @@ onMounted(() => {
   .field-item textarea {
     font-size: 16px;
   }
+}
+
+/* ── Photo album ────────────────────────────────────────── */
+.photo-album-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.album-item {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  aspect-ratio: 1 / 1;
+  background: #f0f0f0;
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.album-item--profile {
+  border-color: #4a6cf7;
+}
+
+.album-item--flagged {
+  border-color: #e63946;
+  opacity: 0.75;
+}
+
+.album-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.album-item-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 6px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.album-item:hover .album-item-overlay {
+  opacity: 1;
+}
+
+.album-source-badge {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.badge-profile {
+  background: #4a6cf7;
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 99px;
+  font-weight: 600;
+}
+
+.badge-flagged {
+  background: #e63946;
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 99px;
+  font-weight: 600;
+}
+
+.badge-source {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 99px;
+}
+
+.album-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.btn-sm {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-danger {
+  background: #e63946;
+  color: #fff;
+}
+
+.btn-danger:hover {
+  background: #c1121f;
 }
 </style>
 

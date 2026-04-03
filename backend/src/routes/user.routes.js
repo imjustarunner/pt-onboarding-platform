@@ -2,6 +2,17 @@ import express from 'express';
 import { getCurrentUser, getAllUsers, getGuardianUsers, getGuardianLinkedClients, aiQueryUsers, getUserById, updateUser, updateUserStatus, requireSkillBuilderConfirmNextLogin, getUserAgencies, getSuperviseePortalSlugs, getProvidersForSupport, getAffiliatedPortals, assignUserToAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyDepartmentAccess, getUserDepartmentAccess, setUserAgencyH0032Mode, setUserAgencySupervisionPrelicensed, generateInvitationToken, generateTemporaryPassword, setCustomTemporaryPassword, resetPasswordlessToken, sendInitialSetupLink, resendSetupLink, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, restoreUser, deleteUser, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias, removeUserLoginEmailAlias, getUserScheduleSummary, listUserMeetingCandidates, createUserScheduleEvent, deleteUserScheduleEvent, getUserGoogleEvent, patchUserGoogleEvent, deleteUserGoogleEvent, getUserExternalCalendars, createUserExternalCalendar, addUserExternalCalendarFeed, patchUserExternalCalendar, patchUserExternalCalendarFeed, setSsoPasswordOverride } from '../controllers/user.controller.js';
 import { getUserOfficeAssignments, upsertUserOfficeAssignments } from '../controllers/userOfficeAssignments.controller.js';
 import { upload as uploadProfilePhoto, uploadUserProfilePhoto } from '../controllers/userProfilePhoto.controller.js';
+import {
+  photoUpload,
+  listUserPhotos,
+  uploadUserPhoto,
+  setProfilePhoto,
+  deleteUserPhoto,
+  flagUserPhoto,
+  unflagUserPhoto,
+  moderateRemovePhoto,
+  listFlaggedPhotos
+} from '../controllers/userPhotos.controller.js';
 import { getUserTrainingFocuses } from '../controllers/track.controller.js';
 import {
   getUserProviderPublicProfile,
@@ -50,6 +61,17 @@ router.put('/:id', authenticate, updateUser);
 router.put('/:id/status', authenticate, requireBackofficeAdmin, updateUserStatus);
 router.post('/:id/skill-builder/require-confirm-next-login', authenticate, requireSkillBuilderConfirmNextLogin);
 router.post('/:id/profile-photo', authenticate, uploadProfilePhoto.single('photo'), uploadUserProfilePhoto);
+
+// User photo album
+router.get('/photos/flagged', authenticate, listFlaggedPhotos);
+router.get('/:id/photos', authenticate, listUserPhotos);
+router.post('/:id/photos', authenticate, photoUpload.single('file'), uploadUserPhoto);
+router.put('/:id/photos/:photoId/set-profile', authenticate, setProfilePhoto);
+router.delete('/:id/photos/:photoId', authenticate, deleteUserPhoto);
+router.post('/:id/photos/:photoId/flag', authenticate, flagUserPhoto);
+router.delete('/:id/photos/:photoId/flag', authenticate, unflagUserPhoto);
+router.delete('/:id/photos/:photoId/moderate', authenticate, moderateRemovePhoto);
+
 router.post('/assign/agency', authenticate, requireBackofficeAdmin, assignUserToAgency);
 router.post('/remove/agency', authenticate, requireBackofficeAdmin, removeUserFromAgency);
 router.put('/:id/payroll-access', authenticate, requireBackofficeAdmin, setUserAgencyPayrollAccess);

@@ -120,10 +120,44 @@ async function validateAffiliatedOrganizationForEvent(agencyId, organizationId) 
   return { ok: true, organizationId: Number(row.id) };
 }
 
+// Returns true if the user's home agency (or a parent agency) is an SSC/SSTC affiliation.
+// Used to gate provider_plus access, which is an SSC/SSTC-specific assistant-manager role.
+async function _isUserOnSscSstcAgency(req) {
+  try {
+    const agencyId = req.user?.agencyId;
+    if (!agencyId) return false;
+    const [rows] = await pool.execute(
+      `SELECT a.slug, a.organization_type, parent.slug AS parent_slug
+       FROM agencies a
+       LEFT JOIN agencies parent ON parent.id = a.parent_id
+       WHERE a.id = ? LIMIT 1`,
+      [Number(agencyId)]
+    );
+    const row = rows?.[0];
+    if (!row) return false;
+    const ownSlug = String(row.slug || '').toLowerCase();
+    const parentSlug = String(row.parent_slug || '').toLowerCase();
+    return ownSlug === 'ssc' || ownSlug === 'sstc' || parentSlug === 'ssc' || parentSlug === 'sstc';
+  } catch {
+    return false;
+  }
+}
+
 const userCanManageCompanyEvents = (req) => {
   const role = String(req.user?.role || '').toLowerCase();
+  // provider_plus is an SSC/SSTC assistant-manager role; the async variant below enforces
+  // the tenant check. This sync check intentionally excludes it so existing non-SSC call sites
+  // are unaffected; SSC-specific access is granted via userCanManageCompanyEventsAsync.
   return role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff';
 };
+
+// Async version: same as above but also allows provider_plus on SSC/SSTC agencies only.
+async function userCanManageCompanyEventsAsync(req) {
+  if (userCanManageCompanyEvents(req)) return true;
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'provider_plus') return _isUserOnSscSstcAgency(req);
+  return false;
+}
 
 const userCanSeeInternalRegistrationPromos = (req) => {
   const role = String(req.user?.role || '').toLowerCase();
@@ -1250,7 +1284,7 @@ export const postBackfillSkillsGroupCompanyEvents = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
     const isCoord = await getSkillBuilderCoordinatorAccess(req.user?.id);
-    const isStaff = userCanManageCompanyEvents(req);
+    const isStaff = await userCanManageCompanyEventsAsync(req);
     if (!isCoord && !isStaff) {
       return res.status(403).json({
         error: { message: 'Skill Builders sub-coordinator or admin/staff access required' }
@@ -1367,7 +1401,7 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!userCanManageCompanyEvents(req)) {
+    if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
     const [rows] = await pool.execute(
@@ -1451,7 +1485,7 @@ export const listCompanyEventAudienceOptions = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!userCanManageCompanyEvents(req)) {
+    if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
 
@@ -1596,7 +1630,7 @@ export const createCompanyEvent = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!userCanManageCompanyEvents(req)) {
+    if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
     const parsed = parseEventPayload(req.body || {});
@@ -1628,7 +1662,7 @@ export const postProgramCompanyEventForCoordinator = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
     const isCoord = await getSkillBuilderCoordinatorAccess(req.user?.id);
-    const isStaff = userCanManageCompanyEvents(req);
+    const isStaff = await userCanManageCompanyEventsAsync(req);
     if (!isCoord && !isStaff) {
       return res.status(403).json({
         error: { message: 'Sub-coordinator or admin/staff access required' }
@@ -1854,7 +1888,7 @@ export const updateCompanyEvent = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!userCanManageCompanyEvents(req)) {
+    if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
 
@@ -1876,7 +1910,7 @@ export const deleteCompanyEvent = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!userCanManageCompanyEvents(req)) {
+    if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
     const [result] = await pool.execute(
@@ -1898,7 +1932,7 @@ export const listCompanyEventResponses = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!userCanManageCompanyEvents(req)) {
+    if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
@@ -1944,7 +1978,7 @@ export const listCompanyEventDeliveryLogs = async (req, res, next) => {
     const agencyId = parsePositiveInt(req.params.id);
     const eventId = parsePositiveInt(req.params.eventId);
     if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
@@ -1984,7 +2018,7 @@ export const getCompanyEventAnalytics = async (req, res, next) => {
     const agencyId = parsePositiveInt(req.params.id);
     const eventId = parsePositiveInt(req.params.eventId);
     if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     const row = await loadEventByIdForAgency(eventId, agencyId);
@@ -2016,7 +2050,7 @@ export const exportCompanyEventResponsesCsv = async (req, res, next) => {
     const agencyId = parsePositiveInt(req.params.id);
     const eventId = parsePositiveInt(req.params.eventId);
     if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
@@ -2140,7 +2174,7 @@ export const closeCompanyEventVoting = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!userCanManageCompanyEvents(req)) {
+    if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
     const [result] = await pool.execute(
@@ -2162,7 +2196,7 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!userCanManageCompanyEvents(req)) {
+    if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
 
@@ -2288,7 +2322,7 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!userCanManageCompanyEvents(req)) {
+    if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
 
@@ -2450,7 +2484,7 @@ export const listCompanyEventNeedList = async (req, res, next) => {
     const agencyId = parsePositiveInt(req.params.id);
     const eventId = parsePositiveInt(req.params.eventId);
     if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
@@ -2479,7 +2513,7 @@ export const createCompanyEventNeedListItem = async (req, res, next) => {
     if (!agencyId || !eventId || !userId || (!itemName && !openRequestSlot)) {
       return res.status(400).json({ error: { message: 'itemName is required unless openRequestSlot is true' } });
     }
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
@@ -2551,7 +2585,7 @@ export const deleteCompanyEventNeedListItem = async (req, res, next) => {
     const eventId = parsePositiveInt(req.params.eventId);
     const itemId = parsePositiveInt(req.params.itemId);
     if (!agencyId || !eventId || !itemId) return res.status(400).json({ error: { message: 'Invalid request' } });
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     await pool.execute(
@@ -2576,7 +2610,7 @@ export const saveCompanyEventSmsDraft = async (req, res, next) => {
     if (!agencyId || !eventId || !allowedTargets.has(target)) {
       return res.status(400).json({ error: { message: 'Invalid request' } });
     }
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
@@ -2640,7 +2674,7 @@ export const sendCompanyEventInvitations = async (req, res, next) => {
     if (!agencyId || !eventId || !actorUserId) {
       return res.status(400).json({ error: { message: 'Invalid request' } });
     }
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     const row = await loadEventByIdForAgency(eventId, agencyId);
@@ -2768,7 +2802,7 @@ export const sendCompanyEventReminders = async (req, res, next) => {
     if (!agencyId || !eventId || !actorUserId) {
       return res.status(400).json({ error: { message: 'Invalid request' } });
     }
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
     const row = await loadEventByIdForAgency(eventId, agencyId);
@@ -2878,7 +2912,7 @@ export const listCompanyEventGuestRegistrations = async (req, res, next) => {
     const agencyId = parsePositiveInt(req.params.id);
     const eventId = parsePositiveInt(req.params.eventId);
     if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
     const [rows] = await pool.execute(
@@ -3133,7 +3167,7 @@ export const listCompanyEventTemplates = async (req, res, next) => {
   try {
     const agencyId = parsePositiveInt(req.params.id);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     const [rows] = await pool.execute(
@@ -3161,7 +3195,7 @@ export const createCompanyEventTemplate = async (req, res, next) => {
     const agencyId = parsePositiveInt(req.params.id);
     const userId = parsePositiveInt(req.user?.id);
     if (!agencyId || !userId) return res.status(400).json({ error: { message: 'Invalid request' } });
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     const name = String(req.body?.name || '').trim().slice(0, 120);
@@ -3189,7 +3223,7 @@ export const updateCompanyEventTemplate = async (req, res, next) => {
     const templateId = parsePositiveInt(req.params.templateId);
     const userId = parsePositiveInt(req.user?.id);
     if (!agencyId || !templateId || !userId) return res.status(400).json({ error: { message: 'Invalid request' } });
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     const name = String(req.body?.name || '').trim().slice(0, 120);
@@ -3217,7 +3251,7 @@ export const deleteCompanyEventTemplate = async (req, res, next) => {
     const agencyId = parsePositiveInt(req.params.id);
     const templateId = parsePositiveInt(req.params.templateId);
     if (!agencyId || !templateId) return res.status(400).json({ error: { message: 'Invalid request' } });
-    if (!(await userHasAgencyAccess(req, agencyId)) || !userCanManageCompanyEvents(req)) {
+    if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     const [result] = await pool.execute(
@@ -3843,7 +3877,7 @@ export const getCompanyEventPublic = async (req, res, next) => {
 
 export const listCompanyEventSessionSurveys = async (req, res, next) => {
   try {
-    if (!userCanManageCompanyEvents(req)) {
+    if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Insufficient role to manage company events' } });
     }
     const agencyId = parsePositiveInt(req.params.id);
@@ -3918,7 +3952,7 @@ export const listCompanyEventSessionSurveys = async (req, res, next) => {
 
 export const attachCompanyEventSessionSurvey = async (req, res, next) => {
   try {
-    if (!userCanManageCompanyEvents(req)) {
+    if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Insufficient role to manage company events' } });
     }
     const agencyId = parsePositiveInt(req.params.id);
@@ -3973,7 +4007,7 @@ export const attachCompanyEventSessionSurvey = async (req, res, next) => {
 
 export const detachCompanyEventSessionSurvey = async (req, res, next) => {
   try {
-    if (!userCanManageCompanyEvents(req)) {
+    if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Insufficient role to manage company events' } });
     }
     const agencyId = parsePositiveInt(req.params.id);

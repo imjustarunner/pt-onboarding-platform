@@ -1,10 +1,20 @@
 <template>
-  <div v-if="open" class="modal-overlay" @click.self="$emit('close')">
+  <div v-if="open" class="modal-overlay" @click.self="requestClose">
     <div class="modal-content modal-wide">
       <div class="modal-header">
         <h2>Add New Season</h2>
-        <button type="button" class="btn-close" @click="$emit('close')" aria-label="Close">×</button>
+        <button type="button" class="btn-close" @click="requestClose" aria-label="Close">×</button>
       </div>
+
+      <!-- Cancel confirmation strip -->
+      <div v-if="confirmingClose" class="confirm-strip">
+        <span>Discard this season?</span>
+        <div class="confirm-strip-actions">
+          <button type="button" class="btn btn-secondary btn-sm" @click="confirmingClose = false">Stay</button>
+          <button type="button" class="btn btn-danger btn-sm" @click="confirmClose">Yes, discard</button>
+        </div>
+      </div>
+
       <div class="modal-body">
         <p class="hint">Establish the terms of your next season (e.g., Winter Run '26, Winter Fit Club).</p>
         <form v-if="!success" @submit.prevent="submit" class="add-season-form">
@@ -54,21 +64,17 @@
               <input v-model.number="form.individualMinPointsPerWeek" type="number" min="0" placeholder="Optional" class="form-input" />
             </div>
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Master's age threshold (53+)</label>
-              <input v-model.number="form.mastersAgeThreshold" type="number" min="40" max="99" placeholder="53" class="form-input" />
-            </div>
-            <div class="form-group form-group-wide">
-              <label>Recognition categories</label>
-              <div class="checkbox-group">
-                <label><input v-model="form.recognitionCategories" type="checkbox" value="fastest_male" /> Fastest Male</label>
-                <label><input v-model="form.recognitionCategories" type="checkbox" value="fastest_female" /> Fastest Female</label>
-                <label><input v-model="form.recognitionCategories" type="checkbox" value="fastest_masters_male" /> Fastest Master's Male</label>
-                <label><input v-model="form.recognitionCategories" type="checkbox" value="fastest_masters_female" /> Fastest Master's Female</label>
-              </div>
-            </div>
+
+          <!-- Recognition Categories -->
+          <div class="form-group">
+            <label class="section-label">Recognition Categories</label>
+            <p class="section-hint">Configure who gets recognized. Each category can have its own period, metric, and winner rule.</p>
+            <RecognitionCategoryBuilder
+              v-model="form.recognitionCategories"
+              :custom-field-definitions="customFieldDefs"
+            />
           </div>
+
           <div class="form-row">
             <div class="form-group">
               <label>Event category</label>
@@ -249,7 +255,7 @@
           </div>
           <div v-if="error" class="error-msg">{{ error }}</div>
           <div class="form-actions">
-            <button type="button" class="btn btn-secondary" @click="$emit('close')">Cancel</button>
+            <button type="button" class="btn btn-secondary" @click="requestClose">Cancel</button>
             <button type="submit" class="btn btn-primary" :disabled="saving || !form.className.trim()">
               {{ saving ? 'Creating…' : 'Create Season' }}
             </button>
@@ -267,6 +273,7 @@
 <script setup>
 import { ref, watch } from 'vue';
 import api from '../../services/api';
+import RecognitionCategoryBuilder from '../challenge/RecognitionCategoryBuilder.vue';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -274,6 +281,9 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close', 'created']);
+
+const confirmingClose = ref(false);
+const customFieldDefs = ref([]);
 
 const recordMetricOptions = [
   { value: 'longest_run', label: 'Longest Run' },
@@ -287,7 +297,7 @@ const recordMetricOptions = [
   { value: 'highest_calories_workout', label: 'Highest Calories (Single Workout)' }
 ];
 
-const form = ref({
+const defaultForm = () => ({
   className: '',
   description: '',
   status: 'draft',
@@ -297,7 +307,6 @@ const form = ref({
   weeklyGoalMinimum: null,
   teamMinPointsPerWeek: null,
   individualMinPointsPerWeek: null,
-  mastersAgeThreshold: 53,
   recognitionCategories: [],
   eventCategory: 'run_ruck',
   challengeAssignmentMode: 'volunteer_or_elect',
@@ -331,61 +340,47 @@ const form = ref({
   recordMetrics: []
 });
 
+const form = ref(defaultForm());
 const saving = ref(false);
 const error = ref('');
 const success = ref(false);
 const successMessage = ref('');
 
 watch(() => props.open, (open) => {
-  if (!open) {
-    form.value = {
-      className: '',
-      description: '',
-      status: 'draft',
-      startsAt: '',
-      endsAt: '',
-      activityTypesText: '',
-      weeklyGoalMinimum: null,
-      teamMinPointsPerWeek: null,
-      individualMinPointsPerWeek: null,
-      mastersAgeThreshold: 53,
-      recognitionCategories: [],
-      eventCategory: 'run_ruck',
-      challengeAssignmentMode: 'volunteer_or_elect',
-      weekEndsSundayAt: '23:59',
-      weekTimeZone: 'UTC',
-      runMilesPerPoint: 1,
-      ruckMilesPerPoint: 1,
-      caloriesPerPoint: 100,
-      runRuckStartMilesPerPerson: 0,
-      runRuckWeeklyIncreaseMilesPerPerson: 2,
-      maxRucksPerWeek: 0,
-      teamCount: 2,
-      allowCaptainRenameTeam: true,
-      allowCaptainNicknameSuffixWhenLocked: false,
-      presetTeamNamesText: '',
-      allowByeWeek: false,
-      maxByeWeeksPerParticipant: 1,
-      requireAdvanceByeDeclaration: true,
-      postseasonEnabled: false,
-      regularSeasonWeeks: 10,
-      postseasonHasBreakWeek: false,
-      postseasonBreakWeekNumber: 11,
-      playoffWeekNumber: 11,
-      championshipWeekNumber: 12,
-      playoffSeedCount: 4,
-      playoffMatchupMode: '1v4_2v3',
-      workoutModerationMode: 'treadmill_only',
-      treadmillPhotoRequired: true,
-      treadmillpocalypseEnabled: false,
-      treadmillpocalypseStartsAtWeek: '',
-      recordMetrics: []
-    };
+  if (open) {
+    confirmingClose.value = false;
+    loadCustomFields();
+  } else {
+    form.value = defaultForm();
     error.value = '';
     success.value = false;
     successMessage.value = '';
+    confirmingClose.value = false;
   }
 });
+
+async function loadCustomFields() {
+  if (!props.clubId) return;
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${props.clubId}/custom-fields`, { skipGlobalLoading: true, skipAuthRedirect: true });
+    customFieldDefs.value = Array.isArray(data?.fields) ? data.fields : [];
+  } catch {
+    customFieldDefs.value = [];
+  }
+}
+
+function requestClose() {
+  if (success.value) { emit('close'); return; }
+  const hasInput = form.value.className.trim() || form.value.description.trim() ||
+    form.value.startsAt || form.value.endsAt;
+  if (!hasInput) { emit('close'); return; }
+  confirmingClose.value = true;
+}
+
+function confirmClose() {
+  confirmingClose.value = false;
+  emit('close');
+}
 
 const submit = async () => {
   if (!props.clubId) return;
@@ -400,6 +395,13 @@ const submit = async () => {
     }
     const startsAt = form.value.startsAt ? new Date(form.value.startsAt).toISOString() : null;
     const endsAt = form.value.endsAt ? new Date(form.value.endsAt).toISOString() : null;
+
+    const cats = Array.isArray(form.value.recognitionCategories) ? form.value.recognitionCategories : [];
+    const mastersThreshold = (() => {
+      const m = cats.find(c => c.type === 'masters');
+      return m ? (m.ageThreshold ?? 53) : 53;
+    })();
+
     const payload = {
       organizationId: Number(props.clubId),
       className: String(form.value.className || '').trim(),
@@ -411,8 +413,8 @@ const submit = async () => {
       weeklyGoalMinimum: form.value.weeklyGoalMinimum ?? null,
       teamMinPointsPerWeek: form.value.teamMinPointsPerWeek ?? null,
       individualMinPointsPerWeek: form.value.individualMinPointsPerWeek ?? null,
-      mastersAgeThreshold: form.value.mastersAgeThreshold ?? 53,
-      recognitionCategoriesJson: form.value.recognitionCategories?.length ? form.value.recognitionCategories : null,
+      mastersAgeThreshold: mastersThreshold,
+      recognitionCategoriesJson: cats.length ? cats : null,
       seasonSettingsJson: {
         event: {
           category: form.value.eventCategory || 'run_ruck',
@@ -477,7 +479,7 @@ const submit = async () => {
         }
       }
     };
-    const r = await api.post('/learning-program-classes', payload, { skipGlobalLoading: true });
+    await api.post('/learning-program-classes', payload, { skipGlobalLoading: true });
     success.value = true;
     successMessage.value = `"${form.value.className}" has been created. You can add teams and participants from Season Management.`;
     emit('created');
@@ -518,7 +520,7 @@ const handleDone = () => {
 }
 
 .modal-content.modal-wide {
-  max-width: 640px;
+  max-width: 680px;
 }
 
 .modal-header {
@@ -527,6 +529,7 @@ const handleDone = () => {
   justify-content: space-between;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .modal-header h2 {
@@ -542,9 +545,29 @@ const handleDone = () => {
   color: var(--text-secondary);
 }
 
+/* Cancel confirmation strip */
+.confirm-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 20px;
+  background: #fef3c7;
+  border-bottom: 1px solid #fde68a;
+  font-size: 14px;
+  font-weight: 600;
+  color: #92400e;
+  flex-shrink: 0;
+}
+.confirm-strip-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .modal-body {
   padding: 20px;
   overflow: auto;
+  flex: 1;
 }
 
 .hint {
@@ -553,12 +576,21 @@ const handleDone = () => {
   font-size: 13px;
 }
 
-.add-season-form .form-group {
-  margin-bottom: 16px;
+.section-label {
+  display: block;
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 4px;
 }
 
-.add-season-form .form-group-wide {
-  flex: 1;
+.section-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 12px 0;
+}
+
+.add-season-form .form-group {
+  margin-bottom: 16px;
 }
 
 .add-season-form label {
@@ -585,6 +617,7 @@ const handleDone = () => {
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 14px;
+  box-sizing: border-box;
 }
 
 .add-season-form small {
@@ -631,4 +664,8 @@ const handleDone = () => {
   padding-top: 16px;
   border-top: 1px solid var(--border);
 }
+
+.btn-sm { padding: 5px 12px; font-size: 13px; }
+.btn-danger { background: #dc2626; color: white; border: none; border-radius: 6px; cursor: pointer; }
+.btn-danger:hover { background: #b91c1c; }
 </style>

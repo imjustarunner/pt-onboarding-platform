@@ -145,6 +145,50 @@
         </div>
       </section>
 
+      <!-- ── Time Preferences ────────────────────────────── -->
+      <section class="settings-card">
+        <div class="card-header">
+          <h2>Time Preferences</h2>
+          <p>Set the club's home timezone and how times are displayed to members.</p>
+        </div>
+
+        <div v-if="timePrefsError" class="error">{{ timePrefsError }}</div>
+        <div v-if="timePrefsLoading" class="hint">Loading…</div>
+
+        <div v-else class="settings-form">
+          <div class="field">
+            <label>Club timezone</label>
+            <select v-model="timePrefsForm.timezone">
+              <option value="">— Not set (uses season timezone) —</option>
+              <optgroup v-for="grp in TIMEZONE_GROUPS" :key="grp.label" :label="grp.label">
+                <option v-for="tz in grp.zones" :key="tz.value" :value="tz.value">{{ tz.label }}</option>
+              </optgroup>
+            </select>
+            <p class="hint">Season deadlines are shown to members relative to this timezone unless they set their own.</p>
+          </div>
+
+          <div class="field">
+            <label>Clock format</label>
+            <div class="toggle-row">
+              <label class="toggle-option" :class="{ active: timePrefsForm.timeFormat === '12h' }">
+                <input type="radio" v-model="timePrefsForm.timeFormat" value="12h" hidden />
+                12-hour (1:30 PM)
+              </label>
+              <label class="toggle-option" :class="{ active: timePrefsForm.timeFormat === '24h' }">
+                <input type="radio" v-model="timePrefsForm.timeFormat" value="24h" hidden />
+                24-hour (13:30)
+              </label>
+            </div>
+          </div>
+
+          <div class="actions-row">
+            <button type="button" class="btn btn-primary" :disabled="savingTimePrefs" @click="saveTimePrefs">
+              {{ savingTimePrefs ? 'Saving…' : 'Save Time Preferences' }}
+            </button>
+          </div>
+        </div>
+      </section>
+
       <section class="settings-card">
         <div class="card-header">
           <h2>Club Records</h2>
@@ -194,12 +238,260 @@
         </div>
       </section>
 
+      <!-- ── Team Store ──────────────────────────────────── -->
       <section class="settings-card">
         <div class="card-header">
-          <h2>Coming Soon</h2>
-          <p>Additional lightweight club controls can be added here over time.</p>
+          <h2>🛒 Team Store</h2>
+          <p>
+            Link your club to an external store (e.g. CustomInk, BSNS, Shopify). When enabled, a
+            store rail appears on every member's dashboard.
+          </p>
         </div>
-        <div class="hint">This intentionally stays small and focused for SSC club admins.</div>
+
+        <div v-if="storeConfigError" class="error">{{ storeConfigError }}</div>
+        <div v-if="storeConfigLoading" class="hint">Loading…</div>
+
+        <div v-else class="store-config-body">
+          <div class="field">
+            <label class="cap-toggle-label">
+              <input v-model="storeForm.enabled" type="checkbox" class="cap-check" />
+              Enable team store for members
+            </label>
+          </div>
+
+          <template v-if="storeForm.enabled">
+            <div class="field">
+              <label>Store title <span class="cap-opt">(shown to members)</span></label>
+              <input
+                v-model="storeForm.title"
+                type="text"
+                class="store-input"
+                placeholder="Team Store"
+                maxlength="120"
+              />
+            </div>
+
+            <div class="field">
+              <label>Short description <span class="cap-opt">(optional)</span></label>
+              <input
+                v-model="storeForm.description"
+                type="text"
+                class="store-input"
+                placeholder="Gear up for the season — apparel and accessories."
+                maxlength="300"
+              />
+            </div>
+
+            <div class="field">
+              <label>Button label</label>
+              <input
+                v-model="storeForm.buttonText"
+                type="text"
+                class="store-input"
+                placeholder="Shop Now"
+                maxlength="60"
+              />
+            </div>
+
+            <div class="field">
+              <label>External store URL <span class="cap-opt">(full https:// link)</span></label>
+              <input
+                v-model="storeForm.url"
+                type="url"
+                class="store-input"
+                placeholder="https://your-store.com"
+                maxlength="500"
+              />
+            </div>
+
+            <!-- Live preview -->
+            <div v-if="storeForm.url" class="store-preview">
+              <div class="store-preview-label">Preview</div>
+              <div class="store-preview-rail">
+                <div class="store-rail-icon">🛒</div>
+                <div class="store-rail-body">
+                  <div class="store-rail-title">{{ storeForm.title || 'Team Store' }}</div>
+                  <div v-if="storeForm.description" class="store-rail-desc">{{ storeForm.description }}</div>
+                </div>
+                <a :href="storeForm.url" target="_blank" rel="noopener" class="store-rail-btn">
+                  {{ storeForm.buttonText || 'Shop Now' }}
+                </a>
+              </div>
+            </div>
+          </template>
+
+          <div class="actions-row" style="margin-top: 12px;">
+            <button type="button" class="btn btn-primary" :disabled="savingStoreConfig" @click="saveStoreConfig">
+              {{ savingStoreConfig ? 'Saving…' : 'Save Store Settings' }}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Public Club Page ───────────────────────────── -->
+      <section class="settings-card">
+        <div class="card-header">
+          <h2>🌐 Public Club Page</h2>
+          <p>Customize your public-facing club page with a banner, highlights, and a photo slider.</p>
+        </div>
+
+        <div v-if="publicPageConfigError" class="error">{{ publicPageConfigError }}</div>
+        <div v-if="publicPageConfigLoading" class="hint">Loading…</div>
+
+        <div v-else class="store-config-body">
+          <div class="field">
+            <label>Banner title <span class="cap-opt">(optional)</span></label>
+            <input
+              v-model="publicPageForm.bannerTitle"
+              type="text"
+              class="store-input"
+              placeholder="Run Together. Rise Together."
+              maxlength="120"
+            />
+          </div>
+          <div class="field">
+            <label>Banner subtitle <span class="cap-opt">(optional)</span></label>
+            <input
+              v-model="publicPageForm.bannerSubtitle"
+              type="text"
+              class="store-input"
+              placeholder="Join our community and take on this season's challenge."
+              maxlength="220"
+            />
+          </div>
+          <div class="field">
+            <label>Banner image URL <span class="cap-opt">(optional, full https://)</span></label>
+            <input
+              v-model="publicPageForm.bannerImageUrl"
+              type="url"
+              class="store-input"
+              placeholder="https://example.com/your-banner.jpg"
+              maxlength="500"
+            />
+          </div>
+
+          <div class="field">
+            <label class="cap-toggle-label"><input v-model="publicPageForm.showCurrentSeason" type="checkbox" class="cap-check" /> Show current season block</label>
+            <label class="cap-toggle-label"><input v-model="publicPageForm.showActiveParticipants" type="checkbox" class="cap-check" /> Show active participants</label>
+            <label class="cap-toggle-label"><input v-model="publicPageForm.showFeaturedWorkout" type="checkbox" class="cap-check" /> Show featured workout (most kudos this week)</label>
+            <label class="cap-toggle-label"><input v-model="publicPageForm.showPhotoAlbum" type="checkbox" class="cap-check" /> Show sliding photo album</label>
+          </div>
+
+          <div class="field">
+            <label>Photo album slides (one image URL per line)</label>
+            <textarea
+              v-model="publicPageAlbumInput"
+              rows="5"
+              class="store-input"
+              style="max-width: 100%; min-height: 110px;"
+              placeholder="https://example.com/photo-1.jpg&#10;https://example.com/photo-2.jpg"
+            />
+            <div class="hint">If empty, the page automatically uses recent workout screenshots from your club.</div>
+          </div>
+
+          <div class="actions-row">
+            <button type="button" class="btn btn-primary" :disabled="savingPublicPageConfig" @click="savePublicPageConfig">
+              {{ savingPublicPageConfig ? 'Saving…' : 'Save Public Page Settings' }}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Club Stats Configuration ───────────────────── -->
+      <section class="settings-card stats-config-card">
+        <div class="card-header">
+          <h2>📊 Club Stats Display</h2>
+          <p>
+            Choose which stats appear on your club dashboard and public page. Enter historical seed values
+            for any stats that were accumulating before this app — they'll be added to everything logged here.
+          </p>
+        </div>
+
+        <div v-if="statsConfigError" class="error">{{ statsConfigError }}</div>
+        <div v-if="statsConfigLoading" class="hint">Loading stats config…</div>
+
+        <div v-else class="stats-config-body">
+          <!-- Add stat picker -->
+          <div class="stats-add-row" v-if="availableStatsToAdd.length">
+            <select v-model="statsPickerSelected" class="stats-picker-select">
+              <option value="">+ Add a stat to track…</option>
+              <option v-for="s in availableStatsToAdd" :key="s.key" :value="s.key">
+                {{ s.icon }} {{ s.label }}{{ s.unit ? ` (${s.unit})` : '' }}
+              </option>
+            </select>
+            <button class="btn btn-secondary btn-sm" @click="addStat" :disabled="!statsPickerSelected">
+              Add
+            </button>
+          </div>
+
+          <!-- Configured stats list -->
+          <div class="stats-config-list">
+            <div
+              v-for="(stat, idx) in statsConfigForm"
+              :key="stat.key"
+              class="stat-config-row"
+              :class="{ 'stat-disabled': !stat.enabled }"
+            >
+              <div class="stat-config-left">
+                <button class="stat-toggle-btn" :title="stat.enabled ? 'Hide stat' : 'Show stat'" @click="stat.enabled = !stat.enabled">
+                  <span>{{ stat.enabled ? '👁' : '🚫' }}</span>
+                </button>
+                <span class="stat-icon-display">{{ stat.icon }}</span>
+                <div class="stat-config-info">
+                  <input
+                    v-model="stat.label"
+                    class="stat-label-input"
+                    type="text"
+                    placeholder="Stat label"
+                    maxlength="60"
+                  />
+                  <span class="stat-key-badge">{{ stat.key }}</span>
+                </div>
+              </div>
+
+              <div class="stat-config-right">
+                <div class="stat-seed-field">
+                  <label class="stat-seed-label">Historical starting value</label>
+                  <div class="stat-seed-row">
+                    <input
+                      v-model.number="stat.seedValue"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      class="stat-seed-input"
+                      placeholder="0"
+                    />
+                    <span class="stat-unit-badge" v-if="stat.unit">{{ stat.unit }}</span>
+                  </div>
+                  <div class="stat-value-preview" v-if="stat.liveValue != null">
+                    <span class="stat-preview-label">Live from app:</span>
+                    <span class="stat-preview-num">{{ formatStatNum(stat.liveValue, stat.key) }} {{ stat.unit }}</span>
+                    <span class="stat-preview-sep">→</span>
+                    <span class="stat-preview-total">Total: {{ formatStatNum((stat.seedValue || 0) + (stat.liveValue || 0), stat.key) }} {{ stat.unit }}</span>
+                  </div>
+                </div>
+                <div class="stat-order-btns">
+                  <button class="order-btn" :disabled="idx === 0" @click="moveStat(idx, -1)" title="Move up">↑</button>
+                  <button class="order-btn" :disabled="idx === statsConfigForm.length - 1" @click="moveStat(idx, 1)" title="Move down">↓</button>
+                  <button class="order-btn danger" @click="removeStat(idx)" title="Remove">✕</button>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="!statsConfigForm.length" class="hint">
+              No stats configured yet. Use the dropdown above to add stats you want to track and display.
+            </div>
+          </div>
+
+          <div class="actions-row">
+            <button type="button" class="btn btn-secondary" @click="loadStatsConfig" :disabled="statsConfigLoading">
+              Refresh
+            </button>
+            <button type="button" class="btn btn-primary" :disabled="savingStatsConfig" @click="saveStatsConfig">
+              {{ savingStatsConfig ? 'Saving…' : 'Save Stats Config' }}
+            </button>
+          </div>
+        </div>
       </section>
     </div>
   </div>
@@ -210,6 +502,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { TIMEZONE_GROUPS } from '../../utils/timezones.js';
 import { useSummitStatsChallengeChrome } from '../../composables/useSummitStatsChallengeChrome';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import IconSelector from '../../components/admin/IconSelector.vue';
@@ -363,6 +656,223 @@ const loadBilling = async () => {
   }
 };
 
+// ── Time Preferences ───────────────────────────────────────
+const timePrefsLoading = ref(false);
+const timePrefsError   = ref('');
+const savingTimePrefs  = ref(false);
+const timePrefsForm    = ref({ timezone: '', timeFormat: '12h' });
+
+// ── Team Store Configuration ────────────────────────────────
+const storeConfigLoading = ref(false);
+const savingStoreConfig  = ref(false);
+const storeConfigError   = ref('');
+const storeForm = ref({ enabled: false, title: 'Team Store', description: '', buttonText: 'Shop Now', url: '' });
+const publicPageConfigLoading = ref(false);
+const savingPublicPageConfig = ref(false);
+const publicPageConfigError = ref('');
+const publicPageAlbumInput = ref('');
+const publicPageForm = ref({
+  bannerTitle: '',
+  bannerSubtitle: '',
+  bannerImageUrl: '',
+  showCurrentSeason: true,
+  showActiveParticipants: true,
+  showFeaturedWorkout: true,
+  showPhotoAlbum: true
+});
+
+const loadStoreConfig = async () => {
+  if (!currentAgencyId.value) return;
+  storeConfigLoading.value = true;
+  storeConfigError.value   = '';
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${currentAgencyId.value}/store-config`);
+    if (data?.store) storeForm.value = { ...storeForm.value, ...data.store };
+  } catch (e) {
+    storeConfigError.value = e?.response?.data?.error?.message || 'Failed to load store config';
+  } finally {
+    storeConfigLoading.value = false;
+  }
+};
+
+const saveStoreConfig = async () => {
+  if (!currentAgencyId.value) return;
+  savingStoreConfig.value = true;
+  storeConfigError.value  = '';
+  try {
+    await api.put(`/summit-stats/clubs/${currentAgencyId.value}/store-config`, storeForm.value);
+  } catch (e) {
+    storeConfigError.value = e?.response?.data?.error?.message || 'Failed to save store config';
+  } finally {
+    savingStoreConfig.value = false;
+  }
+};
+
+const loadPublicPageConfig = async () => {
+  if (!currentAgencyId.value) return;
+  publicPageConfigLoading.value = true;
+  publicPageConfigError.value = '';
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${currentAgencyId.value}/public-page-config`);
+    const cfg = data?.config || {};
+    publicPageForm.value = {
+      bannerTitle: cfg.bannerTitle || '',
+      bannerSubtitle: cfg.bannerSubtitle || '',
+      bannerImageUrl: cfg.bannerImageUrl || '',
+      showCurrentSeason: cfg.showCurrentSeason !== false,
+      showActiveParticipants: cfg.showActiveParticipants !== false,
+      showFeaturedWorkout: cfg.showFeaturedWorkout !== false,
+      showPhotoAlbum: cfg.showPhotoAlbum !== false
+    };
+    publicPageAlbumInput.value = Array.isArray(cfg.albumSlides)
+      ? cfg.albumSlides.map((s) => String(s?.imageUrl || '').trim()).filter(Boolean).join('\n')
+      : '';
+  } catch (e) {
+    publicPageConfigError.value = e?.response?.data?.error?.message || 'Failed to load public page config';
+  } finally {
+    publicPageConfigLoading.value = false;
+  }
+};
+
+const savePublicPageConfig = async () => {
+  if (!currentAgencyId.value) return;
+  savingPublicPageConfig.value = true;
+  publicPageConfigError.value = '';
+  try {
+    const albumSlides = String(publicPageAlbumInput.value || '')
+      .split('\n')
+      .map((line) => String(line || '').trim())
+      .filter(Boolean)
+      .slice(0, 20)
+      .map((imageUrl) => ({ imageUrl, caption: '' }));
+    await api.put(`/summit-stats/clubs/${currentAgencyId.value}/public-page-config`, {
+      ...publicPageForm.value,
+      albumSlides
+    });
+    await loadPublicPageConfig();
+  } catch (e) {
+    publicPageConfigError.value = e?.response?.data?.error?.message || 'Failed to save public page config';
+  } finally {
+    savingPublicPageConfig.value = false;
+  }
+};
+
+// ── Club Stats Configuration ────────────────────────────────
+const statsConfigLoading  = ref(false);
+const savingStatsConfig   = ref(false);
+const statsConfigError    = ref('');
+const statsConfigForm     = ref([]);  // ordered list of stat items (editable)
+const availableStatsDefs  = ref([]); // full definition list from API
+const statsPickerSelected = ref('');
+
+const availableStatsToAdd = computed(() => {
+  const inUse = new Set(statsConfigForm.value.map((s) => s.key));
+  return availableStatsDefs.value.filter((d) => !inUse.has(d.key));
+});
+
+const formatStatNum = (val, key) => {
+  const n = Number(val || 0);
+  const decimalKeys = new Set(['total_miles', 'run_miles', 'ruck_miles']);
+  return decimalKeys.has(key) ? n.toFixed(1) : Math.round(n).toLocaleString();
+};
+
+const loadStatsConfig = async () => {
+  if (!currentAgencyId.value) return;
+  statsConfigLoading.value = true;
+  statsConfigError.value   = '';
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${currentAgencyId.value}/stats-config`);
+    statsConfigForm.value    = Array.isArray(data?.config) ? data.config.map((c) => ({ ...c })) : [];
+    availableStatsDefs.value = Array.isArray(data?.availableStats) ? data.availableStats : [];
+  } catch (e) {
+    statsConfigError.value = e?.response?.data?.error?.message || 'Failed to load stats config';
+  } finally {
+    statsConfigLoading.value = false;
+  }
+};
+
+const saveStatsConfig = async () => {
+  if (!currentAgencyId.value) return;
+  savingStatsConfig.value = true;
+  statsConfigError.value  = '';
+  try {
+    await api.put(`/summit-stats/clubs/${currentAgencyId.value}/stats-config`, {
+      config: statsConfigForm.value.map((s) => ({
+        key:       s.key,
+        label:     s.label,
+        unit:      s.unit,
+        icon:      s.icon,
+        enabled:   s.enabled,
+        seedValue: Number(s.seedValue || 0)
+      }))
+    });
+    await loadStatsConfig(); // reload to get fresh liveValue totals
+  } catch (e) {
+    statsConfigError.value = e?.response?.data?.error?.message || 'Failed to save stats config';
+  } finally {
+    savingStatsConfig.value = false;
+  }
+};
+
+const addStat = () => {
+  const key = statsPickerSelected.value;
+  if (!key) return;
+  const def = availableStatsDefs.value.find((d) => d.key === key);
+  if (!def) return;
+  statsConfigForm.value.push({
+    key:       def.key,
+    label:     def.label,
+    unit:      def.unit || '',
+    icon:      def.icon || '',
+    enabled:   true,
+    seedValue: 0,
+    liveValue: 0,
+    totalValue: 0
+  });
+  statsPickerSelected.value = '';
+};
+
+const removeStat = (idx) => {
+  statsConfigForm.value.splice(idx, 1);
+};
+
+const moveStat = (idx, dir) => {
+  const arr = statsConfigForm.value;
+  const target = idx + dir;
+  if (target < 0 || target >= arr.length) return;
+  [arr[idx], arr[target]] = [arr[target], arr[idx]];
+};
+
+const loadTimePrefs = async () => {
+  if (!currentAgencyId.value) return;
+  timePrefsLoading.value = true;
+  timePrefsError.value = '';
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${currentAgencyId.value}/time-preferences`);
+    timePrefsForm.value = { timezone: data?.timezone || '', timeFormat: data?.timeFormat || '12h' };
+  } catch (e) {
+    timePrefsError.value = e?.response?.data?.error?.message || 'Failed to load time preferences';
+  } finally {
+    timePrefsLoading.value = false;
+  }
+};
+
+const saveTimePrefs = async () => {
+  if (!currentAgencyId.value) return;
+  savingTimePrefs.value = true;
+  timePrefsError.value = '';
+  try {
+    await api.put(`/summit-stats/clubs/${currentAgencyId.value}/time-preferences`, {
+      timezone:   timePrefsForm.value.timezone || null,
+      timeFormat: timePrefsForm.value.timeFormat
+    });
+  } catch (e) {
+    timePrefsError.value = e?.response?.data?.error?.message || 'Failed to save time preferences';
+  } finally {
+    savingTimePrefs.value = false;
+  }
+};
+
 const loadClubRecords = async () => {
   if (!currentAgencyId.value) return;
   try {
@@ -486,7 +996,7 @@ onMounted(async () => {
       error.value = 'No club context found for this user.';
       return;
     }
-    await Promise.all([hydrateIdentity(), loadBilling(), loadClubRecords(), loadRecordVerifications()]);
+    await Promise.all([hydrateIdentity(), loadBilling(), loadTimePrefs(), loadClubRecords(), loadRecordVerifications(), loadStatsConfig(), loadStoreConfig(), loadPublicPageConfig()]);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load club settings';
   } finally {
@@ -543,6 +1053,30 @@ onMounted(async () => {
 
 .field label {
   font-weight: 700;
+}
+
+/* ── Toggle-row (12h / 24h picker) ── */
+.toggle-row {
+  display: flex;
+  gap: 8px;
+}
+.toggle-option {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  background: #fff;
+  transition: background .15s, border-color .15s;
+  user-select: none;
+}
+.toggle-option.active {
+  background: var(--primary, #1d4ed8);
+  color: #fff;
+  border-color: var(--primary, #1d4ed8);
 }
 
 .mode-row,
@@ -639,5 +1173,222 @@ onMounted(async () => {
   color: var(--text-secondary);
   font-size: 12px;
 }
+
+/* ── Team Store ───────────────────────────────────────────── */
+.store-config-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.store-input {
+  width: 100%;
+  max-width: 480px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: white;
+}
+.store-preview {
+  margin-top: 4px;
+}
+.store-preview-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.store-preview-rail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, #eff6ff, #f0fdf4);
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.store-rail-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+.store-rail-body {
+  flex: 1;
+  min-width: 0;
+}
+.store-rail-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+.store-rail-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.store-rail-btn {
+  background: var(--primary, #2563eb);
+  color: white;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.store-rail-btn:hover {
+  background: var(--primary-dark, #1d4ed8);
+}
+
+/* ── Stats Config ─────────────────────────────────────────── */
+.stats-config-card {
+  grid-column: 1 / -1; /* full-width on the settings grid */
+}
+.stats-config-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.stats-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.stats-picker-select {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: white;
+}
+.stats-config-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stat-config-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--bg-secondary, #f8fafc);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  transition: opacity 0.15s;
+}
+.stat-config-row.stat-disabled {
+  opacity: 0.5;
+}
+.stat-config-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.stat-toggle-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.stat-icon-display {
+  font-size: 20px;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+.stat-config-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.stat-label-input {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  width: 200px;
+  max-width: 100%;
+}
+.stat-key-badge {
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-muted, #e8edf2);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: monospace;
+  width: fit-content;
+}
+.stat-config-right {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.stat-seed-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stat-seed-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.stat-seed-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.stat-seed-input {
+  width: 100px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+  text-align: right;
+}
+.stat-unit-badge {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.stat-value-preview {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+  max-width: 260px;
+}
+.stat-preview-num   { font-weight: 600; color: var(--text-primary); }
+.stat-preview-total { font-weight: 700; color: var(--accent, #2563eb); }
+.stat-preview-sep   { color: var(--text-secondary); }
+.stat-order-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.order-btn {
+  background: var(--bg-muted, #e8edf2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  line-height: 1.4;
+}
+.order-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.order-btn.danger { color: #dc2626; }
+.order-btn.danger:hover { background: #fee2e2; }
 </style>
 

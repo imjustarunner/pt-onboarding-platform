@@ -31,9 +31,14 @@
             </div>
             <div class="challenge-actions">
               <button v-if="(c.status || '').toLowerCase() === 'draft'" class="btn btn-primary btn-sm" @click="launchChallenge(c)" :disabled="launching">Launch</button>
-              <router-link :to="challengeDashboardLink(c)" class="btn btn-secondary btn-sm">View</router-link>
+              <router-link :to="challengeDashboardLink(c)" class="btn btn-secondary btn-sm">View Stats</router-link>
               <button class="btn btn-secondary btn-sm" @click="openEditModal(c)">Edit</button>
               <button class="btn btn-secondary btn-sm" @click="openManageModal(c)">Manage</button>
+              <button
+                v-if="canCloseSeason(c)"
+                class="btn btn-warning btn-sm"
+                @click="closeSeason(c)"
+              >Close Season</button>
               <button class="btn btn-secondary btn-sm" @click="duplicateChallenge(c)">Duplicate</button>
             </div>
           </div>
@@ -68,6 +73,18 @@
                 <option value="closed">Closed</option>
                 <option value="archived">Archived</option>
               </select>
+              <button
+                v-if="editingChallenge && challengeForm.status !== 'closed'"
+                type="button"
+                class="btn btn-warning btn-sm"
+                style="margin-top:8px;"
+                @click="challengeForm.status = 'closed'"
+              >
+                Close season now
+              </button>
+              <small v-if="editingChallenge" style="display:block;margin-top:6px;color:var(--text-secondary);">
+                Seasons remain open even past end date until a manager closes them.
+              </small>
             </div>
             <div class="form-group">
               <label>Start date</label>
@@ -107,37 +124,118 @@
             <input v-model="challengeForm.activityTypesText" type="text" placeholder="e.g., running, cycling, workout_session, steps" />
             <small>Leave blank for default options.</small>
           </div>
+          <!-- ── Weekly Goal Configuration ──────────────────────── -->
           <div class="form-group">
-            <label>Weekly goal minimum (activities per week)</label>
-            <input v-model.number="challengeForm.weeklyGoalMinimum" type="number" min="0" placeholder="Optional" />
-          </div>
-          <div class="form-row" style="display: flex; gap: 16px; flex-wrap: wrap;">
-            <div class="form-group">
-              <label>Team min points/week</label>
-              <input v-model.number="challengeForm.teamMinPointsPerWeek" type="number" min="0" placeholder="Optional" />
-              <small>Team must achieve this many points collectively per week</small>
-            </div>
-            <div class="form-group">
-              <label>Individual min points/week</label>
-              <input v-model.number="challengeForm.individualMinPointsPerWeek" type="number" min="0" placeholder="Optional" />
-              <small>Each person must achieve this many points per week</small>
-            </div>
-          </div>
-          <div class="form-row" style="display: flex; gap: 16px; flex-wrap: wrap;">
-            <div class="form-group">
-              <label>Master's age threshold (53+)</label>
-              <input v-model.number="challengeForm.mastersAgeThreshold" type="number" min="40" max="99" placeholder="53" />
-              <small>Age to qualify for Master's Division recognition</small>
-            </div>
-            <div class="form-group">
-              <label>Recognition categories</label>
-              <div class="checkbox-group">
-                <label><input v-model="challengeForm.recognitionCategories" type="checkbox" value="fastest_male" /> Fastest Male</label>
-                <label><input v-model="challengeForm.recognitionCategories" type="checkbox" value="fastest_female" /> Fastest Female</label>
-                <label><input v-model="challengeForm.recognitionCategories" type="checkbox" value="fastest_masters_male" /> Fastest Master's Male</label>
-                <label><input v-model="challengeForm.recognitionCategories" type="checkbox" value="fastest_masters_female" /> Fastest Master's Female</label>
+            <label style="font-weight:700;">Weekly Goal</label>
+            <div class="form-row" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;margin-top:6px;">
+              <!-- Metric selector -->
+              <div class="form-group">
+                <label>Goal metric</label>
+                <select v-model="challengeForm.weeklyGoalMetric">
+                  <option value="miles">Miles (distance)</option>
+                  <option value="points">Points</option>
+                  <option value="minutes">Duration (minutes)</option>
+                  <option value="activities">Activity count</option>
+                </select>
+              </div>
+              <!-- Approx members per team (for team total preview) -->
+              <div class="form-group">
+                <label>Approx. members per team</label>
+                <input v-model.number="challengeForm.weeklyGoalMembersPerTeam" type="number" min="1" step="1" />
+                <small>Used to calculate team total in the preview below</small>
               </div>
             </div>
+
+            <!-- Miles-based progressive goal -->
+            <div v-if="weeklyGoalIsMiles" class="goal-miles-block">
+              <div class="form-row" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+                <div class="form-group">
+                  <label>Starting miles per person <span class="label-sub">(Week 1)</span></label>
+                  <div class="input-unit-row">
+                    <input v-model.number="challengeForm.runRuckStartMilesPerPerson" type="number" min="0" step="0.5" />
+                    <span class="unit-badge">mi / person</span>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>Weekly increase per person</label>
+                  <div class="input-unit-row">
+                    <input v-model.number="challengeForm.runRuckWeeklyIncreaseMilesPerPerson" type="number" min="0" step="0.5" />
+                    <span class="unit-badge">mi / person / wk</span>
+                  </div>
+                </div>
+                <div class="form-group" v-if="challengeForm.eventCategory === 'run_ruck'">
+                  <label>Max rucks per person / week</label>
+                  <div class="input-unit-row">
+                    <input v-model.number="challengeForm.maxRucksPerWeek" type="number" min="0" step="1" />
+                    <span class="unit-badge">rucks (0 = no cap)</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Progression preview table -->
+              <div v-if="goalProgressionRows.length" class="goal-progression-preview">
+                <div class="gpp-header">
+                  <span class="gpp-title">Progression preview</span>
+                  <span class="gpp-sub">{{ challengeForm.weeklyGoalMembersPerTeam }} members × per-person miles</span>
+                </div>
+                <div class="gpp-table-wrap">
+                  <table class="gpp-table">
+                    <thead>
+                      <tr>
+                        <th>Week</th>
+                        <th>Per person</th>
+                        <th>Team total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="row in goalProgressionRows" :key="row.wk">
+                        <td>Wk {{ row.wk }}</td>
+                        <td>{{ row.perPerson }} mi</td>
+                        <td class="gpp-total">{{ row.teamTotal }} mi</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p class="gpp-note">Team total is locked at season launch from enrolled member count and does not shrink if members are removed.</p>
+              </div>
+            </div>
+
+            <!-- Points / other metric goal -->
+            <div v-else class="form-row" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;">
+              <div class="form-group">
+                <label>Individual min {{ weeklyGoalUnit }}/week</label>
+                <div class="input-unit-row">
+                  <input v-model.number="challengeForm.individualMinPointsPerWeek" type="number" min="0" placeholder="Optional" />
+                  <span class="unit-badge">{{ weeklyGoalUnit }}</span>
+                </div>
+                <small>Each member must hit this per week</small>
+              </div>
+              <div class="form-group">
+                <label>Team min {{ weeklyGoalUnit }}/week</label>
+                <div class="input-unit-row">
+                  <input v-model.number="challengeForm.teamMinPointsPerWeek" type="number" min="0" placeholder="Optional" />
+                  <span class="unit-badge">{{ weeklyGoalUnit }}</span>
+                </div>
+                <small>Collective team target per week</small>
+              </div>
+              <div class="form-group">
+                <label>Min activities / week</label>
+                <input v-model.number="challengeForm.weeklyGoalMinimum" type="number" min="0" placeholder="Optional" />
+                <small>Minimum number of logged activities</small>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label style="font-weight:700;font-size:14px;display:block;margin-bottom:4px;">Recognition Categories</label>
+            <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px 0;">Configure who gets recognized each period. Masters age threshold is set inside the Masters section.</p>
+            <RecognitionCategoryBuilder
+              v-model="challengeForm.recognitionCategories"
+              :custom-field-definitions="challengeCustomFields"
+              :library-awards="libraryAwards"
+              :library-groups="libraryGroups"
+              :club-id="organizationId"
+              @save-award-to-library="saveAwardToLibrary"
+            />
           </div>
           <div class="form-group">
             <label>Event category</label>
@@ -187,7 +285,11 @@
               </div>
               <div class="form-group">
                 <label>Week timezone</label>
-                <input v-model="challengeForm.weekTimeZone" type="text" placeholder="e.g., America/New_York" />
+                <select v-model="challengeForm.weekTimeZone">
+                  <optgroup v-for="grp in TIMEZONE_GROUPS" :key="grp.label" :label="grp.label">
+                    <option v-for="tz in grp.zones" :key="tz.value" :value="tz.value">{{ tz.label }}</option>
+                  </optgroup>
+                </select>
               </div>
             </div>
           </div>
@@ -228,27 +330,6 @@
                 <input v-model.number="challengeForm.caloriesPerPoint" type="number" min="1" step="1" />
               </div>
             </div>
-          </div>
-          <div class="form-group">
-            <label>Run/Ruck weekly miles progression</label>
-            <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
-              <div class="form-group">
-                <label>Start miles minimum per person (week 1)</label>
-                <input v-model.number="challengeForm.runRuckStartMilesPerPerson" type="number" min="0" step="0.1" />
-              </div>
-              <div class="form-group">
-                <label>Weekly increase miles per person</label>
-                <input v-model.number="challengeForm.runRuckWeeklyIncreaseMilesPerPerson" type="number" min="0" step="0.1" />
-              </div>
-              <div class="form-group" v-if="challengeForm.eventCategory === 'run_ruck'">
-                <label>Max rucks per participant per week</label>
-                <input v-model.number="challengeForm.maxRucksPerWeek" type="number" min="0" step="1" />
-                <small>Set 0 for no cap.</small>
-              </div>
-            </div>
-            <small>
-              Team minimum miles each week are derived from baseline member count at season launch and do not shrink if members are removed.
-            </small>
           </div>
           <div class="form-group">
             <label>Team setup</label>
@@ -351,6 +432,16 @@
             <label>Treadmill rules</label>
             <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
               <div class="form-group">
+                <label>Post season activity to club feed</label>
+                <select v-model="challengeForm.showInClubFeed">
+                  <option :value="true">Yes — show workouts in the club feed</option>
+                  <option :value="false">No — keep season activity private</option>
+                </select>
+                <small>Controls whether member workouts from this season appear in the club-wide feed on the dashboard.</small>
+              </div>
+            </div>
+            <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <div class="form-group">
                 <label>Workout approval mode</label>
                 <select v-model="challengeForm.workoutModerationMode">
                   <option value="all">Approve every workout</option>
@@ -408,7 +499,7 @@
           <button type="button" :class="['tab-btn', { active: manageTab === 'teams' }]" @click="manageTab = 'teams'">Teams</button>
           <button type="button" :class="['tab-btn', { active: manageTab === 'members' }]" @click="manageTab = 'members'">Participants</button>
           <button type="button" :class="['tab-btn', { active: manageTab === 'profiles' }]" @click="manageTab = 'profiles'; loadParticipantProfiles()">Profiles (Gender/DOB)</button>
-          <button type="button" :class="['tab-btn', { active: manageTab === 'weekly' }]" @click="manageTab = 'weekly'; loadWeeklyTasks()">Weekly Tasks</button>
+          <button type="button" :class="['tab-btn', { active: manageTab === 'weekly' }]" @click="manageTab = 'weekly'; loadWeeklyTasks(); loadTemplateLibrary()">Weekly Tasks</button>
         </div>
 
         <div v-show="manageTab === 'teams'" class="manage-panel">
@@ -474,6 +565,22 @@
         </div>
 
         <div v-show="manageTab === 'weekly'" class="manage-panel">
+          <!-- Library picker -->
+          <div v-if="templateLibrary.length" class="library-picker-bar">
+            <label class="library-picker-label">📚 Add from library</label>
+            <select v-model="libraryPickerSelected" class="library-picker-select">
+              <option value="">— pick a template —</option>
+              <option v-for="tpl in templateLibrary" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
+            </select>
+            <select v-if="libraryPickerSelected" v-model="libraryPickerSlot" class="library-picker-select">
+              <option value="">— slot —</option>
+              <option value="0">Challenge 1</option>
+              <option value="1">Challenge 2</option>
+              <option value="2">Challenge 3</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" @click="applyLibraryTemplate" :disabled="!libraryPickerSelected || libraryPickerSlot === ''">Apply</button>
+          </div>
+
           <div class="panel-actions">
             <label>Week of</label>
             <input v-model="weeklyTasksWeek" type="date" />
@@ -497,17 +604,114 @@
             </span>
           </div>
           <div class="weekly-tasks-form">
-            <div v-for="(t, i) in weeklyTasksForm" :key="i" class="form-group">
-              <label>Challenge {{ i + 1 }}</label>
-              <input v-model="t.name" type="text" placeholder="e.g., Run 5 miles" />
-              <textarea v-model="t.description" rows="2" placeholder="Optional description" />
-              <select v-model="t.proofPolicy">
-                <option value="none">No proof required</option>
-                <option value="photo_required">Photo required</option>
-                <option value="gps_or_photo">GPS or photo proof</option>
-                <option value="gps_required_no_treadmill">GPS required (no treadmill)</option>
-              </select>
-              <div class="hint" v-if="t.confidenceScore != null">Confidence: {{ t.confidenceScore }}%</div>
+            <div v-for="(t, i) in weeklyTasksForm" :key="i" class="weekly-task-card">
+              <div class="weekly-task-card-header">
+                <strong class="task-num">Challenge {{ i + 1 }}</strong>
+                <div class="task-header-actions">
+                  <label class="season-long-toggle">
+                    <input type="checkbox" v-model="t.isSeasonLong" />
+                    Season-long
+                  </label>
+                  <button class="btn btn-ghost btn-xs" @click="toggleCriteria(i)">
+                    {{ showCriteriaFor[i] ? '▲ Hide criteria' : '▼ Criteria' }}
+                  </button>
+                  <button class="btn btn-ghost btn-xs" @click="saveTaskToLibrary(t)" title="Save as reusable template">
+                    💾 Save to library
+                  </button>
+                </div>
+              </div>
+              <input v-model="t.name" type="text" placeholder="e.g., Run 5 miles" class="task-input" />
+              <textarea v-model="t.description" rows="2" placeholder="Optional description" class="task-input" />
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+                <select v-model="t.mode" style="flex:1;min-width:160px;">
+                  <option value="volunteer_or_elect">Volunteer or Elect</option>
+                  <option value="captain_assigns">Captain Assigns</option>
+                  <option value="full_team">Full Team</option>
+                </select>
+                <select v-model="t.proofPolicy" style="flex:1;min-width:160px;">
+                  <option value="none">No proof required</option>
+                  <option value="photo_required">Photo required</option>
+                  <option value="gps_or_photo">GPS or photo proof</option>
+                  <option value="gps_required_no_treadmill">GPS required (no treadmill)</option>
+                </select>
+              </div>
+
+              <!-- Criteria Builder (expandable) -->
+              <div v-if="showCriteriaFor[i]" class="criteria-builder">
+                <div class="criteria-section-title">Rich Criteria — validates member workouts tagged to this challenge</div>
+
+                <div class="criteria-row">
+                  <label>Challenge type</label>
+                  <select v-model="t.criteriaJson.challengeType">
+                    <option value="">Any</option>
+                    <option value="workout">Workout</option>
+                    <option value="race">Race</option>
+                    <option value="once_per_season">Once per season</option>
+                  </select>
+                </div>
+
+                <div class="criteria-row">
+                  <label>Activity types allowed</label>
+                  <div class="multi-check-row">
+                    <label v-for="at in activityTypeOptions" :key="at">
+                      <input type="checkbox" :value="at" v-model="t.criteriaJson.activityTypes" />
+                      {{ at }}
+                    </label>
+                  </div>
+                </div>
+
+                <div class="criteria-row">
+                  <label>Terrain allowed</label>
+                  <div class="multi-check-row">
+                    <label v-for="tr in terrainOptions" :key="tr">
+                      <input type="checkbox" :value="tr" v-model="t.criteriaJson.terrain" />
+                      {{ tr }}
+                    </label>
+                  </div>
+                </div>
+
+                <div class="criteria-row">
+                  <label>Time-of-day window</label>
+                  <div class="criteria-pair">
+                    <input type="time" v-model="t.criteriaJson.timeOfDay.start" />
+                    <span>to</span>
+                    <input type="time" v-model="t.criteriaJson.timeOfDay.end" />
+                  </div>
+                </div>
+
+                <div class="criteria-row">
+                  <label>Min distance (miles)</label>
+                  <input type="number" step="0.1" min="0" v-model.number="t.criteriaJson.distance.minMiles" placeholder="e.g. 3.1" />
+                </div>
+
+                <div class="criteria-row">
+                  <label>Min duration (minutes)</label>
+                  <input type="number" min="0" v-model.number="t.criteriaJson.duration.minMinutes" placeholder="e.g. 30" />
+                </div>
+
+                <div class="criteria-row">
+                  <label>Max pace (seconds/mile) — "no slower than"</label>
+                  <input type="number" min="0" v-model.number="t.criteriaJson.pace.maxSecondsPerMile" placeholder="e.g. 720 = 12:00/mi" />
+                  <small v-if="t.criteriaJson.pace.maxSecondsPerMile">
+                    = {{ Math.floor(t.criteriaJson.pace.maxSecondsPerMile / 60) }}:{{ String(Math.round(t.criteriaJson.pace.maxSecondsPerMile) % 60).padStart(2,'0') }}/mi
+                  </small>
+                </div>
+
+                <div class="criteria-row">
+                  <label>
+                    <input type="checkbox" v-model="t.criteriaJson._splitRunEnabled" @change="onSplitRunToggle(t)" />
+                    Split-run challenge (multiple workouts in one day)
+                  </label>
+                </div>
+                <div v-if="t.criteriaJson._splitRunEnabled" class="criteria-sub">
+                  <label>Number of runs required</label>
+                  <input type="number" min="2" max="5" v-model.number="t.criteriaJson.splitRuns.count" />
+                  <label>Min separation between runs (minutes)</label>
+                  <input type="number" min="0" v-model.number="t.criteriaJson.splitRuns.minSeparationMinutes" placeholder="e.g. 120" />
+                </div>
+              </div>
+
+              <div class="hint" v-if="t.confidenceScore != null">AI confidence: {{ t.confidenceScore }}%</div>
             </div>
           </div>
           <div v-if="weeklyTasksWithIds.length && teams.length" class="weekly-assignments">
@@ -565,6 +769,59 @@
       </div>
     </div>
 
+    <!-- Custom Fields section (club-level) -->
+    <div class="panel" style="margin-top: 24px;">
+      <ClubCustomFields
+        :club-id="organizationId"
+        @fields-updated="challengeCustomFields = $event"
+      />
+    </div>
+
+    <!-- Recognition Awards & Groups Library -->
+    <div v-if="organizationId" class="panel" style="margin-top: 24px;">
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div>
+          <h2 style="margin:0;font-size:1.1em;">Recognition Library</h2>
+          <p style="margin:4px 0 0;font-size:12px;color:var(--text-secondary);">Manage reusable awards and eligibility groups that can be selected when configuring any season.</p>
+        </div>
+      </div>
+      <RecognitionLibraryManager
+        ref="libraryManagerRef"
+        :club-id="organizationId"
+        :custom-field-defs="challengeCustomFields"
+        @groups-updated="libraryGroups = $event"
+        @awards-updated="libraryAwards = $event"
+      />
+    </div>
+
+    <!-- Member Photo Moderation -->
+    <div class="panel" style="margin-top: 24px;">
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <h2 style="margin:0;font-size:1.1em;">Member Photos — Moderation</h2>
+        <button class="btn btn-secondary btn-compact" @click="loadFlaggedPhotos" :disabled="flaggedLoading">
+          {{ flaggedLoading ? 'Loading…' : 'Refresh' }}
+        </button>
+      </div>
+      <div v-if="flaggedError" class="error" style="margin-bottom:10px;">{{ flaggedError }}</div>
+      <div v-if="flaggedLoading" class="hint">Loading flagged photos…</div>
+      <div v-else-if="!flaggedPhotos.length" class="hint">
+        No flagged photos right now. Use the "Flag" button on a member's photo to surface it here.
+      </div>
+      <div v-else class="flagged-photo-grid">
+        <div v-for="p in flaggedPhotos" :key="p.id" class="flagged-photo-card">
+          <img :src="p.url" alt="" class="flagged-photo-img" />
+          <div class="flagged-photo-meta">
+            <div class="flagged-user">{{ p.userFirstName }} {{ p.userLastName }}</div>
+            <div v-if="p.flaggedReason" class="flagged-reason">{{ p.flaggedReason }}</div>
+            <div class="flagged-actions">
+              <button class="btn btn-sm btn-danger" @click="moderateRemove(p)">Remove Photo</button>
+              <button class="btn btn-sm btn-secondary" @click="unflagPhoto(p)">Unflag</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Add Member Modal -->
     <div v-if="showMemberModal" class="modal-overlay" @click.self="closeMemberModal">
       <div class="modal-content">
@@ -593,23 +850,62 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import RecognitionCategoryBuilder from '../challenge/RecognitionCategoryBuilder.vue';
+import RecognitionLibraryManager from '../challenge/RecognitionLibraryManager.vue';
+import ClubCustomFields from '../club/ClubCustomFields.vue';
+import { TIMEZONE_GROUPS } from '../../utils/timezones.js';
 
 const router = useRouter();
 const agencyStore = useAgencyStore();
 
 const organizationId = computed(() => agencyStore.currentAgency?.id || null);
+
+// ── Weekly goal helpers ───────────────────────────────────────────
+const GOAL_METRIC_UNIT = {
+  miles:      'mi',
+  points:     'pts',
+  minutes:    'min',
+  activities: 'activities'
+};
+const weeklyGoalUnit = computed(() => GOAL_METRIC_UNIT[challengeForm.value.weeklyGoalMetric] || 'mi');
+
+const weeklyGoalIsMiles = computed(() => challengeForm.value.weeklyGoalMetric === 'miles');
+
+/** Per-person value for week N (1-indexed), based on progression settings. */
+const perPersonForWeek = (weekNum) => {
+  const base     = Number(challengeForm.value.runRuckStartMilesPerPerson) || 0;
+  const increase = Number(challengeForm.value.runRuckWeeklyIncreaseMilesPerPerson) || 0;
+  return base + increase * (weekNum - 1);
+};
+
+/** Preview rows for the miles progression table (weeks 1-8). */
+const goalProgressionRows = computed(() => {
+  if (!weeklyGoalIsMiles.value) return [];
+  const members = Number(challengeForm.value.weeklyGoalMembersPerTeam) || 1;
+  return Array.from({ length: 8 }, (_, i) => {
+    const wk      = i + 1;
+    const perPerson = perPersonForWeek(wk);
+    return { wk, perPerson: perPerson.toFixed(1), teamTotal: (perPerson * members).toFixed(1) };
+  });
+});
 const recordMetricOptions = [
   { value: 'longest_run', label: 'Longest Run' },
-  { value: 'fastest_mile', label: 'Fastest Mile' },
+  { value: 'fastest_mile', label: 'Best Mile Pace (Run)' },
   { value: 'longest_ruck', label: 'Longest Ruck' },
   { value: 'highest_points_workout', label: 'Highest Points (Single Workout)' },
   { value: 'longest_trail_run', label: 'Longest Trail Run' },
-  { value: 'fastest_5k', label: 'Fastest 5K' },
+  { value: 'fastest_5k', label: 'Fastest 5K (Est.)' },
   { value: 'longest_walk', label: 'Longest Walk' },
   { value: 'longest_duration_workout', label: 'Longest Workout Duration' },
-  { value: 'highest_calories_workout', label: 'Highest Calories (Single Workout)' }
+  { value: 'highest_calories_workout', label: 'Highest Calories (Single Workout)' },
+  { value: 'fastest_half_marathon', label: 'Fastest Half Marathon (13.1+ mi)' },
+  { value: 'fastest_marathon', label: 'Fastest Marathon (26.2+ mi)' }
 ];
 const recordMetricOptionSet = new Set(recordMetricOptions.map((o) => o.value));
+const challengeCustomFields = ref([]);
+const libraryManagerRef = ref(null);
+const libraryAwards = ref([]);
+const libraryGroups = ref([]);
 const normalizeRecordMetricSelection = (raw) => {
   const arr = Array.isArray(raw)
     ? raw
@@ -633,6 +929,8 @@ const challengeForm = ref({
   endsAt: '',
   activityTypesText: '',
   weeklyGoalMinimum: null,
+  weeklyGoalMetric: 'miles',
+  weeklyGoalMembersPerTeam: 10,
   teamMinPointsPerWeek: null,
   individualMinPointsPerWeek: null,
   mastersAgeThreshold: 53,
@@ -677,16 +975,112 @@ const challengeForm = ref({
   treadmillpocalypseEnabled: false,
   treadmillpocalypseStartsAtWeek: '',
   workoutModerationMode: 'treadmill_only',
+  showInClubFeed: true,
   recordMetrics: []
 });
 
 const weeklyTasksWeek = ref(getThisWeekSunday());
-const weeklyTasksForm = ref([
-  { name: '', description: '', proofPolicy: 'none', confidenceScore: null },
-  { name: '', description: '', proofPolicy: 'none', confidenceScore: null },
-  { name: '', description: '', proofPolicy: 'none', confidenceScore: null }
-]);
+
+const defaultCriteria = () => ({
+  challengeType: '',
+  activityTypes: [],
+  terrain: [],
+  timeOfDay: { start: '', end: '' },
+  distance: { minMiles: null },
+  duration: { minMinutes: null },
+  pace: { maxSecondsPerMile: null },
+  splitRuns: { count: 2, minSeparationMinutes: 60 },
+  _splitRunEnabled: false
+});
+const defaultTask = () => ({
+  name: '', description: '', proofPolicy: 'none', mode: 'volunteer_or_elect',
+  confidenceScore: null, isSeasonLong: false, criteriaJson: defaultCriteria()
+});
+
+const weeklyTasksForm = ref([defaultTask(), defaultTask(), defaultTask()]);
 const weeklyTasksSaving = ref(false);
+
+// Criteria builder state
+const showCriteriaFor = ref({ 0: false, 1: false, 2: false });
+const toggleCriteria = (i) => { showCriteriaFor.value[i] = !showCriteriaFor.value[i]; };
+const onSplitRunToggle = (t) => {
+  if (!t.criteriaJson._splitRunEnabled) t.criteriaJson.splitRuns = { count: 2, minSeparationMinutes: 60 };
+};
+
+const activityTypeOptions = ['Run', 'Trail Run', 'Ruck', 'Walk', 'Bike', 'Swim', 'Other'];
+const terrainOptions = ['Road', 'Trail', 'Track', 'Treadmill', 'Race', 'Other'];
+
+// Template library state
+const templateLibrary = ref([]);
+const libraryPickerSelected = ref('');
+const libraryPickerSlot = ref('');
+
+const loadTemplateLibrary = async () => {
+  const clubId = managingChallenge.value?.organization_id;
+  if (!clubId) return;
+  try {
+    const r = await api.get(`/summit-stats/clubs/${clubId}/challenge-templates`);
+    templateLibrary.value = Array.isArray(r.data?.templates) ? r.data.templates : [];
+  } catch { templateLibrary.value = []; }
+};
+
+const applyLibraryTemplate = () => {
+  const tpl = templateLibrary.value.find((t) => String(t.id) === String(libraryPickerSelected.value));
+  const slot = parseInt(libraryPickerSlot.value, 10);
+  if (!tpl || isNaN(slot)) return;
+  const crit = tpl.criteriaJson || defaultCriteria();
+  if (!crit.timeOfDay) crit.timeOfDay = { start: '', end: '' };
+  if (!crit.distance) crit.distance = { minMiles: null };
+  if (!crit.duration) crit.duration = { minMinutes: null };
+  if (!crit.pace) crit.pace = { maxSecondsPerMile: null };
+  if (!crit.splitRuns) crit.splitRuns = { count: 2, minSeparationMinutes: 60 };
+  crit._splitRunEnabled = !!(crit.splitRuns?.count && crit.splitRuns.count > 1);
+  weeklyTasksForm.value[slot] = {
+    name: tpl.name,
+    description: tpl.description || '',
+    proofPolicy: tpl.proofPolicy || 'none',
+    mode: tpl.mode || 'volunteer_or_elect',
+    confidenceScore: null,
+    isSeasonLong: tpl.isSeasonLong || false,
+    criteriaJson: crit
+  };
+  libraryPickerSelected.value = '';
+  libraryPickerSlot.value = '';
+};
+
+const saveTaskToLibrary = async (t) => {
+  const clubId = managingChallenge.value?.organization_id;
+  if (!clubId || !t.name?.trim()) return alert('Challenge needs a name before saving to library.');
+  const payload = {
+    name: t.name.trim(),
+    description: t.description || null,
+    proofPolicy: t.proofPolicy || 'none',
+    mode: t.mode || 'volunteer_or_elect',
+    isSeasonLong: t.isSeasonLong || false,
+    criteriaJson: buildCriteriaPayload(t.criteriaJson)
+  };
+  try {
+    await api.post(`/summit-stats/clubs/${clubId}/challenge-templates`, payload);
+    await loadTemplateLibrary();
+    alert(`"${t.name}" saved to library.`);
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to save template');
+  }
+};
+
+const buildCriteriaPayload = (c) => {
+  if (!c) return null;
+  const out = {};
+  if (c.challengeType) out.challengeType = c.challengeType;
+  if (c.activityTypes?.length) out.activityTypes = c.activityTypes;
+  if (c.terrain?.length) out.terrain = c.terrain;
+  if (c.timeOfDay?.start || c.timeOfDay?.end) out.timeOfDay = c.timeOfDay;
+  if (c.distance?.minMiles) out.distance = { minMiles: Number(c.distance.minMiles) };
+  if (c.duration?.minMinutes) out.duration = { minMinutes: Number(c.duration.minMinutes) };
+  if (c.pace?.maxSecondsPerMile) out.pace = { maxSecondsPerMile: Number(c.pace.maxSecondsPerMile) };
+  if (c._splitRunEnabled && c.splitRuns?.count > 1) out.splitRuns = c.splitRuns;
+  return Object.keys(out).length ? out : null;
+};
 const closeWeekSaving = ref(false);
 const weeklyAiDraftLoading = ref(false);
 const weeklyPublishSaving = ref(false);
@@ -738,6 +1132,7 @@ const challengeDashboardLink = (c) => {
 
 const formatStatus = (c) => {
   const s = String(c?.status || '').toLowerCase();
+  if (s === 'active' && isExpiredSeason(c)) return 'Expired (Open)';
   if (s === 'active') return 'Active';
   if (s === 'draft') return 'Draft';
   if (s === 'closed') return 'Closed';
@@ -745,11 +1140,24 @@ const formatStatus = (c) => {
   return s || '—';
 };
 
+const isExpiredSeason = (c) => {
+  const end = c?.ends_at || c?.endsAt;
+  if (!end) return false;
+  const ts = new Date(end).getTime();
+  return Number.isFinite(ts) && ts < Date.now();
+};
+
 const statusClass = (c) => {
   const s = String(c?.status || '').toLowerCase();
+  if (s === 'active' && isExpiredSeason(c)) return 'status-expired';
   if (s === 'active') return 'status-active';
   if (s === 'closed') return 'status-closed';
   return '';
+};
+
+const canCloseSeason = (c) => {
+  const s = String(c?.status || '').toLowerCase();
+  return s === 'active' || s === 'draft';
 };
 
 const formatDates = (c) => {
@@ -801,7 +1209,7 @@ const loadChallenges = async () => {
   loading.value = true;
   error.value = '';
   try {
-    const r = await api.get('/learning-program-classes', { params: { organizationId: organizationId.value } });
+    const r = await api.get('/learning-program-classes', { params: { organizationId: organizationId.value, includeArchived: true } });
     challenges.value = Array.isArray(r.data?.classes) ? r.data.classes : [];
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load seasons';
@@ -821,6 +1229,8 @@ const openCreateModal = () => {
     endsAt: '',
     activityTypesText: '',
     weeklyGoalMinimum: null,
+    weeklyGoalMetric: 'miles',
+    weeklyGoalMembersPerTeam: 10,
     teamMinPointsPerWeek: null,
     individualMinPointsPerWeek: null,
     mastersAgeThreshold: 53,
@@ -865,6 +1275,7 @@ const openCreateModal = () => {
     treadmillpocalypseEnabled: false,
     treadmillpocalypseStartsAtWeek: '',
     workoutModerationMode: 'treadmill_only',
+    showInClubFeed: true,
     recordMetrics: []
   };
   showChallengeModal.value = true;
@@ -901,6 +1312,8 @@ const openEditModal = (c) => {
     endsAt: c.ends_at || c.endsAt ? new Date(c.ends_at || c.endsAt).toISOString().slice(0, 16) : '',
     activityTypesText,
     weeklyGoalMinimum: c.weekly_goal_minimum ?? c.weeklyGoalMinimum ?? null,
+    weeklyGoalMetric: seasonSettings?.participation?.weeklyGoalMetric || 'miles',
+    weeklyGoalMembersPerTeam: seasonSettings?.participation?.weeklyGoalMembersPerTeam ?? 10,
     teamMinPointsPerWeek: c.team_min_points_per_week ?? c.teamMinPointsPerWeek ?? null,
     individualMinPointsPerWeek: c.individual_min_points_per_week ?? c.individualMinPointsPerWeek ?? null,
     mastersAgeThreshold: c.masters_age_threshold ?? c.mastersAgeThreshold ?? 53,
@@ -945,6 +1358,7 @@ const openEditModal = (c) => {
     treadmillpocalypseEnabled: treadmillpocalypseSettings.enabled === true,
     treadmillpocalypseStartsAtWeek: treadmillpocalypseSettings.startsAtWeek || '',
     workoutModerationMode: moderationSettings.mode || 'treadmill_only',
+    showInClubFeed: seasonSettings?.feedSettings?.showInClubFeed !== false,
     recordMetrics: normalizeRecordMetricSelection(recordsSettings.metrics)
   };
   showChallengeModal.value = true;
@@ -979,7 +1393,13 @@ const saveChallenge = async () => {
       weeklyGoalMinimum: challengeForm.value.weeklyGoalMinimum ?? null,
       teamMinPointsPerWeek: challengeForm.value.teamMinPointsPerWeek ?? null,
       individualMinPointsPerWeek: challengeForm.value.individualMinPointsPerWeek ?? null,
-      mastersAgeThreshold: challengeForm.value.mastersAgeThreshold ?? 53,
+      mastersAgeThreshold: (() => {
+        const cats = challengeForm.value.recognitionCategories || [];
+        const cfg = cats.find(c => c.type === 'cfg_masters');
+        if (cfg) return cfg.ageThreshold ?? 53;
+        const m = cats.find(c => c.type === 'masters');
+        return m ? (m.ageThreshold ?? 53) : (challengeForm.value.mastersAgeThreshold ?? 53);
+      })(),
       recognitionCategoriesJson: challengeForm.value.recognitionCategories?.length ? challengeForm.value.recognitionCategories : null,
       registrationEligible: !!challengeForm.value.registrationEligible,
       medicaidEligible: !!challengeForm.value.medicaidEligible,
@@ -1017,10 +1437,12 @@ const saveChallenge = async () => {
           allowCaptainNicknameSuffixWhenLocked: challengeForm.value.allowCaptainNicknameSuffixWhenLocked === true
         },
         participation: {
+          weeklyGoalMetric: challengeForm.value.weeklyGoalMetric || 'miles',
+          weeklyGoalMembersPerTeam: Number(challengeForm.value.weeklyGoalMembersPerTeam ?? 10),
           individualMinPointsPerWeek: Number(challengeForm.value.individualMinPointsPerWeek ?? 0),
           teamMinPointsPerWeek: Number(challengeForm.value.teamMinPointsPerWeek ?? 0),
           runRuckStartMilesPerPerson: Number(challengeForm.value.runRuckStartMilesPerPerson ?? 0),
-          runRuckWeeklyIncreaseMilesPerPerson: Number(challengeForm.value.runRuckWeeklyIncreaseMilesPerPerson ?? 2),
+          runRuckWeeklyIncreaseMilesPerPerson: Number(challengeForm.value.runRuckWeeklyIncreaseMilesPerPerson ?? 0),
           maxRucksPerWeek: Number(challengeForm.value.maxRucksPerWeek ?? 0)
         },
         byeWeek: {
@@ -1049,6 +1471,9 @@ const saveChallenge = async () => {
         },
         workoutModeration: {
           mode: challengeForm.value.workoutModerationMode || 'treadmill_only'
+        },
+        feedSettings: {
+          showInClubFeed: challengeForm.value.showInClubFeed !== false
         },
         records: {
           metrics: normalizeRecordMetricSelection(challengeForm.value.recordMetrics)
@@ -1097,6 +1522,20 @@ const launchChallenge = async (c) => {
     await loadChallenges();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to launch';
+  } finally {
+    launching.value = false;
+  }
+};
+
+const closeSeason = async (c) => {
+  if (!c?.id) return;
+  if (!confirm(`Close "${c.class_name || c.className}"?\n\nMembers will no longer be able to post workouts once closed.`)) return;
+  launching.value = true;
+  try {
+    await api.put(`/learning-program-classes/${c.id}`, { status: 'closed' });
+    await loadChallenges();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to close season';
   } finally {
     launching.value = false;
   }
@@ -1201,10 +1640,32 @@ const loadWeeklyTasks = async () => {
       api.get(`/learning-program-classes/${managingChallenge.value.id}/weekly-assignments`, { params: { week: weeklyTasksWeek.value } })
     ]);
     const tasks = Array.isArray(tasksRes.data?.tasks) ? tasksRes.data.tasks : [];
+    const toTaskForm = (task) => {
+      let crit = defaultCriteria();
+      if (task?.criteria_json) {
+        const raw = typeof task.criteria_json === 'string' ? JSON.parse(task.criteria_json) : task.criteria_json;
+        crit = { ...crit, ...raw };
+        if (!crit.timeOfDay) crit.timeOfDay = { start: '', end: '' };
+        if (!crit.distance) crit.distance = { minMiles: null };
+        if (!crit.duration) crit.duration = { minMinutes: null };
+        if (!crit.pace) crit.pace = { maxSecondsPerMile: null };
+        if (!crit.splitRuns) crit.splitRuns = { count: 2, minSeparationMinutes: 60 };
+        crit._splitRunEnabled = !!(crit.splitRuns?.count && crit.splitRuns.count > 1);
+      }
+      return {
+        name: task?.name || '',
+        description: task?.description || '',
+        proofPolicy: task?.proof_policy || 'none',
+        mode: task?.mode || 'volunteer_or_elect',
+        confidenceScore: task?.confidence_score ?? null,
+        isSeasonLong: !!task?.is_season_long,
+        criteriaJson: crit
+      };
+    };
     weeklyTasksForm.value = [
-      { name: tasks[0]?.name || '', description: tasks[0]?.description || '', proofPolicy: tasks[0]?.proof_policy || 'none', confidenceScore: tasks[0]?.confidence_score ?? null },
-      { name: tasks[1]?.name || '', description: tasks[1]?.description || '', proofPolicy: tasks[1]?.proof_policy || 'none', confidenceScore: tasks[1]?.confidence_score ?? null },
-      { name: tasks[2]?.name || '', description: tasks[2]?.description || '', proofPolicy: tasks[2]?.proof_policy || 'none', confidenceScore: tasks[2]?.confidence_score ?? null }
+      toTaskForm(tasks[0]),
+      toTaskForm(tasks[1]),
+      toTaskForm(tasks[2])
     ];
     weeklyAssignments.value = Array.isArray(assignRes.data?.assignments) ? assignRes.data.assignments : [];
     weeklyTasksWithIds.value = tasks;
@@ -1220,7 +1681,7 @@ const loadWeeklyTasks = async () => {
     }
     await loadNoShowAlerts();
   } catch {
-    weeklyTasksForm.value = [{ name: '', description: '', proofPolicy: 'none', confidenceScore: null }, { name: '', description: '', proofPolicy: 'none', confidenceScore: null }, { name: '', description: '', proofPolicy: 'none', confidenceScore: null }];
+    weeklyTasksForm.value = [defaultTask(), defaultTask(), defaultTask()];
     weeklyAssignments.value = [];
   }
 };
@@ -1288,7 +1749,10 @@ const saveWeeklyTasks = async () => {
         .map((t) => ({
           name: t.name,
           description: t.description || null,
-          proofPolicy: t.proofPolicy || 'none'
+          proofPolicy: t.proofPolicy || 'none',
+          mode: t.mode || 'volunteer_or_elect',
+          isSeasonLong: t.isSeasonLong || false,
+          criteriaJson: buildCriteriaPayload(t.criteriaJson)
         }))
     });
     await loadWeeklyTasks();
@@ -1308,11 +1772,17 @@ const generateWeeklyAiDraft = async () => {
       week: weeklyTasksWeek.value
     });
     const tasks = Array.isArray(r.data?.tasks) ? r.data.tasks : [];
-    weeklyTasksForm.value = [
-      { name: tasks[0]?.name || '', description: tasks[0]?.description || '', proofPolicy: tasks[0]?.proofPolicy || 'none', confidenceScore: tasks[0]?.confidenceScore ?? null },
-      { name: tasks[1]?.name || '', description: tasks[1]?.description || '', proofPolicy: tasks[1]?.proofPolicy || 'none', confidenceScore: tasks[1]?.confidenceScore ?? null },
-      { name: tasks[2]?.name || '', description: tasks[2]?.description || '', proofPolicy: tasks[2]?.proofPolicy || 'none', confidenceScore: tasks[2]?.confidenceScore ?? null }
-    ];
+    const toAiTask = (t) => {
+      const crit = { ...defaultCriteria(), ...(t?.criteriaJson || {}) };
+      if (!crit.timeOfDay) crit.timeOfDay = { start: '', end: '' };
+      if (!crit.distance) crit.distance = { minMiles: null };
+      if (!crit.duration) crit.duration = { minMinutes: null };
+      if (!crit.pace) crit.pace = { maxSecondsPerMile: null };
+      if (!crit.splitRuns) crit.splitRuns = { count: 2, minSeparationMinutes: 60 };
+      crit._splitRunEnabled = !!(crit.splitRuns?.count && crit.splitRuns.count > 1);
+      return { name: t?.name || '', description: t?.description || '', proofPolicy: t?.proofPolicy || 'none', mode: t?.mode || 'volunteer_or_elect', confidenceScore: t?.confidenceScore ?? null, isSeasonLong: false, criteriaJson: crit };
+    };
+    weeklyTasksForm.value = [toAiTask(tasks[0]), toAiTask(tasks[1]), toAiTask(tasks[2])];
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to generate weekly AI draft');
   } finally {
@@ -1331,7 +1801,10 @@ const publishWeeklyDraft = async () => {
         .map((t) => ({
           name: t.name,
           description: t.description || null,
-          proofPolicy: t.proofPolicy || 'none'
+          proofPolicy: t.proofPolicy || 'none',
+          mode: t.mode || 'volunteer_or_elect',
+          isSeasonLong: t.isSeasonLong || false,
+          criteriaJson: buildCriteriaPayload(t.criteriaJson)
         }))
     });
     await loadWeeklyTasks();
@@ -1468,13 +1941,83 @@ const removeMember = async (m) => {
   }
 };
 
+const loadCustomFields = async () => {
+  if (!organizationId.value) return;
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${organizationId.value}/custom-fields`, { skipGlobalLoading: true, skipAuthRedirect: true });
+    challengeCustomFields.value = Array.isArray(data?.fields) ? data.fields : [];
+  } catch {
+    challengeCustomFields.value = [];
+  }
+};
+
+// ── Recognition library helpers ───────────────────────────
+const saveAwardToLibrary = async (award) => {
+  if (!organizationId.value) return;
+  try {
+    const payload = {
+      label: award.label,
+      icon: award.icon || '🏆',
+      period: award.period || 'weekly',
+      metric: award.metric || 'distance_miles',
+      aggregation: award.aggregation || 'most',
+      activityType: award.activityType || '',
+      groupFilter: award.groupFilter || '',
+      genderVariants: award.genderVariants || []
+    };
+    await api.post(`/summit-stats/clubs/${organizationId.value}/recognition-awards`, payload);
+    // Refresh the library list shown in the manager panel
+    libraryManagerRef.value?.loadAwards?.();
+  } catch {
+    // non-critical, fail silently
+  }
+};
+
+// ── Photo moderation ──────────────────────────────────────
+const flaggedPhotos = ref([]);
+const flaggedLoading = ref(false);
+const flaggedError = ref('');
+
+const loadFlaggedPhotos = async () => {
+  if (!organizationId.value) return;
+  flaggedLoading.value = true;
+  flaggedError.value = '';
+  try {
+    const { data } = await api.get('/users/photos/flagged', { params: { agencyId: organizationId.value } });
+    flaggedPhotos.value = data.flagged || [];
+  } catch (e) {
+    flaggedError.value = e.response?.data?.error?.message || 'Failed to load flagged photos';
+  } finally {
+    flaggedLoading.value = false;
+  }
+};
+
+const moderateRemove = async (photo) => {
+  if (!confirm(`Remove this photo from ${photo.userFirstName} ${photo.userLastName}?`)) return;
+  try {
+    await api.delete(`/users/${photo.userId}/photos/${photo.id}/moderate`);
+    flaggedPhotos.value = flaggedPhotos.value.filter((p) => p.id !== photo.id);
+  } catch (e) {
+    flaggedError.value = e.response?.data?.error?.message || 'Failed to remove photo';
+  }
+};
+
+const unflagPhoto = async (photo) => {
+  try {
+    await api.delete(`/users/${photo.userId}/photos/${photo.id}/flag`);
+    flaggedPhotos.value = flaggedPhotos.value.filter((p) => p.id !== photo.id);
+  } catch (e) {
+    flaggedError.value = e.response?.data?.error?.message || 'Failed to unflag photo';
+  }
+};
+
 watch(organizationId, () => {
-  if (organizationId.value) loadChallenges();
-  else challenges.value = [];
+  if (organizationId.value) { loadChallenges(); loadCustomFields(); loadFlaggedPhotos(); }
+  else { challenges.value = []; challengeCustomFields.value = []; flaggedPhotos.value = []; }
 });
 
 onMounted(() => {
-  if (organizationId.value) loadChallenges();
+  if (organizationId.value) { loadChallenges(); loadCustomFields(); loadFlaggedPhotos(); }
 });
 </script>
 
@@ -1530,6 +2073,10 @@ onMounted(() => {
 .challenge-status.status-active {
   background: #e8f5e9;
   color: #2e7d32;
+}
+.challenge-status.status-expired {
+  background: #fff7ed;
+  color: #b45309;
 }
 .challenge-status.status-closed {
   background: #f5f5f5;
@@ -1682,6 +2229,91 @@ onMounted(() => {
   color: var(--text-muted, #666);
   font-size: 0.85em;
 }
+
+/* ── Weekly goal redesign ── */
+.label-sub {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--text-muted, #888);
+}
+.input-unit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.input-unit-row input {
+  flex: 1;
+  min-width: 0;
+}
+.unit-badge {
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #555);
+  background: var(--surface-2, #f1f5f9);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 5px;
+  padding: 4px 8px;
+}
+.goal-miles-block {
+  margin-top: 10px;
+}
+
+/* Progression preview table */
+.goal-progression-preview {
+  margin-top: 14px;
+  background: var(--surface-2, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  padding: 12px 14px;
+  max-width: 480px;
+}
+.gpp-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.gpp-title {
+  font-weight: 700;
+  font-size: 13px;
+}
+.gpp-sub {
+  font-size: 12px;
+  color: var(--text-muted, #888);
+}
+.gpp-table-wrap {
+  overflow-x: auto;
+}
+.gpp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.gpp-table th {
+  text-align: left;
+  padding: 4px 10px 6px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  color: var(--text-secondary, #555);
+}
+.gpp-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-subtle, #f0f4f8);
+}
+.gpp-table tr:last-child td {
+  border-bottom: none;
+}
+.gpp-total {
+  font-weight: 700;
+  color: var(--primary, #1d4ed8);
+}
+.gpp-note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--text-muted, #888);
+  line-height: 1.4;
+}
 .form-actions {
   display: flex;
   gap: 12px;
@@ -1689,6 +2321,175 @@ onMounted(() => {
 }
 .weekly-tasks-form {
   margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.weekly-task-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.weekly-task-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.task-num {
+  font-size: 0.95em;
+  color: #1e293b;
+}
+.task-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.task-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9em;
+}
+.season-long-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82em;
+  cursor: pointer;
+  color: #475569;
+}
+.btn-xs {
+  font-size: 0.78em;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid #cbd5e1;
+  background: transparent;
+  color: #475569;
+}
+.btn-xs:hover { background: #f1f5f9; }
+.btn-ghost {
+  background: transparent;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82em;
+  padding: 3px 8px;
+}
+.btn-ghost:hover { background: #f8fafc; }
+/* Criteria builder */
+.criteria-builder {
+  background: #f0f7ff;
+  border: 1px solid #bae0fd;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+.criteria-section-title {
+  font-size: 0.8em;
+  font-weight: 600;
+  color: #0369a1;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 2px;
+}
+.criteria-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.criteria-row label {
+  font-size: 0.82em;
+  font-weight: 500;
+  color: #475569;
+}
+.criteria-row input,
+.criteria-row select {
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.85em;
+  max-width: 260px;
+}
+.criteria-pair {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.criteria-pair input { max-width: 130px; }
+.multi-check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.multi-check-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82em;
+  font-weight: 400;
+  cursor: pointer;
+  padding: 3px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+.multi-check-row label:has(input:checked) {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+.criteria-sub {
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.criteria-sub label {
+  font-size: 0.82em;
+  color: #475569;
+}
+.criteria-sub input {
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  max-width: 120px;
+}
+/* Library picker */
+.library-picker-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.library-picker-label {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: #92400e;
+}
+.library-picker-select {
+  padding: 5px 8px;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  font-size: 0.85em;
+  background: #fff;
 }
 .weekly-assignments {
   margin-top: 20px;
@@ -1728,5 +2529,42 @@ onMounted(() => {
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 0.85em;
+}
+
+/* Photo moderation */
+.flagged-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+.flagged-photo-card {
+  border: 2px solid #e63946;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.flagged-photo-img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  display: block;
+}
+.flagged-photo-meta {
+  padding: 10px;
+}
+.flagged-user {
+  font-weight: 600;
+  font-size: 0.9em;
+  margin-bottom: 4px;
+}
+.flagged-reason {
+  font-size: 0.8em;
+  color: #666;
+  margin-bottom: 8px;
+}
+.flagged-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 </style>

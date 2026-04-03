@@ -26,6 +26,44 @@ async function resolveAgencyIdFromRequest(req, preferred = null) {
   return ids[0] || null;
 }
 
+async function getAgencyMeta(agencyId) {
+  const id = parseId(agencyId);
+  if (!id) return null;
+  const [rows] = await pool.execute(
+    `SELECT
+       a.id,
+       a.slug,
+       a.organization_type,
+       parent.slug AS parent_slug
+     FROM agencies a
+     LEFT JOIN agencies parent ON parent.id = a.affiliated_agency_id
+     WHERE a.id = ?
+     LIMIT 1`,
+    [id]
+  );
+  return rows?.[0] || null;
+}
+
+const isSscSstcAffiliation = (agencyMeta) => {
+  const slug = String(agencyMeta?.slug || '').trim().toLowerCase();
+  const parentSlug = String(agencyMeta?.parent_slug || '').trim().toLowerCase();
+  const orgType = String(agencyMeta?.organization_type || '').trim().toLowerCase();
+  return orgType === 'affiliation' && (slug === 'ssc' || slug === 'sstc' || parentSlug === 'ssc' || parentSlug === 'sstc');
+};
+
+async function canManageSurveysForAgency(req, agencyId) {
+  const role = String(req.user?.role || '').trim().toLowerCase();
+  if (role === 'super_admin') return true;
+  const agencyMeta = await getAgencyMeta(agencyId);
+  if (!agencyMeta) return false;
+  if (isSscSstcAffiliation(agencyMeta)) {
+    // SSC/SSTC: manager + assistant manager only.
+    return role === 'admin' || role === 'provider_plus';
+  }
+  // Non-SSC/SSTC: preserve existing broad backoffice behavior.
+  return role === 'admin' || role === 'support' || role === 'staff';
+}
+
 function sanitizeQuestions(input) {
   if (!Array.isArray(input)) return [];
   return input
@@ -111,6 +149,9 @@ export const listSurveys = async (req, res, next) => {
     if (!canAccessAgency(req, agencyId, userAgencyIds)) {
       return res.status(403).json({ error: { message: 'Access denied for this agency' } });
     }
+    if (!(await canManageSurveysForAgency(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Manager access required for surveys' } });
+    }
     const includeInactive = String(req.query.includeInactive || '1') !== '0';
     const surveys = await Survey.listByAgency(agencyId, { includeInactive });
     res.json(surveys);
@@ -126,6 +167,9 @@ export const createSurvey = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!canAccessAgency(req, agencyId, userAgencyIds)) {
       return res.status(403).json({ error: { message: 'Access denied for this agency' } });
+    }
+    if (!(await canManageSurveysForAgency(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Manager access required for surveys' } });
     }
     const title = String(req.body?.title || '').trim();
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
@@ -156,6 +200,9 @@ export const updateSurvey = async (req, res, next) => {
     if (!canAccessAgency(req, existing.agency_id, userAgencyIds)) {
       return res.status(403).json({ error: { message: 'Access denied for this survey' } });
     }
+    if (!(await canManageSurveysForAgency(req, existing.agency_id))) {
+      return res.status(403).json({ error: { message: 'Manager access required for surveys' } });
+    }
     const updated = await Survey.update(id, {
       title: req.body?.title ?? existing.title,
       description: req.body?.description ?? existing.description,
@@ -181,6 +228,9 @@ export const deleteSurvey = async (req, res, next) => {
     if (!canAccessAgency(req, existing.agency_id, userAgencyIds)) {
       return res.status(403).json({ error: { message: 'Access denied for this survey' } });
     }
+    if (!(await canManageSurveysForAgency(req, existing.agency_id))) {
+      return res.status(403).json({ error: { message: 'Manager access required for surveys' } });
+    }
     await Survey.delete(id);
     res.json({ ok: true });
   } catch (error) {
@@ -197,6 +247,9 @@ export const pushSurvey = async (req, res, next) => {
     const userAgencyIds = await getUserAgencyIds(req.user?.id);
     if (!canAccessAgency(req, survey.agency_id, userAgencyIds)) {
       return res.status(403).json({ error: { message: 'Access denied for this survey' } });
+    }
+    if (!(await canManageSurveysForAgency(req, survey.agency_id))) {
+      return res.status(403).json({ error: { message: 'Manager access required for surveys' } });
     }
 
     const pushType = String(req.body?.pushType || survey.push_type || '').trim().toLowerCase();
@@ -253,6 +306,9 @@ export const listSurveyPushes = async (req, res, next) => {
     if (!canAccessAgency(req, survey.agency_id, userAgencyIds)) {
       return res.status(403).json({ error: { message: 'Access denied for this survey' } });
     }
+    if (!(await canManageSurveysForAgency(req, survey.agency_id))) {
+      return res.status(403).json({ error: { message: 'Manager access required for surveys' } });
+    }
     const pushes = await SurveyPush.listBySurvey(id);
     res.json(pushes);
   } catch (error) {
@@ -269,6 +325,9 @@ export const listSurveyResponses = async (req, res, next) => {
     const userAgencyIds = await getUserAgencyIds(req.user?.id);
     if (!canAccessAgency(req, survey.agency_id, userAgencyIds)) {
       return res.status(403).json({ error: { message: 'Access denied for this survey' } });
+    }
+    if (!(await canManageSurveysForAgency(req, survey.agency_id))) {
+      return res.status(403).json({ error: { message: 'Manager access required for surveys' } });
     }
     const responses = await SurveyResponse.listBySurvey(id);
     res.json({ survey, responses });

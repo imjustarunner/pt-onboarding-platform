@@ -113,6 +113,7 @@ const getMetricValueFromWorkout = (metricKey, workout) => {
 
 const ensureClubAdminAccess = async ({ user, clubId }) => {
   if (!Number.isFinite(clubId) || clubId < 1) return { ok: false, status: 400, message: 'Invalid club ID' };
+  if (!user?.id) return { ok: false, status: 401, message: 'Sign in required' };
   if (!canManageClub(user?.role)) return { ok: false, status: 403, message: 'Club manager access required' };
   const [clubRows] = await pool.execute(
     'SELECT id, organization_type FROM agencies WHERE id = ? LIMIT 1',

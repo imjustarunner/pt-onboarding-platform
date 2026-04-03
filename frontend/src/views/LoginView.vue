@@ -71,6 +71,35 @@
             <div v-if="loginTheme?.agency?.name" class="login-dual-brand__name">{{ loginTheme.agency.name }}</div>
           </div>
         </div>
+
+        <!-- SSC + club dual-brand split (shown after username verify when user's club has a logo) -->
+        <div
+          v-else-if="isSSCLogin && sscClubBranding && sscClubBranding.logoUrl"
+          class="login-dual-brand login-dual-brand--ssc"
+        >
+          <div class="login-dual-brand__col">
+            <span class="login-dual-brand__label">Team Challenge</span>
+            <img
+              v-if="displayLogoUrl"
+              :src="displayLogoUrl"
+              alt="Summit Stats Team Challenge"
+              class="login-dual-brand__logo login-dual-brand__logo--ssc"
+              @error="handleLogoError"
+            />
+          </div>
+          <div class="login-dual-brand__divider" aria-hidden="true" />
+          <div class="login-dual-brand__col">
+            <span class="login-dual-brand__label">Your Club</span>
+            <img
+              :src="sscClubBranding.logoUrl"
+              alt=""
+              class="login-dual-brand__logo login-dual-brand__logo--club"
+              @error="handleLogoError"
+            />
+            <div v-if="sscClubBranding.name" class="login-dual-brand__name">{{ sscClubBranding.name }}</div>
+          </div>
+        </div>
+
         <div v-else-if="!isIpadPreviewMode" class="login-logo">
           <img :src="displayLogoUrl" alt="Logo" class="logo-image" @error="handleLogoError" v-if="displayLogoUrl" />
         </div>
@@ -878,6 +907,7 @@ const orgOptions = ref([]);
 const selectedOrgSlug = ref('');
 const rememberLogin = ref(false);
 const rememberedGoogleLogin = ref(null);
+const sscClubBranding = ref(null); // populated after identify on SSC when user belongs to a club with a logo
 const identifiedLoginMethod = ref('password');
 const lastVerifiedUsername = ref('');
 const lastUsernameInputAt = ref(0);
@@ -1033,6 +1063,7 @@ const resetToUsernameStep = () => {
   password.value = '';
   lastErrorCode.value = null;
   lastVerifiedUsername.value = '';
+  sscClubBranding.value = null;
 };
 
 const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) => {
@@ -1141,6 +1172,9 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     } else if (!rememberLogin.value && reason === 'remembered') {
       clearRememberedLogin();
     }
+
+    // Capture SSC club branding for the dual-brand split panel
+    sscClubBranding.value = data?.affiliationBranding?.logoUrl ? data.affiliationBranding : null;
 
     // Decide between Google vs password.
     const method = String(data?.login?.method || 'password').toLowerCase();
@@ -1667,7 +1701,7 @@ const handleLogoError = (event) => {
 }
 
 .login-page--ssc:not(.login-page--app-like) .login-form .form-group label {
-  font-size: 20px;
+  font-size: 14px;
 }
 
 .login-page--ssc .login-form .form-group input,
@@ -1680,7 +1714,7 @@ const handleLogoError = (event) => {
 .login-page--ssc:not(.login-page--app-like) .login-form .form-group input,
 .login-page--ssc:not(.login-page--app-like) .login-form .form-group select {
   min-height: 58px;
-  font-size: 24px;
+  font-size: 16px;
 }
 
 .login-page--ssc .login-form .form-group input::placeholder,
@@ -1940,6 +1974,23 @@ const handleLogoError = (event) => {
   background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
   border: 1px solid var(--border, #e5e7eb);
   border-radius: 12px;
+}
+
+/* SSC-specific variant: transparent background to blend with the SSC card */
+.login-page--ssc .login-dual-brand--ssc {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(200, 220, 255, 0.5);
+}
+
+.login-dual-brand__logo--ssc {
+  max-height: 72px !important;
+  width: auto;
+}
+
+.login-dual-brand__logo--club {
+  max-height: 64px !important;
+  max-width: 130px !important;
+  width: auto;
 }
 
 .login-dual-brand__col {
@@ -2224,10 +2275,6 @@ const handleLogoError = (event) => {
 .login-form .form-group select {
   padding: 10px 12px;
   font-size: 15px;
-}
-
-.login-form .login-credentials-username input#username {
-  font-size: 14px;
 }
 
 .remember-row {

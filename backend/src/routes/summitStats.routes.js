@@ -13,11 +13,69 @@ import {
   listClubRecordVerifications,
   reviewClubRecordVerification
 } from '../controllers/summitStats.controller.js';
+import {
+  listCustomFields,
+  createCustomField,
+  updateCustomField,
+  deleteCustomField,
+  getParticipantCustomValues,
+  upsertParticipantCustomValue
+} from '../controllers/challengeCustomFields.controller.js';
+import {
+  getClubTimePreferences,
+  updateClubTimePreferences,
+  getMyTimezone,
+  updateMyTimezone,
+  listClubIcons,
+  listEligibilityGroups,
+  createEligibilityGroup,
+  updateEligibilityGroup,
+  deleteEligibilityGroup,
+  listRecognitionAwards,
+  createRecognitionAward,
+  updateRecognitionAward,
+  deleteRecognitionAward,
+  getStatsConfig,
+  updateStatsConfig,
+  getClubStats,
+  getStoreConfig,
+  updateStoreConfig
+} from '../controllers/challengeRecognitionLibrary.controller.js';
+import {
+  listTaskTemplates,
+  createTaskTemplate,
+  updateTaskTemplate,
+  deleteTaskTemplate
+} from '../controllers/challengeTaskTemplates.controller.js';
+import {
+  getPublicClubStats,
+  resolveInviteToken,
+  submitApplication,
+  submitInviteApplication,
+  listApplications,
+  reviewApplication,
+  createInvite,
+  listInvites,
+  revokeInvite,
+  getMyReferralLink,
+  getPendingApplicationCount,
+  getClubFeed,
+  getClubRecordBoard,
+  listClubMembers,
+  getClubMemberSeasonHistory,
+  getPublicPageConfig,
+  updatePublicPageConfig,
+  setClubMemberStatus
+} from '../controllers/challengeMemberApplications.controller.js';
 
 const router = express.Router();
 
-// Public: list clubs (no auth)
+// ── Public routes (no auth) ──────────────────────────────────────
 router.get('/clubs', listClubs);
+router.get('/clubs/:id/public', getPublicClubStats);
+router.get('/clubs/invite/:token', resolveInviteToken);
+router.post('/clubs/:id/apply-form', submitApplication);
+router.post('/clubs/invite/:token/apply', submitInviteApplication);
 
 router.use(authenticate);
 
@@ -36,5 +94,75 @@ router.get('/clubs/:id/records', getClubRecords);
 router.put('/clubs/:id/records', upsertClubRecords);
 router.get('/clubs/:id/records/verifications', listClubRecordVerifications);
 router.put('/clubs/:id/records/verifications/:verificationId', reviewClubRecordVerification);
+
+// Custom field definitions (club managers)
+router.get('/clubs/:id/custom-fields', listCustomFields);
+router.post('/clubs/:id/custom-fields', createCustomField);
+router.put('/clubs/:id/custom-fields/:fieldId', updateCustomField);
+router.delete('/clubs/:id/custom-fields/:fieldId', deleteCustomField);
+
+// Club time preferences
+router.get('/clubs/:id/time-preferences', getClubTimePreferences);
+router.put('/clubs/:id/time-preferences', updateClubTimePreferences);
+
+// Current user timezone preference
+router.get('/users/me/timezone', getMyTimezone);
+router.put('/users/me/timezone', updateMyTimezone);
+
+// Club icons (for recognition icon picker)
+router.get('/clubs/:id/icons', listClubIcons);
+
+// Eligibility groups library
+router.get('/clubs/:id/eligibility-groups', listEligibilityGroups);
+router.post('/clubs/:id/eligibility-groups', createEligibilityGroup);
+router.put('/clubs/:id/eligibility-groups/:groupId', updateEligibilityGroup);
+router.delete('/clubs/:id/eligibility-groups/:groupId', deleteEligibilityGroup);
+
+// Recognition awards library
+router.get('/clubs/:id/recognition-awards', listRecognitionAwards);
+router.post('/clubs/:id/recognition-awards', createRecognitionAward);
+router.put('/clubs/:id/recognition-awards/:awardId', updateRecognitionAward);
+router.delete('/clubs/:id/recognition-awards/:awardId', deleteRecognitionAward);
+
+// Participant custom field values
+router.get('/clubs/:id/seasons/:classId/participants/:userId/custom-values', getParticipantCustomValues);
+router.put('/clubs/:id/seasons/:classId/participants/:userId/custom-values/:fieldId', upsertParticipantCustomValue);
+
+// Member applications (manager review)
+router.get('/clubs/:id/applications', listApplications);
+router.get('/clubs/:id/applications/count', getPendingApplicationCount);
+router.put('/clubs/:id/applications/:appId', reviewApplication);
+
+// Invite tokens (manager CRUD)
+router.get('/clubs/:id/invites', listInvites);
+router.post('/clubs/:id/invites', createInvite);
+router.delete('/clubs/:id/invites/:inviteId', revokeInvite);
+
+// Member referral link
+router.get('/clubs/:id/my-referral-link', getMyReferralLink);
+
+// Club feed and record board (authenticated members)
+router.get('/clubs/:id/feed', getClubFeed);
+router.get('/clubs/:id/record-board', getClubRecordBoard);
+router.get('/clubs/:id/public-page-config', getPublicPageConfig);
+router.put('/clubs/:id/public-page-config', updatePublicPageConfig);
+router.get('/clubs/:id/members', listClubMembers);
+router.get('/clubs/:id/members/:userId/season-history', getClubMemberSeasonHistory);
+router.put('/clubs/:id/members/:userId/status', setClubMemberStatus);
+
+// Club stats (computed + seed)
+router.get('/clubs/:id/stats', getClubStats);
+router.get('/clubs/:id/stats-config', getStatsConfig);
+router.put('/clubs/:id/stats-config', updateStatsConfig);
+
+// Team store config
+router.get('/clubs/:id/store-config', getStoreConfig);
+router.put('/clubs/:id/store-config', updateStoreConfig);
+
+// Challenge task template library
+router.get('/clubs/:id/challenge-templates', listTaskTemplates);
+router.post('/clubs/:id/challenge-templates', createTaskTemplate);
+router.put('/clubs/:id/challenge-templates/:tId', updateTaskTemplate);
+router.delete('/clubs/:id/challenge-templates/:tId', deleteTaskTemplate);
 
 export default router;

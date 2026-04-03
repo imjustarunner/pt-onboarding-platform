@@ -12,7 +12,7 @@ const toInt = (v) => {
 class ChallengeWeeklyAssignment {
   static async findById(id) {
     const [rows] = await pool.execute(
-      `SELECT a.*, t.name AS task_name, t.description AS task_description, t.task_index,
+      `SELECT a.*, t.name AS task_name, t.description AS task_description, t.task_index, t.mode AS task_mode,
               u.first_name AS provider_first_name, u.last_name AS provider_last_name,
               t2.team_name
        FROM challenge_weekly_assignments a
@@ -25,12 +25,43 @@ class ChallengeWeeklyAssignment {
     return rows?.[0] || null;
   }
 
+  /** Find assignment by task and user (used for tagging enforcement). */
+  static async findByTaskAndUser(taskId, userId) {
+    const tId = toInt(taskId);
+    const uId = toInt(userId);
+    if (!tId || !uId) return null;
+    const [rows] = await pool.execute(
+      `SELECT a.*, t.mode AS task_mode
+       FROM challenge_weekly_assignments a
+       INNER JOIN challenge_weekly_tasks t ON t.id = a.task_id
+       WHERE a.task_id = ? AND a.provider_user_id = ? LIMIT 1`,
+      [tId, uId]
+    );
+    return rows?.[0] || null;
+  }
+
+  /** Find assignment by task and team (used to check existing assignment before captain assigns). */
+  static async findByTaskAndTeam(taskId, teamId) {
+    const tId = toInt(taskId);
+    const tmId = toInt(teamId);
+    if (!tId || !tmId) return null;
+    const [rows] = await pool.execute(
+      `SELECT a.*, u.first_name AS provider_first_name, u.last_name AS provider_last_name
+       FROM challenge_weekly_assignments a
+       INNER JOIN users u ON u.id = a.provider_user_id
+       WHERE a.task_id = ? AND a.team_id = ? LIMIT 1`,
+      [tId, tmId]
+    );
+    return rows?.[0] || null;
+  }
+
   static async listByWeek(learningClassId, weekStartDate) {
     const classId = toInt(learningClassId);
     const week = String(weekStartDate || '').trim().slice(0, 10);
     if (!classId || !week) return [];
     const [rows] = await pool.execute(
-      `SELECT a.*, t.name AS task_name, t.task_index, u.first_name AS provider_first_name, u.last_name AS provider_last_name,
+      `SELECT a.*, t.name AS task_name, t.task_index, t.mode AS task_mode,
+              u.first_name AS provider_first_name, u.last_name AS provider_last_name,
               t2.team_name, t2.id AS team_id,
               (SELECT 1 FROM challenge_weekly_completions c WHERE c.assignment_id = a.id LIMIT 1) AS is_completed
        FROM challenge_weekly_assignments a

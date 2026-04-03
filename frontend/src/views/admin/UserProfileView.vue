@@ -120,7 +120,90 @@
             </div>
           </div>
 
-          <div class="account-layout">
+          <div v-if="isSscMemberProfileMode" class="account-layout">
+            <div class="account-main">
+              <form v-if="canEditUser" @submit.prevent="saveAccount" class="account-form">
+                <div class="form-actions-bar form-actions-bar--top">
+                  <button v-if="!isEditingAccount" type="button" class="btn btn-secondary" @click="startEditAccount">
+                    Edit
+                  </button>
+                  <button v-else type="submit" class="btn btn-primary" :disabled="saving">
+                    {{ saving ? 'Saving...' : 'Save Changes' }}
+                  </button>
+                  <button v-if="isEditingAccount" type="button" class="btn btn-secondary" :disabled="saving" @click="cancelEditAccount">
+                    Cancel
+                  </button>
+                </div>
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label>First Name</label>
+                    <input v-model="accountForm.firstName" type="text" :disabled="!isEditingAccount" />
+                  </div>
+                  <div class="form-group">
+                    <label>Last Name</label>
+                    <input v-model="accountForm.lastName" type="text" :disabled="!isEditingAccount" />
+                  </div>
+                  <div class="form-group">
+                    <label>Login Email</label>
+                    <input v-model="accountForm.email" type="email" :disabled="!isEditingAccount" />
+                  </div>
+                  <div class="form-group">
+                    <label>Phone</label>
+                    <input v-model="accountForm.personalPhone" type="tel" :disabled="!isEditingAccount" />
+                  </div>
+                </div>
+                <div v-if="isEditingAccount" class="form-actions-bar form-actions-bar--bottom">
+                  <button type="submit" class="btn btn-primary" :disabled="saving">
+                    {{ saving ? 'Saving...' : 'Save Changes' }}
+                  </button>
+                  <button type="button" class="btn btn-secondary" :disabled="saving" @click="cancelEditAccount">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+              <div v-else class="view-only-message">
+                <p><strong>View Only:</strong> You do not have permission to edit this member profile.</p>
+              </div>
+
+              <div class="section-divider" style="margin-top: 18px;">
+                <h3>Registration Details</h3>
+              </div>
+              <div v-if="memberSeasonHistoryLoading" class="loading">Loading registration details...</div>
+              <div v-else-if="memberSeasonHistoryError" class="error">{{ memberSeasonHistoryError }}</div>
+              <div v-else class="form-grid">
+                <div class="form-group">
+                  <label>Gender</label>
+                  <input :value="memberRegistrationProfile.gender || 'Not provided'" type="text" disabled />
+                </div>
+                <div class="form-group">
+                  <label>Date of Birth</label>
+                  <input :value="memberRegistrationProfile.dateOfBirth || 'Not provided'" type="text" disabled />
+                </div>
+                <div class="form-group">
+                  <label>Weight (lbs)</label>
+                  <input :value="memberRegistrationProfile.weightLbs != null ? memberRegistrationProfile.weightLbs : 'Not provided'" type="text" disabled />
+                </div>
+                <div class="form-group">
+                  <label>Height (inches)</label>
+                  <input :value="memberRegistrationProfile.heightInches != null ? memberRegistrationProfile.heightInches : 'Not provided'" type="text" disabled />
+                </div>
+                <div class="form-group">
+                  <label>Timezone</label>
+                  <input :value="memberRegistrationProfile.timezone || 'Not provided'" type="text" disabled />
+                </div>
+                <div class="form-group form-group-full" v-if="memberRegistrationCustomFieldsList.length">
+                  <label>Application Custom Fields</label>
+                  <div class="texting-number-display">
+                    <span v-for="item in memberRegistrationCustomFieldsList" :key="item.key" class="badge badge-info" style="margin-right: 8px; margin-bottom: 6px;">
+                      {{ item.key }}: {{ item.value }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="account-layout">
             <div class="account-main">
               <form v-if="canEditUser" @submit.prevent="saveAccount" class="account-form">
                 <div class="form-actions-bar form-actions-bar--top">
@@ -1576,6 +1659,73 @@
           </div>
         </div>
 
+        <div v-if="activeTab === 'season_history'" class="tab-panel">
+          <h2>Season History</h2>
+          <p class="hint" style="margin-top: -6px;">
+            Past season participation and AI-generated performance summary for captain planning.
+          </p>
+
+          <div v-if="memberSeasonHistoryLoading" class="loading">Loading season history...</div>
+          <div v-else-if="memberSeasonHistoryError" class="error">{{ memberSeasonHistoryError }}</div>
+          <template v-else>
+            <div class="card" style="padding: 14px; margin-bottom: 14px;">
+              <h4 style="margin: 0 0 8px;">AI Performance Summary</h4>
+              <p style="margin: 0; white-space: pre-wrap;">{{ memberSeasonAiSummary || 'No summary available yet.' }}</p>
+            </div>
+
+            <div class="form-grid" style="margin-bottom: 12px;">
+              <div class="form-group">
+                <label>Total Seasons</label>
+                <input :value="memberSeasonHistory.seasonCount || 0" type="text" disabled />
+              </div>
+              <div class="form-group">
+                <label>Total Miles</label>
+                <input :value="memberSeasonHistory?.totals?.totalMiles ?? 0" type="text" disabled />
+              </div>
+              <div class="form-group">
+                <label>Total Points</label>
+                <input :value="memberSeasonHistory?.totals?.totalPoints ?? 0" type="text" disabled />
+              </div>
+              <div class="form-group">
+                <label>Total Workouts</label>
+                <input :value="memberSeasonHistory?.totals?.totalWorkouts ?? 0" type="text" disabled />
+              </div>
+            </div>
+
+            <div v-if="!memberSeasonHistorySeasons.length" class="empty-state">
+              <p>No season participation found yet.</p>
+            </div>
+            <div v-else class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Season</th>
+                    <th>Team</th>
+                    <th>Status</th>
+                    <th>Miles</th>
+                    <th>Points</th>
+                    <th>Workouts</th>
+                    <th>Best Pace</th>
+                    <th>Longest Run</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="season in memberSeasonHistorySeasons" :key="season.classId">
+                    <td>{{ season.className }}</td>
+                    <td>{{ season.teamName || '—' }}</td>
+                    <td>{{ season.classStatus || '—' }}</td>
+                    <td>{{ season.totalMiles }}</td>
+                    <td>{{ season.totalPoints }}</td>
+                    <td>{{ season.workoutCount }}</td>
+                    <td>{{ season.bestRunPaceMinPerMile != null ? `${season.bestRunPaceMinPerMile} min/mi` : '—' }}</td>
+                    <td>{{ season.longestRunMiles || 0 }} mi</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+        </div>
+
         <div v-if="activeTab === 'additional'" class="tab-panel">
           <h2>Additional</h2>
 
@@ -2359,6 +2509,11 @@ const user = ref(null);
 // Initialize activeTab from query parameter or default to 'account'
 const activeTab = ref(route.query.tab || 'account');
 const saving = ref(false);
+const memberSeasonHistoryLoading = ref(false);
+const memberSeasonHistoryError = ref('');
+const memberSeasonHistory = ref({ seasonCount: 0, totals: {}, seasons: [] });
+const memberRegistrationProfile = ref({ customFields: {} });
+const memberSeasonAiSummary = ref('');
 const guardianLinkedClients = ref([]);
 const guardianLinkedClientsLoading = ref(false);
 const guardianLinkedClientsError = ref('');
@@ -2530,6 +2685,68 @@ const isViewingGuardian = computed(() => {
   return r === 'client_guardian';
 });
 
+const isSscSstcTenant = computed(() => {
+  const routeSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
+  const agencySlug = String(agencyStore.currentAgency?.slug || '').trim().toLowerCase();
+  return routeSlug === 'ssc' || routeSlug === 'sstc' || agencySlug === 'ssc' || agencySlug === 'sstc';
+});
+
+const isSscMemberProfileMode = computed(() => {
+  return isSscSstcTenant.value && !isViewingGuardian.value;
+});
+
+const selectedClubIdForMemberProfile = computed(() => {
+  const clubId = Number(agencyStore.currentAgency?.id || 0);
+  return Number.isFinite(clubId) && clubId > 0 ? clubId : null;
+});
+
+const memberRegistrationCustomFieldsList = computed(() => {
+  const fields = memberRegistrationProfile.value?.customFields;
+  if (!fields || typeof fields !== 'object') return [];
+  return Object.entries(fields)
+    .map(([key, value]) => ({ key: String(key || '').trim(), value: String(value ?? '').trim() }))
+    .filter((item) => item.key && item.value);
+});
+
+const memberSeasonHistorySeasons = computed(() => {
+  return Array.isArray(memberSeasonHistory.value?.seasons) ? memberSeasonHistory.value.seasons : [];
+});
+
+const loadMemberSeasonHistory = async () => {
+  if (!isSscMemberProfileMode.value || !userId.value) return;
+  const clubId = selectedClubIdForMemberProfile.value;
+  if (!clubId) return;
+  memberSeasonHistoryLoading.value = true;
+  memberSeasonHistoryError.value = '';
+  try {
+    const response = await api.get(`/summit-stats/clubs/${clubId}/members/${userId.value}/season-history`);
+    const payload = response?.data || {};
+    const profile = payload?.registrationProfile || {};
+    memberRegistrationProfile.value = {
+      firstName: profile.firstName || '',
+      lastName: profile.lastName || '',
+      email: profile.email || '',
+      phone: profile.phone || '',
+      gender: profile.gender || '',
+      dateOfBirth: profile.dateOfBirth ? String(profile.dateOfBirth).slice(0, 10) : '',
+      weightLbs: profile.weightLbs != null ? Number(profile.weightLbs) : null,
+      heightInches: profile.heightInches != null ? Number(profile.heightInches) : null,
+      timezone: profile.timezone || '',
+      customFields: profile.customFields && typeof profile.customFields === 'object' ? profile.customFields : {}
+    };
+    memberSeasonHistory.value = payload?.seasonHistory && typeof payload.seasonHistory === 'object'
+      ? payload.seasonHistory
+      : { seasonCount: 0, totals: {}, seasons: [] };
+    memberSeasonAiSummary.value = String(payload?.aiSummary || '').trim();
+  } catch (e) {
+    memberSeasonHistoryError.value = e.response?.data?.error?.message || 'Failed to load season history';
+    memberSeasonHistory.value = { seasonCount: 0, totals: {}, seasons: [] };
+    memberSeasonAiSummary.value = '';
+  } finally {
+    memberSeasonHistoryLoading.value = false;
+  }
+};
+
 const loadGuardianLinkedClients = async () => {
   if (!userId.value || !isViewingGuardian.value) return;
   guardianLinkedClientsLoading.value = true;
@@ -2697,6 +2914,13 @@ const tabs = computed(() => {
       { id: 'communications', label: 'Communications' },
       { id: 'preferences', label: 'Preferences' },
       ...(canViewActivityLog.value ? [{ id: 'activity', label: 'Activity Log' }] : [])
+    ];
+  }
+
+  if (isSscMemberProfileMode.value) {
+    return [
+      { id: 'account', label: 'Account' },
+      { id: 'season_history', label: 'Season History' }
     ];
   }
 
@@ -3513,6 +3737,10 @@ watch(activeTab, async (t) => {
     await loadGuardianLinkedClients();
     return;
   }
+  if (t === 'season_history' && isSscMemberProfileMode.value) {
+    await loadMemberSeasonHistory();
+    return;
+  }
   if (isAffiliationTabId(t)) {
     if (!canViewSchoolAffiliation.value) return;
     await loadSchoolAffiliations();
@@ -3520,6 +3748,11 @@ watch(activeTab, async (t) => {
     await loadSchoolAssignments();
     syncProviderSchoolBlurbFromUser();
   }
+});
+
+watch([isSscMemberProfileMode, selectedClubIdForMemberProfile], async ([enabled, clubId]) => {
+  if (!enabled || !clubId || !userId.value) return;
+  await loadMemberSeasonHistory();
 });
 
 let guardianClientSearchTimer = null;
@@ -4110,6 +4343,9 @@ const fetchUser = async () => {
 
     if (isViewingGuardian.value && activeTab.value === 'linked_clients') {
       void loadGuardianLinkedClients();
+    }
+    if (isSscMemberProfileMode.value) {
+      void loadMemberSeasonHistory();
     }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load user';
@@ -4865,42 +5101,55 @@ const saveAccount = async () => {
       credential: credentialText || null,
       role: accountForm.value.role
     };
+    let payloadToSave = updateData;
 
-    if (canEditSkillBuilderCoordinatorAccess.value) {
-      updateData.hasSkillBuilderCoordinatorAccess = Boolean(accountForm.value.hasSkillBuilderCoordinatorAccess);
+    // SSC/SSTC member profile mode is intentionally narrow:
+    // only persist registration-aligned account fields from this screen.
+    if (isSscMemberProfileMode.value) {
+      payloadToSave = {
+        email: accountForm.value.email,
+        firstName: accountForm.value.firstName,
+        lastName: accountForm.value.lastName,
+        personalPhone: accountForm.value.personalPhone,
+        role: accountForm.value.role
+      };
+    }
+
+    if (canEditSkillBuilderCoordinatorAccess.value && !isSscMemberProfileMode.value) {
+      payloadToSave.hasSkillBuilderCoordinatorAccess = Boolean(accountForm.value.hasSkillBuilderCoordinatorAccess);
     }
 
     // External busy ICS URL: admins/super admins only
-    if (canEditExternalBusyIcsUrl.value) {
-      updateData.externalBusyIcsUrl = String(accountForm.value.externalBusyIcsUrl || '').trim() || null;
+    if (canEditExternalBusyIcsUrl.value && !isSscMemberProfileMode.value) {
+      payloadToSave.externalBusyIcsUrl = String(accountForm.value.externalBusyIcsUrl || '').trim() || null;
     }
     
     // Include supervisor privileges if user has eligible role
     // Always include it if the toggle is visible (even if false) to ensure it's saved
-    if (canToggleSupervisorPrivileges.value) {
-      updateData.hasSupervisorPrivileges = Boolean(accountForm.value.hasSupervisorPrivileges);
-      console.log('Sending supervisor privileges toggle:', updateData.hasSupervisorPrivileges, 'for user role:', accountForm.value.role);
+    if (canToggleSupervisorPrivileges.value && !isSscMemberProfileMode.value) {
+      payloadToSave.hasSupervisorPrivileges = Boolean(accountForm.value.hasSupervisorPrivileges);
+      console.log('Sending supervisor privileges toggle:', payloadToSave.hasSupervisorPrivileges, 'for user role:', accountForm.value.role);
     } else {
       console.log('Cannot toggle supervisor privileges - user role:', accountForm.value.role, 'canToggle:', canToggleSupervisorPrivileges.value);
     }
     
     // Include permission attributes for cross-role capabilities
     const providerAccessEligibleRoles = ['staff', 'support', 'admin', 'super_admin', 'clinical_practice_assistant'];
-    if (providerAccessEligibleRoles.includes(accountForm.value.role)) {
-      updateData.hasProviderAccess = Boolean(accountForm.value.hasProviderAccess);
+    if (!isSscMemberProfileMode.value && providerAccessEligibleRoles.includes(accountForm.value.role)) {
+      payloadToSave.hasProviderAccess = Boolean(accountForm.value.hasProviderAccess);
     }
-    if (accountForm.value.role === 'provider') {
-      updateData.hasStaffAccess = Boolean(accountForm.value.hasStaffAccess);
+    if (!isSscMemberProfileMode.value && accountForm.value.role === 'provider') {
+      payloadToSave.hasStaffAccess = Boolean(accountForm.value.hasStaffAccess);
     }
 
-    if (isProviderLikeUser.value) {
+    if (isProviderLikeUser.value && !isSscMemberProfileMode.value) {
       const sd = toDateInputValue(accountForm.value.providerStartDate);
-      updateData.providerStartDate = sd || null;
+      payloadToSave.providerStartDate = sd || null;
     }
 
-    console.log('Update data being sent:', updateData);
-    pendingAccountUpdate.value = updateData;
-    const response = await api.put(`/users/${userId.value}`, updateData);
+    console.log('Update data being sent:', payloadToSave);
+    pendingAccountUpdate.value = payloadToSave;
+    const response = await api.put(`/users/${userId.value}`, payloadToSave);
     const backendWarnings = Array.isArray(response?.data?.warnings)
       ? response.data.warnings.map((w) => String(w || '').trim()).filter(Boolean)
       : [];

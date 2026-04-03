@@ -15,6 +15,15 @@
         <div v-if="challenge.starts_at || challenge.ends_at" class="challenge-dates hint">
           {{ formatDates(challenge) }}
         </div>
+
+        <!-- Week deadline countdown -->
+        <div v-if="weekCountdown" class="week-countdown" :class="`week-countdown--${weekCountdownClass}`">
+          <span class="week-countdown__icon">⏱</span>
+          <span class="week-countdown__text">
+            <strong>{{ weekCountdown }}</strong> left to log workouts this week
+            <span v-if="weekDeadlineLabel" class="week-countdown__deadline"> · Deadline {{ weekDeadlineLabel }}</span>
+          </span>
+        </div>
         <router-link
           v-if="challenge.organization_id"
           :to="`/club-store/${challenge.organization_id}`"
@@ -109,6 +118,192 @@
                 </div>
               </div>
             </div>
+
+            <!-- Race Divisions -->
+            <div class="challenge-section">
+              <h2>Race Divisions</h2>
+              <p class="section-hint">Members are auto-enrolled when they log a qualifying run distance.</p>
+              <div v-if="raceDivisionsLoading" class="loading-inline">Loading race divisions…</div>
+              <div v-else class="race-divisions-grid">
+                <!-- Half Marathon Club -->
+                <div class="race-division-card">
+                  <div class="race-division-header hm-header">
+                    <span class="race-badge">🏃 13.1</span>
+                    <div>
+                      <h4>Half Marathon Club</h4>
+                      <p class="race-threshold">Runs of 13.1+ miles</p>
+                    </div>
+                  </div>
+                  <div class="race-tabs">
+                    <button
+                      class="race-tab-btn"
+                      :class="{ active: raceDivisionTab === 'season' }"
+                      @click="raceDivisionTab = 'season'"
+                    >This Season</button>
+                    <button
+                      class="race-tab-btn"
+                      :class="{ active: raceDivisionTab === 'alltime' }"
+                      @click="raceDivisionTab = 'alltime'"
+                    >All-Time</button>
+                  </div>
+                  <ul class="race-members-list" v-if="raceDivisionTab === 'season'">
+                    <li v-for="m in raceDivisions.halfMarathon?.season || []" :key="`hm-s-${m.userId}`">
+                      <span class="race-member-name">{{ m.name }}</span>
+                      <span class="race-member-time">{{ m.bestTimeText }}</span>
+                      <span v-if="m.completionCount > 1" class="race-member-count">×{{ m.completionCount }}</span>
+                    </li>
+                    <li v-if="!(raceDivisions.halfMarathon?.season || []).length" class="race-empty">No season entries yet.</li>
+                  </ul>
+                  <ul class="race-members-list" v-else>
+                    <li v-for="m in raceDivisions.halfMarathon?.allTime || []" :key="`hm-a-${m.userId}`">
+                      <span class="race-member-name">{{ m.name }}</span>
+                      <span class="race-member-time">{{ m.bestTimeText }}</span>
+                      <span v-if="m.completionCount > 1" class="race-member-count">×{{ m.completionCount }}</span>
+                    </li>
+                    <li v-if="!(raceDivisions.halfMarathon?.allTime || []).length" class="race-empty">No all-time entries yet.</li>
+                  </ul>
+                </div>
+
+                <!-- Marathon Club -->
+                <div class="race-division-card">
+                  <div class="race-division-header marathon-header">
+                    <span class="race-badge">🏅 26.2</span>
+                    <div>
+                      <h4>Marathon Club</h4>
+                      <p class="race-threshold">Runs of 26.2+ miles</p>
+                    </div>
+                  </div>
+                  <div class="race-tabs">
+                    <button
+                      class="race-tab-btn"
+                      :class="{ active: raceDivisionTab === 'season' }"
+                      @click="raceDivisionTab = 'season'"
+                    >This Season</button>
+                    <button
+                      class="race-tab-btn"
+                      :class="{ active: raceDivisionTab === 'alltime' }"
+                      @click="raceDivisionTab = 'alltime'"
+                    >All-Time</button>
+                  </div>
+                  <ul class="race-members-list" v-if="raceDivisionTab === 'season'">
+                    <li v-for="m in raceDivisions.marathon?.season || []" :key="`m-s-${m.userId}`">
+                      <span class="race-member-name">{{ m.name }}</span>
+                      <span class="race-member-time">{{ m.bestTimeText }}</span>
+                      <span v-if="m.completionCount > 1" class="race-member-count">×{{ m.completionCount }}</span>
+                    </li>
+                    <li v-if="!(raceDivisions.marathon?.season || []).length" class="race-empty">No season entries yet.</li>
+                  </ul>
+                  <ul class="race-members-list" v-else>
+                    <li v-for="m in raceDivisions.marathon?.allTime || []" :key="`m-a-${m.userId}`">
+                      <span class="race-member-name">{{ m.name }}</span>
+                      <span class="race-member-time">{{ m.bestTimeText }}</span>
+                      <span v-if="m.completionCount > 1" class="race-member-count">×{{ m.completionCount }}</span>
+                    </li>
+                    <li v-if="!(raceDivisions.marathon?.allTime || []).length" class="race-empty">No all-time entries yet.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <!-- Kudos Stats Section -->
+            <div v-if="kudosStats || kudosStatsLoading" class="challenge-section kudos-stats-section">
+              <h2>👊 Kudos This Week</h2>
+              <div v-if="kudosStatsLoading" class="loading-inline">Loading kudos…</div>
+              <div v-else-if="kudosStats" class="kudos-stats-content">
+                <!-- My budget pill -->
+                <div class="kudos-budget-pill">
+                  <span class="kudos-budget-remaining">{{ kudosStats.myBudget?.remaining ?? 2 }}</span>
+                  <span class="kudos-budget-label">/ 2 kudos left this week</span>
+                </div>
+
+                <div class="kudos-stats-grid">
+                  <!-- Most kudos received (individual) -->
+                  <div class="kudos-stat-card" v-if="kudosStats.weekly?.topReceived?.length">
+                    <div class="kudos-stat-title">🏆 Most Kudos Received</div>
+                    <div
+                      v-for="(p, i) in kudosStats.weekly.topReceived.slice(0, 5)"
+                      :key="`kr-${i}`"
+                      class="kudos-stat-row"
+                    >
+                      <span class="kudos-rank">{{ i + 1 }}</span>
+                      <span class="kudos-name">{{ p.first_name }} {{ p.last_name }}</span>
+                      <span class="kudos-num">{{ p.kudos_received }}</span>
+                    </div>
+                  </div>
+
+                  <!-- Most kudos given (most generous) -->
+                  <div class="kudos-stat-card" v-if="kudosStats.weekly?.topGiven?.length">
+                    <div class="kudos-stat-title">💪 Most Generous</div>
+                    <div
+                      v-for="(p, i) in kudosStats.weekly.topGiven.slice(0, 5)"
+                      :key="`kg-${i}`"
+                      class="kudos-stat-row"
+                    >
+                      <span class="kudos-rank">{{ i + 1 }}</span>
+                      <span class="kudos-name">{{ p.first_name }} {{ p.last_name }}</span>
+                      <span class="kudos-num">{{ p.kudos_given }}</span>
+                    </div>
+                  </div>
+
+                  <!-- Top workout this week -->
+                  <div class="kudos-stat-card" v-if="kudosStats.weekly?.topWorkout?.length">
+                    <div class="kudos-stat-title">🔥 Most Kudoed Workout</div>
+                    <div
+                      v-for="(w, i) in kudosStats.weekly.topWorkout.slice(0, 3)"
+                      :key="`kw-${i}`"
+                      class="kudos-stat-row"
+                    >
+                      <span class="kudos-rank">{{ i + 1 }}</span>
+                      <span class="kudos-name">{{ w.first_name }} {{ w.last_name }} — {{ w.activity_type }}</span>
+                      <span class="kudos-num">{{ w.kudos_count }}</span>
+                    </div>
+                  </div>
+
+                  <!-- Team — most received from other teams -->
+                  <div class="kudos-stat-card" v-if="kudosStats.weekly?.teamMostReceived?.length">
+                    <div class="kudos-stat-title">🤝 Most Cross-Team Kudos Received</div>
+                    <div
+                      v-for="(t, i) in kudosStats.weekly.teamMostReceived.slice(0, 3)"
+                      :key="`ktr-${i}`"
+                      class="kudos-stat-row"
+                    >
+                      <span class="kudos-rank">{{ i + 1 }}</span>
+                      <span class="kudos-name">{{ t.team_name }}</span>
+                      <span class="kudos-num">{{ t.kudos_received }}</span>
+                    </div>
+                  </div>
+
+                  <!-- Team — gave most to other teams -->
+                  <div class="kudos-stat-card" v-if="kudosStats.weekly?.teamMostGivenCross?.length">
+                    <div class="kudos-stat-title">🌍 Most Kudos Given Cross-Team</div>
+                    <div
+                      v-for="(t, i) in kudosStats.weekly.teamMostGivenCross.slice(0, 3)"
+                      :key="`ktc-${i}`"
+                      class="kudos-stat-row"
+                    >
+                      <span class="kudos-rank">{{ i + 1 }}</span>
+                      <span class="kudos-name">{{ t.team_name }}</span>
+                      <span class="kudos-num">{{ t.kudos_given }}</span>
+                    </div>
+                  </div>
+
+                  <!-- Team — gave most within own team -->
+                  <div class="kudos-stat-card" v-if="kudosStats.weekly?.teamMostGivenIntra?.length">
+                    <div class="kudos-stat-title">❤️ Most Team Spirit</div>
+                    <div
+                      v-for="(t, i) in kudosStats.weekly.teamMostGivenIntra.slice(0, 3)"
+                      :key="`kti-${i}`"
+                      class="kudos-stat-row"
+                    >
+                      <span class="kudos-rank">{{ i + 1 }}</span>
+                      <span class="kudos-name">{{ t.team_name }}</span>
+                      <span class="kudos-num">{{ t.kudos_given_intra }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p v-else class="hint">No kudos given this week yet. Be the first!</p>
+            </div>
           </div>
           <div class="challenge-col-right">
             <div class="challenge-section">
@@ -117,6 +312,7 @@
                 :loading="activityLoading"
                 :challenge-id="challengeId"
                 :my-user-id="authStore.user?.id"
+                :my-team-id="myTeamId"
                 :is-manager="isChallengeManager"
                 @media-uploaded="refreshAfterActivityAction"
               />
@@ -144,7 +340,7 @@
           <ChallengeDraftReport :challenge-id="challengeId" :can-edit="isChallengeManager" />
         </div>
         <div class="challenge-section">
-          <ChallengeWeeklyTasks :challenge-id="challengeId" :my-user-id="authStore.user?.id" />
+          <ChallengeWeeklyTasks :challenge-id="challengeId" :my-user-id="authStore.user?.id" :is-captain="isTeamCaptain" />
         </div>
 
         <section class="challenge-section">
@@ -175,6 +371,50 @@
               {{ captainsFinalizeSubmitting ? 'Finalizing…' : 'Finalize Captains' }}
             </button>
             <span class="hint">This closes captain applications for the season.</span>
+          </div>
+        </section>
+
+        <!-- Weekly Challenges Display -->
+        <section v-if="weeklyTaskOptions.length" class="challenge-section">
+          <h2>This Week's Challenges</h2>
+          <div class="weekly-task-cards">
+            <div
+              v-for="task in weeklyTaskOptions"
+              :key="`task-card-${task.id}`"
+              class="weekly-task-display-card"
+              :class="{ 'task-season-long': Number(task.is_season_long) === 1 }"
+            >
+              <div class="task-display-header">
+                <strong class="task-display-name">{{ task.name }}</strong>
+                <span v-if="Number(task.is_season_long) === 1" class="task-badge task-badge-season">Season Challenge</span>
+                <span v-else class="task-badge task-badge-week">Week</span>
+              </div>
+              <p v-if="task.description" class="task-display-desc">{{ task.description }}</p>
+
+              <!-- Criteria summary chips -->
+              <div v-if="taskCriteriaSummary(task).length" class="task-criteria-chips">
+                <span v-for="chip in taskCriteriaSummary(task)" :key="chip" class="criteria-chip">{{ chip }}</span>
+              </div>
+
+              <!-- Split-run progress -->
+              <div v-if="splitRunProgress(task)" class="split-run-progress">
+                {{ splitRunProgress(task).logged }} of {{ splitRunProgress(task).required }} logged
+                <span class="split-run-checks">
+                  <span v-for="n in splitRunProgress(task).required" :key="n" :class="n <= splitRunProgress(task).logged ? 'split-check done' : 'split-check pending'">
+                    {{ n <= splitRunProgress(task).logged ? '✓' : '○' }}
+                  </span>
+                </span>
+              </div>
+
+              <!-- Tag to workout button shortcut -->
+              <button
+                class="btn btn-sm btn-secondary task-tag-btn"
+                @click="workoutForm.weeklyTaskId = task.id"
+                :class="{ 'task-tag-active': Number(workoutForm.weeklyTaskId) === Number(task.id) }"
+              >
+                {{ Number(workoutForm.weeklyTaskId) === Number(task.id) ? '✓ Tagged to Log Workout' : 'Tag to Workout' }}
+              </button>
+            </div>
           </div>
         </section>
 
@@ -211,6 +451,18 @@
                 </small>
               </div>
               <div class="form-row">
+                <label>Terrain</label>
+                <select v-model="workoutForm.terrain">
+                  <option value="">— Select terrain —</option>
+                  <option value="Road">Road</option>
+                  <option value="Trail">Trail</option>
+                  <option value="Track">Track</option>
+                  <option value="Treadmill">Treadmill</option>
+                  <option value="Race">Race</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div class="form-row">
                 <label>Weekly challenge tag</label>
                 <select v-model="workoutForm.weeklyTaskId">
                   <option :value="null">None</option>
@@ -228,10 +480,54 @@
                   This was completed on a treadmill
                 </label>
               </div>
-              <div class="form-row" v-if="workoutForm.isTreadmill">
-                <label>Treadmill photo proof URL/path</label>
-                <input v-model="workoutForm.screenshotFilePath" type="text" placeholder="Required for treadmill entries" />
+
+              <!-- Screenshot upload with optional Vision OCR -->
+              <div class="form-row vision-upload-row">
+                <label>Workout screenshot <span class="optional-tag">optional</span></label>
+                <div class="vision-upload-box">
+                  <input
+                    ref="screenshotInputRef"
+                    type="file"
+                    accept="image/*"
+                    style="display:none"
+                    @change="onScreenshotSelected"
+                  />
+                  <div class="vision-file-area" @click="screenshotInputRef?.click()">
+                    <span v-if="!workoutForm.screenshotPreviewUrl">
+                      📸 Click to attach a screenshot
+                    </span>
+                    <img
+                      v-else
+                      :src="workoutForm.screenshotPreviewUrl"
+                      class="screenshot-thumbnail"
+                      alt="Screenshot preview"
+                    />
+                  </div>
+                  <div class="vision-controls" v-if="workoutForm.screenshotFile">
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-secondary"
+                      :disabled="visionScanning"
+                      @click="analyzeScreenshot"
+                    >
+                      {{ visionScanning ? '🔍 Analyzing…' : '🔍 Analyze with AI' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-ghost"
+                      @click="clearScreenshot"
+                    >
+                      ✕ Remove
+                    </button>
+                  </div>
+                  <div v-if="visionExtracted" class="vision-extracted-banner">
+                    ✅ AI extracted fields — review and adjust as needed.
+                    <span class="confidence-badge">{{ visionConfidence }}% confidence</span>
+                  </div>
+                  <div v-if="visionError" class="vision-error-banner">{{ visionError }}</div>
+                </div>
               </div>
+
               <div class="form-row">
                 <label>Notes</label>
                 <textarea v-model="workoutForm.workoutNotes" rows="2" placeholder="Optional" />
@@ -290,10 +586,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
+import { getWeekDeadline, timeUntil, formatInTimezone, countdownUrgency } from '../utils/timezones.js';
 import ChallengeRules from '../components/challenge/ChallengeRules.vue';
 import ChallengeTeamList from '../components/challenge/ChallengeTeamList.vue';
 import ChallengeLeaderboard from '../components/challenge/ChallengeLeaderboard.vue';
@@ -317,7 +614,7 @@ const teams = ref([]);
 const teamsLoading = ref(false);
 const activity = ref([]);
 const activityLoading = ref(false);
-const workoutForm = ref({
+const defaultWorkoutForm = () => ({
   activityType: '',
   distanceValue: null,
   durationMinutes: null,
@@ -326,9 +623,21 @@ const workoutForm = ref({
   workoutNotes: '',
   weeklyTaskId: null,
   isTreadmill: false,
-  screenshotFilePath: ''
+  terrain: '',
+  // Vision / screenshot fields
+  screenshotFile: null,
+  screenshotPreviewUrl: null,
+  screenshotFilePath: null
 });
+const workoutForm = ref(defaultWorkoutForm());
 const workoutSubmitting = ref(false);
+
+// Vision OCR state
+const screenshotInputRef = ref(null);
+const visionScanning = ref(false);
+const visionExtracted = ref(false);
+const visionError = ref(null);
+const visionConfidence = ref(0);
 const stravaStatus = ref(null);
 const showStravaImportModal = ref(false);
 const stravaActivities = ref([]);
@@ -345,6 +654,13 @@ const seasonSummary = ref(null);
 const seasonSummaryLoading = ref(false);
 const recordBoards = ref({ seasonRecords: [], clubAllTimeRecords: [] });
 const recordBoardsLoading = ref(false);
+const raceDivisions = ref({ halfMarathon: { season: [], allTime: [] }, marathon: { season: [], allTime: [] } });
+const raceDivisionsLoading = ref(false);
+const raceDivisionTab = ref('season');
+
+// Kudos stats
+const kudosStats = ref(null);
+const kudosStatsLoading = ref(false);
 
 const challengeId = computed(() => route.params.id || route.params.challengeId);
 const organizationSlug = computed(() => route.params.organizationSlug || null);
@@ -378,6 +694,42 @@ const eventCategory = computed(() => {
   return String(category || 'run_ruck').toLowerCase() === 'fitness' ? 'fitness' : 'run_ruck';
 });
 
+// ── Week deadline countdown ──────────────────────────────────────
+const weekSchedule = computed(() => {
+  const s = challenge.value?.season_settings_json;
+  if (!s || typeof s !== 'object') return null;
+  const sched = s.schedule || {};
+  return {
+    weekStartsOn:     sched.weekStartsOn     || 'monday',
+    weekEndsSundayAt: sched.weekEndsSundayAt || '23:59',
+    weekTimeZone:     sched.weekTimeZone     || 'UTC'
+  };
+});
+
+const weekDeadline = computed(() => {
+  const s = weekSchedule.value;
+  if (!s) return null;
+  return getWeekDeadline(s.weekStartsOn, s.weekEndsSundayAt, s.weekTimeZone);
+});
+
+const weekCountdown     = ref('');
+const weekDeadlineLabel = computed(() => {
+  const d = weekDeadline.value;
+  if (!d) return '';
+  const s = weekSchedule.value;
+  return formatInTimezone(d, s?.weekTimeZone || 'UTC', '12h');
+});
+const weekCountdownClass = computed(() => {
+  if (!weekDeadline.value) return '';
+  return countdownUrgency(weekDeadline.value);
+});
+
+let countdownTimer = null;
+const tickCountdown = () => {
+  weekCountdown.value = weekDeadline.value ? timeUntil(weekDeadline.value) : '';
+};
+// ─────────────────────────────────────────────────────────────────
+
 const isChallengeManager = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
@@ -386,6 +738,15 @@ const isChallengeManager = computed(() => {
 const isTeamCaptain = computed(() => {
   const myId = Number(authStore.user?.id || 0);
   return (teams.value || []).some((t) => Number(t.team_manager_user_id) === myId);
+});
+
+const myTeamId = computed(() => {
+  const myId = Number(authStore.user?.id || 0);
+  const myTeam = (teams.value || []).find((t) =>
+    (t.members || []).some((m) => Number(m.provider_user_id || m.user_id) === myId)
+    || Number(t.team_manager_user_id) === myId
+  );
+  return myTeam?.id || null;
 });
 
 const selectedTaskProofPolicyLabel = computed(() => {
@@ -398,6 +759,43 @@ const selectedTaskProofPolicyLabel = computed(() => {
   if (policy === 'gps_required_no_treadmill') return 'GPS required and treadmill not allowed';
   return policy ? policy : 'No proof required';
 });
+
+// Criteria summary chips for a weekly task
+const taskCriteriaSummary = (task) => {
+  const chips = [];
+  const raw = task?.criteria_json;
+  if (!raw) return chips;
+  const c = typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
+  if (!c) return chips;
+  if (c.challengeType) chips.push(c.challengeType.replace('_', ' '));
+  if (c.activityTypes?.length) chips.push(c.activityTypes.slice(0, 3).join(' / '));
+  if (c.terrain?.length) chips.push(c.terrain.join(' / '));
+  if (c.distance?.minMiles) chips.push(`${c.distance.minMiles}+ mi`);
+  if (c.duration?.minMinutes) chips.push(`${c.duration.minMinutes}+ min`);
+  if (c.pace?.maxSecondsPerMile) {
+    const m = Math.floor(c.pace.maxSecondsPerMile / 60);
+    const s = String(c.pace.maxSecondsPerMile % 60).padStart(2, '0');
+    chips.push(`≤ ${m}:${s}/mi`);
+  }
+  if (c.timeOfDay?.start && c.timeOfDay?.end) chips.push(`${c.timeOfDay.start}–${c.timeOfDay.end}`);
+  if (c.splitRuns?.count > 1) chips.push(`${c.splitRuns.count} runs/day`);
+  return chips;
+};
+
+// Split-run progress for the current day
+const splitRunProgress = (task) => {
+  const raw = task?.criteria_json;
+  if (!raw) return null;
+  const c = typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
+  if (!c?.splitRuns?.count || c.splitRuns.count < 2) return null;
+  // Count today's workouts in the activity feed tagged to this task
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const tagged = (activity.value || []).filter((w) => {
+    return Number(w.weekly_task_id) === Number(task.id)
+      && String(w.completed_at || w.created_at || '').slice(0, 10) === todayStr;
+  });
+  return { logged: tagged.length, required: c.splitRuns.count };
+};
 
 const formatStatus = (c) => {
   const s = String(c?.status || '').toLowerCase();
@@ -520,6 +918,43 @@ const loadRecordBoards = async () => {
   }
 };
 
+const loadKudosStats = async () => {
+  const id = challengeId.value;
+  if (!id) return;
+  kudosStatsLoading.value = true;
+  try {
+    const r = await api.get(`/learning-program-classes/${id}/kudos-stats`, { skipGlobalLoading: true });
+    kudosStats.value = r.data || null;
+  } catch {
+    kudosStats.value = null;
+  } finally {
+    kudosStatsLoading.value = false;
+  }
+};
+
+const loadRaceDivisions = async () => {
+  const id = challengeId.value;
+  if (!id) return;
+  raceDivisionsLoading.value = true;
+  try {
+    const r = await api.get(`/learning-program-classes/${id}/race-divisions`, { skipGlobalLoading: true });
+    raceDivisions.value = {
+      halfMarathon: {
+        season: Array.isArray(r.data?.halfMarathon?.season) ? r.data.halfMarathon.season : [],
+        allTime: Array.isArray(r.data?.halfMarathon?.allTime) ? r.data.halfMarathon.allTime : []
+      },
+      marathon: {
+        season: Array.isArray(r.data?.marathon?.season) ? r.data.marathon.season : [],
+        allTime: Array.isArray(r.data?.marathon?.allTime) ? r.data.marathon.allTime : []
+      }
+    };
+  } catch {
+    raceDivisions.value = { halfMarathon: { season: [], allTime: [] }, marathon: { season: [], allTime: [] } };
+  } finally {
+    raceDivisionsLoading.value = false;
+  }
+};
+
 const loadCaptainApplications = async () => {
   const id = challengeId.value;
   if (!id) return;
@@ -561,11 +996,73 @@ const finalizeCaptainsForSeason = async () => {
   }
 };
 
+// ── Vision screenshot helpers ─────────────────────────────────────────────
+const onScreenshotSelected = (e) => {
+  const file = e.target?.files?.[0];
+  if (!file) return;
+  workoutForm.value.screenshotFile = file;
+  workoutForm.value.screenshotPreviewUrl = URL.createObjectURL(file);
+  workoutForm.value.screenshotFilePath = null;
+  visionExtracted.value = false;
+  visionError.value = null;
+};
+
+const clearScreenshot = () => {
+  if (workoutForm.value.screenshotPreviewUrl) URL.revokeObjectURL(workoutForm.value.screenshotPreviewUrl);
+  workoutForm.value.screenshotFile = null;
+  workoutForm.value.screenshotPreviewUrl = null;
+  workoutForm.value.screenshotFilePath = null;
+  visionExtracted.value = false;
+  visionError.value = null;
+  if (screenshotInputRef.value) screenshotInputRef.value.value = '';
+};
+
+const analyzeScreenshot = async () => {
+  const id = challengeId.value;
+  const file = workoutForm.value.screenshotFile;
+  if (!id || !file) return;
+  visionScanning.value = true;
+  visionError.value = null;
+  visionExtracted.value = false;
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await api.post(`/learning-program-classes/${id}/workouts/scan-screenshot`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    workoutForm.value.screenshotFilePath = data.filePath || null;
+    const ex = data.extracted || {};
+    if (ex.distanceMiles   != null && !workoutForm.value.distanceValue)   workoutForm.value.distanceValue   = ex.distanceMiles;
+    if (ex.durationMinutes != null && !workoutForm.value.durationMinutes) workoutForm.value.durationMinutes = ex.durationMinutes;
+    if (ex.caloriesBurned  != null && !workoutForm.value.caloriesBurned)  workoutForm.value.caloriesBurned  = ex.caloriesBurned;
+    if (ex.terrain         && !workoutForm.value.terrain)                  workoutForm.value.terrain         = ex.terrain;
+    if (ex.activityTypeHint && !workoutForm.value.activityType)            workoutForm.value.activityType    = ex.activityTypeHint;
+    visionConfidence.value = data.confidence || 0;
+    visionExtracted.value = true;
+    if (!data.visionEnabled) visionError.value = 'Vision OCR is not enabled on this server. File was uploaded for manual review.';
+  } catch (e) {
+    visionError.value = e?.response?.data?.error?.message || 'Screenshot analysis failed. File will be attached on submit.';
+  } finally {
+    visionScanning.value = false;
+  }
+};
+
 const submitWorkout = async () => {
   const id = challengeId.value;
   if (!id || !workoutForm.value.activityType) return;
   workoutSubmitting.value = true;
   try {
+    // If a screenshot was picked but not yet scanned/uploaded, upload it now
+    if (workoutForm.value.screenshotFile && !workoutForm.value.screenshotFilePath) {
+      try {
+        const formData = new FormData();
+        formData.append('file', workoutForm.value.screenshotFile);
+        const { data } = await api.post(`/learning-program-classes/${id}/workouts/scan-screenshot`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        workoutForm.value.screenshotFilePath = data.filePath || null;
+      } catch { /* non-blocking — workout can still submit without screenshot */ }
+    }
     await api.post(`/learning-program-classes/${id}/workouts`, {
       activityType: workoutForm.value.activityType,
       distanceValue: workoutForm.value.distanceValue || null,
@@ -575,20 +1072,14 @@ const submitWorkout = async () => {
       workoutNotes: workoutForm.value.workoutNotes || null,
       weeklyTaskId: workoutForm.value.weeklyTaskId || null,
       isTreadmill: workoutForm.value.isTreadmill === true,
+      terrain: workoutForm.value.terrain || null,
       screenshotFilePath: workoutForm.value.screenshotFilePath || null
     });
-    workoutForm.value = {
-      activityType: '',
-      distanceValue: null,
-      durationMinutes: null,
-      caloriesBurned: null,
-      points: 0,
-      workoutNotes: '',
-      weeklyTaskId: null,
-      isTreadmill: false,
-      screenshotFilePath: ''
-    };
-    await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary(), loadRecordBoards()]);
+    if (workoutForm.value.screenshotPreviewUrl) URL.revokeObjectURL(workoutForm.value.screenshotPreviewUrl);
+    workoutForm.value = defaultWorkoutForm();
+    visionExtracted.value = false;
+    visionError.value = null;
+    await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to submit workout');
   } finally {
@@ -597,7 +1088,7 @@ const submitWorkout = async () => {
 };
 
 const refreshAfterActivityAction = async () => {
-  await Promise.all([loadActivity(), loadLeaderboard(), loadSeasonSummary(), loadRecordBoards()]);
+  await Promise.all([loadActivity(), loadLeaderboard(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
 };
 
 const formatDates = (c) => {
@@ -665,7 +1156,7 @@ const importSelectedStrava = async () => {
       activityIds: selectedStravaIds.value
     });
     closeStravaImportModal();
-    await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary(), loadRecordBoards()]);
+    await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to import activities');
   } finally {
@@ -676,18 +1167,24 @@ const importSelectedStrava = async () => {
 onMounted(async () => {
   await loadChallenge();
   if (challenge.value) {
-    await Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary(), loadRecordBoards()]);
+    await Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
     loadStravaStatus();
   }
+  tickCountdown();
+  countdownTimer = setInterval(tickCountdown, 30000); // refresh every 30 s
   if (route.query?.strava === 'import') {
     openStravaImportModal();
   }
 });
 
+onUnmounted(() => {
+  if (countdownTimer) clearInterval(countdownTimer);
+});
+
 watch(challengeId, () => {
   loadChallenge().then(() => {
     if (challenge.value) {
-      Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary(), loadRecordBoards()]);
+      Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions()]);
     }
   });
 });
@@ -744,6 +1241,39 @@ watch(challengeId, () => {
 .challenge-dates {
   margin-top: 4px;
 }
+
+/* ── Week countdown banner ── */
+.week-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+}
+.week-countdown--warning {
+  background: #fefce8;
+  border-color: #fde047;
+  color: #854d0e;
+}
+.week-countdown--urgent {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+.week-countdown__icon {
+  font-size: 16px;
+}
+.week-countdown__deadline {
+  opacity: .75;
+  font-weight: 400;
+  font-size: 13px;
+}
 .club-store-link {
   display: inline-block;
   margin-top: 12px;
@@ -795,6 +1325,107 @@ watch(challengeId, () => {
 .summary-card ol {
   margin: 0;
   padding-left: 18px;
+}
+.section-hint {
+  margin: -6px 0 12px;
+  font-size: 0.85em;
+  color: #888;
+}
+.race-divisions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+.race-division-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.race-division-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.hm-header {
+  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+}
+.marathon-header {
+  background: linear-gradient(135deg, #fff8e1, #ffe082);
+}
+.race-badge {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+.race-division-header h4 {
+  margin: 0 0 2px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.race-threshold {
+  margin: 0;
+  font-size: 0.78em;
+  color: #666;
+}
+.race-tabs {
+  display: flex;
+  border-bottom: 1px solid #eee;
+}
+.race-tab-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  font-size: 0.82em;
+  cursor: pointer;
+  color: #666;
+  transition: background 0.15s;
+}
+.race-tab-btn.active {
+  background: #f5f5f5;
+  font-weight: 600;
+  color: #222;
+  border-bottom: 2px solid #3498db;
+}
+.race-members-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.race-members-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border-bottom: 1px solid #f5f5f5;
+  font-size: 0.88em;
+}
+.race-members-list li:last-child {
+  border-bottom: none;
+}
+.race-member-name {
+  flex: 1;
+  font-weight: 500;
+}
+.race-member-time {
+  color: #555;
+  font-variant-numeric: tabular-nums;
+}
+.race-member-count {
+  background: #eee;
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-size: 0.78em;
+  color: #555;
+}
+.race-empty {
+  color: #aaa;
+  font-style: italic;
+  font-size: 0.85em;
+  justify-content: center;
 }
 .workout-form {
   display: flex;
@@ -936,5 +1567,223 @@ watch(challengeId, () => {
   .challenge-two-col {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── Kudos stats ─────────────────────────────────────────────────────────── */
+.kudos-stats-section h2 { margin: 0 0 12px; font-size: 1.05em; }
+.kudos-budget-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff7ed;
+  border: 1.5px solid #fed7aa;
+  border-radius: 20px;
+  padding: 4px 14px;
+  margin-bottom: 14px;
+  font-size: 0.85em;
+}
+.kudos-budget-remaining {
+  font-size: 1.4em;
+  font-weight: 800;
+  color: #ea580c;
+}
+.kudos-budget-label { color: #9a3412; font-weight: 500; }
+.kudos-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.kudos-stat-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.kudos-stat-title {
+  font-size: 0.8em;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 8px;
+}
+.kudos-stat-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 0.85em;
+  border-bottom: 1px solid #f1f5f9;
+}
+.kudos-stat-row:last-child { border-bottom: none; }
+.kudos-rank {
+  font-size: 0.75em;
+  font-weight: 700;
+  color: #94a3b8;
+  min-width: 16px;
+}
+.kudos-name { flex: 1; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kudos-num {
+  font-weight: 700;
+  color: #ea580c;
+  min-width: 24px;
+  text-align: right;
+}
+
+/* ── Weekly task display cards ──────────────────────────────────────────── */
+.weekly-task-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.weekly-task-display-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.task-season-long {
+  border-color: #c4b5fd;
+  background: #faf5ff;
+}
+.task-display-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.task-display-name {
+  font-size: 0.95em;
+  color: #1e293b;
+  flex: 1;
+}
+.task-badge {
+  font-size: 0.72em;
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-weight: 600;
+}
+.task-badge-week    { background: #dbeafe; color: #1d4ed8; }
+.task-badge-season  { background: #ede9fe; color: #6d28d9; }
+.task-display-desc {
+  font-size: 0.85em;
+  color: #64748b;
+  margin: 0;
+}
+.task-criteria-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.criteria-chip {
+  font-size: 0.75em;
+  background: #f1f5f9;
+  color: #334155;
+  border-radius: 12px;
+  padding: 2px 8px;
+  border: 1px solid #e2e8f0;
+}
+.split-run-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82em;
+  color: #475569;
+}
+.split-run-checks { display: flex; gap: 4px; }
+.split-check {
+  font-size: 0.9em;
+  width: 18px;
+  text-align: center;
+}
+.split-check.done { color: #16a34a; font-weight: 700; }
+.split-check.pending { color: #94a3b8; }
+.task-tag-btn {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+.task-tag-active {
+  background: #dcfce7 !important;
+  border-color: #86efac !important;
+  color: #15803d !important;
+}
+
+/* ── Vision screenshot upload ────────────────────────────────────────────── */
+.vision-upload-row { margin-top: 4px; }
+.optional-tag {
+  font-size: 0.75em;
+  font-weight: 400;
+  color: #999;
+  margin-left: 4px;
+}
+.vision-upload-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vision-file-area {
+  border: 2px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+  cursor: pointer;
+  color: #64748b;
+  font-size: 0.9em;
+  transition: border-color 0.2s;
+  background: #f8fafc;
+}
+.vision-file-area:hover { border-color: #94a3b8; background: #f1f5f9; }
+.screenshot-thumbnail {
+  max-width: 100%;
+  max-height: 160px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+.vision-controls {
+  display: flex;
+  gap: 8px;
+}
+.btn-sm {
+  font-size: 0.82em;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: none;
+}
+.btn-ghost {
+  background: transparent;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+}
+.btn-ghost:hover { background: #f1f5f9; }
+.vision-extracted-banner {
+  background: #d1fae5;
+  border: 1px solid #6ee7b7;
+  color: #065f46;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.85em;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.confidence-badge {
+  margin-left: auto;
+  background: #065f46;
+  color: #fff;
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 0.8em;
+}
+.vision-error-banner {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #7f1d1d;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.85em;
 }
 </style>

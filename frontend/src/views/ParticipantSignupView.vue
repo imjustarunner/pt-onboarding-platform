@@ -33,6 +33,29 @@
           <label for="lastName">Last name</label>
           <input id="lastName" v-model="lastName" type="text" required placeholder="Required" :disabled="loading" />
         </div>
+
+        <!-- Optional body metrics for recognition categories (Clydesdale, Athena, height-based) -->
+        <details class="optional-details">
+          <summary>Optional details <span class="optional-hint">(for division recognition)</span></summary>
+          <div class="optional-fields">
+            <div class="form-group">
+              <label for="weightLbs">Weight (lbs)</label>
+              <input id="weightLbs" v-model.number="weightLbs" type="number" min="60" max="600" step="0.1" placeholder="e.g. 185" :disabled="loading" />
+              <small>Used for Clydesdale / Athena divisions. Optional.</small>
+            </div>
+            <div class="form-group">
+              <label>Height</label>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <input v-model.number="heightFt" type="number" min="3" max="8" step="1" placeholder="ft" :disabled="loading" style="width:70px;" />
+                <span style="font-size:13px;">ft</span>
+                <input v-model.number="heightIn" type="number" min="0" max="11" step="1" placeholder="in" :disabled="loading" style="width:70px;" />
+                <span style="font-size:13px;">in</span>
+              </div>
+              <small>Used for height-based recognition categories. Optional.</small>
+            </div>
+          </div>
+        </details>
+
         <button type="submit" class="btn btn-primary" :disabled="loading">
           {{ loading ? 'Creating…' : 'Create Account' }}
         </button>
@@ -106,6 +129,9 @@ const email = ref('');
 const password = ref('');
 const firstName = ref('');
 const lastName = ref('');
+const weightLbs = ref(null);
+const heightFt = ref(null);
+const heightIn = ref(null);
 const loading = ref(false);
 const error = ref('');
 const success = ref('');
@@ -114,11 +140,16 @@ const submit = async () => {
   error.value = '';
   loading.value = true;
   try {
+    const ft = Number(heightFt.value) || 0;
+    const inVal = Number(heightIn.value) || 0;
+    const totalInches = ft > 0 || inVal > 0 ? ft * 12 + inVal : undefined;
     const r = await api.post('/auth/register-participant', {
       email: email.value.trim(),
       password: password.value,
       firstName: firstName.value.trim() || undefined,
       lastName: lastName.value.trim(),
+      ...(weightLbs.value > 0 ? { weightLbs: weightLbs.value } : {}),
+      ...(totalInches ? { heightInches: totalInches } : {}),
       ...(orgSlug.value ? { portalSlug: orgSlug.value } : {})
     });
     success.value = r.data?.message || 'Account created. You can now log in and join a club.';
@@ -182,6 +213,33 @@ const submit = async () => {
   border: 1px solid var(--border-color, #ddd);
   border-radius: 6px;
   font-size: 1em;
+}
+.optional-details {
+  border: 1px dashed var(--border-color, #ccc);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+.optional-details summary {
+  cursor: pointer;
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--text-primary, #333);
+  user-select: none;
+}
+.optional-hint {
+  font-weight: 400;
+  color: var(--text-muted, #666);
+  font-size: 0.85em;
+}
+.optional-fields {
+  margin-top: 12px;
+}
+.optional-fields small {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted, #666);
+  font-size: 0.82em;
 }
 .signup-form .btn {
   width: 100%;

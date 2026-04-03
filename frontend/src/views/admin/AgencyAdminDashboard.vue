@@ -60,8 +60,8 @@
     <div v-else-if="loading" class="loading">Loading agency statistics...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     
-    <div v-else class="dashboard-content">
-      <div class="dashboard-grid">
+    <div v-else class="dashboard-content" :class="{ 'dashboard-content--club': isSummitStatsContext }">
+      <div class="dashboard-grid" :class="{ 'dashboard-grid--club': isSummitStatsContext }">
         <component 
           v-if="!isSummitStatsContext && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)))"
           :is="previewMode ? 'div' : 'router-link'"
@@ -127,7 +127,7 @@
         </button>
       </div>
       
-      <NotificationCards v-if="!previewMode" />
+      <NotificationCards v-if="!previewMode" :compact="isSummitStatsContext" />
 
       <section v-if="showSupervisionModal" class="supervision-panel-wrap">
         <div class="section-header">
@@ -143,6 +143,7 @@
         v-if="!previewMode && isSummitStatsContext"
         :org-slug="orgSlug"
         :agency="agencyData || currentAgency"
+        compact
         @add-member="showAddMemberModal = true"
         @add-season="showAddSeasonModal = true"
       />
@@ -168,11 +169,21 @@
         @close="showAddSeasonModal = false"
         @created="() => { showAddSeasonModal = false; }"
       />
-      
+
+      <!-- ── Member Applications Panel (SSC only) ───────────── -->
+      <ClubApplicationsPanel
+        v-if="!previewMode && isSummitStatsContext && currentAgency?.id"
+        :club-id="currentAgency.id"
+        :org-slug="orgSlug"
+        compact
+        @approved="fetchStats"
+      />
+
       <ClubSpecsPanel
         v-if="!previewMode && isSummitStatsContext && currentAgency?.id"
         title="Club Specs"
         :organization-id="currentAgency?.id"
+        compact
       />
       <AgencySpecsPanel
         v-else-if="!previewMode && myAgencies.length > 0 && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)))"
@@ -197,6 +208,7 @@ import NotificationCards from '../../components/admin/NotificationCards.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
 import ClubQuickActions from '../../components/club/ClubQuickActions.vue';
 import ClubAddMemberModal from '../../components/club/ClubAddMemberModal.vue';
+import ClubApplicationsPanel from '../../components/club/ClubApplicationsPanel.vue';
 import ClubAddSeasonModal from '../../components/club/ClubAddSeasonModal.vue';
 import AgencySpecsPanel from '../../components/admin/AgencySpecsPanel.vue';
 import ClubSpecsPanel from '../../components/club/ClubSpecsPanel.vue';
@@ -228,10 +240,10 @@ const ticketsLink = computed(() => {
 });
 const currentAgency = computed(() => agencyStore.currentAgency);
 
-// Only on SSC portal (slug ssc) do we show club manager flows
+// Only on SSC/SSTC portals do we show club manager flows
 const isSscAdminRoute = computed(() => {
   const slug = String(route.params?.organizationSlug || '').toLowerCase();
-  return slug === 'ssc';
+  return slug === 'ssc' || slug === 'sstc';
 });
 // Summit Stats club context: use "Club" terminology instead of "Agency"
 const isSummitStatsContext = computed(() => {
@@ -511,7 +523,7 @@ const AFFILIATION_HIDDEN_IDS = new Set([
   'school_overview', 'program_overview', 'import_school_directory', 'skill_builders_availability',
   'provider_availability_dashboard', 'provider_scheduling_settings', 'audit_center', 'external_calendar_audit',
   'manage_clients', 'progress_dashboard', 'tools_aids', 'clinical_note_generator', 'manage_modules',
-  'manage_documents', 'intake_links', 'surveys', 'unassigned_documents', 'management_team', 'provider_directory',
+  'manage_documents', 'intake_links', 'unassigned_documents', 'management_team', 'provider_directory',
   'communications', 'chats', 'notifications', 'payroll', 'billing', 'billing_policy_rules'
 ]);
 
@@ -539,6 +551,17 @@ const quickActions = computed(() => {
     iconKey: 'schedule',
     category: 'Scheduling',
     roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'season_management',
+    title: 'Season Management',
+    description: 'Manage active and past seasons',
+    to: '/admin/settings?category=workflow&item=challenge-management',
+    emoji: '🏁',
+    iconKey: 'challenges',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff', 'provider_plus'],
     capabilities: ['canAccessPlatform']
   },
   {
@@ -665,6 +688,17 @@ const quickActions = computed(() => {
     capabilities: ['canSignDocuments']
   },
   {
+    id: 'company_events',
+    title: 'Club Events',
+    description: 'Create and manage club RSVP events',
+    to: '/admin/company-events',
+    emoji: '📅',
+    iconKey: 'dashboard_communications',
+    category: 'Club',
+    roles: ['admin', 'super_admin', 'provider_plus'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'surveys',
     title: 'Surveys',
     description: 'Build and push staff/client surveys and review outcomes',
@@ -672,8 +706,8 @@ const quickActions = computed(() => {
     emoji: '📊',
     iconKey: 'intake_links',
     category: 'Documents',
-    roles: ['admin', 'support', 'super_admin', 'staff'],
-    capabilities: ['canSignDocuments']
+    roles: ['admin', 'super_admin', 'provider_plus'],
+    capabilities: ['canAccessPlatform']
   },
   {
     id: 'unassigned_documents',
@@ -855,11 +889,14 @@ const quickActions = computed(() => {
   ];
 
   let filtered = base.filter((a) => {
-    if (isSummitStatsContext.value) {
+    if (isSummitStatsContext.value && isSscAdminRoute.value) {
       if (AFFILIATION_HIDDEN_IDS.has(String(a?.id))) return false;
       if (String(a?.id) === 'manage_users') return true;
+      if (String(a?.id) === 'season_management') return true;
+      if (String(a?.id) === 'company_events') return true;
+      if (String(a?.id) === 'surveys') return true;
       if (String(a?.id) === 'settings') return true;
-      return ['team_lead_dashboard', 'schedule', 'manage_users', 'settings'].includes(String(a?.id));
+      return ['team_lead_dashboard', 'manage_users', 'season_management', 'company_events', 'surveys', 'settings'].includes(String(a?.id));
     }
     if (String(a?.id) === 'school_overview') return hasAffiliatedSchools.value;
     if (String(a?.id) === 'program_overview') return hasAffiliatedPrograms.value;
@@ -870,14 +907,14 @@ const quickActions = computed(() => {
   });
   return filtered.map((a) => {
     const toPath = prefix && a.to ? `${prefix}${a.to}` : a.to;
-    const title = isSummitStatsContext.value && String(a?.id) === 'manage_users' ? 'Members' : a.title;
+    const title = (isSummitStatsContext.value && isSscAdminRoute.value && String(a?.id) === 'manage_users') ? 'Members' : a.title;
     return { ...a, to: toPath || a.to, title };
   });
 });
 
 const defaultQuickActionIds = computed(() => {
-  if (isSummitStatsContext.value) {
-    return ['team_lead_dashboard', 'schedule', 'manage_users', 'settings'];
+  if (isSummitStatsContext.value && isSscAdminRoute.value) {
+    return ['team_lead_dashboard', 'manage_users', 'season_management', 'company_events', 'surveys', 'settings'];
   }
   return [
     'progress_dashboard',
@@ -930,8 +967,8 @@ onMounted(async () => {
   }
   // Ensure currentAgency is set/hydrated for non-super-admins; Quick Action icon overrides depend on it.
   await agencyStore.fetchUserAgencies();
-  // Summit Stats club managers only (ssc): load context for create-club flow
-  if (String(route.params?.organizationSlug || '').toLowerCase() === 'ssc') {
+  // Summit Stats club managers only (ssc/sstc): load context for create-club flow
+  if (isSscAdminRoute.value) {
     await loadClubManagerContext();
   }
   if (String(route.query?.openAddSeason || '') === '1' && isSummitStatsContext.value) {
@@ -1001,10 +1038,19 @@ onMounted(loadMyOpenTickets);
   gap: 32px;
 }
 
+.dashboard-content--club {
+  gap: 20px;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 20px;
+}
+
+.dashboard-grid--club {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
 }
 
 .stat-card {
@@ -1019,6 +1065,11 @@ onMounted(loadMyOpenTickets);
   text-decoration: none;
   color: inherit;
   cursor: pointer;
+}
+
+.dashboard-grid--club .stat-card {
+  padding: 16px 14px;
+  border-radius: 10px;
 }
 
 .stat-card.stat-card-button {
@@ -1144,11 +1195,21 @@ onMounted(loadMyOpenTickets);
   font-weight: 600;
 }
 
+.dashboard-grid--club .stat-card h3 {
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+
 .stat-value {
   font-size: 40px;
   font-weight: 700;
   color: var(--primary);
   margin: 0;
+}
+
+.dashboard-grid--club .stat-value {
+  font-size: 28px;
+  line-height: 1.05;
 }
 
 /* Quick Actions are now rendered by `QuickActionsSection` */

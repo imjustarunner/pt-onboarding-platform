@@ -504,6 +504,39 @@ class StorageService {
   }
 
   /**
+   * Save a user album photo to GCS (for user photo albums / SSC profile).
+   * Stored under uploads/user_photos/ so it can be served via /uploads/*.
+   * @param {number} userId - Owner user ID
+   * @param {Buffer} fileBuffer - File content
+   * @param {string} filename - Filename (will be sanitized)
+   * @param {string} contentType - MIME type
+   * @returns {Promise<{path: string, key: string, filename: string, relativePath: string}>}
+   */
+  static async saveUserAlbumPhoto(userId, fileBuffer, filename, contentType = 'image/jpeg') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    const key = `uploads/user_photos/album_${userId || 'u'}/${unique}-${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType,
+      metadata: {
+        userId: String(userId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return {
+      path: key,
+      key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
    * Save a company car photo to GCS (for vehicle identification).
    * Stored under uploads/company_car_photos/ so it can be served via /uploads/*.
    * @param {number} companyCarId - Company car ID (for metadata)

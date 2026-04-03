@@ -1,11 +1,12 @@
 <template>
   <div class="container">
     <div class="page-header" data-tour="users-header">
-      <h1 data-tour="users-title">User Management</h1>
+      <h1 data-tour="users-title">{{ isSscSstcTenant ? 'Member Management' : 'User Management' }}</h1>
       <div class="header-actions" data-tour="users-header-actions">
-        <button v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant')" @click="showBulkAssignModal = true" class="btn btn-primary">Assign Documents</button>
-        <button v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant')" @click="showCreateModal = true" class="btn btn-primary">Create New User</button>
-        <button v-if="user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support'" @click="showSupervisorsModal = true" class="btn btn-secondary">Supervisors</button>
+        <button v-if="!isSscSstcTenant && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant'))" @click="showBulkAssignModal = true" class="btn btn-primary">Assign Documents</button>
+        <button v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant')" @click="showCreateModal = true" class="btn btn-primary">{{ isSscSstcTenant ? 'Create New Member' : 'Create New User' }}</button>
+        <button v-if="isSscSstcTenant" @click="toggleAssistantManagersView" class="btn btn-secondary">{{ assistantManagersOnly ? 'All Members' : 'Assistant Managers' }}</button>
+        <button v-else-if="user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support'" @click="showSupervisorsModal = true" class="btn btn-secondary">Supervisors</button>
       </div>
     </div>
     
@@ -36,7 +37,7 @@
         </div>
         <div v-if="!quickAnnouncementCollapsed">
           <p class="muted" style="margin: 0 0 12px 0;">
-            Post from the directory without opening a user profile. Choose one user or everyone in an agency.
+            Post from the directory without opening a user profile. Choose one user or everyone in {{ isSscSstcTenant ? 'the club' : 'an agency' }}.
           </p>
           <div v-if="quickAnnouncementError" class="error" style="margin-bottom: 10px;">{{ quickAnnouncementError }}</div>
           <div
@@ -46,12 +47,18 @@
             {{ quickAnnouncementSuccess }}
           </div>
           <div style="display:flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
-            <div>
+            <div v-if="!isSscSstcTenant">
               <label class="muted" style="display:block; margin-bottom: 6px;">Agency</label>
               <select v-model="quickAnnouncementDraft.agencyId" class="filter-select" :disabled="quickAnnouncementSubmitting">
                 <option value="" disabled>Select agency</option>
                 <option v-for="a in agencyOptions" :key="`qa-agency-${a.id}`" :value="String(a.id)">{{ a.name }}</option>
               </select>
+            </div>
+            <div v-else>
+              <label class="muted" style="display:block; margin-bottom: 6px;">Club</label>
+              <div class="filter-input" style="display:flex; align-items:center; min-height: 38px;">
+                {{ agencyStore.currentAgency?.name || 'Current club' }}
+              </div>
             </div>
             <div>
               <label class="muted" style="display:block; margin-bottom: 6px;">Type</label>
@@ -64,7 +71,7 @@
               <label class="muted" style="display:block; margin-bottom: 6px;">Audience</label>
               <select v-model="quickAnnouncementDraft.scope" class="filter-select" :disabled="quickAnnouncementSubmitting">
                 <option value="single">One user</option>
-                <option value="everyone">Everyone in agency</option>
+                <option value="everyone">{{ isSscSstcTenant ? 'Everyone in club' : 'Everyone in agency' }}</option>
               </select>
             </div>
             <div v-if="quickAnnouncementDraft.scope === 'single'">
@@ -122,13 +129,13 @@
               v-model="userSearch"
               type="text"
               class="filter-input"
-              placeholder="Name, email, agency, role, status, credential…"
+              :placeholder="isSscSstcTenant ? 'Name, email, role, status, season…' : 'Name, email, agency, role, status, credential…'"
               autocomplete="off"
               data-tour="users-search"
             />
           </div>
 
-          <div class="filter-section">
+          <div v-if="!isSscSstcTenant" class="filter-section">
             <label for="agencySort" class="filter-label">Agency</label>
             <select id="agencySort" v-model="agencySort" class="filter-select">
               <option value="">All agencies</option>
@@ -136,7 +143,7 @@
             </select>
           </div>
 
-          <div class="filter-section">
+          <div v-if="!isSscSstcTenant" class="filter-section">
             <label for="organizationSort" class="filter-label">Organization</label>
             <input
               v-model="organizationSearch"
@@ -158,7 +165,7 @@
             <div class="filter-help muted">Organizations are scoped by the selected agency.</div>
           </div>
 
-          <div v-if="!isAffiliationContext" class="filter-section">
+          <div v-if="!isAffiliationContext && !isSscSstcTenant" class="filter-section">
             <label for="statusSort" class="filter-label">Status</label>
             <select id="statusSort" v-model="statusSort" class="filter-select">
               <option value="">All</option>
@@ -172,7 +179,7 @@
             </select>
           </div>
 
-          <div v-if="!isAffiliationContext" class="filter-section">
+          <div v-if="!isAffiliationContext && !isSscSstcTenant" class="filter-section">
             <div class="filter-label">Quick user type</div>
             <div class="type-filter-row">
               <button
@@ -211,7 +218,7 @@
             </div>
           </div>
 
-          <div v-if="!isAffiliationContext" class="filter-section advanced-filters">
+          <div class="filter-section advanced-filters">
             <div class="filter-label">More filters</div>
             <div class="filter-subsection">
               <label for="roleSort" class="filter-label">Role</label>
@@ -353,8 +360,11 @@
                   <th class="sortable col-email" @click="toggleTableSort('email')">
                     Email <span class="sort-indicator">{{ sortIndicator('email') }}</span>
                   </th>
-                  <th class="sortable" @click="toggleTableSort('agency')">
+                  <th v-if="!isSscSstcTenant" class="sortable" @click="toggleTableSort('agency')">
                     Agency <span class="sort-indicator">{{ sortIndicator('agency') }}</span>
+                  </th>
+                  <th v-if="isSscSstcTenant" class="sortable" @click="toggleTableSort('seasons')">
+                    Seasons <span class="sort-indicator">{{ sortIndicator('seasons') }}</span>
                   </th>
                   <th class="sortable" @click="toggleTableSort('role')">
                     Role <span class="sort-indicator">{{ sortIndicator('role') }}</span>
@@ -381,7 +391,7 @@
             <td class="col-email">
               <span class="table-truncate" :title="String(user.email || '')">{{ user.email }}</span>
             </td>
-            <td class="user-affiliations-cell">
+            <td v-if="!isSscSstcTenant" class="user-affiliations-cell">
               <div class="user-affiliations-inline">
                 <span
                   class="user-affiliations-agencies table-truncate"
@@ -437,6 +447,10 @@
                 </div>
               </div>
             </td>
+            <td v-if="isSscSstcTenant" class="muted">
+              <span v-if="(user.seasons || []).length">{{ (user.seasons || []).map(s => s.className).join(', ') }}</span>
+              <span v-else>—</span>
+            </td>
             <td>
               <span :class="['badge', user.role === 'admin' ? 'badge-success' : 'badge-info']">
                 {{ formatRole(user.role) }}
@@ -471,8 +485,8 @@
               {{ user.provider_credential || '—' }}
             </td>
             <td class="col-status">
-              <span :class="['badge', getStatusBadgeClassWrapper(user.status, user.is_active)]">
-                {{ getStatusLabelWrapper(user.status, user.is_active) }}
+              <span :class="['badge', isSscSstcTenant ? ((user.club_member_active === 1 || user.club_member_active === true) ? 'badge-success' : 'badge-secondary') : getStatusBadgeClassWrapper(user.status, user.is_active)]">
+                {{ isSscSstcTenant ? ((user.club_member_active === 1 || user.club_member_active === true) ? 'Active' : 'Inactive') : getStatusLabelWrapper(user.status, user.is_active) }}
               </span>
             </td>
             <td class="col-created">{{ formatDate(user.created_at) }}</td>
@@ -511,6 +525,14 @@
                 >
                   Archive
                 </button>
+                <button
+                  v-if="isSscSstcTenant && Number(user.id) !== Number(authStore.user?.id)"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="memberStatusSavingId === Number(user.id)"
+                  @click="setMemberActive(user, !(user.club_member_active === 1 || user.club_member_active === true))"
+                >
+                  {{ memberStatusSavingId === Number(user.id) ? 'Saving…' : ((user.club_member_active === 1 || user.club_member_active === true) ? 'Set Inactive' : 'Set Active') }}
+                </button>
               </div>
             </td>
           </tr>
@@ -523,13 +545,13 @@
     
     <!-- Bulk Document Assignment Modal -->
     <BulkDocumentAssignmentDialog
-      v-if="showBulkAssignModal"
+      v-if="showBulkAssignModal && !isSscSstcTenant"
       @close="showBulkAssignModal = false"
       @assigned="handleBulkAssigned"
     />
 
     <!-- Supervisors Modal -->
-    <div v-if="showSupervisorsModal" class="modal-overlay" @click="showSupervisorsModal = false">
+    <div v-if="showSupervisorsModal && !isSscSstcTenant" class="modal-overlay" @click="showSupervisorsModal = false">
       <div class="modal-content large" @click.stop style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
           <h2>Supervisors</h2>
@@ -705,9 +727,9 @@
               </div>
 
               <div class="form-group">
-                <label>Agency *</label>
+                <label>{{ isSscSstcTenant ? 'Club *' : 'Agency *' }}</label>
                 <select
-                  v-if="shouldPickAgencyForUserCreate"
+                  v-if="shouldPickAgencyForUserCreate && !isSscSstcTenant"
                   v-model="userForm.primaryAgencyId"
                   class="form-select"
                   required
@@ -721,11 +743,11 @@
                   {{ parentAgenciesForUserCreate[0]?.name || 'Agency' }}
                 </div>
                 <small class="form-help">
-                  {{ shouldPickAgencyForUserCreate ? agencyHelpText : 'This user will be created under your agency.' }}
+                  {{ shouldPickAgencyForUserCreate && !isSscSstcTenant ? agencyHelpText : (isSscSstcTenant ? 'This member will be created under your club.' : 'This user will be created under your agency.') }}
                 </small>
               </div>
 
-              <div class="form-group" style="margin-top: 10px;">
+              <div v-if="!isSscSstcTenant" class="form-group" style="margin-top: 10px;">
                 <label>{{ orgAssignmentLabel }}</label>
                 <div v-if="!userForm.primaryAgencyId" class="muted">Select an agency above to view its organizations.</div>
                 <div v-else>
@@ -1478,7 +1500,7 @@
 
 <script setup>
 import { ref, onMounted, computed, watch, nextTick } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -1492,6 +1514,7 @@ import aiSuccessAsset from '../../assets/ai/success.svg';
 import aiErrorAsset from '../../assets/ai/error.svg';
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const user = computed(() => authStore.user);
@@ -1499,6 +1522,16 @@ const isSuperAdmin = computed(() => user.value?.role === 'super_admin');
 const isAffiliationContext = computed(() => {
   const t = String(agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || '').toLowerCase();
   return t === 'affiliation';
+});
+const isSscSstcTenant = computed(() => {
+  const routeSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
+  const agencySlug = String(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || '').trim().toLowerCase();
+  const slug = routeSlug || agencySlug;
+  return slug === 'ssc' || slug === 'sstc';
+});
+const selectedClubId = computed(() => {
+  const id = Number(agencyStore.currentAgency?.id || 0);
+  return Number.isFinite(id) && id > 0 ? id : null;
 });
 const canArchiveDelete = computed(() => {
   const role = authStore.user?.role;
@@ -1548,6 +1581,15 @@ const organizationSearch = ref('');
 const tableSortKey = ref('name');
 const tableSortDir = ref('asc'); // 'asc' | 'desc'
 const userTableExpanded = ref(false);
+const memberStatusSavingId = ref(null);
+
+const assistantManagersOnly = computed(() =>
+  isSscSstcTenant.value && String(roleSort.value || '') === 'provider_plus'
+);
+
+const toggleAssistantManagersView = () => {
+  roleSort.value = assistantManagersOnly.value ? '' : 'provider_plus';
+};
 
 const userFiltersStorageKey = 'user-manager-filters';
 const loadUserFilters = () => {
@@ -1591,7 +1633,7 @@ const resetUserFilters = () => {
   agencySort.value = '';
   organizationSort.value = '';
   roleSort.value = '';
-  statusSort.value = 'ACTIVE_EMPLOYEE';
+  statusSort.value = isSscSstcTenant.value ? '' : 'ACTIVE_EMPLOYEE';
   userTypeFilter.value = '';
   organizationSearch.value = '';
 };
@@ -1653,6 +1695,7 @@ const quickAnnouncementUserOptions = computed(() => {
     .filter((u) => {
       const role = String(u?.role || '').toLowerCase();
       if (role === 'client_guardian') return false;
+      if (isSscSstcTenant.value) return true;
       if (!aid) return true;
       return userAgencyIds(u).includes(aid);
     })
@@ -1672,7 +1715,9 @@ const quickAnnouncementUserOptions = computed(() => {
 });
 
 const canSubmitQuickAnnouncement = computed(() => {
-  const aid = parseInt(String(quickAnnouncementDraft.value.agencyId || ''), 10);
+  const aid = isSscSstcTenant.value
+    ? Number(selectedClubId.value || 0)
+    : parseInt(String(quickAnnouncementDraft.value.agencyId || ''), 10);
   if (!aid) return false;
   if (!String(quickAnnouncementDraft.value.message || '').trim()) return false;
   if (!quickAnnouncementDraft.value.startsAt || !quickAnnouncementDraft.value.endsAt) return false;
@@ -1691,7 +1736,7 @@ const resetQuickAnnouncementDraft = () => {
   quickAnnouncementError.value = '';
   quickAnnouncementSuccess.value = '';
   quickAnnouncementDraft.value = {
-    agencyId: '',
+    agencyId: isSscSstcTenant.value && selectedClubId.value ? String(selectedClubId.value) : '',
     displayType: 'announcement',
     scope: 'single',
     userId: '',
@@ -1708,7 +1753,9 @@ const postQuickAnnouncement = async () => {
   quickAnnouncementError.value = '';
   quickAnnouncementSuccess.value = '';
   try {
-    const agencyId = parseInt(String(quickAnnouncementDraft.value.agencyId || ''), 10);
+    const agencyId = isSscSstcTenant.value
+      ? Number(selectedClubId.value || 0)
+      : parseInt(String(quickAnnouncementDraft.value.agencyId || ''), 10);
     const userId = parseInt(String(quickAnnouncementDraft.value.userId || ''), 10);
     const payload = {
       title: String(quickAnnouncementDraft.value.title || '').trim() || null,
@@ -2112,13 +2159,44 @@ const usernameInput = ref(null);
 const fetchUsers = async () => {
   try {
     loading.value = true;
-    // Archived users are managed in Settings → Archive, not in the main user list.
-    const response = await api.get('/users');
-    users.value = response.data;
+    if (isSscSstcTenant.value && selectedClubId.value) {
+      const { data } = await api.get(`/summit-stats/clubs/${selectedClubId.value}/members`);
+      users.value = (Array.isArray(data?.members) ? data.members : []).map((m) => ({
+        id: m.id,
+        email: m.email,
+        first_name: m.firstName || '',
+        last_name: m.lastName || '',
+        role: m.clubRole || m.role || 'provider',
+        status: m.isActiveInClub ? 'ACTIVE_EMPLOYEE' : 'INACTIVE',
+        is_active: m.isActiveInClub ? 1 : 0,
+        club_member_active: m.isActiveInClub ? 1 : 0,
+        seasons: Array.isArray(m.seasons) ? m.seasons : [],
+        created_at: m.createdAt
+      }));
+    } else {
+      // Archived users are managed in Settings → Archive, not in the main user list.
+      const response = await api.get('/users');
+      users.value = response.data;
+    }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load users';
   } finally {
     loading.value = false;
+  }
+};
+
+const setMemberActive = async (member, nextActive) => {
+  if (!isSscSstcTenant.value || !selectedClubId.value || !member?.id) return;
+  try {
+    memberStatusSavingId.value = Number(member.id);
+    await api.put(`/summit-stats/clubs/${selectedClubId.value}/members/${member.id}/status`, {
+      isActive: !!nextActive
+    });
+    await fetchUsers();
+  } catch (err) {
+    alert(err?.response?.data?.error?.message || 'Failed to update member status');
+  } finally {
+    memberStatusSavingId.value = null;
   }
 };
 
@@ -2174,6 +2252,12 @@ const fetchAgencies = async () => {
 };
 
 const resolveDefaultAgencyAndOrg = () => {
+  if (isSscSstcTenant.value) {
+    agencySort.value = '';
+    organizationSort.value = '';
+    statusSort.value = '';
+    return;
+  }
   // Prefer the currently-selected brand/agency (stored in agencyStore.currentAgency) when present.
   if (agencySort.value) return;
   const cur = agencyStore.currentAgency?.value || null;
@@ -3244,6 +3328,24 @@ watch(quickAnnouncementCollapsed, () => {
   persistQuickAnnouncementCollapsed();
 });
 
+watch([isSscSstcTenant, selectedClubId], () => {
+  if (!isSscSstcTenant.value) return;
+  const clubId = Number(selectedClubId.value || 0);
+  if (clubId) quickAnnouncementDraft.value.agencyId = String(clubId);
+  if (statusSort.value === 'ACTIVE_EMPLOYEE') statusSort.value = '';
+  agencySort.value = '';
+  organizationSort.value = '';
+});
+
+watch(showCreateModal, (open) => {
+  if (!open || !isSscSstcTenant.value) return;
+  const clubId = Number(selectedClubId.value || 0);
+  if (clubId) {
+    userForm.value.primaryAgencyId = String(clubId);
+    userForm.value.organizationIds = [];
+  }
+});
+
 const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString();
 };
@@ -3293,12 +3395,12 @@ const sortedUsers = computed(() => {
   // Also prevents non-super-admins from searching/finding super admins.
   const viewerIsSuperAdmin = String(authStore.user?.role || '').toLowerCase() === 'super_admin';
   const showSuperAdmins = viewerIsSuperAdmin && userTypeFilter.value === 'super_admins';
-  if (!showSuperAdmins) {
+  if (!showSuperAdmins && !isSscSstcTenant.value) {
     filtered = filtered.filter((u) => String(u?.role || '').toLowerCase() !== 'super_admin');
   }
   
   // Filter by agency
-  if (agencySort.value) {
+  if (!isSscSstcTenant.value && agencySort.value) {
     const aid = parseInt(String(agencySort.value), 10);
     if (aid) {
     filtered = filtered.filter(user => {
@@ -3308,7 +3410,7 @@ const sortedUsers = computed(() => {
   }
 
   // Filter by organization (school/program/learning)
-  if (organizationSort.value) {
+  if (!isSscSstcTenant.value && organizationSort.value) {
     const oid = parseInt(String(organizationSort.value), 10);
     if (oid) {
       filtered = filtered.filter((u) => parseOrgIds(u).includes(oid));
@@ -3319,7 +3421,7 @@ const sortedUsers = computed(() => {
   // Keep default status = Active for workflow, but when the user types a search query
   // we temporarily search across ALL statuses (unless they explicitly changed the status filter).
   const shouldOverrideDefaultActiveStatus = hasSearch && statusSort.value === 'ACTIVE_EMPLOYEE';
-  if (statusSort.value && !shouldOverrideDefaultActiveStatus) {
+  if (!isSscSstcTenant.value && statusSort.value && !shouldOverrideDefaultActiveStatus) {
     if (statusSort.value === 'inactive') {
       // Legacy inactive filter - map to ARCHIVED status
       filtered = filtered.filter(user => user.status === 'ARCHIVED');
@@ -3363,6 +3465,7 @@ const sortedUsers = computed(() => {
       const name = `${u.first_name || ''} ${u.last_name || ''}`.trim().toLowerCase();
       const email = String(u.email || '').trim().toLowerCase();
       const agenciesStr = String(u.agencies || '').toLowerCase();
+      const seasonsStr = Array.isArray(u?.seasons) ? u.seasons.map((s) => String(s?.className || '')).join(' ').toLowerCase() : '';
       const role = String(u.role || '').trim().toLowerCase();
       const status = String(u.status || '').trim().toLowerCase();
       const statusLabel = String(getStatusLabelWrapper(u.status, u.is_active) || '').trim().toLowerCase();
@@ -3374,7 +3477,8 @@ const sortedUsers = computed(() => {
         role.includes(q) ||
         status.includes(q) ||
         statusLabel.includes(q) ||
-        credential.includes(q)
+        credential.includes(q) ||
+        seasonsStr.includes(q)
       );
     });
   }
@@ -3398,6 +3502,13 @@ const sortedUsers = computed(() => {
     if (key === 'name') return dir * nameLastFirst(a).localeCompare(nameLastFirst(b));
     if (key === 'email') return dir * cmpStr(get(a, 'email'), get(b, 'email'));
     if (key === 'agency') return dir * cmpStr(String(a?.agencies || ''), String(b?.agencies || ''));
+    if (key === 'seasons') {
+      const sa = Array.isArray(a?.seasons) ? a.seasons.map((s) => String(s?.className || '')).join(', ') : '';
+      const sb = Array.isArray(b?.seasons) ? b.seasons.map((s) => String(s?.className || '')).join(', ') : '';
+      const c = cmpStr(sa, sb);
+      if (c !== 0) return dir * c;
+      return dir * nameLastFirst(a).localeCompare(nameLastFirst(b));
+    }
     if (key === 'role') return dir * cmpStr(String(a?.role || ''), String(b?.role || ''));
     if (key === 'credential') {
       const c = cmpStr(get(a, 'provider_credential'), get(b, 'provider_credential'));
@@ -3650,6 +3761,11 @@ onMounted(async () => {
   }
   await Promise.all([fetchUsers(), fetchAgencies(), fetchPackages()]);
   resolveDefaultAgencyAndOrg();
+  if (isSscSstcTenant.value && selectedClubId.value) {
+    quickAnnouncementDraft.value.agencyId = String(selectedClubId.value);
+    userForm.value.primaryAgencyId = String(selectedClubId.value);
+    userForm.value.organizationIds = [];
+  }
 });
 </script>
 

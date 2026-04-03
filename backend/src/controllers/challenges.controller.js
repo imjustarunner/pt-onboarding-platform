@@ -7,6 +7,7 @@ import pool from '../config/database.js';
 import ChallengeTeam from '../models/ChallengeTeam.model.js';
 import ChallengeWorkout from '../models/ChallengeWorkout.model.js';
 import ChallengeWeeklyTask from '../models/ChallengeWeeklyTask.model.js';
+import ChallengeWeeklyAssignment from '../models/ChallengeWeeklyAssignment.model.js';
 import ChallengeCaptainApplication from '../models/ChallengeCaptainApplication.model.js';
 import ChallengeMessage from '../models/ChallengeMessage.model.js';
 import ChallengeWorkoutComment from '../models/ChallengeWorkoutComment.model.js';
@@ -224,7 +225,7 @@ export const getLeaderboard = async (req, res, next) => {
   }
 };
 
-const buildRecordMetricMap = async ({ classId, organizationId, selectedMetricKeys = [] }) => {
+export const buildRecordMetricMap = async ({ classId, organizationId, selectedMetricKeys = [] }) => {
   const scopeWhere = {
     season: {
       sql: 'w.learning_class_id = ?',
@@ -247,7 +248,7 @@ const buildRecordMetricMap = async ({ classId, organizationId, selectedMetricKey
     },
     {
       key: 'fastest_mile',
-      label: 'Fastest Mile',
+      label: 'Best Mile Pace (Run)',
       where: `LOWER(w.activity_type) LIKE '%run%' AND COALESCE(w.distance_value, 0) >= 1 AND COALESCE(w.duration_minutes, 0) > 0`,
       order: '(w.duration_minutes / NULLIF(w.distance_value, 0)) ASC, w.completed_at ASC',
       valueText: (r) => {
@@ -280,7 +281,7 @@ const buildRecordMetricMap = async ({ classId, organizationId, selectedMetricKey
     },
     {
       key: 'fastest_5k',
-      label: 'Fastest 5K',
+      label: 'Fastest 5K (Est.)',
       where: `LOWER(w.activity_type) LIKE '%run%' AND COALESCE(w.distance_value, 0) >= 3.1 AND COALESCE(w.duration_minutes, 0) > 0`,
       order: '(w.duration_minutes / NULLIF(w.distance_value, 0)) ASC, w.completed_at ASC',
       valueText: (r) => {
@@ -288,7 +289,37 @@ const buildRecordMetricMap = async ({ classId, organizationId, selectedMetricKey
         const estimate = pace * 3.10686;
         const min = Math.floor(estimate);
         const sec = Math.round((estimate - min) * 60);
-        return `${String(min)}:${String(sec).padStart(2, '0')}`;
+        return `${String(min)}:${String(sec).padStart(2, '0')} (est.)`;
+      }
+    },
+    {
+      key: 'fastest_half_marathon',
+      label: 'Fastest Half Marathon',
+      where: `LOWER(w.activity_type) LIKE '%run%' AND COALESCE(w.distance_value, 0) >= 13.1 AND COALESCE(w.duration_minutes, 0) > 0`,
+      order: 'w.duration_minutes ASC, w.completed_at ASC',
+      valueText: (r) => {
+        const total = Number(r.duration_minutes || 0);
+        const h = Math.floor(total / 60);
+        const m = Math.floor(total % 60);
+        const s = Math.round((total - Math.floor(total)) * 60);
+        return h > 0
+          ? `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`
+          : `${m}m ${String(s).padStart(2, '0')}s`;
+      }
+    },
+    {
+      key: 'fastest_marathon',
+      label: 'Fastest Marathon',
+      where: `LOWER(w.activity_type) LIKE '%run%' AND COALESCE(w.distance_value, 0) >= 26.2 AND COALESCE(w.duration_minutes, 0) > 0`,
+      order: 'w.duration_minutes ASC, w.completed_at ASC',
+      valueText: (r) => {
+        const total = Number(r.duration_minutes || 0);
+        const h = Math.floor(total / 60);
+        const m = Math.floor(total % 60);
+        const s = Math.round((total - Math.floor(total)) * 60);
+        return h > 0
+          ? `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`
+          : `${m}m ${String(s).padStart(2, '0')}s`;
       }
     },
     {
@@ -389,6 +420,87 @@ export const getRecordBoards = async (req, res, next) => {
       clubAllTimeRecords: boards.clubAllTime,
       selectedMetricKeys
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+const formatRaceTime = (totalMinutes) => {
+  const total = Number(totalMinutes || 0);
+  if (!total) return '—';
+  const h = Math.floor(total / 60);
+  const m = Math.floor(total % 60);
+  const s = Math.round((total - Math.floor(total)) * 60);
+  return h > 0
+    ? `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`
+    : `${m}m ${String(s).padStart(2, '0')}s`;
+};
+
+export const buildRaceDivisions = async ({ classId, organizationId }) => {
+  const scopeWhere = {
+    season: { sql: 'w.learning_class_id = ?', params: [classId] },
+    club_all_time: organizationId
+      ? { sql: 'c.organization_id = ?', params: [organizationId] }
+      : null
+  };
+
+  const fetchDivision = async (scopeKey, distanceThreshold) => {
+    const scope = scopeWhere[scopeKey];
+    if (!scope) return [];
+    const [rows] = await pool.execute(
+      `SELECT
+         u.id AS user_id,
+         u.first_name,
+         u.last_name,
+         MIN(w.duration_minutes) AS best_time_minutes,
+         MAX(w.distance_value)   AS best_distance,
+         MIN(w.completed_at)     AS first_completed_at,
+         COUNT(*)                AS completion_count
+       FROM challenge_workouts w
+       INNER JOIN users u ON u.id = w.user_id
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+       WHERE ${scope.sql}
+         AND LOWER(w.activity_type) LIKE '%run%'
+         AND COALESCE(w.distance_value, 0) >= ?
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+       GROUP BY u.id, u.first_name, u.last_name
+       ORDER BY MIN(w.duration_minutes) ASC`,
+      [...scope.params, distanceThreshold]
+    );
+    return (rows || []).map((r) => ({
+      userId: Number(r.user_id),
+      name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+      bestTimeMinutes: Number(r.best_time_minutes || 0),
+      bestTimeText: formatRaceTime(Number(r.best_time_minutes || 0)),
+      bestDistance: Number(r.best_distance || 0),
+      completionCount: Number(r.completion_count || 0),
+      firstCompletedAt: r.first_completed_at
+    }));
+  };
+
+  return {
+    halfMarathon: {
+      threshold: 13.1,
+      season: await fetchDivision('season', 13.1),
+      allTime: await fetchDivision('club_all_time', 13.1)
+    },
+    marathon: {
+      threshold: 26.2,
+      season: await fetchDivision('season', 26.2),
+      allTime: await fetchDivision('club_all_time', 26.2)
+    }
+  };
+};
+
+export const getRaceDivisions = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+    const organizationId = Number(access.class?.organization_id || 0) || null;
+    const divisions = await buildRaceDivisions({ classId, organizationId });
+    return res.json(divisions);
   } catch (e) {
     next(e);
   }
@@ -506,6 +618,10 @@ export const submitWorkout = async (req, res, next) => {
     if (!classId || !activityType) return res.status(400).json({ error: { message: 'classId and activityType required' } });
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+    const classStatus = String(access.class?.status || '').toLowerCase();
+    if (classStatus === 'closed' || classStatus === 'archived') {
+      return res.status(400).json({ error: { message: 'This season has been closed by a manager' } });
+    }
     // Verify user is a provider member
     const [pm] = await pool.execute(
       `SELECT 1 FROM learning_class_provider_memberships WHERE learning_class_id = ? AND provider_user_id = ? AND membership_status IN ('active','completed') LIMIT 1`,
@@ -584,6 +700,13 @@ export const submitWorkout = async (req, res, next) => {
       if (String(weeklyTask.week_start_date || '').slice(0, 10) !== String(completedWeekStart || '').slice(0, 10)) {
         return res.status(400).json({ error: { message: 'Weekly challenge tag must belong to the active workout week' } });
       }
+      // Enforce assignment for volunteer/captain modes — only the assigned user may tag
+      if (weeklyTask.mode !== 'full_team') {
+        const assignment = await ChallengeWeeklyAssignment.findByTaskAndUser(weeklyTask.id, req.user.id);
+        if (!assignment) {
+          return res.status(403).json({ error: { message: 'You are not assigned to this weekly challenge.' } });
+        }
+      }
     }
     let proofStatus = (moderationMode === 'all' || (moderationMode === 'treadmill_only' && isTreadmill))
       ? 'pending'
@@ -601,12 +724,96 @@ export const submitWorkout = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Treadmill entries require a treadmill photo upload.' } });
       }
     }
+    // ── Criteria validation (non-blocking by default unless manager enforces strict mode) ──
+    let criteriaViolation = null;
+    if (weeklyTask && weeklyTask.criteria_json) {
+      const crit = typeof weeklyTask.criteria_json === 'object'
+        ? weeklyTask.criteria_json
+        : (() => { try { return JSON.parse(weeklyTask.criteria_json); } catch { return null; } })();
+      if (crit) {
+        // Activity type filter
+        if (crit.activityTypes?.length && !crit.activityTypes.some(
+          (t) => String(t).toLowerCase() === activityLower || activityLower.includes(String(t).toLowerCase())
+        )) {
+          criteriaViolation = `Activity type "${activityType}" is not allowed for this challenge (requires: ${crit.activityTypes.join(', ')})`;
+        }
+        // Terrain filter
+        if (!criteriaViolation && crit.terrain?.length && terrain &&
+          !crit.terrain.map((t) => String(t).toLowerCase()).includes(String(terrain).toLowerCase())
+        ) {
+          criteriaViolation = `Terrain "${terrain}" is not allowed for this challenge (requires: ${crit.terrain.join(', ')})`;
+        }
+        // Minimum distance
+        const submittedDist = distanceValue != null ? Number(distanceValue) : null;
+        if (!criteriaViolation && crit.distance?.minMiles && (submittedDist == null || submittedDist < crit.distance.minMiles)) {
+          criteriaViolation = `Minimum distance for this challenge is ${crit.distance.minMiles} mi (submitted: ${submittedDist ?? 0} mi)`;
+        }
+        // Minimum duration
+        const submittedDur = req.body.durationMinutes != null ? Number(req.body.durationMinutes) : null;
+        if (!criteriaViolation && crit.duration?.minMinutes && (submittedDur == null || submittedDur < crit.duration.minMinutes)) {
+          criteriaViolation = `Minimum duration for this challenge is ${crit.duration.minMinutes} min (submitted: ${submittedDur ?? 0} min)`;
+        }
+        // Max pace (minSeconds per mile)
+        if (!criteriaViolation && crit.pace?.maxSecondsPerMile && submittedDist && submittedDur) {
+          const submittedPaceSecPerMi = (submittedDur * 60) / submittedDist;
+          if (submittedPaceSecPerMi > crit.pace.maxSecondsPerMile) {
+            const maxMins = Math.floor(crit.pace.maxSecondsPerMile / 60);
+            const maxSecs = String(crit.pace.maxSecondsPerMile % 60).padStart(2, '0');
+            criteriaViolation = `Pace requirement not met — challenge requires faster than ${maxMins}:${maxSecs}/mi`;
+          }
+        }
+        // Time-of-day window
+        if (!criteriaViolation && crit.timeOfDay?.start && crit.timeOfDay?.end) {
+          const completedHHMM = completedAt.toTimeString().slice(0, 5); // "HH:MM"
+          if (completedHHMM < crit.timeOfDay.start || completedHHMM > crit.timeOfDay.end) {
+            criteriaViolation = `This challenge must be completed between ${crit.timeOfDay.start} and ${crit.timeOfDay.end} (submitted: ${completedHHMM})`;
+          }
+        }
+        // Split-run logic — count same-task workouts for this user today
+        if (!criteriaViolation && crit.splitRuns?.count && crit.splitRuns.count > 1) {
+          const todayStr = completedAt.toISOString().slice(0, 10);
+          const [existingRows] = await pool.execute(
+            `SELECT completed_at FROM challenge_workouts
+             WHERE user_id = ? AND weekly_task_id = ? AND DATE(completed_at) = ?
+             ORDER BY completed_at ASC`,
+            [req.user.id, weeklyTaskId, todayStr]
+          );
+          const existingCount = existingRows?.length || 0;
+          if (existingCount >= crit.splitRuns.count) {
+            criteriaViolation = `You have already logged ${existingCount} workout(s) for this challenge today (max: ${crit.splitRuns.count})`;
+          }
+          // Check minimum separation between runs
+          if (!criteriaViolation && existingCount > 0 && crit.splitRuns.minSeparationMinutes) {
+            const lastAt = new Date(existingRows[existingCount - 1].completed_at).getTime();
+            const sepMs = crit.splitRuns.minSeparationMinutes * 60 * 1000;
+            if (completedAt.getTime() - lastAt < sepMs) {
+              criteriaViolation = `Split runs for this challenge must be separated by at least ${crit.splitRuns.minSeparationMinutes} minutes`;
+            }
+          }
+        }
+
+        // If there's a violation, enforce strict mode or flag-only
+        if (criteriaViolation) {
+          const strictMode = String(weeklyTask.proof_policy || '').includes('strict') || crit.strictMode === true;
+          if (strictMode) {
+            return res.status(400).json({ error: { message: criteriaViolation }, criteriaViolation });
+          }
+          // Otherwise fall through — workout is logged but flagged
+        }
+      }
+    }
+
+    // Auto-flag as a race entry when a run meets or exceeds half-marathon distance
+    const isRace = activityLower.includes('run') && distanceValue != null && Number(distanceValue) >= 13.1;
+    const terrain = req.body.terrain ? String(req.body.terrain).trim() : null;
     const workout = await ChallengeWorkout.create({
       learningClassId: classId,
       teamId,
       userId: req.user.id,
       activityType,
       isTreadmill,
+      isRace,
+      terrain,
       distanceValue,
       reportedDistanceValue: distanceValue,
       durationMinutes: req.body.durationMinutes != null ? asInt(req.body.durationMinutes) : null,
@@ -639,8 +846,16 @@ export const submitWorkout = async (req, res, next) => {
       } catch {
         // Non-blocking async hook.
       }
+      // Auto-link screenshot to user photo album so it appears in the member's photos.
+      if (workout?.screenshot_file_path) {
+        pool.execute(
+          `INSERT IGNORE INTO user_photos (user_id, file_path, source, source_ref_id, is_profile)
+           VALUES (?, ?, 'workout_screenshot', ?, 0)`,
+          [req.user.id, workout.screenshot_file_path, workout.id]
+        ).catch(() => {});
+      }
     }
-    return res.status(201).json({ workout });
+    return res.status(201).json({ workout, criteriaViolation: criteriaViolation || null });
   } catch (e) {
     next(e);
   }
@@ -1285,6 +1500,59 @@ export const deleteWorkoutComment = async (req, res, next) => {
   }
 };
 
+/**
+ * POST /:classId/workouts/scan-screenshot
+ * Multer handles the multipart upload; Google Vision OCR extracts workout data.
+ * Returns extracted fields for the frontend to pre-fill the form.
+ * Does NOT create a workout — the user reviews and submits separately.
+ */
+export const scanWorkoutScreenshot = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!req.file) return res.status(400).json({ error: { message: 'No image file uploaded' } });
+
+    // Store the file path so it can be referenced after the user submits the workout
+    const filePath = `challenge_workouts/${req.file.filename}`;
+    const baseUrl = process.env.BACKEND_URL || '';
+
+    // Attempt Vision scan — gracefully degrade if not configured
+    let extracted = {};
+    let rawText = null;
+    let confidence = 0;
+    const visionEnabled = String(process.env.GOOGLE_VISION_ENABLED || '').trim() === '1';
+
+    if (visionEnabled) {
+      try {
+        const fs = await import('fs');
+        const fileBuffer = fs.readFileSync(req.file.path);
+        const { scanWorkoutScreenshot: visionScan } = await import('../services/challengeWorkoutVision.service.js');
+        const result = await visionScan({ fileBuffer, mimeType: req.file.mimetype });
+        extracted = result.extracted;
+        rawText = result.rawText;
+        confidence = result.confidence;
+      } catch (visionErr) {
+        // Vision failed but we still return the uploaded file path
+        rawText = null;
+        confidence = 0;
+      }
+    }
+
+    return res.json({
+      filePath,
+      fileUrl: `${baseUrl}/uploads/${filePath}`,
+      extracted,
+      rawText,
+      confidence,
+      visionEnabled
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const uploadWorkoutMedia = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);
@@ -1318,6 +1586,12 @@ export const uploadWorkoutMedia = async (req, res, next) => {
     } catch {
       // Non-blocking async hook.
     }
+    // Auto-link uploaded workout media to user photo album.
+    pool.execute(
+      `INSERT IGNORE INTO user_photos (user_id, file_path, source, source_ref_id, is_profile)
+       VALUES (?, ?, 'workout_media', ?, 0)`,
+      [req.user.id, filePath, media?.id || null]
+    ).catch(() => {});
     return res.status(201).json({ media });
   } catch (e) {
     next(e);

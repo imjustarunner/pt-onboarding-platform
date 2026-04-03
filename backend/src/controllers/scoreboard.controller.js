@@ -11,6 +11,7 @@ import ChallengeWeeklyAssignment from '../models/ChallengeWeeklyAssignment.model
 import ChallengeElimination from '../models/ChallengeElimination.model.js';
 import { getWeekStartDate, getWeekDateTimeRange, getSeasonWeekPhase } from '../utils/challengeWeekUtils.js';
 import { canAccessChallenge } from '../utils/challengeAccess.js';
+import { normalizeRecognitionCategories } from './learningProgramClasses.controller.js';
 
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
@@ -126,6 +127,13 @@ const buildAiWeeklyTaskDraft = ({ klass, weekStart }) => {
     if (challengeMode === 'volunteer_or_elect') base += 5;
     return Math.min(95, base);
   })();
+  // Build base criteria for the primary run/ruck event type
+  const isRunRuck = eventCategory !== 'fitness';
+  const primaryActivityTypes = isRunRuck ? ['Run', 'Ruck', 'Walk'] : [];
+  const baseCriteria = minimum > 0 && isRunRuck
+    ? { activityTypes: primaryActivityTypes, distance: { minMiles: Math.max(1, Math.round(minimum / 10)) } }
+    : null;
+
   return [
     {
       name: `${nameSet[0]} (${cadence})`,
@@ -134,14 +142,22 @@ const buildAiWeeklyTaskDraft = ({ klass, weekStart }) => {
         : `Log run/ruck mileage and stay on pace for ${minimum} minimum points this week.`,
       proofPolicy: proofPolicyDefault,
       confidenceScore: confidenceBase,
-      confidenceNotes: 'Aligned to event type and weekly minimum pacing.'
+      confidenceNotes: 'Aligned to event type and weekly minimum pacing.',
+      criteriaJson: baseCriteria,
+      aiGenerated: true,
+      mode: challengeMode
     },
     {
       name: nameSet[1],
       description: `Coordinate with your team to collectively push toward ${teamTarget || 100} points this week.`,
       proofPolicy: 'none',
       confidenceScore: Math.max(55, confidenceBase - 6),
-      confidenceNotes: 'High team-level engagement potential.'
+      confidenceNotes: 'High team-level engagement potential.',
+      criteriaJson: isRunRuck
+        ? { activityTypes: primaryActivityTypes, duration: { minMinutes: 30 } }
+        : null,
+      aiGenerated: true,
+      mode: 'full_team'
     },
     {
       name: metrics.length
@@ -150,7 +166,12 @@ const buildAiWeeklyTaskDraft = ({ klass, weekStart }) => {
       description: `Each team should ${challengeMode.includes('elect') ? 'elect' : 'volunteer'} one participant per challenge and complete assignments for week ${wk}.`,
       proofPolicy: proofPolicyDefault,
       confidenceScore: Math.max(50, confidenceBase - 10),
-      confidenceNotes: 'Depends on consistent captain/team assignment execution.'
+      confidenceNotes: 'Depends on consistent captain/team assignment execution.',
+      criteriaJson: isRunRuck
+        ? { activityTypes: primaryActivityTypes, splitRuns: { count: 2, minSeparationMinutes: 60 } }
+        : null,
+      aiGenerated: true,
+      mode: challengeMode
     }
   ];
 };
@@ -190,31 +211,19 @@ export const getScoreboard = async (req, res, next) => {
       return res.json({ weekStartDate: weekStart, weekPhase, postedAt: snap.posted_at, ...data });
     }
     const top5Athletes = (await ChallengeWorkout.getWeeklyLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime, weekTimeZone }))
-      .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) }));
+      .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, profile_photo_path: r.profile_photo_path || null, team_name: r.team_name, total_points: Number(r.total_points) }));
     const top5Teams = (await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime, weekTimeZone }))
       .map((r) => ({ team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
     const topPerTeam = (await ChallengeWorkout.getWeeklyTopPerTeam(classId, weekStart, { weekCutoffTime, weekTimeZone }))
-      .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
-    const [klassRows] = await pool.execute(`SELECT masters_age_threshold, recognition_categories_json FROM learning_program_classes WHERE id = ?`, [classId]);
-    const klass = klassRows?.[0];
-    const categories = Array.isArray(klass?.recognition_categories_json) ? klass.recognition_categories_json : (typeof klass?.recognition_categories_json === 'string' ? (() => { try { return JSON.parse(klass.recognition_categories_json); } catch { return []; } })() : []);
-    const mastersThreshold = klass?.masters_age_threshold != null ? asInt(klass.masters_age_threshold) : 53;
-    const recognitionOfTheWeek = {};
-    if (categories.includes('fastest_male')) {
-      const r = await ChallengeWorkout.getWeeklyLeaderByGender(classId, weekStart, { gender: 'male', weekCutoffTime, weekTimeZone });
-      if (r) recognitionOfTheWeek.fastest_male = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
-    }
-    if (categories.includes('fastest_female')) {
-      const r = await ChallengeWorkout.getWeeklyLeaderByGender(classId, weekStart, { gender: 'female', weekCutoffTime, weekTimeZone });
-      if (r) recognitionOfTheWeek.fastest_female = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
-    }
-    if (categories.includes('fastest_masters_male')) {
-      const r = await ChallengeWorkout.getWeeklyMastersLeader(classId, weekStart, { gender: 'male', ageThreshold: mastersThreshold, weekCutoffTime, weekTimeZone });
-      if (r) recognitionOfTheWeek.fastest_masters_male = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
-    }
-    if (categories.includes('fastest_masters_female')) {
-      const r = await ChallengeWorkout.getWeeklyMastersLeader(classId, weekStart, { gender: 'female', ageThreshold: mastersThreshold, weekCutoffTime, weekTimeZone });
-      if (r) recognitionOfTheWeek.fastest_masters_female = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
+      .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, profile_photo_path: r.profile_photo_path || null, team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
+    const [klassRows] = await pool.execute(`SELECT masters_age_threshold, recognition_categories_json, starts_at, ends_at, week_cutoff_time, week_time_zone FROM learning_program_classes WHERE id = ?`, [classId]);
+    const klassRow = klassRows?.[0];
+    const categories = normalizeRecognitionCategories(klassRow?.recognition_categories_json) || [];
+    const recognitionOfTheWeek = [];
+    const classRowWithCats = { ...(klassRow || {}), _allCategories: categories };
+    for (const cat of categories.filter((c) => c.active)) {
+      const entries = await ChallengeWorkout.computeRecognitionWinner(classId, cat, weekStart, classRowWithCats);
+      recognitionOfTheWeek.push(...entries);
     }
     return res.json({
       weekStartDate: weekStart,
@@ -223,7 +232,7 @@ export const getScoreboard = async (req, res, next) => {
       top5Athletes,
       top5Teams,
       topPerTeam,
-      recognitionOfTheWeek: Object.keys(recognitionOfTheWeek).length ? recognitionOfTheWeek : undefined
+      recognitionOfTheWeek: recognitionOfTheWeek.length ? recognitionOfTheWeek : undefined
     });
   } catch (e) {
     next(e);
@@ -423,6 +432,7 @@ export const getNoShowRiskAlerts = async (req, res, next) => {
          u.id AS user_id,
          u.first_name,
          u.last_name,
+         u.profile_photo_path,
          COALESCE(SUM(w.points), 0) AS weekly_points,
          COALESCE(SUM(w.distance_value), 0) AS weekly_miles
        FROM learning_class_provider_memberships pm
@@ -435,7 +445,7 @@ export const getNoShowRiskAlerts = async (req, res, next) => {
          AND w.completed_at < ?
        WHERE pm.learning_class_id = ?
          AND pm.membership_status IN ('active','completed')
-       GROUP BY u.id, u.first_name, u.last_name
+       GROUP BY u.id, u.first_name, u.last_name, u.profile_photo_path
        ORDER BY u.last_name ASC, u.first_name ASC`,
       [range?.start || `${weekStart} 00:00:00`, range?.end || `${weekStart} 23:59:59`, classId]
     );
@@ -448,6 +458,7 @@ export const getNoShowRiskAlerts = async (req, res, next) => {
         userId: Number(r.user_id),
         firstName: r.first_name,
         lastName: r.last_name,
+        profilePhotoPath: r.profile_photo_path || null,
         weeklyValue: value,
         requiredValue: individualMin,
         metric,
@@ -541,6 +552,89 @@ export const declareByeWeek = async (req, res, next) => {
   }
 };
 
+/** GET /:classId/weekly-tasks/:taskId/detail — task info + assignments + linked workout stats */
+export const getWeeklyTaskDetail = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const taskId = asInt(req.params.taskId);
+    if (!classId || !taskId) return res.status(400).json({ error: { message: 'Invalid classId or taskId' } });
+    const access = await getAccess(req, classId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const task = await ChallengeWeeklyTask.findById(taskId);
+    if (!task || Number(task.learning_class_id) !== Number(classId)) {
+      return res.status(404).json({ error: { message: 'Task not found' } });
+    }
+
+    // Fetch all assignments for this task across teams, including completion status
+    const [assignmentRows] = await pool.execute(
+      `SELECT a.*, t2.team_name, t2.id AS team_id,
+              u.first_name AS provider_first_name, u.last_name AS provider_last_name,
+              c.completed_at, c.completion_notes, c.attachment_path
+       FROM challenge_weekly_assignments a
+       INNER JOIN challenge_teams t2 ON t2.id = a.team_id
+       INNER JOIN users u ON u.id = a.provider_user_id
+       LEFT JOIN challenge_weekly_completions c ON c.assignment_id = a.id
+       WHERE a.task_id = ?
+       ORDER BY t2.team_name ASC`,
+      [taskId]
+    );
+
+    // For full_team tasks, also list all team members + which ones have tagged a workout
+    let fullTeamMembers = [];
+    if (task.mode === 'full_team') {
+      const [memberRows] = await pool.execute(
+        `SELECT u.id AS user_id, u.first_name, u.last_name, tm.team_id, t.team_name,
+                (SELECT 1 FROM challenge_workouts w WHERE w.user_id = u.id AND w.learning_class_id = ? AND w.weekly_task_id = ? LIMIT 1) AS has_tagged
+         FROM challenge_team_members tm
+         INNER JOIN challenge_teams t ON t.id = tm.team_id AND t.learning_class_id = ?
+         INNER JOIN users u ON u.id = tm.provider_user_id
+         ORDER BY t.team_name, u.last_name, u.first_name`,
+        [classId, taskId, classId]
+      );
+      fullTeamMembers = (memberRows || []).map(r => ({ ...r, has_tagged: !!r.has_tagged }));
+    }
+
+    // For each assigned + completed user, fetch their tagged workout stats
+    const assignmentsWithWorkouts = await Promise.all(
+      (assignmentRows || []).map(async (a) => {
+        const isCompleted = !!a.completed_at;
+        let workout = null;
+        if (isCompleted || task.mode !== 'full_team') {
+          const [wRows] = await pool.execute(
+            `SELECT w.id, w.activity_type, w.distance_value, w.duration_minutes, w.calories_burned,
+                    w.points, w.completed_at, w.screenshot_file_path,
+                    w.strava_activity_id, w.strava_activity_name, w.is_treadmill
+             FROM challenge_workouts w
+             WHERE w.learning_class_id = ? AND w.user_id = ? AND w.weekly_task_id = ?
+             ORDER BY w.completed_at DESC LIMIT 1`,
+            [classId, a.provider_user_id, taskId]
+          );
+          workout = wRows?.[0] || null;
+        }
+        return {
+          assignmentId: a.id,
+          teamId: Number(a.team_id),
+          teamName: a.team_name,
+          assigneeId: Number(a.provider_user_id),
+          assigneeFirstName: a.provider_first_name,
+          assigneeLastName: a.provider_last_name,
+          volunteered: !!a.volunteered,
+          isCompleted,
+          completedAt: a.completed_at || null,
+          completionNotes: a.completion_notes || null,
+          attachmentPath: a.attachment_path || null,
+          workout
+        };
+      })
+    );
+
+    return res.json({ task, assignments: assignmentsWithWorkouts, fullTeamMembers });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const upsertWeeklyAssignment = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);
@@ -558,6 +652,18 @@ export const upsertWeeklyAssignment = async (req, res, next) => {
     }
     const isCaptain = team.team_manager_user_id && Number(team.team_manager_user_id) === Number(req.user.id);
     const isSelf = Number(providerUserId) === Number(req.user.id);
+
+    // Captains can only assign members of their own team
+    if (isCaptain && !isSelf && !canManageChallenge(req.user?.role)) {
+      const [memberCheck] = await pool.execute(
+        `SELECT 1 FROM challenge_team_members WHERE team_id = ? AND provider_user_id = ? LIMIT 1`,
+        [asInt(teamId), asInt(providerUserId)]
+      );
+      if (!memberCheck?.length) {
+        return res.status(403).json({ error: { message: 'You can only assign members of your own team' } });
+      }
+    }
+
     if (!canManageChallenge(req.user?.role) && !isCaptain && !(isSelf && volunteered)) {
       return res.status(403).json({ error: { message: 'Only captain can assign; you can volunteer for yourself' } });
     }
@@ -647,34 +753,22 @@ export const closeWeek = async (req, res, next) => {
     const runRuckProgression = getRunRuckProgression({ klass, weekStart });
 
     const top5Athletes = (await ChallengeWorkout.getWeeklyLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime, weekTimeZone }))
-      .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) }));
+      .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, profile_photo_path: r.profile_photo_path || null, team_name: r.team_name, total_points: Number(r.total_points) }));
     const top5Teams = (await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime, weekTimeZone }))
       .map((r) => ({ team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
     const topPerTeam = (await ChallengeWorkout.getWeeklyTopPerTeam(classId, weekStart, { weekCutoffTime, weekTimeZone }))
-      .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
+      .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, profile_photo_path: r.profile_photo_path || null, team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
 
-    const categories = Array.isArray(klass.recognition_categories_json) ? klass.recognition_categories_json : (typeof klass.recognition_categories_json === 'string' ? (() => { try { return JSON.parse(klass.recognition_categories_json); } catch { return []; } })() : []);
-    const mastersThreshold = klass.masters_age_threshold != null ? asInt(klass.masters_age_threshold) : 53;
-    const recognitionOfTheWeek = {};
-    if (categories.includes('fastest_male')) {
-      const r = await ChallengeWorkout.getWeeklyLeaderByGender(classId, weekStart, { gender: 'male', weekCutoffTime, weekTimeZone });
-      if (r) recognitionOfTheWeek.fastest_male = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
-    }
-    if (categories.includes('fastest_female')) {
-      const r = await ChallengeWorkout.getWeeklyLeaderByGender(classId, weekStart, { gender: 'female', weekCutoffTime, weekTimeZone });
-      if (r) recognitionOfTheWeek.fastest_female = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
-    }
-    if (categories.includes('fastest_masters_male')) {
-      const r = await ChallengeWorkout.getWeeklyMastersLeader(classId, weekStart, { gender: 'male', ageThreshold: mastersThreshold, weekCutoffTime, weekTimeZone });
-      if (r) recognitionOfTheWeek.fastest_masters_male = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
-    }
-    if (categories.includes('fastest_masters_female')) {
-      const r = await ChallengeWorkout.getWeeklyMastersLeader(classId, weekStart, { gender: 'female', ageThreshold: mastersThreshold, weekCutoffTime, weekTimeZone });
-      if (r) recognitionOfTheWeek.fastest_masters_female = { user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points) };
+    const categories = normalizeRecognitionCategories(klass.recognition_categories_json) || [];
+    const recognitionOfTheWeek = [];
+    const klassWithCats = { ...klass, _allCategories: categories };
+    for (const cat of categories.filter((c) => c.active)) {
+      const entries = await ChallengeWorkout.computeRecognitionWinner(classId, cat, weekStart, klassWithCats);
+      recognitionOfTheWeek.push(...entries);
     }
 
     const snapshotData = { top5Athletes, top5Teams, topPerTeam };
-    if (Object.keys(recognitionOfTheWeek).length) snapshotData.recognitionOfTheWeek = recognitionOfTheWeek;
+    if (recognitionOfTheWeek.length) snapshotData.recognitionOfTheWeek = recognitionOfTheWeek;
 
     await pool.execute(
       `INSERT INTO challenge_weekly_scoreboard (learning_class_id, week_start_date, snapshot_json, posted_at)
@@ -823,7 +917,7 @@ export const getSeasonSummary = async (req, res, next) => {
     const weeklyTopTeams = (await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: limits.weeklyTopTeams, weekCutoffTime, weekTimeZone }))
       .map((r) => ({ team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points || 0) }));
     const seasonTopIndividuals = (await ChallengeWorkout.getLeaderboardIndividual(classId, { limit: limits.seasonTopIndividuals }))
-      .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, total_points: Number(r.total_points || 0) }));
+      .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, profile_photo_path: r.profile_photo_path || null, total_points: Number(r.total_points || 0) }));
     const [teamSeasonRows] = await pool.execute(
       `SELECT t.id AS team_id, t.team_name, COALESCE(SUM(w.points), 0) AS total_points
        FROM challenge_teams t

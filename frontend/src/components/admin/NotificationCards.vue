@@ -1,5 +1,5 @@
 <template>
-  <div class="notification-cards-container">
+  <div class="notification-cards-container" :class="{ compact: props.compact }">
     <div v-if="totalNotifications > 0 || agencies.length > 0" class="header-row">
       <h2>Notifications</h2>
       <button
@@ -149,6 +149,13 @@ import { useNotificationStore } from '../../store/notifications';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
+
+const props = defineProps({
+  compact: {
+    type: Boolean,
+    default: false
+  }
+});
 import NotificationCategoryModal from './NotificationCategoryModal.vue';
 import { getBackendBaseUrl, toUploadsUrl } from '../../utils/uploadsUrl';
 import api from '../../services/api';
@@ -525,9 +532,18 @@ const orgTypeLabel = (org) => {
   margin-bottom: 32px;
 }
 
+.notification-cards-container.compact {
+  margin-bottom: 12px;
+}
+
 .notification-cards-container h2 {
   margin-bottom: 24px;
   color: var(--text-primary);
+}
+
+.notification-cards-container.compact h2 {
+  margin-bottom: 12px;
+  font-size: 1.1rem;
 }
 
 .header-row {
@@ -536,6 +552,10 @@ const orgTypeLabel = (org) => {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 24px;
+}
+
+.notification-cards-container.compact .header-row {
+  margin-bottom: 10px;
 }
 
 .header-row h2 {
@@ -591,10 +611,20 @@ const orgTypeLabel = (org) => {
   border: 1px solid var(--border);
 }
 
+.notification-cards-container.compact .loading,
+.notification-cards-container.compact .empty-state {
+  padding: 18px;
+}
+
 .notification-cards-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 20px;
+}
+
+.notification-cards-container.compact .notification-cards-grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
 }
 
 .notification-card {
@@ -609,6 +639,11 @@ const orgTypeLabel = (org) => {
   background-color: var(--agency-bg, white);
 }
 
+.notification-cards-container.compact .notification-card {
+  border-radius: 10px;
+  padding: 14px;
+}
+
 .notification-card:hover {
   transform: translateY(-4px);
   box-shadow: var(--shadow-lg);
@@ -619,6 +654,10 @@ const orgTypeLabel = (org) => {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.notification-cards-container.compact .card-content {
+  gap: 8px;
 }
 
 .agency-icon-wrapper {
@@ -633,6 +672,12 @@ const orgTypeLabel = (org) => {
   border: 2px solid var(--border);
   padding: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.notification-cards-container.compact .agency-icon-wrapper {
+  width: 48px;
+  height: 48px;
+  padding: 6px;
 }
 
 .agency-icon {
@@ -682,6 +727,11 @@ const orgTypeLabel = (org) => {
   text-overflow: ellipsis;
 }
 
+.notification-cards-container.compact .agency-name {
+  margin-bottom: 2px;
+  font-size: 14px;
+}
+
 .org-type {
   margin: 0 0 8px;
   font-size: 12px;
@@ -695,6 +745,10 @@ const orgTypeLabel = (org) => {
   margin: 0;
   color: var(--text-secondary);
   font-size: 14px;
+}
+
+.notification-cards-container.compact .notification-count-text {
+  font-size: 12px;
 }
 
 .notification-badge {
@@ -711,6 +765,12 @@ const orgTypeLabel = (org) => {
   color: var(--text-secondary);
   border: 2px solid var(--border);
   transition: all 0.2s;
+}
+
+.notification-cards-container.compact .notification-badge {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
 }
 
 .notification-badge.has-notifications {

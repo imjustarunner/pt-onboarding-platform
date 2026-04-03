@@ -27,26 +27,25 @@
       <div v-else class="clubs-grid">
         <div v-for="c in clubs" :key="c.id" class="club-card">
           <div class="club-info">
-            <div class="club-name">{{ c.name }}</div>
+            <button type="button" class="club-name-link" @click="viewClub(c)">{{ c.name }}</button>
             <div v-if="c.slug || c.city || c.state" class="club-meta">
               <template v-if="c.slug">{{ c.slug }}</template>
               <template v-if="c.slug && (c.city || c.state)"> · </template>
               <template v-if="c.city || c.state">{{ [c.city, c.state].filter(Boolean).join(', ') }}</template>
             </div>
           </div>
-          <div v-if="isMember(c.id)" class="club-badge">Member</div>
-          <button
-            v-else-if="authStore.isAuthenticated"
-            type="button"
-            class="btn btn-primary btn-sm"
-            :disabled="applyingId === c.id"
-            @click="applyToClub(c)"
-          >
-            {{ applyingId === c.id ? 'Joining…' : 'Apply to Join' }}
-          </button>
-          <div v-else class="club-actions">
-            <router-link :to="loginPath" class="btn btn-primary btn-sm">Sign in to Join</router-link>
-            <router-link :to="signupPath" class="btn btn-secondary btn-sm">Sign up to Apply</router-link>
+          <div class="club-actions-row">
+            <button type="button" class="btn btn-ghost btn-sm" @click="viewClub(c)">View</button>
+            <div v-if="isMember(c.id)" class="club-badge">Member</div>
+            <button
+              v-else
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="applyingId === c.id"
+              @click="applyToClub(c)"
+            >
+              {{ applyingId === c.id ? 'Joining…' : (isSscSstcSlug ? 'Apply to Join' : (authStore.isAuthenticated ? 'Apply to Join' : 'Sign in to Join')) }}
+            </button>
           </div>
         </div>
       </div>
@@ -63,13 +62,14 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { useBrandingStore } from '../store/branding';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 
-const route = useRoute();
+const route  = useRoute();
+const router = useRouter();
 const brandingStore = useBrandingStore();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -141,7 +141,22 @@ const debouncedSearch = () => {
   searchTimeout = setTimeout(fetchClubs, 300);
 };
 
+const isSscSstcSlug = computed(() => {
+  const s = String(orgSlug.value || '').toLowerCase();
+  return s === 'ssc' || s === 'sstc';
+});
+
 const applyToClub = async (club) => {
+  // SSC/SSTC: send through the full member application flow (handles both authed and unauthed)
+  if (isSscSstcSlug.value) {
+    router.push({ path: `/${orgSlug.value}/join`, query: { club: club.id } });
+    return;
+  }
+  // Other tenants: require auth, then direct-apply via API
+  if (!authStore.isAuthenticated) {
+    router.push({ path: loginPath.value, query: { redirect: `/${orgSlug.value}/clubs` } });
+    return;
+  }
   applyingId.value = club.id;
   try {
     await api.post(`/summit-stats/clubs/${club.id}/apply`);
@@ -151,6 +166,10 @@ const applyToClub = async (club) => {
   } finally {
     applyingId.value = null;
   }
+};
+
+const viewClub = (club) => {
+  router.push({ path: `/${orgSlug.value}/clubs/${club.id}` });
 };
 
 const fetchLoginTheme = async (portalUrl) => {
@@ -259,8 +278,29 @@ watch(orgSlug, (newSlug) => {
   gap: 12px;
   flex-wrap: wrap;
 }
-.club-name {
+.club-name-link {
   font-weight: 600;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  color: var(--primary, #1d4ed8);
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.club-name-link:hover { opacity: .8; }
+.club-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.btn-ghost {
+  background: none;
+  border: 1px solid var(--border-color, #e0e0e0);
+  color: var(--text-secondary, #64748b);
 }
 .club-info {
   flex: 1;
