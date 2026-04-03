@@ -33,25 +33,27 @@
       <!-- ── Hero banner ─────────────────────────────── -->
       <div class="reg-hero" :style="heroStyle">
         <div class="reg-hero-overlay"></div>
-        <div class="reg-hero-content">
-          <!-- Platform logo (SSC/SSTC) -->
-          <div class="reg-hero-logos">
-            <img
-              v-if="platformLogoUrl"
-              :src="platformLogoUrl"
-              class="hero-logo hero-logo--platform"
-              alt="Platform logo"
-            />
-            <div v-if="platformLogoUrl && clubLogoUrl" class="hero-logo-divider"></div>
-            <img
-              v-if="clubLogoUrl"
-              :src="clubLogoUrl"
-              class="hero-logo hero-logo--club"
-              alt="Club logo"
-            />
-          </div>
 
-          <div class="reg-hero-text">
+        <!-- Platform brand tier -->
+        <div class="reg-hero-platform-bar">
+          <img
+            v-if="platformLogoUrl"
+            :src="platformLogoUrl"
+            class="platform-bar-logo"
+            alt="Platform logo"
+          />
+          <span class="platform-bar-name">{{ platformName || 'Summit Stats Team Challenge' }}</span>
+        </div>
+
+        <!-- Club tier -->
+        <div class="reg-hero-club">
+          <img
+            v-if="clubLogoUrl"
+            :src="clubLogoUrl"
+            class="club-hero-logo"
+            alt="Club logo"
+          />
+          <div class="club-hero-text">
             <div class="hero-eyebrow">You're joining</div>
             <h1 class="hero-club-name">{{ clubDisplayName }}</h1>
             <div v-if="inviteData?.label" class="hero-tag">{{ inviteData.label }}</div>
@@ -59,11 +61,6 @@
               Referred by <strong>{{ referralInfo }}</strong>
             </div>
           </div>
-        </div>
-
-        <!-- Platform name strip -->
-        <div v-if="platformName" class="reg-hero-platform-strip">
-          Powered by {{ platformName }}
         </div>
       </div>
 
@@ -461,98 +458,109 @@ const handleSubmit = async () => {
 /* ── Hero ───────────────────────────────────────────────── */
 .reg-hero {
   position: relative;
-  background: linear-gradient(160deg, #0d1b4b 0%, #1a2f7a 45%, #0e4da8 100%);
+  background: linear-gradient(160deg, #060d24 0%, #0f1f5c 40%, #0e3d9e 100%);
   background-size: cover;
   background-position: center;
-  min-height: 240px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
   overflow: hidden;
 }
 .reg-hero-overlay {
   position: absolute;
   inset: 0;
-  /* Lighter overlay so a banner image shows through but still dark enough for text */
-  background: linear-gradient(to bottom, rgba(5, 8, 30, 0.60) 0%, rgba(5, 8, 30, 0.40) 60%, rgba(5, 8, 30, 0.70) 100%);
+  background: linear-gradient(to bottom,
+    rgba(4, 8, 28, 0.72) 0%,
+    rgba(4, 8, 28, 0.45) 50%,
+    rgba(4, 8, 28, 0.75) 100%);
   pointer-events: none;
 }
-.reg-hero-content {
+
+/* Platform brand bar (top) */
+.reg-hero-platform-bar {
   position: relative;
-  padding: 28px 28px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.reg-hero-logos {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
+  padding: 16px 24px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.30);
+  backdrop-filter: blur(8px);
 }
-.hero-logo {
-  height: 52px;
+.platform-bar-logo {
+  height: 28px;
   width: auto;
   object-fit: contain;
-  border-radius: 10px;
-  background: rgba(255,255,255,0.12);
-  padding: 6px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-}
-.hero-logo--platform { filter: brightness(0) invert(1); opacity: 0.95; }
-.hero-logo--club { background: rgba(255,255,255,0.18); }
-.hero-logo-divider {
-  width: 1px; height: 36px;
-  background: rgba(255,255,255,0.35);
+  filter: brightness(0) invert(1);
+  opacity: 0.90;
   flex-shrink: 0;
 }
-.reg-hero-text {
-  color: #ffffff;
-  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+.platform-bar-name {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  color: rgba(255,255,255,0.90);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Club tier (main hero body) */
+.reg-hero-club {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 28px 24px 30px;
+}
+.club-hero-logo {
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.14);
+  border: 1.5px solid rgba(255,255,255,0.22);
+  padding: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.40);
+}
+.club-hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .hero-eyebrow {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
-  letter-spacing: .12em;
+  letter-spacing: .14em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.80);
-  margin-bottom: 6px;
+  color: rgba(255,255,255,0.65);
 }
 .hero-club-name {
   margin: 0;
-  font-size: clamp(1.6rem, 5vw, 2.4rem);
+  font-size: clamp(1.55rem, 5vw, 2.2rem);
   font-weight: 900;
   line-height: 1.12;
   letter-spacing: -.02em;
   color: #ffffff;
-  text-shadow: 0 2px 16px rgba(0,0,0,0.6), 0 1px 3px rgba(0,0,0,0.8);
+  text-shadow: 0 2px 20px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.9);
 }
 .hero-tag {
   margin-top: 8px;
   display: inline-block;
-  background: rgba(255,255,255,0.22);
-  border: 1px solid rgba(255,255,255,0.30);
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.28);
   border-radius: 20px;
-  padding: 4px 14px;
-  font-size: 12px;
+  padding: 4px 12px;
+  font-size: 11.5px;
   font-weight: 600;
-  color: #fff;
-  backdrop-filter: blur(8px);
+  color: rgba(255,255,255,0.92);
+  backdrop-filter: blur(6px);
+  align-self: flex-start;
 }
 .hero-referral {
-  margin-top: 6px;
-  font-size: 13px;
-  color: rgba(255,255,255,0.85);
-}
-.reg-hero-platform-strip {
-  position: relative;
-  padding: 9px 28px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .06em;
-  color: rgba(255,255,255,0.70);
-  background: rgba(0,0,0,0.35);
-  backdrop-filter: blur(6px);
-  border-top: 1px solid rgba(255,255,255,0.10);
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: rgba(255,255,255,0.75);
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
 }
 
 /* ── Form card ──────────────────────────────────────────── */
