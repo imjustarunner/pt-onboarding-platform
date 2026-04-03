@@ -558,27 +558,26 @@ export const resolveInviteToken = async (req, res, next) => {
 
 /** Shared logic: validate and write an application row. */
 const createApplicationRow = async ({
-  clubId, inviteId = null, referrerUserId = null,
+  clubId, inviteId = null, referrerUserId = null, userId = null,
   firstName, lastName, email, phone, username,
   gender, dateOfBirth, weightLbs, heightInches, timezone,
-  customFields, passwordHash
+  customFields
 }) => {
-  // Store system fields alongside member-defined custom fields
+  // Store any non-system custom fields only
   const mergedCustomFields = { ...(customFields || {}) };
-  if (passwordHash) mergedCustomFields._passwordHash = passwordHash;
-  if (username) mergedCustomFields._username = String(username).trim();
 
   const [result] = await pool.execute(
     `INSERT INTO challenge_member_applications
-       (agency_id, invite_id, referrer_user_id,
+       (agency_id, invite_id, referrer_user_id, user_id,
         first_name, last_name, email, phone,
         gender, date_of_birth, weight_lbs, height_inches, timezone,
         custom_fields, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
     [
       clubId,
       inviteId || null,
       referrerUserId || null,
+      userId || null,
       String(firstName || '').trim(),
       String(lastName || '').trim(),
       String(email || '').trim().toLowerCase(),
@@ -592,6 +591,28 @@ const createApplicationRow = async ({
     ]
   );
   return result.insertId;
+};
+
+/** Create or find a user account so the applicant can sign in immediately. */
+const createOrFindUserForApplication = async ({ firstName, lastName, email, phone, username, password }) => {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const existingUser = await User.findByEmail(normalizedEmail);
+  if (existingUser) return { userId: existingUser.id, isNew: false };
+
+  const hashedPw = await hashPassword(String(password));
+  const [insertResult] = await pool.execute(
+    `INSERT INTO users (first_name, last_name, email, password, role, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'provider', 'ACTIVE_EMPLOYEE', NOW(), NOW())`,
+    [String(firstName || '').trim(), String(lastName || '').trim(), normalizedEmail, hashedPw]
+  );
+  const userId = insertResult.insertId;
+  if (phone) {
+    try { await pool.execute(`UPDATE users SET phone = ? WHERE id = ?`, [String(phone).trim(), userId]); } catch { /* non-fatal */ }
+  }
+  if (username) {
+    try { await pool.execute(`UPDATE users SET username = ? WHERE id = ?`, [String(username).trim(), userId]); } catch { /* non-fatal: column may not exist or conflict */ }
+  }
+  return { userId, isNew: true };
 };
 
 /**
@@ -629,8 +650,9 @@ export const submitApplication = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
     }
 
-    // Hash the provided password so it can be used when the application is approved
-    const passwordHash = await hashPassword(String(password));
+    // Create (or find) the user account immediately so the applicant can sign in right away.
+    // They will be active but not yet attached to the club — that happens on approval.
+    const { userId } = await createOrFindUserForApplication({ firstName, lastName, email, phone, username, password });
 
     // Resolve referrer
     let referrerUserId = null;
@@ -644,10 +666,10 @@ export const submitApplication = async (req, res, next) => {
     }
 
     const appId = await createApplicationRow({
-      clubId, referrerUserId,
+      clubId, referrerUserId, userId,
       firstName, lastName, email, phone, username,
       gender, dateOfBirth, weightLbs, heightInches, timezone,
-      customFields, passwordHash
+      customFields
     });
 
     return res.status(201).json({
@@ -691,13 +713,14 @@ export const submitInviteApplication = async (req, res, next) => {
     if (!email) return res.status(400).json({ error: { message: 'Email is required' } });
     if (!password || String(password).length < 8) return res.status(400).json({ error: { message: 'Password must be at least 8 characters' } });
 
-    const passwordHash = await hashPassword(String(password));
+    // Create (or find) user account immediately so the applicant can sign in while pending approval.
+    const { userId } = await createOrFindUserForApplication({ firstName, lastName, email, phone, username, password });
 
     const appId = await createApplicationRow({
-      clubId, inviteId: invite.id,
+      clubId, inviteId: invite.id, userId,
       firstName, lastName, email, phone, username,
       gender, dateOfBirth, weightLbs, heightInches, timezone,
-      customFields, passwordHash
+      customFields
     });
 
     // Mark invite as used
@@ -732,50 +755,24 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
   const app = appRows?.[0];
   if (!app) throw new Error('Application not found');
 
-  // Extract system fields stored in custom_fields during application
+  // Parse custom fields (skip reserved system keys)
   let appCustomFields = {};
   try { appCustomFields = typeof app.custom_fields === 'string' ? JSON.parse(app.custom_fields) : (app.custom_fields || {}); } catch { /* */ }
-  const storedPasswordHash = appCustomFields._passwordHash || null;
-  const storedUsername = appCustomFields._username ? String(appCustomFields._username).trim() : null;
 
-  // Find or create user account
-  let userId = app.user_id;
+  // Resolve user — should already exist because we create the account at application submission time.
+  // Fall back to email lookup or account creation for legacy applications submitted before this change.
+  let userId = app.user_id ? Number(app.user_id) : null;
   if (!userId) {
-    // Check if an account with this email already exists
     const existingUser = await User.findByEmail(app.email);
     if (existingUser) {
       userId = existingUser.id;
     } else {
-      // Use the password hash from the application if available, otherwise generate a temp one
-      const hashedPw = storedPasswordHash || await hashPassword(genToken(16));
-
-      // Try to insert with phone number (users table may or may not have a phone column)
       const [insertResult] = await pool.execute(
         `INSERT INTO users (first_name, last_name, email, password, role, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, 'provider', 'ACTIVE_EMPLOYEE', NOW(), NOW())`,
-        [app.first_name, app.last_name, app.email, hashedPw]
+        [app.first_name, app.last_name, app.email, await hashPassword(genToken(16))]
       );
       userId = insertResult.insertId;
-
-      // Set phone on the new user if provided
-      if (app.phone) {
-        try {
-          await pool.execute(
-            `UPDATE users SET phone = ? WHERE id = ?`,
-            [String(app.phone).trim(), userId]
-          );
-        } catch { /* phone column may not exist — non-fatal */ }
-      }
-
-      // Set username on the new user if provided
-      if (storedUsername) {
-        try {
-          await pool.execute(
-            `UPDATE users SET username = ? WHERE id = ?`,
-            [storedUsername, userId]
-          );
-        } catch { /* username column may not exist or conflict — non-fatal */ }
-      }
     }
   }
 
@@ -1541,5 +1538,45 @@ export const setClubMemberStatus = async (req, res, next) => {
       [isActive ? 1 : 0, userId, clubId]
     );
     return res.json({ ok: true, userId, clubId, isActive });
+  } catch (e) { next(e); }
+};
+
+/**
+ * GET /summit-stats/my-applications
+ * Authenticated — returns the signed-in user's club applications (all statuses).
+ * Used to show a "your application is pending" notice after registration.
+ */
+export const getMyApplications = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: { message: 'Sign in required' } });
+
+    const [rows] = await pool.execute(
+      `SELECT cma.id, cma.status, cma.applied_at, cma.reviewed_at,
+              a.id AS club_id, a.name AS club_name, a.logo_url, a.logo_path
+       FROM challenge_member_applications cma
+       JOIN agencies a ON a.id = cma.agency_id
+       WHERE cma.user_id = ?
+       ORDER BY cma.applied_at DESC
+       LIMIT 20`,
+      [userId]
+    );
+
+    const baseUrl = process.env.BACKEND_URL || '';
+    const applications = (rows || []).map((r) => {
+      let logoUrl = r.logo_url || null;
+      if (r.logo_path) logoUrl = `${baseUrl}/uploads/${String(r.logo_path).replace(/^uploads\//, '')}`;
+      return {
+        id: Number(r.id),
+        status: String(r.status || 'pending'),
+        clubId: Number(r.club_id),
+        clubName: r.club_name || '',
+        logoUrl,
+        appliedAt: r.applied_at || null,
+        reviewedAt: r.reviewed_at || null
+      };
+    });
+
+    return res.json({ applications });
   } catch (e) { next(e); }
 };

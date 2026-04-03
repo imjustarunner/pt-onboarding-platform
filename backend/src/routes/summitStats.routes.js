@@ -65,7 +65,8 @@ import {
   getClubMemberSeasonHistory,
   getPublicPageConfig,
   updatePublicPageConfig,
-  setClubMemberStatus
+  setClubMemberStatus,
+  getMyApplications
 } from '../controllers/challengeMemberApplications.controller.js';
 
 const router = express.Router();
@@ -79,6 +80,7 @@ router.post('/clubs/invite/:token/apply', submitInviteApplication);
 
 router.use(authenticate);
 
+router.get('/my-applications', getMyApplications);
 router.get('/club-specs', getClubSpecs);
 router.get('/club-manager-context', getClubManagerContext);
 router.post('/clubs', [

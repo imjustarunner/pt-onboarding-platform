@@ -40,6 +40,32 @@
           </div>
         </div>
 
+        <!-- Pending application notice (member applied but not yet approved) -->
+        <div v-if="!organizationId && !clubContext?.summitStatsScopedAdmin && pendingApplications.length" class="hub-pending-banner">
+          <div v-for="app in pendingApplications" :key="app.id" class="hub-pending-item">
+            <div class="hub-pending-icon">⏳</div>
+            <div class="hub-pending-body">
+              <strong>Application pending — {{ app.clubName }}</strong>
+              <p>Your application to join <em>{{ app.clubName }}</em> is awaiting manager approval. You'll be added to the club once approved.</p>
+            </div>
+            <div v-if="app.status === 'denied'" class="hub-pending-tag hub-pending-tag--denied">Denied</div>
+            <div v-else class="hub-pending-tag hub-pending-tag--pending">Pending</div>
+          </div>
+          <p class="hub-pending-more">
+            Want to join another club? <router-link :to="`/${orgSlug}/clubs`">Browse clubs</router-link>
+          </p>
+        </div>
+
+        <!-- No club and no pending — prompt to browse -->
+        <div v-else-if="!organizationId && !clubContext?.summitStatsScopedAdmin && !pendingApplicationsLoading" class="hub-pending-banner hub-pending-banner--empty">
+          <div class="hub-pending-icon">🏃</div>
+          <div class="hub-pending-body">
+            <strong>You're not a member of any club yet</strong>
+            <p>Browse available clubs and submit an application to get started.</p>
+            <router-link :to="`/${orgSlug}/clubs`" class="btn btn-primary btn-sm">Browse Clubs</router-link>
+          </div>
+        </div>
+
         <!-- Club Stats Bar -->
         <div v-if="organizationId" class="hub-stats-bar">
           <div v-if="clubStatsLoading" class="hub-stats-bar--loading">Loading club stats…</div>
@@ -399,7 +425,8 @@ const organizationId = computed(() => agencyStore.currentAgency?.id || null);
 const organizationSlug = computed(() =>
   agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || route.params?.organizationSlug || null
 );
-const isSscRoute = computed(() => String(route.params?.organizationSlug || '').toLowerCase() === 'ssc');
+const orgSlug = computed(() => String(route.params?.organizationSlug || '').toLowerCase() || 'ssc');
+const isSscRoute = computed(() => orgSlug.value === 'ssc');
 const myUserId = computed(() => authStore.user?.id || null);
 
 // ── DATA REFS ──────────────────────────────────────────────
@@ -418,6 +445,10 @@ const createClubName = ref('');
 const createClubSlug = ref('');
 const createClubSubmitting = ref(false);
 const createClubSuccess = ref(false);
+
+// Pending applications (shown when member has no club yet)
+const pendingApplications = ref([]);
+const pendingApplicationsLoading = ref(false);
 const joiningClassId = ref(null);
 const captainApplyingClassId = ref(null);
 const showPast = ref(false);
@@ -810,6 +841,17 @@ const timeAgo = (ts) => {
 };
 
 // ── LIFECYCLE ──────────────────────────────────────────────
+const loadPendingApplications = async () => {
+  if (organizationId.value) return; // skip if already in a club
+  pendingApplicationsLoading.value = true;
+  try {
+    const { data } = await api.get('/summit-stats/my-applications');
+    pendingApplications.value = (data?.applications || []).filter((a) => a.status !== 'approved');
+  } catch { /* non-fatal */ } finally {
+    pendingApplicationsLoading.value = false;
+  }
+};
+
 onMounted(async () => {
   await loadClubManagerContext();
   await Promise.all([
@@ -818,7 +860,8 @@ onMounted(async () => {
     loadSeasonSplashes(),
     loadClubStats(),
     loadRecordBoard(),
-    loadStoreConfig()
+    loadStoreConfig(),
+    loadPendingApplications()
   ]);
 });
 
@@ -995,6 +1038,61 @@ watch(organizationId, () => {
 }
 
 /* ── CARDS ───────────────────────────────────────────────── */
+/* ── Pending application banner ───────────────────────────────── */
+.hub-pending-banner {
+  background: #fff;
+  border: 1.5px solid #e0e7ff;
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hub-pending-banner--empty {
+  border-color: #e2e8f0;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 14px;
+}
+.hub-pending-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.hub-pending-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+  line-height: 1;
+  margin-top: 2px;
+}
+.hub-pending-body {
+  flex: 1;
+}
+.hub-pending-body strong { display: block; font-size: 14px; font-weight: 700; color: #1e1b4b; margin-bottom: 3px; }
+.hub-pending-body p { margin: 0; font-size: 13px; color: #475569; line-height: 1.5; }
+.hub-pending-tag {
+  flex-shrink: 0;
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  align-self: center;
+}
+.hub-pending-tag--pending { background: #fef9c3; color: #854d0e; border: 1px solid #fde68a; }
+.hub-pending-tag--denied  { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
+.hub-pending-more {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+  padding-top: 4px;
+  border-top: 1px solid #f1f5f9;
+}
+.hub-pending-more a { color: #4f46e5; font-weight: 600; }
+
+/* ── Card ────────────────────────────────────────────────────── */
 .hub-card {
   background: #fff;
   border: 1px solid var(--border, #e2e8f0);
