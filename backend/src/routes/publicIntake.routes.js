@@ -20,7 +20,9 @@ import {
   submitPublicIntake,
   uploadIntakeFiles,
   saveInsuranceCardPhotos,
-  saveGuardianPaymentCard
+  saveGuardianPaymentCard,
+  identifyPreferencesUser,
+  savePreferencesUser
 } from '../controllers/publicIntake.controller.js';
 
 const upload = multer({
@@ -106,6 +108,9 @@ router.post(
   ]),
   saveInsuranceCardPhotos
 );
+
+router.post('/:publicKey/preferences/identify', identifyPreferencesUser);
+router.put('/:publicKey/preferences/save', savePreferencesUser);
 
 router.post(
   '/:publicKey/:submissionId/payment-card',

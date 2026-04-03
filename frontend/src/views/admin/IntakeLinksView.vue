@@ -174,6 +174,7 @@
         <option value="smart_registration">Smart Registration</option>
         <option value="job_application">Job Application</option>
         <option value="medical_records_request">Medical Records</option>
+        <option value="internal_preferences">Internal Preferences</option>
       </select>
       <select v-model="filterOrgId">
         <option value="all">All Orgs</option>
@@ -305,6 +306,7 @@
                 <option value="smart_registration">Smart Registration</option>
                 <option value="job_application">Job Application</option>
                 <option value="medical_records_request">Medical Records Request</option>
+                <option value="internal_preferences">Internal Preferences (staff)</option>
               </select>
               <small v-if="form.formType === 'public_form'" class="form-help">
                 Standalone forms (e.g. additional driver, consent) are externally clickable and not tied to a person. Completed documents land in Submitted Documents for staff to assign to a client.
@@ -326,6 +328,9 @@
                 Default school/agency intake with client creation and documents. Add a <strong>Registration</strong> step to enroll
                 into one company event at the same time — same event binding and returning-client shortcuts as Smart Registration,
                 with your full questions and packet.
+              </small>
+              <small v-if="form.formType === 'internal_preferences'" class="form-help">
+                Shareable link for staff to update their own notification and communication preferences (including Campaign 4 workforce SMS opt-in) without logging in. Scoped to an agency.
               </small>
             </div>
             <div v-if="form.formType === 'job_application'" class="form-group">
@@ -1891,7 +1896,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
-import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import { buildPublicIntakeUrl, buildFormUrl } from '../../utils/publicIntakeUrl';
 import PublicIntakeGuardianWaiverStep from '../../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
 import PublicIntakeInsuranceStep from '../../components/public-intake/PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from '../../components/public-intake/PublicIntakePaymentStep.vue';
@@ -2379,7 +2384,8 @@ const getFormTypeLabel = (t) => {
     smart_school_roi: 'Smart School ROI',
     smart_registration: 'Smart Registration',
     job_application: 'Job Application',
-    medical_records_request: 'Medical Records'
+    medical_records_request: 'Medical Records',
+    internal_preferences: 'Internal Preferences'
   };
   return m[t] || t || 'Intake';
 };
@@ -2400,6 +2406,7 @@ const getFormTypeBadgeClass = (t) => {
   if (t === 'smart_registration') return 'badge-info';
   if (t === 'job_application') return 'badge-success';
   if (t === 'medical_records_request') return 'badge-warning';
+  if (t === 'internal_preferences') return 'badge-purple';
   return 'badge-secondary';
 };
 const getLanguageLabel = (code) => {
@@ -3226,7 +3233,7 @@ const onCompletionEmailTemplateChange = () => {
 const copyLink = async (link) => {
   const key = link.public_key || '';
   if (!key) return;
-  const url = buildPublicIntakeUrl(key);
+  const url = buildFormUrl(key, link.form_type);
   try {
     await navigator.clipboard.writeText(url);
   } catch {

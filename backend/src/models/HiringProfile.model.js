@@ -64,6 +64,7 @@ class HiringProfile {
       `SELECT *
        FROM hiring_profiles
        WHERE candidate_user_id = ?
+       ORDER BY updated_at DESC, id DESC
        LIMIT 1`,
       [candidateUserId]
     );

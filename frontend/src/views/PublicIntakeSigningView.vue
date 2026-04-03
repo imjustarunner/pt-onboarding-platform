@@ -1,9 +1,14 @@
 <template>
   <div class="public-intake container">
     <div v-if="loading" class="loading">{{ loadingText }}</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
+    <div v-else-if="fatalError" class="error">{{ fatalError }}</div>
 
     <div v-else class="intake-card">
+      <!-- Inline recoverable error banner — form stays fully visible and Back works -->
+      <div v-if="error" class="intake-inline-error-banner">
+        <span>{{ error }}</span>
+        <button type="button" class="intake-inline-error-dismiss" @click="error = ''">&#10005;</button>
+      </div>
       <button
         v-if="isSuperAdmin"
         class="btn btn-secondary btn-sm dev-fill-button"
@@ -1598,6 +1603,7 @@ const guardianSectionTitle = computed(() => {
 });
 
 const loading = ref(true);
+const fatalError = ref('');
 const error = ref('');
 const stepError = ref('');
 const beginError = ref('');
@@ -3200,11 +3206,11 @@ const loadLink = async () => {
       && !hasProgrammedSchoolRoiStep.value
       && !hasRegistrationStep.value
     ) {
-      error.value = 'No documents configured for this intake link.';
+      fatalError.value = 'No documents configured for this intake link.';
     } else if (String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi') {
-      error.value = '';
+      fatalError.value = '';
     } else if (hasProgrammedSchoolRoiStep.value) {
-      error.value = '';
+      fatalError.value = '';
     }
     if (String(link.value?.form_type || '').toLowerCase() === 'job_application') {
       intakeForSelf.value = true;
@@ -3222,7 +3228,7 @@ const loadLink = async () => {
       }];
     }
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to load intake link';
+    fatalError.value = e.response?.data?.error?.message || 'Failed to load intake link';
   } finally {
     loading.value = false;
   }
@@ -5075,6 +5081,29 @@ onBeforeUnmount(() => {
   padding: 20px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
+}
+.intake-inline-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.875rem;
+  margin-bottom: 14px;
+}
+.intake-inline-error-dismiss {
+  background: none;
+  border: none;
+  color: #b91c1c;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0 2px;
+  flex-shrink: 0;
+  line-height: 1;
 }
 .draft-restored-banner {
   margin: 8px 0 12px;

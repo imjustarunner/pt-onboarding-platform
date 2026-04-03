@@ -149,6 +149,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/preferences-form/:publicKey',
+    name: 'PublicPreferencesForm',
+    component: () => import('../views/PublicPreferencesFormView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
     path: '/careers/:agencySlug',
     name: 'PublicCareers',
     component: () => import('../views/public/PublicCareersView.vue'),

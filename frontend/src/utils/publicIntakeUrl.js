@@ -18,3 +18,17 @@ export const buildPublicIntakeShortUrl = (publicKey) => {
   if (!key) return '';
   return `${getPublicIntakeBaseUrl()}/i/${key}`;
 };
+
+export const buildPreferencesFormUrl = (publicKey) => {
+  const key = String(publicKey || '').trim();
+  if (!key) return '';
+  return `${getPublicIntakeBaseUrl()}/preferences-form/${key}`;
+};
+
+/** Returns the correct public URL for any form type */
+export const buildFormUrl = (publicKey, formType) => {
+  if (String(formType || '') === 'internal_preferences') {
+    return buildPreferencesFormUrl(publicKey);
+  }
+  return buildPublicIntakeUrl(publicKey);
+};

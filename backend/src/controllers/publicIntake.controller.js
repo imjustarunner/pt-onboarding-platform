@@ -6173,3 +6173,149 @@ export const saveGuardianPaymentCard = async (req, res, next) => {
     next(error);
   }
 };
+
+// ---------------------------------------------------------------------------
+// Internal Preferences Form — identify a staff user by email
+// POST /public-intake/:publicKey/preferences/identify
+// ---------------------------------------------------------------------------
+export const identifyPreferencesUser = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const email = String(req.body?.email || '').trim().toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({ error: { message: 'Email is required.' } });
+    }
+
+    const link = await IntakeLink.findByPublicKey(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Preferences link not found.' } });
+    }
+    if (String(link.form_type || '') !== 'internal_preferences') {
+      return res.status(400).json({ error: { message: 'This link is not a preferences form.' } });
+    }
+
+    const agencyId = Number(link.agency_id || link.organization_id || 0);
+
+    // Find user by email
+    const [userRows] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.status
+       FROM users u
+       WHERE LOWER(u.email) = ? AND u.is_archived = 0
+       LIMIT 1`,
+      [email]
+    );
+    const user = userRows?.[0] || null;
+
+    if (!user) {
+      return res.status(404).json({ error: { message: 'No account found with that email address.' } });
+    }
+
+    // Verify the user belongs to this agency when the link is agency-scoped
+    if (agencyId) {
+      const [memberRows] = await pool.execute(
+        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+        [user.id, agencyId]
+      );
+      if (!memberRows.length) {
+        return res.status(403).json({ error: { message: 'This account is not associated with the agency for this link.' } });
+      }
+    }
+
+    const UserPreferences = (await import('../models/UserPreferences.model.js')).default;
+    const prefs = await UserPreferences.findByUserId(user.id) || {};
+
+    // Parse JSON blobs if they arrived as strings
+    const parseJsonField = (v) => {
+      if (!v || typeof v === 'object') return v;
+      try { return JSON.parse(v); } catch { return null; }
+    };
+
+    return res.json({
+      userId: user.id,
+      firstName: user.first_name,
+      lastName: user.last_name,
+      role: user.role,
+      preferences: {
+        email_enabled: prefs.email_enabled ?? true,
+        sms_enabled: prefs.sms_enabled ?? false,
+        in_app_enabled: prefs.in_app_enabled ?? true,
+        quiet_hours_enabled: prefs.quiet_hours_enabled ?? false,
+        quiet_hours_start_time: prefs.quiet_hours_start_time || null,
+        quiet_hours_end_time: prefs.quiet_hours_end_time || null,
+        quiet_hours_allowed_days: parseJsonField(prefs.quiet_hours_allowed_days) || [],
+        notification_categories: parseJsonField(prefs.notification_categories) || {},
+        notification_sound_enabled: prefs.notification_sound_enabled ?? true,
+        push_notifications_enabled: prefs.push_notifications_enabled ?? false,
+        dark_mode: prefs.dark_mode ?? false,
+        timezone: prefs.timezone || null,
+        layout_density: prefs.layout_density || 'standard',
+        show_read_receipts: prefs.show_read_receipts ?? false,
+        allow_staff_step_in: prefs.allow_staff_step_in ?? true,
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Internal Preferences Form — save updated preferences for a staff user
+// PUT /public-intake/:publicKey/preferences/save
+// ---------------------------------------------------------------------------
+export const savePreferencesUser = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const userId = Number(req.body?.userId || 0);
+    const incoming = req.body?.preferences || {};
+
+    if (!userId) {
+      return res.status(400).json({ error: { message: 'userId is required.' } });
+    }
+
+    const link = await IntakeLink.findByPublicKey(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Preferences link not found.' } });
+    }
+    if (String(link.form_type || '') !== 'internal_preferences') {
+      return res.status(400).json({ error: { message: 'This link is not a preferences form.' } });
+    }
+
+    const agencyId = Number(link.agency_id || link.organization_id || 0);
+    if (agencyId) {
+      const [memberRows] = await pool.execute(
+        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+        [userId, agencyId]
+      );
+      if (!memberRows.length) {
+        return res.status(403).json({ error: { message: 'This account is not associated with the agency for this link.' } });
+      }
+    }
+
+    // Allowlist — only fields safe to set from a public form
+    const allowed = [
+      'email_enabled', 'sms_enabled', 'in_app_enabled',
+      'quiet_hours_enabled', 'quiet_hours_start_time', 'quiet_hours_end_time', 'quiet_hours_allowed_days',
+      'notification_categories',
+      'notification_sound_enabled', 'push_notifications_enabled',
+      'dark_mode', 'timezone', 'layout_density',
+      'show_read_receipts', 'allow_staff_step_in'
+    ];
+
+    const updates = {};
+    for (const key of allowed) {
+      if (key in incoming) updates[key] = incoming[key];
+    }
+
+    if (!Object.keys(updates).length) {
+      return res.status(400).json({ error: { message: 'No valid preference fields supplied.' } });
+    }
+
+    const UserPreferences = (await import('../models/UserPreferences.model.js')).default;
+    await UserPreferences.update(userId, updates);
+
+    return res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+};

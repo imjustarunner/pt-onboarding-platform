@@ -116,7 +116,8 @@ const PUBLIC_INTAKE_FORM_TYPES = [
   'job_application',
   'medical_records_request',
   'smart_school_roi',
-  'smart_registration'
+  'smart_registration',
+  'internal_preferences'
 ];
 
 const canAccessLink = ({ link, userOrgIds, userId }) => {

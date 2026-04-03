@@ -167,7 +167,14 @@ export const listCandidates = async (req, res, next) => {
         hp.updated_at AS hiring_updated_at
       FROM users u
       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-      LEFT JOIN hiring_profiles hp ON hp.candidate_user_id = u.id
+      LEFT JOIN hiring_profiles hp
+        ON hp.id = (
+          SELECT hp_latest.id
+          FROM hiring_profiles hp_latest
+          WHERE hp_latest.candidate_user_id = u.id
+          ORDER BY hp_latest.updated_at DESC, hp_latest.id DESC
+          LIMIT 1
+        )
       LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id
       LEFT JOIN (
         SELECT
@@ -176,8 +183,11 @@ export const listCandidates = async (req, res, next) => {
           COUNT(*) AS cnt
         FROM users u2
         JOIN user_agencies ua2 ON ua2.user_id = u2.id
-        LEFT JOIN hiring_profiles hp2 ON hp2.candidate_user_id = u2.id
-        WHERE hp2.candidate_user_id IS NOT NULL
+        WHERE EXISTS (
+            SELECT 1
+            FROM hiring_profiles hp2
+            WHERE hp2.candidate_user_id = u2.id
+          )
           AND u2.status != 'ARCHIVED'
           AND (u2.is_archived = FALSE OR u2.is_archived IS NULL)
           AND COALESCE(NULLIF(u2.personal_email, ''), u2.email) IS NOT NULL

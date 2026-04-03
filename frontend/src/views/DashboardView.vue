@@ -1094,6 +1094,14 @@
               >
                 My Kudos
               </button>
+              <button
+                type="button"
+                class="subtab"
+                :class="{ active: myTab === 'preferences' }"
+                @click="setMyTab('preferences')"
+              >
+                My Preferences
+              </button>
             </div>
 
             <div v-show="myTab === 'account'">
@@ -1110,6 +1118,9 @@
             </div>
             <div v-show="myTab === 'kudos'">
               <MyKudosTab :agency-id="Number(currentAgencyId)" />
+            </div>
+            <div v-if="myTab === 'preferences'">
+              <UserPreferencesHub v-if="authStore.user?.id" :user-id="authStore.user.id" />
             </div>
           </div>
           
@@ -1292,6 +1303,7 @@ import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 import ScheduleMultiUserOverlayGrid from '../components/schedule/ScheduleMultiUserOverlayGrid.vue';
 import CredentialsView from './CredentialsView.vue';
 import AccountInfoView from './AccountInfoView.vue';
+import UserPreferencesHub from '../components/UserPreferencesHub.vue';
 import MyPayrollTab from '../components/dashboard/MyPayrollTab.vue';
 import MyKudosTab from '../components/dashboard/MyKudosTab.vue';
 import ProgramShiftsTab from '../components/dashboard/ProgramShiftsTab.vue';
@@ -3669,14 +3681,13 @@ const handleCardClick = (card) => {
 };
 
 const setMyTab = (tab) => {
-  const normalizedTab = tab === 'preferences' ? 'account' : tab;
   closeInlineProgramHub();
-  myTab.value = normalizedTab;
+  myTab.value = tab;
   activeTab.value = 'my';
   previousContentTab.value = 'my';
   selectedRailCardId.value = 'my';
   if (props.previewMode) return;
-  router.replace({ query: { ...route.query, tab: 'my', my: normalizedTab } });
+  router.replace({ query: { ...route.query, tab: 'my', my: tab } });
 };
 
 const syncFromQuery = () => {
@@ -3692,7 +3703,7 @@ const syncFromQuery = () => {
   }
 
   const qMy = route.query?.my;
-  if (typeof qMy === 'string' && ['account', 'credentials', 'payroll', 'compensation', 'kudos'].includes(qMy)) {
+  if (typeof qMy === 'string' && ['account', 'credentials', 'payroll', 'compensation', 'kudos', 'preferences'].includes(qMy)) {
     const hiddenInClub = ['credentials', 'payroll', 'compensation'];
     if (isClubContext.value && hiddenInClub.includes(qMy)) {
       myTab.value = 'account';
@@ -3700,9 +3711,6 @@ const syncFromQuery = () => {
     } else {
       myTab.value = qMy;
     }
-  } else if (qMy === 'preferences') {
-    myTab.value = 'account';
-    router.replace({ query: { ...route.query, tab: 'my', my: 'account' } });
   }
 
   if (String(qTab || '') === 'my_schedule') {
