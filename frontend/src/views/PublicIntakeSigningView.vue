@@ -773,12 +773,8 @@
             </p>
             <div class="radio-group">
               <label class="radio-row">
-                <input type="radio" name="communications_sms_preference" value="all" v-model="communications.smsPreference" />
-                <span>{{ communicationsSmsAllLabel }}</span>
-              </label>
-              <label class="radio-row">
                 <input type="radio" name="communications_sms_preference" value="scheduling_only" v-model="communications.smsPreference" />
-                <span>{{ communicationsSmsSchedulingOnlyLabel }}</span>
+                <span>{{ communicationsSmsYesLabel }}</span>
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_sms_preference" value="no" v-model="communications.smsPreference" />
@@ -790,31 +786,56 @@
           <section v-if="currentFlowStep?.campaigns?.providerTexting" class="communications-campaign-card">
             <h4>SMS With Your Provider/Care Team <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
-              If you choose Yes, we may text you for service-related communication with your provider/care team
-              (for example, responding to your questions and coordinating care). Message frequency varies.
-              Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
+              If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from
+              {{ communicationsTenantName }} and, when applicable, your provider/care team (for example,
+              follow-up, coordination, and service-related responses). These messages are HIPAA-protected and
+              associated with your care relationship at {{ communicationsTenantName }}.
+            </p>
+            <p class="communications-disclosure" style="margin-top: 8px;">
+              By selecting <strong>Yes</strong> and opting in, you understand and agree to the following:
+            </p>
+            <ol class="communications-provider-terms">
+              <li>These messages may be viewed by the care team associated with your provider.</li>
+              <li>Your provider and our care team are <strong>not</strong> available for emergencies, and these messages are not monitored in real time. In case of emergency, call 911.</li>
+              <li>Your provider will not receive messages outside of their working hours. All messages are confidentially stored within the platform.</li>
+              <li>PlotTwistHQ is not responsible for, nor independently aware of, the content of direct communications between you and your provider.</li>
+              <li>You agree not to share confidential third-party information in these messages, and understand that this communication channel does <strong>not</strong> replace nor constitute clinical care or a therapeutic relationship.</li>
+            </ol>
+            <p class="communications-disclosure" style="margin-top: 8px;">
+              Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
               Appointment reminders/confirmations are not sent from individual provider numbers.
+              Additional terms apply —
               Terms: <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
               Privacy: <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
             </p>
             <div class="radio-group">
               <label class="radio-row">
                 <input type="radio" name="communications_provider_sms" value="yes" v-model="communications.providerTextingOptIn" />
-                <span>Yes - I opt in to provider/care-team texting</span>
+                <span>Yes - I opt in to provider/care-team texting and agree to the terms above</span>
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_provider_sms" value="no" v-model="communications.providerTextingOptIn" />
                 <span>No - Keep provider texting off</span>
               </label>
             </div>
+            <p class="communications-disclosure communications-opt-out-note" style="margin-top: 10px;">
+              <strong>Please note:</strong> Your provider/care team sends these messages through PlotTwistHQ, and you receive/reply to them as standard SMS messages on your phone.
+              If you choose to respond to or initiate a text message with your provider or care team via SMS, you acknowledge and agree that the same terms and conditions outlined above apply to that exchange.
+              Additional terms are always available at
+              <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a> and
+              <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+            </p>
           </section>
 
           <section v-if="currentFlowStep?.campaigns?.programUpdates" class="communications-campaign-card">
             <h4>Optional Program &amp; Service Updates <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
-              If you choose Yes, we may text you updates about programs/services you requested (for example,
-              openings, enrollment options, and availability). Message frequency varies and is limited based on your
-              preferences. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
+              If you choose Yes, {{ communicationsTenantName }} may send optional SMS updates through PlotTwistHQ
+              about this agency's programs and services (for example, openings, enrollment options, and availability).
+              You may also receive limited updates about relevant affiliate services. Affiliates never receive access
+              to your personal or clinical information through this update channel, and any affiliate program requires
+              its own separate opt-in for communication and registration. Message frequency is no greater than twice
+              per month. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
               Terms: <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
               Privacy: <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
             </p>
@@ -833,8 +854,9 @@
           <section v-if="currentFlowStep?.campaigns?.internalWorkforce" class="communications-campaign-card">
             <h4>Internal Workforce + School Staff Notifications (Opt-In) <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
-              By opting in, you agree to receive SMS/text messages from PlotTwistHQ for operational notifications and reminders,
-              internal announcements, and optional polls/voting related to your participation on the platform. Message frequency varies.
+              By opting in, you agree to receive SMS/text messages from {{ communicationsTenantName }} through PlotTwistHQ for
+              operational notifications and reminders, internal announcements, and optional polls/voting related to your participation
+              on the platform. Message frequency varies.
               Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
               Support: 833-756-8894 ext. 701 | hq@plottwistco.com.
               Terms: <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
@@ -1665,18 +1687,28 @@ const communicationsIntroText = computed(() =>
 const communicationsEmailTitle = computed(() =>
   isWorkforceAudience.value ? 'Email Notifications Preference' : 'Email Communication Preference'
 );
-const communicationsSmsTitle = computed(() =>
-  isWorkforceAudience.value ? 'Text Message (SMS) Notifications Preference' : 'Text Message (SMS) Communication Preference'
-);
+const communicationsSmsTitle = computed(() => 'Text Message (SMS) Communication Preference');
 const communicationsEmailDisclosure = computed(() =>
   isWorkforceAudience.value
     ? 'Please choose what you would like to receive by email from us. If you opt in, we may email you about operational scheduling, internal announcements, and optional platform participation updates. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.'
     : 'Please choose what you would like to receive emails from us. If you opt in, we may email you about scheduling, appointment reminders, and-if selected-updates about mental health programs and services. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.'
 );
-const communicationsSmsDisclosure = computed(() =>
-  isWorkforceAudience.value
-    ? 'Please choose what you would like to receive by text message from us. If you opt in, we may text you about operational scheduling, internal announcements, and optional participation updates. Message and data rates may apply. Reply STOP to opt out at any time and HELP for assistance.'
-    : 'Please choose what you would like to receive text messages from us. If you opt in, we may text you about scheduling, appointment reminders, and-if selected-updates about mental health programs and services. Message and data rates may apply. Reply STOP to opt out at any time and HELP for assistance.'
+const communicationsTenantName = computed(() =>
+  String(
+    agencyInfo.value?.official_name ||
+      agencyInfo.value?.name ||
+      organizationInfo.value?.official_name ||
+      organizationInfo.value?.name ||
+      'This agency'
+  ).trim() || 'This agency'
+);
+const communicationsSmsDisclosure = computed(
+  () =>
+    `${communicationsTenantName.value} utilizes PlotTwistHQ, a platform by PlotTwistCo (PTCo), to facilitate appointment scheduling, reminders, and related communication. ` +
+    `All messages you receive are scheduled, coordinated, and established directly by ${communicationsTenantName.value} — you will never receive any communications from PlotTwistCo (PTCo) directly. ` +
+    'Please select your preference for receiving text messages. If you opt in, you may receive messages related to scheduling and appointment reminders. ' +
+    'The default frequency is 7 days before and 24 hours before your appointment. You may be asked to reply with Yes or No regarding your attendance. ' +
+    'Message and data rates may apply. Reply STOP to opt out at any time and HELP for assistance.'
 );
 const communicationsEmailAllLabel = computed(() =>
   isWorkforceAudience.value
@@ -1686,14 +1718,7 @@ const communicationsEmailAllLabel = computed(() =>
 const communicationsEmailSchedulingOnlyLabel = computed(() =>
   isWorkforceAudience.value ? 'Yes - Scheduling only' : 'Yes - Scheduling only'
 );
-const communicationsSmsAllLabel = computed(() =>
-  isWorkforceAudience.value
-    ? 'Yes - Operational scheduling + internal announcements'
-    : 'Yes - Scheduling + all program communications'
-);
-const communicationsSmsSchedulingOnlyLabel = computed(() =>
-  isWorkforceAudience.value ? 'Yes - Scheduling only' : 'Yes - Scheduling only'
-);
+const communicationsSmsYesLabel = computed(() => 'Yes - Scheduling and appointment reminders');
 const templates = ref([]);
 const agencyInfo = ref(null);
 const organizationInfo = ref(null);
@@ -5589,6 +5614,16 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
   line-height: 1.45;
   font-size: 14px;
+}
+.communications-provider-terms {
+  margin: 4px 0 0 18px;
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .registration-options {
   display: grid;

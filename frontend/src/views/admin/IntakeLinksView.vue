@@ -10,6 +10,7 @@
         <button class="btn btn-secondary" type="button" @click="showQuestionSetsPanel = !showQuestionSetsPanel">
           {{ showQuestionSetsPanel ? 'Hide Question Sets' : 'Question Sets' }}
         </button>
+        <button class="btn btn-secondary" type="button" @click="openAddOnPreviewModal">Preview Add-Ons</button>
         <button class="btn btn-primary" type="button" @click="openCreate">New Digital Form</button>
       </div>
     </div>
@@ -540,47 +541,10 @@
           </div>
 
           <div class="form-group">
-            <label>Allowed Document Templates</label>
-            <label class="checkbox">
-              <input v-model="form.allowAllDocuments" type="checkbox" />
-              Allow all document templates
-            </label>
-            <div v-if="hasDocumentSteps && !showTemplateChecklist" class="muted" style="margin-top: 6px;">
-              Templates are ordered via your Document steps.
-              <button class="btn btn-secondary btn-xs" type="button" @click="showTemplateChecklist = true">
-                Show checklist
-              </button>
+            <label>Document selection</label>
+            <div class="muted">
+              Documents are added one at a time using <strong>+ Add Document</strong> in the Intake Flow Builder.
             </div>
-            <div class="template-list" v-else-if="selectableTemplates.length">
-              <div v-if="templateGroups.organizationTemplates.length" class="template-group-title">
-                Organization templates
-              </div>
-              <label v-for="t in templateGroups.organizationTemplates" :key="`org_${t.id}`" class="template-item">
-                <input
-                  type="checkbox"
-                  :value="t.id"
-                  v-model="form.allowedDocumentTemplateIds"
-                  :disabled="form.allowAllDocuments"
-                />
-                {{ t.name || `Template ${t.id}` }}
-              </label>
-              <div class="template-group-title">Agency templates</div>
-              <label v-for="t in templateGroups.agencyTemplates" :key="`agency_${t.id}`" class="template-item">
-                <input
-                  type="checkbox"
-                  :value="t.id"
-                  v-model="form.allowedDocumentTemplateIds"
-                  :disabled="form.allowAllDocuments"
-                />
-                {{ t.name || `Template ${t.id}` }}
-              </label>
-              <div v-if="hasDocumentSteps" class="template-group-title">
-                <button class="btn btn-secondary btn-xs" type="button" @click="showTemplateChecklist = false">
-                  Hide checklist
-                </button>
-              </div>
-            </div>
-            <div v-else class="muted">No document templates found yet.</div>
           </div>
 
           <div class="form-group">
@@ -1546,6 +1510,356 @@
     </div>
   </div>
 
+  <Teleport to="body">
+    <div v-if="showAddOnPreviewModal" class="modal-backdrop addon-preview-backdrop" @click.self="closeAddOnPreviewModal">
+      <div class="modal-box addon-preview-modal-box" style="max-width: 860px;">
+        <div class="modal-header">
+          <h3 style="margin:0;">Preview Add-Ons</h3>
+          <button class="btn btn-xs btn-secondary" type="button" @click="closeAddOnPreviewModal">✕</button>
+        </div>
+        <div class="modal-body" style="padding: 16px;">
+          <template v-if="!selectedAddOnPreviewId">
+            <p class="muted" style="margin-top:0;">
+              Choose any add-on to preview how it appears to people filling out the form.
+            </p>
+            <div class="addon-preview-list">
+              <button
+                v-for="item in addOnPreviewItems"
+                :key="item.id"
+                class="addon-preview-item"
+                type="button"
+                @click="openAddOnPreview(item.id)"
+              >
+                <strong>{{ item.label }}</strong>
+                <span class="muted">{{ item.description }}</span>
+              </button>
+            </div>
+          </template>
+          <template v-else>
+            <div class="addon-preview-header-row">
+              <button class="btn btn-secondary btn-sm" type="button" @click="backToAddOnList">← Back</button>
+              <div>
+                <h4 style="margin: 0;">{{ selectedAddOnPreview?.label || 'Preview' }}</h4>
+                <div class="muted">Participant-facing preview</div>
+              </div>
+            </div>
+
+            <div v-if="selectedAddOnPreviewId === 'guardian_waiver'" class="addon-preview-form">
+              <PublicIntakeGuardianWaiverStep
+                :model-value="previewGuardianWaivers"
+                :section-keys="['pickup_authorization', 'emergency_contacts', 'allergies_snacks', 'meal_preferences']"
+                :client-labels="['Client 1']"
+                :guardian-default-pickup="{ name: 'Demo Guardian', relationship: 'Parent/Guardian', phone: '(555) 555-0101' }"
+                saved-signature-data="data:image/png;base64,preview"
+                :event-waiver-context="{ snacksAvailable: true, snackOptions: ['Fruit', 'Crackers'], mealsAvailable: true, mealOptions: ['Lunch'] }"
+              />
+            </div>
+
+            <div v-else-if="selectedAddOnPreviewId === 'insurance_info'" class="addon-preview-form">
+              <PublicIntakeInsuranceStep
+                :model-value="previewInsurance"
+                :step-config="{ nonMedicaidDisclaimerText: '', secondaryInsuranceDisclaimerText: '', requireSecondaryInsurance: false }"
+                guardian-name="Demo Guardian"
+                guardian-relationship="Parent/Guardian"
+                guardian-phone="(555) 555-0101"
+                :client-names="['Client 1']"
+                :intake-for-self="false"
+                agency-name="Demo Agency"
+                @update:model-value="setPreviewInsurance"
+              />
+            </div>
+
+            <div v-else-if="selectedAddOnPreviewId === 'payment_collection'" class="addon-preview-form">
+              <PublicIntakePaymentStep
+                :model-value="previewPayment"
+                :step-config="{ costDisclosureText: 'This is a preview of the payment step.', costSummary: '$125.00' }"
+                public-key="preview"
+                :submission-id="1"
+                cost-display="$125.00"
+                @update:model-value="setPreviewPayment"
+              />
+            </div>
+
+            <div v-else-if="selectedAddOnPreviewId === 'communications'" class="addon-preview-form">
+              <p class="muted" style="margin-bottom: 12px;">
+                Choose how you would like to receive platform communications. You can update these preferences at any time.
+              </p>
+
+              <!-- Campaign 1: Email -->
+              <section class="communications-campaign-card">
+                <h4>Email Communication Preference <span class="required-indicator">*</span></h4>
+                <p class="communications-disclosure">
+                  Please choose what you would like to receive emails from us. If you opt in, we may email you about scheduling, appointment reminders, and—if selected—updates about mental health programs and services. Your email will never be shared or sold to third parties, and you may unsubscribe at any time.
+                </p>
+                <div class="radio-group">
+                  <label class="radio-row">
+                    <input v-model="previewCommunications.emailPreference" type="radio" value="all" name="preview_email_pref" />
+                    <span>Yes - Scheduling + all program communications</span>
+                  </label>
+                  <label class="radio-row">
+                    <input v-model="previewCommunications.emailPreference" type="radio" value="scheduling_only" name="preview_email_pref" />
+                    <span>Yes - Scheduling only</span>
+                  </label>
+                  <label class="radio-row">
+                    <input v-model="previewCommunications.emailPreference" type="radio" value="no" name="preview_email_pref" />
+                    <span>No</span>
+                  </label>
+                </div>
+              </section>
+
+              <!-- Campaign 2: SMS -->
+              <section class="communications-campaign-card">
+                <h4>Text Message (SMS) Communication Preference <span class="required-indicator">*</span></h4>
+                <p class="communications-disclosure">
+                  [Top Level Agency] utilizes PlotTwistHQ, a platform by PlotTwistCo (PTCo), to facilitate appointment scheduling, reminders, and related communication.
+                  All messages you receive are scheduled, coordinated, and established directly by [Top Level Agency] — you will never receive any communications from PlotTwistCo (PTCo) directly.
+                  Please select your preference for receiving text messages. If you opt in, you may receive messages related to scheduling and appointment reminders.
+                  The default frequency is 7 days before and 24 hours before your appointment. You may be asked to reply with Yes or No regarding your attendance.
+                  Message and data rates may apply. Reply STOP to opt out at any time and HELP for assistance.
+                  Terms: <a href="/terms" target="_blank">/terms</a>.
+                  Privacy: <a href="/privacypolicy" target="_blank">/privacypolicy</a>.
+                </p>
+                <div class="radio-group">
+                  <label class="radio-row">
+                    <input v-model="previewCommunications.smsPreference" type="radio" value="scheduling_only" name="preview_sms_pref" />
+                    <span>Yes - Scheduling and appointment reminders</span>
+                  </label>
+                  <label class="radio-row">
+                    <input v-model="previewCommunications.smsPreference" type="radio" value="no" name="preview_sms_pref" />
+                    <span>No - Do not text me</span>
+                  </label>
+                </div>
+              </section>
+
+              <!-- Campaign 3: Provider/care-team texting -->
+              <section class="communications-campaign-card">
+                <h4>SMS With Your Provider/Care Team <span class="required-indicator">*</span></h4>
+                <p class="communications-disclosure">
+                  If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from
+                  [Top Level Agency] and, when applicable, your provider/care team (for example, follow-up, coordination,
+                  and service-related responses). These messages are HIPAA-protected and associated with your care
+                  relationship at [Top Level Agency].
+                </p>
+                <p class="communications-disclosure" style="margin-top: 8px;">
+                  By selecting <strong>Yes</strong> and opting in, you understand and agree to the following:
+                </p>
+                <ol class="communications-provider-terms">
+                  <li>These messages may be viewed by the care team associated with your provider.</li>
+                  <li>Your provider and our care team are <strong>not</strong> available for emergencies, and these messages are not monitored in real time. In case of emergency, call 911.</li>
+                  <li>Your provider will not receive messages outside of their working hours. All messages are confidentially stored within the platform.</li>
+                  <li>PlotTwistHQ is not responsible for, nor independently aware of, the content of direct communications between you and your provider.</li>
+                  <li>You agree not to share confidential third-party information in these messages, and understand that this communication channel does <strong>not</strong> replace nor constitute clinical care or a therapeutic relationship.</li>
+                </ol>
+                <p class="communications-disclosure" style="margin-top: 8px;">
+                  Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
+                  Appointment reminders/confirmations are not sent from individual provider numbers.
+                  Additional terms apply —
+                  Terms: <a href="/terms" target="_blank">/terms</a>.
+                  Privacy: <a href="/privacypolicy" target="_blank">/privacypolicy</a>.
+                </p>
+                <div class="radio-group">
+                  <label class="radio-row">
+                    <input v-model="previewCommunications.providerTextingOptIn" type="radio" value="yes" name="preview_provider_sms" />
+                    <span>Yes - I opt in to provider/care-team texting and agree to the terms above</span>
+                  </label>
+                  <label class="radio-row">
+                    <input v-model="previewCommunications.providerTextingOptIn" type="radio" value="no" name="preview_provider_sms" />
+                    <span>No - Keep provider texting off</span>
+                  </label>
+                </div>
+                <p class="communications-disclosure" style="margin-top: 10px;">
+                  <strong>Please note:</strong> Your provider/care team sends these messages through PlotTwistHQ, and you receive/reply to them as standard SMS messages on your phone.
+                  If you choose to respond to or initiate a text message with your provider or care team via SMS, you acknowledge and agree that the same terms and conditions outlined above apply to that exchange.
+                  Additional terms are always available at
+                  <a href="/terms" target="_blank">/terms</a> and
+                  <a href="/privacypolicy" target="_blank">/privacypolicy</a>.
+                </p>
+              </section>
+
+              <!-- Campaign 4: Program/service updates -->
+              <section class="communications-campaign-card">
+                <h4>Optional Program &amp; Service Updates <span class="required-indicator">*</span></h4>
+                <p class="communications-disclosure">
+                  If you choose Yes, [Top Level Agency] may send optional SMS updates through PlotTwistHQ about this agency's
+                  programs and services (for example, openings, enrollment options, and availability). You may also
+                  receive limited updates about relevant affiliate services. Affiliates never receive access to your
+                  personal or clinical information through this update channel, and any affiliate program requires its
+                  own separate opt-in for communication and registration. Message frequency is no greater than twice
+                  per month. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
+                  Terms: <a href="/terms" target="_blank">/terms</a>.
+                  Privacy: <a href="/privacypolicy" target="_blank">/privacypolicy</a>.
+                </p>
+                <div class="radio-group">
+                  <label class="radio-row">
+                    <input v-model="previewCommunications.programUpdatesOptIn" type="radio" value="yes" name="preview_program_sms" />
+                    <span>Yes - I want optional updates</span>
+                  </label>
+                  <label class="radio-row">
+                    <input v-model="previewCommunications.programUpdatesOptIn" type="radio" value="no" name="preview_program_sms" />
+                    <span>No - Keep optional updates off</span>
+                  </label>
+                </div>
+              </section>
+
+              <!-- Campaign 4 (alt): Internal workforce / school staff -->
+              <section class="communications-campaign-card">
+                <h4>Internal Workforce + School Staff Notifications (Opt-In) <span class="required-indicator">*</span></h4>
+                <p class="communications-disclosure">
+                  By opting in, you agree to receive SMS/text messages from [Top Level Agency] through PlotTwistHQ for operational
+                  notifications and reminders, internal announcements, and optional polls/voting related to your participation on the
+                  platform. Message frequency varies.
+                  Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.
+                  Support: 833-756-8894 ext. 701 | hq@plottwistco.com.
+                  Terms: <a href="/terms" target="_blank">/terms</a>.
+                  Privacy: <a href="/privacypolicy" target="_blank">/privacypolicy</a>.
+                </p>
+                <div class="radio-group">
+                  <label class="radio-row">
+                    <input v-model="previewCommunications.internalWorkforceOptIn" type="radio" value="yes" name="preview_internal_sms" />
+                    <span>Yes - I opt in to internal workforce / school staff SMS notifications</span>
+                  </label>
+                  <label class="radio-row">
+                    <input v-model="previewCommunications.internalWorkforceOptIn" type="radio" value="no" name="preview_internal_sms" />
+                    <span>No - Keep internal notifications off</span>
+                  </label>
+                </div>
+              </section>
+            </div>
+
+            <!-- Demographics -->
+            <div v-else-if="selectedAddOnPreviewId === 'demographics'" class="addon-preview-form">
+              <p class="muted" style="margin-bottom: 16px;">
+                Please fill in the following information so we can keep your records up to date.
+              </p>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label>Date of Birth <span class="required-indicator">*</span></label>
+                  <input v-model="previewSimple.dob" type="date" />
+                </div>
+                <div class="form-group">
+                  <label>Gender</label>
+                  <select v-model="previewSimple.gender">
+                    <option value="">Prefer not to say</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="nonbinary">Non-binary</option>
+                    <option value="other">Other / self-describe</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Race / Ethnicity</label>
+                  <select v-model="previewSimple.ethnicity">
+                    <option value="">Prefer not to say</option>
+                    <option value="american_indian">American Indian or Alaska Native</option>
+                    <option value="asian">Asian</option>
+                    <option value="black">Black or African American</option>
+                    <option value="hispanic">Hispanic or Latino</option>
+                    <option value="nhpi">Native Hawaiian or Other Pacific Islander</option>
+                    <option value="white">White</option>
+                    <option value="two_or_more">Two or more races</option>
+                    <option value="other">Other / self-describe</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Preferred Language</label>
+                  <select v-model="previewSimple.preferredLanguage">
+                    <option value="">Select…</option>
+                    <option value="english">English</option>
+                    <option value="spanish">Spanish</option>
+                    <option value="french">French</option>
+                    <option value="mandarin">Mandarin</option>
+                    <option value="arabic">Arabic</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1;">
+                  <label>Street Address</label>
+                  <input v-model="previewSimple.addressStreet" type="text" placeholder="123 Main St" />
+                </div>
+                <div class="form-group">
+                  <label>Apt / Unit (optional)</label>
+                  <input v-model="previewSimple.addressApt" type="text" placeholder="Apt 4B" />
+                </div>
+                <div class="form-group">
+                  <label>Zip Code</label>
+                  <input v-model="previewSimple.addressZip" type="text" placeholder="80903" maxlength="10" />
+                </div>
+                <div class="form-group">
+                  <label>City</label>
+                  <input v-model="previewSimple.addressCity" type="text" placeholder="Colorado Springs" />
+                </div>
+                <div class="form-group">
+                  <label>State</label>
+                  <input v-model="previewSimple.addressState" type="text" placeholder="CO" maxlength="2" style="max-width:80px;" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Clinical Questions -->
+            <div v-else-if="selectedAddOnPreviewId === 'clinical_questions'" class="addon-preview-form">
+              <p class="muted" style="margin-bottom: 16px; font-size: 13px;">
+                The following questions help your provider understand your needs. Your answers are confidential and only visible to your assigned provider.
+              </p>
+              <div class="form-group">
+                <label>Primary concern or reason for seeking services <span class="required-indicator">*</span></label>
+                <textarea v-model="previewSimple.clinicalConcern" rows="3" placeholder="Describe your primary concern…" />
+              </div>
+              <div class="form-group">
+                <label>Current medications (if any)</label>
+                <input v-model="previewSimple.clinicalMeds" type="text" placeholder="e.g. None, or list medications" />
+              </div>
+              <div class="form-group">
+                <label>Have you received mental health services before?</label>
+                <div class="radio-group">
+                  <label class="radio-row"><input v-model="previewSimple.clinicalPrior" type="radio" value="yes" name="preview_cq_prior" /> <span>Yes</span></label>
+                  <label class="radio-row"><input v-model="previewSimple.clinicalPrior" type="radio" value="no" name="preview_cq_prior" /> <span>No</span></label>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Emergency contact name <span class="required-indicator">*</span></label>
+                <input v-model="previewSimple.clinicalEmergencyName" type="text" placeholder="Full name" />
+              </div>
+              <div class="form-group">
+                <label>Emergency contact phone <span class="required-indicator">*</span></label>
+                <input v-model="previewSimple.clinicalEmergencyPhone" type="tel" placeholder="(555) 555-0101" />
+              </div>
+            </div>
+
+            <!-- Fallback for questions, question_set, registration, document, school_roi, upload, references -->
+            <div v-else class="addon-preview-form">
+              <div class="form-group">
+                <label>{{ previewSimpleConfig.a }}</label>
+                <input v-model="previewSimple.textA" type="text" placeholder="Type here..." />
+              </div>
+              <div class="form-group">
+                <label>{{ previewSimpleConfig.b }}</label>
+                <input v-model="previewSimple.textB" type="text" placeholder="Type here..." />
+              </div>
+              <div class="form-group">
+                <label>{{ previewSimpleConfig.c }}</label>
+                <textarea v-model="previewSimple.textC" rows="3" placeholder="Type here..." />
+              </div>
+              <div class="form-group">
+                <label class="checkbox">
+                  <input v-model="previewSimple.checkA" type="checkbox" />
+                  {{ previewSimpleConfig.check }}
+                </label>
+              </div>
+              <div class="form-group">
+                <label>{{ previewSimpleConfig.select }}</label>
+                <select v-model="previewSimple.selectA">
+                  <option value="">Select…</option>
+                  <option value="option_1">Option 1</option>
+                  <option value="option_2">Option 2</option>
+                </select>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
   <!-- Question Set Picker Modal — teleported to body to escape any parent stacking context -->
   <Teleport to="body">
   <div v-if="showQSetPicker" class="modal-backdrop qset-backdrop" @click.self="showQSetPicker = false">
@@ -1578,6 +1892,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import PublicIntakeGuardianWaiverStep from '../../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
+import PublicIntakeInsuranceStep from '../../components/public-intake/PublicIntakeInsuranceStep.vue';
+import PublicIntakePaymentStep from '../../components/public-intake/PublicIntakePaymentStep.vue';
 
 /** Stored on the intake link customMessages when the admin picks the built-in parent/class registration email preset. */
 const COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP = 'guardian_partnership';
@@ -1597,7 +1914,8 @@ const formError = ref('');
 const editingId = ref(null);
 const autosaveTimer = ref(null);
 const lastAutosaveAt = ref(null);
-const showTemplateChecklist = ref(false);
+const showAddOnPreviewModal = ref(false);
+const selectedAddOnPreviewId = ref('');
 
 const form = reactive({
   title: '',
@@ -1641,6 +1959,134 @@ const formHasRegistrationStep = computed(() =>
 const registrationFlowAdmin = computed(
   () => form.formType === 'smart_registration' || (form.formType === 'intake' && formHasRegistrationStep.value)
 );
+
+const addOnPreviewItems = computed(() => ([
+  { id: 'questions', label: '+ Add Questions', description: 'Participant-facing question step preview.' },
+  { id: 'question_set', label: '+ Add Question Set', description: 'Participant-facing question set preview.' },
+  { id: 'registration', label: '+ Add Registration', description: 'Participant-facing registration selection preview.' },
+  { id: 'document', label: '+ Add Document', description: 'Participant-facing signature/acknowledgement preview.' },
+  { id: 'school_roi', label: '+ Add School ROI', description: 'Participant-facing school ROI preview.' },
+  { id: 'upload', label: '+ Add Upload', description: 'Participant-facing file upload preview.' },
+  { id: 'references', label: '+ Add References', description: 'Participant-facing references preview.' },
+  { id: 'guardian_waiver', label: '+ Add Guardian waivers', description: 'Participant-facing guardian waiver preview.' },
+  { id: 'insurance_info', label: '+ Add Insurance info', description: 'Participant-facing insurance preview.' },
+  { id: 'payment_collection', label: '+ Add Payment collection', description: 'Participant-facing payment preview.' },
+  { id: 'communications', label: '+ Add Communications', description: 'Participant-facing communications preview (all campaigns).' },
+  { id: 'demographics', label: '+ Add Demographics', description: 'Participant-facing demographics preview.' },
+  { id: 'clinical_questions', label: '+ Add Clinical Questions', description: 'Participant-facing clinical questions preview.' }
+]));
+const selectedAddOnPreview = computed(() =>
+  addOnPreviewItems.value.find((item) => item.id === selectedAddOnPreviewId.value) || null
+);
+const previewCommunications = reactive({
+  emailPreference: 'all',
+  smsPreference: 'scheduling_only',
+  providerTextingOptIn: 'yes',
+  programUpdatesOptIn: 'yes',
+  internalWorkforceOptIn: 'yes'
+});
+const previewInsurance = ref({});
+const previewPayment = ref({});
+const previewGuardianWaivers = reactive({
+  clients: [{ sections: {} }]
+});
+const previewSimple = reactive({
+  textA: '',
+  textB: '',
+  textC: '',
+  checkA: false,
+  selectA: '',
+  // demographics
+  dob: '',
+  gender: '',
+  ethnicity: '',
+  preferredLanguage: '',
+  addressStreet: '',
+  addressApt: '',
+  addressZip: '',
+  addressCity: '',
+  addressState: '',
+  // clinical
+  clinicalConcern: '',
+  clinicalMeds: '',
+  clinicalPrior: '',
+  clinicalEmergencyName: '',
+  clinicalEmergencyPhone: ''
+});
+const previewSimpleConfig = computed(() => {
+  const map = {
+    questions: {
+      a: 'Question 1',
+      b: 'Question 2',
+      c: 'Additional notes',
+      check: 'Required acknowledgment',
+      select: 'Response type'
+    },
+    question_set: {
+      a: 'Question set item 1',
+      b: 'Question set item 2',
+      c: 'Notes',
+      check: 'I confirm these answers',
+      select: 'Choose one'
+    },
+    registration: {
+      a: 'Preferred session',
+      b: 'Lookup value (email/phone/client ID)',
+      c: 'Scheduling notes',
+      check: 'I am already in your system',
+      select: 'Participant type'
+    },
+    document: {
+      a: 'Typed signature name',
+      b: 'Signer email',
+      c: 'Acknowledgement text',
+      check: 'I agree and sign',
+      select: 'Document choice'
+    },
+    school_roi: {
+      a: 'School name',
+      b: 'District',
+      c: 'Release details',
+      check: 'I authorize release of information',
+      select: 'Release period'
+    },
+    upload: {
+      a: 'File title',
+      b: 'File description',
+      c: 'Notes for reviewer',
+      check: 'I confirm this file is correct',
+      select: 'File category'
+    },
+    references: {
+      a: 'Reference full name',
+      b: 'Reference phone/email',
+      c: 'Relationship and notes',
+      check: 'Reference consent obtained',
+      select: 'Reference type'
+    },
+    demographics: {
+      a: 'Preferred language',
+      b: 'Gender identity',
+      c: 'Address / demographic notes',
+      check: 'I confirm demographic details are accurate',
+      select: 'Race/ethnicity selection'
+    },
+    clinical_questions: {
+      a: 'Primary concern',
+      b: 'Current medications',
+      c: 'Clinical history notes',
+      check: 'I confirm clinical information is accurate',
+      select: 'Symptom severity'
+    }
+  };
+  return map[selectedAddOnPreviewId.value] || map.questions;
+});
+const setPreviewInsurance = (v) => {
+  previewInsurance.value = v && typeof v === 'object' ? v : {};
+};
+const setPreviewPayment = (v) => {
+  previewPayment.value = v && typeof v === 'object' ? v : {};
+};
 
 const quickScope = ref('school');
 const quickOrganizationId = ref(null);
@@ -1782,6 +2228,24 @@ const getQSetConditionalTargets = (idx) => {
 
 const openQSetPicker = () => {
   showQSetPicker.value = true;
+};
+
+const openAddOnPreviewModal = () => {
+  selectedAddOnPreviewId.value = '';
+  showAddOnPreviewModal.value = true;
+};
+
+const closeAddOnPreviewModal = () => {
+  showAddOnPreviewModal.value = false;
+  selectedAddOnPreviewId.value = '';
+};
+
+const openAddOnPreview = (id) => {
+  selectedAddOnPreviewId.value = String(id || '').trim();
+};
+
+const backToAddOnList = () => {
+  selectedAddOnPreviewId.value = '';
 };
 
 const insertQuestionSet = (qs) => {
@@ -2583,10 +3047,7 @@ const save = async () => {
         'Choose the company event for this link. Registration-capable URLs (Smart Registration or Intake with a Registration step) must be tied to one program event.';
       return;
     }
-    const selectedTemplateIds = form.allowAllDocuments
-      ? selectableTemplates.value.map((t) => t.id)
-      : form.allowedDocumentTemplateIds;
-    const { intakeSteps, intakeFields, allowedDocumentTemplateIds } = buildPayloadFromSteps(selectedTemplateIds);
+    const { intakeSteps, intakeFields, allowedDocumentTemplateIds } = buildPayloadFromSteps();
     const customMessagesPayload = (() => {
       const cm = form.customMessages || {};
       const completionType = String(cm.completionEmailTemplateType || '').trim();
@@ -2819,35 +3280,6 @@ const scopeFilteredTemplates = computed(() => {
   return list;
 });
 
-const templateGroups = computed(() => {
-  const list = scopeFilteredTemplates.value;
-  const scope = form.scopeType || 'school';
-  const orgId = scope === 'agency' ? null : form.organizationId;
-  const agencyTemplates = [];
-  const organizationTemplates = [];
-  list
-    .filter((t) => t && t.id)
-    .forEach((t) => {
-      const tOrgId = t.organization_id ?? null;
-      if (scope === 'agency') {
-        if (!tOrgId) agencyTemplates.push(t);
-      } else if (!tOrgId) {
-        agencyTemplates.push(t);
-      } else if (orgId && Number(tOrgId) === Number(orgId)) {
-        organizationTemplates.push(t);
-      }
-    });
-  const byName = (a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' });
-  agencyTemplates.sort(byName);
-  organizationTemplates.sort(byName);
-  return { agencyTemplates, organizationTemplates };
-});
-
-const selectableTemplates = computed(() => [
-  ...templateGroups.value.organizationTemplates,
-  ...templateGroups.value.agencyTemplates
-]);
-
 const documentStepTemplates = computed(() => {
   const list = scopeFilteredTemplates.value;
   const sorted = list.filter((t) => t && t.id);
@@ -2908,16 +3340,6 @@ const selectDocumentTemplate = (step, templateId) => {
   step.templateId = templateId;
   closeDocumentStepSelect();
 };
-
-const orderedAllowedTemplates = computed(() => {
-  const ids = Array.isArray(form.allowedDocumentTemplateIds) ? form.allowedDocumentTemplateIds : [];
-  if (!ids.length) return [];
-  const list = Array.isArray(templates.value) ? templates.value : [];
-  const byId = new Map(list.filter((t) => t && t.id).map((t) => [Number(t.id), t]));
-  return ids
-    .map((id) => byId.get(Number(id)))
-    .filter(Boolean);
-});
 
 const sanitizeSteps = (steps, { formType } = {}) => {
   const formTypeKey = String(formType || '').trim().toLowerCase();
@@ -3149,7 +3571,6 @@ const sanitizeSteps = (steps, { formType } = {}) => {
 };
 
 const safeSteps = computed(() => (Array.isArray(form.intakeSteps) ? form.intakeSteps : []));
-const hasDocumentSteps = computed(() => safeSteps.value.some((s) => s?.type === 'document'));
 const hasProgrammedSchoolRoiStep = computed(() =>
   safeSteps.value.some((s) => String(s?.type || '').trim().toLowerCase() === 'school_roi')
 );
@@ -3949,7 +4370,7 @@ const removeOption = (field, idx) => {
   field.options.splice(idx, 1);
 };
 
-const buildPayloadFromSteps = (selectedTemplateIds = []) => {
+const buildPayloadFromSteps = () => {
   const intakeSteps = sanitizeSteps(form.intakeSteps, { formType: form.formType }).map((step) => ({ ...step }));
   intakeSteps.forEach((step) => {
     if (step?.type === 'registration') {
@@ -3979,9 +4400,6 @@ const buildPayloadFromSteps = (selectedTemplateIds = []) => {
     }
     // upload steps don't add to allowedDocumentTemplateIds
   });
-  if (allowedDocumentTemplateIds.length === 0 && Array.isArray(selectedTemplateIds) && selectedTemplateIds.length) {
-    selectedTemplateIds.forEach((id) => allowedDocumentTemplateIds.push(id));
-  }
   return { intakeSteps, intakeFields, allowedDocumentTemplateIds };
 };
 
@@ -4496,5 +4914,74 @@ watch(
   padding: 10px 14px;
   margin-bottom: 12px;
   font-size: 0.9rem;
+}
+.addon-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 1450;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.addon-preview-modal-box {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.22);
+  width: 100%;
+  max-height: 84vh;
+  overflow-y: auto;
+}
+.addon-preview-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.addon-preview-item {
+  text-align: left;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  padding: 12px;
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.addon-preview-item:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+.addon-preview-header-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.addon-preview-form {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fafc;
+}
+.communications-campaign-card {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.communications-disclosure {
+  color: #475569;
+  font-size: 0.92rem;
+}
+.communications-provider-terms {
+  margin: 8px 0 0 18px;
+  padding: 0;
+  color: #475569;
+  font-size: 0.92rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 </style>
