@@ -392,6 +392,50 @@
             <label class="cap-toggle-label"><input v-model="publicPageForm.showPhotoAlbum" type="checkbox" class="cap-check" /> Show sliding photo album</label>
           </div>
 
+          <!-- Gender options for registration form -->
+          <div class="field" style="margin-top: 8px;">
+            <label style="font-weight: 700; font-size: 13px;">Registration form — gender options</label>
+            <div class="hint" style="margin-bottom: 10px;">
+              Choose which gender options appear on your club's member registration form. Default is Male and Female only.
+            </div>
+            <div class="gender-options-list">
+              <label
+                v-for="opt in BUILT_IN_GENDER_OPTIONS"
+                :key="opt.value"
+                class="gender-option-row"
+              >
+                <input
+                  type="checkbox"
+                  :checked="genderOptionsSelected.includes(opt.value)"
+                  @change="toggleBuiltInGender(opt.value)"
+                  class="cap-check"
+                />
+                {{ opt.label }}
+              </label>
+              <!-- Custom options (non-built-in) -->
+              <div
+                v-for="val in genderOptionsSelected.filter(v => !isBuiltInGender(v))"
+                :key="val"
+                class="gender-option-row gender-option-custom"
+              >
+                <span class="gender-custom-chip">{{ val }}</span>
+                <button type="button" class="gender-remove-btn" @click="removeGenderOption(val)">✕</button>
+              </div>
+            </div>
+            <div class="gender-add-row">
+              <input
+                v-model="customGenderInput"
+                type="text"
+                class="store-input"
+                style="max-width: 220px;"
+                placeholder="Add custom option…"
+                maxlength="60"
+                @keydown.enter.prevent="addCustomGender"
+              />
+              <button type="button" class="btn btn-sm" @click="addCustomGender">Add</button>
+            </div>
+          </div>
+
           <div class="field">
             <label>Photo album slides (one image URL per line)</label>
             <textarea
@@ -696,6 +740,34 @@ const publicPageForm = ref({
   showFeaturedWorkout: true,
   showPhotoAlbum: true
 });
+
+const BUILT_IN_GENDER_OPTIONS = [
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+  { value: 'non_binary', label: 'Non-binary' },
+  { value: 'other', label: 'Other' }
+];
+const genderOptionsSelected = ref(['male', 'female']);
+const customGenderInput = ref('');
+
+const toggleBuiltInGender = (value) => {
+  const idx = genderOptionsSelected.value.indexOf(value);
+  if (idx >= 0) {
+    genderOptionsSelected.value.splice(idx, 1);
+  } else {
+    genderOptionsSelected.value.push(value);
+  }
+};
+const addCustomGender = () => {
+  const val = String(customGenderInput.value || '').trim();
+  if (!val || genderOptionsSelected.value.includes(val)) { customGenderInput.value = ''; return; }
+  genderOptionsSelected.value.push(val);
+  customGenderInput.value = '';
+};
+const removeGenderOption = (value) => {
+  genderOptionsSelected.value = genderOptionsSelected.value.filter((v) => v !== value);
+};
+const isBuiltInGender = (value) => BUILT_IN_GENDER_OPTIONS.some((o) => o.value === value);
 const orgSlugForPreview = computed(() => String(route.params?.organizationSlug || '').trim() || 'ssc');
 const publicPageUrlPreview = computed(() => {
   const slug = String(publicPageForm.value.publicSlug || '').trim();
@@ -748,6 +820,9 @@ const loadPublicPageConfig = async () => {
       showFeaturedWorkout: cfg.showFeaturedWorkout !== false,
       showPhotoAlbum: cfg.showPhotoAlbum !== false
     };
+    genderOptionsSelected.value = Array.isArray(cfg.genderOptions) && cfg.genderOptions.length
+      ? cfg.genderOptions
+      : ['male', 'female'];
     publicPageAlbumInput.value = Array.isArray(cfg.albumSlides)
       ? cfg.albumSlides.map((s) => String(s?.imageUrl || '').trim()).filter(Boolean).join('\n')
       : '';
@@ -771,7 +846,8 @@ const savePublicPageConfig = async () => {
       .map((imageUrl) => ({ imageUrl, caption: '' }));
     await api.put(`/summit-stats/clubs/${currentAgencyId.value}/public-page-config`, {
       ...publicPageForm.value,
-      albumSlides
+      albumSlides,
+      genderOptions: genderOptionsSelected.value.filter(Boolean)
     });
     await loadPublicPageConfig();
   } catch (e) {
@@ -1212,6 +1288,57 @@ onMounted(async () => {
   padding: 6px 10px;
   font-size: 13px;
   background: white;
+}
+
+/* Gender options configurator */
+.gender-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.gender-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+.gender-option-custom {
+  gap: 6px;
+}
+.gender-custom-chip {
+  background: #f1f5f9;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.gender-remove-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: #ef4444;
+  padding: 0 2px;
+  line-height: 1;
+}
+.gender-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2, #f1f5f9);
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
 }
 .store-preview {
   margin-top: 4px;

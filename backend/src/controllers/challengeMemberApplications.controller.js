@@ -134,6 +134,8 @@ const toUploadsPublicUrl = (filePath) => {
   return baseUrl ? `${baseUrl}/uploads/${clean}` : `/uploads/${clean}`;
 };
 
+const DEFAULT_GENDER_OPTIONS = ['male', 'female'];
+
 const buildPublicPageConfig = (rawStoreConfig) => {
   const storeObj = parseJsonObject(rawStoreConfig);
   const cfg = parseJsonObject(storeObj?.publicPageConfig);
@@ -149,6 +151,15 @@ const buildPublicPageConfig = (rawStoreConfig) => {
       .slice(0, 20)
     : [];
 
+  let genderOptions = DEFAULT_GENDER_OPTIONS;
+  if (Array.isArray(cfg.genderOptions) && cfg.genderOptions.length > 0) {
+    const cleaned = cfg.genderOptions
+      .map((v) => String(v || '').trim())
+      .filter((v) => v)
+      .slice(0, 30);
+    if (cleaned.length > 0) genderOptions = cleaned;
+  }
+
   return {
     publicSlug: normalizePublicSlug(cfg.publicSlug),
     bannerTitle: String(cfg.bannerTitle || '').trim().slice(0, 120),
@@ -158,7 +169,8 @@ const buildPublicPageConfig = (rawStoreConfig) => {
     showActiveParticipants: cfg.showActiveParticipants !== false,
     showFeaturedWorkout: cfg.showFeaturedWorkout !== false,
     showPhotoAlbum: cfg.showPhotoAlbum !== false,
-    albumSlides: slides
+    albumSlides: slides,
+    genderOptions
   };
 };
 
@@ -452,7 +464,8 @@ export const updatePublicPageConfig = async (req, res, next) => {
         showActiveParticipants: body.showActiveParticipants,
         showFeaturedWorkout: body.showFeaturedWorkout,
         showPhotoAlbum: body.showPhotoAlbum,
-        albumSlides: body.albumSlides
+        albumSlides: body.albumSlides,
+        genderOptions: body.genderOptions
       }
     });
     if (nextConfig.publicSlug) {
@@ -513,19 +526,28 @@ export const resolveInviteToken = async (req, res, next) => {
       [invite.agency_id]
     );
 
+    // Gender options from club public page config
+    const [clubConfigRows] = await pool.execute(
+      `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
+      [invite.agency_id]
+    );
+    const publicPageConfig = buildPublicPageConfig(clubConfigRows?.[0]?.store_config_json);
+
     const baseUrl = process.env.BACKEND_URL || '';
     let logoUrl = invite.logo_url || null;
     if (invite.logo_path) logoUrl = `${baseUrl}/uploads/${invite.logo_path.replace(/^uploads\//, '')}`;
 
     return res.json({
       invite: {
-        clubId:      invite.agency_id,
-        clubName:    invite.club_name,
+        clubId:        invite.agency_id,
+        clubName:      invite.club_name,
         logoUrl,
-        token:       invite.token,
-        email:       invite.email || null,
-        autoApprove: !!invite.auto_approve,
-        label:       invite.label || null
+        token:         invite.token,
+        email:         invite.email || null,
+        autoApprove:   !!invite.auto_approve,
+        label:         invite.label || null,
+        genderOptions: publicPageConfig.genderOptions,
+        bannerImageUrl: publicPageConfig.bannerImageUrl || null
       },
       customFields: fieldRows || []
     });
@@ -537,10 +559,15 @@ export const resolveInviteToken = async (req, res, next) => {
 /** Shared logic: validate and write an application row. */
 const createApplicationRow = async ({
   clubId, inviteId = null, referrerUserId = null,
-  firstName, lastName, email, phone,
+  firstName, lastName, email, phone, username,
   gender, dateOfBirth, weightLbs, heightInches, timezone,
-  customFields
+  customFields, passwordHash
 }) => {
+  // Store system fields alongside member-defined custom fields
+  const mergedCustomFields = { ...(customFields || {}) };
+  if (passwordHash) mergedCustomFields._passwordHash = passwordHash;
+  if (username) mergedCustomFields._username = String(username).trim();
+
   const [result] = await pool.execute(
     `INSERT INTO challenge_member_applications
        (agency_id, invite_id, referrer_user_id,
@@ -561,7 +588,7 @@ const createApplicationRow = async ({
       weightLbs ? Number(weightLbs) : null,
       heightInches ? Number(heightInches) : null,
       timezone || null,
-      customFields ? JSON.stringify(customFields) : null
+      JSON.stringify(mergedCustomFields)
     ]
   );
   return result.insertId;
@@ -580,13 +607,15 @@ export const submitApplication = async (req, res, next) => {
     if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
 
     const {
-      firstName, lastName, email, phone,
+      firstName, lastName, email, phone, username,
+      password,
       gender, dateOfBirth, weightLbs, heightInches, timezone,
       customFields, referralCode
     } = req.body;
 
     if (!firstName || !lastName) return res.status(400).json({ error: { message: 'First and last name are required' } });
     if (!email) return res.status(400).json({ error: { message: 'Email is required' } });
+    if (!password || String(password).length < 8) return res.status(400).json({ error: { message: 'Password must be at least 8 characters' } });
 
     // Check for duplicate pending/approved application
     const [existing] = await pool.execute(
@@ -599,6 +628,9 @@ export const submitApplication = async (req, res, next) => {
     if (existing?.[0]?.status === 'pending') {
       return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
     }
+
+    // Hash the provided password so it can be used when the application is approved
+    const passwordHash = await hashPassword(String(password));
 
     // Resolve referrer
     let referrerUserId = null;
@@ -613,9 +645,9 @@ export const submitApplication = async (req, res, next) => {
 
     const appId = await createApplicationRow({
       clubId, referrerUserId,
-      firstName, lastName, email, phone,
+      firstName, lastName, email, phone, username,
       gender, dateOfBirth, weightLbs, heightInches, timezone,
-      customFields
+      customFields, passwordHash
     });
 
     return res.status(201).json({
@@ -649,19 +681,23 @@ export const submitInviteApplication = async (req, res, next) => {
     if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
 
     const {
-      firstName, lastName, email, phone,
+      firstName, lastName, email, phone, username,
+      password,
       gender, dateOfBirth, weightLbs, heightInches, timezone,
       customFields
     } = req.body;
 
     if (!firstName || !lastName) return res.status(400).json({ error: { message: 'First and last name are required' } });
     if (!email) return res.status(400).json({ error: { message: 'Email is required' } });
+    if (!password || String(password).length < 8) return res.status(400).json({ error: { message: 'Password must be at least 8 characters' } });
+
+    const passwordHash = await hashPassword(String(password));
 
     const appId = await createApplicationRow({
       clubId, inviteId: invite.id,
-      firstName, lastName, email, phone,
+      firstName, lastName, email, phone, username,
       gender, dateOfBirth, weightLbs, heightInches, timezone,
-      customFields
+      customFields, passwordHash
     });
 
     // Mark invite as used
@@ -696,6 +732,12 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
   const app = appRows?.[0];
   if (!app) throw new Error('Application not found');
 
+  // Extract system fields stored in custom_fields during application
+  let appCustomFields = {};
+  try { appCustomFields = typeof app.custom_fields === 'string' ? JSON.parse(app.custom_fields) : (app.custom_fields || {}); } catch { /* */ }
+  const storedPasswordHash = appCustomFields._passwordHash || null;
+  const storedUsername = appCustomFields._username ? String(appCustomFields._username).trim() : null;
+
   // Find or create user account
   let userId = app.user_id;
   if (!userId) {
@@ -704,16 +746,36 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
     if (existingUser) {
       userId = existingUser.id;
     } else {
-      // Create a new participant account (random password — user must reset)
-      const tempPw = genToken(16);
-      const hashedPw = await hashPassword(tempPw);
+      // Use the password hash from the application if available, otherwise generate a temp one
+      const hashedPw = storedPasswordHash || await hashPassword(genToken(16));
+
+      // Try to insert with phone number (users table may or may not have a phone column)
       const [insertResult] = await pool.execute(
         `INSERT INTO users (first_name, last_name, email, password, role, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, 'provider', 'ACTIVE_EMPLOYEE', NOW(), NOW())`,
         [app.first_name, app.last_name, app.email, hashedPw]
       );
       userId = insertResult.insertId;
-      // TODO: in a real deployment, send a "set your password" email here
+
+      // Set phone on the new user if provided
+      if (app.phone) {
+        try {
+          await pool.execute(
+            `UPDATE users SET phone = ? WHERE id = ?`,
+            [String(app.phone).trim(), userId]
+          );
+        } catch { /* phone column may not exist — non-fatal */ }
+      }
+
+      // Set username on the new user if provided
+      if (storedUsername) {
+        try {
+          await pool.execute(
+            `UPDATE users SET username = ? WHERE id = ?`,
+            [storedUsername, userId]
+          );
+        } catch { /* username column may not exist or conflict — non-fatal */ }
+      }
     }
   }
 
@@ -742,11 +804,10 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
     }
   }
 
-  // Save custom field values
+  // Save custom field values (skip reserved system keys prefixed with _)
   if (app.custom_fields) {
-    let fields = {};
-    try { fields = typeof app.custom_fields === 'string' ? JSON.parse(app.custom_fields) : app.custom_fields; } catch { /* */ }
-    for (const [defId, value] of Object.entries(fields || {})) {
+    for (const [defId, value] of Object.entries(appCustomFields)) {
+      if (String(defId).startsWith('_')) continue; // skip system keys like _passwordHash, _username
       if (value === undefined || value === null || value === '') continue;
       await pool.execute(
         `INSERT INTO challenge_custom_field_values (user_id, field_definition_id, value)
