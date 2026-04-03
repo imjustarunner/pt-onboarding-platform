@@ -1017,12 +1017,12 @@ export const getClubFeed = async (req, res, next) => {
     const [msgRows] = await pool.execute(
       `SELECT
          cm.id, cm.learning_class_id, cm.message_text, cm.created_at,
-         u.first_name, u.last_name, ua.role
+         u.first_name, u.last_name, u.role
        FROM challenge_messages cm
        INNER JOIN users u ON u.id = cm.user_id
        INNER JOIN user_agencies ua ON ua.user_id = cm.user_id AND ua.agency_id = ?
        WHERE cm.learning_class_id IN (${placeholders})
-         AND ua.role IN ('admin','staff','provider_plus')
+         AND u.role IN ('admin','staff','provider_plus')
        ORDER BY cm.created_at DESC
        LIMIT 20`,
       [clubId, ...visibleSeasonIds]
@@ -1097,7 +1097,7 @@ export const listClubMembers = async (req, res, next) => {
          u.status,
          u.created_at,
          ua.is_active AS club_is_active,
-         ua.role      AS club_role
+         u.role       AS club_role
        FROM user_agencies ua
        INNER JOIN users u ON u.id = ua.user_id
        WHERE ua.agency_id = ?
