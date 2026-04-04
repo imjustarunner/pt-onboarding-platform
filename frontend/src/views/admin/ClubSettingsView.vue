@@ -375,14 +375,42 @@
             />
           </div>
           <div class="field">
-            <label>Banner image URL <span class="cap-opt">(optional, full https://)</span></label>
+            <label>Banner image <span class="cap-opt">(optional)</span></label>
+            <input
+              ref="bannerUploadInputRef"
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/gif,image/svg+xml,image/webp"
+              class="visually-hidden-file"
+              @change="onBannerImageSelected"
+            />
+            <div class="image-upload-row">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="bannerImageUploading"
+                @click="bannerUploadInputRef?.click()"
+              >
+                {{ bannerImageUploading ? 'Uploading…' : (publicPageForm.bannerImageUrl ? 'Change Banner Image' : 'Upload Banner Image') }}
+              </button>
+              <button
+                v-if="publicPageForm.bannerImageUrl"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="publicPageForm.bannerImageUrl = ''"
+              >
+                Remove
+              </button>
+            </div>
             <input
               v-model="publicPageForm.bannerImageUrl"
               type="url"
               class="store-input"
-              placeholder="https://example.com/your-banner.jpg"
+              placeholder="Or paste an image URL if you want"
               maxlength="500"
             />
+            <div v-if="publicPageForm.bannerImageUrl" class="public-image-preview">
+              <img :src="publicPageForm.bannerImageUrl" alt="Banner preview" />
+            </div>
           </div>
 
           <div class="field">
@@ -396,7 +424,7 @@
           <div class="field" style="margin-top: 8px;">
             <label style="font-weight: 700; font-size: 13px;">Registration form — gender options</label>
             <div class="hint" style="margin-bottom: 10px;">
-              Choose which gender options appear on your club's member registration form. Default is Male and Female only.
+              Choose which gender options appear on your club's member registration form. Default is Male and Female, and you can add any custom option below.
             </div>
             <div class="gender-options-list">
               <label
@@ -437,7 +465,25 @@
           </div>
 
           <div class="field">
-            <label>Photo album slides (one image URL per line)</label>
+            <label>Photo album slides</label>
+            <input
+              ref="albumUploadInputRef"
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/gif,image/svg+xml,image/webp"
+              class="visually-hidden-file"
+              multiple
+              @change="onAlbumImagesSelected"
+            />
+            <div class="image-upload-row">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="albumImagesUploading"
+                @click="albumUploadInputRef?.click()"
+              >
+                {{ albumImagesUploading ? 'Uploading…' : '+ Upload Photos' }}
+              </button>
+            </div>
             <textarea
               v-model="publicPageAlbumInput"
               rows="5"
@@ -445,6 +491,12 @@
               style="max-width: 100%; min-height: 110px;"
               placeholder="https://example.com/photo-1.jpg&#10;https://example.com/photo-2.jpg"
             />
+            <div v-if="publicPageAlbumPreviewUrls.length" class="album-preview-grid">
+              <div v-for="(url, idx) in publicPageAlbumPreviewUrls" :key="`${url}-${idx}`" class="album-preview-item">
+                <img :src="url" alt="Album preview" />
+                <button type="button" class="album-preview-remove" @click="removeAlbumSlide(idx)">✕</button>
+              </div>
+            </div>
             <div class="hint">If empty, the page automatically uses recent workout screenshots from your club.</div>
           </div>
 
@@ -730,6 +782,10 @@ const publicPageConfigLoading = ref(false);
 const savingPublicPageConfig = ref(false);
 const publicPageConfigError = ref('');
 const publicPageAlbumInput = ref('');
+const bannerUploadInputRef = ref(null);
+const albumUploadInputRef = ref(null);
+const bannerImageUploading = ref(false);
+const albumImagesUploading = ref(false);
 const publicPageForm = ref({
   publicSlug: '',
   bannerTitle: '',
@@ -743,9 +799,7 @@ const publicPageForm = ref({
 
 const BUILT_IN_GENDER_OPTIONS = [
   { value: 'male', label: 'Male' },
-  { value: 'female', label: 'Female' },
-  { value: 'non_binary', label: 'Non-binary' },
-  { value: 'other', label: 'Other' }
+  { value: 'female', label: 'Female' }
 ];
 const genderOptionsSelected = ref(['male', 'female']);
 const customGenderInput = ref('');
@@ -775,6 +829,82 @@ const publicPageUrlPreview = computed(() => {
   if (!ref) return `${window.location.origin}/${orgSlugForPreview.value}/clubs`;
   return `${window.location.origin}/${orgSlugForPreview.value}/clubs/${ref}`;
 });
+
+const publicPageAlbumPreviewUrls = computed(() =>
+  String(publicPageAlbumInput.value || '')
+    .split('\n')
+    .map((line) => String(line || '').trim())
+    .filter(Boolean)
+);
+
+const uploadPublicPageImage = async (file) => {
+  if (!file) return null;
+  const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/svg+xml', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) {
+    throw new Error('Invalid file type. Please upload PNG, JPG, GIF, SVG, or WebP.');
+  }
+  const formData = new FormData();
+  formData.append('logo', file);
+  const { data } = await api.post('/logos/upload', formData, {
+    skipGlobalLoading: true,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  if (!data?.success) throw new Error('Upload failed');
+  return data?.path ? toUploadsUrl(data.path) : String(data?.url || '').trim();
+};
+
+const onBannerImageSelected = async (event) => {
+  const file = event?.target?.files?.[0] || null;
+  if (!file) return;
+  try {
+    bannerImageUploading.value = true;
+    publicPageConfigError.value = '';
+    const uploadedUrl = await uploadPublicPageImage(file);
+    if (uploadedUrl) publicPageForm.value.bannerImageUrl = uploadedUrl;
+  } catch (e) {
+    publicPageConfigError.value = e?.response?.data?.error?.message || e?.message || 'Failed to upload banner image';
+  } finally {
+    bannerImageUploading.value = false;
+    try {
+      if (bannerUploadInputRef.value) bannerUploadInputRef.value.value = '';
+    } catch {
+      // ignore
+    }
+  }
+};
+
+const onAlbumImagesSelected = async (event) => {
+  const files = Array.from(event?.target?.files || []);
+  if (!files.length) return;
+  try {
+    albumImagesUploading.value = true;
+    publicPageConfigError.value = '';
+    const uploadedUrls = [];
+    for (const file of files) {
+      const uploadedUrl = await uploadPublicPageImage(file);
+      if (uploadedUrl) uploadedUrls.push(uploadedUrl);
+    }
+    if (uploadedUrls.length) {
+      const next = [...publicPageAlbumPreviewUrls.value, ...uploadedUrls].slice(0, 20);
+      publicPageAlbumInput.value = next.join('\n');
+    }
+  } catch (e) {
+    publicPageConfigError.value = e?.response?.data?.error?.message || e?.message || 'Failed to upload album photos';
+  } finally {
+    albumImagesUploading.value = false;
+    try {
+      if (albumUploadInputRef.value) albumUploadInputRef.value.value = '';
+    } catch {
+      // ignore
+    }
+  }
+};
+
+const removeAlbumSlide = (index) => {
+  const next = [...publicPageAlbumPreviewUrls.value];
+  next.splice(index, 1);
+  publicPageAlbumInput.value = next.join('\n');
+};
 
 const loadStoreConfig = async () => {
   if (!currentAgencyId.value) return;
@@ -1289,6 +1419,37 @@ onMounted(async () => {
   font-size: 13px;
   background: white;
 }
+.visually-hidden-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.image-upload-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.public-image-preview {
+  margin-top: 4px;
+  width: min(100%, 420px);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+}
+.public-image-preview img {
+  display: block;
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+}
 
 /* Gender options configurator */
 .gender-options-list {
@@ -1329,6 +1490,38 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.album-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+.album-preview-item {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+  min-height: 96px;
+}
+.album-preview-item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 96px;
+  object-fit: cover;
+}
+.album-preview-remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: rgba(15, 23, 42, 0.72);
+  color: white;
+  cursor: pointer;
 }
 .btn-sm {
   padding: 5px 12px;
@@ -1541,5 +1734,40 @@ onMounted(async () => {
 .order-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .order-btn.danger { color: #dc2626; }
 .order-btn.danger:hover { background: #fee2e2; }
-</style>
 
+@media (max-width: 640px) {
+  .stats-add-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .stat-config-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+  .stat-config-left,
+  .stat-config-right {
+    width: 100%;
+  }
+  .stat-config-right {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .stat-label-input,
+  .stat-seed-input {
+    width: 100%;
+  }
+  .stat-seed-row {
+    align-items: center;
+  }
+  .stat-order-btns {
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+  .order-btn {
+    min-width: 42px;
+    min-height: 38px;
+  }
+}
+</style>

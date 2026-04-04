@@ -220,11 +220,12 @@
                 </div>
               </div>
               <div class="field">
-                <label>How many hours do you average per week currently?</label>
+                <label>How many hours of physical activity do you average per week currently?</label>
                 <div class="input-addon-row">
                   <input v-model.number="form.averageHoursPerWeek" type="number" min="0" max="200" step="0.1" placeholder="5" />
                   <span class="addon">hrs</span>
                 </div>
+                <p class="field-hint">Include running, gym sessions, classes, cross-training, sports, hiking, and similar activity.</p>
               </div>
             </div>
 
