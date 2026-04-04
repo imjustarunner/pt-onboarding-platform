@@ -288,10 +288,9 @@ export const getPublicClubStats = async (req, res, next) => {
            t.team_name
          FROM learning_class_provider_memberships m
          INNER JOIN users u ON u.id = m.provider_user_id
+         LEFT JOIN challenge_teams t ON t.learning_class_id = m.learning_class_id
          LEFT JOIN challenge_team_members tm
-           ON tm.learning_class_id = m.learning_class_id
-          AND tm.provider_user_id = m.provider_user_id
-         LEFT JOIN challenge_teams t ON t.id = tm.team_id
+           ON tm.team_id = t.id AND tm.provider_user_id = m.provider_user_id
          INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
          WHERE m.learning_class_id = ?
            AND m.membership_status = 'active'
@@ -832,6 +831,16 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
     [userId, reviewedByUserId || null, notes || null, appId]
   );
 
+  // Member applications should create club participants (`provider`), not platform admins.
+  // If anything incorrectly set `admin`, normalize to `provider`; managers promote via Member Management.
+  try {
+    const [ur] = await pool.execute(`SELECT role FROM users WHERE id = ? LIMIT 1`, [userId]);
+    const r = String(ur?.[0]?.role || '').toLowerCase();
+    if (r === 'admin') {
+      await pool.execute(`UPDATE users SET role = 'provider' WHERE id = ?`, [userId]);
+    }
+  } catch { /* non-fatal */ }
+
   return { userId };
 };
 
@@ -1362,10 +1371,9 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
          MAX(w.completed_at) AS last_workout_at
        FROM learning_class_provider_memberships m
        INNER JOIN learning_program_classes c ON c.id = m.learning_class_id
+       LEFT JOIN challenge_teams t ON t.learning_class_id = c.id
        LEFT JOIN challenge_team_members tm
-         ON tm.learning_class_id = c.id
-        AND tm.provider_user_id = m.provider_user_id
-       LEFT JOIN challenge_teams t ON t.id = tm.team_id
+         ON tm.team_id = t.id AND tm.provider_user_id = m.provider_user_id
        LEFT JOIN challenge_workouts w
          ON w.learning_class_id = c.id
         AND w.user_id = m.provider_user_id

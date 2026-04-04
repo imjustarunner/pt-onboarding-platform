@@ -46,8 +46,8 @@ async function getWorkout(workoutId, classId) {
   const [rows] = await pool.execute(
     `SELECT w.*, t.team_id as team_id_from_team
      FROM challenge_workouts w
-     LEFT JOIN challenge_team_members tm ON tm.provider_user_id = w.user_id AND tm.learning_class_id = w.learning_class_id
-     LEFT JOIN challenge_teams t ON t.id = tm.team_id
+     LEFT JOIN challenge_teams t ON t.learning_class_id = w.learning_class_id
+     LEFT JOIN challenge_team_members tm ON tm.team_id = t.id AND tm.provider_user_id = w.user_id
      WHERE w.id = ? AND w.learning_class_id = ? LIMIT 1`,
     [workoutId, classId]
   );
@@ -56,16 +56,24 @@ async function getWorkout(workoutId, classId) {
 
 async function getGiverTeamId(userId, classId) {
   const [rows] = await pool.execute(
-    `SELECT tm.team_id FROM challenge_team_members tm WHERE tm.provider_user_id = ? AND tm.learning_class_id = ? LIMIT 1`,
-    [userId, classId]
+    `SELECT tm.team_id
+     FROM challenge_team_members tm
+     INNER JOIN challenge_teams t ON t.id = tm.team_id AND t.learning_class_id = ?
+     WHERE tm.provider_user_id = ?
+     LIMIT 1`,
+    [classId, userId]
   );
   return rows?.[0]?.team_id ? Number(rows[0].team_id) : null;
 }
 
 async function getReceiverTeamId(workoutUserId, classId) {
   const [rows] = await pool.execute(
-    `SELECT tm.team_id FROM challenge_team_members tm WHERE tm.provider_user_id = ? AND tm.learning_class_id = ? LIMIT 1`,
-    [workoutUserId, classId]
+    `SELECT tm.team_id
+     FROM challenge_team_members tm
+     INNER JOIN challenge_teams t ON t.id = tm.team_id AND t.learning_class_id = ?
+     WHERE tm.provider_user_id = ?
+     LIMIT 1`,
+    [classId, workoutUserId]
   );
   return rows?.[0]?.team_id ? Number(rows[0].team_id) : null;
 }

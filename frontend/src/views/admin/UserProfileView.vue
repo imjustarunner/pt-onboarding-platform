@@ -172,20 +172,24 @@
               <div v-else-if="memberSeasonHistoryError" class="error">{{ memberSeasonHistoryError }}</div>
               <div v-else class="form-grid">
                 <div class="form-group">
+                  <label>Phone (from application)</label>
+                  <input :value="memberRegistrationPhoneDisplay" type="text" disabled />
+                </div>
+                <div class="form-group">
                   <label>Gender</label>
-                  <input :value="memberRegistrationProfile.gender || 'Not provided'" type="text" disabled />
+                  <input :value="memberRegistrationGenderDisplay" type="text" disabled />
                 </div>
                 <div class="form-group">
                   <label>Date of Birth</label>
-                  <input :value="memberRegistrationProfile.dateOfBirth || 'Not provided'" type="text" disabled />
+                  <input :value="memberRegistrationDobDisplay" type="text" disabled />
                 </div>
                 <div class="form-group">
-                  <label>Weight (lbs)</label>
-                  <input :value="memberRegistrationProfile.weightLbs != null ? memberRegistrationProfile.weightLbs : 'Not provided'" type="text" disabled />
+                  <label>Weight</label>
+                  <input :value="memberRegistrationWeightDisplay" type="text" disabled />
                 </div>
                 <div class="form-group">
-                  <label>Height (inches)</label>
-                  <input :value="memberRegistrationProfile.heightInches != null ? memberRegistrationProfile.heightInches : 'Not provided'" type="text" disabled />
+                  <label>Height</label>
+                  <input :value="memberRegistrationHeightDisplay" type="text" disabled />
                 </div>
                 <div class="form-group">
                   <label>Timezone</label>
@@ -2716,6 +2720,50 @@ const memberRegistrationCustomFieldsList = computed(() => {
   return Object.entries(fields)
     .map(([key, value]) => ({ key: String(key || '').trim(), value: String(value ?? '').trim() }))
     .filter((item) => item.key && item.value);
+});
+
+const memberRegistrationPhoneDisplay = computed(() => {
+  const p = String(memberRegistrationProfile.value?.phone || '').trim();
+  return p || 'Not provided';
+});
+
+const memberRegistrationGenderDisplay = computed(() => {
+  const g = String(memberRegistrationProfile.value?.gender || '').trim();
+  if (!g) return 'Not provided';
+  if (g.includes('_')) return g.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  return g.charAt(0).toUpperCase() + g.slice(1).toLowerCase();
+});
+
+const memberRegistrationDobDisplay = computed(() => {
+  const raw = memberRegistrationProfile.value?.dateOfBirth;
+  if (!raw) return 'Not provided';
+  const s = String(raw).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+  return s || 'Not provided';
+});
+
+const memberRegistrationWeightDisplay = computed(() => {
+  const w = memberRegistrationProfile.value?.weightLbs;
+  if (w == null || w === '') return 'Not provided';
+  const n = Number(w);
+  if (!Number.isFinite(n)) return 'Not provided';
+  return `${Number.isInteger(n) ? n : n.toFixed(1)} lbs`;
+});
+
+const memberRegistrationHeightDisplay = computed(() => {
+  const inches = memberRegistrationProfile.value?.heightInches;
+  if (inches == null || inches === '') return 'Not provided';
+  const n = Number(inches);
+  if (!Number.isFinite(n) || n <= 0) return 'Not provided';
+  const ft = Math.floor(n / 12);
+  const ins = Math.round(n % 12);
+  return `${ft}'${ins}"`;
 });
 
 const memberSeasonHistorySeasons = computed(() => {
