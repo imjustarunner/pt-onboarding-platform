@@ -114,6 +114,7 @@ const genToken = (len = 32) => crypto.randomBytes(len).toString('hex').slice(0, 
 
 /** Generate a short referral code (8 chars). */
 const genReferralCode = () => crypto.randomBytes(6).toString('base64url').slice(0, 8).toUpperCase();
+const APPLICATION_WAIVER_VERSION = 'ssc_member_participation_waiver_v2';
 
 /** Hash a plain-text password using bcrypt (reuse pattern from auth). */
 const hashPassword = async (plain) => {
@@ -139,6 +140,29 @@ const toUploadsPublicUrl = (filePath) => {
   const baseUrl = String(process.env.BACKEND_URL || '').trim();
   const clean = p.replace(/^\/+/, '').replace(/^uploads\//, '');
   return baseUrl ? `${baseUrl}/uploads/${clean}` : `/uploads/${clean}`;
+};
+
+const normalizeShortText = (value, maxLen = 255) => {
+  const s = String(value || '').trim();
+  return s ? s.slice(0, maxLen) : null;
+};
+
+const normalizeLongText = (value, maxLen = 4000) => {
+  const s = String(value || '').replace(/\r\n/g, '\n').trim();
+  return s ? s.slice(0, maxLen) : null;
+};
+
+const normalizeNonNegativeDecimal = (value, { max = 100000 } = {}) => {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > max) return null;
+  return Number(n.toFixed(2));
+};
+
+const getRequestIp = (req) => {
+  const forwarded = String(req.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
+  const ip = forwarded || String(req.ip || '').trim();
+  return ip ? ip.slice(0, 64) : null;
 };
 
 const DEFAULT_GENDER_OPTIONS = ['male', 'female'];
@@ -567,7 +591,17 @@ const createApplicationRow = async ({
   clubId, inviteId = null, referrerUserId = null, userId = null,
   firstName, lastName, email, phone, username,
   gender, dateOfBirth, weightLbs, heightInches, timezone,
-  customFields
+  customFields,
+  heardAboutClub = null,
+  runningFitnessBackground = null,
+  averageMilesPerWeek = null,
+  averageHoursPerWeek = null,
+  currentFitnessActivities = null,
+  waiverSignatureName = null,
+  waiverAgreedAt = null,
+  waiverVersion = null,
+  waiverIpAddress = null,
+  waiverUserAgent = null
 }) => {
   // Store any non-system custom fields only
   const mergedCustomFields = { ...(customFields || {}) };
@@ -577,8 +611,10 @@ const createApplicationRow = async ({
        (agency_id, invite_id, referrer_user_id, user_id,
         first_name, last_name, email, phone,
         gender, date_of_birth, weight_lbs, height_inches, timezone,
+        heard_about_club, running_fitness_background, average_miles_per_week, average_hours_per_week, current_fitness_activities,
+        waiver_signature_name, waiver_agreed_at, waiver_version, waiver_ip_address, waiver_user_agent,
         custom_fields, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
     [
       clubId,
       inviteId || null,
@@ -593,6 +629,16 @@ const createApplicationRow = async ({
       weightLbs ? Number(weightLbs) : null,
       heightInches ? Number(heightInches) : null,
       timezone || null,
+      heardAboutClub || null,
+      runningFitnessBackground || null,
+      averageMilesPerWeek != null ? Number(averageMilesPerWeek) : null,
+      averageHoursPerWeek != null ? Number(averageHoursPerWeek) : null,
+      currentFitnessActivities || null,
+      waiverSignatureName || null,
+      waiverAgreedAt || null,
+      waiverVersion || null,
+      waiverIpAddress || null,
+      waiverUserAgent || null,
       JSON.stringify(mergedCustomFields)
     ]
   );
@@ -637,12 +683,22 @@ export const submitApplication = async (req, res, next) => {
       firstName, lastName, email, phone, username,
       password,
       gender, dateOfBirth, weightLbs, heightInches, timezone,
-      customFields, referralCode
+      customFields, referralCode,
+      heardAboutClub, runningFitnessBackground,
+      averageMilesPerWeek, averageHoursPerWeek,
+      currentFitnessActivities,
+      waiverAccepted, waiverSignatureName
     } = req.body;
 
     if (!firstName || !lastName) return res.status(400).json({ error: { message: 'First and last name are required' } });
     if (!email) return res.status(400).json({ error: { message: 'Email is required' } });
     if (!password || String(password).length < 8) return res.status(400).json({ error: { message: 'Password must be at least 8 characters' } });
+    if (!(waiverAccepted === true || waiverAccepted === 1 || String(waiverAccepted || '').toLowerCase() === 'true')) {
+      return res.status(400).json({ error: { message: 'You must accept the participation waiver to submit your application.' } });
+    }
+    if (!normalizeShortText(waiverSignatureName, 255)) {
+      return res.status(400).json({ error: { message: 'Please type your full name to sign the waiver.' } });
+    }
 
     // Check for duplicate pending/approved application
     const [existing] = await pool.execute(
@@ -675,7 +731,17 @@ export const submitApplication = async (req, res, next) => {
       clubId, referrerUserId, userId,
       firstName, lastName, email, phone, username,
       gender, dateOfBirth, weightLbs, heightInches, timezone,
-      customFields
+      customFields,
+      heardAboutClub: normalizeLongText(heardAboutClub, 1000),
+      runningFitnessBackground: normalizeLongText(runningFitnessBackground, 4000),
+      averageMilesPerWeek: normalizeNonNegativeDecimal(averageMilesPerWeek, { max: 500 }),
+      averageHoursPerWeek: normalizeNonNegativeDecimal(averageHoursPerWeek, { max: 200 }),
+      currentFitnessActivities: normalizeLongText(currentFitnessActivities, 4000),
+      waiverSignatureName: normalizeShortText(waiverSignatureName, 255),
+      waiverAgreedAt: new Date(),
+      waiverVersion: APPLICATION_WAIVER_VERSION,
+      waiverIpAddress: getRequestIp(req),
+      waiverUserAgent: normalizeShortText(req.get('user-agent'), 255)
     });
 
     return res.status(201).json({
@@ -712,12 +778,22 @@ export const submitInviteApplication = async (req, res, next) => {
       firstName, lastName, email, phone, username,
       password,
       gender, dateOfBirth, weightLbs, heightInches, timezone,
-      customFields
+      customFields,
+      heardAboutClub, runningFitnessBackground,
+      averageMilesPerWeek, averageHoursPerWeek,
+      currentFitnessActivities,
+      waiverAccepted, waiverSignatureName
     } = req.body;
 
     if (!firstName || !lastName) return res.status(400).json({ error: { message: 'First and last name are required' } });
     if (!email) return res.status(400).json({ error: { message: 'Email is required' } });
     if (!password || String(password).length < 8) return res.status(400).json({ error: { message: 'Password must be at least 8 characters' } });
+    if (!(waiverAccepted === true || waiverAccepted === 1 || String(waiverAccepted || '').toLowerCase() === 'true')) {
+      return res.status(400).json({ error: { message: 'You must accept the participation waiver to submit your application.' } });
+    }
+    if (!normalizeShortText(waiverSignatureName, 255)) {
+      return res.status(400).json({ error: { message: 'Please type your full name to sign the waiver.' } });
+    }
 
     // Create (or find) user account immediately so the applicant can sign in while pending approval.
     const { userId } = await createOrFindUserForApplication({ firstName, lastName, email, phone, username, password });
@@ -726,7 +802,17 @@ export const submitInviteApplication = async (req, res, next) => {
       clubId, inviteId: invite.id, userId,
       firstName, lastName, email, phone, username,
       gender, dateOfBirth, weightLbs, heightInches, timezone,
-      customFields
+      customFields,
+      heardAboutClub: normalizeLongText(heardAboutClub, 1000),
+      runningFitnessBackground: normalizeLongText(runningFitnessBackground, 4000),
+      averageMilesPerWeek: normalizeNonNegativeDecimal(averageMilesPerWeek, { max: 500 }),
+      averageHoursPerWeek: normalizeNonNegativeDecimal(averageHoursPerWeek, { max: 200 }),
+      currentFitnessActivities: normalizeLongText(currentFitnessActivities, 4000),
+      waiverSignatureName: normalizeShortText(waiverSignatureName, 255),
+      waiverAgreedAt: new Date(),
+      waiverVersion: APPLICATION_WAIVER_VERSION,
+      waiverIpAddress: getRequestIp(req),
+      waiverUserAgent: normalizeShortText(req.get('user-agent'), 255)
     });
 
     // Mark invite as used
@@ -797,8 +883,8 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
     const classId = seasonRows?.[0]?.id;
     if (classId) {
       await ChallengeParticipantProfile.upsert({
-        userId,
-        classId,
+        learningClassId: classId,
+        providerUserId: userId,
         gender:       app.gender || null,
         dateOfBirth:  app.date_of_birth || null,
         weightLbs:    app.weight_lbs || null,
@@ -1303,6 +1389,67 @@ const buildSeasonHistoryFallbackSummary = ({ firstName, seasonCount, totalMiles,
   return `${name} has participated in ${seasonText} with ${normalizeNum(totalMiles, 1)} total miles, ${Math.round(totalPoints)} points, and ${Math.round(totalWorkouts)} logged workouts. ${bestSeasonText}`;
 };
 
+const buildRegistrationContextSummary = ({
+  heardAboutClub,
+  runningFitnessBackground,
+  averageMilesPerWeek,
+  averageHoursPerWeek,
+  currentFitnessActivities
+}) => {
+  const parts = [];
+  if (heardAboutClub) parts.push(`Heard about the club via ${heardAboutClub}.`);
+  const load = [];
+  if (averageMilesPerWeek != null) load.push(`${normalizeNum(averageMilesPerWeek, 1)} miles/week`);
+  if (averageHoursPerWeek != null) load.push(`${normalizeNum(averageHoursPerWeek, 1)} hours/week`);
+  if (load.length) parts.push(`Current training load is about ${load.join(' and ')}.`);
+  if (runningFitnessBackground) parts.push(`Background: ${runningFitnessBackground}.`);
+  if (currentFitnessActivities) parts.push(`Current activities: ${currentFitnessActivities}.`);
+  return parts.join(' ').trim();
+};
+
+const canViewMemberSeasonHistoryAsCaptain = async ({ clubId, requesterUserId, targetUserId }) => {
+  const cid = toInt(clubId);
+  const requesterId = toInt(requesterUserId);
+  const targetId = toInt(targetUserId);
+  if (!cid || !requesterId || !targetId) return false;
+  const [rows] = await pool.execute(
+    `SELECT 1
+     FROM challenge_teams t
+     INNER JOIN learning_program_classes c
+       ON c.id = t.learning_class_id
+      AND c.organization_id = ?
+     INNER JOIN challenge_team_members tm
+       ON tm.team_id = t.id
+      AND tm.provider_user_id = ?
+     WHERE t.team_manager_user_id = ?
+     LIMIT 1`,
+    [cid, targetId, requesterId]
+  );
+  return Array.isArray(rows) && rows.length > 0;
+};
+
+const assertSeasonHistoryViewerAccess = async (req, res, clubId, targetUserId) => {
+  const user = req.user;
+  if (!user?.id) {
+    res.status(401).json({ error: { message: 'Sign in required' } });
+    return null;
+  }
+  const club = await resolveClub(clubId);
+  if (!club) {
+    res.status(404).json({ error: { message: 'Club not found' } });
+    return null;
+  }
+  if (String(user.role || '').toLowerCase() === 'super_admin') return club;
+  const agencies = await User.getAgencies(user.id);
+  const isClubMember = (agencies || []).some((a) => Number(a?.id) === Number(clubId));
+  if (canManageClubAsManager(user.role) && isClubMember) return club;
+  if (isClubMember && await canViewMemberSeasonHistoryAsCaptain({ clubId, requesterUserId: user.id, targetUserId })) {
+    return club;
+  }
+  res.status(403).json({ error: { message: 'Club manager or current team captain access required' } });
+  return null;
+};
+
 /**
  * GET /summit-stats/clubs/:id/members/:userId/season-history
  * Manager — season participation history + registration profile + AI summary.
@@ -1311,7 +1458,7 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
   try {
     const clubId = toInt(req.params.id);
     const userId = toInt(req.params.userId);
-    const club = await assertManagerAccess(req, res, clubId);
+    const club = await assertSeasonHistoryViewerAccess(req, res, clubId, userId);
     if (!club) return;
     if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
 
@@ -1327,7 +1474,10 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
     if (!member) return res.status(404).json({ error: { message: 'Member not found in this club' } });
 
     const [applicationRows] = await pool.execute(
-      `SELECT first_name, last_name, email, phone, gender, date_of_birth, weight_lbs, height_inches, timezone, custom_fields, status, reviewed_at, applied_at
+      `SELECT first_name, last_name, email, phone, gender, date_of_birth, weight_lbs, height_inches, timezone,
+              heard_about_club, running_fitness_background, average_miles_per_week, average_hours_per_week, current_fitness_activities,
+              waiver_signature_name, waiver_agreed_at, waiver_version,
+              custom_fields, status, reviewed_at, applied_at
        FROM challenge_member_applications
        WHERE agency_id = ? AND (user_id = ? OR LOWER(email) = LOWER(?))
        ORDER BY reviewed_at DESC, applied_at DESC, id DESC
@@ -1477,6 +1627,14 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
       weightLbs: latestApplication?.weight_lbs != null ? Number(latestApplication.weight_lbs) : (latestParticipantProfile?.weight_lbs != null ? Number(latestParticipantProfile.weight_lbs) : null),
       heightInches: latestApplication?.height_inches != null ? Number(latestApplication.height_inches) : (latestParticipantProfile?.height_inches != null ? Number(latestParticipantProfile.height_inches) : null),
       timezone: latestApplication?.timezone || null,
+      heardAboutClub: latestApplication?.heard_about_club || null,
+      runningFitnessBackground: latestApplication?.running_fitness_background || null,
+      averageMilesPerWeek: latestApplication?.average_miles_per_week != null ? Number(latestApplication.average_miles_per_week) : null,
+      averageHoursPerWeek: latestApplication?.average_hours_per_week != null ? Number(latestApplication.average_hours_per_week) : null,
+      currentFitnessActivities: latestApplication?.current_fitness_activities || null,
+      waiverSignatureName: latestApplication?.waiver_signature_name || null,
+      waiverAgreedAt: latestApplication?.waiver_agreed_at || null,
+      waiverVersion: latestApplication?.waiver_version || null,
       customFields: (() => {
         const raw = latestApplication?.custom_fields;
         if (!raw) return {};
@@ -1489,12 +1647,16 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
     let aiSummary = '';
     try {
       const prompt = [
-        'You are writing a short coaching/performance summary for a team captain.',
-        'Use concise plain English. Focus on trends, consistency, strengths, and actionable next-season focus.',
+        'You are writing a short coaching/performance summary for a club manager or team captain.',
+        'Use concise plain English. Focus on training baseline, trends, consistency, strengths, and actionable next-season focus.',
         'Do not invent data. If data is missing, say so briefly.',
         'Keep this to 4-6 sentences and under 110 words.',
         '',
         `Member: ${profile.firstName || member.first_name || ''} ${profile.lastName || member.last_name || ''}`.trim(),
+        `Application source / referral: ${profile.heardAboutClub || 'not provided'}`,
+        `Running & fitness background: ${profile.runningFitnessBackground || 'not provided'}`,
+        `Current weekly load: miles=${profile.averageMilesPerWeek == null ? 'n/a' : normalizeNum(profile.averageMilesPerWeek, 1)}, hours=${profile.averageHoursPerWeek == null ? 'n/a' : normalizeNum(profile.averageHoursPerWeek, 1)}`,
+        `Current activities: ${profile.currentFitnessActivities || 'not provided'}`,
         `Seasons participated: ${seasons.length}`,
         `All-time totals: miles=${normalizeNum(totals.totalMiles, 1)}, points=${Math.round(totals.totalPoints)}, workouts=${Math.round(totals.totalWorkouts)}, challengeTags=${Math.round(totals.totalChallengeTags)}, races=${Math.round(totals.totalRaces)}`,
         `Longest run miles: ${normalizeNum(totals.longestRunMiles, 1)}`,
@@ -1512,7 +1674,7 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
       aiSummary = '';
     }
     if (!aiSummary) {
-      aiSummary = buildSeasonHistoryFallbackSummary({
+      const baseSummary = buildSeasonHistoryFallbackSummary({
         firstName: profile.firstName || member.first_name,
         seasonCount: seasons.length,
         totalMiles: totals.totalMiles,
@@ -1520,6 +1682,8 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
         totalWorkouts: totals.totalWorkouts,
         bestSeason
       });
+      const registrationSummary = buildRegistrationContextSummary(profile);
+      aiSummary = [baseSummary, registrationSummary].filter(Boolean).join(' ');
     }
 
     return res.json({

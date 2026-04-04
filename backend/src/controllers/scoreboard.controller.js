@@ -11,6 +11,7 @@ import ChallengeWeeklyAssignment from '../models/ChallengeWeeklyAssignment.model
 import ChallengeElimination from '../models/ChallengeElimination.model.js';
 import { getWeekStartDate, getWeekDateTimeRange, getSeasonWeekPhase } from '../utils/challengeWeekUtils.js';
 import { canAccessChallenge } from '../utils/challengeAccess.js';
+import { ensureChallengeParticipationAgreementAccepted } from '../utils/challengeParticipationAgreement.js';
 import { normalizeRecognitionCategories } from './learningProgramClasses.controller.js';
 
 const asInt = (v) => {
@@ -506,6 +507,13 @@ export const declareByeWeek = async (req, res, next) => {
       [classId, req.user.id]
     );
     if (!membership?.length) return res.status(403).json({ error: { message: 'Join the season before declaring a bye week' } });
+    const participationAcceptance = await ensureChallengeParticipationAgreementAccepted({
+      klass: access.class,
+      userId: req.user.id
+    });
+    if (!participationAcceptance.ok) {
+      return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
+    }
     const weekCutoffTime = getWeekCutoffTime(access.class);
     const weekTimeZone = getWeekTimeZone(access.class);
     const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
@@ -669,6 +677,15 @@ export const upsertWeeklyAssignment = async (req, res, next) => {
     }
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (Number(providerUserId) === Number(req.user.id)) {
+      const participationAcceptance = await ensureChallengeParticipationAgreementAccepted({
+        klass: access.class,
+        userId: req.user.id
+      });
+      if (!participationAcceptance.ok) {
+        return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
+      }
+    }
     const assignment = await ChallengeWeeklyAssignment.assign({
       taskId,
       teamId,
@@ -698,6 +715,13 @@ export const completeWeeklyChallenge = async (req, res, next) => {
     }
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const participationAcceptance = await ensureChallengeParticipationAgreementAccepted({
+      klass: access.class,
+      userId: req.user.id
+    });
+    if (!participationAcceptance.ok) {
+      return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
+    }
     await ChallengeWeeklyAssignment.markCompleted(assignmentId, {
       completedAt: req.body.completedAt || null,
       notes: req.body.notes || req.body.completionNotes || null,

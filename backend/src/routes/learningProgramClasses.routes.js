@@ -20,6 +20,8 @@ import {
   listMyLearningClasses,
   launchLearningProgramClass,
   joinLearningProgramClass,
+  getLearningProgramParticipationAgreementStatus,
+  acceptLearningProgramParticipationAgreement,
   listParticipantProfiles,
   upsertParticipantProfile,
   getSeasonProfileCompleteness
@@ -127,6 +129,8 @@ router.put('/:classId/clients', upsertClassClientMembers);
 router.put('/:classId/providers', upsertClassProviderMembers);
 router.post('/:classId/launch', launchLearningProgramClass);
 router.post('/:classId/join', joinLearningProgramClass);
+router.get('/:classId/participation-agreement', getLearningProgramParticipationAgreementStatus);
+router.post('/:classId/participation-agreement/accept', acceptLearningProgramParticipationAgreement);
 router.get('/:classId/participant-profiles', listParticipantProfiles);
 router.put('/:classId/participant-profiles/:providerUserId', upsertParticipantProfile);
 router.get('/:classId/profile-completeness', getSeasonProfileCompleteness);

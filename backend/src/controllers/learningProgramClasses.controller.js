@@ -5,6 +5,12 @@ import IntakeLink from '../models/IntakeLink.model.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import ChallengeParticipantProfile from '../models/ChallengeParticipantProfile.model.js';
+import ChallengeSeasonParticipationAcceptance from '../models/ChallengeSeasonParticipationAcceptance.model.js';
+import {
+  buildParticipationAgreementHash,
+  hasParticipationAgreement,
+  normalizeParticipationAgreement
+} from '../utils/seasonParticipationAgreement.js';
 
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
@@ -134,6 +140,16 @@ const normalizeSeasonSettings = (input = {}) => {
     }
     return [];
   };
+  const parseTextList = (v) => {
+    if (Array.isArray(v)) return v.map((x) => String(x || '').trim()).filter(Boolean);
+    if (typeof v === 'string') {
+      return v
+        .split(/\r?\n/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+    }
+    return [];
+  };
   const schedule = src.schedule && typeof src.schedule === 'object' ? src.schedule : {};
   const divisions = src.divisions && typeof src.divisions === 'object' ? src.divisions : {};
   const scoring = src.scoring && typeof src.scoring === 'object' ? src.scoring : {};
@@ -148,6 +164,9 @@ const normalizeSeasonSettings = (input = {}) => {
   const workoutModeration = src.workoutModeration && typeof src.workoutModeration === 'object' ? src.workoutModeration : {};
   const records = src.records && typeof src.records === 'object' ? src.records : {};
   const postseason = src.postseason && typeof src.postseason === 'object' ? src.postseason : {};
+  const participationAgreement = src.participationAgreement && typeof src.participationAgreement === 'object'
+    ? src.participationAgreement
+    : (src.communityGuidelines && typeof src.communityGuidelines === 'object' ? src.communityGuidelines : {});
   const toModerationMode = (v) => {
     const s = String(v || '').trim().toLowerCase();
     if (s === 'all' || s === 'treadmill_only' || s === 'none') return s;
@@ -207,6 +226,11 @@ const normalizeSeasonSettings = (input = {}) => {
       runRuckWeeklyIncreaseMilesPerPerson: Math.max(0, floatOr(participation.runRuckWeeklyIncreaseMilesPerPerson, 2)),
       baselineMemberCount: Math.max(0, numOr(participation.baselineMemberCount, 0)),
       maxRucksPerWeek: Math.max(0, numOr(participation.maxRucksPerWeek, 0))
+    },
+    participationAgreement: {
+      label: asNonEmptyString(participationAgreement.label, ''),
+      introText: asNonEmptyString(participationAgreement.introText ?? participationAgreement.introduction ?? participationAgreement.description, ''),
+      items: parseTextList(participationAgreement.items)
     },
     byeWeek: {
       allowByeWeek: asBool(byeWeek.allowByeWeek, false),
@@ -337,6 +361,85 @@ const withSeasonSettingsDefaults = (klass) => {
   };
 };
 
+const getClassParticipationAgreement = (klass) => {
+  const settings = normalizeSeasonSettings(klass?.season_settings_json || {});
+  return normalizeParticipationAgreement(settings.participationAgreement || {});
+};
+
+const getRequestIp = (req) => {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwarded || req.ip || req.connection?.remoteAddress || null;
+};
+
+const isActiveProviderMembership = async ({ classId, userId }) => {
+  const [rows] = await pool.execute(
+    `SELECT 1
+     FROM learning_class_provider_memberships
+     WHERE learning_class_id = ? AND provider_user_id = ? AND membership_status IN ('active','completed')
+     LIMIT 1`,
+    [classId, userId]
+  );
+  return !!rows?.length;
+};
+
+const buildParticipationAgreementStatus = async ({ klass, providerUserId }) => {
+  const agreement = getClassParticipationAgreement(klass);
+  const requiresAcceptance = hasParticipationAgreement(agreement);
+  if (!requiresAcceptance) {
+    return {
+      requiresAcceptance: false,
+      accepted: true,
+      acceptedAt: null,
+      signatureName: null,
+      agreementHash: null,
+      agreement
+    };
+  }
+  const accepted = await ChallengeSeasonParticipationAcceptance.findCurrent({
+    classId: klass.id,
+    providerUserId,
+    agreement
+  });
+  return {
+    requiresAcceptance: true,
+    accepted: !!accepted,
+    acceptedAt: accepted?.accepted_at || null,
+    signatureName: accepted?.signature_name || null,
+    agreementHash: buildParticipationAgreementHash(agreement),
+    agreement
+  };
+};
+
+const attachParticipationAgreementStatusToMembers = async ({ klass, providerMembers }) => {
+  const agreement = getClassParticipationAgreement(klass);
+  const requiresAcceptance = hasParticipationAgreement(agreement);
+  const members = Array.isArray(providerMembers) ? providerMembers : [];
+  if (!requiresAcceptance || !members.length) {
+    return members.map((member) => ({
+      ...member,
+      participation_agreement_required: requiresAcceptance,
+      participation_agreement_accepted: !requiresAcceptance,
+      participation_agreement_accepted_at: null,
+      participation_agreement_signature_name: null
+    }));
+  }
+  const statusByUser = await ChallengeSeasonParticipationAcceptance.listCurrentStatusForMembers({
+    classId: klass.id,
+    providerUserIds: members.map((member) => member.provider_user_id),
+    agreement
+  });
+  return members.map((member) => {
+    const status = statusByUser.get(Number(member.provider_user_id)) || null;
+    return {
+      ...member,
+      participation_agreement_required: true,
+      participation_agreement_accepted: !!status,
+      participation_agreement_accepted_at: status?.acceptedAt || null,
+      participation_agreement_signature_name: status?.signatureName || null
+    };
+  });
+};
+
 export const listLearningProgramClasses = async (req, res, next) => {
   try {
     const organizationId = asInt(req.query.organizationId);
@@ -410,8 +513,15 @@ export const getLearningProgramClass = async (req, res, next) => {
     const intakeLinks = (intakeRows || []).map((r) => IntakeLink.normalize(r));
     const resources = await LearningProgramClass.listResources(classId);
     const clientMembers = await LearningProgramClass.listClientMembers(classId);
-    const providerMembers = await LearningProgramClass.listProviderMembers(classId);
-    return res.json({ class: klass, intakeLinks, resources, clientMembers, providerMembers });
+    const providerMembers = await attachParticipationAgreementStatusToMembers({
+      klass,
+      providerMembers: await LearningProgramClass.listProviderMembers(classId)
+    });
+    const participationAgreementStatus = await buildParticipationAgreementStatus({
+      klass,
+      providerUserId: req.user.id
+    });
+    return res.json({ class: klass, intakeLinks, resources, clientMembers, providerMembers, participationAgreementStatus });
   } catch (e) {
     next(e);
   }
@@ -917,8 +1027,76 @@ export const joinLearningProgramClass = async (req, res, next) => {
       membershipStatus: 'active',
       actorUserId: req.user.id
     });
-    const providerMembers = await LearningProgramClass.listProviderMembers(classId);
-    return res.json({ joined: true, classId, providerMembers });
+    const providerMembers = await attachParticipationAgreementStatusToMembers({
+      klass,
+      providerMembers: await LearningProgramClass.listProviderMembers(classId)
+    });
+    const participationAgreementStatus = await buildParticipationAgreementStatus({
+      klass,
+      providerUserId: req.user.id
+    });
+    return res.json({ joined: true, classId, providerMembers, participationAgreementStatus });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getLearningProgramParticipationAgreementStatus = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const klass = await LearningProgramClass.findById(classId);
+    if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
+    const allowed = await canAccessOrganization({ user: req.user, organizationId: klass.organization_id });
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied for this class' } });
+    const status = await buildParticipationAgreementStatus({
+      klass,
+      providerUserId: req.user.id
+    });
+    return res.json(status);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const acceptLearningProgramParticipationAgreement = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const klass = await LearningProgramClass.findById(classId);
+    if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
+    const allowed = await canAccessOrganization({ user: req.user, organizationId: klass.organization_id });
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied for this class' } });
+    const isMember = await isActiveProviderMembership({ classId, userId: req.user.id });
+    if (!isMember) {
+      return res.status(403).json({ error: { message: 'Join the season before accepting its participation agreement' } });
+    }
+    const agreement = getClassParticipationAgreement(klass);
+    if (!hasParticipationAgreement(agreement)) {
+      return res.status(400).json({ error: { message: 'This season does not currently require a participation agreement' } });
+    }
+    const accepted = req.body?.accepted === true || req.body?.accepted === 'true';
+    if (!accepted) {
+      return res.status(400).json({ error: { message: 'accepted must be true' } });
+    }
+    const signatureName = String(req.body?.signatureName || '').trim();
+    if (!signatureName) {
+      return res.status(400).json({ error: { message: 'signatureName is required' } });
+    }
+    const row = await ChallengeSeasonParticipationAcceptance.accept({
+      classId,
+      providerUserId: req.user.id,
+      agreement,
+      signatureName,
+      ipAddress: getRequestIp(req),
+      userAgent: req.headers['user-agent'] || null
+    });
+    return res.status(201).json({
+      accepted: true,
+      acceptedAt: row?.accepted_at || null,
+      signatureName: row?.signature_name || signatureName,
+      agreementHash: buildParticipationAgreementHash(agreement)
+    });
   } catch (e) {
     next(e);
   }

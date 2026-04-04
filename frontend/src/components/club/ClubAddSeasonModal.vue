@@ -45,6 +45,67 @@
               <input v-model="form.endsAt" type="datetime-local" class="form-input" />
             </div>
           </div>
+          <div class="form-group participation-agreement-section">
+            <label class="section-label">Season Participation Agreement</label>
+            <p class="section-hint">
+              Members will see this in the season portal. Use it for the season's rules, commandments, or guidelines that
+              workouts, uploads, comments, and participation need to follow.
+            </p>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Reuse a prior set</label>
+                <div class="inline-action-row">
+                  <select v-model="selectedAgreementTemplateKey" class="form-input">
+                    <option value="">Keep this season's current draft</option>
+                    <option
+                      v-for="option in agreementTemplateOptions"
+                      :key="option.key"
+                      :value="option.key"
+                    >
+                      {{ formatAgreementTemplateOption(option) }}
+                    </option>
+                  </select>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="!selectedAgreementTemplateKey"
+                    @click="applyAgreementTemplate"
+                  >
+                    Apply
+                  </button>
+                </div>
+                <small>Repeated rule sets appear once using the most recent season that used them.</small>
+              </div>
+              <div class="form-group">
+                <label>Display label</label>
+                <input
+                  v-model="form.agreementLabel"
+                  type="text"
+                  class="form-input"
+                  placeholder="e.g., Season Guidelines, Commandments, Rules of the Season"
+                />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Intro / agreement text</label>
+              <textarea
+                v-model="form.agreementIntroText"
+                rows="3"
+                class="form-input"
+                placeholder="Explain what members are agreeing to by joining and posting in this season."
+              />
+            </div>
+            <div class="form-group">
+              <label>Guidelines list</label>
+              <textarea
+                v-model="form.agreementItemsText"
+                rows="6"
+                class="form-input"
+                placeholder="One guideline per line"
+              />
+              <small>Managers can reject workouts or uploads that do not meet these season standards.</small>
+            </div>
+          </div>
           <div class="form-group">
             <label>Activity types (comma-separated)</label>
             <input v-model="form.activityTypesText" type="text" placeholder="e.g., running, cycling, workout_session, steps" class="form-input" />
@@ -271,9 +332,16 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import RecognitionCategoryBuilder from '../challenge/RecognitionCategoryBuilder.vue';
+import {
+  agreementItemsToTextarea,
+  agreementTextareaToItems,
+  collectUniqueParticipationAgreementSnapshots,
+  defaultParticipationAgreement,
+  formatParticipationAgreementSeasonLabel
+} from '../../utils/seasonParticipationAgreement';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -284,6 +352,8 @@ const emit = defineEmits(['close', 'created']);
 
 const confirmingClose = ref(false);
 const customFieldDefs = ref([]);
+const priorSeasons = ref([]);
+const selectedAgreementTemplateKey = ref('');
 
 const recordMetricOptions = [
   { value: 'longest_run', label: 'Longest Run' },
@@ -298,6 +368,7 @@ const recordMetricOptions = [
 ];
 
 const defaultForm = () => ({
+  ...defaultAgreementFormFields(),
   className: '',
   description: '',
   status: 'draft',
@@ -345,17 +416,54 @@ const saving = ref(false);
 const error = ref('');
 const success = ref(false);
 const successMessage = ref('');
+const agreementTemplateOptions = computed(() => collectUniqueParticipationAgreementSnapshots(priorSeasons.value));
+
+function defaultAgreementFormFields() {
+  const agreement = defaultParticipationAgreement();
+  return {
+    agreementLabel: agreement.label,
+    agreementIntroText: agreement.introText,
+    agreementItemsText: agreementItemsToTextarea(agreement.items)
+  };
+}
+
+function buildParticipationAgreementPayload(source = {}) {
+  return {
+    label: String(source.agreementLabel || '').trim(),
+    introText: String(source.agreementIntroText || '').trim(),
+    items: agreementTextareaToItems(source.agreementItemsText)
+  };
+}
+
+function applyAgreementValues(agreement = {}) {
+  form.value.agreementLabel = agreement?.label || '';
+  form.value.agreementIntroText = agreement?.introText || '';
+  form.value.agreementItemsText = agreementItemsToTextarea(agreement?.items || []);
+}
+
+function applyAgreementTemplate() {
+  const snapshot = agreementTemplateOptions.value.find((option) => option.key === selectedAgreementTemplateKey.value);
+  if (!snapshot) return;
+  applyAgreementValues(snapshot.agreement);
+}
+
+function formatAgreementTemplateOption(option) {
+  return formatParticipationAgreementSeasonLabel(option);
+}
 
 watch(() => props.open, (open) => {
   if (open) {
     confirmingClose.value = false;
     loadCustomFields();
+    loadPriorSeasons();
   } else {
     form.value = defaultForm();
     error.value = '';
     success.value = false;
     successMessage.value = '';
     confirmingClose.value = false;
+    priorSeasons.value = [];
+    selectedAgreementTemplateKey.value = '';
   }
 });
 
@@ -366,6 +474,22 @@ async function loadCustomFields() {
     customFieldDefs.value = Array.isArray(data?.fields) ? data.fields : [];
   } catch {
     customFieldDefs.value = [];
+  }
+}
+
+async function loadPriorSeasons() {
+  if (!props.clubId) {
+    priorSeasons.value = [];
+    return;
+  }
+  try {
+    const { data } = await api.get('/learning-program-classes', {
+      params: { organizationId: Number(props.clubId), includeArchived: true },
+      skipGlobalLoading: true
+    });
+    priorSeasons.value = Array.isArray(data?.classes) ? data.classes : [];
+  } catch {
+    priorSeasons.value = [];
   }
 }
 
@@ -402,6 +526,71 @@ const submit = async () => {
       return m ? (m.ageThreshold ?? 53) : 53;
     })();
 
+    const seasonSettingsJson = {
+      event: {
+        category: form.value.eventCategory || 'run_ruck',
+        challengeAssignmentMode: form.value.challengeAssignmentMode || 'volunteer_or_elect'
+      },
+      schedule: {
+        weekEndsSundayAt: form.value.weekEndsSundayAt || '23:59',
+        weekTimeZone: form.value.weekTimeZone || 'UTC'
+      },
+      scoring: {
+        weeklyMinimumPointsPerAthlete: form.value.individualMinPointsPerWeek ?? 0,
+        teamWeeklyTargetPoints: form.value.teamMinPointsPerWeek ?? 0,
+        runMilesPerPoint: Number(form.value.runMilesPerPoint ?? 1),
+        ruckMilesPerPoint: Number(form.value.ruckMilesPerPoint ?? 1),
+        caloriesPerPoint: Number(form.value.caloriesPerPoint ?? 100)
+      },
+      teams: {
+        teamCount: Number(form.value.teamCount ?? 2),
+        presetTeamNames: String(form.value.presetTeamNamesText || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+        allowCaptainRenameTeam: form.value.allowCaptainRenameTeam !== false,
+        allowCaptainNicknameSuffixWhenLocked: form.value.allowCaptainNicknameSuffixWhenLocked === true
+      },
+      participation: {
+        individualMinPointsPerWeek: Number(form.value.individualMinPointsPerWeek ?? 0),
+        teamMinPointsPerWeek: Number(form.value.teamMinPointsPerWeek ?? 0),
+        runRuckStartMilesPerPerson: Number(form.value.runRuckStartMilesPerPerson ?? 0),
+        runRuckWeeklyIncreaseMilesPerPerson: Number(form.value.runRuckWeeklyIncreaseMilesPerPerson ?? 2),
+        maxRucksPerWeek: Number(form.value.maxRucksPerWeek ?? 0)
+      },
+      participationAgreement: buildParticipationAgreementPayload(form.value),
+      byeWeek: {
+        allowByeWeek: form.value.allowByeWeek === true,
+        maxByeWeeksPerParticipant: Number(form.value.maxByeWeeksPerParticipant ?? 1),
+        requireAdvanceDeclaration: form.value.requireAdvanceByeDeclaration !== false
+      },
+      postseason: {
+        enabled: form.value.postseasonEnabled === true,
+        regularSeasonWeeks: Number(form.value.regularSeasonWeeks ?? 10),
+        hasBreakWeek: form.value.postseasonHasBreakWeek === true,
+        breakWeekNumber: form.value.postseasonHasBreakWeek === true
+          ? Number(form.value.postseasonBreakWeekNumber ?? 11)
+          : null,
+        playoffWeekNumber: Number(form.value.playoffWeekNumber ?? 11),
+        championshipWeekNumber: Number(form.value.championshipWeekNumber ?? 12),
+        playoffSeedCount: Number(form.value.playoffSeedCount ?? 4),
+        playoffMatchupMode: form.value.playoffMatchupMode || '1v4_2v3'
+      },
+      treadmill: {
+        photoProofRequired: form.value.treadmillPhotoRequired !== false
+      },
+      treadmillpocalypse: {
+        enabled: form.value.treadmillpocalypseEnabled === true,
+        startsAtWeek: form.value.treadmillpocalypseStartsAtWeek || null
+      },
+      workoutModeration: {
+        mode: form.value.workoutModerationMode || 'treadmill_only'
+      },
+      records: {
+        metrics: Array.isArray(form.value.recordMetrics) ? form.value.recordMetrics : []
+      }
+    };
+
     const payload = {
       organizationId: Number(props.clubId),
       className: String(form.value.className || '').trim(),
@@ -415,69 +604,7 @@ const submit = async () => {
       individualMinPointsPerWeek: form.value.individualMinPointsPerWeek ?? null,
       mastersAgeThreshold: mastersThreshold,
       recognitionCategoriesJson: cats.length ? cats : null,
-      seasonSettingsJson: {
-        event: {
-          category: form.value.eventCategory || 'run_ruck',
-          challengeAssignmentMode: form.value.challengeAssignmentMode || 'volunteer_or_elect'
-        },
-        schedule: {
-          weekEndsSundayAt: form.value.weekEndsSundayAt || '23:59',
-          weekTimeZone: form.value.weekTimeZone || 'UTC'
-        },
-        scoring: {
-          weeklyMinimumPointsPerAthlete: form.value.individualMinPointsPerWeek ?? 0,
-          teamWeeklyTargetPoints: form.value.teamMinPointsPerWeek ?? 0,
-          runMilesPerPoint: Number(form.value.runMilesPerPoint ?? 1),
-          ruckMilesPerPoint: Number(form.value.ruckMilesPerPoint ?? 1),
-          caloriesPerPoint: Number(form.value.caloriesPerPoint ?? 100)
-        },
-        teams: {
-          teamCount: Number(form.value.teamCount ?? 2),
-          presetTeamNames: String(form.value.presetTeamNamesText || '')
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean),
-          allowCaptainRenameTeam: form.value.allowCaptainRenameTeam !== false,
-          allowCaptainNicknameSuffixWhenLocked: form.value.allowCaptainNicknameSuffixWhenLocked === true
-        },
-        participation: {
-          individualMinPointsPerWeek: Number(form.value.individualMinPointsPerWeek ?? 0),
-          teamMinPointsPerWeek: Number(form.value.teamMinPointsPerWeek ?? 0),
-          runRuckStartMilesPerPerson: Number(form.value.runRuckStartMilesPerPerson ?? 0),
-          runRuckWeeklyIncreaseMilesPerPerson: Number(form.value.runRuckWeeklyIncreaseMilesPerPerson ?? 2),
-          maxRucksPerWeek: Number(form.value.maxRucksPerWeek ?? 0)
-        },
-        byeWeek: {
-          allowByeWeek: form.value.allowByeWeek === true,
-          maxByeWeeksPerParticipant: Number(form.value.maxByeWeeksPerParticipant ?? 1),
-          requireAdvanceDeclaration: form.value.requireAdvanceByeDeclaration !== false
-        },
-        postseason: {
-          enabled: form.value.postseasonEnabled === true,
-          regularSeasonWeeks: Number(form.value.regularSeasonWeeks ?? 10),
-          hasBreakWeek: form.value.postseasonHasBreakWeek === true,
-          breakWeekNumber: form.value.postseasonHasBreakWeek === true
-            ? Number(form.value.postseasonBreakWeekNumber ?? 11)
-            : null,
-          playoffWeekNumber: Number(form.value.playoffWeekNumber ?? 11),
-          championshipWeekNumber: Number(form.value.championshipWeekNumber ?? 12),
-          playoffSeedCount: Number(form.value.playoffSeedCount ?? 4),
-          playoffMatchupMode: form.value.playoffMatchupMode || '1v4_2v3'
-        },
-        treadmill: {
-          photoProofRequired: form.value.treadmillPhotoRequired !== false
-        },
-        treadmillpocalypse: {
-          enabled: form.value.treadmillpocalypseEnabled === true,
-          startsAtWeek: form.value.treadmillpocalypseStartsAtWeek || null
-        },
-        workoutModeration: {
-          mode: form.value.workoutModerationMode || 'treadmill_only'
-        },
-        records: {
-          metrics: Array.isArray(form.value.recordMetrics) ? form.value.recordMetrics : []
-        }
-      }
+      seasonSettingsJson
     };
     await api.post('/learning-program-classes', payload, { skipGlobalLoading: true });
     success.value = true;
@@ -587,6 +714,23 @@ const handleDone = () => {
   font-size: 12px;
   color: var(--text-secondary);
   margin: 0 0 12px 0;
+}
+
+.participation-agreement-section {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.inline-action-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.inline-action-row .form-input {
+  flex: 1;
 }
 
 .add-season-form .form-group {

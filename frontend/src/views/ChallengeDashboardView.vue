@@ -420,7 +420,7 @@
 
         <section class="challenge-section">
           <h2>Log Workout</h2>
-          <div v-if="canSubmitWorkout" class="workout-actions">
+          <div v-if="canParticipateInSeason" class="workout-actions">
             <form class="workout-form" @submit.prevent="submitWorkout">
               <div class="form-row">
                 <label>Activity type</label>
@@ -547,6 +547,9 @@
               </div>
             </form>
           </div>
+          <p v-else-if="requiresParticipationAcceptance" class="hint">
+            Accept this season's participation agreement to start logging workouts and posting in the season.
+          </p>
           <p v-else class="hint">You must be a season participant to log workouts. Contact your Program Manager to join.</p>
         </section>
 
@@ -582,6 +585,15 @@
         </div>
       </div>
     </div>
+    <ChallengeParticipationAgreementModal
+      :open="showParticipationAgreementModal"
+      :challenge-name="challenge?.class_name || challenge?.className || ''"
+      :agreement="currentParticipationAgreement"
+      :default-signature-name="defaultParticipationSignatureName"
+      :submitting="participationAcceptanceSubmitting"
+      :error="participationAcceptanceError"
+      @submit="acceptParticipationAgreement"
+    />
   </div>
 </template>
 
@@ -601,6 +613,7 @@ import ChallengeActivityFeed from '../components/challenge/ChallengeActivityFeed
 import ChallengeTeamWeeklyProgress from '../components/challenge/ChallengeTeamWeeklyProgress.vue';
 import ChallengeMessageFeed from '../components/challenge/ChallengeMessageFeed.vue';
 import ChallengeDraftReport from '../components/challenge/ChallengeDraftReport.vue';
+import ChallengeParticipationAgreementModal from '../components/challenge/ChallengeParticipationAgreementModal.vue';
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -614,6 +627,9 @@ const teams = ref([]);
 const teamsLoading = ref(false);
 const activity = ref([]);
 const activityLoading = ref(false);
+const participationAgreementStatus = ref(null);
+const participationAcceptanceSubmitting = ref(false);
+const participationAcceptanceError = ref('');
 const defaultWorkoutForm = () => ({
   activityType: '',
   distanceValue: null,
@@ -674,6 +690,35 @@ const canSubmitWorkout = computed(() => {
   const members = providerMembers.value || [];
   const myId = authStore.user?.id;
   return members.some((m) => Number(m.provider_user_id) === Number(myId) && ['active', 'completed'].includes(String(m.membership_status || '').toLowerCase()));
+});
+
+const currentParticipationAgreement = computed(() => {
+  const statusAgreement = participationAgreementStatus.value?.agreement;
+  if (statusAgreement && typeof statusAgreement === 'object') return statusAgreement;
+  const settings = challenge.value?.season_settings_json;
+  return settings && typeof settings === 'object' ? (settings.participationAgreement || null) : null;
+});
+
+const requiresParticipationAcceptance = computed(() =>
+  canSubmitWorkout.value && participationAgreementStatus.value?.requiresAcceptance === true
+);
+
+const participationAccepted = computed(() =>
+  !requiresParticipationAcceptance.value || participationAgreementStatus.value?.accepted === true
+);
+
+const canParticipateInSeason = computed(() => canSubmitWorkout.value && participationAccepted.value);
+
+const showParticipationAgreementModal = computed(() =>
+  requiresParticipationAcceptance.value &&
+  !participationAccepted.value &&
+  !!currentParticipationAgreement.value
+);
+
+const defaultParticipationSignatureName = computed(() => {
+  const first = String(authStore.user?.first_name || '').trim();
+  const last = String(authStore.user?.last_name || '').trim();
+  return [first, last].filter(Boolean).join(' ').trim();
 });
 
 const activityTypeOptions = computed(() => {
@@ -826,11 +871,29 @@ const loadChallenge = async () => {
     const r = await api.get(`/learning-program-classes/${id}`, { skipGlobalLoading: true });
     challenge.value = r.data?.class || null;
     providerMembers.value = Array.isArray(r.data?.providerMembers) ? r.data.providerMembers : [];
+    participationAgreementStatus.value = r.data?.participationAgreementStatus || null;
+    participationAcceptanceError.value = '';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load challenge';
     challenge.value = null;
+    participationAgreementStatus.value = null;
   } finally {
     loading.value = false;
+  }
+};
+
+const acceptParticipationAgreement = async (payload) => {
+  const id = challengeId.value;
+  if (!id) return;
+  participationAcceptanceSubmitting.value = true;
+  participationAcceptanceError.value = '';
+  try {
+    await api.post(`/learning-program-classes/${id}/participation-agreement/accept`, payload, { skipGlobalLoading: true });
+    await loadChallenge();
+  } catch (e) {
+    participationAcceptanceError.value = e?.response?.data?.error?.message || 'Failed to save participation agreement';
+  } finally {
+    participationAcceptanceSubmitting.value = false;
   }
 };
 
@@ -1081,6 +1144,9 @@ const submitWorkout = async () => {
     visionError.value = null;
     await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
   } catch (e) {
+    if (Number(e?.response?.status || 0) === 428) {
+      await loadChallenge();
+    }
     alert(e?.response?.data?.error?.message || 'Failed to submit workout');
   } finally {
     workoutSubmitting.value = false;

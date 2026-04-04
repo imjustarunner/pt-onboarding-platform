@@ -15,6 +15,7 @@ import ChallengeWorkoutMedia from '../models/ChallengeWorkoutMedia.model.js';
 import { queueClubRecordBreakCandidates } from './summitStats.controller.js';
 import { canManageTeam } from '../utils/challengePermissions.js';
 import { canAccessChallenge } from '../utils/challengeAccess.js';
+import { ensureChallengeParticipationAgreementAccepted } from '../utils/challengeParticipationAgreement.js';
 import { getWeekStartDate, getWeekDateTimeRange } from '../utils/challengeWeekUtils.js';
 import { enqueueWorkoutVision } from '../services/challengeWorkoutVision.service.js';
 import { challengeMessageBridge } from '../services/challengeMessageBridge.service.js';
@@ -636,6 +637,13 @@ export const submitWorkout = async (req, res, next) => {
       [classId, req.user.id]
     );
     if (!pm?.length) return res.status(403).json({ error: { message: 'You must be a season participant to submit workouts' } });
+    const participationAcceptance = await ensureChallengeParticipationAgreementAccepted({
+      klass: access.class,
+      userId: req.user.id
+    });
+    if (!participationAcceptance.ok) {
+      return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
+    }
     let teamId = req.body.teamId ? asInt(req.body.teamId) : null;
     if (!teamId) {
       const team = await ChallengeTeam.getTeamForUser(classId, req.user.id);
@@ -1073,6 +1081,13 @@ export const editOwnImportedTreadmillWorkout = async (req, res, next) => {
     if (Number(workout.user_id) !== Number(req.user.id)) {
       return res.status(403).json({ error: { message: 'You can only edit your own workouts' } });
     }
+    const participationAcceptance = await ensureChallengeParticipationAgreementAccepted({
+      klass: access.class,
+      userId: req.user.id
+    });
+    if (!participationAcceptance.ok) {
+      return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
+    }
     if (!workout.strava_activity_id || Number(workout.is_treadmill) !== 1) {
       return res.status(400).json({ error: { message: 'Only treadmill workouts imported from Strava can be edited' } });
     }
@@ -1139,6 +1154,13 @@ export const applyForCaptain = async (req, res, next) => {
     );
     if (!membership?.length) {
       return res.status(403).json({ error: { message: 'Join the season before applying for captain' } });
+    }
+    const participationAcceptance = await ensureChallengeParticipationAgreementAccepted({
+      klass,
+      userId: req.user.id
+    });
+    if (!participationAcceptance.ok) {
+      return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
     }
     const application = await ChallengeCaptainApplication.upsertPending({
       learningClassId: classId,
@@ -1351,6 +1373,15 @@ export const postChallengeMessage = async (req, res, next) => {
     if (!membership?.length && !canManageChallenge(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Join the season before posting messages' } });
     }
+    if (membership?.length) {
+      const participationAcceptance = await ensureChallengeParticipationAgreementAccepted({
+        klass: access.class,
+        userId: req.user.id
+      });
+      if (!participationAcceptance.ok) {
+        return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
+      }
+    }
     const scope = String(req.body?.scope || 'season').toLowerCase() === 'team' ? 'team' : 'season';
     let teamId = null;
     if (scope === 'team') {
@@ -1476,6 +1507,13 @@ export const postWorkoutComment = async (req, res, next) => {
     if (!workout || Number(workout.learning_class_id) !== Number(classId)) {
       return res.status(404).json({ error: { message: 'Workout not found' } });
     }
+    const participationAcceptance = await ensureChallengeParticipationAgreementAccepted({
+      klass: access.class,
+      userId: req.user.id
+    });
+    if (!participationAcceptance.ok) {
+      return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
+    }
     const comment = await ChallengeWorkoutComment.create({
       workoutId,
       learningClassId: classId,
@@ -1573,6 +1611,13 @@ export const uploadWorkoutMedia = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Workout not found' } });
     }
     if (!req.file) return res.status(400).json({ error: { message: 'file is required' } });
+    const participationAcceptance = await ensureChallengeParticipationAgreementAccepted({
+      klass: access.class,
+      userId: req.user.id
+    });
+    if (!participationAcceptance.ok) {
+      return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
+    }
     const filePath = `challenge_workouts/${req.file.filename}`;
     const mime = String(req.file.mimetype || '').toLowerCase();
     const mediaType = mime.includes('gif') ? 'gif' : 'image';

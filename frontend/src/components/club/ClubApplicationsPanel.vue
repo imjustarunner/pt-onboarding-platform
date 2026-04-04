@@ -97,6 +97,11 @@
             <span v-else class="cap-tag cap-tag--direct">Direct</span>
             <span class="cap-app-date">Applied {{ formatDate(app.applied_at) }}</span>
           </div>
+          <p v-if="app.heard_about_club" class="cap-app-answer"><strong>How they heard:</strong> {{ app.heard_about_club }}</p>
+          <p v-if="app.running_fitness_background" class="cap-app-answer"><strong>Background:</strong> {{ app.running_fitness_background }}</p>
+          <p v-if="trainingLoadLine(app)" class="cap-app-answer"><strong>Current load:</strong> {{ trainingLoadLine(app) }}</p>
+          <p v-if="app.current_fitness_activities" class="cap-app-answer"><strong>Current activities:</strong> {{ app.current_fitness_activities }}</p>
+          <p v-if="waiverLine(app)" class="cap-app-answer"><strong>Waiver:</strong> {{ waiverLine(app) }}</p>
         </div>
 
         <!-- Status badge -->
@@ -274,6 +279,29 @@ const formatHeight = (inches) => {
   const ins = Math.round(Number(inches) % 12);
   return `${ft}'${ins}"`;
 };
+const formatDecimal = (value, digits = 1) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '';
+  return Number.isInteger(n) ? String(n) : n.toFixed(digits);
+};
+const trainingLoadLine = (app) => {
+  const parts = [];
+  if (app?.average_miles_per_week != null && app.average_miles_per_week !== '') {
+    parts.push(`${formatDecimal(app.average_miles_per_week)} mi/week`);
+  }
+  if (app?.average_hours_per_week != null && app.average_hours_per_week !== '') {
+    parts.push(`${formatDecimal(app.average_hours_per_week)} hr/week`);
+  }
+  return parts.join(' • ');
+};
+const waiverLine = (app) => {
+  const signedName = String(app?.waiver_signature_name || '').trim();
+  const signedAt = app?.waiver_agreed_at ? formatDate(app.waiver_agreed_at) : '';
+  if (!signedName && !signedAt) return '';
+  if (signedName && signedAt) return `Signed by ${signedName} on ${signedAt}`;
+  if (signedName) return `Signed by ${signedName}`;
+  return `Signed on ${signedAt}`;
+};
 
 onMounted(async () => {
   await Promise.all([loadApplications(), loadPendingCount(), loadInvites()]);
@@ -384,6 +412,13 @@ onMounted(async () => {
 .cap-app-source { display: flex; align-items: center; gap: 8px; margin-top: 5px; flex-wrap: wrap; }
 .cap-panel--compact .cap-app-source { margin-top: 3px; gap: 6px; }
 .cap-app-date { font-size: 11px; color: var(--text-muted, #94a3b8); }
+.cap-app-answer {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text, #334155);
+  white-space: pre-wrap;
+}
 .cap-app-right { flex-shrink: 0; }
 
 /* Tags */

@@ -20,6 +20,7 @@
  */
 import pool from '../config/database.js';
 import { canAccessChallenge } from '../utils/challengeAccess.js';
+import { ensureChallengeParticipationAgreementAccepted } from '../utils/challengeParticipationAgreement.js';
 import { getWeekStartDate } from '../utils/challengeWeekUtils.js';
 
 const asInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
@@ -88,6 +89,13 @@ export const giveKudos = async (req, res, next) => {
 
     const access = await getAccess(req, classId);
     if (!access) return res.status(403).json({ error: { message: 'Access denied' } });
+    const participationAcceptance = await ensureChallengeParticipationAgreementAccepted({
+      klass: access.class,
+      userId: req.user.id
+    });
+    if (!participationAcceptance.ok) {
+      return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
+    }
 
     const workout = await getWorkout(workoutId, classId);
     if (!workout) return res.status(404).json({ error: { message: 'Workout not found' } });
@@ -165,6 +173,13 @@ export const removeKudos = async (req, res, next) => {
 
     const access = await getAccess(req, classId);
     if (!access) return res.status(403).json({ error: { message: 'Access denied' } });
+    const participationAcceptance = await ensureChallengeParticipationAgreementAccepted({
+      klass: access.class,
+      userId: req.user.id
+    });
+    if (!participationAcceptance.ok) {
+      return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
+    }
 
     const [result] = await pool.execute(
       `DELETE FROM challenge_workout_kudos WHERE giver_user_id = ? AND workout_id = ?`,
@@ -398,6 +413,13 @@ export const toggleReaction = async (req, res, next) => {
 
     const access = await getAccess(req, classId);
     if (!access) return res.status(403).json({ error: { message: 'Access denied' } });
+    const participationAcceptance = await ensureChallengeParticipationAgreementAccepted({
+      klass: access.class,
+      userId: req.user.id
+    });
+    if (!participationAcceptance.ok) {
+      return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
+    }
 
     const emoji = String(req.body?.emoji || '').trim();
     if (!emoji) return res.status(400).json({ error: { message: 'emoji is required' } });

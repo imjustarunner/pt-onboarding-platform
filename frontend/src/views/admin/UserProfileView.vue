@@ -211,6 +211,26 @@
                   <label>Timezone</label>
                   <input :value="memberRegistrationProfile.timezone || 'Not provided'" type="text" disabled />
                 </div>
+                <div class="form-group">
+                  <label>Current Training Load</label>
+                  <input :value="memberRegistrationWeeklyLoadDisplay" type="text" disabled />
+                </div>
+                <div class="form-group">
+                  <label>Waiver</label>
+                  <input :value="memberRegistrationWaiverDisplay" type="text" disabled />
+                </div>
+                <div class="form-group form-group-full" v-if="memberRegistrationProfile.heardAboutClub">
+                  <label>How They Heard About The Club</label>
+                  <textarea :value="memberRegistrationProfile.heardAboutClub" rows="2" disabled />
+                </div>
+                <div class="form-group form-group-full" v-if="memberRegistrationProfile.runningFitnessBackground">
+                  <label>Running &amp; Fitness Background</label>
+                  <textarea :value="memberRegistrationProfile.runningFitnessBackground" rows="4" disabled />
+                </div>
+                <div class="form-group form-group-full" v-if="memberRegistrationProfile.currentFitnessActivities">
+                  <label>Current Running &amp; Fitness Activities</label>
+                  <textarea :value="memberRegistrationProfile.currentFitnessActivities" rows="4" disabled />
+                </div>
                 <div class="form-group form-group-full" v-if="memberRegistrationCustomFieldsList.length">
                   <label>Application Custom Fields</label>
                   <div class="texting-number-display">
@@ -2822,6 +2842,41 @@ const memberRegistrationHeightDisplay = computed(() => {
   return `${ft}'${ins}"`;
 });
 
+const memberRegistrationWeeklyLoadDisplay = computed(() => {
+  const miles = memberRegistrationProfile.value?.averageMilesPerWeek;
+  const hours = memberRegistrationProfile.value?.averageHoursPerWeek;
+  const parts = [];
+  if (miles != null && miles !== '') {
+    const n = Number(miles);
+    if (Number.isFinite(n)) parts.push(`${Number.isInteger(n) ? n : n.toFixed(1)} mi/week`);
+  }
+  if (hours != null && hours !== '') {
+    const n = Number(hours);
+    if (Number.isFinite(n)) parts.push(`${Number.isInteger(n) ? n : n.toFixed(1)} hr/week`);
+  }
+  return parts.length ? parts.join(' • ') : 'Not provided';
+});
+
+const memberRegistrationWaiverDisplay = computed(() => {
+  const signedName = String(memberRegistrationProfile.value?.waiverSignatureName || '').trim();
+  const signedAt = memberRegistrationProfile.value?.waiverAgreedAt;
+  let signedAtDisplay = '';
+  if (signedAt) {
+    const s = String(signedAt).trim();
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      if (!Number.isNaN(d.getTime())) {
+        signedAtDisplay = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+    }
+  }
+  if (signedName && signedAtDisplay) return `Signed by ${signedName} on ${signedAtDisplay}`;
+  if (signedName) return `Signed by ${signedName}`;
+  if (signedAtDisplay) return `Signed on ${signedAtDisplay}`;
+  return 'Not provided';
+});
+
 const memberSeasonHistorySeasons = computed(() => {
   return Array.isArray(memberSeasonHistory.value?.seasons) ? memberSeasonHistory.value.seasons : [];
 });
@@ -2846,6 +2901,13 @@ const loadMemberSeasonHistory = async () => {
       weightLbs: profile.weightLbs != null ? Number(profile.weightLbs) : null,
       heightInches: profile.heightInches != null ? Number(profile.heightInches) : null,
       timezone: profile.timezone || '',
+      heardAboutClub: profile.heardAboutClub || '',
+      runningFitnessBackground: profile.runningFitnessBackground || '',
+      averageMilesPerWeek: profile.averageMilesPerWeek != null ? Number(profile.averageMilesPerWeek) : null,
+      averageHoursPerWeek: profile.averageHoursPerWeek != null ? Number(profile.averageHoursPerWeek) : null,
+      currentFitnessActivities: profile.currentFitnessActivities || '',
+      waiverSignatureName: profile.waiverSignatureName || '',
+      waiverAgreedAt: profile.waiverAgreedAt || '',
       customFields: profile.customFields && typeof profile.customFields === 'object' ? profile.customFields : {}
     };
     memberSeasonHistory.value = payload?.seasonHistory && typeof payload.seasonHistory === 'object'
@@ -6459,7 +6521,8 @@ onMounted(() => {
 }
 
 .form-grid .form-group input,
-.form-grid .form-group select {
+.form-grid .form-group select,
+.form-grid .form-group textarea {
   padding: 7px 9px;
   font-size: 13px;
 }
@@ -6489,12 +6552,19 @@ onMounted(() => {
 }
 
 .form-group input,
-.form-group select {
+.form-group select,
+.form-group textarea {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 14px;
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 84px;
+  line-height: 1.45;
 }
 
 .form-group-full {
@@ -7261,4 +7331,3 @@ onMounted(() => {
   color: var(--text-secondary);
 }
 </style>
-

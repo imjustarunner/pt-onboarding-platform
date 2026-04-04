@@ -120,6 +120,64 @@
             </div>
           </div>
           <p class="hint" style="margin-top: 0;">Uses enrollment open/close dates above for when guardians can enroll (active class + window).</p>
+          <div class="form-group participation-agreement-block">
+            <label style="font-weight:700;">Season Participation Agreement</label>
+            <p class="hint" style="margin: 6px 0 12px 0;">
+              Members can view this in the season portal. Use it for the rules, commandments, or guidelines that uploads,
+              comments, workouts, and season participation need to follow.
+            </p>
+            <div class="form-row" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;">
+              <div class="form-group">
+                <label>Reuse a prior set</label>
+                <div class="inline-action-row">
+                  <select v-model="selectedAgreementTemplateKey">
+                    <option value="">Keep this season's current draft</option>
+                    <option
+                      v-for="option in agreementTemplateOptions"
+                      :key="option.key"
+                      :value="option.key"
+                    >
+                      {{ formatAgreementTemplateOption(option) }}
+                    </option>
+                  </select>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="!selectedAgreementTemplateKey"
+                    @click="applyAgreementTemplate"
+                  >
+                    Apply
+                  </button>
+                </div>
+                <small>Repeated rule sets appear once using the most recent season that used them.</small>
+              </div>
+              <div class="form-group">
+                <label>Display label</label>
+                <input
+                  v-model="challengeForm.agreementLabel"
+                  type="text"
+                  placeholder="e.g., Season Guidelines, Team Commandments, Community Standards"
+                />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Intro / agreement text</label>
+              <textarea
+                v-model="challengeForm.agreementIntroText"
+                rows="3"
+                placeholder="Explain what members are agreeing to by joining and posting in this season."
+              />
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Guidelines list</label>
+              <textarea
+                v-model="challengeForm.agreementItemsText"
+                rows="6"
+                placeholder="One guideline per line"
+              />
+              <small>Managers can reject workouts or uploads that do not meet these season standards.</small>
+            </div>
+          </div>
           <div class="form-group">
             <label>Activity types (comma-separated)</label>
             <input v-model="challengeForm.activityTypesText" type="text" placeholder="e.g., running, cycling, workout_session, steps" />
@@ -856,6 +914,14 @@ import RecognitionCategoryBuilder from '../challenge/RecognitionCategoryBuilder.
 import RecognitionLibraryManager from '../challenge/RecognitionLibraryManager.vue';
 import ClubCustomFields from '../club/ClubCustomFields.vue';
 import { TIMEZONE_GROUPS } from '../../utils/timezones.js';
+import {
+  agreementItemsToTextarea,
+  agreementTextareaToItems,
+  collectUniqueParticipationAgreementSnapshots,
+  defaultParticipationAgreement,
+  formatParticipationAgreementSeasonLabel,
+  normalizeParticipationAgreement
+} from '../../utils/seasonParticipationAgreement.js';
 
 const router = useRouter();
 const agencyStore = useAgencyStore();
@@ -908,6 +974,7 @@ const challengeCustomFields = ref([]);
 const libraryManagerRef = ref(null);
 const libraryAwards = ref([]);
 const libraryGroups = ref([]);
+const selectedAgreementTemplateKey = ref('');
 const normalizeRecordMetricSelection = (raw) => {
   const arr = Array.isArray(raw)
     ? raw
@@ -923,7 +990,44 @@ const challenges = ref([]);
 const saving = ref(false);
 const showChallengeModal = ref(false);
 const editingChallenge = ref(null);
+const agreementTemplateOptions = computed(() => collectUniqueParticipationAgreementSnapshots(challenges.value));
+const defaultAgreementFields = () => {
+  const agreement = defaultParticipationAgreement();
+  return {
+    agreementLabel: agreement.label,
+    agreementIntroText: agreement.introText,
+    agreementItemsText: agreementItemsToTextarea(agreement.items)
+  };
+};
+const blankAgreementFields = () => ({
+  agreementLabel: '',
+  agreementIntroText: '',
+  agreementItemsText: ''
+});
+const buildAgreementFieldsFromSettings = (seasonSettings = {}) => {
+  const agreement = normalizeParticipationAgreement(seasonSettings?.participationAgreement || seasonSettings?.communityGuidelines || {});
+  if (!agreement.label && !agreement.introText && !agreement.items.length) return blankAgreementFields();
+  return {
+    agreementLabel: agreement.label,
+    agreementIntroText: agreement.introText,
+    agreementItemsText: agreementItemsToTextarea(agreement.items)
+  };
+};
+const buildParticipationAgreementPayload = (formLike = {}) => ({
+  label: String(formLike.agreementLabel || '').trim(),
+  introText: String(formLike.agreementIntroText || '').trim(),
+  items: agreementTextareaToItems(formLike.agreementItemsText)
+});
+const applyAgreementTemplate = () => {
+  const snapshot = agreementTemplateOptions.value.find((option) => option.key === selectedAgreementTemplateKey.value);
+  if (!snapshot) return;
+  challengeForm.value.agreementLabel = snapshot.agreement.label || '';
+  challengeForm.value.agreementIntroText = snapshot.agreement.introText || '';
+  challengeForm.value.agreementItemsText = agreementItemsToTextarea(snapshot.agreement.items || []);
+};
+const formatAgreementTemplateOption = (option) => formatParticipationAgreementSeasonLabel(option);
 const challengeForm = ref({
+  ...defaultAgreementFields(),
   className: '',
   description: '',
   status: 'draft',
@@ -1223,7 +1327,9 @@ const loadChallenges = async () => {
 
 const openCreateModal = () => {
   editingChallenge.value = null;
+  selectedAgreementTemplateKey.value = '';
   challengeForm.value = {
+    ...defaultAgreementFields(),
     className: '',
     description: '',
     status: 'draft',
@@ -1306,7 +1412,9 @@ const openEditModal = (c) => {
   const moderationSettings = seasonSettings.workoutModeration || {};
   const recordsSettings = seasonSettings.records || {};
   const postseasonSettings = seasonSettings.postseason || {};
+  selectedAgreementTemplateKey.value = '';
   challengeForm.value = {
+    ...buildAgreementFieldsFromSettings(seasonSettings),
     className: c.class_name || c.className || '',
     description: c.description || '',
     status: (c.status || 'draft').toLowerCase(),
@@ -1369,6 +1477,7 @@ const openEditModal = (c) => {
 const closeChallengeModal = () => {
   showChallengeModal.value = false;
   editingChallenge.value = null;
+  selectedAgreementTemplateKey.value = '';
 };
 
 const saveChallenge = async () => {
@@ -1447,6 +1556,7 @@ const saveChallenge = async () => {
           runRuckWeeklyIncreaseMilesPerPerson: Number(challengeForm.value.runRuckWeeklyIncreaseMilesPerPerson ?? 0),
           maxRucksPerWeek: Number(challengeForm.value.maxRucksPerWeek ?? 0)
         },
+        participationAgreement: buildParticipationAgreementPayload(challengeForm.value),
         byeWeek: {
           allowByeWeek: challengeForm.value.allowByeWeek === true,
           maxByeWeeksPerParticipant: Number(challengeForm.value.maxByeWeeksPerParticipant ?? 1),
@@ -2531,6 +2641,23 @@ onMounted(() => {
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 0.85em;
+}
+
+.participation-agreement-block {
+  padding: 14px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.inline-action-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.inline-action-row select {
+  flex: 1;
 }
 
 /* Photo moderation */

@@ -190,6 +190,93 @@
             </div>
           </section>
 
+          <section class="form-section">
+            <h2 class="section-title">Training Snapshot</h2>
+
+            <div class="field">
+              <label>How did you hear of us / who referred you?</label>
+              <input
+                v-model="form.heardAboutClub"
+                type="text"
+                placeholder="Friend, coach, social media, running group, etc."
+              />
+            </div>
+
+            <div class="field">
+              <label>Describe your running and fitness background</label>
+              <textarea
+                v-model="form.runningFitnessBackground"
+                rows="4"
+                placeholder="Tell us about your history with running, racing, training, sports, or other fitness work."
+              ></textarea>
+            </div>
+
+            <div class="field-row">
+              <div class="field">
+                <label>How many miles do you average per week currently?</label>
+                <div class="input-addon-row">
+                  <input v-model.number="form.averageMilesPerWeek" type="number" min="0" max="500" step="0.1" placeholder="20" />
+                  <span class="addon">mi</span>
+                </div>
+              </div>
+              <div class="field">
+                <label>How many hours do you average per week currently?</label>
+                <div class="input-addon-row">
+                  <input v-model.number="form.averageHoursPerWeek" type="number" min="0" max="200" step="0.1" placeholder="5" />
+                  <span class="addon">hrs</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>Describe your current running and fitness activities</label>
+              <textarea
+                v-model="form.currentFitnessActivities"
+                rows="4"
+                placeholder="What are you doing right now? For example: easy runs, lifting, classes, cycling, hiking, mobility, team sports, etc."
+              ></textarea>
+            </div>
+          </section>
+
+          <section class="form-section">
+            <h2 class="section-title">Participation Waiver</h2>
+            <div class="waiver-card">
+              <p class="waiver-copy">
+                By applying to join this club through the Summit Stats Team Challenge platform, you understand that your account
+                activity, posts, comments, workout submissions, and other participation may be visible within the club experience
+                and are tied to your user profile.
+              </p>
+              <p class="waiver-copy" style="margin-top: 12px;">
+                You agree to participate respectfully, follow the club manager's and assistant managers' expectations, and avoid
+                harassment, abuse, inappropriate content, false submissions, misuse of platform tools, or attempts to bypass club
+                or platform controls. The club manager and assistant managers may reject, remove, or limit applicants or members
+                who do not follow club guidelines, and the platform reserves the right to restrict access, remove content, or take
+                other protective action when needed.
+              </p>
+              <p class="waiver-copy" style="margin-top: 12px;">
+                You also understand that running, training, and fitness activities carry inherent risks, including falls,
+                collisions, weather exposure, overexertion, and medical events. Participation is voluntary, you are responsible
+                for using appropriate judgment and seeking medical guidance as needed, and you release the club, its managers,
+                captains, volunteers, event organizers, and the platform from claims arising from ordinary participation to the
+                fullest extent allowed by law.
+              </p>
+              <label class="waiver-check">
+                <input v-model="form.waiverAccepted" type="checkbox" />
+                <span>I have read and agree to the participation waiver and community expectations above.</span>
+              </label>
+              <div class="field" style="margin-top: 14px;">
+                <label>Type your full name to sign <span class="req">*</span></label>
+                <input
+                  v-model="form.waiverSignatureName"
+                  type="text"
+                  placeholder="Your full legal name"
+                  required
+                />
+                <p class="field-hint">Your typed name serves as your electronic signature for this waiver.</p>
+              </div>
+            </div>
+          </section>
+
           <!-- ── Club Custom Fields ───────────────────── -->
           <section v-if="customFields.length" class="form-section">
             <h2 class="section-title">Club Profile Fields</h2>
@@ -311,6 +398,13 @@ const form = reactive({
   heightFt: null,
   heightIn: null,
   timezone: '',
+  heardAboutClub: '',
+  runningFitnessBackground: '',
+  averageMilesPerWeek: null,
+  averageHoursPerWeek: null,
+  currentFitnessActivities: '',
+  waiverAccepted: false,
+  waiverSignatureName: '',
   customFields: {}
 });
 
@@ -382,6 +476,12 @@ const handleSubmit = async () => {
   if (form.password !== form.confirmPassword) {
     submitError.value = 'Passwords do not match.'; return;
   }
+  if (!form.waiverAccepted) {
+    submitError.value = 'You must accept the participation waiver to submit your application.'; return;
+  }
+  if (!form.waiverSignatureName.trim()) {
+    submitError.value = 'Please type your full name to sign the waiver.'; return;
+  }
 
   const clubId = inviteData.value?.clubId || clubInfo.value?.id || clubIdParam.value;
   if (!clubId) { submitError.value = 'Club not identified. Please use a valid join link.'; return; }
@@ -398,6 +498,13 @@ const handleSubmit = async () => {
     weightLbs:    form.weightLbs || null,
     heightInches: heightInches.value,
     timezone:     form.timezone || null,
+    heardAboutClub: form.heardAboutClub.trim() || null,
+    runningFitnessBackground: form.runningFitnessBackground.trim() || null,
+    averageMilesPerWeek: form.averageMilesPerWeek ?? null,
+    averageHoursPerWeek: form.averageHoursPerWeek ?? null,
+    currentFitnessActivities: form.currentFitnessActivities.trim() || null,
+    waiverAccepted: form.waiverAccepted,
+    waiverSignatureName: form.waiverSignatureName.trim(),
     customFields: form.customFields,
     referralCode: referralCode.value || null
   };
@@ -617,7 +724,7 @@ const handleSubmit = async () => {
   font-weight: 700;
   color: #0f172a;
 }
-.field input, .field select {
+.field input, .field select, .field textarea {
   padding: 10px 13px;
   border: 1.5px solid #e2e8f0;
   border-radius: 8px;
@@ -626,7 +733,12 @@ const handleSubmit = async () => {
   transition: border-color .15s, box-shadow .15s;
   color: #0f172a;
 }
-.field input:focus, .field select:focus {
+.field textarea {
+  min-height: 112px;
+  resize: vertical;
+  line-height: 1.5;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
   outline: none;
   border-color: #4f46e5;
   box-shadow: 0 0 0 3px rgba(79,70,229,0.10);
@@ -703,6 +815,29 @@ const handleSubmit = async () => {
   flex-direction: column;
   gap: 14px;
   align-items: flex-start;
+}
+.waiver-card {
+  border: 1px solid #d7e3f7;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f8fbff 0%, #f3f8ff 100%);
+  padding: 18px;
+}
+.waiver-copy {
+  margin: 0;
+  color: #27415f;
+  line-height: 1.65;
+  font-size: 13.5px;
+}
+.waiver-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 16px;
+  font-size: 13.5px;
+  color: #0f172a;
+}
+.waiver-check input {
+  margin-top: 3px;
 }
 .form-legal {
   font-size: 12px;
