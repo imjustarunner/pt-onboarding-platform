@@ -87,7 +87,7 @@
             <span>{{ app.email }}</span>
             <span v-if="app.phone"> · {{ app.phone }}</span>
             <span v-if="app.gender"> · {{ app.gender }}</span>
-            <span v-if="app.date_of_birth"> · DOB {{ app.date_of_birth }}</span>
+            <span v-if="app.date_of_birth"> · DOB {{ formatDob(app.date_of_birth) }}</span>
             <span v-if="app.weight_lbs"> · {{ app.weight_lbs }} lbs</span>
             <span v-if="app.height_inches"> · {{ formatHeight(app.height_inches) }}</span>
           </div>
@@ -252,6 +252,22 @@ const copyLink = async (url) => {
 
 // ── Formatting helpers ────────────────────────────────────────────
 const formatDate = (d) => d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+/** Birth date from API may be ISO (1997-10-23T00:00:00.000Z) — show as local calendar date, not raw ISO. */
+const formatDob = (raw) => {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const day = Number(m[3]);
+    if (y && mo >= 1 && mo <= 12 && day >= 1 && day <= 31) {
+      return new Date(y, mo - 1, day).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+  const t = new Date(s);
+  return Number.isNaN(t.getTime()) ? s : t.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
 const formatHeight = (inches) => {
   if (!inches) return '';
   const ft = Math.floor(Number(inches) / 12);
