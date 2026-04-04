@@ -151,6 +151,22 @@
                     <label>Phone</label>
                     <input v-model="accountForm.personalPhone" type="tel" :disabled="!isEditingAccount" />
                   </div>
+                  <div v-if="canManageClubMemberRoles" class="form-group form-group-full">
+                    <label>Club account role</label>
+                    <select v-model="accountForm.role" :disabled="!isEditingAccount" class="agency-select">
+                      <option value="provider">Member</option>
+                      <option value="provider_plus">Assistant manager</option>
+                    </select>
+                    <small class="form-help">
+                      <strong>Member</strong> is the default (season participation, workouts).
+                      <strong>Assistant manager</strong> can approve applications and use club manager tools.
+                      Season <strong>team captain</strong> is set per season on the Season History tab (not a global account role).
+                    </small>
+                  </div>
+                  <div v-else class="form-group form-group-full">
+                    <label>Club account role</label>
+                    <input :value="sscClubRoleReadOnlyLabel" type="text" disabled />
+                  </div>
                 </div>
                 <div v-if="isEditingAccount" class="form-actions-bar form-actions-bar--bottom">
                   <button type="submit" class="btn btn-primary" :disabled="saving">
@@ -1734,6 +1750,7 @@
                     <th>Workouts</th>
                     <th>Best Pace</th>
                     <th>Longest Run</th>
+                    <th v-if="showSeasonCaptainColumn">Team captain</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1746,6 +1763,21 @@
                     <td>{{ season.workoutCount }}</td>
                     <td>{{ season.bestRunPaceMinPerMile != null ? `${season.bestRunPaceMinPerMile} min/mi` : '—' }}</td>
                     <td>{{ season.longestRunMiles || 0 }} mi</td>
+                    <td v-if="showSeasonCaptainColumn">
+                      <template v-if="!season.teamId">—</template>
+                      <template v-else-if="canManageClubMemberRoles">
+                        <label class="checkbox-inline" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                          <input
+                            type="checkbox"
+                            :checked="!!season.isTeamCaptain"
+                            :disabled="seasonCaptainTogglingKey === `${season.classId}-${season.teamId}`"
+                            @change="toggleSeasonTeamCaptain(season, $event)"
+                          />
+                          <span>{{ season.isTeamCaptain ? 'Captain' : 'Not captain' }}</span>
+                        </label>
+                      </template>
+                      <template v-else>{{ season.isTeamCaptain ? 'Yes' : 'No' }}</template>
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -2544,6 +2576,7 @@ const memberSeasonAiSummary = ref('');
 const memberStravaLoading = ref(false);
 const memberStravaError = ref('');
 const memberStrava = ref(null);
+const seasonCaptainTogglingKey = ref('');
 const guardianLinkedClients = ref([]);
 const guardianLinkedClientsLoading = ref(false);
 const guardianLinkedClientsError = ref('');
@@ -2840,6 +2873,27 @@ const loadMemberStravaConnection = async () => {
     memberStravaError.value = e.response?.data?.error?.message || 'Could not load Strava status';
   } finally {
     memberStravaLoading.value = false;
+  }
+};
+
+const toggleSeasonTeamCaptain = async (season, evt) => {
+  const clubId = selectedClubIdForMemberProfile.value;
+  if (!clubId || !userId.value || !season?.teamId || !season?.classId) return;
+  const assign = !!evt?.target?.checked;
+  const key = `${season.classId}-${season.teamId}`;
+  seasonCaptainTogglingKey.value = key;
+  try {
+    await api.put(`/summit-stats/clubs/${clubId}/members/${userId.value}/team-captain`, {
+      learningClassId: season.classId,
+      teamId: season.teamId,
+      assign
+    });
+    await loadMemberSeasonHistory();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Could not update team captain');
+    await loadMemberSeasonHistory();
+  } finally {
+    seasonCaptainTogglingKey.value = '';
   }
 };
 
@@ -3725,6 +3779,10 @@ const providerCredentialLoaded = ref(false);
 const isEditingAccount = ref(false);
 
 const startEditAccount = () => {
+  if (isSscMemberProfileMode.value) {
+    const r = String(user.value?.role || accountForm.value.role || '').toLowerCase();
+    accountForm.value.role = r === 'provider_plus' ? 'provider_plus' : 'provider';
+  }
   isEditingAccount.value = true;
 };
 
@@ -4276,6 +4334,26 @@ const canRepairProviderSlots = computed(() => {
 const canChangeRole = computed(() => {
   const currentUserRole = authStore.user?.role;
   return currentUserRole === 'super_admin' || currentUserRole === 'admin' || currentUserRole === 'support';
+});
+
+/** SSC: program manager, assistant manager, or backoffice — can set member vs assistant manager and season team captain. */
+const canManageClubMemberRoles = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return (
+    canEditUser.value &&
+    ['admin', 'super_admin', 'support', 'staff', 'provider_plus'].includes(r)
+  );
+});
+
+const sscClubRoleReadOnlyLabel = computed(() => {
+  const r = String(accountForm.value.role || user.value?.role || '').toLowerCase();
+  return r === 'provider_plus' ? 'Assistant manager' : 'Member';
+});
+
+const showSeasonCaptainColumn = computed(() => {
+  if (canManageClubMemberRoles.value) return true;
+  const seasons = memberSeasonHistory.value?.seasons;
+  return Array.isArray(seasons) && seasons.some((s) => s.isTeamCaptain);
 });
 
 const canAssignSuperAdmin = computed(() => {
@@ -5145,6 +5223,41 @@ const removeAgency = async (agencyId) => {
 
 const saveAccount = async () => {
   if (!isEditingAccount.value) return;
+
+  if (isSscMemberProfileMode.value) {
+    const clubId = selectedClubIdForMemberProfile.value;
+    if (!clubId) {
+      alert('Missing club context.');
+      return;
+    }
+    try {
+      saving.value = true;
+      const r = String(accountForm.value.role || '').toLowerCase();
+      const role = r === 'provider_plus' ? 'provider_plus' : 'provider';
+      await api.put(`/summit-stats/clubs/${clubId}/members/${userId.value}/profile`, {
+        firstName: accountForm.value.firstName,
+        lastName: accountForm.value.lastName,
+        email: accountForm.value.email,
+        personalPhone: accountForm.value.personalPhone || null,
+        role
+      });
+      await fetchUser();
+      if (parseInt(authStore.user?.id || 0, 10) === parseInt(userId.value || 0, 10)) {
+        try {
+          await authStore.refreshUser();
+        } catch {
+          /* ignore */
+        }
+      }
+      isEditingAccount.value = false;
+    } catch (err) {
+      alert(err.response?.data?.error?.message || 'Failed to save changes');
+    } finally {
+      saving.value = false;
+    }
+    return;
+  }
+
   // Validate role assignment permissions
   if (accountForm.value.role === 'super_admin' && !canAssignSuperAdmin.value) {
     error.value = 'Only super admins can assign the super admin role';
@@ -5205,18 +5318,6 @@ const saveAccount = async () => {
       role: accountForm.value.role
     };
     let payloadToSave = updateData;
-
-    // SSC/SSTC member profile mode is intentionally narrow:
-    // only persist registration-aligned account fields from this screen.
-    if (isSscMemberProfileMode.value) {
-      payloadToSave = {
-        email: accountForm.value.email,
-        firstName: accountForm.value.firstName,
-        lastName: accountForm.value.lastName,
-        personalPhone: accountForm.value.personalPhone,
-        role: accountForm.value.role
-      };
-    }
 
     if (canEditSkillBuilderCoordinatorAccess.value && !isSscMemberProfileMode.value) {
       payloadToSave.hasSkillBuilderCoordinatorAccess = Boolean(accountForm.value.hasSkillBuilderCoordinatorAccess);

@@ -66,6 +66,8 @@ import {
   getPublicPageConfig,
   updatePublicPageConfig,
   setClubMemberStatus,
+  putClubMemberProfile,
+  putClubMemberTeamCaptain,
   getMyApplications
 } from '../controllers/challengeMemberApplications.controller.js';
 
@@ -150,6 +152,8 @@ router.get('/clubs/:id/public-page-config', getPublicPageConfig);
 router.put('/clubs/:id/public-page-config', updatePublicPageConfig);
 router.get('/clubs/:id/members', listClubMembers);
 router.get('/clubs/:id/members/:userId/season-history', getClubMemberSeasonHistory);
+router.put('/clubs/:id/members/:userId/profile', putClubMemberProfile);
+router.put('/clubs/:id/members/:userId/team-captain', putClubMemberTeamCaptain);
 router.put('/clubs/:id/members/:userId/status', setClubMemberStatus);
 
 // Club stats (computed + seed)

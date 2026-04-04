@@ -51,7 +51,15 @@ const isCaptainForClass = async ({ classId, userId }) => {
      LIMIT 1`,
     [classId, userId]
   );
-  return !!rows?.length;
+  if (rows?.length) return true;
+  const [appRows] = await pool.execute(
+    `SELECT 1
+     FROM challenge_captain_applications
+     WHERE learning_class_id = ? AND user_id = ? AND status = 'approved'
+     LIMIT 1`,
+    [classId, userId]
+  );
+  return !!appRows?.length;
 };
 
 const getWorkoutModerationMode = (settings) => {

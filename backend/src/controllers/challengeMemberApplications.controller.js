@@ -26,9 +26,16 @@ const normalizePublicSlug = (v) => {
   return cleaned.slice(0, 64);
 };
 
+/** Admin/super_admin may access some member-scoped routes without club membership (support tooling). */
 const canManageClub = (role) => {
   const r = String(role || '').toLowerCase();
   return r === 'admin' || r === 'super_admin';
+};
+
+/** Roles allowed to perform club manager actions when also assigned to the club agency. */
+const canManageClubAsManager = (role) => {
+  const r = String(role || '').toLowerCase();
+  return ['admin', 'super_admin', 'support', 'staff', 'provider_plus'].includes(r);
 };
 
 const isMemberOf = (role) => {
@@ -75,7 +82,7 @@ const resolveClubByPublicRef = async (clubRef) => {
 const assertManagerAccess = async (req, res, clubId) => {
   const user = req.user;
   if (!user?.id) { res.status(401).json({ error: { message: 'Sign in required' } }); return null; }
-  if (!canManageClub(user.role)) { res.status(403).json({ error: { message: 'Club manager access required' } }); return null; }
+  if (!canManageClubAsManager(user.role)) { res.status(403).json({ error: { message: 'Club manager access required' } }); return null; }
   const club = await resolveClub(clubId);
   if (!club) { res.status(404).json({ error: { message: 'Club not found' } }); return null; }
   if (String(user.role).toLowerCase() !== 'super_admin') {
@@ -1393,6 +1400,8 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
       classStatus: row.class_status || null,
       membershipStatus: row.membership_status || null,
       teamName: row.team_name || null,
+      teamId: null,
+      isTeamCaptain: false,
       startsAt: row.starts_at || null,
       endsAt: row.ends_at || null,
       lastWorkoutAt: row.last_workout_at || null,
@@ -1406,6 +1415,28 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
       longestRunMiles: normalizeNum(row.longest_run_miles, 1),
       bestRunPaceMinPerMile: row.best_run_pace_min_per_mile != null ? normalizeNum(row.best_run_pace_min_per_mile, 2) : null
     }));
+
+    const classIdsForTeams = [...new Set(seasons.map((s) => s.classId).filter((id) => Number.isFinite(id) && id > 0))];
+    if (classIdsForTeams.length) {
+      const ph = classIdsForTeams.map(() => '?').join(',');
+      const [teamRows] = await pool.execute(
+        `SELECT t.learning_class_id, t.id AS team_id, t.team_name, t.team_manager_user_id
+         FROM challenge_team_members tm
+         INNER JOIN challenge_teams t ON t.id = tm.team_id
+         WHERE tm.provider_user_id = ? AND t.learning_class_id IN (${ph})`,
+        [userId, ...classIdsForTeams]
+      );
+      const teamByClass = new Map();
+      for (const tr of teamRows || []) {
+        teamByClass.set(Number(tr.learning_class_id), tr);
+      }
+      for (const s of seasons) {
+        const tr = teamByClass.get(s.classId);
+        s.teamId = tr ? Number(tr.team_id) : null;
+        if (tr?.team_name) s.teamName = tr.team_name;
+        s.isTeamCaptain = !!(tr && Number(tr.team_manager_user_id) === Number(userId));
+      }
+    }
 
     const totals = seasons.reduce((acc, s) => {
       acc.totalMiles += Number(s.totalMiles || 0);
@@ -1519,6 +1550,138 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
       aiSummary
     });
   } catch (e) { next(e); }
+};
+
+/**
+ * PUT /summit-stats/clubs/:id/members/:userId/profile
+ * Manager — update basic account fields + role (provider | provider_plus only) for club members.
+ */
+export const putClubMemberProfile = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const targetUserId = toInt(req.params.userId);
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+    if (!targetUserId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+
+    const [membershipRows] = await pool.execute(
+      `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      [targetUserId, clubId]
+    );
+    if (!membershipRows?.length) return res.status(404).json({ error: { message: 'Member not found in this club' } });
+
+    const target = await User.findById(targetUserId);
+    if (!target) return res.status(404).json({ error: { message: 'User not found' } });
+
+    const currentRole = String(target.role || '').toLowerCase();
+    const memberRoles = new Set(['provider', 'provider_plus']);
+    if (!memberRoles.has(currentRole)) {
+      return res.status(400).json({
+        error: { message: 'Club member profile can only be edited for accounts with role Member or Assistant manager (provider / provider_plus).' }
+      });
+    }
+
+    const body = req.body || {};
+    const patch = {};
+    if (body.firstName !== undefined) patch.firstName = String(body.firstName || '').trim();
+    if (body.lastName !== undefined) patch.lastName = String(body.lastName || '').trim();
+    if (body.email !== undefined) {
+      const e = String(body.email || '').trim().toLowerCase();
+      if (!e || !e.includes('@')) return res.status(400).json({ error: { message: 'Valid email required' } });
+      patch.email = e;
+    }
+    if (body.personalPhone !== undefined) patch.personalPhone = String(body.personalPhone || '').trim() || null;
+    if (body.role !== undefined) {
+      const r = String(body.role || '').trim().toLowerCase();
+      if (!['provider', 'provider_plus'].includes(r)) {
+        return res.status(400).json({ error: { message: 'role must be provider (member) or provider_plus (assistant manager)' } });
+      }
+      patch.role = r;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ error: { message: 'No valid fields to update' } });
+    }
+
+    if (patch.email) {
+      const existing = await User.findByEmail(patch.email);
+      if (existing && Number(existing.id) !== Number(targetUserId)) {
+        return res.status(409).json({ error: { message: 'That email is already in use' } });
+      }
+    }
+
+    await User.update(targetUserId, patch);
+    const updated = await User.findById(targetUserId);
+    return res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * PUT /summit-stats/clubs/:id/members/:userId/team-captain
+ * Manager — assign or remove this user as team captain (season-scoped: challenge_teams.team_manager_user_id).
+ */
+export const putClubMemberTeamCaptain = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const targetUserId = toInt(req.params.userId);
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+    if (!targetUserId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+
+    const classId = toInt(req.body?.learningClassId ?? req.body?.classId);
+    const teamId = toInt(req.body?.teamId);
+    const assign = req.body?.assign !== false && req.body?.assign !== 0 && String(req.body?.assign || '').toLowerCase() !== 'false';
+
+    if (!classId || !teamId) {
+      return res.status(400).json({ error: { message: 'learningClassId and teamId are required' } });
+    }
+
+    const [membershipRows] = await pool.execute(
+      `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      [targetUserId, clubId]
+    );
+    if (!membershipRows?.length) return res.status(404).json({ error: { message: 'Member not found in this club' } });
+
+    const [teamRows] = await pool.execute(
+      `SELECT t.id, t.learning_class_id, c.organization_id
+       FROM challenge_teams t
+       INNER JOIN learning_program_classes c ON c.id = t.learning_class_id
+       WHERE t.id = ? AND t.learning_class_id = ? AND c.organization_id = ?
+       LIMIT 1`,
+      [teamId, classId, clubId]
+    );
+    const teamRow = teamRows?.[0];
+    if (!teamRow) return res.status(404).json({ error: { message: 'Team not found for this club/season' } });
+
+    const [memRows] = await pool.execute(
+      `SELECT 1 FROM challenge_team_members WHERE team_id = ? AND provider_user_id = ? LIMIT 1`,
+      [teamId, targetUserId]
+    );
+    if (!memRows?.length) {
+      return res.status(400).json({ error: { message: 'User must be on this team to be team captain' } });
+    }
+
+    if (assign) {
+      await pool.execute(
+        `UPDATE challenge_teams SET team_manager_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [targetUserId, teamId]
+      );
+    } else {
+      const [r2] = await pool.execute(
+        `UPDATE challenge_teams SET team_manager_user_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND team_manager_user_id = ?`,
+        [teamId, targetUserId]
+      );
+      if (!r2?.affectedRows) {
+        return res.json({ ok: true, cleared: false, message: 'User was not team captain for this team' });
+      }
+    }
+
+    return res.json({ ok: true, teamId, learningClassId: classId, isTeamCaptain: assign });
+  } catch (e) {
+    next(e);
+  }
 };
 
 /**
