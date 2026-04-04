@@ -1635,6 +1635,78 @@ export const getUserById = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/users/:id/strava-connection
+ * Non-sensitive Strava link status for managers viewing a member (same visibility rules as getUserById).
+ */
+export const getUserStravaConnection = async (req, res, next) => {
+  try {
+    const targetId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(targetId) || targetId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid user id' } });
+    }
+
+    const requesterId = req.user.id;
+    const role = req.user.role;
+
+    if (targetId !== requesterId) {
+      if (role === 'admin' || role === 'super_admin' || role === 'support') {
+        const targetUser = await User.findById(targetId);
+        if (!targetUser) return res.status(404).json({ error: { message: 'User not found' } });
+      } else {
+        const requestingUser = await User.findById(requesterId);
+        if (!requestingUser) return res.status(403).json({ error: { message: 'Access denied' } });
+
+        if (User.isSupervisor(requestingUser)) {
+          const targetUser = await User.findById(targetId);
+          if (!targetUser) return res.status(404).json({ error: { message: 'User not found' } });
+          const supervisorAgencies = await User.getAgencies(requesterId);
+          let hasAccess = false;
+          for (const agency of supervisorAgencies) {
+            const access = await User.supervisorHasAccess(requesterId, targetId, agency.id);
+            if (access) {
+              hasAccess = true;
+              break;
+            }
+          }
+          if (!hasAccess) {
+            return res.status(403).json({ error: { message: 'Access denied' } });
+          }
+        } else if (role === 'clinical_practice_assistant' || role === 'provider_plus') {
+          const targetUser = await User.findById(targetId);
+          if (!targetUser) return res.status(404).json({ error: { message: 'User not found' } });
+          if (!['staff', 'provider', 'school_staff', 'facilitator', 'intern'].includes(targetUser.role)) {
+            return res.status(403).json({ error: { message: 'Access denied' } });
+          }
+          const reqAgencies = await User.getAgencies(requesterId);
+          const targetAgencies = await User.getAgencies(targetId);
+          const reqIds = reqAgencies.map((a) => a.id);
+          const targetIds = targetAgencies.map((a) => a.id);
+          const shared = reqIds.filter((id) => targetIds.includes(id));
+          if (shared.length === 0) {
+            return res.status(403).json({ error: { message: 'Access denied' } });
+          }
+        } else {
+          return res.status(403).json({ error: { message: 'Access denied' } });
+        }
+      }
+    }
+
+    const [rows] = await pool.execute(
+      'SELECT strava_athlete_id, strava_athlete_username, strava_connected_at FROM user_preferences WHERE user_id = ? LIMIT 1',
+      [targetId]
+    );
+    const row = rows?.[0];
+    return res.json({
+      connected: !!(row?.strava_athlete_id),
+      username: row?.strava_athlete_username || null,
+      connectedAt: row?.strava_connected_at || null
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getUserLoginEmailAliases = async (req, res, next) => {
   try {
     const { id } = req.params;

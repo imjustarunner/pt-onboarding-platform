@@ -16,14 +16,14 @@
             {{ getStatusLabel(user.status, user.is_active) }}
           </span>
           <span
-            v-if="isOnLeave"
+            v-if="!isSscMemberProfileMode && isOnLeave"
             class="status-badge-header status-badge-header--leave"
             :title="leaveOfAbsenceLabel"
           >
             {{ leaveBadgeText }}
           </span>
           <button
-            v-if="showLeaveOfAbsenceButton"
+            v-if="!isSscMemberProfileMode && showLeaveOfAbsenceButton"
             type="button"
             class="btn btn-secondary btn-sm"
             @click="showLeaveOfAbsenceModal = true"
@@ -202,6 +202,19 @@
                       {{ item.key }}: {{ item.value }}
                     </span>
                   </div>
+                </div>
+              </div>
+
+              <div class="section-divider" style="margin-top: 18px;">
+                <h3>Integrations</h3>
+              </div>
+              <div v-if="memberStravaLoading" class="muted" style="margin-bottom: 8px;">Loading…</div>
+              <div v-else-if="memberStravaError" class="error">{{ memberStravaError }}</div>
+              <div v-else class="form-grid">
+                <div class="form-group form-group-full">
+                  <label>Strava</label>
+                  <input :value="memberStravaSummaryLine" type="text" disabled />
+                  <small class="form-help">Whether this member has connected Strava for challenge activities (read-only).</small>
                 </div>
               </div>
             </div>
@@ -2274,7 +2287,7 @@
 
     <!-- Leave of Absence Modal -->
     <LeaveOfAbsenceModal
-      :show="showLeaveOfAbsenceModal"
+      :show="showLeaveOfAbsenceModal && !isSscMemberProfileMode"
       :userId="userId"
       :user="user"
       @close="showLeaveOfAbsenceModal = false"
@@ -2528,6 +2541,9 @@ const memberSeasonHistoryError = ref('');
 const memberSeasonHistory = ref({ seasonCount: 0, totals: {}, seasons: [] });
 const memberRegistrationProfile = ref({ customFields: {} });
 const memberSeasonAiSummary = ref('');
+const memberStravaLoading = ref(false);
+const memberStravaError = ref('');
+const memberStrava = ref(null);
 const guardianLinkedClients = ref([]);
 const guardianLinkedClientsLoading = ref(false);
 const guardianLinkedClientsError = ref('');
@@ -2621,7 +2637,14 @@ const openBillingSettings = () => {
 const canViewActivityLog = computed(() => {
   const user = authStore.user;
   if (!user) return false;
-  return isSupervisor(user) || user.role === 'clinical_practice_assistant' || user.role === 'admin' || user.role === 'super_admin' || user.role === 'support';
+  return (
+    isSupervisor(user) ||
+    user.role === 'clinical_practice_assistant' ||
+    user.role === 'provider_plus' ||
+    user.role === 'admin' ||
+    user.role === 'super_admin' ||
+    user.role === 'support'
+  );
 });
 
 const canManageAssignments = computed(() => {
@@ -2805,6 +2828,21 @@ const loadMemberSeasonHistory = async () => {
   }
 };
 
+const loadMemberStravaConnection = async () => {
+  if (!isSscMemberProfileMode.value || !userId.value) return;
+  memberStravaLoading.value = true;
+  memberStravaError.value = '';
+  try {
+    const { data } = await api.get(`/users/${userId.value}/strava-connection`);
+    memberStrava.value = data || null;
+  } catch (e) {
+    memberStrava.value = null;
+    memberStravaError.value = e.response?.data?.error?.message || 'Could not load Strava status';
+  } finally {
+    memberStravaLoading.value = false;
+  }
+};
+
 const loadGuardianLinkedClients = async () => {
   if (!userId.value || !isViewingGuardian.value) return;
   guardianLinkedClientsLoading.value = true;
@@ -2978,7 +3016,8 @@ const tabs = computed(() => {
   if (isSscMemberProfileMode.value) {
     return [
       { id: 'account', label: 'Account' },
-      { id: 'season_history', label: 'Season History' }
+      { id: 'season_history', label: 'Season History' },
+      ...(canViewActivityLog.value ? [{ id: 'activity', label: 'Activity Log' }] : [])
     ];
   }
 
@@ -3811,6 +3850,7 @@ watch(activeTab, async (t) => {
 watch([isSscMemberProfileMode, selectedClubIdForMemberProfile], async ([enabled, clubId]) => {
   if (!enabled || !clubId || !userId.value) return;
   await loadMemberSeasonHistory();
+  await loadMemberStravaConnection();
 });
 
 let guardianClientSearchTimer = null;
@@ -4395,7 +4435,7 @@ const fetchUser = async () => {
       fetchProviderCredential(),
       loadExternalCalendars(),
       loadOfficeAssignments(),
-      loadLeaveOfAbsence(),
+      ...(isSscMemberProfileMode.value ? [] : [loadLeaveOfAbsence()]),
       fetchAssignedTextingNumbers()
     ]);
 
@@ -4403,7 +4443,12 @@ const fetchUser = async () => {
       void loadGuardianLinkedClients();
     }
     if (isSscMemberProfileMode.value) {
+      leaveOfAbsence.value = null;
       void loadMemberSeasonHistory();
+      void loadMemberStravaConnection();
+    } else {
+      memberStrava.value = null;
+      memberStravaError.value = '';
     }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load user';
@@ -5479,6 +5524,21 @@ const formatDate = (dateString) => {
   if (!dateString) return '';
   return new Date(dateString).toLocaleString();
 };
+
+const memberStravaSummaryLine = computed(() => {
+  const m = memberStrava.value;
+  if (!m) return '—';
+  if (!m.connected) return 'Not connected';
+  const u = m.username ? `@${m.username}` : 'Connected';
+  if (!m.connectedAt) return u;
+  try {
+    const d = new Date(m.connectedAt);
+    if (Number.isNaN(d.getTime())) return u;
+    return `${u} · linked ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  } catch {
+    return u;
+  }
+});
 
 const updatingStatus = ref(false);
 const downloadingDocument = ref(false);

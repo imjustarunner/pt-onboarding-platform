@@ -831,8 +831,11 @@ const checkActivityLogPermission = async (req, targetUserId) => {
     // Check if requesting user is a supervisor using boolean as source of truth
     const isRequestingSupervisor = User.isSupervisor(requestingUser);
     
-    // Only supervisors, CPAs, admin, super_admin, and support can view other users' activity
-    if (!isRequestingSupervisor && !['clinical_practice_assistant', 'admin', 'super_admin', 'support'].includes(requestingRole)) {
+    // Only supervisors, CPAs, provider_plus (same-agency managers), admin, super_admin, and support can view other users' activity
+    if (
+      !isRequestingSupervisor &&
+      !['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'support'].includes(requestingRole)
+    ) {
       return false;
     }
 
@@ -873,23 +876,22 @@ const checkActivityLogPermission = async (req, targetUserId) => {
       }
     }
 
-    // CPAs can view activity for all users in their agencies
-    if (requestingRole === 'clinical_practice_assistant') {
+    // CPAs and provider_plus (e.g. club assistant managers) can view activity for eligible users in shared agencies
+    if (requestingRole === 'clinical_practice_assistant' || requestingRole === 'provider_plus') {
       try {
         if (!['staff', 'provider', 'school_staff', 'facilitator', 'intern'].includes(targetUser.role)) {
           return false;
         }
-        // Check if CPA and target user share an agency
         const requestingUserAgencies = await User.getAgencies(requestingUserIdInt);
         const targetUserAgencies = await User.getAgencies(targetUserIdInt);
-        
+
         const requestingAgencyIds = requestingUserAgencies.map(a => a.id);
         const targetUserAgencyIds = targetUserAgencies.map(a => a.id);
         const sharedAgencies = requestingAgencyIds.filter(id => targetUserAgencyIds.includes(id));
 
         return sharedAgencies.length > 0;
       } catch (err) {
-        console.error('[checkActivityLogPermission] Error checking CPA access:', err);
+        console.error('[checkActivityLogPermission] Error checking CPA/provider_plus access:', err);
         return false;
       }
     }
