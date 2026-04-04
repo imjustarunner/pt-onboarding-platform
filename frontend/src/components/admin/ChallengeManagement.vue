@@ -3,7 +3,8 @@
     <div class="page-header">
       <h1>Season Management</h1>
       <p class="page-description">
-        Create and manage fitness seasons. Configure activity types, scoring, teams, and participants.
+        A <strong>season</strong> is the whole competition period (dates, teams, scoring, participants).
+        <strong>Weekly challenges</strong> are the tasks published each week — set those in <strong>Manage → Weekly challenges</strong> after you create a season.
       </p>
     </div>
 
@@ -248,7 +249,7 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>Challenge assignment mode</label>
+                <label>Default weekly task style</label>
                 <select v-model="challengeForm.challengeAssignmentMode">
                   <option value="volunteer_or_elect">Volunteer or Elect</option>
                   <option value="captain_assigns">Captain Assigns</option>
@@ -491,15 +492,16 @@
       </div>
     </div>
 
-    <!-- Manage Challenge Modal (teams + provider members) -->
+    <!-- Manage season: teams, members, profiles, weekly challenges -->
     <div v-if="showManageModal" class="modal-overlay" @click.self="closeManageModal">
       <div class="modal-content modal-wide">
-        <h2>Manage: {{ managingChallenge?.class_name || managingChallenge?.className }}</h2>
+        <h2>Manage season: {{ managingChallenge?.class_name || managingChallenge?.className }}</h2>
+        <p class="hint" style="margin: -4px 0 12px;">Teams and participants belong to this season. Weekly challenges are the per-week task set (different from the season itself).</p>
         <div class="manage-tabs">
           <button type="button" :class="['tab-btn', { active: manageTab === 'teams' }]" @click="manageTab = 'teams'">Teams</button>
           <button type="button" :class="['tab-btn', { active: manageTab === 'members' }]" @click="manageTab = 'members'">Participants</button>
           <button type="button" :class="['tab-btn', { active: manageTab === 'profiles' }]" @click="manageTab = 'profiles'; loadParticipantProfiles()">Profiles (Gender/DOB)</button>
-          <button type="button" :class="['tab-btn', { active: manageTab === 'weekly' }]" @click="manageTab = 'weekly'; loadWeeklyTasks(); loadTemplateLibrary()">Weekly Tasks</button>
+          <button type="button" :class="['tab-btn', { active: manageTab === 'weekly' }]" @click="manageTab = 'weekly'; loadWeeklyTasks(); loadTemplateLibrary()">Weekly challenges</button>
         </div>
 
         <div v-show="manageTab === 'teams'" class="manage-panel">
@@ -574,9 +576,9 @@
             </select>
             <select v-if="libraryPickerSelected" v-model="libraryPickerSlot" class="library-picker-select">
               <option value="">— slot —</option>
-              <option value="0">Challenge 1</option>
-              <option value="1">Challenge 2</option>
-              <option value="2">Challenge 3</option>
+              <option value="0">Weekly task 1</option>
+              <option value="1">Weekly task 2</option>
+              <option value="2">Weekly task 3</option>
             </select>
             <button class="btn btn-secondary btn-sm" @click="applyLibraryTemplate" :disabled="!libraryPickerSelected || libraryPickerSlot === ''">Apply</button>
           </div>
@@ -588,7 +590,7 @@
               {{ weeklyAiDraftLoading ? 'Generating…' : 'Generate AI Draft' }}
             </button>
             <button class="btn btn-primary btn-sm" @click="saveWeeklyTasks" :disabled="!managingChallenge || weeklyTasksSaving">
-              {{ weeklyTasksSaving ? 'Saving…' : 'Save 3 Weekly Tasks' }}
+              {{ weeklyTasksSaving ? 'Saving…' : 'Save weekly tasks (3)' }}
             </button>
             <button class="btn btn-primary btn-sm" @click="publishWeeklyDraft" :disabled="!managingChallenge || weeklyPublishSaving">
               {{ weeklyPublishSaving ? 'Publishing…' : 'Publish Week' }}
@@ -606,7 +608,7 @@
           <div class="weekly-tasks-form">
             <div v-for="(t, i) in weeklyTasksForm" :key="i" class="weekly-task-card">
               <div class="weekly-task-card-header">
-                <strong class="task-num">Challenge {{ i + 1 }}</strong>
+                <strong class="task-num">Weekly task {{ i + 1 }}</strong>
                 <div class="task-header-actions">
                   <label class="season-long-toggle">
                     <input type="checkbox" v-model="t.isSeasonLong" />
@@ -638,10 +640,10 @@
 
               <!-- Criteria Builder (expandable) -->
               <div v-if="showCriteriaFor[i]" class="criteria-builder">
-                <div class="criteria-section-title">Rich Criteria — validates member workouts tagged to this challenge</div>
+                <div class="criteria-section-title">Rich criteria — validates workouts tagged to this weekly task</div>
 
                 <div class="criteria-row">
-                  <label>Challenge type</label>
+                  <label>Task type</label>
                   <select v-model="t.criteriaJson.challengeType">
                     <option value="">Any</option>
                     <option value="workout">Workout</option>
@@ -700,7 +702,7 @@
                 <div class="criteria-row">
                   <label>
                     <input type="checkbox" v-model="t.criteriaJson._splitRunEnabled" @change="onSplitRunToggle(t)" />
-                    Split-run challenge (multiple workouts in one day)
+                    Split-run (multiple workouts in one day)
                   </label>
                 </div>
                 <div v-if="t.criteriaJson._splitRunEnabled" class="criteria-sub">
@@ -1050,7 +1052,7 @@ const applyLibraryTemplate = () => {
 
 const saveTaskToLibrary = async (t) => {
   const clubId = managingChallenge.value?.organization_id;
-  if (!clubId || !t.name?.trim()) return alert('Challenge needs a name before saving to library.');
+  if (!clubId || !t.name?.trim()) return alert('Weekly task needs a name before saving to library.');
   const payload = {
     name: t.name.trim(),
     description: t.description || null,

@@ -372,7 +372,7 @@ const allCategories = [
       },
       {
         id: 'challenge-management',
-        label: 'Season Management',
+        label: 'Seasons & weekly challenges',
         icon: '🏆',
         component: 'ChallengeManagement',
         requiresAgency: true,
@@ -742,7 +742,7 @@ const agencyContextPlaceholder = computed(() => {
 });
 
 const agencyContextEmptyMessage = computed(() => {
-  if (isChallengeManagement.value) return 'Select a Learning or Affiliation organization to manage seasons.';
+  if (isChallengeManagement.value) return 'Select a Learning or Affiliation organization to manage seasons and weekly challenges.';
   return isSuperAdmin.value ? 'Select a tenant to continue.' : 'Select an agency to continue.';
 });
 

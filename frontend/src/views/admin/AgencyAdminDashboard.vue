@@ -567,11 +567,11 @@ const quickActions = computed(() => {
   {
     id: 'start_new_season',
     title: 'Start New Season',
-    description: 'Create a new fitness challenge season',
+    description: 'Create a new season (container for teams, scoring, and weekly challenges)',
     to: '/admin?openAddSeason=1',
     emoji: '🏁',
     iconKey: 'challenges',
-    category: 'Challenges',
+    category: 'Seasons',
     roles: ['admin', 'support', 'super_admin'],
     capabilities: ['canAccessPlatform']
   },

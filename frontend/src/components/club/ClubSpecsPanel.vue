@@ -53,7 +53,7 @@
         <span v-if="stats?.refreshedAt">Updated {{ formatDateTime(stats.refreshedAt) }}</span>
       </div>
       <div class="links">
-        <router-link class="link" :to="orgTo('/admin/settings?category=workflow&item=challenge-management')">Season Management</router-link>
+        <router-link class="link" :to="orgTo('/admin/settings?category=workflow&item=challenge-management')">Seasons & weekly challenges</router-link>
       </div>
     </div>
   </div>
