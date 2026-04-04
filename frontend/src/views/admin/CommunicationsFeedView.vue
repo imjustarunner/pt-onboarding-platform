@@ -3,7 +3,7 @@
     <div class="header" data-tour="comms-header">
       <div>
         <h2 data-tour="comms-title">Communications</h2>
-        <p class="subtitle" data-tour="comms-subtitle">Workspace for texting, chat, calls, and delivery queues.</p>
+        <p class="subtitle" data-tour="comms-subtitle">{{ commsSubtitle }}</p>
       </div>
       <div class="header-actions" data-tour="comms-actions">
         <div class="tabs">
@@ -14,14 +14,24 @@
             {{ isProviderOrSchoolStaff ? 'My messages' : 'Automation' }}
             <span v-if="!isProviderOrSchoolStaff && pendingDeliveryCount > 0" class="tab-badge">{{ pendingDeliveryCount }}</span>
           </button>
-          <button class="tab" :class="{ active: activeTab === 'school' }" @click="setTab('school')">School alerts</button>
-          <button class="tab" :class="{ active: activeTab === 'proof' }" @click="setTab('proof')">Compliance proof</button>
+          <button
+            v-if="!hideSscSchoolComplianceTabs"
+            class="tab"
+            :class="{ active: activeTab === 'school' }"
+            @click="setTab('school')"
+          >School alerts</button>
+          <button
+            v-if="!hideSscSchoolComplianceTabs"
+            class="tab"
+            :class="{ active: activeTab === 'proof' }"
+            @click="setTab('proof')"
+          >Compliance proof</button>
         </div>
         <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="smsInboxLink">SMS Inbox</router-link>
         <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="preferencesLink">Preferences</router-link>
         <router-link v-if="!isPublicProofMode && canManageTexting" class="btn btn-secondary" :to="textingSettingsLink">Texting settings</router-link>
         <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Chats</router-link>
-        <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="ticketsLink">
+        <router-link v-if="!isPublicProofMode && !hideSscTicketsButton" class="btn btn-secondary" :to="ticketsLink">
           Tickets
           <span v-if="openTicketsCount > 0" class="header-badge">{{ openTicketsCount }}</span>
         </router-link>
@@ -767,6 +777,24 @@ const communicationsCountsStore = useCommunicationsCountsStore();
 const router = useRouter();
 const route = useRoute();
 
+const isSscSstcTenant = computed(() => {
+  const routeSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
+  const agencySlug = String(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || '').trim().toLowerCase();
+  const slug = routeSlug || agencySlug;
+  return slug === 'ssc' || slug === 'sstc';
+});
+
+/** SSC/SSTC club portals: hide school-program and compliance-proof surfaces for signed-in managers. */
+const hideSscSchoolComplianceTabs = computed(() => isSscSstcTenant.value && authStore.isAuthenticated);
+const hideSscTicketsButton = computed(() => isSscSstcTenant.value && authStore.isAuthenticated);
+
+const commsSubtitle = computed(() => {
+  if (isSscSstcTenant.value && authStore.isAuthenticated) {
+    return 'Texting, chat, and calls for your club.';
+  }
+  return 'Workspace for texting, chat, calls, and delivery queues.';
+});
+
 const loading = ref(true);
 const error = ref('');
 const rows = ref([]);
@@ -934,7 +962,10 @@ const isPublicProofMode = computed(() => !authStore.isAuthenticated && activeTab
 
 const activeTab = computed(() => {
   const defaultTab = authStore.isAuthenticated ? 'all' : 'proof';
-  const t = String(route.query?.tab || defaultTab);
+  let t = String(route.query?.tab || defaultTab);
+  if (isSscSstcTenant.value && authStore.isAuthenticated && (t === 'school' || t === 'proof')) {
+    t = 'all';
+  }
   if (t === 'texts') return 'texts';
   if (t === 'calls') return 'calls';
   if (t === 'automation') return 'automation';
@@ -948,6 +979,19 @@ const setTab = (tab) => {
   const path = typeof slug === 'string' && slug ? `/${slug}/admin/communications` : '/admin/communications';
   router.replace({ path, query: { ...route.query, tab } });
 };
+
+watch(
+  () => [route.fullPath, String(route.query?.tab || ''), isSscSstcTenant.value, authStore.isAuthenticated],
+  () => {
+    if (!isSscSstcTenant.value || !authStore.isAuthenticated) return;
+    const t = String(route.query?.tab || '');
+    if (t !== 'school' && t !== 'proof') return;
+    const slug = route.params.organizationSlug;
+    const path = typeof slug === 'string' && slug ? `/${slug}/admin/communications` : '/admin/communications';
+    router.replace({ path, query: { ...route.query, tab: 'all' } });
+  },
+  { immediate: true }
+);
 
 const formatTime = (d) => {
   try {

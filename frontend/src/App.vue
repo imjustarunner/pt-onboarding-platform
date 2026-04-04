@@ -140,7 +140,7 @@
                   </div>
                 </div>
 
-                <div class="nav-dropdown" @click.stop>
+                <div v-if="!isSscSstcTenant" class="nav-dropdown" @click.stop>
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
@@ -333,6 +333,10 @@
                   </button>
                   <div v-if="managementMenuOpen" class="nav-dropdown-menu">
                     <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" >Admin Dashboard</router-link>
+                    <router-link
+                      v-if="isSscSstcTenant && showOperationsDashboardLink"
+                      :to="orgTo('/operations-dashboard')"
+                    >{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
                     <div class="nav-dropdown-sep" />
                     <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" >Executive Report</router-link>
                     <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" >Payroll</router-link>
@@ -395,7 +399,7 @@
                   </button>
                   <div v-if="engagementMenuOpen" class="nav-dropdown-menu">
                     <router-link
-                      :to="{ path: orgTo('/admin/communications'), query: communicationsPendingCount > 0 ? { tab: 'automation' } : {} }"
+                      :to="{ path: orgTo('/admin/communications'), query: communicationsWorkspaceQuery }"
                     >
                       <span>Workspace</span>
                       <span
@@ -419,11 +423,11 @@
                       :to="orgTo('/admin/communications/chats')"
                     >Chats</router-link>
                     <router-link
-                      v-if="canUseAgencyCampaigns"
+                      v-if="canUseAgencyCampaigns && !isSscSstcTenant"
                       :to="orgTo('/admin/communications/campaigns')"
                     >Campaigns</router-link>
                     <router-link
-                      v-if="canUseEngagementFeed"
+                      v-if="canUseEngagementFeed && !isSscSstcTenant"
                       :to="orgTo('/admin/contacts')"
                     >Contacts</router-link>
                     <router-link :to="orgTo('/notifications')" >
@@ -447,7 +451,7 @@
                       </span>
                     </router-link>
                     <router-link
-                      v-if="canShowScheduleTopNav"
+                      v-if="canShowScheduleTopNav && !isSscSstcTenant"
                       :to="scheduleNavLink"
                     >
                       <span>Schedule</span>
@@ -2314,6 +2318,11 @@ watch(sessionSettingsKey, () => {
 
 // ---- Obnoxious notifications badge (admin/support) ----
 const communicationsPendingCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
+/** SSC/SSTC: open the comms workspace on “All” by default; other tenants jump to Automation when items are pending. */
+const communicationsWorkspaceQuery = computed(() => {
+  if (isSscSstcTenant.value) return {};
+  return communicationsPendingCount.value > 0 ? { tab: 'automation' } : {};
+});
 const communicationsOpenTicketsCount = computed(() => Number(communicationsCountsStore.openTicketsCount || 0));
 const communicationsTotalAttentionCount = computed(
   () =>
