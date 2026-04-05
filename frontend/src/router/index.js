@@ -37,9 +37,13 @@ const isSscPortalSlug = (value) => SSC_PORTAL_SLUGS.has(String(value || '').trim
 const isAllowedSscAuthenticatedPath = (path) => {
   const normalized = String(path || '').trim().toLowerCase();
   if (!normalized) return false;
-  // Summit tenant: allow member surfaces + org-scoped admin (SSC admin dashboard work) + club manager dashboard.
+  // Org-scoped admin subtree (each route enforces role). A single `admin(?:/|$)` alternative does not match `/ssc/admin/surveys`.
+  if (/^\/[^/]+\/admin(\/|$)/.test(normalized)) return true;
+  // Notifications hub lives outside `/admin` (still org-scoped).
+  if (/^\/[^/]+\/notifications(\/|$)/.test(normalized)) return true;
+  // Summit tenant: member surfaces + club manager dashboard + operations.
   const allowedOrgScoped =
-    /^\/[^/]+\/(challenges(?:\/|$)|messages(?:\/|$)|clubs(?:\/|$)|join(?:\/|$)|club\/settings(?:\/|$)|club\/seasons(?:\/|$)|dashboard(?:\/|$)|preferences(?:\/|$)|credentials(?:\/|$)|account-info(?:\/|$)|change-password(?:\/|$)|logout(?:\/|$)|admin(?:\/|$)|club_manager_dashboard(?:\/|$)|operations-dashboard(?:\/|$))/;
+    /^\/[^/]+\/(challenges(?:\/|$)|messages(?:\/|$)|clubs(?:\/|$)|join(?:\/|$)|club\/settings(?:\/|$)|club\/seasons(?:\/|$)|dashboard(?:\/|$)|preferences(?:\/|$)|credentials(?:\/|$)|account-info(?:\/|$)|change-password(?:\/|$)|logout(?:\/|$)|club_manager_dashboard(?:\/|$)|operations-dashboard(?:\/|$))/;
   const allowedGlobal = /^\/(dashboard|preferences|credentials|account-info|change-password|logout)(?:\/|$)/;
   return allowedOrgScoped.test(normalized) || allowedGlobal.test(normalized);
 };
@@ -794,19 +798,19 @@ const routes = [
     path: '/:organizationSlug/admin/surveys',
     name: 'OrganizationSurveyBuilder',
     component: () => import('../views/admin/SurveyBuilderView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'club_manager'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/company-events',
     name: 'OrganizationCompanyEvents',
     component: () => import('../views/admin/CompanyEventsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'club_manager'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/surveys/:id/results',
     name: 'OrganizationSurveyResults',
     component: () => import('../views/admin/SurveyResultsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'club_manager'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/intake-links',
@@ -816,13 +820,13 @@ const routes = [
     path: '/:organizationSlug/admin/users/:userId',
     name: 'OrganizationUserProfile',
     component: () => import('../views/admin/UserProfileView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'club_manager'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/users',
     name: 'OrganizationUserManager',
     component: () => import('../views/admin/UserManager.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'club_manager'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/guardians',
@@ -1095,7 +1099,7 @@ const routes = [
     path: '/:organizationSlug/admin/notifications',
     name: 'OrganizationNotifications',
     component: () => import('../views/admin/NotificationsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'school_staff'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'school_staff', 'club_manager'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/payroll/reports',

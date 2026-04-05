@@ -69,7 +69,7 @@
             <div class="nav-links-wrapper" :class="{ 'nav-menus-open': navDropdownOpen }">
               <div class="nav-links">
               <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }">
-                {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
+                {{ isSscClubManager ? 'Manager Dashboard' : isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
               </router-link>
               <router-link
                 v-if="showOperationsDashboardLink && user?.role === 'provider_plus' && !isSscSstcTenant"
@@ -107,6 +107,13 @@
               >
                 Messages
               </router-link>
+              <template v-if="isSscClubManager">
+                <router-link :to="orgTo('/admin/surveys')" @click="closeMobileMenu">Surveys</router-link>
+                <router-link :to="orgTo('/notifications')" @click="closeMobileMenu">Notifications</router-link>
+                <router-link :to="orgTo('/admin/company-events')" @click="closeMobileMenu">Club Events</router-link>
+                <router-link :to="orgTo('/club/seasons')" @click="closeMobileMenu">Season Management</router-link>
+                <router-link :to="orgTo('/admin/users')" @click="closeMobileMenu">Members</router-link>
+              </template>
               <router-link
                 v-if="canShowAdminDashboardIcon"
                 :to="adminDashboardNavTo"
@@ -566,7 +573,7 @@
           <div class="mobile-nav-links">
             <router-link v-if="showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
             <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }" class="mobile-nav-link">
-              {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
+              {{ isSscClubManager ? 'Manager Dashboard' : isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
             </router-link>
             <router-link
               v-if="showOperationsDashboardLink && user?.role === 'provider_plus' && !isSscSstcTenant"
@@ -600,6 +607,13 @@
               @click="closeMobileMenu"
               class="mobile-nav-link"
             >Messages</router-link>
+            <template v-if="isSscClubManager">
+              <router-link :to="orgTo('/admin/surveys')" @click="closeMobileMenu" class="mobile-nav-link">Surveys</router-link>
+              <router-link :to="orgTo('/notifications')" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
+              <router-link :to="orgTo('/admin/company-events')" @click="closeMobileMenu" class="mobile-nav-link">Club Events</router-link>
+              <router-link :to="orgTo('/club/seasons')" @click="closeMobileMenu" class="mobile-nav-link">Season Management</router-link>
+              <router-link :to="orgTo('/admin/users')" @click="closeMobileMenu" class="mobile-nav-link">Members</router-link>
+            </template>
             <router-link
               v-if="hasCapability('canJoinProgramEvents') && user?.role !== 'provider' && !isSscSstcTenant"
               :to="orgTo('/office')"
@@ -1104,6 +1118,10 @@ import { begin as beginLoading, end as endLoading, isLoading as globalLoading, g
 import { useSummitStatsChallengeChrome } from './composables/useSummitStatsChallengeChrome';
 import SummitStatsContextBar from './components/summit/SummitStatsContextBar.vue';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from './constants/summitStatsBranding.js';
+
+/** Matches `frontend/src/router/index.js` SSC allowlist for org slug in URL. */
+const NATIVE_APP_ORG_SLUG = String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase();
+const SSC_PORTAL_SLUGS = new Set(['ssc', 'sstc', 'summit-stats', NATIVE_APP_ORG_SLUG].filter(Boolean));
 
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
@@ -1625,8 +1643,13 @@ const isSscSstcTenant = computed(() => {
   const routeSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
   const agencySlug = String(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || '').trim().toLowerCase();
   const slug = routeSlug || agencySlug;
-  return slug === 'ssc' || slug === 'sstc';
+  return SSC_PORTAL_SLUGS.has(slug);
 });
+
+/** Summit club managers: dedicated dashboard + manager nav (surveys, members, etc.). */
+const isSscClubManager = computed(
+  () => isSscSstcTenant.value && String(user.value?.role || '').toLowerCase() === 'club_manager'
+);
 
 /** Club name + team row below the navbar (SSC / club portals only). */
 const showSummitStatsClubContextBar = computed(() => {
@@ -2195,7 +2218,10 @@ const myDashboardTo = computed(() => {
   const isProviderPlusExperienceRole =
     role === 'provider_plus' || role === 'clinical_practice_assistant';
 
-  if (isSscSstcTenant.value) return orgTo('/challenges');
+  if (isSscSstcTenant.value) {
+    if (role === 'club_manager') return orgTo('/club_manager_dashboard');
+    return orgTo('/challenges');
+  }
 
   // "My Dashboard" should always land on the user's personal dashboard, not admin.
   if (role === 'super_admin' || role === 'superadmin') return '/dashboard';

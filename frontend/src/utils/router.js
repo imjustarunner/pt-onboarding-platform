@@ -29,7 +29,9 @@ export function getDashboardRoute() {
     : (Array.isArray(agencyStore.userAgencies?.value ?? agencyStore.userAgencies)
       ? (agencyStore.userAgencies?.value ?? agencyStore.userAgencies)
       : []);
-  const isSummitStatsSlug = (value) => ['ssc', 'sstc', 'summit-stats'].includes(String(value || '').trim().toLowerCase());
+  const nativePortalSlug = String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase();
+  const isSummitStatsSlug = (value) =>
+    ['ssc', 'sstc', 'summit-stats', nativePortalSlug].filter(Boolean).includes(String(value || '').trim().toLowerCase());
   const resolveSummitStatsSlug = () => {
     const orgContext = organizationStore.organizationContext || null;
     const contextSlug = String(orgContext?.slug || '').trim().toLowerCase();
@@ -109,7 +111,7 @@ export function getDashboardRoute() {
 
   if (userRole === 'club_manager') {
     const summitSlug = resolveSummitStatsSlug();
-    return summitSlug ? `/${summitSlug}/challenges` : '/dashboard';
+    return summitSlug ? `/${summitSlug}/club_manager_dashboard` : '/dashboard';
   }
   
   // Supervisors (not admin/super_admin/support) use provider dashboard when they have a slug
