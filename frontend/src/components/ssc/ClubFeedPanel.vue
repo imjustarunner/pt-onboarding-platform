@@ -9,6 +9,15 @@
       </div>
       <div class="feed-header-actions">
         <button
+          v-if="!usePublicFeedEndpoint && clubId && !feedSeasonViewId && hasUnreadClubPosts"
+          type="button"
+          class="feed-mark-all-read"
+          :disabled="loading"
+          @click="markAllFeedRead"
+        >
+          Mark all as read
+        </button>
+        <button
           v-if="!usePublicFeedEndpoint && clubId && !feedSeasonViewId"
           type="button"
           class="feed-toggle"
@@ -36,6 +45,15 @@
       </div>
     </div>
     <div v-else-if="clubId" class="feed-refresh-row">
+      <button
+        v-if="!usePublicFeedEndpoint && hasUnreadClubPosts"
+        type="button"
+        class="feed-mark-all-read"
+        :disabled="loading"
+        @click="markAllFeedRead"
+      >
+        Mark all as read
+      </button>
       <button class="feed-refresh-btn" @click="load" :disabled="loading" title="Refresh feed">↻ Refresh</button>
     </div>
 
@@ -216,16 +234,18 @@
       No activity yet. Log a workout, post a message, or turn on <strong>Event feed</strong> to see season activity here.
     </div>
 
-    <div v-else class="feed-list">
+    <div v-else ref="feedListRef" class="feed-list">
       <div
         v-for="item in items"
         :key="item.id"
         class="feed-item"
+        :data-club-post-id="item.clubPostId || undefined"
         :class="{
           'feed-item--announcement': item.type === 'announcement',
           'feed-item--member-msg': item.type === 'member_message',
           'feed-item--workout': item.type === 'workout',
-          'feed-item--club': item.source === 'club'
+          'feed-item--club': item.source === 'club',
+          'feed-item--unread': item.clubPostId && item.isRead === false
         }"
       >
         <!-- Club-wide (manager) -->
@@ -237,14 +257,29 @@
           <div v-if="hasRichHtml(item.text)" class="feed-ann-text feed-ann-text--rich" v-html="richHtml(item.text)" />
           <p v-else class="feed-ann-text">{{ item.text }}</p>
           <div v-if="item.attachments?.length" class="feed-attach-row">
-            <a v-for="(a, i) in item.attachments" :key="i" :href="a.url" target="_blank" rel="noopener noreferrer">
+            <button
+              v-for="(a, i) in item.attachments"
+              :key="i"
+              type="button"
+              class="feed-attach-btn"
+              title="View larger"
+              @click="openLightbox(a.url)"
+            >
               <img :src="a.url" alt="" class="feed-attach-img" loading="lazy" />
-            </a>
+              <span class="feed-attach-expand" aria-hidden="true">⤢</span>
+            </button>
           </div>
-          <div class="feed-meta">
-            <span class="feed-who">{{ item.name }}</span>
-            <span class="feed-dot">·</span>
-            <span class="feed-when">{{ timeAgo(item.timestamp) }}</span>
+          <div class="feed-meta feed-meta--author" :class="{ 'feed-meta--unread': item.isRead === false }">
+            <span v-if="item.profilePhotoUrl" class="feed-author-avatar feed-author-avatar--img">
+              <img :src="item.profilePhotoUrl" alt="" />
+            </span>
+            <span v-else class="feed-author-avatar feed-author-avatar--fallback">{{ initials(item.name) }}</span>
+            <span class="feed-meta-author-main">
+              <span class="feed-who">{{ item.name }}</span>
+              <span v-if="item.isRead === false" class="feed-unread-pill" title="Unread">New</span>
+              <span class="feed-dot">·</span>
+              <span class="feed-when">{{ timeAgo(item.timestamp) }}</span>
+            </span>
           </div>
         </template>
 
@@ -257,14 +292,29 @@
           <div v-if="hasRichHtml(item.text)" class="feed-ann-text feed-ann-text--rich" v-html="richHtml(item.text)" />
           <p v-else class="feed-ann-text feed-ann-text--member">{{ item.text }}</p>
           <div v-if="item.attachments?.length" class="feed-attach-row">
-            <a v-for="(a, i) in item.attachments" :key="i" :href="a.url" target="_blank" rel="noopener noreferrer">
+            <button
+              v-for="(a, i) in item.attachments"
+              :key="i"
+              type="button"
+              class="feed-attach-btn"
+              title="View larger"
+              @click="openLightbox(a.url)"
+            >
               <img :src="a.url" alt="" class="feed-attach-img" loading="lazy" />
-            </a>
+              <span class="feed-attach-expand" aria-hidden="true">⤢</span>
+            </button>
           </div>
-          <div class="feed-meta feed-meta--flush">
-            <span class="feed-who">{{ item.name }}</span>
-            <span class="feed-dot">·</span>
-            <span class="feed-when">{{ timeAgo(item.timestamp) }}</span>
+          <div class="feed-meta feed-meta--author feed-meta--flush" :class="{ 'feed-meta--unread': item.isRead === false }">
+            <span v-if="item.profilePhotoUrl" class="feed-author-avatar feed-author-avatar--img">
+              <img :src="item.profilePhotoUrl" alt="" />
+            </span>
+            <span v-else class="feed-author-avatar feed-author-avatar--fallback">{{ initials(item.name) }}</span>
+            <span class="feed-meta-author-main">
+              <span class="feed-who">{{ item.name }}</span>
+              <span v-if="item.isRead === false" class="feed-unread-pill" title="Unread">New</span>
+              <span class="feed-dot">·</span>
+              <span class="feed-when">{{ timeAgo(item.timestamp) }}</span>
+            </span>
           </div>
         </template>
 
@@ -327,6 +377,13 @@
         {{ loading ? 'Loading…' : 'Load more' }}
       </button>
     </div>
+
+    <Teleport to="body">
+      <div v-if="lightboxUrl" class="feed-lightbox" @click.self="closeLightbox">
+        <button type="button" class="feed-lightbox-close" aria-label="Close" @click="closeLightbox">×</button>
+        <img :src="lightboxUrl" alt="" class="feed-lightbox-img" />
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -347,6 +404,9 @@ const props = defineProps({
 });
 
 const items = ref([]);
+const lightboxUrl = ref('');
+const feedListRef = ref(null);
+const feedUnreadObservers = [];
 const loading = ref(false);
 const limit = 40;
 const canLoadMore = ref(false);
@@ -656,6 +716,85 @@ const loadMore = async () => {
   }
 };
 
+const hasUnreadClubPosts = computed(() =>
+  items.value.some((x) => x.clubPostId && x.isRead === false)
+);
+
+const openLightbox = (url) => {
+  const u = String(url || '').trim();
+  if (!u) return;
+  lightboxUrl.value = u;
+  document.body.style.overflow = 'hidden';
+};
+
+const closeLightbox = () => {
+  lightboxUrl.value = '';
+  document.body.style.overflow = '';
+};
+
+const disconnectUnreadObservers = () => {
+  feedUnreadObservers.forEach((o) => {
+    try {
+      o.disconnect();
+    } catch {
+      // ignore
+    }
+  });
+  feedUnreadObservers.length = 0;
+};
+
+const markFeedPostRead = async (clubPostId) => {
+  if (!props.clubId || props.usePublicFeedEndpoint || !clubPostId) return;
+  try {
+    await api.post(
+      `/summit-stats/clubs/${props.clubId}/feed/read/${clubPostId}`,
+      {},
+      { skipGlobalLoading: true }
+    );
+    const row = items.value.find((x) => x.clubPostId === clubPostId);
+    if (row) row.isRead = true;
+  } catch {
+    // ignore
+  }
+};
+
+const markAllFeedRead = async () => {
+  if (!props.clubId || props.usePublicFeedEndpoint) return;
+  try {
+    await api.post(`/summit-stats/clubs/${props.clubId}/feed/read-all`, {}, { skipGlobalLoading: true });
+    items.value = items.value.map((x) => (x.clubPostId ? { ...x, isRead: true } : x));
+  } catch {
+    // ignore
+  }
+};
+
+const setupUnreadObservers = () => {
+  disconnectUnreadObservers();
+  if (props.usePublicFeedEndpoint) return;
+  nextTick(() => {
+    const root = feedListRef.value;
+    if (!root) return;
+    root.querySelectorAll('.feed-item.feed-item--unread[data-club-post-id]').forEach((el) => {
+      const raw = el.getAttribute('data-club-post-id');
+      const postId = parseInt(String(raw || ''), 10);
+      if (!Number.isFinite(postId) || postId <= 0) return;
+      const obs = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting && entry.intersectionRatio >= 0.15) {
+              markFeedPostRead(postId);
+              obs.disconnect();
+            }
+          });
+        },
+        { root, threshold: [0, 0.15, 0.35] }
+      );
+      obs.observe(el);
+      feedUnreadObservers.push(obs);
+    });
+  });
+};
+
 const timeAgo = (ts) => {
   if (!ts) return '';
   const diff = Date.now() - new Date(ts).getTime();
@@ -707,13 +846,28 @@ watch(
   }
 );
 
+watch(items, () => setupUnreadObservers(), { flush: 'post' });
+
+watch(lightboxUrl, (v) => {
+  if (!v) return;
+  const onKey = (e) => {
+    if (e.key === 'Escape') closeLightbox();
+  };
+  window.addEventListener('keydown', onKey);
+  return () => window.removeEventListener('keydown', onKey);
+});
+
 onMounted(() => {
   load();
   loadSeasonOptions();
   pollInterval = setInterval(load, 60_000);
 });
 
-onUnmounted(() => clearInterval(pollInterval));
+onUnmounted(() => {
+  clearInterval(pollInterval);
+  disconnectUnreadObservers();
+  closeLightbox();
+});
 </script>
 
 <style scoped>
@@ -1252,6 +1406,8 @@ onUnmounted(() => clearInterval(pollInterval));
 .feed-refresh-row {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
   padding: 0 0 6px;
 }
 .feed-refresh-row .feed-refresh-btn {
@@ -1500,5 +1656,130 @@ onUnmounted(() => clearInterval(pollInterval));
 }
 .feed-load-more:hover {
   background: #f8fafc;
+}
+
+.feed-mark-all-read {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #334155;
+  cursor: pointer;
+}
+.feed-mark-all-read:hover:not(:disabled) {
+  background: #f8fafc;
+}
+.feed-mark-all-read:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.feed-meta--author {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 0;
+  flex-wrap: wrap;
+}
+.feed-meta-author-main {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+.feed-author-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  background: #f1f5f9;
+}
+.feed-author-avatar--img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.feed-author-avatar--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+}
+.feed-unread-pill {
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+.feed-item--unread.feed-item--club {
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+.feed-attach-btn {
+  position: relative;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: zoom-in;
+  border-radius: 10px;
+  display: inline-block;
+  line-height: 0;
+}
+.feed-attach-expand {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  font-size: 0.8rem;
+  background: rgba(15, 23, 42, 0.55);
+  color: #fff;
+  border-radius: 6px;
+  padding: 2px 5px;
+  line-height: 1;
+  pointer-events: none;
+}
+.feed-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 20000;
+  background: rgba(15, 23, 42, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.feed-lightbox-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.feed-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+}
+.feed-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 </style>

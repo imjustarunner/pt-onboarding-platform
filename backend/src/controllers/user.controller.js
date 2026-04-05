@@ -5909,10 +5909,17 @@ export const getUserCredentials = async (req, res, next) => {
 export const getAccountInfo = async (req, res, next) => {
   try {
     const { id } = req.params;
-    
-    // Users can view their own account info, admins can view any
-    if (parseInt(id) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
-      return res.status(403).json({ error: { message: 'Access denied' } });
+    const targetId = parseInt(id, 10);
+    const isSelf = Number.isFinite(targetId) && targetId === req.user.id;
+
+    if (!isSelf && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+      if (String(req.user?.role || '').toLowerCase() === 'club_manager') {
+        if (!(await clubManagerCanViewClubMemberUser(req, id))) {
+          return res.status(403).json({ error: { message: 'Access denied' } });
+        }
+      } else {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
     }
     
     const user = await User.findById(id);

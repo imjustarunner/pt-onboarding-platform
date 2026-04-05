@@ -1779,38 +1779,126 @@ export const getPendingApplicationCount = async (req, res, next) => {
 
 // ── CLUB FEED ─────────────────────────────────────────────────────────────
 
-const mapClubFeedPostRows = (rows) => (rows || []).map((m) => {
-  const role = String(m.club_role || 'member').toLowerCase();
-  const isManagerPost = role === 'manager' || role === 'assistant_manager';
-  let attachments = [];
-  try {
-    const raw = m.attachments_json;
-    const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    if (Array.isArray(arr)) {
-      attachments = arr
-        .map((a) => ({
-          type: a.type || 'image',
-          url: publicUploadsUrlFromStoredPath(a.path || '')
-        }))
-        .filter((a) => a.url);
+const mapClubFeedPostRows = (rows, opts = {}) => {
+  const defaultRead = opts.defaultRead === true;
+  return (rows || []).map((m) => {
+    const role = String(m.club_role || 'member').toLowerCase();
+    const isManagerPost = role === 'manager' || role === 'assistant_manager';
+    let attachments = [];
+    try {
+      const raw = m.attachments_json;
+      const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (Array.isArray(arr)) {
+        attachments = arr
+          .map((a) => ({
+            type: a.type || 'image',
+            url: publicUploadsUrlFromStoredPath(a.path || '')
+          }))
+          .filter((a) => a.url);
+      }
+    } catch {
+      attachments = [];
     }
-  } catch {
-    attachments = [];
+    const uid = m.user_id != null ? Number(m.user_id) : null;
+    const profilePhotoUrl = publicUploadsUrlFromStoredPath(m.profile_photo_path || null) || null;
+    let isRead = defaultRead;
+    if (!defaultRead && m.is_read !== undefined && m.is_read !== null) {
+      isRead = m.is_read === 1 || m.is_read === true || Number(m.is_read) === 1;
+    }
+    return {
+      type: isManagerPost ? 'announcement' : 'member_message',
+      source: 'club',
+      id: `cfp-${m.id}`,
+      clubPostId: Number(m.id),
+      userId: Number.isFinite(uid) && uid > 0 ? uid : null,
+      profilePhotoUrl,
+      isRead,
+      name: `${m.first_name || ''} ${m.last_name || ''}`.trim(),
+      text: m.message_text,
+      attachments,
+      seasonName: null,
+      visibility: m.visibility === 'public' ? 'public' : 'club',
+      timestamp: m.created_at
+    };
+  });
+};
+
+/**
+ * Club feed posts for a viewer: all unread (non-own) first, then up to 5 most recent read
+ * (includes own posts in the read slice).
+ */
+const fetchClubFeedPostsForViewer = async (clubId, viewerId) => {
+  const cid = Number(clubId);
+  const vid = Number(viewerId);
+  if (!Number.isFinite(cid) || cid <= 0 || !Number.isFinite(vid) || vid <= 0) {
+    return [];
   }
-  return {
-    type: isManagerPost ? 'announcement' : 'member_message',
-    source: 'club',
-    id: `cfp-${m.id}`,
-    clubPostId: Number(m.id),
-    userId: null,
-    name: `${m.first_name || ''} ${m.last_name || ''}`.trim(),
-    text: m.message_text,
-    attachments,
-    seasonName: null,
-    visibility: m.visibility === 'public' ? 'public' : 'club',
-    timestamp: m.created_at
-  };
-});
+
+  const [unreadRows] = await pool.execute(
+    `SELECT cfp.id, cfp.message_text, cfp.attachments_json, cfp.visibility, cfp.created_at,
+            cfp.user_id, u.first_name, u.last_name, u.profile_photo_path,
+            COALESCE(ua.club_role, 'member') AS club_role,
+            0 AS is_read
+     FROM club_feed_posts cfp
+     INNER JOIN users u ON u.id = cfp.user_id
+     LEFT JOIN user_agencies ua ON ua.user_id = cfp.user_id AND ua.agency_id = ?
+     LEFT JOIN club_feed_post_reads r ON r.post_id = cfp.id AND r.user_id = ?
+     WHERE cfp.agency_id = ?
+       AND cfp.user_id <> ?
+       AND r.post_id IS NULL
+     ORDER BY cfp.created_at DESC
+     LIMIT 80`,
+    [cid, vid, cid, vid]
+  );
+
+  const [readRows] = await pool.execute(
+    `SELECT cfp.id, cfp.message_text, cfp.attachments_json, cfp.visibility, cfp.created_at,
+            cfp.user_id, u.first_name, u.last_name, u.profile_photo_path,
+            COALESCE(ua.club_role, 'member') AS club_role,
+            1 AS is_read
+     FROM club_feed_posts cfp
+     INNER JOIN users u ON u.id = cfp.user_id
+     LEFT JOIN user_agencies ua ON ua.user_id = cfp.user_id AND ua.agency_id = ?
+     LEFT JOIN club_feed_post_reads r ON r.post_id = cfp.id AND r.user_id = ?
+     WHERE cfp.agency_id = ?
+       AND (cfp.user_id = ? OR r.post_id IS NOT NULL)
+     ORDER BY cfp.created_at DESC
+     LIMIT 5`,
+    [cid, vid, cid, vid]
+  );
+
+  const unread = mapClubFeedPostRows(unreadRows, { defaultRead: false });
+  const read = mapClubFeedPostRows(readRows, { defaultRead: false });
+  const seen = new Set(unread.map((x) => x.clubPostId));
+  const readDedup = read.filter((x) => !seen.has(x.clubPostId));
+  return [...unread, ...readDedup];
+};
+
+/** Merged feed: more club posts with read flags (no unread-first ordering). */
+const fetchClubFeedPostsMergedForViewer = async (clubId, viewerId) => {
+  const cid = Number(clubId);
+  const vid = Number(viewerId);
+  if (!Number.isFinite(cid) || cid <= 0 || !Number.isFinite(vid) || vid <= 0) {
+    return [];
+  }
+  const [rows] = await pool.execute(
+    `SELECT cfp.id, cfp.message_text, cfp.attachments_json, cfp.visibility, cfp.created_at,
+            cfp.user_id, u.first_name, u.last_name, u.profile_photo_path,
+            COALESCE(ua.club_role, 'member') AS club_role,
+            CASE WHEN cfp.user_id = ? THEN 1
+                 WHEN r.post_id IS NOT NULL THEN 1
+                 ELSE 0 END AS is_read
+     FROM club_feed_posts cfp
+     INNER JOIN users u ON u.id = cfp.user_id
+     LEFT JOIN user_agencies ua ON ua.user_id = cfp.user_id AND ua.agency_id = ?
+     LEFT JOIN club_feed_post_reads r ON r.post_id = cfp.id AND r.user_id = ?
+     WHERE cfp.agency_id = ?
+     ORDER BY cfp.created_at DESC
+     LIMIT 80`,
+    [vid, cid, vid, cid]
+  );
+  return mapClubFeedPostRows(rows, { defaultRead: false });
+};
 
 /**
  * GET /summit-stats/clubs/:id/feed/public
@@ -1832,7 +1920,7 @@ export const getClubFeedPublic = async (req, res, next) => {
     const limit = Math.min(60, parseInt(req.query.limit, 10) || 40);
     const [postRows] = await pool.execute(
       `SELECT cfp.id, cfp.message_text, cfp.attachments_json, cfp.visibility, cfp.created_at,
-              u.first_name, u.last_name,
+              cfp.user_id, u.first_name, u.last_name, u.profile_photo_path,
               COALESCE(ua.club_role, 'member') AS club_role
        FROM club_feed_posts cfp
        INNER JOIN users u ON u.id = cfp.user_id
@@ -1842,7 +1930,7 @@ export const getClubFeedPublic = async (req, res, next) => {
        LIMIT ?`,
       [clubId, clubId, limit]
     );
-    const feedItems = mapClubFeedPostRows(postRows);
+    const feedItems = mapClubFeedPostRows(postRows, { defaultRead: true });
     return res.json({ items: feedItems });
   } catch (e) { next(e); }
 };
@@ -1882,10 +1970,21 @@ export const postClubFeedPost = async (req, res, next) => {
       }
     }
     const attachmentsJson = paths.length ? JSON.stringify(paths.map((path) => ({ type: 'image', path }))) : null;
-    await pool.execute(
+    const [insertResult] = await pool.execute(
       `INSERT INTO club_feed_posts (agency_id, user_id, message_text, attachments_json, visibility) VALUES (?, ?, ?, ?, ?)`,
       [clubId, uid, messageText, attachmentsJson, visibility]
     );
+    const newId = insertResult?.insertId;
+    if (newId) {
+      try {
+        await pool.execute(
+          `INSERT IGNORE INTO club_feed_post_reads (user_id, post_id) VALUES (?, ?)`,
+          [uid, newId]
+        );
+      } catch {
+        // table may not exist until migration applied
+      }
+    }
     return res.status(201).json({ ok: true });
   } catch (e) { next(e); }
 };
@@ -1963,19 +2062,13 @@ export const getClubFeed = async (req, res, next) => {
     const incQ = String(req.query.includeSeasonFeed ?? '').toLowerCase();
     const includeSeasonFeed = incQ === '1' || incQ === 'true';
 
-    const [clubPostRows] = await pool.execute(
-      `SELECT cfp.id, cfp.message_text, cfp.attachments_json, cfp.visibility, cfp.created_at,
-              u.first_name, u.last_name,
-              COALESCE(ua.club_role, 'member') AS club_role
-       FROM club_feed_posts cfp
-       INNER JOIN users u ON u.id = cfp.user_id
-       LEFT JOIN user_agencies ua ON ua.user_id = cfp.user_id AND ua.agency_id = ?
-       WHERE cfp.agency_id = ?
-       ORDER BY cfp.created_at DESC
-       LIMIT 80`,
-      [clubId, clubId]
-    );
-    const clubFeedItems = mapClubFeedPostRows(clubPostRows);
+    const viewerId = req.user.id;
+    let clubFeedItems = [];
+    if (!seasonId) {
+      clubFeedItems = includeSeasonFeed
+        ? await fetchClubFeedPostsMergedForViewer(clubId, viewerId)
+        : await fetchClubFeedPostsForViewer(clubId, viewerId);
+    }
 
     const mapWorkouts = (workoutRows, seasonMap) => (workoutRows || []).map((w) => ({
       type: 'workout',
@@ -2069,9 +2162,7 @@ export const getClubFeed = async (req, res, next) => {
     }
 
     if (!includeSeasonFeed) {
-      const feedItems = clubFeedItems
-        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-        .slice(0, limit);
+      const feedItems = clubFeedItems.slice(0, limit);
       return res.json({ items: feedItems, feedScope: 'club' });
     }
 
@@ -2138,6 +2229,49 @@ export const getClubFeed = async (req, res, next) => {
     ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, limit);
 
     return res.json({ items: feedItems, feedScope: 'merged' });
+  } catch (e) { next(e); }
+};
+
+/**
+ * POST /summit-stats/clubs/:id/feed/read/:postId
+ * Mark one club feed post as read for the current user.
+ */
+export const postClubFeedMarkRead = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const postId = toInt(req.params.postId);
+    const club = await assertMemberAccess(req, res, clubId);
+    if (!club) return;
+    if (!postId) return res.status(400).json({ error: { message: 'Invalid post id' } });
+    const [rows] = await pool.execute(
+      `SELECT id FROM club_feed_posts WHERE id = ? AND agency_id = ? LIMIT 1`,
+      [postId, clubId]
+    );
+    if (!rows?.length) return res.status(404).json({ error: { message: 'Post not found' } });
+    await pool.execute(
+      `INSERT INTO club_feed_post_reads (user_id, post_id) VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE read_at = CURRENT_TIMESTAMP`,
+      [req.user.id, postId]
+    );
+    return res.json({ ok: true });
+  } catch (e) { next(e); }
+};
+
+/**
+ * POST /summit-stats/clubs/:id/feed/read-all
+ * Mark all club feed posts in this club as read for the current user.
+ */
+export const postClubFeedMarkAllRead = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await assertMemberAccess(req, res, clubId);
+    if (!club) return;
+    await pool.execute(
+      `INSERT IGNORE INTO club_feed_post_reads (user_id, post_id)
+       SELECT ?, id FROM club_feed_posts WHERE agency_id = ?`,
+      [req.user.id, clubId]
+    );
+    return res.json({ ok: true });
   } catch (e) { next(e); }
 };
 
@@ -2587,7 +2721,19 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
       aiSummary = [baseSummary, registrationSummary].filter(Boolean).join(' ');
     }
 
+    const [capRows] = await pool.execute(
+      `SELECT COUNT(DISTINCT t.id) AS cnt
+       FROM challenge_teams t
+       INNER JOIN learning_program_classes c ON c.id = t.learning_class_id
+       WHERE c.organization_id = ? AND t.team_manager_user_id = ?`,
+      [clubId, userId]
+    );
+    const captainTeamCount = Number(capRows?.[0]?.cnt || 0);
+    const everTeamCaptain = captainTeamCount > 0;
+
     return res.json({
+      everTeamCaptain,
+      captainTeamCount,
       member: {
         userId: Number(member.id),
         firstName: member.first_name || '',

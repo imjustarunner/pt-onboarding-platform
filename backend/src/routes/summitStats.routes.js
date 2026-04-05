@@ -65,6 +65,8 @@ import {
   getClubFeedPublic,
   postClubFeedPost,
   postClubFeedAttachment,
+  postClubFeedMarkRead,
+  postClubFeedMarkAllRead,
   clubFeedImageUpload,
   getClubFeedSeasonOptions,
   getClubRecordBoard,
@@ -174,6 +176,8 @@ router.delete('/clubs/:id/invites/:inviteId', revokeInvite);
 router.get('/clubs/:id/my-referral-link', getMyReferralLink);
 
 // Club feed and record board (authenticated members)
+router.post('/clubs/:id/feed/read-all', postClubFeedMarkAllRead);
+router.post('/clubs/:id/feed/read/:postId', postClubFeedMarkRead);
 router.post('/clubs/:id/feed/posts', postClubFeedPost);
 router.post('/clubs/:id/feed/attachments', clubFeedImageUpload.single('file'), postClubFeedAttachment);
 router.get('/clubs/:id/feed/season-options', getClubFeedSeasonOptions);

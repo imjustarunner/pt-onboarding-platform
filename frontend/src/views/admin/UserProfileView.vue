@@ -2,13 +2,18 @@
   <div class="container">
     <div class="page-header">
       <div>
-        <router-link :to="backToUsersList" class="back-link" data-tour="user-profile-back">← Back to Users</router-link>
+        <router-link :to="backToUsersList" class="back-link" data-tour="user-profile-back">{{ backLinkLabel }}</router-link>
         <div class="user-header-info" data-tour="user-profile-header">
           <div class="header-avatar">
             <img v-if="headerPhotoUrl" :src="headerPhotoUrl" alt="Profile photo" class="header-photo" />
             <div v-else class="header-photo-fallback" aria-hidden="true">{{ headerInitials }}</div>
           </div>
           <h1 data-tour="user-profile-title">{{ headerDisplayName }}</h1>
+          <span
+            v-if="isSscMemberProfileMode && memberCaptainMeta.everTeamCaptain"
+            class="ssc-captain-badge ssc-captain-badge--legacy"
+            :title="`Team captain in ${memberCaptainMeta.captainTeamCount} season${memberCaptainMeta.captainTeamCount === 1 ? '' : 's'}`"
+          >C</span>
           <span 
             v-if="user" 
             :class="['status-badge-header', getStatusBadgeClass(user.status, user.is_active)]"
@@ -1731,6 +1736,15 @@
           <div v-if="memberSeasonHistoryLoading" class="loading">Loading season history...</div>
           <div v-else-if="memberSeasonHistoryError" class="error">{{ memberSeasonHistoryError }}</div>
           <template v-else>
+            <div v-if="memberCaptainMeta.everTeamCaptain" class="ssc-captain-legacy-banner">
+              <span class="ssc-captain-badge ssc-captain-badge--legacy ssc-captain-badge--inline">C</span>
+              <span>
+                Team captain in <strong>{{ memberCaptainMeta.captainTeamCount }}</strong> season{{
+                  memberCaptainMeta.captainTeamCount === 1 ? '' : 's'
+                }}
+                — badge also shows on their profile header.
+              </span>
+            </div>
             <div class="card" style="padding: 14px; margin-bottom: 14px;">
               <h4 style="margin: 0 0 8px;">AI Performance Summary</h4>
               <p style="margin: 0; white-space: pre-wrap;">{{ memberSeasonAiSummary || 'No summary available yet.' }}</p>
@@ -1762,7 +1776,7 @@
               <table class="table">
                 <thead>
                   <tr>
-                    <th>Season</th>
+                    <th>Season / captain</th>
                     <th>Team</th>
                     <th>Status</th>
                     <th>Miles</th>
@@ -1775,7 +1789,16 @@
                 </thead>
                 <tbody>
                   <tr v-for="season in memberSeasonHistorySeasons" :key="season.classId">
-                    <td>{{ season.className }}</td>
+                    <td>
+                      <div class="ssc-season-cell">
+                        <span class="ssc-season-title">{{ season.className }}</span>
+                        <span
+                          v-if="season.isTeamCaptain"
+                          class="ssc-captain-badge ssc-captain-badge--season"
+                          title="Team captain this season"
+                        >C</span>
+                      </div>
+                    </td>
                     <td>{{ season.teamName || '—' }}</td>
                     <td>{{ season.classStatus || '—' }}</td>
                     <td>{{ season.totalMiles }}</td>
@@ -2584,20 +2607,31 @@ const agencyStore = useAgencyStore();
 const userId = computed(() => parseInt(route.params.userId));
 
 const backToUsersList = computed(() => {
+  const raw = route.query?.returnTo;
+  const s = typeof raw === 'string' ? raw.trim() : '';
+  if (s.startsWith('/') && !s.startsWith('//')) {
+    return s;
+  }
   const org = String(route.params.organizationSlug || '').trim();
   if (org) return `/${org}/admin/users`;
   return '/admin/users';
 });
 
+const backLinkLabel = computed(() => (route.query?.returnTo ? '← Back' : '← Back to Users'));
+
 const loading = ref(true);
 const error = ref('');
 const user = ref(null);
+/** Target user's agencies (declared early for SSC club id resolution on member profiles). */
+const userAgencies = ref([]);
 // Initialize activeTab from query parameter or default to 'account'
 const activeTab = ref(route.query.tab || 'account');
 const saving = ref(false);
 const memberSeasonHistoryLoading = ref(false);
 const memberSeasonHistoryError = ref('');
 const memberSeasonHistory = ref({ seasonCount: 0, totals: {}, seasons: [] });
+/** From season-history API: distinct teams where user was team captain in this club. */
+const memberCaptainMeta = ref({ everTeamCaptain: false, captainTeamCount: 0 });
 const memberRegistrationProfile = ref({ customFields: {} });
 const memberSeasonAiSummary = ref('');
 const seasonCaptainTogglingKey = ref('');
@@ -2790,8 +2824,27 @@ const isSscMemberProfileMode = computed(() => {
 });
 
 const selectedClubIdForMemberProfile = computed(() => {
-  const clubId = Number(agencyStore.currentAgency?.id || 0);
-  return Number.isFinite(clubId) && clubId > 0 ? clubId : null;
+  const q = Number(route.query?.clubId || 0);
+  if (Number.isFinite(q) && q > 0) return q;
+
+  const cur = agencyStore.currentAgency;
+  if (cur?.id) {
+    const t = String(cur.organization_type || cur.organizationType || '').toLowerCase();
+    if (t === 'affiliation') {
+      const id = Number(cur.id);
+      if (Number.isFinite(id) && id > 0) return id;
+    }
+  }
+
+  const rows = Array.isArray(userAgencies.value) ? userAgencies.value : [];
+  for (const a of rows) {
+    const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+    if (t === 'affiliation') {
+      const id = Number(a?.id);
+      if (Number.isFinite(id) && id > 0) return id;
+    }
+  }
+  return null;
 });
 
 const memberRegistrationCustomFieldsList = computed(() => {
@@ -2918,10 +2971,15 @@ const loadMemberSeasonHistory = async () => {
       ? payload.seasonHistory
       : { seasonCount: 0, totals: {}, seasons: [] };
     memberSeasonAiSummary.value = String(payload?.aiSummary || '').trim();
+    memberCaptainMeta.value = {
+      everTeamCaptain: !!payload?.everTeamCaptain,
+      captainTeamCount: Math.max(0, Number(payload?.captainTeamCount || 0))
+    };
   } catch (e) {
     memberSeasonHistoryError.value = e.response?.data?.error?.message || 'Failed to load season history';
     memberSeasonHistory.value = { seasonCount: 0, totals: {}, seasons: [] };
     memberSeasonAiSummary.value = '';
+    memberCaptainMeta.value = { everTeamCaptain: false, captainTeamCount: 0 };
   } finally {
     memberSeasonHistoryLoading.value = false;
   }
@@ -3989,7 +4047,6 @@ const temporaryPasswordExpiresAt = ref('');
 const tempPasswordInput = ref(null);
 const tempUsernameInput = ref(null);
 
-const userAgencies = ref([]);
 const availableAgencies = ref([]);
 const selectedAgencyId = ref('');
 const assigningAgency = ref(false);
@@ -4387,12 +4444,12 @@ const canChangeRole = computed(() => {
   return currentUserRole === 'super_admin' || currentUserRole === 'admin' || currentUserRole === 'support';
 });
 
-/** SSC: program manager, assistant manager, or backoffice — can set member vs assistant manager and season team captain. */
+/** SSC: club manager, program manager, assistant manager, or backoffice — member vs assistant manager + season team captain. */
 const canManageClubMemberRoles = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return (
     canEditUser.value &&
-    ['admin', 'super_admin', 'support', 'staff', 'provider_plus'].includes(r)
+    ['admin', 'super_admin', 'support', 'staff', 'provider_plus', 'club_manager'].includes(r)
   );
 });
 
@@ -4458,8 +4515,15 @@ const fetchAssignedTextingNumbers = async () => {
 
 
 const fetchUser = async () => {
+  if (!Number.isFinite(userId.value) || userId.value <= 0) {
+    error.value = 'Invalid user id';
+    loading.value = false;
+    user.value = null;
+    return;
+  }
   try {
     loading.value = true;
+    userAgencies.value = [];
     const response = await api.get(`/users/${userId.value}`);
     user.value = response.data;
 
@@ -6090,8 +6154,17 @@ const fetchSupervisors = async () => {
   }
 };
 
+watch(
+  () => route.params.userId,
+  () => {
+    const id = parseInt(String(route.params.userId || ''), 10);
+    if (!Number.isFinite(id) || id <= 0) return;
+    fetchUser();
+  },
+  { immediate: true }
+);
+
 onMounted(() => {
-  fetchUser();
   void Promise.allSettled([fetchSupervisees(), fetchSupervisors()]);
 });
 </script>
@@ -7299,5 +7372,66 @@ onMounted(() => {
   margin-top: 4px;
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+/* Summit club: team captain badges */
+.user-header-info .ssc-captain-badge--legacy {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.ssc-captain-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 0.85rem;
+  line-height: 1;
+  border-radius: 10px;
+  user-select: none;
+}
+.ssc-captain-badge--legacy {
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.35rem;
+  color: #fff;
+  background: linear-gradient(135deg, #b45309 0%, #f59e0b 45%, #fbbf24 100%);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 10px rgba(245, 158, 11, 0.45);
+  letter-spacing: -0.02em;
+}
+.ssc-captain-badge--season {
+  min-width: 1.75rem;
+  height: 1.75rem;
+  margin-left: 8px;
+  font-size: 1.1rem;
+  color: #fff;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 12px rgba(124, 58, 237, 0.45);
+}
+.ssc-captain-badge--inline {
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+.ssc-captain-legacy-banner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.12), rgba(124, 58, 237, 0.08));
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  font-size: 0.88rem;
+  color: var(--text-primary, #0f172a);
+}
+.ssc-season-cell {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ssc-season-title {
+  font-weight: 600;
 }
 </style>

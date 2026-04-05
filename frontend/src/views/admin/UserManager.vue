@@ -1539,8 +1539,17 @@ const route = useRoute();
 
 const userProfilePath = (userId) => {
   const slug = String(route.params.organizationSlug || '').trim();
-  if (slug) return `/${slug}/admin/users/${userId}`;
-  return `/admin/users/${userId}`;
+  const base = slug ? `/${slug}/admin/users/${userId}` : `/admin/users/${userId}`;
+  const params = new URLSearchParams();
+  if (isSscSstcTenant.value && selectedClubId.value) {
+    params.set('clubId', String(selectedClubId.value));
+  }
+  const ret = String(route.fullPath || route.path || '').trim();
+  if (ret && isSscSstcTenant.value) {
+    params.set('returnTo', ret);
+  }
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
 };
 
 const formatSscClubRole = (u) => {
