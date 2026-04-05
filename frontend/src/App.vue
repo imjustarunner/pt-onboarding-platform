@@ -101,6 +101,13 @@
                 Event availability
               </router-link>
               <router-link
+                v-if="showSscMessagesLink"
+                :to="orgTo('/messages')"
+                @click="closeMobileMenu"
+              >
+                Messages
+              </router-link>
+              <router-link
                 v-if="canShowAdminDashboardIcon"
                 :to="orgTo('/admin')"
                 class="nav-icon-btn"
@@ -588,6 +595,12 @@
               class="mobile-nav-link"
             >Event availability</router-link>
             <router-link
+              v-if="showSscMessagesLink"
+              :to="orgTo('/messages')"
+              @click="closeMobileMenu"
+              class="mobile-nav-link"
+            >Messages</router-link>
+            <router-link
               v-if="hasCapability('canJoinProgramEvents') && user?.role !== 'provider' && !isSscSstcTenant"
               :to="orgTo('/office')"
               @click="closeMobileMenu"
@@ -781,31 +794,31 @@
               <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
               <router-link
                 :to="orgTo('/admin/communications')"
-                v-if="canUseEngagementFeed"
+                v-if="canUseEngagementFeed && !isSscSstcTenant"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Communications Workspace</router-link>
               <router-link
                 :to="orgTo('/admin/communications/sms')"
-                v-if="canUseEngagementFeed"
+                v-if="canUseEngagementFeed && !isSscSstcTenant"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >SMS Inbox</router-link>
               <router-link
                 :to="{ path: orgTo('/admin/communications'), query: { tab: 'calls' } }"
-                v-if="canUseEngagementFeed"
+                v-if="canUseEngagementFeed && !isSscSstcTenant"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Calls</router-link>
               <router-link
                 :to="orgTo('/admin/communications/chats')"
-                v-if="canUseChats"
+                v-if="canUseChats && !isSscSstcTenant"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Chats</router-link>
               <router-link
                 :to="orgTo('/notifications')"
-                v-if="(isAdmin || user?.role === 'clinical_practice_assistant')"
+                v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && !isSscSstcTenant"
                 @click="closeMobileMenu"
                 class="mobile-nav-link mobile-nav-link-obnoxious"
               >
@@ -823,7 +836,7 @@
               </router-link>
               <router-link
                 :to="myScheduleNavLink"
-                v-if="canShowScheduleIcon || canShowScheduleTopNav"
+                v-if="(canShowScheduleIcon || canShowScheduleTopNav) && !isSscSstcTenant"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Schedule</router-link>
@@ -1626,6 +1639,7 @@ const showSummitStatsClubContextBar = computed(() => {
 const canSeeFullPortalNav = computed(() => {
   // Keep the “full” admin dropdown navigation for backoffice roles.
   // Limited-access users (payroll/hiring/supervisors) should not see it.
+  if (isSscSstcTenant.value) return false;
   const role = user.value?.role;
   return role === 'admin' || role === 'super_admin' || role === 'support';
 });
@@ -1656,6 +1670,7 @@ const currentAgencyFeatureFlags = computed(() => {
 
 const noteAidEnabled = computed(() => isTruthyFlag(currentAgencyFeatureFlags.value?.noteAidEnabled));
 const canUseAgencyCampaigns = computed(() => {
+  if (isSscSstcTenant.value) return false;
   const enabled = isTruthyFlag(currentAgencyFeatureFlags.value?.agency_campaigns_enabled);
   if (!enabled) return false;
   const r = user.value?.role;
@@ -1669,6 +1684,7 @@ const canUseAgencyCampaigns = computed(() => {
   );
 });
 const canUseEngagementFeed = computed(() => {
+  if (isSscSstcTenant.value) return false;
   const role = String(user.value?.role || '').toLowerCase();
   return (
     role === 'admin' ||
@@ -1683,13 +1699,19 @@ const canUseEngagementFeed = computed(() => {
   );
 });
 const canUseChats = computed(() => {
+  if (isSscSstcTenant.value) return false;
   return canUseEngagementFeed.value && hasCapability('canUseChat');
+});
+const showSscMessagesLink = computed(() => {
+  return isAuthenticated.value && isSscSstcTenant.value && hasCapability('canUseChat');
 });
 // Must be declared before showEngagementMenu (watch(..., { immediate: true }) evaluates it during setup).
 const canShowScheduleTopNav = computed(() => {
+  if (isSscSstcTenant.value) return false;
   return isTrueAdmin.value && hasCapability('canJoinProgramEvents');
 });
 const showEngagementMenu = computed(() => {
+  if (isSscSstcTenant.value) return false;
   return (
     canUseEngagementFeed.value ||
     canUseAgencyCampaigns.value ||
@@ -1833,6 +1855,7 @@ const canSeePayrollManagement = computed(() => {
 });
 
 const canSeeAvailabilityIntake = computed(() => {
+  if (isSscSstcTenant.value) return false;
   const r = String(user.value?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff'].includes(r);
 });
@@ -1861,6 +1884,7 @@ const fetchSchoolClientsPendingCount = async () => {
 };
 
 const canSeeSkillBuildersAvailabilityNav = computed(() => {
+  if (isSscSstcTenant.value) return false;
   const r = String(user.value?.role || '').toLowerCase();
   const roleAllowed =
     r === 'super_admin' ||
@@ -1876,12 +1900,14 @@ const canSeeSkillBuildersAvailabilityNav = computed(() => {
 });
 
 const canSeeSkillBuildersAvailabilityTopNav = computed(() => {
+  if (isSscSstcTenant.value) return false;
   const r = String(user.value?.role || '').toLowerCase();
   return canSeeSkillBuildersAvailabilityNav.value && r !== 'super_admin' && r !== 'admin';
 });
 
 /** Directory “Programs & events” and related entry points (dedicated page + portal links). */
 const canOpenSkillBuildersProgramsFromNav = computed(() => {
+  if (isSscSstcTenant.value) return false;
   const r = String(user.value?.role || '').toLowerCase();
   if (['super_admin', 'admin', 'staff', 'support'].includes(r)) return true;
   const coord =
@@ -1929,6 +1955,7 @@ const skillBuildersProgramsDashboardTo = computed(() => orgTo('/admin/program-ev
 
 /** Same roles as router `SCHEDULE_HUB_ROLES` for /schedule and /buildings/*. */
 const canSeeScheduleBuildingsDirectoryNav = computed(() => {
+  if (isSscSstcTenant.value) return false;
   const r = String(user.value?.role || '').toLowerCase();
   return ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff', 'provider_plus'].includes(r);
 });
@@ -1972,10 +1999,12 @@ const canSeeCredentialing = computed(() => {
 });
 
 const canSeeApplicantsTopNavLink = computed(() => {
+  if (isSscSstcTenant.value) return false;
   return !canSeeFullPortalNav.value && hasCapability('canManageHiring');
 });
 
 const canSeePayrollTopNavLink = computed(() => {
+  if (isSscSstcTenant.value) return false;
   return !canSeeFullPortalNav.value && canSeePayrollManagement.value;
 });
 

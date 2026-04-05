@@ -30,6 +30,17 @@ const SKILL_BUILDERS_PROGRAM_EVENTS_ROLES = [
 const PROVIDER_PLUS_EXPERIENCE_ROLES = ['provider_plus', 'clinical_practice_assistant'];
 const TOOLS_AIDS_ROUTE_SEGMENTS = ['/admin/tools-aids', '/admin/note-aid', '/admin/clinical-note-generator'];
 const NATIVE_APP_ORG_SLUG = String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase();
+const SSC_PORTAL_SLUGS = new Set(['ssc', 'sstc', 'summit-stats', NATIVE_APP_ORG_SLUG].filter(Boolean));
+
+const isSscPortalSlug = (value) => SSC_PORTAL_SLUGS.has(String(value || '').trim().toLowerCase());
+
+const isAllowedSscAuthenticatedPath = (path) => {
+  const normalized = String(path || '').trim().toLowerCase();
+  if (!normalized) return false;
+  const allowedOrgScoped = /^\/[^/]+\/(challenges(?:\/|$)|messages(?:\/|$)|clubs(?:\/|$)|join(?:\/|$)|club\/settings(?:\/|$)|club\/seasons(?:\/|$)|dashboard(?:\/|$)|preferences(?:\/|$)|credentials(?:\/|$)|account-info(?:\/|$)|change-password(?:\/|$)|logout(?:\/|$))/;
+  const allowedGlobal = /^\/(dashboard|preferences|credentials|account-info|change-password|logout)(?:\/|$)/;
+  return allowedOrgScoped.test(normalized) || allowedGlobal.test(normalized);
+};
 
 const isNonAgencyOrgType = (value) => {
   const t = String(value || '').toLowerCase();
@@ -2516,6 +2527,19 @@ router.beforeEach(async (to, from, next) => {
       next(getSlugAwarePath('/change-password', to, authStore));
       return;
     }
+  }
+
+  const currentUserRoleNorm = String(authStore.user?.role || '').toLowerCase();
+  const currentOrgSlug = typeof to.params?.organizationSlug === 'string' ? to.params.organizationSlug : '';
+  if (
+    authStore.isAuthenticated &&
+    to.meta.requiresAuth &&
+    currentUserRoleNorm !== 'super_admin' &&
+    isSscPortalSlug(currentOrgSlug) &&
+    !isAllowedSscAuthenticatedPath(to.path)
+  ) {
+    next(`/${currentOrgSlug}/challenges`);
+    return;
   }
   
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {

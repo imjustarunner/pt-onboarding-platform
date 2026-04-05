@@ -24,6 +24,35 @@ export function getDashboardRoute() {
   const userRole = String(user.role || '').toLowerCase();
   const isProviderPlusExperienceRole =
     userRole === 'provider_plus' || userRole === 'clinical_practice_assistant';
+  const orgs = Array.isArray(user.agencies) && user.agencies.length
+    ? user.agencies
+    : (Array.isArray(agencyStore.userAgencies?.value ?? agencyStore.userAgencies)
+      ? (agencyStore.userAgencies?.value ?? agencyStore.userAgencies)
+      : []);
+  const isSummitStatsSlug = (value) => ['ssc', 'sstc', 'summit-stats'].includes(String(value || '').trim().toLowerCase());
+  const resolveSummitStatsSlug = () => {
+    const orgContext = organizationStore.organizationContext || null;
+    const contextSlug = String(orgContext?.slug || '').trim().toLowerCase();
+    const contextParent = String(orgContext?.parentSlug || orgContext?.parent_slug || '').trim().toLowerCase();
+    if (isSummitStatsSlug(contextSlug)) return contextSlug;
+    if (isSummitStatsSlug(contextParent)) return contextParent;
+
+    const currentAgency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
+    const currentSlug = String(currentAgency?.slug || currentAgency?.portal_url || currentAgency?.portalUrl || '').trim().toLowerCase();
+    const currentParent = String(currentAgency?.parent_slug || currentAgency?.parentSlug || '').trim().toLowerCase();
+    if (isSummitStatsSlug(currentSlug)) return currentSlug;
+    if (isSummitStatsSlug(currentParent)) return currentParent;
+
+    for (const org of orgs) {
+      const slug = String(org?.slug || org?.portal_url || org?.portalUrl || '').trim().toLowerCase();
+      const parent = String(org?.parent_slug || org?.parentSlug || '').trim().toLowerCase();
+      const orgType = String(org?.organization_type || org?.organizationType || '').trim().toLowerCase();
+      if (isSummitStatsSlug(slug)) return slug;
+      if (isSummitStatsSlug(parent)) return parent;
+      if (orgType === 'affiliation' && parent) return parent;
+    }
+    return null;
+  };
 
   if (hasProviderMobileAccess(user) && isLikelyMobileViewport() && isStandalonePwa()) {
     const slug =
@@ -76,6 +105,11 @@ export function getDashboardRoute() {
       user.agencies?.[0]?.slug ||
       null;
     return slug ? `/${slug}/guardian` : '/guardian';
+  }
+
+  if (userRole === 'club_manager') {
+    const summitSlug = resolveSummitStatsSlug();
+    return summitSlug ? `/${summitSlug}/challenges` : '/dashboard';
   }
   
   // Supervisors (not admin/super_admin/support) use provider dashboard when they have a slug
@@ -131,4 +165,3 @@ export function getDashboardRoute() {
   // Regular users go to regular dashboard
   return '/dashboard';
 }
-

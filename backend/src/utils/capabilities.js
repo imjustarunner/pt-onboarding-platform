@@ -76,7 +76,7 @@ export function getUserCapabilities(user) {
 
   // Summit Stats Challenge: Program Managers (admin/super_admin) and Team Managers (provider_plus) can manage challenges.
   // provider_plus = Team Manager / Team Lead when assigned to a team.
-  const canManageChallenges = ['admin', 'super_admin', 'provider_plus'].includes(roleNorm);
+  const canManageChallenges = ['admin', 'super_admin', 'provider_plus', 'club_manager'].includes(roleNorm);
 
   return {
     ...base,
@@ -89,4 +89,3 @@ export function getUserCapabilities(user) {
     canManageChallenges
   };
 }
-

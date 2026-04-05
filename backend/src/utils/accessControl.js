@@ -85,6 +85,18 @@ export function checkAccess(user) {
     };
   }
 
+  // Summit Stats club managers are authenticated platform users, but they should
+  // not inherit generic training/documents/admin surfaces from ACTIVE_EMPLOYEE.
+  if (userRole === 'club_manager' && status !== 'ARCHIVED') {
+    return {
+      canAccessOnDemand: false,
+      canAccessDashboard: true,
+      canAccessTraining: false,
+      canAccessDocuments: false,
+      canAccessAdmin: false
+    };
+  }
+
   // Base access permissions based on status
   let canAccessOnDemand = false;
   let canAccessDashboard = false;

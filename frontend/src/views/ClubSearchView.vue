@@ -40,14 +40,15 @@
           <div class="club-actions-row">
             <button type="button" class="btn btn-ghost btn-sm" @click="viewClub(c)">View</button>
             <button
-              v-if="c.primaryManagerUserId"
+              v-if="c.primaryManagerUserId && !isManagedByCurrentUser(c)"
               type="button"
               class="btn btn-secondary btn-sm"
               :disabled="contactingId === c.id"
               @click="contactManager(c)"
             >
-              {{ contactingId === c.id ? 'Opening…' : 'Contact Manager' }}
+              {{ contactingId === c.id ? 'Opening…' : (authStore.isAuthenticated ? 'Contact Manager' : 'Sign in to Contact') }}
             </button>
+            <div v-else-if="c.primaryManagerUserId && isManagedByCurrentUser(c)" class="club-badge">Managed by you</div>
             <div v-if="isMember(c.id)" class="club-badge">Member</div>
             <button
               v-else
@@ -125,8 +126,10 @@ const myAgencyIds = computed(() => {
   const list = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
   return new Set((Array.isArray(list) ? list : []).map((a) => Number(a?.id)).filter(Boolean));
 });
+const currentUserId = computed(() => Number(authStore.user?.id || 0));
 
 const isMember = (clubId) => myAgencyIds.value.has(Number(clubId));
+const isManagedByCurrentUser = (club) => Number(club?.primaryManagerUserId || 0) === currentUserId.value;
 
 const fetchClubs = async () => {
   loading.value = true;

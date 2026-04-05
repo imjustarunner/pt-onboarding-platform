@@ -255,6 +255,11 @@ export const createClub = async (req, res, next) => {
       isActive: true
     });
 
+    const currentRole = String(user.role || '').trim().toLowerCase();
+    if (!['super_admin', 'admin', 'support'].includes(currentRole)) {
+      await User.update(user.id, { role: 'club_manager' });
+    }
+
     await User.assignToAgency(user.id, platformAgencyId, { isActive: true });
     await User.assignToAgency(user.id, agency.id, { clubRole: 'manager', isActive: true });
 
@@ -531,6 +536,11 @@ export const startContactManagerThread = async (req, res, next) => {
     if (!manager?.userId) {
       return res.status(404).json({ error: { message: 'No active club manager found for this club' } });
     }
+    if (Number(manager.userId) === Number(req.user.id)) {
+      return res.status(409).json({
+        error: { message: 'You already manage this club. Open Messages from your dashboard to continue the conversation there.' }
+      });
+    }
 
     const platformAgencyId = await getPlatformAgencyId();
     if (!platformAgencyId) {
@@ -562,7 +572,7 @@ export const startContactManagerThread = async (req, res, next) => {
       );
       threadId = Number(insert.insertId);
       await pool.execute(
-        'INSERT INTO chat_thread_participants (thread_id, user_id) VALUES (?, ?), (?, ?)',
+        'INSERT IGNORE INTO chat_thread_participants (thread_id, user_id) VALUES (?, ?), (?, ?)',
         [threadId, req.user.id, threadId, manager.userId]
       );
     }

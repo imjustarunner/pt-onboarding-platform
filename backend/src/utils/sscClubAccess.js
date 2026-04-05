@@ -15,6 +15,7 @@ export const normalizeClubRole = (value, fallback = 'member') => {
 
 export const inferLegacyClubRole = (userRole) => {
   const role = normalizeRole(userRole);
+  if (role === 'club_manager') return 'manager';
   if (role === 'super_admin' || role === 'admin' || role === 'support') return 'manager';
   if (role === 'provider_plus' || role === 'clinical_practice_assistant' || role === 'staff') return 'assistant_manager';
   return 'member';
@@ -157,7 +158,7 @@ export const getPrimaryClubManager = async (clubId) => {
        AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'
      ORDER BY
        CASE
-         WHEN ${hasClubRole ? "ua.club_role = 'manager'" : "LOWER(COALESCE(u.role, '')) IN ('super_admin','admin','support')"} THEN 0
+         WHEN ${hasClubRole ? "ua.club_role = 'manager'" : "LOWER(COALESCE(u.role, '')) IN ('club_manager','super_admin','admin','support')"} THEN 0
          WHEN ${hasClubRole ? "ua.club_role = 'assistant_manager'" : "LOWER(COALESCE(u.role, '')) IN ('provider_plus','clinical_practice_assistant','staff')"} THEN 1
          ELSE 2
        END,

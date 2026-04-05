@@ -3500,7 +3500,7 @@ export const register = async (req, res, next) => {
 // --- Club Manager Signup (Summit Stats) ---
 
 /**
- * Public: Register a Club Manager account. Creates user with role=admin, no agencies.
+ * Public: Register a Club Manager account. Creates user with role=club_manager, no agencies.
  * Email verification required before club creation.
  */
 export const registerClubManager = async (req, res, next) => {
@@ -3536,7 +3536,7 @@ export const registerClubManager = async (req, res, next) => {
       passwordHash,
       firstName: (firstName || '').trim() || null,
       lastName: String(lastName).trim(),
-      role: 'provider',
+      role: 'club_manager',
       status: 'ACTIVE_EMPLOYEE'
     });
 

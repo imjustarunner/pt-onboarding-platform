@@ -101,6 +101,11 @@ async function assertUsersInAgency(agencyId, userIds) {
 }
 
 async function findOrCreateDirectThread(agencyId, organizationId, userAId, userBId) {
+  if (Number(userAId) === Number(userBId)) {
+    const err = new Error('Cannot create a chat with yourself');
+    err.status = 400;
+    throw err;
+  }
   // Find a direct thread in this agency that has exactly these 2 participants.
   const [rows] = await pool.execute(
     `SELECT tp.thread_id
@@ -123,7 +128,7 @@ async function findOrCreateDirectThread(agencyId, organizationId, userAId, userB
   );
   const threadId = ins.insertId;
   await pool.execute(
-    'INSERT INTO chat_thread_participants (thread_id, user_id) VALUES (?, ?), (?, ?)',
+    'INSERT IGNORE INTO chat_thread_participants (thread_id, user_id) VALUES (?, ?), (?, ?)',
     [threadId, userAId, threadId, userBId]
   );
   return threadId;
@@ -930,4 +935,3 @@ export const getThreadMeta = async (req, res, next) => {
     next(e);
   }
 };
-
