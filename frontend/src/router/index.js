@@ -384,6 +384,12 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/messages',
+    name: 'OrganizationMessages',
+    component: () => import('../views/admin/PlatformChatsView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/join',
     name: 'SscMemberApplication',
     component: () => import('../views/SscMemberApplicationView.vue'),
@@ -866,6 +872,18 @@ const routes = [
     name: 'OrganizationClubSettings',
     component: () => import('../views/admin/ClubSettingsView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin'], organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/club/settings',
+    name: 'OrganizationClubSettingsScoped',
+    component: () => import('../views/admin/ClubSettingsView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/club/seasons',
+    name: 'OrganizationClubSeasonManagement',
+    component: () => import('../components/admin/ChallengeManagement.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/communications',
@@ -2700,4 +2718,3 @@ router.afterEach((to) => {
 });
 
 export default router;
-

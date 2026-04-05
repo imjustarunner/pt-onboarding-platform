@@ -3,6 +3,7 @@
  * CRUD for reusable recognition awards and eligibility groups per club.
  */
 import pool from '../config/database.js';
+import { canUserManageClub } from '../utils/sscClubAccess.js';
 
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
 
@@ -13,20 +14,8 @@ const parseJson = (v) => {
 };
 
 // ── Authorization helpers ────────────────────────────────────────
-const canManage = (role) => {
-  const r = String(role || '').toLowerCase();
-  return ['super_admin', 'admin', 'staff', 'provider_plus'].includes(r);
-};
-
 async function assertClubAccess(req, clubId) {
-  if (!canManage(req.user?.role)) return false;
-  // Admins have global access; staff/provider_plus must be in the agency
-  if (['super_admin', 'admin'].includes(String(req.user?.role).toLowerCase())) return true;
-  const [rows] = await pool.execute(
-    `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
-    [req.user.id, clubId]
-  );
-  return rows?.length > 0;
+  return canUserManageClub({ user: req.user, clubId });
 }
 
 // ════════════════════════════════════════════════════════════════

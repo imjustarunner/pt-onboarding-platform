@@ -33,9 +33,21 @@
               <template v-if="c.slug && (c.city || c.state)"> · </template>
               <template v-if="c.city || c.state">{{ [c.city, c.state].filter(Boolean).join(', ') }}</template>
             </div>
+            <div v-if="c.primaryManagerName" class="club-manager-line">
+              Managed by {{ c.primaryManagerName }}
+            </div>
           </div>
           <div class="club-actions-row">
             <button type="button" class="btn btn-ghost btn-sm" @click="viewClub(c)">View</button>
+            <button
+              v-if="c.primaryManagerUserId"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="contactingId === c.id"
+              @click="contactManager(c)"
+            >
+              {{ contactingId === c.id ? 'Opening…' : 'Contact Manager' }}
+            </button>
             <div v-if="isMember(c.id)" class="club-badge">Member</div>
             <button
               v-else
@@ -53,7 +65,7 @@
       <p class="signup-link">
         Don't have an account? <router-link :to="signupPath">Sign up</router-link>
         <span class="sep">|</span>
-        <router-link :to="clubManagerSignupPath">Create a club instead</router-link>
+        <router-link :to="clubManagerSignupPath">Start your club</router-link>
       </p>
       <!-- reCAPTCHA placeholder: apply-to-join flow (sign up to apply) - add when implementing -->
     </div>
@@ -88,6 +100,7 @@ const error = ref('');
 const search = ref('');
 const stateFilter = ref('');
 const applyingId = ref(null);
+const contactingId = ref(null);
 let searchTimeout = null;
 
 const usStates = [
@@ -166,6 +179,27 @@ const applyToClub = async (club) => {
     error.value = e?.response?.data?.error?.message || 'Failed to join club';
   } finally {
     applyingId.value = null;
+  }
+};
+
+const contactManager = async (club) => {
+  if (!authStore.isAuthenticated) {
+    router.push({ path: loginPath.value, query: { redirect: `/${orgSlug.value}/clubs` } });
+    return;
+  }
+  contactingId.value = club.id;
+  error.value = '';
+  try {
+    const { data } = await api.post(`/summit-stats/clubs/${club.id}/contact-manager`);
+    const query = {
+      agencyId: String(data?.agencyId || ''),
+      threadId: String(data?.threadId || '')
+    };
+    router.push({ path: `/${orgSlug.value}/messages`, query });
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to open the manager chat';
+  } finally {
+    contactingId.value = null;
   }
 };
 
@@ -251,6 +285,11 @@ watch(orgSlug, (newSlug) => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+.club-manager-line {
+  margin-top: 6px;
+  color: var(--text-secondary, #526072);
+  font-size: 0.9rem;
 }
 .btn-secondary {
   background: var(--bg, #f5f5f5);

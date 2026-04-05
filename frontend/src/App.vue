@@ -72,7 +72,7 @@
                 {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
               </router-link>
               <router-link
-                v-if="showOperationsDashboardLink && user?.role === 'provider_plus'"
+                v-if="showOperationsDashboardLink && user?.role === 'provider_plus' && !isSscSstcTenant"
                 :to="operationsDashboardTo"
                 @click="closeMobileMenu"
               >
@@ -127,7 +127,7 @@
                   <div v-if="peopleOpsMenuOpen" class="nav-dropdown-menu">
                     <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/hiring')" >Applicants</router-link>
                     <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/careers')" >Careers</router-link>
-                    <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" >On-Demand Training</router-link>
+                    <router-link v-if="showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" >On-Demand Training</router-link>
                     <router-link
                       :to="orgTo('/admin/modules')"
                       v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')"
@@ -304,18 +304,6 @@
                       </span>
                     </router-link>
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
-                    <router-link
-                      :to="orgTo('/admin/settings?category=workflow&item=challenge-management')"
-                      v-if="isSscSstcTenant && (canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'"
-                    >Season Management</router-link>
-                    <router-link
-                      :to="orgTo('/admin/company-events')"
-                      v-if="isSscSstcTenant && ['admin','super_admin','provider_plus'].includes(String(user?.role || '').toLowerCase())"
-                    >Club Events</router-link>
-                    <router-link
-                      :to="orgTo('/admin/surveys')"
-                      v-if="isSscSstcTenant && ['admin','super_admin','provider_plus'].includes(String(user?.role || '').toLowerCase())"
-                    >Surveys</router-link>
                     <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" >Guardians</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" >Clients</router-link>
                   </div>
@@ -333,10 +321,6 @@
                   </button>
                   <div v-if="managementMenuOpen" class="nav-dropdown-menu">
                     <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" >Admin Dashboard</router-link>
-                    <router-link
-                      v-if="isSscSstcTenant && showOperationsDashboardLink"
-                      :to="orgTo('/operations-dashboard')"
-                    >{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
                     <div class="nav-dropdown-sep" />
                     <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" >Executive Report</router-link>
                     <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" >Payroll</router-link>
@@ -353,18 +337,6 @@
                     <div class="nav-dropdown-sep" />
 
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
-                    <router-link
-                      :to="orgTo('/admin/settings?category=workflow&item=challenge-management')"
-                      v-if="isSscSstcTenant && (canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'"
-                    >Season Management</router-link>
-                    <router-link
-                      :to="orgTo('/admin/company-events')"
-                      v-if="isSscSstcTenant && ['admin','super_admin','provider_plus'].includes(String(user?.role || '').toLowerCase())"
-                    >Club Events</router-link>
-                    <router-link
-                      :to="orgTo('/admin/surveys')"
-                      v-if="isSscSstcTenant && ['admin','super_admin','provider_plus'].includes(String(user?.role || '').toLowerCase())"
-                    >Surveys</router-link>
                     <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" >Guardians</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" >Clients</router-link>
                     <router-link :to="orgTo('/admin/credentialing')" v-if="canSeeCredentialing" >Credentialing</router-link>
@@ -505,7 +477,7 @@
               <div class="nav-right-group">
                 <WeatherChip />
                 <router-link
-                  v-if="canShowScheduleIcon"
+                  v-if="canShowScheduleIcon && !isSscSstcTenant"
                   :to="myScheduleNavLink"
                   class="nav-icon-btn"
                   title="Schedule"
@@ -585,12 +557,12 @@
             <button class="mobile-close" @click="mobileMenuOpen = false" aria-label="Close menu">×</button>
           </div>
           <div class="mobile-nav-links">
-            <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
+            <router-link v-if="showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
             <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }" class="mobile-nav-link">
               {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
             </router-link>
             <router-link
-              v-if="showOperationsDashboardLink && user?.role === 'provider_plus'"
+              v-if="showOperationsDashboardLink && user?.role === 'provider_plus' && !isSscSstcTenant"
               :to="operationsDashboardTo"
               @click="closeMobileMenu"
               class="mobile-nav-link"
@@ -616,7 +588,7 @@
               class="mobile-nav-link"
             >Event availability</router-link>
             <router-link
-              v-if="hasCapability('canJoinProgramEvents') && user?.role !== 'provider'"
+              v-if="hasCapability('canJoinProgramEvents') && user?.role !== 'provider' && !isSscSstcTenant"
               :to="orgTo('/office')"
               @click="closeMobileMenu"
               class="mobile-nav-link"
@@ -624,7 +596,7 @@
 
             <template v-if="canSeePortalNav && canSeeFullPortalNav">
               <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
-              <router-link :to="orgTo('/operations-dashboard')" v-if="showOperationsDashboardLink && user?.role !== 'provider_plus'" @click="closeMobileMenu" class="mobile-nav-link">{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
+              <router-link :to="orgTo('/operations-dashboard')" v-if="showOperationsDashboardLink && user?.role !== 'provider_plus' && !isSscSstcTenant" @click="closeMobileMenu" class="mobile-nav-link">{{ isAffiliationContext ? 'Team Lead Dashboards' : 'Operations Dashboard' }}</router-link>
               <div v-if="canSeeScheduleBuildingsDirectoryNav && !isSscSstcTenant" class="mobile-nav-group mobile-nav-group-collapsible">
                 <button
                   type="button"
@@ -805,24 +777,6 @@
                 class="mobile-nav-link"
               >Documents</router-link>
               <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
-              <router-link
-                :to="orgTo('/admin/settings?category=workflow&item=challenge-management')"
-                v-if="isSscSstcTenant && (canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Season Management</router-link>
-              <router-link
-                :to="orgTo('/admin/company-events')"
-                v-if="isSscSstcTenant && ['admin','super_admin','provider_plus'].includes(String(user?.role || '').toLowerCase())"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Club Events</router-link>
-              <router-link
-                :to="orgTo('/admin/surveys')"
-                v-if="isSscSstcTenant && ['admin','super_admin','provider_plus'].includes(String(user?.role || '').toLowerCase())"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Surveys</router-link>
               <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Guardians</router-link>
               <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
               <router-link
@@ -1647,14 +1601,6 @@ const isTrueAdmin = computed(() => {
   return role === 'admin' || role === 'super_admin';
 });
 
-// Summit Stats club managers (admin with no agencies) use Challenges, not Admin
-const isSummitStatsClubManager = computed(() => {
-  const role = String(user.value?.role || '').toLowerCase();
-  if (role !== 'admin') return false;
-  const agencies = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
-  return !Array.isArray(agencies) || agencies.length === 0;
-});
-
 // SSC/affiliation context: current org is a club (affiliation). Simplified nav: Team Lead Dashboards, Schedule, Members, Settings.
 const isAffiliationContext = computed(() => {
   const t = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
@@ -2052,7 +1998,7 @@ const canSeePortalNav = computed(() => {
 });
 
 const showOnDemandLink = computed(() => {
-  return user.value?.role !== 'super_admin' && isOnDemandUser.value && hasCapability('canViewTraining') && !isAffiliationContext.value;
+  return user.value?.role !== 'super_admin' && isOnDemandUser.value && hasCapability('canViewTraining') && !isAffiliationContext.value && !isSscSstcTenant.value;
 });
 
 const canCreateEdit = computed(() => {
@@ -2064,14 +2010,14 @@ const canShowSettingsIcon = computed(() => {
   const u = authStore.user;
   if (!u) return false;
   // Mirror Settings link: admin/support keep access regardless of supervisor (supervisor is additive).
-  return (canCreateEdit.value || u?.role === 'support') && u?.role !== 'clinical_practice_assistant' && u?.role !== 'provider_plus';
+  return !isSscSstcTenant.value && (canCreateEdit.value || u?.role === 'support') && u?.role !== 'clinical_practice_assistant' && u?.role !== 'provider_plus';
 });
 
 const canShowScheduleIcon = computed(() => {
   const u = authStore.user;
   if (!u) return false;
   const role = String(u?.role || '').toLowerCase();
-  return role !== 'school_staff';
+  return role !== 'school_staff' && !isSscSstcTenant.value;
 });
 
 const settingsIconUrl = computed(() => {
@@ -2094,8 +2040,7 @@ const scheduleIconUrl = computed(() => {
 const canShowAdminDashboardIcon = computed(() => {
   const u = authStore.user;
   if (!u) return false;
-  // Club managers are admins; they see the icon (route guard redirects /admin → /challenges)
-  return isTrueAdmin.value;
+  return isTrueAdmin.value && !isSscSstcTenant.value;
 });
 
 const adminDashboardIconUrl = computed(() => {
@@ -2210,11 +2155,11 @@ const myDashboardTo = computed(() => {
   const isProviderPlusExperienceRole =
     role === 'provider_plus' || role === 'clinical_practice_assistant';
 
+  if (isSscSstcTenant.value) return orgTo('/challenges');
+
   // "My Dashboard" should always land on the user's personal dashboard, not admin.
   if (role === 'super_admin' || role === 'superadmin') return '/dashboard';
   if (isProviderPlusExperienceRole) return orgTo('/dashboard');
-  // Summit Stats club managers (admin with no agencies) go to Admin - their main interface
-  if (isSummitStatsClubManager.value) return orgTo('/admin');
   if (role === 'admin' || role === 'support' || role === 'staff' || role === 'provider' || isSupervisor(u)) {
     return orgTo('/dashboard');
   }
@@ -2224,6 +2169,7 @@ const myDashboardTo = computed(() => {
 });
 
 const showOperationsDashboardLink = computed(() => {
+  if (isSscSstcTenant.value) return false;
   const role = String(authStore.user?.role || '').toLowerCase();
   return role === 'provider_plus' || role === 'clinical_practice_assistant' || role === 'admin' || role === 'super_admin';
 });

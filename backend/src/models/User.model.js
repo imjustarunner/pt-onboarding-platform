@@ -1515,12 +1515,13 @@ class User {
     // Best-effort: include membership fields from user_agencies.
     try {
       const [uaCols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','h0032_requires_manual_minutes','is_active','supervision_is_prelicensed','supervision_is_compensable','supervision_start_date','supervision_start_individual_hours','supervision_start_group_hours')"
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','h0032_requires_manual_minutes','is_active','club_role','supervision_is_prelicensed','supervision_is_compensable','supervision_start_date','supervision_start_individual_hours','supervision_start_group_hours')"
       );
       const names = (uaCols || []).map((c) => c.COLUMN_NAME);
       hasPayrollAccess = names.includes('has_payroll_access');
       hasH0032ManualMinutes = names.includes('h0032_requires_manual_minutes');
       var hasIsActive = names.includes('is_active'); // eslint-disable-line no-var
+      var hasClubRole = names.includes('club_role'); // eslint-disable-line no-var
       // Prelicensed supervision settings
       var hasSupervisionPrelicensed = names.includes('supervision_is_prelicensed'); // eslint-disable-line no-var
       var hasSupervisionCompensable = names.includes('supervision_is_compensable'); // eslint-disable-line no-var
@@ -1531,6 +1532,7 @@ class User {
       hasPayrollAccess = false;
       hasH0032ManualMinutes = false;
       var hasIsActive = false; // eslint-disable-line no-var
+      var hasClubRole = false; // eslint-disable-line no-var
       // Prelicensed supervision settings
       var hasSupervisionPrelicensed = false; // eslint-disable-line no-var
       var hasSupervisionCompensable = false; // eslint-disable-line no-var
@@ -1556,6 +1558,7 @@ class User {
         : null,
       hasPayrollAccess ? 'ua.has_payroll_access' : null,
       hasH0032ManualMinutes ? 'ua.h0032_requires_manual_minutes' : null,
+      hasClubRole ? 'ua.club_role' : null,
       hasSupervisionPrelicensed ? 'ua.supervision_is_prelicensed' : null,
       hasSupervisionCompensable ? 'ua.supervision_is_compensable' : null,
       hasSupervisionStartDate ? 'ua.supervision_start_date' : null,
@@ -1700,10 +1703,45 @@ class User {
     return rows;
   }
 
-  static async assignToAgency(userId, agencyId) {
+  static async assignToAgency(userId, agencyId, options = {}) {
+    const dbName = process.env.DB_NAME || 'onboarding_stage';
+    let hasClubRole = false;
+    let hasIsActive = false;
+    try {
+      const [uaCols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('club_role','is_active')",
+        [dbName]
+      );
+      const names = (uaCols || []).map((c) => c.COLUMN_NAME);
+      hasClubRole = names.includes('club_role');
+      hasIsActive = names.includes('is_active');
+    } catch {
+      hasClubRole = false;
+      hasIsActive = false;
+    }
+
+    const columns = ['user_id', 'agency_id'];
+    const placeholders = ['?', '?'];
+    const params = [userId, agencyId];
+    const updates = ['user_id = user_id'];
+
+    if (hasClubRole && options.clubRole !== undefined) {
+      columns.push('club_role');
+      placeholders.push('?');
+      params.push(options.clubRole);
+      updates.push('club_role = VALUES(club_role)');
+    }
+
+    if (hasIsActive && options.isActive !== undefined) {
+      columns.push('is_active');
+      placeholders.push('?');
+      params.push(options.isActive ? 1 : 0);
+      updates.push('is_active = VALUES(is_active)');
+    }
+
     await pool.execute(
-      'INSERT INTO user_agencies (user_id, agency_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id = user_id',
-      [userId, agencyId]
+      `INSERT INTO user_agencies (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) ON DUPLICATE KEY UPDATE ${updates.join(', ')}`,
+      params
     );
   }
 
@@ -1735,6 +1773,22 @@ class User {
       await pool.execute(
         'UPDATE user_agencies SET is_active = ? WHERE user_id = ? AND agency_id = ?',
         [active ? 1 : 0, userId, agencyId]
+      );
+      return this.getAgencyMembership(userId, agencyId);
+    } catch {
+      return null;
+    }
+  }
+
+  static async setAgencyClubRole(userId, agencyId, clubRole) {
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME = 'club_role'"
+      );
+      if (!cols?.length) return null;
+      await pool.execute(
+        'UPDATE user_agencies SET club_role = ? WHERE user_id = ? AND agency_id = ?',
+        [clubRole || null, userId, agencyId]
       );
       return this.getAgencyMembership(userId, agencyId);
     } catch {
@@ -2480,4 +2534,3 @@ class User {
 }
 
 export default User;
-

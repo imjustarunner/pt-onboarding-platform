@@ -6,6 +6,7 @@ import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import ChallengeParticipantProfile from '../models/ChallengeParticipantProfile.model.js';
 import ChallengeSeasonParticipationAcceptance from '../models/ChallengeSeasonParticipationAcceptance.model.js';
+import { canUserManageClub } from '../utils/sscClubAccess.js';
 import {
   buildParticipationAgreementHash,
   hasParticipationAgreement,
@@ -338,12 +339,14 @@ const canAccessOrganization = async ({ user, organizationId }) => {
 const canManageAtOrganization = async ({ user, organizationId }) => {
   const orgId = asInt(organizationId);
   if (!orgId) return false;
+  if (String(user?.role || '').toLowerCase() === 'super_admin') return true;
   const [rows] = await pool.execute(
     `SELECT organization_type FROM agencies WHERE id = ? LIMIT 1`,
     [orgId]
   );
   const orgType = String(rows?.[0]?.organization_type || '').toLowerCase();
-  if (orgType === 'agency') return String(user?.role || '').toLowerCase() === 'super_admin';
+  if (orgType === 'agency') return false;
+  if (orgType === 'affiliation') return canUserManageClub({ user, clubId: orgId });
   return canManageRole(user?.role) || isSubCoordinator(user);
 };
 

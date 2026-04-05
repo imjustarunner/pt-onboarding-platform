@@ -15,17 +15,17 @@
         </div>
       </button>
 
-      <!-- Add Season -->
-      <button type="button" class="action-card" @click="$emit('add-season')">
+      <!-- Season Management -->
+      <router-link :to="seasonManagementTo" class="action-card action-card-link">
         <div class="action-icon-wrap">
           <img v-if="addSeasonIconUrl" :src="addSeasonIconUrl" alt="" class="action-icon-img" />
           <span v-else class="action-icon-placeholder">🏁</span>
         </div>
         <div class="action-content">
-          <h3>Add New Season</h3>
-          <p>Establish the terms of your next season (Winter Run '26, etc.).</p>
+          <h3>Season Management</h3>
+          <p>Create your first season, edit existing ones, and manage season rules from one place.</p>
         </div>
-      </button>
+      </router-link>
 
       <!-- Public Club Page -->
       <div class="action-card action-card--split" ref="publicCardRef">
@@ -89,7 +89,7 @@ const props = defineProps({
   compact: { type: Boolean, default: false }
 });
 
-defineEmits(['add-member', 'add-season']);
+defineEmits(['add-member']);
 
 const brandingStore = useBrandingStore();
 const publicSlug = ref('');
@@ -102,7 +102,12 @@ const settingsIconUrl  = computed(() => brandingStore.getClubQuickActionIconUrl(
 // ── Routes ────────────────────────────────────────────────────────
 const settingsTo = computed(() => {
   const slug = props.orgSlug;
-  return slug ? `/${slug}/admin/club-settings` : '/admin/settings';
+  return slug ? `/${slug}/club/settings` : '/admin/settings';
+});
+
+const seasonManagementTo = computed(() => {
+  const slug = props.orgSlug;
+  return slug ? `/${slug}/club/seasons` : '/challenges';
 });
 
 // Public page URL: /:orgSlug/clubs/:clubId

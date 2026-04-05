@@ -119,6 +119,36 @@ const isAnyLoginEmailDomainAllowed = ({ loginEmails, featureFlags }) => {
     return !!domain && allowedDomains.includes(domain);
   });
 };
+
+let authOrgAffiliationColumnSupportPromise = null;
+const getAuthOrgAffiliationColumnSupport = async () => {
+  if (!authOrgAffiliationColumnSupportPromise) {
+    const dbName = process.env.DB_NAME || 'onboarding_stage';
+    authOrgAffiliationColumnSupportPromise = pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'organization_affiliations' AND COLUMN_NAME IN ('updated_at','created_at')",
+      [dbName]
+    )
+      .then(([rows]) => {
+        const names = new Set((rows || []).map((row) => row.COLUMN_NAME));
+        return {
+          hasUpdatedAt: names.has('updated_at'),
+          hasCreatedAt: names.has('created_at')
+        };
+      })
+      .catch(() => ({
+        hasUpdatedAt: false,
+        hasCreatedAt: false
+      }));
+  }
+  return authOrgAffiliationColumnSupportPromise;
+};
+
+const getOrganizationAffiliationsOrderBy = async () => {
+  const support = await getAuthOrgAffiliationColumnSupport();
+  if (support.hasUpdatedAt) return 'ORDER BY updated_at DESC, id DESC';
+  if (support.hasCreatedAt) return 'ORDER BY created_at DESC, id DESC';
+  return 'ORDER BY id DESC';
+};
 const getUserLoginIdentifiers = async (userId) => {
   if (!userId) return [];
   try {
@@ -904,12 +934,13 @@ export const identifyLogin = async (req, res, next) => {
       // organization_affiliations (newer)
       try {
         const placeholders = ids.map(() => '?').join(',');
+        const orderBy = await getOrganizationAffiliationsOrderBy();
         const [rows] = await pool.execute(
           `SELECT organization_id, agency_id
            FROM organization_affiliations
            WHERE is_active = TRUE
              AND organization_id IN (${placeholders})
-           ORDER BY updated_at DESC, id DESC`,
+           ${orderBy}`,
           ids
         );
         for (const r of rows || []) {
@@ -921,12 +952,13 @@ export const identifyLogin = async (req, res, next) => {
         // Fallback for older schemas that used active_agency_id and/or active flags.
         try {
           const placeholders = ids.map(() => '?').join(',');
+          const orderBy = await getOrganizationAffiliationsOrderBy();
           const [rows] = await pool.execute(
             `SELECT organization_id, active_agency_id AS agency_id
              FROM organization_affiliations
              WHERE (is_active = TRUE OR active = TRUE)
                AND organization_id IN (${placeholders})
-             ORDER BY updated_at DESC, id DESC`,
+             ${orderBy}`,
             ids
           );
           for (const r of rows || []) {
@@ -3504,9 +3536,14 @@ export const registerClubManager = async (req, res, next) => {
       passwordHash,
       firstName: (firstName || '').trim() || null,
       lastName: String(lastName).trim(),
-      role: 'admin',
-      status: 'PENDING_SETUP'
+      role: 'provider',
+      status: 'ACTIVE_EMPLOYEE'
     });
+
+    const platformAgencyId = await getPlatformAgencyId();
+    if (platformAgencyId) {
+      await User.assignToAgency(user.id, platformAgencyId, { isActive: true });
+    }
 
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -3549,7 +3586,7 @@ export const registerClubManager = async (req, res, next) => {
     }
 
     res.status(201).json({
-      message: 'Account created. Please check your email to verify before creating your club.',
+      message: 'Account created. Please check your email to verify before starting your club.',
       userId: user.id,
       email: resolvedEmail,
       verificationSent: EmailService.isConfigured(),
@@ -3600,6 +3637,14 @@ export const registerParticipant = async (req, res, next) => {
       role: 'provider',
       status: 'ACTIVE_EMPLOYEE'
     });
+
+    const portalSlugNorm = String(portalSlug || '').trim().toLowerCase();
+    if (portalSlugNorm === 'ssc' || portalSlugNorm === 'sstc' || portalSlugNorm === 'summit-stats') {
+      const platformAgencyId = await getPlatformAgencyId();
+      if (platformAgencyId) {
+        await User.assignToAgency(user.id, platformAgencyId, { isActive: true });
+      }
+    }
 
     // Persist optional activity-profile fields if provided
     if (weightLbs || heightInches || gender || dateOfBirth) {
@@ -3657,9 +3702,6 @@ export const resendClubManagerVerification = async (req, res, next) => {
     const user = req.user;
     if (!user?.id) {
       return res.status(401).json({ error: { message: 'Sign in required' } });
-    }
-    if (user.role !== 'admin') {
-      return res.status(403).json({ error: { message: 'Only club managers can use this' } });
     }
 
     const dbName = process.env.DB_NAME || 'onboarding_stage';
@@ -3775,4 +3817,3 @@ export const verifyClubManagerEmail = async (req, res, next) => {
     next(error);
   }
 };
-

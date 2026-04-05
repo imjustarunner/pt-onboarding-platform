@@ -13,14 +13,12 @@
  *   PUT    /summit-stats/clubs/:id/seasons/:classId/participants/:userId/custom-values/:fieldId
  */
 import pool from '../config/database.js';
+import { canUserManageClub } from '../utils/sscClubAccess.js';
 
 const toInt = (v) => {
   const n = Number.parseInt(v, 10);
   return Number.isFinite(n) ? n : null;
 };
-
-const canManageClub = (role) =>
-  ['admin', 'super_admin', 'club_manager', 'manager'].includes(String(role || '').toLowerCase());
 
 // ── Field Definitions ─────────────────────────────────────────────
 
@@ -46,7 +44,7 @@ export const createCustomField = async (req, res, next) => {
   try {
     const clubId = toInt(req.params.id);
     if (!clubId) return res.status(400).json({ error: { message: 'Invalid club ID' } });
-    if (!canManageClub(req.user?.role)) return res.status(403).json({ error: { message: 'Club manager access required' } });
+    if (!(await canUserManageClub({ user: req.user, clubId }))) return res.status(403).json({ error: { message: 'Club manager access required' } });
 
     const name = String(req.body.name || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     const label = String(req.body.label || '').trim();
@@ -83,7 +81,7 @@ export const updateCustomField = async (req, res, next) => {
     const clubId = toInt(req.params.id);
     const fieldId = toInt(req.params.fieldId);
     if (!clubId || !fieldId) return res.status(400).json({ error: { message: 'Invalid ID' } });
-    if (!canManageClub(req.user?.role)) return res.status(403).json({ error: { message: 'Club manager access required' } });
+    if (!(await canUserManageClub({ user: req.user, clubId }))) return res.status(403).json({ error: { message: 'Club manager access required' } });
 
     const [existing] = await pool.execute(
       `SELECT id FROM challenge_custom_field_definitions WHERE id = ? AND agency_id = ? LIMIT 1`,
@@ -119,7 +117,7 @@ export const deleteCustomField = async (req, res, next) => {
     const clubId = toInt(req.params.id);
     const fieldId = toInt(req.params.fieldId);
     if (!clubId || !fieldId) return res.status(400).json({ error: { message: 'Invalid ID' } });
-    if (!canManageClub(req.user?.role)) return res.status(403).json({ error: { message: 'Club manager access required' } });
+    if (!(await canUserManageClub({ user: req.user, clubId }))) return res.status(403).json({ error: { message: 'Club manager access required' } });
 
     await pool.execute(
       `UPDATE challenge_custom_field_definitions SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND agency_id = ?`,
@@ -141,7 +139,7 @@ export const getParticipantCustomValues = async (req, res, next) => {
     if (!clubId || !userId) return res.status(400).json({ error: { message: 'Invalid ID' } });
 
     const isOwner = Number(req.user?.id) === userId;
-    if (!isOwner && !canManageClub(req.user?.role)) {
+    if (!isOwner && !(await canUserManageClub({ user: req.user, clubId }))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
@@ -171,7 +169,7 @@ export const upsertParticipantCustomValue = async (req, res, next) => {
     if (!clubId || !userId || !fieldId) return res.status(400).json({ error: { message: 'Invalid ID' } });
 
     const isOwner = Number(req.user?.id) === userId;
-    if (!isOwner && !canManageClub(req.user?.role)) {
+    if (!isOwner && !(await canUserManageClub({ user: req.user, clubId }))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 

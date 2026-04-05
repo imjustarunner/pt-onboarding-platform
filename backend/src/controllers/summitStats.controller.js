@@ -3,6 +3,12 @@ import User from '../models/User.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import pool from '../config/database.js';
 import { validationResult } from 'express-validator';
+import {
+  canUserManageClub,
+  formatClubManagerDisplayName,
+  getManagedClubsForUser,
+  getPrimaryClubManager
+} from '../utils/sscClubAccess.js';
 
 function slugify(name) {
   let s = String(name || '').trim();
@@ -14,11 +20,6 @@ function slugify(name) {
     .replace(/-+/g, '-') // collapse consecutive hyphens
     .replace(/^-|-$/g, '');
 }
-
-const canManageClub = (role) => {
-  const r = String(role || '').toLowerCase();
-  return r === 'admin' || r === 'super_admin';
-};
 
 const parseClubRecords = (raw) => {
   if (!raw) return [];
@@ -114,7 +115,6 @@ const getMetricValueFromWorkout = (metricKey, workout) => {
 const ensureClubAdminAccess = async ({ user, clubId }) => {
   if (!Number.isFinite(clubId) || clubId < 1) return { ok: false, status: 400, message: 'Invalid club ID' };
   if (!user?.id) return { ok: false, status: 401, message: 'Sign in required' };
-  if (!canManageClub(user?.role)) return { ok: false, status: 403, message: 'Club manager access required' };
   const [clubRows] = await pool.execute(
     'SELECT id, organization_type FROM agencies WHERE id = ? LIMIT 1',
     [clubId]
@@ -123,11 +123,27 @@ const ensureClubAdminAccess = async ({ user, clubId }) => {
   if (!club || String(club.organization_type || '').toLowerCase() !== 'affiliation') {
     return { ok: false, status: 404, message: 'Club not found' };
   }
-  if (String(user.role || '').toLowerCase() === 'super_admin') return { ok: true, club };
-  const userAgencies = await User.getAgencies(user.id);
-  const hasAccess = (userAgencies || []).some((a) => Number(a?.id) === clubId);
-  if (!hasAccess) return { ok: false, status: 403, message: 'You do not have access to this club' };
+  const hasAccess = await canUserManageClub({ user, clubId });
+  if (!hasAccess) return { ok: false, status: 403, message: 'Club manager access required' };
   return { ok: true, club };
+};
+
+const hasUserEmailVerified = async (userId) => {
+  const dbName = process.env.DB_NAME || 'onboarding_stage';
+  try {
+    const [cols] = await pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'email_verified_at'",
+      [dbName]
+    );
+    if (!cols?.length) return true;
+    const [rows] = await pool.execute(
+      'SELECT email_verified_at FROM users WHERE id = ? LIMIT 1',
+      [userId]
+    );
+    return !!rows?.[0]?.email_verified_at;
+  } catch {
+    return true;
+  }
 };
 
 /** Resolve Summit Stats platform agency ID (for club creation, club manager emails, etc.). */
@@ -179,7 +195,7 @@ export async function getPlatformAgencyIds(platformSlug = null) {
 
 /**
  * Create a club (affiliation) under the Summit Stats platform.
- * Requires: auth, role=admin, email verified (for club managers).
+ * Requires: auth + email verified. Manager power is scoped to the created club.
  */
 export const createClub = async (req, res, next) => {
   try {
@@ -188,7 +204,7 @@ export const createClub = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
-    const { name, slug: inputSlug } = req.body;
+    const { name, slug: inputSlug, city, state } = req.body;
     const nameTrimmed = String(name || '').trim();
     if (!nameTrimmed) {
       return res.status(400).json({ error: { message: 'Club name is required' } });
@@ -202,30 +218,18 @@ export const createClub = async (req, res, next) => {
     }
 
     const user = req.user;
-    if (user.role !== 'admin' && user.role !== 'super_admin') {
-      return res.status(403).json({ error: { message: 'Only admins can create clubs' } });
+    if (!user?.id) {
+      return res.status(401).json({ error: { message: 'Sign in required' } });
     }
 
-    const dbName = process.env.DB_NAME || 'onboarding_stage';
-    const [cols] = await pool.execute(
-      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'email_verified_at'",
-      [dbName]
-    );
-    const hasEmailVerified = cols?.length > 0;
-    if (hasEmailVerified && user.role === 'admin') {
-      const [uRows] = await pool.execute(
-        'SELECT email_verified_at FROM users WHERE id = ? LIMIT 1',
-        [user.id]
-      );
-      const verified = uRows?.[0]?.email_verified_at;
-      if (!verified) {
-        return res.status(403).json({
-          error: {
-            message: 'Email verification required before creating a club.',
-            code: 'EMAIL_VERIFICATION_REQUIRED'
-          }
-        });
-      }
+    const emailVerified = await hasUserEmailVerified(user.id);
+    if (!emailVerified) {
+      return res.status(403).json({
+        error: {
+          message: 'Email verification required before creating a club.',
+          code: 'EMAIL_VERIFICATION_REQUIRED'
+        }
+      });
     }
 
     const finalSlug = inputSlug?.trim() ? slugify(inputSlug) : slugify(nameTrimmed);
@@ -251,7 +255,32 @@ export const createClub = async (req, res, next) => {
       isActive: true
     });
 
-    await User.assignToAgency(user.id, agency.id);
+    await User.assignToAgency(user.id, platformAgencyId, { isActive: true });
+    await User.assignToAgency(user.id, agency.id, { clubRole: 'manager', isActive: true });
+
+    const dbName = process.env.DB_NAME || 'onboarding_stage';
+    const [agencyCols] = await pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('city','state')",
+      [dbName]
+    );
+    const columnSet = new Set((agencyCols || []).map((row) => row.COLUMN_NAME));
+    const updates = [];
+    const params = [];
+    if (columnSet.has('city')) {
+      updates.push('city = ?');
+      params.push(String(city || '').trim() || null);
+    }
+    if (columnSet.has('state')) {
+      updates.push('state = ?');
+      params.push(String(state || '').trim().toUpperCase().slice(0, 32) || null);
+    }
+    if (updates.length) {
+      params.push(agency.id);
+      await pool.execute(
+        `UPDATE agencies SET ${updates.join(', ')} WHERE id = ?`,
+        params
+      );
+    }
 
     res.status(201).json(agency);
   } catch (error) {
@@ -346,7 +375,16 @@ export const listClubs = async (req, res, next) => {
     );
     const total = Number(countRows?.[0]?.total || 0);
 
-    res.json({ clubs: rows || [], total });
+    const clubs = await Promise.all((rows || []).map(async (club) => {
+      const manager = await getPrimaryClubManager(club.id);
+      return {
+        ...club,
+        primaryManagerName: formatClubManagerDisplayName(manager) || null,
+        primaryManagerUserId: manager?.userId || null
+      };
+    }));
+
+    res.json({ clubs, total });
   } catch (error) {
     next(error);
   }
@@ -387,7 +425,7 @@ export const applyToClub = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'You are already a member of this club' } });
     }
 
-    await User.assignToAgency(user.id, clubId);
+    await User.assignToAgency(user.id, clubId, { clubRole: 'member', isActive: true });
 
     const club = await Agency.findById(clubId);
     res.status(201).json({
@@ -422,12 +460,7 @@ export const addMemberToClub = async (req, res, next) => {
     }
 
     const user = req.user;
-    if (user.role !== 'admin' && user.role !== 'super_admin') {
-      return res.status(403).json({ error: { message: 'Club manager access required' } });
-    }
-
-    const userAgencies = await User.getAgencies(user.id);
-    const hasAccess = (userAgencies || []).some((a) => Number(a?.id) === clubId);
+    const hasAccess = await canUserManageClub({ user, clubId });
     if (!hasAccess) {
       return res.status(403).json({ error: { message: 'You do not have access to this club' } });
     }
@@ -467,12 +500,80 @@ export const addMemberToClub = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'This person is already a member of your club' } });
     }
 
-    await User.assignToAgency(existingUser.id, clubId);
-    const displayName = `${(existingUser.first_name || '').trim()} ${(existingUser.last_name || '').trim()}`.trim() || email;
+    await User.assignToAgency(existingUser.id, clubId, { clubRole: 'member', isActive: true });
+    const displayName = `${(existingUser.first_name || '').trim()} ${(existingUser.last_name || '').trim()}`.trim() || identifier;
     return res.json({
       exists: true,
       added: true,
       message: displayName ? `${displayName} has been added to your club.` : 'Member added to your club.'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const startContactManagerThread = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(clubId) || clubId < 1) {
+      return res.status(400).json({ error: { message: 'Invalid club ID' } });
+    }
+    if (!req.user?.id) {
+      return res.status(401).json({ error: { message: 'Sign in required' } });
+    }
+
+    const club = await Agency.findById(clubId);
+    if (!club || String(club.organization_type || '').toLowerCase() !== 'affiliation') {
+      return res.status(404).json({ error: { message: 'Club not found' } });
+    }
+
+    const manager = await getPrimaryClubManager(clubId);
+    if (!manager?.userId) {
+      return res.status(404).json({ error: { message: 'No active club manager found for this club' } });
+    }
+
+    const platformAgencyId = await getPlatformAgencyId();
+    if (!platformAgencyId) {
+      return res.status(503).json({ error: { message: 'Summit Stats platform is not configured.' } });
+    }
+
+    await User.assignToAgency(req.user.id, platformAgencyId, { isActive: true });
+    await User.assignToAgency(manager.userId, platformAgencyId, { isActive: true });
+
+    const [existing] = await pool.execute(
+      `SELECT tp.thread_id
+       FROM chat_threads t
+       INNER JOIN chat_thread_participants tp ON tp.thread_id = t.id
+       WHERE t.agency_id = ?
+         AND (t.organization_id <=> ?)
+         AND t.thread_type = 'direct'
+         AND tp.user_id IN (?, ?)
+       GROUP BY tp.thread_id
+       HAVING COUNT(DISTINCT tp.user_id) = 2
+       LIMIT 1`,
+      [platformAgencyId, clubId, req.user.id, manager.userId]
+    );
+
+    let threadId = Number(existing?.[0]?.thread_id || 0) || null;
+    if (!threadId) {
+      const [insert] = await pool.execute(
+        'INSERT INTO chat_threads (agency_id, organization_id, thread_type) VALUES (?, ?, ?)',
+        [platformAgencyId, clubId, 'direct']
+      );
+      threadId = Number(insert.insertId);
+      await pool.execute(
+        'INSERT INTO chat_thread_participants (thread_id, user_id) VALUES (?, ?), (?, ?)',
+        [threadId, req.user.id, threadId, manager.userId]
+      );
+    }
+
+    return res.json({
+      ok: true,
+      threadId,
+      agencyId: platformAgencyId,
+      organizationId: clubId,
+      managerUserId: manager.userId,
+      managerName: formatClubManagerDisplayName(manager) || 'Club manager'
     });
   } catch (error) {
     next(error);
@@ -491,12 +592,9 @@ export const getClubSpecs = async (req, res, next) => {
     }
 
     const user = req.user;
-    if (user.role !== 'admin' && user.role !== 'super_admin') {
-      const userAgencies = await User.getAgencies(user.id);
-      const hasAccess = (userAgencies || []).some((a) => Number(a?.id) === agencyId);
-      if (!hasAccess) {
-        return res.status(403).json({ error: { message: 'You do not have access to this club' } });
-      }
+    const hasAccess = await canUserManageClub({ user, clubId: agencyId });
+    if (!hasAccess) {
+      return res.status(403).json({ error: { message: 'You do not have access to this club' } });
     }
 
     const [orgRows] = await pool.execute(
@@ -609,41 +707,17 @@ export const getClubManagerContext = async (req, res, next) => {
 
     const agencies = await User.getAgencies(user.id);
     const clubs = (agencies || []).filter(
-      (a) => String(a?.organization_type || '').toLowerCase() === 'affiliation'
+      (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
     );
-
-    const dbName = process.env.DB_NAME || 'onboarding_stage';
-    let emailVerified = true;
-    try {
-      const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'email_verified_at'",
-        [dbName]
-      );
-      if (cols?.length) {
-        const [uRows] = await pool.execute(
-          'SELECT email_verified_at FROM users WHERE id = ? LIMIT 1',
-          [user.id]
-        );
-        emailVerified = !!uRows?.[0]?.email_verified_at;
-      }
-    } catch {
-      emailVerified = true;
-    }
-
-    const canCreateClub = (user.role === 'admin' || user.role === 'super_admin') && emailVerified;
-    // Only SSC club managers: admins with ONLY affiliation orgs (clubs) OR no agencies (new club manager signup).
-    // Excludes admins of other agencies/tenants (e.g. ITSCO) who have no SSC affiliation.
-    const agenciesList = agencies || [];
-    const hasOnlyAffiliations = agenciesList.length > 0 && clubs.length === agenciesList.length;
-    const hasNoAgencies = agenciesList.length === 0;
-    const summitStatsScopedAdmin =
-      user.role === 'admin' &&
-      (hasOnlyAffiliations || hasNoAgencies);
+    const emailVerified = await hasUserEmailVerified(user.id);
+    const managedClubs = await getManagedClubsForUser(user.id, { includeAssistant: true });
+    const summitStatsScopedAdmin = managedClubs.length > 0;
 
     res.json({
       clubs,
+      managedClubs,
       emailVerified,
-      canCreateClub,
+      canCreateClub: !!emailVerified,
       summitStatsScopedAdmin
     });
   } catch (error) {

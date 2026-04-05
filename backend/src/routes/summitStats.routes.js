@@ -8,6 +8,7 @@ import {
   listClubs,
   applyToClub,
   addMemberToClub,
+  startContactManagerThread,
   getClubRecords,
   upsertClubRecords,
   listClubRecordVerifications,
@@ -69,7 +70,8 @@ import {
   setClubMemberStatus,
   putClubMemberProfile,
   putClubMemberTeamCaptain,
-  getMyApplications
+  getMyApplications,
+  getMyDashboardSummary
 } from '../controllers/challengeMemberApplications.controller.js';
 
 const router = express.Router();
@@ -84,6 +86,7 @@ router.post('/clubs/invite/:token/apply', submitInviteApplication);
 
 router.use(authenticate);
 
+router.get('/me/dashboard', getMyDashboardSummary);
 router.get('/my-applications', getMyApplications);
 router.get('/club-specs', getClubSpecs);
 router.get('/club-manager-context', getClubManagerContext);
@@ -96,6 +99,7 @@ router.post('/clubs/:id/add-member', [
   body('identifier').optional().trim(),
   body('email').optional().trim()
 ], addMemberToClub);
+router.post('/clubs/:id/contact-manager', startContactManagerThread);
 router.get('/clubs/:id/records', getClubRecords);
 router.put('/clubs/:id/records', upsertClubRecords);
 router.get('/clubs/:id/records/verifications', listClubRecordVerifications);

@@ -4,8 +4,17 @@
       <div v-if="displayLogoUrl && !logoError" class="signup-logo">
         <img :src="displayLogoUrl" alt="Logo" class="logo-image" @error="handleLogoError" />
       </div>
-      <h1>Create Account</h1>
+      <h1>Create Your Account</h1>
       <p class="subtitle">{{ displaySubtitle }}</p>
+
+      <div class="expectation-card">
+        <h2>What happens next</h2>
+        <ul>
+          <li>Your account starts as a free SSC member account.</li>
+          <li>You can browse clubs, apply to join, and manage your profile right away.</li>
+          <li>Most competition features unlock once a club accepts you or you start your own club.</li>
+        </ul>
+      </div>
 
       <div v-if="success" class="success-message">
         <p>{{ success }}</p>
@@ -95,7 +104,7 @@ const displayLogoUrl = computed(() => {
 
 const displaySubtitle = computed(() => {
   const name = orgSlug.value && loginTheme.value?.agency?.name ? loginTheme.value.agency.name : 'Summit Stats: Team Challenge';
-  return `Sign up to join clubs and participate in fitness seasons on ${name}.`;
+  return `Join ${name} with a personal athlete account, then apply to the club that fits you best.`;
 });
 
 const loginBackground = computed(() => {
@@ -152,7 +161,7 @@ const submit = async () => {
       ...(totalInches ? { heightInches: totalInches } : {}),
       ...(orgSlug.value ? { portalSlug: orgSlug.value } : {})
     });
-    success.value = r.data?.message || 'Account created. You can now log in and join a club.';
+    success.value = r.data?.message || 'Account created. You can now sign in, browse clubs, and apply to join.';
     if (r.data?.redirectUrl && orgSlug.value) {
       success.value += '\n\nClick "Browse Clubs" to find and join a club.';
     }
@@ -197,6 +206,25 @@ const submit = async () => {
   margin: 0 0 24px 0;
   color: var(--text-muted, #666);
   font-size: 0.95em;
+}
+.expectation-card {
+  margin: 0 0 20px 0;
+  padding: 16px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #dbe4f0;
+}
+.expectation-card h2 {
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+}
+.expectation-card ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted, #5b6473);
+}
+.expectation-card li + li {
+  margin-top: 6px;
 }
 .signup-form .form-group {
   margin-bottom: 16px;

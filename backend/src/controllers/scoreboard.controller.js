@@ -13,15 +13,22 @@ import { getWeekStartDate, getWeekDateTimeRange, getSeasonWeekPhase } from '../u
 import { canAccessChallenge } from '../utils/challengeAccess.js';
 import { ensureChallengeParticipationAgreementAccepted } from '../utils/challengeParticipationAgreement.js';
 import { normalizeRecognitionCategories } from './learningProgramClasses.controller.js';
+import { canUserManageChallengeClass } from '../utils/sscClubAccess.js';
 
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
   return Number.isFinite(n) ? n : null;
 };
 
-const canManageChallenge = (role) => {
+const canManageChallengeRole = (role) => {
   const r = String(role || '').toLowerCase();
   return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(r);
+};
+
+const canManageChallenge = async ({ user, classId }) => {
+  if (!classId) return canManageChallengeRole(user?.role);
+  if (await canUserManageChallengeClass({ user, learningClassId: classId })) return true;
+  return canManageChallengeRole(user?.role);
 };
 
 const parseJsonObject = (raw, fallback = {}) => {
@@ -281,7 +288,7 @@ export const createWeeklyTasks = async (req, res, next) => {
     const tasks = Array.isArray(req.body.tasks) ? req.body.tasks : [];
     const weekParam = req.body.week || req.body.weekStart;
     if (!classId || !tasks.length) return res.status(400).json({ error: { message: 'classId and tasks (array of 3) required' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const weekCutoffTime = getWeekCutoffTime(access.class);
@@ -300,7 +307,7 @@ export const generateWeeklyTasksDraft = async (req, res, next) => {
     const classId = asInt(req.params.classId);
     const weekParam = req.body.week || req.body.weekStart;
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const weekCutoffTime = getWeekCutoffTime(access.class);
@@ -330,7 +337,7 @@ export const publishWeeklyTasksDraft = async (req, res, next) => {
     const classId = asInt(req.params.classId);
     const weekParam = req.body.week || req.body.weekStart;
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const weekCutoffTime = getWeekCutoffTime(access.class);
@@ -394,7 +401,7 @@ export const getSnakeDraftBoard = async (req, res, next) => {
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const teams = await ChallengeTeam.listByChallenge(classId);
     const ordered = (teams || []).slice().sort((a, b) => String(a.team_name || '').localeCompare(String(b.team_name || '')));
     const picks = [];
@@ -422,7 +429,7 @@ export const getNoShowRiskAlerts = async (req, res, next) => {
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const weekCutoffTime = getWeekCutoffTime(access.class);
     const weekTimeZone = getWeekTimeZone(access.class);
     const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
@@ -662,7 +669,7 @@ export const upsertWeeklyAssignment = async (req, res, next) => {
     const isSelf = Number(providerUserId) === Number(req.user.id);
 
     // Captains can only assign members of their own team
-    if (isCaptain && !isSelf && !canManageChallenge(req.user?.role)) {
+    if (isCaptain && !isSelf && !(await canManageChallenge({ user: req.user, classId }))) {
       const [memberCheck] = await pool.execute(
         `SELECT 1 FROM challenge_team_members WHERE team_id = ? AND provider_user_id = ? LIMIT 1`,
         [asInt(teamId), asInt(providerUserId)]
@@ -672,7 +679,7 @@ export const upsertWeeklyAssignment = async (req, res, next) => {
       }
     }
 
-    if (!canManageChallenge(req.user?.role) && !isCaptain && !(isSelf && volunteered)) {
+    if (!(await canManageChallenge({ user: req.user, classId })) && !isCaptain && !(isSelf && volunteered)) {
       return res.status(403).json({ error: { message: 'Only captain can assign; you can volunteer for yourself' } });
     }
     const access = await getAccess(req, classId);
@@ -690,7 +697,7 @@ export const upsertWeeklyAssignment = async (req, res, next) => {
       taskId,
       teamId,
       providerUserId,
-      assignedByUserId: isCaptain || canManageChallenge(req.user?.role) ? req.user.id : null,
+      assignedByUserId: isCaptain || (await canManageChallenge({ user: req.user, classId })) ? req.user.id : null,
       volunteered: !!volunteered
     });
     return res.json({ assignment });
@@ -738,7 +745,7 @@ export const setWeeklyAssignmentCompletionByManager = async (req, res, next) => 
     const classId = asInt(req.params.classId);
     const assignmentId = asInt(req.params.assignmentId);
     if (!classId || !assignmentId) return res.status(400).json({ error: { message: 'Invalid assignmentId' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const assignment = await ChallengeWeeklyAssignment.findById(assignmentId);
     if (!assignment) return res.status(404).json({ error: { message: 'Assignment not found' } });
     const task = await ChallengeWeeklyTask.findById(assignment.task_id);
@@ -765,7 +772,7 @@ export const closeWeek = async (req, res, next) => {
     const classId = asInt(req.params.classId);
     const weekParam = req.body.week || req.body.weekStart;
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const klass = access.class;
@@ -1017,7 +1024,7 @@ export const updateEliminationComment = async (req, res, next) => {
     const eliminationId = asInt(req.params.eliminationId);
     const adminComment = req.body.adminComment;
     if (!classId || !eliminationId) return res.status(400).json({ error: { message: 'Invalid eliminationId' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const [rows] = await pool.execute(
       `SELECT id FROM challenge_eliminations WHERE id = ? AND learning_class_id = ? LIMIT 1`,
       [eliminationId, classId]
@@ -1037,7 +1044,7 @@ export const manuallyEliminateParticipant = async (req, res, next) => {
     const adminComment = req.body?.adminComment ? String(req.body.adminComment) : null;
     const publicMessage = req.body?.publicMessage ? String(req.body.publicMessage) : null;
     if (!classId || !providerUserId) return res.status(400).json({ error: { message: 'classId and providerUserId required' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     if (await ChallengeElimination.isEliminated(classId, providerUserId)) {

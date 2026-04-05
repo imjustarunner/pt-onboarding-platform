@@ -7,22 +7,12 @@
  * DELETE /summit-stats/clubs/:id/challenge-templates/:tId  delete a template
  */
 import pool from '../config/database.js';
+import { canUserManageClub } from '../utils/sscClubAccess.js';
 
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
 
-const canManage = (role) => {
-  const r = String(role || '').toLowerCase();
-  return ['super_admin', 'admin', 'staff', 'provider_plus'].includes(r);
-};
-
 async function assertClubAccess(req, clubId) {
-  if (!canManage(req.user?.role)) return false;
-  if (['super_admin', 'admin'].includes(String(req.user?.role).toLowerCase())) return true;
-  const [rows] = await pool.execute(
-    `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
-    [req.user.id, clubId]
-  );
-  return (rows?.length || 0) > 0;
+  return canUserManageClub({ user: req.user, clubId });
 }
 
 const parseJsonField = (v) => {

@@ -1,6 +1,30 @@
 import pool from '../config/database.js';
 
 class OrganizationAffiliation {
+  static _columnSupportPromise = null;
+
+  static async getColumnSupport() {
+    if (!this._columnSupportPromise) {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
+      this._columnSupportPromise = pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'organization_affiliations' AND COLUMN_NAME IN ('updated_at','created_at')",
+        [dbName]
+      )
+        .then(([rows]) => {
+          const names = new Set((rows || []).map((row) => row.COLUMN_NAME));
+          return {
+            hasUpdatedAt: names.has('updated_at'),
+            hasCreatedAt: names.has('created_at')
+          };
+        })
+        .catch(() => ({
+          hasUpdatedAt: false,
+          hasCreatedAt: false
+        }));
+    }
+    return this._columnSupportPromise;
+  }
+
   /**
    * True if agency has at least one affiliated org with organization_type = 'clinical'.
    * Used to gate clinical notes/billing features to agencies with clinical org context.
@@ -88,11 +112,15 @@ class OrganizationAffiliation {
   static async getActiveAgencyIdForOrganization(organizationId) {
     const orgId = parseInt(organizationId, 10);
     if (!orgId) return null;
+    const support = await this.getColumnSupport();
+    const orderBy = support.hasUpdatedAt
+      ? 'ORDER BY updated_at DESC, id DESC'
+      : (support.hasCreatedAt ? 'ORDER BY created_at DESC, id DESC' : 'ORDER BY id DESC');
     const [rows] = await pool.execute(
       `SELECT agency_id
        FROM organization_affiliations
        WHERE organization_id = ? AND is_active = TRUE
-       ORDER BY updated_at DESC, id DESC
+       ${orderBy}
        LIMIT 1`,
       [orgId]
     );
@@ -102,9 +130,13 @@ class OrganizationAffiliation {
   static async deactivateAllForOrganization(organizationId) {
     const orgId = parseInt(organizationId, 10);
     if (!orgId) return 0;
+    const support = await this.getColumnSupport();
+    const setClause = support.hasUpdatedAt
+      ? 'SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP'
+      : 'SET is_active = FALSE';
     const [result] = await pool.execute(
       `UPDATE organization_affiliations
-       SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+       ${setClause}
        WHERE organization_id = ?`,
       [orgId]
     );
@@ -140,11 +172,15 @@ class OrganizationAffiliation {
     const aId = parseInt(agencyId, 10);
     const oId = parseInt(organizationId, 10);
     if (!aId || !oId) throw new Error('agencyId and organizationId are required');
+    const support = await this.getColumnSupport();
+    const updateClause = support.hasUpdatedAt
+      ? 'is_active = VALUES(is_active), updated_at = CURRENT_TIMESTAMP'
+      : 'is_active = VALUES(is_active)';
 
     await pool.execute(
       `INSERT INTO organization_affiliations (agency_id, organization_id, is_active)
        VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE is_active = VALUES(is_active), updated_at = CURRENT_TIMESTAMP`,
+       ON DUPLICATE KEY UPDATE ${updateClause}`,
       [aId, oId, !!isActive]
     );
 
@@ -157,4 +193,3 @@ class OrganizationAffiliation {
 }
 
 export default OrganizationAffiliation;
-

@@ -357,7 +357,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { TIMEZONE_GROUPS, detectLocalTimezone } from '../utils/timezones.js';
@@ -398,6 +398,7 @@ const captchaWidgetFailed = ref(false);
 const recaptchaWidgetEl = ref(null);
 const recaptchaWidgetId = ref(null);
 let recaptchaInitPromise = null;
+let recaptchaRetryTimer = null;
 
 // Gender options (from club config, defaults to Male/Female)
 const rawGenderOptions = ref(['male', 'female']);
@@ -537,11 +538,14 @@ onMounted(async () => {
     }
     pageLoading.value = false;
     await maybeInitRecaptcha();
+    document.addEventListener('visibilitychange', handleVisibilityRecaptchaRetry);
   }
 });
 
 onBeforeUnmount(() => {
   if (emailLookupTimeout) clearTimeout(emailLookupTimeout);
+  if (recaptchaRetryTimer) clearTimeout(recaptchaRetryTimer);
+  document.removeEventListener('visibilitychange', handleVisibilityRecaptchaRetry);
 });
 
 const loadRecaptchaScript = async (mode = 'standard', forceReload = false) => {
@@ -628,16 +632,30 @@ const maybeInitRecaptcha = async () => {
   recaptchaInitPromise = (async () => {
     await nextTick();
     await nextTick();
-    const rendered = await ensureRecaptchaWidget();
+    let rendered = false;
+    for (let attempt = 0; attempt < 3 && !rendered; attempt++) {
+      rendered = await ensureRecaptchaWidget(attempt > 0);
+      if (!rendered) {
+        await new Promise((resolve) => setTimeout(resolve, 220 * (attempt + 1)));
+      }
+    }
     captchaWidgetFailed.value = !rendered;
-    if (!rendered) {
-      const retryRendered = await ensureRecaptchaWidget(true);
-      captchaWidgetFailed.value = !retryRendered;
+    if (!rendered && !recaptchaRetryTimer) {
+      recaptchaRetryTimer = setTimeout(() => {
+        recaptchaRetryTimer = null;
+        void maybeInitRecaptcha();
+      }, 1200);
     }
   })().finally(() => {
     recaptchaInitPromise = null;
   });
   await recaptchaInitPromise;
+};
+
+const handleVisibilityRecaptchaRetry = () => {
+  if (document.visibilityState === 'visible' && requiresCaptcha.value && !captchaToken.value) {
+    void maybeInitRecaptcha();
+  }
 };
 
 const resetRecaptchaWidget = async () => {
@@ -702,6 +720,11 @@ const handleEmailInput = () => {
     checkExistingAccount();
   }, 300);
 };
+
+watch([requiresCaptcha, activeRecaptchaSiteKey], ([enabled, siteKey]) => {
+  if (!enabled || !siteKey || pageLoading.value) return;
+  void maybeInitRecaptcha();
+});
 
 // ── Submit ──────────────────────────────────────────────────────────────────
 const handleSubmit = async () => {

@@ -244,6 +244,10 @@ const activeThreadLabel = computed(() => {
 
 const dashboardPath = computed(() => {
   const slug = String(route.params?.organizationSlug || '').trim();
+  const normalized = slug.toLowerCase();
+  if (normalized === 'ssc' || normalized === 'sstc') {
+    return `/${slug}/challenges`;
+  }
   return slug ? `/${slug}/dashboard` : '/dashboard';
 });
 
@@ -732,4 +736,3 @@ textarea { width: 100%; border: 1px solid var(--border); border-radius: 10px; pa
   gap: 10px;
 }
 </style>
-

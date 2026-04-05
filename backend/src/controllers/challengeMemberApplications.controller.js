@@ -16,6 +16,7 @@ import { resolvePreferredSenderIdentityForAgency } from '../services/emailSender
 import { getPlatformAgencyId } from './summitStats.controller.js';
 import { buildRaceDivisions, buildRecordMetricMap } from './challenges.controller.js';
 import { callGeminiText } from '../services/geminiText.service.js';
+import { canUserManageClub } from '../utils/sscClubAccess.js';
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -30,23 +31,6 @@ const normalizePublicSlug = (v) => {
     .replace(/^-+|-+$/g, '');
   if (!cleaned) return '';
   return cleaned.slice(0, 64);
-};
-
-/** Admin/super_admin may access some member-scoped routes without club membership (support tooling). */
-const canManageClub = (role) => {
-  const r = String(role || '').toLowerCase();
-  return r === 'admin' || r === 'super_admin';
-};
-
-/** Roles allowed to perform club manager actions when also assigned to the club agency. */
-const canManageClubAsManager = (role) => {
-  const r = String(role || '').toLowerCase();
-  return ['admin', 'super_admin', 'support', 'staff', 'provider_plus'].includes(r);
-};
-
-const isMemberOf = (role) => {
-  const r = String(role || '').toLowerCase();
-  return ['admin', 'super_admin', 'staff', 'provider', 'provider_plus'].includes(r);
 };
 
 /** Verify club exists (affiliation type) and return it. */
@@ -112,14 +96,11 @@ const resolveClubPlatformAgencyId = async (clubId) => {
 const assertManagerAccess = async (req, res, clubId) => {
   const user = req.user;
   if (!user?.id) { res.status(401).json({ error: { message: 'Sign in required' } }); return null; }
-  if (!canManageClubAsManager(user.role)) { res.status(403).json({ error: { message: 'Club manager access required' } }); return null; }
   const club = await resolveClub(clubId);
   if (!club) { res.status(404).json({ error: { message: 'Club not found' } }); return null; }
-  if (String(user.role).toLowerCase() !== 'super_admin') {
-    const agencies = await User.getAgencies(user.id);
-    if (!(agencies || []).some((a) => Number(a?.id) === clubId)) {
-      res.status(403).json({ error: { message: 'No access to this club' } }); return null;
-    }
+  const canManage = await canUserManageClub({ user, clubId });
+  if (!canManage) {
+    res.status(403).json({ error: { message: 'Club manager access required' } }); return null;
   }
   return club;
 };
@@ -132,7 +113,7 @@ const assertMemberAccess = async (req, res, clubId) => {
   if (!club) { res.status(404).json({ error: { message: 'Club not found' } }); return null; }
   const agencies = await User.getAgencies(user.id);
   const isMember = (agencies || []).some((a) => Number(a?.id) === clubId);
-  const isManager = canManageClub(user.role);
+  const isManager = await canUserManageClub({ user, clubId });
   if (!isMember && !isManager) {
     res.status(403).json({ error: { message: 'You are not a member of this club' } }); return null;
   }
@@ -893,8 +874,8 @@ const createUserForApplication = async ({ firstName, lastName, email, phone, use
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const hashedPw = await hashPassword(String(password));
   const [insertResult] = await pool.execute(
-    `INSERT INTO users (first_name, last_name, email, password_hash, role, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'provider', 'ACTIVE_EMPLOYEE', NOW(), NOW())`,
+    `INSERT INTO users (first_name, last_name, email, password_hash, role, status, created_at)
+     VALUES (?, ?, ?, ?, 'provider', 'ACTIVE_EMPLOYEE', NOW())`,
     [String(firstName || '').trim(), String(lastName || '').trim(), normalizedEmail, hashedPw]
   );
   const userId = insertResult.insertId;
@@ -913,7 +894,7 @@ const ensureUserInPlatformTenantForClub = async (userId, clubId, knownAgencies =
   const agencies = Array.isArray(knownAgencies) ? knownAgencies : await User.getAgencies(userId);
   const alreadyInPlatform = (agencies || []).some((a) => Number(a?.id) === Number(platformAgencyId));
   if (!alreadyInPlatform) {
-    await User.assignToAgency(userId, platformAgencyId);
+    await User.assignToAgency(userId, platformAgencyId, { isActive: true });
   }
   return platformAgencyId;
 };
@@ -1258,8 +1239,8 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
       userId = existingUser.id;
     } else {
       const [insertResult] = await pool.execute(
-        `INSERT INTO users (first_name, last_name, email, password_hash, role, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'provider', 'ACTIVE_EMPLOYEE', NOW(), NOW())`,
+        `INSERT INTO users (first_name, last_name, email, password_hash, role, status, created_at)
+         VALUES (?, ?, ?, ?, 'provider', 'ACTIVE_EMPLOYEE', NOW())`,
         [app.first_name, app.last_name, app.email, await hashPassword(genToken(16))]
       );
       userId = insertResult.insertId;
@@ -1273,7 +1254,7 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
   // Assign to club (idempotent)
   const agencies = await User.getAgencies(userId);
   const alreadyMember = (agencies || []).some((a) => Number(a?.id) === Number(app.agency_id));
-  if (!alreadyMember) await User.assignToAgency(userId, app.agency_id);
+  if (!alreadyMember) await User.assignToAgency(userId, app.agency_id, { clubRole: 'member', isActive: true });
 
   // Save participant profile (gender, DOB, weight, height) to most recent season, or globally
   if (app.gender || app.date_of_birth || app.weight_lbs || app.height_inches) {
@@ -1325,16 +1306,6 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
      WHERE id = ?`,
     [userId, reviewedByUserId || null, notes || null, appId]
   );
-
-  // Member applications should create club participants (`provider`), not platform admins.
-  // If anything incorrectly set `admin`, normalize to `provider`; managers promote via Member Management.
-  try {
-    const [ur] = await pool.execute(`SELECT role FROM users WHERE id = ? LIMIT 1`, [userId]);
-    const r = String(ur?.[0]?.role || '').toLowerCase();
-    if (r === 'admin') {
-      await pool.execute(`UPDATE users SET role = 'provider' WHERE id = ?`, [userId]);
-    }
-  } catch { /* non-fatal */ }
 
   return { userId };
 };
@@ -1644,7 +1615,7 @@ export const getClubFeed = async (req, res, next) => {
        INNER JOIN users u ON u.id = cm.user_id
        INNER JOIN user_agencies ua ON ua.user_id = cm.user_id AND ua.agency_id = ?
        WHERE cm.learning_class_id IN (${placeholders})
-         AND u.role IN ('admin','staff','provider_plus')
+         AND COALESCE(ua.club_role, 'member') IN ('manager','assistant_manager')
        ORDER BY cm.created_at DESC
        LIMIT 20`,
       [clubId, ...visibleSeasonIds]
@@ -1719,7 +1690,7 @@ export const listClubMembers = async (req, res, next) => {
          u.status,
          u.created_at,
          ua.is_active AS club_is_active,
-         u.role       AS club_role
+         ua.club_role AS club_role
        FROM user_agencies ua
        INNER JOIN users u ON u.id = ua.user_id
        WHERE ua.agency_id = ?
@@ -1853,7 +1824,7 @@ const assertSeasonHistoryViewerAccess = async (req, res, clubId, targetUserId) =
   if (String(user.role || '').toLowerCase() === 'super_admin') return club;
   const agencies = await User.getAgencies(user.id);
   const isClubMember = (agencies || []).some((a) => Number(a?.id) === Number(clubId));
-  if (canManageClubAsManager(user.role) && isClubMember) return club;
+  if (isClubMember && await canUserManageClub({ user, clubId })) return club;
   if (isClubMember && await canViewMemberSeasonHistoryAsCaptain({ clubId, requesterUserId: user.id, targetUserId })) {
     return club;
   }
@@ -2284,6 +2255,187 @@ export const setClubMemberStatus = async (req, res, next) => {
       [isActive ? 1 : 0, userId, clubId]
     );
     return res.json({ ok: true, userId, clubId, isActive });
+  } catch (e) { next(e); }
+};
+
+export const getMyDashboardSummary = async (req, res, next) => {
+  try {
+    const userId = toInt(req.user?.id);
+    if (!userId) return res.status(401).json({ error: { message: 'Sign in required' } });
+
+    const [userRows] = await pool.execute(
+      `SELECT id, email, first_name, last_name, role, status, timezone, created_at
+       FROM users
+       WHERE id = ?
+       LIMIT 1`,
+      [userId]
+    );
+    const user = userRows?.[0];
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+
+    const agencies = await User.getAgencies(userId);
+    const clubs = (agencies || [])
+      .filter((agency) => String(agency?.organization_type || agency?.organizationType || '').toLowerCase() === 'affiliation')
+      .map((agency) => ({
+        id: Number(agency.id),
+        name: agency.name || '',
+        slug: agency.slug || agency.portal_url || '',
+        city: agency.city || null,
+        state: agency.state || null,
+        clubRole: agency.club_role || 'member',
+        isActive: agency.is_active !== false && agency.is_active !== 0 && String(agency.is_active || '1') !== '0'
+      }));
+
+    const [applicationRows] = await pool.execute(
+      `SELECT first_name, last_name, email, phone, gender, date_of_birth, weight_lbs, height_inches, timezone,
+              heard_about_club, running_fitness_background, average_miles_per_week, average_hours_per_week,
+              current_fitness_activities, waiver_signature_name, waiver_agreed_at, waiver_version, status, applied_at
+       FROM challenge_member_applications
+       WHERE user_id = ? OR LOWER(COALESCE(email, '')) = LOWER(?)
+       ORDER BY applied_at DESC, id DESC
+       LIMIT 1`,
+      [userId, user.email || '']
+    );
+    const latestApplication = applicationRows?.[0] || null;
+
+    const [statsRows] = await pool.execute(
+      `SELECT
+         COUNT(w.id) AS workout_count,
+         COALESCE(SUM(w.points), 0) AS total_points,
+         COALESCE(SUM(w.distance_value), 0) AS total_miles,
+         COALESCE(SUM(w.duration_minutes), 0) AS total_minutes,
+         MAX(CASE
+           WHEN LOWER(COALESCE(w.activity_type, '')) LIKE '%run%'
+           THEN COALESCE(w.distance_value, 0)
+           ELSE 0
+         END) AS longest_run_miles,
+         MAX(COALESCE(w.points, 0)) AS best_workout_points,
+         MAX(COALESCE(w.duration_minutes, 0)) AS longest_workout_minutes,
+         MIN(CASE
+           WHEN LOWER(COALESCE(w.activity_type, '')) LIKE '%run%'
+             AND COALESCE(w.distance_value, 0) >= 1
+             AND COALESCE(w.duration_minutes, 0) > 0
+           THEN (w.duration_minutes / NULLIF(w.distance_value, 0))
+           ELSE NULL
+         END) AS best_run_pace_min_per_mile
+       FROM challenge_workouts w
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+       INNER JOIN agencies a ON a.id = c.organization_id
+       WHERE w.user_id = ?
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'`,
+      [userId]
+    );
+    const totals = statsRows?.[0] || {};
+
+    const [seasonRows] = await pool.execute(
+      `SELECT
+         c.id AS class_id,
+         c.class_name,
+         c.status AS class_status,
+         c.starts_at,
+         c.ends_at,
+         c.organization_id AS club_id,
+         a.name AS club_name,
+         a.slug AS club_slug,
+         m.membership_status,
+         MAX(t.team_name) AS team_name,
+         COUNT(w.id) AS workout_count,
+         COALESCE(SUM(w.distance_value), 0) AS total_miles,
+         COALESCE(SUM(w.points), 0) AS total_points
+       FROM learning_class_provider_memberships m
+       INNER JOIN learning_program_classes c ON c.id = m.learning_class_id
+       INNER JOIN agencies a ON a.id = c.organization_id
+       LEFT JOIN challenge_teams t ON t.learning_class_id = c.id
+       LEFT JOIN challenge_team_members tm
+         ON tm.team_id = t.id
+        AND tm.provider_user_id = m.provider_user_id
+       LEFT JOIN challenge_workouts w
+         ON w.learning_class_id = c.id
+        AND w.user_id = m.provider_user_id
+        AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+       WHERE m.provider_user_id = ?
+         AND m.membership_status IN ('active', 'completed')
+         AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'
+       GROUP BY
+         c.id, c.class_name, c.status, c.starts_at, c.ends_at, c.organization_id, a.name, a.slug, m.membership_status
+       ORDER BY COALESCE(c.starts_at, c.created_at) DESC, c.id DESC`,
+      [userId]
+    );
+
+    const now = Date.now();
+    const seasons = (seasonRows || []).map((row) => {
+      const startsAt = row.starts_at ? new Date(row.starts_at).getTime() : null;
+      const endsAt = row.ends_at ? new Date(row.ends_at).getTime() : null;
+      const status = String(row.class_status || '').toLowerCase();
+      let bucket = 'past';
+      if (status === 'active') bucket = 'current';
+      else if ((status === 'draft' || status === 'scheduled') && startsAt && startsAt > now) bucket = 'upcoming';
+      else if (endsAt && endsAt >= now && status !== 'closed' && status !== 'archived') bucket = 'current';
+      return {
+        classId: Number(row.class_id),
+        className: row.class_name || `Season ${row.class_id}`,
+        classStatus: row.class_status || null,
+        startsAt: row.starts_at || null,
+        endsAt: row.ends_at || null,
+        clubId: Number(row.club_id),
+        clubName: row.club_name || '',
+        clubSlug: row.club_slug || '',
+        membershipStatus: row.membership_status || null,
+        teamName: row.team_name || null,
+        workoutCount: Number(row.workout_count || 0),
+        totalMiles: normalizeNum(row.total_miles, 1),
+        totalPoints: Number(row.total_points || 0),
+        bucket
+      };
+    });
+
+    return res.json({
+      member: {
+        userId,
+        email: user.email || '',
+        firstName: user.first_name || '',
+        lastName: user.last_name || '',
+        timezone: user.timezone || null,
+        role: user.role || '',
+        status: user.status || '',
+        createdAt: user.created_at || null
+      },
+      memberships: clubs,
+      pendingClubAccess: {
+        hasClub: clubs.some((club) => club.isActive),
+        managedClubCount: clubs.filter((club) => club.clubRole === 'manager' || club.clubRole === 'assistant_manager').length
+      },
+      stats: {
+        totalWorkouts: Number(totals.workout_count || 0),
+        totalPoints: Math.round(Number(totals.total_points || 0)),
+        totalMiles: normalizeNum(totals.total_miles, 1),
+        totalMinutes: Math.round(Number(totals.total_minutes || 0)),
+        longestRunMiles: normalizeNum(totals.longest_run_miles, 1),
+        bestWorkoutPoints: Math.round(Number(totals.best_workout_points || 0)),
+        longestWorkoutMinutes: Math.round(Number(totals.longest_workout_minutes || 0)),
+        bestRunPaceMinPerMile: totals.best_run_pace_min_per_mile == null ? null : normalizeNum(totals.best_run_pace_min_per_mile, 2)
+      },
+      seasons: {
+        current: seasons.filter((season) => season.bucket === 'current' || season.bucket === 'upcoming'),
+        past: seasons.filter((season) => season.bucket === 'past')
+      },
+      account: {
+        billingPlan: 'Free account',
+        billingStatus: 'active',
+        heardAboutClub: latestApplication?.heard_about_club || null,
+        runningFitnessBackground: latestApplication?.running_fitness_background || null,
+        averageMilesPerWeek: latestApplication?.average_miles_per_week != null ? Number(latestApplication.average_miles_per_week) : null,
+        averageHoursPerWeek: latestApplication?.average_hours_per_week != null ? Number(latestApplication.average_hours_per_week) : null,
+        currentFitnessActivities: latestApplication?.current_fitness_activities || null,
+        gender: latestApplication?.gender || null,
+        dateOfBirth: latestApplication?.date_of_birth || null,
+        weightLbs: latestApplication?.weight_lbs != null ? Number(latestApplication.weight_lbs) : null,
+        heightInches: latestApplication?.height_inches != null ? Number(latestApplication.height_inches) : null,
+        phone: latestApplication?.phone || null,
+        latestApplicationStatus: latestApplication?.status || null
+      }
+    });
   } catch (e) { next(e); }
 };
 

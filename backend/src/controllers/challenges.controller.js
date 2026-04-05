@@ -19,6 +19,7 @@ import { ensureChallengeParticipationAgreementAccepted } from '../utils/challeng
 import { getWeekStartDate, getWeekDateTimeRange } from '../utils/challengeWeekUtils.js';
 import { enqueueWorkoutVision } from '../services/challengeWorkoutVision.service.js';
 import { challengeMessageBridge } from '../services/challengeMessageBridge.service.js';
+import { canUserManageChallengeClass } from '../utils/sscClubAccess.js';
 
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
@@ -39,9 +40,15 @@ const parseJsonObject = (raw, fallback = {}) => {
   return fallback;
 };
 
-const canManageChallenge = (role) => {
+const canManageChallengeRole = (role) => {
   const r = String(role || '').toLowerCase();
   return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
+};
+
+const canManageChallenge = async ({ user, classId }) => {
+  if (!classId) return canManageChallengeRole(user?.role);
+  if (await canUserManageChallengeClass({ user, learningClassId: classId })) return true;
+  return canManageChallengeRole(user?.role);
 };
 
 const isCaptainForClass = async ({ classId, userId }) => {
@@ -98,7 +105,7 @@ export const createTeam = async (req, res, next) => {
     const classId = asInt(req.params.classId);
     const teamName = String(req.body.teamName || '').trim();
     if (!classId || !teamName) return res.status(400).json({ error: { message: 'classId and teamName required' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
     const team = await ChallengeTeam.create({
@@ -119,9 +126,9 @@ export const updateTeam = async (req, res, next) => {
     if (!classId || !teamId) return res.status(400).json({ error: { message: 'Invalid classId/teamId' } });
     const team = await ChallengeTeam.findById(teamId);
     if (!team || Number(team.learning_class_id) !== Number(classId)) return res.status(404).json({ error: { message: 'Team not found' } });
-    const canManage = canManageChallenge(req.user?.role) || canManageTeam(req.user, team);
+    const canManage = (await canManageChallenge({ user: req.user, classId })) || canManageTeam(req.user, team);
     if (!canManage) return res.status(403).json({ error: { message: 'Access denied' } });
-    if (req.body.teamName !== undefined && !canManageChallenge(req.user?.role)) {
+    if (req.body.teamName !== undefined && !(await canManageChallenge({ user: req.user, classId }))) {
       const [classRows] = await pool.execute(
         `SELECT season_settings_json
          FROM learning_program_classes
@@ -164,7 +171,7 @@ export const deleteTeam = async (req, res, next) => {
     if (!classId || !teamId) return res.status(400).json({ error: { message: 'Invalid classId/teamId' } });
     const team = await ChallengeTeam.findById(teamId);
     if (!team || Number(team.learning_class_id) !== Number(classId)) return res.status(404).json({ error: { message: 'Team not found' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     await ChallengeTeam.delete(teamId);
     return res.json({ ok: true });
   } catch (e) {
@@ -195,7 +202,7 @@ export const upsertTeamMembers = async (req, res, next) => {
     if (!classId || !teamId) return res.status(400).json({ error: { message: 'Invalid classId/teamId' } });
     const team = await ChallengeTeam.findById(teamId);
     if (!team || Number(team.learning_class_id) !== Number(classId)) return res.status(404).json({ error: { message: 'Team not found' } });
-    const canManage = canManageChallenge(req.user?.role) || canManageTeam(req.user, team);
+    const canManage = (await canManageChallenge({ user: req.user, classId })) || canManageTeam(req.user, team);
     if (!canManage) return res.status(403).json({ error: { message: 'Access denied' } });
     const members = Array.isArray(req.body?.members) ? req.body.members : [];
     for (const m of members) {
@@ -882,7 +889,7 @@ export const reviewWorkoutProof = async (req, res, next) => {
     const classId = asInt(req.params.classId);
     const workoutId = asInt(req.params.workoutId);
     if (!classId || !workoutId) return res.status(400).json({ error: { message: 'Invalid classId/workoutId' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
     const workout = await ChallengeWorkout.findById(workoutId);
@@ -916,7 +923,7 @@ export const disqualifyWorkout = async (req, res, next) => {
     const classId = asInt(req.params.classId);
     const workoutId = asInt(req.params.workoutId);
     if (!classId || !workoutId) return res.status(400).json({ error: { message: 'Invalid classId/workoutId' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
     const workout = await ChallengeWorkout.findById(workoutId);
@@ -943,7 +950,7 @@ export const getDraftReport = async (req, res, next) => {
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
-    const canManage = canManageChallenge(req.user?.role);
+    const canManage = await canManageChallenge({ user: req.user, classId });
     const isCaptain = await isCaptainForClass({ classId, userId: req.user.id });
     if (!canManage && !isCaptain) {
       return res.status(403).json({ error: { message: 'Manager/captain access required' } });
@@ -1040,7 +1047,7 @@ export const upsertDraftNote = async (req, res, next) => {
     const classId = asInt(req.params.classId);
     const providerUserId = asInt(req.params.providerUserId);
     if (!classId || !providerUserId) return res.status(400).json({ error: { message: 'Invalid classId/providerUserId' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
     const [memberRows] = await pool.execute(
@@ -1121,7 +1128,7 @@ export const listCaptainApplications = async (req, res, next) => {
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
-    if (!canManageChallenge(req.user?.role)) {
+    if (!(await canManageChallenge({ user: req.user, classId }))) {
       const mine = await ChallengeCaptainApplication.findByClassAndUser(classId, req.user.id);
       // Return only current user's record if non-manager; do not expose full applicant list.
       return res.json({ applications: mine ? [mine] : [] });
@@ -1178,7 +1185,7 @@ export const reviewCaptainApplication = async (req, res, next) => {
     const classId = asInt(req.params.classId);
     const applicationId = asInt(req.params.applicationId);
     if (!classId || !applicationId) return res.status(400).json({ error: { message: 'Invalid classId/applicationId' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
     const app = await ChallengeCaptainApplication.findById(applicationId);
@@ -1202,7 +1209,7 @@ export const finalizeCaptains = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
     await pool.execute(
@@ -1370,7 +1377,7 @@ export const postChallengeMessage = async (req, res, next) => {
        LIMIT 1`,
       [classId, req.user.id]
     );
-    if (!membership?.length && !canManageChallenge(req.user?.role)) {
+    if (!membership?.length && !(await canManageChallenge({ user: req.user, classId }))) {
       return res.status(403).json({ error: { message: 'Join the season before posting messages' } });
     }
     if (membership?.length) {
@@ -1448,7 +1455,7 @@ export const deleteChallengeMessage = async (req, res, next) => {
     if (!message || Number(message.learning_class_id) !== Number(classId) || message.deleted_at) {
       return res.status(404).json({ error: { message: 'Message not found' } });
     }
-    const canDelete = canManageChallenge(req.user?.role) || Number(message.user_id) === Number(req.user.id);
+    const canDelete = (await canManageChallenge({ user: req.user, classId })) || Number(message.user_id) === Number(req.user.id);
     if (!canDelete) return res.status(403).json({ error: { message: 'Access denied' } });
     await ChallengeMessage.softDelete(messageId, req.user.id);
     return res.json({ ok: true });
@@ -1464,7 +1471,7 @@ export const pinChallengeMessage = async (req, res, next) => {
     if (!classId || !messageId) return res.status(400).json({ error: { message: 'Invalid classId/messageId' } });
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
-    if (!canManageChallenge(req.user?.role)) return res.status(403).json({ error: { message: 'Manage access required' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const message = await ChallengeMessage.findById(messageId);
     if (!message || Number(message.learning_class_id) !== Number(classId) || message.deleted_at) {
       return res.status(404).json({ error: { message: 'Message not found' } });
@@ -1537,7 +1544,7 @@ export const deleteWorkoutComment = async (req, res, next) => {
     if (!comment || Number(comment.learning_class_id) !== Number(classId)) {
       return res.status(404).json({ error: { message: 'Comment not found' } });
     }
-    const canDelete = Number(comment.user_id) === Number(req.user.id) || canManageChallenge(req.user?.role);
+    const canDelete = Number(comment.user_id) === Number(req.user.id) || (await canManageChallenge({ user: req.user, classId }));
     if (!canDelete) return res.status(403).json({ error: { message: 'Access denied' } });
     await ChallengeWorkoutComment.remove(commentId);
     return res.json({ ok: true });
