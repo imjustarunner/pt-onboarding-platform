@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticate, authenticateOptional } from '../middleware/auth.middleware.js';
 import {
   createClub,
   getClubManagerContext,
@@ -62,6 +62,11 @@ import {
   getMyReferralLink,
   getPendingApplicationCount,
   getClubFeed,
+  getClubFeedPublic,
+  postClubFeedPost,
+  postClubFeedAttachment,
+  clubFeedImageUpload,
+  getClubFeedSeasonOptions,
   getClubRecordBoard,
   listClubMembers,
   getClubMemberSeasonHistory,
@@ -71,14 +76,21 @@ import {
   putClubMemberProfile,
   putClubMemberTeamCaptain,
   getMyApplications,
-  getMyDashboardSummary
+  getMyDashboardSummary,
+  putMyAccountSnapshot,
+  requestSeasonJoin,
+  listSeasonJoinRequests,
+  reviewSeasonJoinRequest,
+  listClubMembersDirectory,
+  getClubMemberProfile
 } from '../controllers/challengeMemberApplications.controller.js';
 
 const router = express.Router();
 
 // ── Public routes (no auth) ──────────────────────────────────────
 router.get('/clubs', listClubs);
-router.get('/clubs/:id/public', getPublicClubStats);
+router.get('/clubs/:id/public', authenticateOptional, getPublicClubStats);
+router.get('/clubs/:id/feed/public', getClubFeedPublic);
 router.get('/clubs/invite/:token', resolveInviteToken);
 router.post('/application-email-status', getApplicationEmailStatus);
 router.post('/clubs/:id/apply-form', submitApplication);
@@ -86,7 +98,14 @@ router.post('/clubs/invite/:token/apply', submitInviteApplication);
 
 router.use(authenticate);
 
+router.post('/clubs/:clubId/seasons/:classId/join-request', requestSeasonJoin);
+router.get('/clubs/:clubId/seasons/:classId/join-requests', listSeasonJoinRequests);
+router.put('/clubs/:clubId/seasons/:classId/join-requests/:requestId', reviewSeasonJoinRequest);
+router.get('/clubs/:id/members/directory', listClubMembersDirectory);
+router.get('/clubs/:id/members/:userId/profile', getClubMemberProfile);
+
 router.get('/me/dashboard', getMyDashboardSummary);
+router.put('/me/account-snapshot', putMyAccountSnapshot);
 router.get('/my-applications', getMyApplications);
 router.get('/club-specs', getClubSpecs);
 router.get('/club-manager-context', getClubManagerContext);
@@ -152,6 +171,9 @@ router.delete('/clubs/:id/invites/:inviteId', revokeInvite);
 router.get('/clubs/:id/my-referral-link', getMyReferralLink);
 
 // Club feed and record board (authenticated members)
+router.post('/clubs/:id/feed/posts', postClubFeedPost);
+router.post('/clubs/:id/feed/attachments', clubFeedImageUpload.single('file'), postClubFeedAttachment);
+router.get('/clubs/:id/feed/season-options', getClubFeedSeasonOptions);
 router.get('/clubs/:id/feed', getClubFeed);
 router.get('/clubs/:id/record-board', getClubRecordBoard);
 router.get('/clubs/:id/public-page-config', getPublicPageConfig);

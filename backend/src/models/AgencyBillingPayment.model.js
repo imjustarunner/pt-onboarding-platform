@@ -105,13 +105,14 @@ class AgencyBillingPayment {
   }
 
   static async listPendingReconciliation({ limit = 100 } = {}) {
+    const lim = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 1000);
     const [rows] = await pool.execute(
       `SELECT *
        FROM agency_billing_payments
        WHERE payment_status IN ('PENDING', 'PROCESSING')
        ORDER BY created_at ASC, id ASC
-       LIMIT ?`,
-      [Math.max(1, Number(limit || 100))]
+       LIMIT ${lim}`,
+      []
     );
     return rows || [];
   }

@@ -68,8 +68,76 @@
             </div>
             <div class="nav-links-wrapper" :class="{ 'nav-menus-open': navDropdownOpen }">
               <div class="nav-links">
+              <!-- SSC Summit: primary nav order (matches mobile sidebar) -->
+              <template v-if="isSummitStatsChallengeChrome && isAuthenticated && isSscClubManager">
+                <router-link :to="myAccountNavTo" @click="closeMobileMenu">My Account</router-link>
+                <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }">
+                  Manager Dashboard
+                </router-link>
+                <router-link
+                  v-if="myClubPublicNav"
+                  :to="myClubPublicNav.to"
+                  @click="closeMobileMenu"
+                >{{ myClubPublicNav.label }}</router-link>
+                <div class="nav-dropdown" @click.stop>
+                  <button
+                    type="button"
+                    class="nav-dropdown-trigger"
+                    title="Club Management"
+                    :aria-expanded="clubManagementMenuOpen ? 'true' : 'false'"
+                    @click.stop="clubManagementMenuOpen = !clubManagementMenuOpen"
+                  >
+                    <span class="nav-dropdown-label">Club Management</span> <span class="brand-caret">▾</span>
+                  </button>
+                  <div v-if="clubManagementMenuOpen" class="nav-dropdown-menu">
+                    <router-link :to="orgTo('/club/seasons')" @click.stop="closeClubManagementMenu">Season Management</router-link>
+                    <router-link :to="orgTo('/admin/users')" @click.stop="closeClubManagementMenu">Members</router-link>
+                    <router-link :to="orgTo('/admin/surveys')" @click.stop="closeClubManagementMenu">Surveys</router-link>
+                    <router-link :to="orgTo('/admin/company-events')" @click.stop="closeClubManagementMenu">Club Events</router-link>
+                    <router-link :to="orgTo('/club/settings')" @click.stop="closeClubManagementMenu">Club Settings</router-link>
+                  </div>
+                </div>
+                <router-link :to="orgTo('/notifications')" @click="closeMobileMenu">Notifications</router-link>
+                <router-link
+                  v-if="showSscMessagesLink"
+                  :to="orgTo('/messages')"
+                  @click="closeMobileMenu"
+                >Messages</router-link>
+                <router-link :to="orgTo('/clubs')" @click="closeMobileMenu">Browse Clubs</router-link>
+              </template>
+              <template v-else-if="isSummitStatsChallengeChrome && isAuthenticated">
+                <router-link :to="myAccountNavTo" @click="closeMobileMenu">My Account</router-link>
+                <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }">
+                  My Dashboard
+                </router-link>
+                <router-link
+                  v-if="sscMemberMyClubNav"
+                  :to="sscMemberMyClubNav.to"
+                  @click="closeMobileMenu"
+                >{{ sscMemberMyClubNav.label }}</router-link>
+                <router-link
+                  v-if="sscMemberShowClubEvents"
+                  :to="orgTo('/admin/company-events')"
+                  @click="closeMobileMenu"
+                >Club Events</router-link>
+                <router-link :to="orgTo('/notifications')" @click="closeMobileMenu">Notifications</router-link>
+                <router-link
+                  v-if="showSscMessagesLink"
+                  :to="orgTo('/messages')"
+                  @click="closeMobileMenu"
+                >Messages</router-link>
+                <router-link :to="orgTo('/clubs')" @click="closeMobileMenu">Browse Clubs</router-link>
+              </template>
+              <template v-else>
               <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }">
                 {{ isSscClubManager ? 'Manager Dashboard' : isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
+              </router-link>
+              <router-link
+                v-if="isSummitStatsChallengeChrome"
+                :to="orgTo('/clubs')"
+                @click="closeMobileMenu"
+              >
+                Browse Clubs
               </router-link>
               <router-link
                 v-if="showOperationsDashboardLink && user?.role === 'provider_plus' && !isSscSstcTenant"
@@ -107,14 +175,6 @@
               >
                 Messages
               </router-link>
-              <template v-if="isSscClubManager">
-                <router-link :to="orgTo('/admin/surveys')" @click="closeMobileMenu">Surveys</router-link>
-                <router-link :to="orgTo('/notifications')" @click="closeMobileMenu">Notifications</router-link>
-                <router-link :to="orgTo('/admin/company-events')" @click="closeMobileMenu">Club Events</router-link>
-                <router-link :to="orgTo('/club/seasons')" @click="closeMobileMenu">Season Management</router-link>
-                <router-link :to="orgTo('/admin/users')" @click="closeMobileMenu">Members</router-link>
-                <router-link :to="orgTo('/club/settings')" @click="closeMobileMenu">Club settings</router-link>
-                <router-link :to="orgTo('/preferences')" @click="closeMobileMenu">Account</router-link>
               </template>
               <router-link
                 v-if="canShowAdminDashboardIcon"
@@ -126,16 +186,6 @@
                 <img v-if="adminDashboardIconUrl" :src="adminDashboardIconUrl" alt="" class="nav-icon-img" />
                 <span v-else aria-hidden="true">🏢</span>
               </router-link>
-              <router-link
-                v-if="isSscClubManager"
-                :to="orgTo('/club/settings')"
-                class="nav-icon-btn"
-                title="Club settings"
-                aria-label="Club settings"
-              >
-                <span aria-hidden="true">⚙</span>
-              </router-link>
-
               <!-- Portal navigation (admins must see this even if ACTIVE_EMPLOYEE) -->
               <template v-if="canSeePortalNav && canSeeFullPortalNav">
 
@@ -481,7 +531,7 @@
                 </div>
               </div>
               <button
-                v-if="!isAffiliationContext"
+                v-if="!isAffiliationContext && !isSummitStatsChallengeChrome"
                 type="button"
                 class="btn btn-secondary tutorial-toggle"
                 :class="{ active: tutorialStore.enabled }"
@@ -540,7 +590,8 @@
                   {{ notificationsUnreadCount }}
                 </router-link>
                 <router-link
-                  :to="{ path: myDashboardTo, query: { tab: 'my' } }"
+                  v-if="!isSummitStatsChallengeChrome"
+                  :to="myAccountNavTo"
                   class="nav-icon-btn"
                   title="My Account"
                   aria-label="My Account"
@@ -586,9 +637,76 @@
           </div>
           <div class="mobile-nav-links">
             <router-link v-if="showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
+            <template v-if="isSummitStatsChallengeChrome && isAuthenticated && isSscClubManager">
+              <router-link :to="myAccountNavTo" @click="closeMobileMenu" class="mobile-nav-link">My Account</router-link>
+              <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }" class="mobile-nav-link">Manager Dashboard</router-link>
+              <router-link
+                v-if="myClubPublicNav"
+                :to="myClubPublicNav.to"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >{{ myClubPublicNav.label }}</router-link>
+              <div class="mobile-nav-group mobile-nav-group-collapsible">
+                <button
+                  type="button"
+                  class="mobile-nav-group-trigger"
+                  :aria-expanded="mobileClubMgmtExpanded ? 'true' : 'false'"
+                  @click="mobileClubMgmtExpanded = !mobileClubMgmtExpanded"
+                >
+                  <span>Club Management</span>
+                  <span class="mobile-nav-group-caret" :class="{ open: mobileClubMgmtExpanded }" aria-hidden="true">▸</span>
+                </button>
+                <template v-if="mobileClubMgmtExpanded">
+                  <router-link :to="orgTo('/club/seasons')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Season Management</router-link>
+                  <router-link :to="orgTo('/admin/users')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Members</router-link>
+                  <router-link :to="orgTo('/admin/surveys')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Surveys</router-link>
+                  <router-link :to="orgTo('/admin/company-events')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Club Events</router-link>
+                  <router-link :to="orgTo('/club/settings')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Club Settings</router-link>
+                </template>
+              </div>
+              <router-link :to="orgTo('/notifications')" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
+              <router-link
+                v-if="showSscMessagesLink"
+                :to="orgTo('/messages')"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Messages</router-link>
+              <router-link :to="orgTo('/clubs')" @click="closeMobileMenu" class="mobile-nav-link">Browse Clubs</router-link>
+            </template>
+            <template v-else-if="isSummitStatsChallengeChrome && isAuthenticated">
+              <router-link :to="myAccountNavTo" @click="closeMobileMenu" class="mobile-nav-link">My Account</router-link>
+              <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }" class="mobile-nav-link">My Dashboard</router-link>
+              <router-link
+                v-if="sscMemberMyClubNav"
+                :to="sscMemberMyClubNav.to"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >{{ sscMemberMyClubNav.label }}</router-link>
+              <router-link
+                v-if="sscMemberShowClubEvents"
+                :to="orgTo('/admin/company-events')"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Club Events</router-link>
+              <router-link :to="orgTo('/notifications')" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
+              <router-link
+                v-if="showSscMessagesLink"
+                :to="orgTo('/messages')"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Messages</router-link>
+              <router-link :to="orgTo('/clubs')" @click="closeMobileMenu" class="mobile-nav-link">Browse Clubs</router-link>
+            </template>
+            <template v-else>
             <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }" class="mobile-nav-link">
               {{ isSscClubManager ? 'Manager Dashboard' : isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
             </router-link>
+            <router-link
+              v-if="isSummitStatsChallengeChrome"
+              :to="orgTo('/clubs')"
+              @click="closeMobileMenu"
+              class="mobile-nav-link"
+            >Browse Clubs</router-link>
             <router-link
               v-if="showOperationsDashboardLink && user?.role === 'provider_plus' && !isSscSstcTenant"
               :to="operationsDashboardTo"
@@ -621,14 +739,6 @@
               @click="closeMobileMenu"
               class="mobile-nav-link"
             >Messages</router-link>
-            <template v-if="isSscClubManager">
-                <router-link :to="orgTo('/admin/surveys')" @click="closeMobileMenu" class="mobile-nav-link">Surveys</router-link>
-                <router-link :to="orgTo('/notifications')" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
-                <router-link :to="orgTo('/admin/company-events')" @click="closeMobileMenu" class="mobile-nav-link">Club Events</router-link>
-                <router-link :to="orgTo('/club/seasons')" @click="closeMobileMenu" class="mobile-nav-link">Season Management</router-link>
-                <router-link :to="orgTo('/admin/users')" @click="closeMobileMenu" class="mobile-nav-link">Members</router-link>
-                <router-link :to="orgTo('/club/settings')" @click="closeMobileMenu" class="mobile-nav-link">Club settings</router-link>
-                <router-link :to="orgTo('/preferences')" @click="closeMobileMenu" class="mobile-nav-link">Account</router-link>
             </template>
             <router-link
               v-if="hasCapability('canJoinProgramEvents') && user?.role !== 'provider' && !isSscSstcTenant"
@@ -887,7 +997,7 @@
               <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Settings</router-link>
             </template>
             <button
-              v-if="!isAffiliationContext"
+              v-if="!isAffiliationContext && !isSummitStatsChallengeChrome"
               type="button"
               class="btn btn-secondary tutorial-toggle mobile-tutorial-toggle"
               :class="{ active: tutorialStore.enabled }"
@@ -923,7 +1033,7 @@
       <HelperWidget v-if="isAuthenticated" />
       <BetaFeedbackWidget v-if="isAuthenticated" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />
-      <TourManager v-if="isAuthenticated" />
+      <TourManager v-if="isAuthenticated && !isSummitStatsChallengeChrome" />
       <PlatformChatDrawer v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" />
       <SessionLockScreen
         v-if="isAuthenticated"
@@ -1132,12 +1242,9 @@ import { toUploadsUrl } from './utils/uploadsUrl';
 import { buildSuperadminAgencyBrandUrl } from './utils/brandSwitchUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 import { useSummitStatsChallengeChrome } from './composables/useSummitStatsChallengeChrome';
+import { isSummitPlatformRouteSlug } from './utils/summitPlatformSlugs.js';
 import SummitStatsContextBar from './components/summit/SummitStatsContextBar.vue';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from './constants/summitStatsBranding.js';
-
-/** Matches `frontend/src/router/index.js` SSC allowlist for org slug in URL. */
-const NATIVE_APP_ORG_SLUG = String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase();
-const SSC_PORTAL_SLUGS = new Set(['ssc', 'sstc', 'summit-stats', NATIVE_APP_ORG_SLUG].filter(Boolean));
 
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
@@ -1152,6 +1259,10 @@ const { isSnoozed, snooze1h, snooze3h, snoozeTomorrow } = useReminderSnooze(user
 const sendingTextReminder = ref(false);
 const organizationStore = useOrganizationStore();
 const tutorialStore = useTutorialStore();
+
+watch(isSummitStatsChallengeChrome, (v) => {
+  if (v) tutorialStore.setEnabled(false);
+}, { immediate: true });
 const builderStore = useSuperadminBuilderStore();
 const notificationStore = useNotificationStore();
 /** Declared before engagement-menu computeds that watch unread count (avoids TDZ when showEngagementMenu is evaluated early). */
@@ -1329,6 +1440,8 @@ const directoryPublicLinksData = ref({
   publicEventPages: []
 });
 const managementMenuOpen = ref(false);
+const clubManagementMenuOpen = ref(false);
+const mobileClubMgmtExpanded = ref(false);
 const engagementMenuOpen = ref(false);
 
 const navDropdownOpen = computed(() => {
@@ -1590,12 +1703,22 @@ const switchDemoView = async (nextRole) => {
 
 const closeMobileMenu = () => {
   mobileMenuOpen.value = false;
+  mobileClubMgmtExpanded.value = false;
+};
+
+const closeClubManagementMenu = () => {
+  clubManagementMenuOpen.value = false;
+  closeMobileMenu();
 };
 
 watch(mobileMenuOpen, (open) => {
   if (open) {
     applyDirectorySubgroupStateFromRoute();
   }
+});
+
+watch(() => route.path, () => {
+  clubManagementMenuOpen.value = false;
 });
 
 // Navigation title - only show if it's not "PlotTwistCo" and there's a valid platform template name.
@@ -1700,7 +1823,7 @@ const isSscSstcTenant = computed(() => {
   const routeSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
   const agencySlug = String(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || '').trim().toLowerCase();
   const slug = routeSlug || agencySlug;
-  return SSC_PORTAL_SLUGS.has(slug);
+  return isSummitPlatformRouteSlug(slug);
 });
 
 /** Summit club managers: dedicated dashboard + manager nav (surveys, members, etc.). */
@@ -2249,6 +2372,48 @@ const orgTo = (path) => {
   return `/${slug}${path}`;
 };
 
+/** Summit club managers: link to public club home (one club) or multi-club dashboard. */
+const myClubPublicNav = computed(() => {
+  if (!isSscClubManager.value) return null;
+  const clubs = (agencyStore.userAgencies || []).filter(
+    (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
+  );
+  if (!clubs.length) return null;
+  if (clubs.length === 1) {
+    const id = Number(clubs[0].id);
+    if (!Number.isFinite(id) || id < 1) return null;
+    return { label: 'My Club', to: orgTo(`/clubs/${id}`) };
+  }
+  return { label: 'My Clubs', to: orgTo('/my_club_dashboard') };
+});
+
+/** SSC members (non club managers): My Club / My Clubs — includes applicants with no affiliation yet (hub lists applications + contact manager). */
+const sscMemberMyClubNav = computed(() => {
+  if (!isSummitStatsChallengeChrome.value || hideGlobalNavForSchoolStaff.value) return null;
+  if (isSscClubManager.value) return null;
+  const clubs = (agencyStore.userAgencies || []).filter(
+    (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
+  );
+  if (!clubs.length) {
+    return { label: 'My Club', to: orgTo('/my_club_dashboard') };
+  }
+  if (clubs.length === 1) {
+    const id = Number(clubs[0].id);
+    if (!Number.isFinite(id) || id < 1) return { label: 'My Club', to: orgTo('/my_club_dashboard') };
+    return { label: 'My Club', to: orgTo(`/clubs/${id}`) };
+  }
+  return { label: 'My Clubs', to: orgTo('/my_club_dashboard') };
+});
+
+/** Member has at least one active club affiliation — show Club Events in nav. */
+const sscMemberShowClubEvents = computed(() => {
+  if (isSscClubManager.value) return false;
+  const clubs = (agencyStore.userAgencies || []).filter(
+    (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
+  );
+  return clubs.some((a) => a && (a.is_active === undefined || Number(a.is_active) === 1));
+});
+
 const ticketsNavLink = computed(() => orgTo('/tickets'));
 
 const scheduleNavLink = computed(() => {
@@ -2277,7 +2442,7 @@ const myDashboardTo = computed(() => {
 
   if (isSscSstcTenant.value) {
     if (role === 'club_manager') return orgTo('/club_manager_dashboard');
-    return orgTo('/home');
+    return orgTo('/my_club_dashboard');
   }
 
   // "My Dashboard" should always land on the user's personal dashboard, not admin.
@@ -2289,6 +2454,16 @@ const myDashboardTo = computed(() => {
 
   // Keep existing behavior for non-portal roles (guardian, kiosk, etc.).
   return orgTo('/dashboard');
+});
+
+/** "My Account" = personal club member surface; "Manager Dashboard" = club_manager admin surface. */
+const myAccountNavTo = computed(() => {
+  if (isSscClubManager.value) {
+    return { path: orgTo('/my_club_dashboard'), query: { tab: 'my' } };
+  }
+  const t = myDashboardTo.value;
+  const path = typeof t === 'string' ? t : (t?.path || '/dashboard');
+  return { path, query: { tab: 'my' } };
 });
 
 const showOperationsDashboardLink = computed(() => {

@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import User from '../models/User.model.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 
 let userAgencyColumnSupportPromise = null;
 
@@ -45,13 +47,19 @@ const getUserAgencyColumnSupport = async () => {
   return userAgencyColumnSupportPromise;
 };
 
+const normalizeMembershipActive = (raw) => {
+  // Legacy rows: column missing (undefined) or SQL NULL mean "active".
+  if (raw === undefined || raw === null) return true;
+  return raw === 1 || raw === true || String(raw) === '1';
+};
+
 const toMembership = (row, fallbackRole = null) => {
   if (!row) return null;
   const clubRole = normalizeClubRole(row.club_role, normalizeClubRole(fallbackRole || inferLegacyClubRole(row.user_role || row.role)));
   return {
     ...row,
     club_role: clubRole,
-    is_active: row.is_active === undefined ? true : (row.is_active === 1 || row.is_active === true || String(row.is_active) === '1')
+    is_active: normalizeMembershipActive(row.is_active)
   };
 };
 
@@ -92,10 +100,71 @@ export const canUserManageClub = async ({ user, clubId, allowAssistant = true })
   const cid = Number(clubId || 0);
   if (!uid || !cid) return false;
   if (normalizeRole(user?.role) === 'super_admin') return true;
-  const membership = await getUserClubMembership(uid, cid);
-  if (!membership || membership.is_active === false) return false;
+
+  let membership = await getUserClubMembership(uid, cid);
+  // Fallback: direct user_agencies row when the affiliation join path missed (data quirks / replication).
+  if (!membership) {
+    const [atype] = await pool.execute(
+      `SELECT LOWER(COALESCE(organization_type, '')) AS ot FROM agencies WHERE id = ? LIMIT 1`,
+      [cid]
+    );
+    if (String(atype?.[0]?.ot || '') !== 'affiliation') {
+      return false;
+    }
+    const { hasClubRole, hasIsActive } = await getUserAgencyColumnSupport();
+    const [rows] = await pool.execute(
+      `SELECT ua.user_id,
+              ua.agency_id,
+              ${hasClubRole ? 'ua.club_role' : 'NULL AS club_role'},
+              ${hasIsActive ? 'ua.is_active' : '1 AS is_active'},
+              u.role AS user_role
+       FROM user_agencies ua
+       INNER JOIN users u ON u.id = ua.user_id
+       WHERE ua.user_id = ? AND ua.agency_id = ?
+       LIMIT 1`,
+      [uid, cid]
+    );
+    membership = toMembership(rows?.[0] || null);
+  }
+
+  if (!membership || membership.is_active === false) {
+    // Platform tenant admins (SSC/SSTC agency) can manage clubs under that tenant — same scope as challenge access.
+    if (await canTenantPlatformUserManageClub({ user, clubId: cid })) {
+      return true;
+    }
+    return false;
+  }
+  // Global `club_manager` account: allow once they belong to this club (covers missing/stale `club_role` in user_agencies).
+  if (normalizeRole(user?.role) === 'club_manager') {
+    return true;
+  }
   return isManagerClubRole(membership.club_role, { allowAssistant });
 };
+
+/**
+ * True when user is admin/support on the parent platform agency for this club (via organization_affiliations).
+ */
+async function canTenantPlatformUserManageClub({ user, clubId }) {
+  const role = normalizeRole(user?.role);
+  if (!['admin', 'support', 'staff'].includes(role)) return false;
+  const uid = Number(user?.id || 0);
+  const cid = Number(clubId || 0);
+  if (!uid || !cid) return false;
+
+  let tenantId = await getClubPlatformTenantAgencyId(cid);
+  if (!tenantId) {
+    const fromAff = await OrganizationAffiliation.getActiveAgencyIdForOrganization(cid);
+    tenantId = fromAff != null ? Number(fromAff) : null;
+  }
+  if (!tenantId || !Number.isFinite(tenantId) || tenantId < 1) return false;
+
+  const memberships = await User.getAgencies(uid);
+  const agencyIds = (memberships || [])
+    .filter((m) => String(m?.organization_type || '').toLowerCase() === 'agency')
+    .map((m) => Number(m?.id || 0))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return agencyIds.includes(tenantId);
+}
 
 export const canUserManageChallengeClass = async ({ user, learningClassId, allowAssistant = true }) => {
   const classId = Number(learningClassId || 0);
@@ -136,6 +205,37 @@ export const getManagedClubsForUser = async (userId, { includeAssistant = true }
     .map((row) => toMembership(row))
     .filter((row) => row && row.is_active !== false)
     .filter((row) => isManagerClubRole(row.club_role, { allowAssistant: includeAssistant }));
+};
+
+/**
+ * User IDs that should receive in-app alerts for club pipeline events (managers + assistant managers).
+ */
+export const getClubManagerNotificationRecipientUserIds = async (clubId) => {
+  const cid = Number(clubId || 0);
+  if (!cid) return [];
+  const { hasClubRole, hasIsActive } = await getUserAgencyColumnSupport();
+  const [rows] = await pool.execute(
+    `SELECT u.id,
+            ${hasClubRole ? 'ua.club_role' : 'NULL AS club_role'},
+            ${hasIsActive ? 'ua.is_active' : '1 AS is_active'},
+            u.role AS user_role
+     FROM user_agencies ua
+     INNER JOIN users u ON u.id = ua.user_id
+     INNER JOIN agencies a ON a.id = ua.agency_id
+     WHERE ua.agency_id = ?
+       AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'
+       AND (u.is_archived = 0 OR u.is_archived IS NULL)`,
+    [cid]
+  );
+  const ids = new Set();
+  for (const row of rows || []) {
+    const m = toMembership(row);
+    if (!m || m.is_active === false) continue;
+    if (!isManagerClubRole(m.club_role)) continue;
+    const uid = Number(row.id);
+    if (uid) ids.add(uid);
+  }
+  return [...ids];
 };
 
 export const getPrimaryClubManager = async (clubId) => {
@@ -188,4 +288,32 @@ export const formatClubManagerDisplayName = (manager) => {
   if (!manager) return '';
   const name = `${String(manager.firstName || manager.first_name || '').trim()} ${String(manager.lastName || manager.last_name || '').trim()}`.trim();
   return name || String(manager.displayName || manager.email || '').trim();
+};
+
+/**
+ * Parent platform agency (SSC, SSTC, etc.) for an affiliation club via `organization_affiliations`.
+ * Super-admin icons uploaded to that tenant (`icons.agency_id` = platform id) are shared with all clubs under it.
+ */
+export const getClubPlatformTenantAgencyId = async (clubId) => {
+  const cid = Number(clubId || 0);
+  if (!cid) return null;
+  const preferredSlug = String(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc').trim().toLowerCase();
+  const [rows] = await pool.execute(
+    `SELECT oa.agency_id
+     FROM organization_affiliations oa
+     INNER JOIN agencies parent ON parent.id = oa.agency_id
+     WHERE oa.organization_id = ?
+       AND oa.is_active = 1
+     ORDER BY
+       CASE
+         WHEN LOWER(COALESCE(parent.slug, '')) = ? THEN 0
+         WHEN LOWER(COALESCE(parent.slug, '')) IN ('ssc', 'sstc', 'summit-stats') THEN 1
+         ELSE 2
+       END,
+       oa.agency_id DESC
+     LIMIT 1`,
+    [cid, preferredSlug]
+  );
+  const id = rows?.[0]?.agency_id;
+  return id != null ? Number(id) : null;
 };

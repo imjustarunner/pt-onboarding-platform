@@ -11,7 +11,7 @@ import {
   upload,
   uploadMultiple
 } from '../controllers/icon.controller.js';
-import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin, requireBackofficeAdminOrClubManager, requireSuperAdmin } from '../middleware/auth.middleware.js';
 import { body } from 'express-validator';
 
 const router = express.Router();
@@ -19,16 +19,12 @@ const router = express.Router();
 router.use(authenticate);
 
 // Resolve a single icon by id for dashboards (rail cards, portals) — any logged-in user.
-// Listing/upload/mutate routes remain backoffice-only below.
 router.get('/:id', getIconById);
 
-router.use(requireBackofficeAdmin);
-
-router.get('/', getAllIcons);
-
-// Upload route - multer must process form first, then validation
+// Single-file upload: backoffice admins or club managers (scoped in controller to clubs they manage).
 router.post(
   '/upload',
+  requireBackofficeAdminOrClubManager,
   upload.single('icon'),
   (req, res, next) => {
     // Validation runs after multer processes the form
@@ -61,7 +57,11 @@ router.post(
   uploadIcon
 );
 
-// Bulk upload route - multiple files at once
+router.use(requireBackofficeAdmin);
+
+router.get('/', getAllIcons);
+
+// Bulk upload route — admins/support/super_admin only
 router.post(
   '/bulk-upload',
   uploadMultiple.array('icons', 50), // Allow up to 50 files

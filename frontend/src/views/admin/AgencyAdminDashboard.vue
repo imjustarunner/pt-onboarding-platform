@@ -6,15 +6,33 @@
           v-if="currentAgency" 
           size="large" 
           class="dashboard-logo" 
-          :logo-url="previewMode ? (currentAgency?.logo_url || null) : undefined"
+          :logo-url="dashboardLogoUrl"
         />
         <div>
           <h1>{{ dashboardTitle }}</h1>
           <span class="badge badge-info">{{ dashboardBadge }}</span>
+          <p v-if="isSscAdminRoute && user?.role === 'club_manager'" class="dashboard-route-hint">
+            The <code>{{ route.params.organizationSlug }}</code> segment is the Summit platform tenant (not your club slug). Your club is on the right{{ showClubSwitcher ? '; use the dropdown to switch or add <code>?club=&lt;id&gt;</code> to the URL' : '' }}.
+          </p>
         </div>
       </div>
-      <div v-if="currentAgency" class="agency-badge">
-        <span class="agency-name">{{ currentAgency.name }}</span>
+      <div v-if="currentAgency" class="header-right">
+        <div v-if="showClubSwitcher" class="club-switcher">
+          <label for="club-switcher-select" class="club-switcher-label">Managing club</label>
+          <select
+            id="club-switcher-select"
+            class="club-switcher-select"
+            :value="String(currentAgency.id)"
+            @change="onClubSwitch($event)"
+          >
+            <option v-for="opt in clubManagerManagedClubs" :key="opt.id" :value="String(opt.id)">
+              {{ opt.name }}
+            </option>
+          </select>
+        </div>
+        <div class="agency-badge">
+          <span class="agency-name">{{ currentAgency.name }}</span>
+        </div>
       </div>
     </div>
     
@@ -141,6 +159,7 @@
 
       <ClubQuickActions
         v-if="!previewMode && isSummitStatsContext"
+        :key="`club-qa-${currentAgency?.id || 0}`"
         :org-slug="orgSlug"
         :agency="agencyData || currentAgency"
         compact
@@ -173,6 +192,7 @@
       <!-- ── Member Applications Panel (SSC only) ───────────── -->
       <ClubApplicationsPanel
         v-if="!previewMode && isSummitStatsContext && currentAgency?.id"
+        :key="`club-apps-${currentAgency.id}`"
         :club-id="currentAgency.id"
         :org-slug="orgSlug"
         compact
@@ -181,6 +201,7 @@
 
       <ClubSpecsPanel
         v-if="!previewMode && isSummitStatsContext && currentAgency?.id"
+        :key="`club-specs-${currentAgency.id}`"
         title="Club Specs"
         :organization-id="currentAgency?.id"
         compact
@@ -213,6 +234,7 @@ import ClubAddSeasonModal from '../../components/club/ClubAddSeasonModal.vue';
 import AgencySpecsPanel from '../../components/admin/AgencySpecsPanel.vue';
 import ClubSpecsPanel from '../../components/club/ClubSpecsPanel.vue';
 import SupervisionModal from '../../components/supervision/SupervisionModal.vue';
+import { isSummitPlatformRouteSlug } from '../../utils/summitPlatformSlugs.js';
 
 const props = defineProps({
   previewMode: {
@@ -240,17 +262,27 @@ const ticketsLink = computed(() => {
 });
 const currentAgency = computed(() => agencyStore.currentAgency);
 
-// Only on SSC/SSTC portals do we show club manager flows
-const isSscAdminRoute = computed(() => {
-  const slug = String(route.params?.organizationSlug || '').toLowerCase();
-  return slug === 'ssc' || slug === 'sstc';
-});
+// Summit platform org slug (ssc / sstc / summit-stats / env) — same as club-manager dashboard route
+const isSscAdminRoute = computed(() => isSummitPlatformRouteSlug(route.params?.organizationSlug));
 // Summit Stats club context: use "Club" terminology instead of "Agency"
 const isSummitStatsContext = computed(() => {
   if (clubContext.value?.summitStatsScopedAdmin) return true;
   const orgType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
   return orgType === 'affiliation';
 });
+
+/** Club dashboard: show the affiliation logo; otherwise fall back to platform branding store. */
+const dashboardLogoUrl = computed(() => {
+  if (props.previewMode) {
+    return currentAgency.value?.logo_url || null;
+  }
+  if (isSummitStatsContext.value) {
+    const u = agencyData.value?.logo_url || currentAgency.value?.logo_url;
+    return u || null;
+  }
+  return undefined;
+});
+
 const dashboardTitle = computed(() => (isSummitStatsContext.value ? 'Club Dashboard' : 'Agency Dashboard'));
 const dashboardBadge = computed(() => (isSummitStatsContext.value ? 'Club Manager' : 'Agency Admin'));
 
@@ -302,8 +334,7 @@ const requestVerificationLink = async () => {
 };
 
 const loadClubManagerContext = async () => {
-  const slug = String(route.params?.organizationSlug || '').toLowerCase();
-  if (slug !== 'ssc' && slug !== 'sstc') return;
+  if (!isSummitPlatformRouteSlug(route.params?.organizationSlug)) return;
   clubContextLoading.value = true;
   try {
     const r = await api.get('/summit-stats/club-manager-context', { skipGlobalLoading: true });
@@ -316,6 +347,146 @@ const loadClubManagerContext = async () => {
   } finally {
     clubContextLoading.value = false;
   }
+};
+
+const applyClubTargetAgency = async (target) => {
+  const targetId = Number(target?.id || 0);
+  if (!targetId) return;
+  const fromList = (agencyStore.userAgencies || []).find((a) => Number(a?.id) === targetId);
+  if (fromList) {
+    agencyStore.setCurrentAgency(fromList);
+    return;
+  }
+  try {
+    const { data } = await api.get(`/agencies/${targetId}`);
+    if (data?.id) agencyStore.setCurrentAgency(data);
+  } catch {
+    // ignore
+  }
+};
+
+/**
+ * Club managers often still have the SSC platform org as persisted currentAgency (localStorage).
+ * Panels (applications, club specs) need the affiliation id — not the platform tenant.
+ * Supports `?club=<id>` for multi-club switching and bookmarkable links.
+ */
+const syncClubManagerAffiliationContext = async () => {
+  if (String(authStore.user?.role || '').toLowerCase() !== 'club_manager') return;
+
+  const managedList = Array.isArray(clubContext.value?.managedClubs) ? clubContext.value.managedClubs : [];
+  let clubsList = Array.isArray(clubContext.value?.clubs) ? clubContext.value.clubs : [];
+
+  if (!managedList.length && !clubsList.length) {
+    const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+    clubsList = list.filter(
+      (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
+    );
+  }
+
+  const seen = new Set();
+  const candidates = [];
+  for (const a of [...managedList, ...clubsList]) {
+    const id = Number(a?.id || 0);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    candidates.push(a);
+  }
+  if (!candidates.length) return;
+
+  let queryClubId = Number(route.query.club || 0);
+  if (route.query.club != null && String(route.query.club).trim() !== '') {
+    if (!queryClubId || !candidates.some((c) => Number(c.id) === queryClubId)) {
+      const nextQ = { ...route.query };
+      delete nextQ.club;
+      await router.replace({ path: route.path, query: nextQ, hash: route.hash });
+      queryClubId = 0;
+    }
+  }
+
+  const cur = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
+  const curId = Number(cur?.id || 0);
+  const curType = String(cur?.organization_type || cur?.organizationType || '').toLowerCase();
+
+  if (queryClubId && candidates.some((c) => Number(c.id) === queryClubId)) {
+    if (curId !== queryClubId || curType !== 'affiliation') {
+      const target = candidates.find((c) => Number(c.id) === queryClubId);
+      await applyClubTargetAgency(target);
+    }
+    return;
+  }
+
+  if (curType === 'affiliation' && candidates.some((c) => Number(c.id) === curId)) {
+    return;
+  }
+
+  const routeSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
+  let target = null;
+  if (routeSlug && !isSummitPlatformRouteSlug(routeSlug)) {
+    target = candidates.find(
+      (c) => String(c.slug || c.portal_url || c.portalUrl || '').trim().toLowerCase() === routeSlug
+    );
+  }
+  if (!target) {
+    target = managedList.length ? managedList[0] : candidates[0];
+  }
+
+  await applyClubTargetAgency(target);
+};
+
+/** Affiliation clubs this manager can act on (for the header switcher). */
+const clubManagerManagedClubs = computed(() => {
+  if (String(authStore.user?.role || '').toLowerCase() !== 'club_manager') return [];
+  const managed = clubContext.value?.managedClubs;
+  const clubs = clubContext.value?.clubs;
+  const seen = new Set();
+  const out = [];
+  for (const a of [...(Array.isArray(managed) ? managed : []), ...(Array.isArray(clubs) ? clubs : [])]) {
+    const id = Number(a?.id || 0);
+    if (!id || seen.has(id)) continue;
+    if (String(a?.organization_type || a?.organizationType || '').toLowerCase() !== 'affiliation') continue;
+    seen.add(id);
+    out.push({ id, name: String(a?.name || '').trim() || `Club ${id}` });
+  }
+  if (out.length) {
+    return out.sort((x, y) => x.name.localeCompare(y.name));
+  }
+  return (agencyStore.userAgencies || [])
+    .filter((a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation')
+    .map((a) => ({
+      id: Number(a.id),
+      name: String(a?.name || '').trim() || `Club ${a.id}`
+    }))
+    .sort((x, y) => x.name.localeCompare(y.name));
+});
+
+const showClubSwitcher = computed(
+  () =>
+    !props.previewMode &&
+    isSscAdminRoute.value &&
+    clubManagerManagedClubs.value.length > 1
+);
+
+const onClubSwitch = async (event) => {
+  const id = Number(event?.target?.value);
+  if (!id) return;
+  if (!clubManagerManagedClubs.value.some((c) => c.id === id)) return;
+  const full = (agencyStore.userAgencies || []).find((a) => Number(a?.id) === id);
+  if (full) {
+    agencyStore.setCurrentAgency(full);
+  } else {
+    try {
+      const { data } = await api.get(`/agencies/${id}`);
+      if (data?.id) agencyStore.setCurrentAgency(data);
+    } catch {
+      return;
+    }
+  }
+  await router.replace({
+    path: route.path,
+    query: { ...route.query, club: String(id) },
+    hash: route.hash
+  });
+  await fetchStats();
 };
 
 const submitCreateClub = async () => {
@@ -964,6 +1135,25 @@ watch(currentAgency, async (newAgency) => {
   }
 });
 
+watch(
+  () => clubContext.value,
+  async () => {
+    if (!isSscAdminRoute.value) return;
+    if (String(authStore.user?.role || '').toLowerCase() !== 'club_manager') return;
+    await syncClubManagerAffiliationContext();
+  },
+  { deep: true }
+);
+
+watch(
+  () => route.query.club,
+  async () => {
+    if (!isSscAdminRoute.value) return;
+    if (String(authStore.user?.role || '').toLowerCase() !== 'club_manager') return;
+    await syncClubManagerAffiliationContext();
+  }
+);
+
 onMounted(async () => {
   // Ensure branding is loaded before fetching stats
   if (!brandingStore.platformBranding) {
@@ -974,6 +1164,7 @@ onMounted(async () => {
   // Summit Stats club managers only (ssc/sstc): load context for create-club flow
   if (isSscAdminRoute.value) {
     await loadClubManagerContext();
+    await syncClubManagerAffiliationContext();
   }
   if (String(route.query?.openAddSeason || '') === '1' && isSummitStatsContext.value) {
     showAddSeasonModal.value = true;
@@ -1022,6 +1213,51 @@ onMounted(loadMyOpenTickets);
 .dashboard-header h1 {
   margin: 0;
   color: var(--primary);
+}
+
+.header-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.dashboard-route-hint {
+  margin: 8px 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted, #64748b);
+  line-height: 1.4;
+  max-width: 42rem;
+}
+
+.dashboard-route-hint code {
+  font-size: 0.85em;
+}
+
+.club-switcher {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.club-switcher-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  margin: 0;
+}
+
+.club-switcher-select {
+  min-width: 200px;
+  max-width: min(320px, 85vw);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 2px solid var(--border, #e2e8f0);
+  background: var(--bg, #fff);
+  font-size: 0.9375rem;
+  color: var(--text, #0f172a);
 }
 
 .agency-badge {

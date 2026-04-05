@@ -198,6 +198,15 @@ export const useAgencyStore = defineStore('agency', () => {
       const pickDefaultAgencyForUser = (list) => {
         const arr = Array.isArray(list) ? list : [];
         if (!arr.length) return null;
+        // Club managers: first path segment is the Summit *platform* slug (e.g. ssc), which matches the
+        // tenant agency row—not the club affiliation. Prefer affiliation before portal-key matching.
+        if (roleNorm === 'club_manager') {
+          const affiliation = arr.find((a) => {
+            const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+            return t === 'affiliation';
+          });
+          if (affiliation) return affiliation;
+        }
         const preferredPortal = inferPreferredPortalFromRuntime();
         if (preferredPortal) {
           const preferred = arr.find((a) => pickPortalKey(a) === preferredPortal);

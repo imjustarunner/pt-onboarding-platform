@@ -3,7 +3,7 @@
  * CRUD for reusable recognition awards and eligibility groups per club.
  */
 import pool from '../config/database.js';
-import { canUserManageClub } from '../utils/sscClubAccess.js';
+import { canUserManageClub, getClubPlatformTenantAgencyId } from '../utils/sscClubAccess.js';
 
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
 
@@ -101,7 +101,8 @@ export const getMyTimezone = async (req, res, next) => {
 
 /**
  * GET /summit-stats/clubs/:id/icons
- * Returns icons belonging to this club's agency for use in the recognition icon picker.
+ * Returns icons for the recognition icon picker: this club, shared tenant (SSC/SSTC platform agency), and global (agency_id NULL).
+ * Super admins publish tenant icons by uploading with that platform agency as `icons.agency_id`.
  */
 export const listClubIcons = async (req, res, next) => {
   try {
@@ -109,29 +110,48 @@ export const listClubIcons = async (req, res, next) => {
     if (!clubId) return res.status(400).json({ error: { message: 'Invalid club id' } });
     if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    // Resolve the agencyId for this club
-    const [clubs] = await pool.execute(
-      `SELECT agency_id FROM agencies WHERE id = ? LIMIT 1`,
-      [clubId]
-    );
-    const agencyId = clubs?.[0]?.agency_id || clubId;
+    const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
 
-    // Fetch icons for this agency
-    const [rows] = await pool.execute(
-      `SELECT id, name, file_path, category FROM icons WHERE (agency_id = ? OR agency_id IS NULL) AND is_active = 1 ORDER BY name ASC LIMIT 200`,
-      [agencyId]
-    );
+    let sql = `SELECT id, name, file_path, category, agency_id FROM icons WHERE is_active = 1 AND (
+      agency_id = ?
+      OR agency_id IS NULL`;
+    const params = [clubId];
+    if (tenantAgencyId) {
+      sql += ' OR agency_id = ?';
+      params.push(tenantAgencyId);
+    }
+    sql += ') ORDER BY name ASC LIMIT 400';
+
+    const [rows] = await pool.execute(sql, params);
 
     const baseUrl = process.env.BACKEND_URL || '';
-    const icons = (rows || []).map(icon => {
+    const scopeOrder = { club: 0, tenant: 1, platform: 2 };
+
+    const icons = (rows || []).map((icon) => {
       let url = icon.file_path || '';
       if (url && !url.startsWith('http')) {
         url = url.startsWith('/') ? `${baseUrl}${url}` : `${baseUrl}/${url}`;
       }
-      return { id: icon.id, name: icon.name, url, category: icon.category || null };
+      const aid = icon.agency_id != null ? Number(icon.agency_id) : null;
+      let scope = 'platform';
+      if (aid === clubId) scope = 'club';
+      else if (tenantAgencyId && aid === tenantAgencyId) scope = 'tenant';
+      return {
+        id: icon.id,
+        name: icon.name,
+        url,
+        category: icon.category || null,
+        scope
+      };
     });
 
-    return res.json({ icons });
+    icons.sort((a, b) => {
+      const d = scopeOrder[a.scope] - scopeOrder[b.scope];
+      if (d !== 0) return d;
+      return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+    });
+
+    return res.json({ icons, tenantAgencyId: tenantAgencyId || null });
   } catch (e) { next(e); }
 };
 

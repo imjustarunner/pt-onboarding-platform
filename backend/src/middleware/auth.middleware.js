@@ -1,8 +1,10 @@
 import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
 import User from '../models/User.model.js';
+import Agency from '../models/Agency.model.js';
 import { getUserCapabilities } from '../utils/capabilities.js';
 import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
+import { canUserManageClub } from '../utils/sscClubAccess.js';
 
 /** Normalize role strings for authorization (JWT quirks / legacy variants). */
 function normalizeAuthRole(role) {
@@ -15,6 +17,20 @@ function isBackofficeAdminRole(role) {
   const r = normalizeAuthRole(role);
   return r === 'admin' || r === 'super_admin' || r === 'support';
 }
+
+/** Platform admins or Summit club managers (e.g. icon upload scoped to a club). */
+export const requireBackofficeAdminOrClubManager = (req, res, next) => {
+  if (!req.user) {
+    return res.status(403).json({ error: { message: 'Admin access required' } });
+  }
+  if (isBackofficeAdminRole(req.user.role)) {
+    return next();
+  }
+  if (normalizeAuthRole(req.user.role) === 'club_manager') {
+    return next();
+  }
+  return res.status(403).json({ error: { message: 'Admin access required' } });
+};
 
 export const authenticate = (req, res, next) => {
   try {
@@ -209,6 +225,48 @@ export const requireBackofficeAdmin = async (req, res, next) => {
   }
 };
 
+/**
+ * Backoffice admin OR Summit club manager updating their own affiliation (club) row.
+ * Sets `req.agencyUpdateScope` to `full` (platform admins) or `club_branding` (club managers only).
+ */
+export const requireBackofficeAdminOrClubManagerForAgency = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    if (isBackofficeAdminRole(req.user.role)) {
+      req.agencyUpdateScope = 'full';
+      return next();
+    }
+    const uid = req.user.id;
+    if (!uid) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const row = await User.findById(uid);
+    if (row && isBackofficeAdminRole(row.role)) {
+      req.agencyUpdateScope = 'full';
+      return next();
+    }
+
+    const agencyId = parseInt(req.params.id, 10);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+    const agency = await Agency.findById(agencyId);
+    if (!agency || String(agency.organization_type || '').toLowerCase() !== 'affiliation') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const ok = await canUserManageClub({ user: req.user, clubId: agencyId });
+    if (!ok) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    req.agencyUpdateScope = 'club_branding';
+    return next();
+  } catch (e) {
+    next(e);
+  }
+};
+
 /** Kiosk users only – used for kiosk-specific authenticated routes */
 export const requireKioskUser = (req, res, next) => {
   if (String(req.user?.role || '').toLowerCase() !== 'kiosk') {
@@ -326,27 +384,32 @@ export const requireAgencyAdmin = async (req, res, next) => {
     if (req.user.role === 'super_admin') {
       return next();
     }
-    
+
+    const agencyId = req.params.agencyId || req.body.agencyId || req.query.agencyId;
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'Agency ID required' } });
+    }
+    const aid = parseInt(agencyId, 10);
+
+    // Summit club managers: same billing/admin actions for their club agency
+    if (normalizeAuthRole(req.user.role) === 'club_manager') {
+      const ok = await canUserManageClub({ user: req.user, clubId: aid });
+      if (ok) return next();
+      return res.status(403).json({ error: { message: 'You do not have admin access to this agency' } });
+    }
+
     // Must be admin/support/staff role (agency-side backoffice)
     if (req.user.role !== 'admin' && req.user.role !== 'support' && req.user.role !== 'staff') {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
-    
-    // Get agency ID from params or body
-    const agencyId = req.params.agencyId || req.body.agencyId || req.query.agencyId;
-    
-    if (!agencyId) {
-      return res.status(400).json({ error: { message: 'Agency ID required' } });
-    }
-    
-    // Check if user is admin for this agency
+
     const userAgencies = await User.getAgencies(req.user.id);
-    const hasAccess = userAgencies.some(a => a.id === parseInt(agencyId));
-    
+    const hasAccess = userAgencies.some((a) => a.id === aid);
+
     if (!hasAccess) {
       return res.status(403).json({ error: { message: 'You do not have admin access to this agency' } });
     }
-    
+
     next();
   } catch (error) {
     next(error);

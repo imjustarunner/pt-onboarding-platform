@@ -10,7 +10,8 @@
     <div v-else-if="error" class="pub-error">
       <div class="error-icon">⚠️</div>
       <h2>{{ error }}</h2>
-      <router-link :to="`/${orgSlug}/clubs`" class="btn btn-ghost">Browse Clubs</router-link>
+      <p class="pub-error-hint">This club may not exist, or the link may be wrong.</p>
+      <router-link :to="`/${orgSlug}/clubs`" class="btn btn-ghost">Browse clubs</router-link>
     </div>
 
     <template v-else-if="clubData">
@@ -21,8 +22,9 @@
           <div class="pub-hero-brand">
             <img v-if="clubData.club.logoUrl" :src="clubData.club.logoUrl" class="pub-logo" alt="Club logo" />
             <div class="pub-hero-text">
-              <h1 class="pub-club-name">{{ publicBannerTitle }}</h1>
-              <p v-if="publicBannerSubtitle" class="pub-hero-subtitle">{{ publicBannerSubtitle }}</p>
+              <h1 class="pub-club-name">{{ clubData.club.name }}</h1>
+              <p v-if="bannerTitleLine" class="pub-hero-subtitle pub-hero-tagline">{{ bannerTitleLine }}</p>
+              <p v-if="bannerSubtitleLine" class="pub-hero-subtitle">{{ bannerSubtitleLine }}</p>
               <p class="pub-member-count">
                 <span class="member-dot"></span>
                 {{
@@ -32,24 +34,49 @@
                   (configuredStats.find(s => s.key === 'member_count')?.value ?? clubData.stats.memberCount) !== 1 ? 's' : ''
                 }} strong
               </p>
+              <p v-if="viewer.isMember" class="hero-member-note hero-member-note--hero">You're a member of this club.</p>
             </div>
           </div>
-          <div class="hero-actions">
-            <button class="btn-hero-join" @click="goJoin">Join Our Club</button>
-            <a
-              v-if="clubData.publicStore?.enabled && clubData.publicStore?.url"
-              class="btn-hero-shop"
-              :href="clubData.publicStore.url"
-              target="_blank"
-              rel="noopener"
-            >{{ clubData.publicStore.buttonText || 'Shop' }}</a>
+          <div v-if="!viewer.isMember" class="hero-actions">
+            <button type="button" class="btn-hero-join" @click="goJoin">Join Our Club</button>
           </div>
         </div>
       </div>
 
+      <!-- ── Quick actions (distinct hues) ───────────────────── -->
+      <div class="pub-action-bar-wrap">
+        <div class="pub-action-bar">
+          <router-link
+            v-if="viewer.isMember"
+            :to="`/${orgSlug}/dashboard`"
+            class="pub-act pub-act--dashboard"
+          >My Dashboard</router-link>
+          <a
+            v-if="clubData.publicStore?.enabled && clubData.publicStore?.url"
+            class="pub-act pub-act--store"
+            :href="clubData.publicStore.url"
+            target="_blank"
+            rel="noopener"
+          >{{ clubData.publicStore.title || 'Team store' }}</a>
+          <button type="button" class="pub-act pub-act--records" @click="scrollToClubRecords">Team records</button>
+          <button
+            v-if="viewer.isMember && (clubData.companyEventsPreview || []).length"
+            type="button"
+            class="pub-act pub-act--events"
+            @click="scrollToClubEvents"
+          >Events</button>
+          <button
+            v-if="viewer.isMember && primarySeasonButton"
+            type="button"
+            class="pub-act pub-act--season"
+            @click="goSeason"
+          >{{ seasonButtonLabel }}</button>
+        </div>
+      </div>
+
       <!-- ── Stats strip ─────────────────────────────────────── -->
-      <div class="pub-stats-wrap">
-        <div class="pub-stats-bar">
+      <div class="pub-stats-wrap" :class="{ 'pub-stats-wrap--compact': viewer.isMember }">
+        <div class="pub-stats-bar" :class="{ 'pub-stats-bar--compact': viewer.isMember }">
           <template v-if="configuredStats.length">
             <div
               v-for="stat in configuredStats"
@@ -95,6 +122,36 @@
       <!-- ── Main content ────────────────────────────────────── -->
       <div class="pub-content">
 
+        <!-- Club feed (members see full feed; guests see public items when manager enables) -->
+        <div v-if="showClubFeedBlock" class="pub-feed-card-wrap">
+          <div class="pub-card pub-feed-card">
+            <div class="card-label">💬 Club feed</div>
+            <div v-if="!authStore.isAuthenticated" class="pub-feed-guest-row">
+              <p class="pub-feed-guest-hint">
+                {{
+                  publicFeedEnabledForPage
+                    ? 'Sign in to post updates to the club feed.'
+                    : 'Sign in to see activity and post updates to the group.'
+                }}
+              </p>
+              <router-link
+                class="pub-feed-signin"
+                :to="{ path: `/${orgSlug}/login`, query: { redirect: route.fullPath } }"
+              >Sign in</router-link>
+            </div>
+            <ClubFeedPanel
+              v-if="clubData.club?.id && (authStore.isAuthenticated || publicFeedEnabledForPage)"
+              :club-id="Number(clubData.club.id)"
+              variant="public"
+              :post-season-id="feedPostSeasonId"
+              :show-composer="viewer.isMember"
+              :allow-club-wide-posts="viewer.isMember"
+              :public-feed-enabled="publicFeedEnabledForPage"
+              :use-public-feed-endpoint="feedUsePublicEndpoint"
+            />
+          </div>
+        </div>
+
         <!-- Current season + active participants -->
         <div class="pub-row" v-if="(showCurrentSeasonBlock && (clubData.upcomingSeason || clubData.currentSeason)) || (showActiveParticipantsBlock && clubData.activeParticipants?.length)">
           <div v-if="showCurrentSeasonBlock && clubData.upcomingSeason" class="pub-card pub-season-card pub-season-card--upcoming">
@@ -117,6 +174,29 @@
               <span v-if="clubData.upcomingSeason.endsAt" class="season-date">
                 Ends {{ formatDate(clubData.upcomingSeason.endsAt) }}
               </span>
+            </div>
+            <div v-if="viewer.isMember && joinCtaForUpcoming" class="season-join-actions">
+              <button
+                v-if="joinCtaForUpcoming === 'open'"
+                type="button"
+                class="btn-season-join"
+                :disabled="joinBusy"
+                @click="joinUpcomingSeason"
+              >
+                {{ joinBusy ? 'Joining…' : 'Join season now' }}
+              </button>
+              <button
+                v-else-if="joinCtaForUpcoming === 'request'"
+                type="button"
+                class="btn-season-join btn-season-join--outline"
+                :disabled="joinBusy || viewer.pendingSeasonJoinRequest"
+                @click="requestSeasonJoinAfterDeadline"
+              >
+                {{ joinBusy ? 'Sending…' : (viewer.pendingSeasonJoinRequest ? 'Request pending' : 'Request to join') }}
+              </button>
+              <p v-if="joinCtaForUpcoming === 'request' && viewer.pendingSeasonJoinRequest" class="season-join-note">
+                Your request is pending manager approval.
+              </p>
             </div>
           </div>
 
@@ -142,10 +222,13 @@
 
           <div v-if="showActiveParticipantsBlock && clubData.activeParticipants?.length" class="pub-card pub-participants-card">
             <div class="card-label">Active Participants</div>
+            <p class="pub-participants-hint">
+              Public preview — first name and last initial only. This page does not open the full member directory.
+            </p>
             <div class="participant-chips">
               <span
-                v-for="p in clubData.activeParticipants.slice(0, 36)"
-                :key="`p-${p.userId}`"
+                v-for="(p, idx) in clubData.activeParticipants.slice(0, 36)"
+                :key="`p-${idx}-${p.displayName}`"
                 class="participant-chip"
                 :title="p.teamName || ''"
               >
@@ -207,7 +290,11 @@
         </div>
 
         <!-- Club Records + Race Divisions side by side -->
-        <div class="pub-row" v-if="clubData.clubRecords?.length || clubData.raceDivisions?.halfMarathon?.length || clubData.raceDivisions?.marathon?.length">
+        <div
+          id="club-records"
+          class="pub-row"
+          v-if="clubData.clubRecords?.length || clubData.raceDivisions?.halfMarathon?.length || clubData.raceDivisions?.marathon?.length"
+        >
           <div v-if="clubData.clubRecords?.length" class="pub-card pub-records-card">
             <div class="card-label">🏅 Club Records</div>
             <div class="records-list">
@@ -254,11 +341,11 @@
           </div>
         </div>
 
-        <!-- CTA -->
-        <div class="pub-cta-card">
+        <!-- CTA (guests only) -->
+        <div v-if="!viewer.isMember" class="pub-cta-card">
           <div class="cta-inner">
             <div class="cta-text">
-              <div class="cta-eyebrow">Ready to compete?</div>
+              <div class="cta-eyebrow">Join the team</div>
               <h2 class="cta-headline">Join {{ clubData.club.name }}</h2>
               <p class="cta-body">
                 Compete in weekly fitness challenges, track your miles, earn points,
@@ -272,10 +359,25 @@
               </ul>
             </div>
             <div class="cta-actions">
-              <button class="btn-cta" @click="goJoin">Join {{ clubData.club.name }}</button>
+              <button type="button" class="btn-cta" @click="goJoin">Join {{ clubData.club.name }}</button>
               <p class="cta-note">Already a member? <a :href="`/${orgSlug}`">Sign in</a></p>
             </div>
           </div>
+        </div>
+
+        <!-- Upcoming events (public preview) -->
+        <div
+          v-if="(clubData.companyEventsPreview || []).length"
+          id="club-events-section"
+          class="pub-card pub-events-preview-card"
+        >
+          <div class="card-label">Club events</div>
+          <ul class="events-preview-list">
+            <li v-for="ev in clubData.companyEventsPreview" :key="ev.id" class="events-preview-row">
+              <span class="ev-title">{{ ev.title }}</span>
+              <span class="ev-when">{{ formatDate(ev.startsAt) }}</span>
+            </li>
+          </ul>
         </div>
 
       </div><!-- /pub-content -->
@@ -284,22 +386,36 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
+import { useAuthStore } from '../store/auth';
+import { useAgencyStore } from '../store/agency';
+import ClubFeedPanel from '../components/ssc/ClubFeedPanel.vue';
 
 const route  = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 
 const loading  = ref(true);
 const error    = ref('');
 const clubData = ref(null);
 const configuredStats = ref([]);
 const albumSlideIndex = ref(0);
+const joinBusy = ref(false);
 let albumAutoplayTimer = null;
+/** Avoid duplicate fetch when route updates after canonical slug redirect. */
+const lastLoadedRouteKey = ref('');
 
 const orgSlug = computed(() => route.params.organizationSlug || 'ssc');
 const clubRef = computed(() => route.params.clubId);
+
+const viewer = computed(() => {
+  const v = clubData.value?.viewer;
+  if (v) return v;
+  return { isAuthenticated: false, isMember: false, clubRole: null, isManager: false, seasonMembershipByClassId: {}, pendingSeasonJoinRequest: null };
+});
 
 const goJoin = () => {
   const numericClubId = Number(clubData.value?.club?.id || 0);
@@ -307,13 +423,174 @@ const goJoin = () => {
   router.push({ path: `/${orgSlug.value}/join`, query: { club: numericClubId } });
 };
 
-const publicPageConfig = computed(() => clubData.value?.club?.publicPageConfig || {});
-const publicBannerTitle = computed(() => {
-  const custom = String(publicPageConfig.value?.bannerTitle || '').trim();
-  if (custom) return custom;
-  return clubData.value?.club?.name || 'Club';
+const scrollToClubRecords = () => {
+  const id = Number(clubData.value?.club?.id || 0);
+  if (!id) return;
+  router.push(`/${orgSlug.value}/clubs/${id}/records`);
+};
+
+const scrollToClubEvents = () => {
+  const el = document.getElementById('club-events-section');
+  el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+const seasonMembership = (classId) => {
+  const map = viewer.value?.seasonMembershipByClassId || {};
+  return map?.[Number(classId)] || null;
+};
+
+const joinCtaForUpcoming = computed(() => {
+  const us = clubData.value?.upcomingSeason;
+  if (!us?.id || !viewer.value.isMember) return null;
+  if (seasonMembership(us.id)) return null;
+  const phase = us.joinPhase;
+  if (phase === 'not_open') return null;
+  if (phase === 'open') return 'open';
+  if (phase === 'request_only') return 'request';
+  return null;
 });
-const publicBannerSubtitle = computed(() => String(publicPageConfig.value?.bannerSubtitle || '').trim());
+
+const primarySeasonButton = computed(() => {
+  const cur = clubData.value?.currentSeason;
+  const up = clubData.value?.upcomingSeason;
+  if (cur?.id) return { kind: 'current', id: cur.id };
+  if (up?.id && viewer.value.isMember) return { kind: 'upcoming', id: up.id };
+  return null;
+});
+
+const seasonButtonLabel = computed(() => {
+  if (clubData.value?.currentSeason?.id) return 'Current season';
+  return 'Upcoming season';
+});
+
+const goSeason = () => {
+  const cur = clubData.value?.currentSeason;
+  const up = clubData.value?.upcomingSeason;
+  const id = cur?.id || up?.id;
+  if (!id) return;
+  router.push(`/${orgSlug.value}/season/${id}`);
+};
+
+const joinUpcomingSeason = async () => {
+  const us = clubData.value?.upcomingSeason;
+  if (!us?.id) return;
+  joinBusy.value = true;
+  try {
+    await api.post(`/learning-program-classes/${us.id}/join`);
+    await reloadPublic();
+  } catch (e) {
+    const code = e?.response?.data?.code;
+    const msg = e?.response?.data?.error?.message || e?.message || 'Could not join';
+    if (code === 'ENROLLMENT_CLOSED') {
+      await requestSeasonJoinAfterDeadline();
+    } else {
+      window.alert(msg);
+    }
+  } finally {
+    joinBusy.value = false;
+  }
+};
+
+const requestSeasonJoinAfterDeadline = async () => {
+  const us = clubData.value?.upcomingSeason;
+  const clubId = Number(clubData.value?.club?.id || 0);
+  if (!us?.id || !clubId) return;
+  joinBusy.value = true;
+  try {
+    await api.post(`/summit-stats/clubs/${clubId}/seasons/${us.id}/join-request`);
+    await reloadPublic();
+  } catch (e) {
+    const msg = e?.response?.data?.error?.message || e?.message || 'Could not submit request';
+    window.alert(msg);
+  } finally {
+    joinBusy.value = false;
+  }
+};
+
+const reloadPublic = async () => {
+  const pubRes = await api.get(`/summit-stats/clubs/${clubRef.value}/public`, { skipAuthRedirect: true });
+  clubData.value = pubRes?.data || null;
+};
+
+const loadClubPage = async () => {
+  const routeKey = `${route.params.organizationSlug}|${route.params.clubId}`;
+  if (!clubRef.value) {
+    error.value = 'Club not found.';
+    loading.value = false;
+    clubData.value = null;
+    lastLoadedRouteKey.value = '';
+    return;
+  }
+  if (routeKey === lastLoadedRouteKey.value) {
+    loading.value = false;
+    return;
+  }
+  error.value = '';
+  try {
+    const pubRes = await api.get(`/summit-stats/clubs/${clubRef.value}/public`, { skipAuthRedirect: true });
+    clubData.value = pubRes?.data || null;
+    const canon = clubData.value?.club?.canonicalClubRef;
+    const curRef = String(clubRef.value || '').trim();
+    if (canon && String(canon).toLowerCase() !== curRef.toLowerCase()) {
+      lastLoadedRouteKey.value = `${orgSlug.value}|${String(canon)}`;
+      await router.replace({ path: `/${orgSlug.value}/clubs/${canon}`, query: route.query });
+      const pubRes2 = await api.get(`/summit-stats/clubs/${clubRef.value}/public`, { skipAuthRedirect: true });
+      clubData.value = pubRes2?.data || null;
+    }
+    lastLoadedRouteKey.value = `${orgSlug.value}|${String(route.params.clubId)}`;
+    const numericClubId = Number(clubData.value?.club?.id || 0);
+    if (
+      numericClubId &&
+      authStore.isAuthenticated &&
+      String(authStore.user?.role || '').toLowerCase() === 'club_manager'
+    ) {
+      const match = (agencyStore.userAgencies || []).find((a) => Number(a?.id) === numericClubId);
+      if (match) agencyStore.setCurrentAgency(match);
+    }
+    if (numericClubId) {
+      try {
+        const statsRes = await api.get(`/summit-stats/clubs/${numericClubId}/stats`, { skipAuthRedirect: true });
+        if (Array.isArray(statsRes?.data?.stats)) configuredStats.value = statsRes.data.stats;
+      } catch {
+        // Stats endpoint may require auth in some contexts; public page still renders without it.
+      }
+    }
+    albumSlideIndex.value = 0;
+    startAlbumAutoplay();
+  } catch (e) {
+    const status = e?.response?.status;
+    const msg = e?.response?.data?.error?.message;
+    if (status === 404 || (msg && /not found/i.test(msg))) {
+      const refStr = String(clubRef.value || '').trim();
+      error.value = /^\d+$/.test(refStr)
+        ? 'This club could not be found. A numeric link (e.g. /clubs/387) only works if that club exists in this environment. Use your public slug from Club settings (e.g. /clubs/your-slug), or browse clubs.'
+        : 'This club could not be found.';
+    } else {
+      error.value = msg || 'Could not load this club page.';
+    }
+    clubData.value = null;
+    lastLoadedRouteKey.value = '';
+  } finally {
+    loading.value = false;
+  }
+};
+
+const publicPageConfig = computed(() => clubData.value?.club?.publicPageConfig || {});
+/** Manager enabled public visibility for club-wide posts on this public page. */
+const publicFeedEnabledForPage = computed(() => publicPageConfig.value?.publicFeedEnabled === true);
+/** Guests and signed-in non-members load the unauthenticated public feed slice. */
+const feedUsePublicEndpoint = computed(() => {
+  if (!publicPageConfig.value?.publicFeedEnabled) return false;
+  return !authStore.isAuthenticated || !viewer.value.isMember;
+});
+const bannerTitleLine = computed(() => String(publicPageConfig.value?.bannerTitle || '').trim());
+const bannerSubtitleLine = computed(() => String(publicPageConfig.value?.bannerSubtitle || '').trim());
+const showClubFeedBlock = computed(() => publicPageConfig.value?.showClubFeed !== false);
+const feedPostSeasonId = computed(() => {
+  const cur = clubData.value?.currentSeason?.id;
+  const up = clubData.value?.upcomingSeason?.id;
+  return cur || up || null;
+});
 const heroStyle = computed(() => {
   const banner = String(publicPageConfig.value?.bannerImageUrl || '').trim();
   if (!banner) return {};
@@ -381,27 +658,19 @@ const startAlbumAutoplay = () => {
 };
 
 onMounted(async () => {
-  if (!clubRef.value) { error.value = 'Club not found.'; loading.value = false; return; }
-  try {
-    const pubRes = await api.get(`/summit-stats/clubs/${clubRef.value}/public`, { skipAuthRedirect: true });
-    clubData.value = pubRes?.data || null;
-    const numericClubId = Number(clubData.value?.club?.id || 0);
-    if (numericClubId) {
-      try {
-        const statsRes = await api.get(`/summit-stats/clubs/${numericClubId}/stats`, { skipAuthRedirect: true });
-        if (Array.isArray(statsRes?.data?.stats)) configuredStats.value = statsRes.data.stats;
-      } catch {
-        // Stats endpoint may require auth in some contexts; public page still renders without it.
-      }
-    }
-    albumSlideIndex.value = 0;
-    startAlbumAutoplay();
-  } catch (e) {
-    error.value = e?.message || 'Could not load this club page.';
-  } finally {
-    loading.value = false;
-  }
+  loading.value = true;
+  await loadClubPage();
 });
+
+watch(
+  () => `${route.params.organizationSlug}|${route.params.clubId}`,
+  async (newKey, oldKey) => {
+    if (oldKey === undefined) return;
+    if (newKey === oldKey) return;
+    loading.value = true;
+    await loadClubPage();
+  }
+);
 
 onBeforeUnmount(() => {
   if (albumAutoplayTimer) clearInterval(albumAutoplayTimer);
@@ -430,6 +699,7 @@ onBeforeUnmount(() => {
 }
 .error-icon { font-size: 2.5rem; }
 .pub-error h2 { margin: 0; font-size: 1.25rem; color: #0f172a; }
+.pub-error-hint { margin: 0; font-size: 0.9rem; color: #64748b; max-width: 320px; }
 .spinner {
   width: 40px; height: 40px;
   border: 3px solid #e2e8f0;
@@ -471,14 +741,17 @@ onBeforeUnmount(() => {
   gap: 20px;
 }
 .pub-logo {
-  width: 80px; height: 80px;
+  width: 96px;
+  height: 96px;
+  aspect-ratio: 1;
   border-radius: 16px;
   object-fit: contain;
   background: rgba(255,255,255,.15);
   backdrop-filter: blur(8px);
   border: 1.5px solid rgba(255,255,255,.25);
-  padding: 6px;
+  padding: 8px;
   box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  flex-shrink: 0;
 }
 .pub-hero-text {}
 .pub-club-name {
@@ -494,6 +767,11 @@ onBeforeUnmount(() => {
   font-size: 1rem;
   color: rgba(255,255,255,.75);
   font-weight: 400;
+}
+.pub-hero-tagline {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: rgba(255,255,255,.9);
 }
 .pub-member-count {
   margin: 10px 0 0;
@@ -545,14 +823,138 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(6px);
 }
 .btn-hero-shop:hover { background: rgba(255,255,255,.22); }
+.hero-member-note {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: rgba(255,255,255,.85);
+  font-weight: 600;
+}
+.hero-member-note--hero {
+  margin: 12px 0 0;
+}
+.btn-hero-join--secondary {
+  text-decoration: none;
+  text-align: center;
+  background: rgba(255,255,255,.18);
+  color: #fff;
+  border: 1.5px solid rgba(255,255,255,.45);
+}
+.btn-hero-join--secondary:hover {
+  background: rgba(255,255,255,.28);
+}
+
+/* ─── Quick action bar ───────────────────────────────────────── */
+.pub-action-bar-wrap {
+  max-width: 1040px;
+  margin: -24px auto 0;
+  padding: 0 24px 12px;
+  position: relative;
+  z-index: 12;
+  width: 100%;
+  box-sizing: border-box;
+}
+.pub-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  row-gap: 12px;
+  column-gap: 12px;
+  justify-content: center;
+  align-items: center;
+  align-content: center;
+  width: 100%;
+  box-sizing: border-box;
+}
+.pub-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.12);
+  transition: transform 0.12s, box-shadow 0.12s;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+.pub-act:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.16);
+}
+@media (max-width: 520px) {
+  .pub-action-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .pub-act {
+    width: 100%;
+    justify-content: center;
+    white-space: normal;
+    text-align: center;
+  }
+}
+.pub-act--store { background: linear-gradient(135deg, #059669, #10b981); }
+.pub-act--records { background: linear-gradient(135deg, #7c3aed, #a78bfa); }
+.pub-act--events { background: linear-gradient(135deg, #c2410c, #f97316); }
+.pub-act--season { background: linear-gradient(135deg, #b45309, #eab308); }
+.pub-act--dashboard {
+  background: linear-gradient(135deg, #334155, #64748b);
+  text-decoration: none;
+}
+
+/* ─── Club feed card (public page) ───────────────────────────── */
+.pub-feed-card-wrap {
+  margin-bottom: 0;
+}
+.pub-feed-guest-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.pub-feed-card .pub-feed-guest-hint {
+  margin: 0;
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.5;
+}
+.pub-feed-signin {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 20px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  text-decoration: none;
+  width: fit-content;
+}
+.pub-feed-signin:hover {
+  filter: brightness(1.05);
+}
 
 /* ─── Stats strip ─────────────────────────────────────────────── */
 .pub-stats-wrap {
   max-width: 1040px;
-  margin: -36px auto 0;
+  /* Pull up to tuck under hero without covering the action buttons (was -36px, overlapped the pill row). */
+  margin: -18px auto 0;
   padding: 0 24px;
   position: relative;
   z-index: 10;
+}
+.pub-stats-wrap--compact {
+  max-width: 640px;
+  margin-top: -14px;
 }
 .pub-stats-bar {
   display: flex;
@@ -561,6 +963,21 @@ onBeforeUnmount(() => {
   box-shadow: 0 8px 32px rgba(15,23,42,.12);
   overflow: hidden;
   border: 1px solid rgba(226,232,240,.8);
+}
+.pub-stats-bar--compact {
+  flex-wrap: wrap;
+  border-radius: 14px;
+}
+.pub-stats-bar--compact .stat-pill {
+  flex: 1 1 33%;
+  min-width: 30%;
+  padding: 12px 10px 10px;
+}
+.pub-stats-bar--compact .stat-value {
+  font-size: 1.25rem;
+}
+.pub-stats-bar--compact .stat-label {
+  font-size: 9px;
 }
 .stat-pill {
   flex: 1;
@@ -681,8 +1098,13 @@ onBeforeUnmount(() => {
 .season-sep { color: #cbd5e1; font-weight: 300; }
 .season-date { font-size: 13px; }
 
-/* ─── Participants card ───────────────────────────────────────── */
-.pub-participants-card {}
+/* ─── Participants card (read-only public preview; no directory links) ─ */
+.pub-participants-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #64748b;
+}
 .participant-chips {
   display: flex;
   flex-wrap: wrap;
@@ -696,13 +1118,13 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 600;
   color: #374151;
-  transition: background .12s;
+  cursor: default;
+  user-select: none;
 }
-.participant-chip:hover { background: #f0f9ff; border-color: #bae6fd; }
 .participant-chip--more {
-  background: #f0f9ff;
-  border-color: #bae6fd;
-  color: #0369a1;
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #64748b;
 }
 
 /* ─── Featured workout card ───────────────────────────────────── */
@@ -763,11 +1185,15 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   overflow: hidden;
   background: #0f172a;
+  aspect-ratio: 4 / 3;
+  max-height: min(56vw, 480px);
+  width: 100%;
 }
 .album-image {
   width: 100%;
-  height: 340px;
-  object-fit: cover;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
   display: block;
   transition: opacity .3s;
 }
@@ -859,6 +1285,63 @@ onBeforeUnmount(() => {
 .race-list li:last-child { border-bottom: none; }
 .race-name { flex: 1; font-weight: 600; color: #1f2937; }
 .race-time { font-variant-numeric: tabular-nums; color: #6b7280; font-size: 12px; }
+
+.season-join-actions {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.btn-season-join {
+  padding: 10px 20px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+}
+.btn-season-join:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn-season-join--outline {
+  background: #fff;
+  color: #1d4ed8;
+  border: 2px solid #93c5fd;
+}
+.season-join-note {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.pub-events-preview-card {}
+.events-preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.events-preview-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  color: #334155;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.events-preview-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.ev-title { font-weight: 700; }
+.ev-when { color: #64748b; font-size: 13px; white-space: nowrap; }
 
 /* ─── CTA card ────────────────────────────────────────────────── */
 .pub-cta-card {

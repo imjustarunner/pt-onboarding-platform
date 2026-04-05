@@ -537,6 +537,36 @@ class StorageService {
   }
 
   /**
+   * Club feed image attachment — scoped by club + uploader (served via /uploads/*).
+   */
+  static async saveClubFeedAttachment(clubId, userId, fileBuffer, filename, contentType = 'image/jpeg') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    const cid = Number(clubId) || 0;
+    const uid = Number(userId) || 0;
+    const key = `uploads/club_feed/${cid}/${uid}/${unique}-${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType,
+      metadata: {
+        clubId: String(cid),
+        userId: String(uid),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return {
+      path: key,
+      key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
    * Save a company car photo to GCS (for vehicle identification).
    * Stored under uploads/company_car_photos/ so it can be served via /uploads/*.
    * @param {number} companyCarId - Company car ID (for metadata)

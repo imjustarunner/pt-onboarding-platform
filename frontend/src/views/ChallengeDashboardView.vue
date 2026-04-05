@@ -537,7 +537,7 @@
                   {{ workoutSubmitting ? 'Submitting…' : 'Log Workout' }}
                 </button>
                 <button
-                  v-if="stravaStatus?.connected"
+                  v-if="stravaImportAvailable"
                   type="button"
                   class="btn btn-secondary"
                   @click="openStravaImportModal"
@@ -687,7 +687,7 @@ const SSC_HOME_SLUGS = new Set(
 const backRoute = computed(() => {
   const slug = organizationSlug.value;
   if (slug) {
-    if (SSC_HOME_SLUGS.has(String(slug).toLowerCase())) return `/${slug}/home`;
+    if (SSC_HOME_SLUGS.has(String(slug).toLowerCase())) return `/${slug}/my_club_dashboard`;
     return `/${slug}/dashboard`;
   }
   return '/dashboard';
@@ -1189,6 +1189,10 @@ const formatStravaDuration = (sec) => {
 };
 const formatStravaDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—');
 
+const stravaImportAvailable = computed(
+  () => !!(stravaStatus.value?.connected && stravaStatus.value?.stravaRolloutEnabled !== false)
+);
+
 const loadStravaStatus = async () => {
   try {
     const r = await api.get('/strava/status', { skipGlobalLoading: true });
@@ -1199,6 +1203,7 @@ const loadStravaStatus = async () => {
 };
 
 const openStravaImportModal = async () => {
+  if (stravaStatus.value?.stravaRolloutEnabled === false || !stravaStatus.value?.connected) return;
   showStravaImportModal.value = true;
   selectedStravaIds.value = [];
   stravaActivities.value = [];
@@ -1240,13 +1245,23 @@ const importSelectedStrava = async () => {
 onMounted(async () => {
   await loadChallenge();
   if (challenge.value) {
-    await Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
-    loadStravaStatus();
+    await Promise.all([
+      loadLeaderboard(),
+      loadTeams(),
+      loadActivity(),
+      loadCaptainApplications(),
+      loadWeeklyTaskOptions(),
+      loadSeasonSummary(),
+      loadRecordBoards(),
+      loadRaceDivisions(),
+      loadKudosStats(),
+      loadStravaStatus()
+    ]);
   }
   tickCountdown();
   countdownTimer = setInterval(tickCountdown, 30000); // refresh every 30 s
-  if (route.query?.strava === 'import') {
-    openStravaImportModal();
+  if (route.query?.strava === 'import' && stravaImportAvailable.value) {
+    await openStravaImportModal();
   }
 });
 

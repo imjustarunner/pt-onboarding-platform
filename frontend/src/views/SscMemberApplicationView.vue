@@ -13,6 +13,45 @@
       <p>Check your link or <a :href="`/${orgSlug}/clubs`">browse available clubs</a>.</p>
     </div>
 
+    <!-- Already a member of this club -->
+    <div v-else-if="showAlreadyMemberCard" class="reg-info-card">
+      <div class="info-icon">✓</div>
+      <h1>You're already in this club</h1>
+      <p class="info-sub">
+        Your account is linked to <strong>{{ clubDisplayName }}</strong>. Open your dashboard to see seasons, workouts, and club activity.
+      </p>
+      <div class="info-actions">
+        <router-link :to="`/${orgSlug}/dashboard`" class="btn btn-primary">Go to my dashboard</router-link>
+        <router-link
+          v-if="resolvedClubId"
+          :to="`/${orgSlug}/clubs/${resolvedClubId}`"
+          class="btn btn-secondary"
+        >View club page</router-link>
+      </div>
+    </div>
+
+    <!-- Application already pending (same browser, email check, or signed-in account) -->
+    <div v-else-if="joinPendingState" class="reg-pending-card">
+      <div class="pending-icon">⏳</div>
+      <h1>Application pending review</h1>
+      <p class="pending-sub">
+        Your request to join <strong>{{ clubDisplayName }}</strong> is waiting for a club manager.
+        You do not need to register again.
+      </p>
+      <ul class="pending-steps">
+        <li v-if="!authStore.isAuthenticated"><strong>Next:</strong> sign in with the <em>same email</em> you used on this application.</li>
+        <li v-else><strong>Signed in:</strong> open your dashboard — under <em>Applications</em> you can see this request while it’s pending.</li>
+        <li>The manager will approve or follow up by email when they’re ready.</li>
+      </ul>
+      <div class="info-actions">
+        <router-link v-if="!authStore.isAuthenticated" :to="`/${orgSlug}/login`" class="btn btn-primary">Sign in</router-link>
+        <router-link v-else :to="`/${orgSlug}/dashboard`" class="btn btn-primary">Open my dashboard</router-link>
+      </div>
+      <p v-if="pendingFromSession" class="pending-foot">
+        <button type="button" class="link-btn" @click="clearPendingSessionHint">Not you? Submit a different application</button>
+      </p>
+    </div>
+
     <!-- Success -->
     <div v-else-if="submitted" class="reg-success">
       <div class="success-icon">🎉</div>
@@ -76,6 +115,12 @@
         <form class="reg-form" @submit.prevent="handleSubmit" novalidate>
 
           <!-- ── Account ──────────────────────────────── -->
+          <section v-if="previousApplicationDenied" class="form-section denied-banner">
+            <p class="denied-note">
+              A previous application for this email was not approved. You can submit a new application below if you’d like to try again.
+            </p>
+          </section>
+
           <section class="form-section">
             <h2 class="section-title">Your Account</h2>
 
@@ -360,10 +405,12 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
+import { useAuthStore } from '../store/auth';
 import { TIMEZONE_GROUPS, detectLocalTimezone } from '../utils/timezones.js';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 
 const route = useRoute();
+const authStore = useAuthStore();
 const LOCALHOST_TEST_RECAPTCHA_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI';
 
 // ── Page state ──────────────────────────────────────────────────────────────
@@ -384,6 +431,28 @@ let emailLookupTimeout = null;
 
 const inviteData     = ref(null);
 const clubInfo       = ref(null);
+
+/** Join flow: avoid duplicate registration when already pending or already a member */
+const applicationStatusFromEmail = ref('');
+const pendingFromEmail = ref(false);
+const alreadyMemberFromEmail = ref(false);
+const pendingFromSession = ref(false);
+const pendingFromAuth = ref(false);
+
+const resolvedClubId = computed(() =>
+  Number(inviteData.value?.clubId || clubInfo.value?.id || clubIdParam.value || 0) || null
+);
+
+const showAlreadyMemberCard = computed(() => alreadyMemberFromEmail.value);
+
+const joinPendingState = computed(() => {
+  if (showAlreadyMemberCard.value) return false;
+  return pendingFromEmail.value || pendingFromSession.value || pendingFromAuth.value;
+});
+
+const previousApplicationDenied = computed(
+  () => String(applicationStatusFromEmail.value || '').toLowerCase() === 'denied'
+);
 const customFields   = ref([]);
 const referralInfo   = ref('');
 
@@ -477,6 +546,19 @@ const resetExistingAccountState = () => {
   existingAccountDetected.value = false;
   existingAccountSignInMethod.value = '';
   emailLookupDone.value = false;
+  applicationStatusFromEmail.value = '';
+  alreadyMemberFromEmail.value = false;
+  pendingFromEmail.value = false;
+};
+
+const clearPendingSessionHint = () => {
+  const cid = resolvedClubId.value;
+  try {
+    if (cid) sessionStorage.removeItem(`ssc_join_pending_${cid}`);
+  } catch {
+    /* ignore */
+  }
+  pendingFromSession.value = false;
 };
 
 const clearCaptchaState = () => {
@@ -534,9 +616,47 @@ onMounted(async () => {
   } catch (e) {
     pageError.value = e?.response?.data?.error?.message || 'Could not load club information.';
   } finally {
+    const cid = inviteData.value?.clubId || clubInfo.value?.id || clubIdParam.value;
+    if (cid) {
+      try {
+        if (sessionStorage.getItem(`ssc_join_pending_${cid}`) === '1') {
+          pendingFromSession.value = true;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (authStore.isAuthenticated) {
+      try {
+        const { data } = await api.get('/summit-stats/my-applications', { skipAuthRedirect: true, skipGlobalLoading: true });
+        const apps = data?.applications || [];
+        const forClub = apps.find((a) => Number(a.clubId) === Number(cid));
+        pendingFromAuth.value = apps.some(
+          (a) => Number(a.clubId) === Number(cid) && String(a.status || '').toLowerCase() === 'pending'
+        );
+        if (pendingFromSession.value && forClub && String(forClub.status || '').toLowerCase() !== 'pending') {
+          clearPendingSessionHint();
+        }
+      } catch {
+        pendingFromAuth.value = false;
+      }
+      const uEmail = String(authStore.user?.email || '').trim();
+      if (uEmail) {
+        form.email = uEmail;
+      }
+    }
+
     if (form.email.trim()) {
       await checkExistingAccount();
     }
+
+    if (alreadyMemberFromEmail.value) {
+      clearPendingSessionHint();
+      pendingFromAuth.value = false;
+      pendingFromEmail.value = false;
+    }
+
     pageLoading.value = false;
     await maybeInitRecaptcha();
     document.addEventListener('visibilitychange', handleVisibilityRecaptchaRetry);
@@ -695,6 +815,15 @@ const checkExistingAccount = async () => {
     existingAccountSignInMethod.value = data?.signInMethod || '';
     emailLookupDone.value = true;
 
+    applicationStatusFromEmail.value = String(data?.applicationStatus || '').toLowerCase();
+    alreadyMemberFromEmail.value = !!data?.alreadyMember;
+    pendingFromEmail.value =
+      applicationStatusFromEmail.value === 'pending' && !alreadyMemberFromEmail.value;
+
+    if (applicationStatusFromEmail.value === 'denied') {
+      clearPendingSessionHint();
+    }
+
     if (existingAccountDetected.value) {
       form.password = '';
       form.confirmPassword = '';
@@ -702,6 +831,9 @@ const checkExistingAccount = async () => {
     }
   } catch {
     resetExistingAccountState();
+    applicationStatusFromEmail.value = '';
+    alreadyMemberFromEmail.value = false;
+    pendingFromEmail.value = false;
   } finally {
     emailStatusLoading.value = false;
   }
@@ -802,6 +934,12 @@ const handleSubmit = async () => {
     verificationUrl.value = String(response?.data?.verifyUrl || '').trim();
     await resetRecaptchaWidget();
     submitted.value = true;
+    try {
+      const sid = inviteData.value?.clubId || clubInfo.value?.id || clubIdParam.value;
+      if (sid) sessionStorage.setItem(`ssc_join_pending_${sid}`, '1');
+    } catch {
+      /* ignore */
+    }
   } catch (e) {
     submitError.value = e?.response?.data?.error?.message || 'Something went wrong. Please try again.';
   } finally {
@@ -821,11 +959,81 @@ const handleSubmit = async () => {
 }
 
 /* ── Loading / Error / Success ────────────────────────── */
-.reg-loading, .reg-error-state, .reg-success {
+.reg-loading, .reg-error-state, .reg-success,
+.reg-info-card, .reg-pending-card {
   text-align: center;
   padding: 80px 24px;
   max-width: 520px;
   margin: auto;
+}
+.reg-info-card, .reg-pending-card {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+  border: 1px solid #e2e8f0;
+}
+.reg-info-card h1, .reg-pending-card h1 {
+  margin: 0 0 12px;
+  font-size: 1.5rem;
+  color: #0f172a;
+}
+.info-icon {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 12px;
+  color: #16a34a;
+}
+.pending-icon {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 12px;
+}
+.info-sub, .pending-sub {
+  color: #64748b;
+  line-height: 1.6;
+  margin: 0 0 16px;
+}
+.pending-steps {
+  text-align: left;
+  margin: 0 0 20px;
+  padding-left: 1.25rem;
+  color: #475569;
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+.pending-steps li {
+  margin-bottom: 8px;
+}
+.info-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+.pending-foot {
+  margin-top: 20px;
+  font-size: 0.88rem;
+}
+.link-btn {
+  background: none;
+  border: none;
+  color: #1d4ed8;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: inherit;
+  padding: 0;
+}
+.denied-banner {
+  padding: 12px 14px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+}
+.denied-note {
+  margin: 0;
+  color: #92400e;
+  font-size: 0.92rem;
+  line-height: 1.45;
 }
 .spinner {
   width: 36px; height: 36px;

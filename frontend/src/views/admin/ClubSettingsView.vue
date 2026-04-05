@@ -61,7 +61,7 @@
         <div class="field">
           <label>Club main icon</label>
           <div class="icon-row">
-            <IconSelector v-model="form.iconId" />
+            <IconSelector v-model="form.iconId" :summit-stats-club-id="currentAgencyId" />
             <button
               v-if="form.iconId"
               type="button"
@@ -86,6 +86,28 @@
           </div>
         </div>
 
+        <div class="field">
+          <label>Club font</label>
+          <select v-model="form.fontFamily" class="club-font-select">
+            <optgroup label="Web-safe stacks">
+              <option v-for="opt in clubFontPresets" :key="`p-${opt.value || '__default'}`" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </optgroup>
+            <optgroup v-if="uploadedFontFamilies.length" label="Uploaded fonts (platform and tenant)">
+              <option v-for="name in uploadedFontFamilies" :key="`u-${name}`" :value="familyToCssStack(name)">
+                {{ name }}
+              </option>
+            </optgroup>
+            <optgroup v-if="extraFontOption" label="Other">
+              <option :value="extraFontOption.value">{{ extraFontOption.label }}</option>
+            </optgroup>
+          </select>
+          <p class="hint">
+            Choose a web-safe stack, or fonts uploaded under platform / tenant branding (same library as agency settings). Preview updates after you save.
+          </p>
+        </div>
+
         <div class="actions-row">
           <button type="button" class="btn btn-primary" :disabled="savingIdentity" @click="saveIdentity">
             {{ savingIdentity ? 'Saving...' : 'Save Club Identity' }}
@@ -97,6 +119,14 @@
         <div class="card-header">
           <h2>Billing</h2>
           <p>Essential billing details for this club.</p>
+        </div>
+
+        <div class="billing-beta-notice" role="status">
+          <strong>Free trial (beta)</strong>
+          <span>
+            Your club is on a complimentary beta account. No subscription or card is required right now.
+            When paid billing goes live, you will configure payment methods and invoices here.
+          </span>
         </div>
 
         <div v-if="billingError" class="error">{{ billingError }}</div>
@@ -113,7 +143,7 @@
             <h3>Payment Methods</h3>
             <div v-if="paymentMethods.length === 0" class="hint">No payment methods on file.</div>
             <div v-for="m in paymentMethods.slice(0, 3)" :key="m.id" class="mini-row">
-              <span>{{ m.brand || 'Card' }} •••• {{ m.last4 || '----' }}</span>
+              <span>{{ m.card_brand || m.brand || 'Card' }} •••• {{ m.last4 || '----' }}</span>
               <button
                 v-if="!m.isDefault"
                 type="button"
@@ -130,7 +160,7 @@
             <h3>Recent Invoices</h3>
             <div v-if="invoices.length === 0" class="hint">No invoices yet.</div>
             <div v-for="inv in invoices.slice(0, 5)" :key="inv.id" class="mini-row">
-              <span>#{{ inv.id }} - {{ formatCurrency(inv.totalCents) }}</span>
+              <span>#{{ inv.id }} - {{ formatCurrency(inv.total_cents ?? inv.totalCents) }}</span>
               <button type="button" class="btn btn-secondary btn-sm" @click="downloadInvoice(inv.id)">
                 PDF
               </button>
@@ -351,6 +381,7 @@
             <div class="hint">
               Lowercase letters, numbers, and dashes. If set, your public URL becomes:
               <code>{{ publicPageUrlPreview }}</code>
+              Renaming the slug keeps previously shared links working; visitors are sent to the current URL.
             </div>
           </div>
 
@@ -418,6 +449,8 @@
             <label class="cap-toggle-label"><input v-model="publicPageForm.showActiveParticipants" type="checkbox" class="cap-check" /> Show active participants</label>
             <label class="cap-toggle-label"><input v-model="publicPageForm.showFeaturedWorkout" type="checkbox" class="cap-check" /> Show featured workout (most kudos this week)</label>
             <label class="cap-toggle-label"><input v-model="publicPageForm.showPhotoAlbum" type="checkbox" class="cap-check" /> Show sliding photo album</label>
+            <label class="cap-toggle-label"><input v-model="publicPageForm.showClubFeed" type="checkbox" class="cap-check" /> Show club feed on the public club page</label>
+            <label class="cap-toggle-label"><input v-model="publicPageForm.publicFeedEnabled" type="checkbox" class="cap-check" /> Allow posts to appear on the public club page (members can mark club-wide posts as Public)</label>
           </div>
 
           <!-- Gender options for registration form -->
@@ -613,6 +646,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useBrandingStore } from '../../store/branding';
 import { TIMEZONE_GROUPS } from '../../utils/timezones.js';
 import { useSummitStatsChallengeChrome } from '../../composables/useSummitStatsChallengeChrome';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
@@ -621,7 +655,41 @@ import IconSelector from '../../components/admin/IconSelector.vue';
 const route = useRoute();
 const router = useRouter();
 const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
 const isSsc = useSummitStatsChallengeChrome();
+
+const isAffiliationOrg = (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation';
+
+/**
+ * Summit club APIs key off the affiliation (club) agency id. If currentAgency is the platform tenant,
+ * localStorage, or org switcher left a non-affiliation selected, records/time prefs return 404 / 403.
+ */
+const resolveClubAgencyForSettings = () => {
+  const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  const affiliations = list.filter(isAffiliationOrg);
+  if (!affiliations.length) return null;
+
+  const current = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
+  const currentId = Number(current?.id || 0);
+  if (current && isAffiliationOrg(current) && affiliations.some((x) => Number(x.id) === currentId)) {
+    return current;
+  }
+
+  const routeSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
+  if (routeSlug) {
+    const bySlug = affiliations.find(
+      (x) => String(x.slug || x.portal_url || x.portalUrl || '').trim().toLowerCase() === routeSlug
+    );
+    if (bySlug) return bySlug;
+  }
+
+  const qClub = Number(route.query?.clubId || route.query?.club || 0);
+  if (qClub && affiliations.some((x) => Number(x.id) === qClub)) {
+    return affiliations.find((x) => Number(x.id) === qClub) || null;
+  }
+
+  return affiliations[0] || null;
+};
 
 const loading = ref(true);
 const error = ref('');
@@ -647,7 +715,38 @@ const form = ref({
   iconId: null,
   primaryColor: '#0f172a',
   secondaryColor: '#1e40af',
-  accentColor: '#f97316'
+  accentColor: '#f97316',
+  fontFamily: ''
+});
+
+const clubFontPresets = [
+  { value: '', label: 'Default (inherit platform)' },
+  { value: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif', label: 'System UI (sans)' },
+  { value: 'Georgia, "Times New Roman", Times, serif', label: 'Georgia (serif)' },
+  { value: '"Trebuchet MS", "Lucida Grande", "Lucida Sans Unicode", sans-serif', label: 'Trebuchet / Lucida' },
+  { value: 'Verdana, Geneva, sans-serif', label: 'Verdana' },
+  { value: '"Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif', label: 'Palatino (serif)' },
+  { value: '"Courier New", Courier, monospace', label: 'Courier (monospace)' }
+];
+
+const uploadedFontFamilies = ref([]);
+
+/** CSS font-family stack for an uploaded family name (matches /fonts/public resolution). */
+const familyToCssStack = (familyName) => {
+  const n = String(familyName || '').trim();
+  if (!n) return '';
+  const escaped = n.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return `'${escaped}', sans-serif`;
+};
+
+const extraFontOption = computed(() => {
+  const cur = String(form.value.fontFamily || '').trim();
+  if (!cur) return null;
+  const presetVals = clubFontPresets.map((p) => p.value);
+  const uploadedVals = uploadedFontFamilies.value.map((name) => familyToCssStack(name));
+  if (presetVals.includes(cur) || uploadedVals.includes(cur)) return null;
+  const short = cur.length > 56 ? `${cur.slice(0, 56)}…` : cur;
+  return { value: cur, label: `Saved font (${short})` };
 });
 
 const currentAgency = computed(() => agencyStore.currentAgency?.value || agencyStore.currentAgency || null);
@@ -686,9 +785,19 @@ const hydrateIdentity = async () => {
     iconId: data?.icon_id ?? null,
     primaryColor: palette?.primary || '#0f172a',
     secondaryColor: palette?.secondary || '#1e40af',
-    accentColor: palette?.accent || '#f97316'
+    accentColor: palette?.accent || '#f97316',
+    fontFamily: palette?.fontFamily != null && palette?.fontFamily !== undefined ? String(palette.fontFamily) : ''
   };
   logoInputMethod.value = form.value.logoPath ? 'upload' : 'url';
+
+  const tenantId = Number(data?.affiliated_agency_id || 0) || null;
+  try {
+    const params = tenantId ? { agencyId: tenantId } : {};
+    const res = await api.get('/fonts/families', { params, skipAuthRedirect: true });
+    uploadedFontFamilies.value = Array.isArray(res.data) ? res.data : [];
+  } catch {
+    uploadedFontFamilies.value = [];
+  }
 };
 
 const saveIdentity = async () => {
@@ -696,19 +805,30 @@ const saveIdentity = async () => {
   try {
     savingIdentity.value = true;
     error.value = '';
+    const colorPalette = {
+      primary: normalizedHex(form.value.primaryColor, '#0F172A'),
+      secondary: normalizedHex(form.value.secondaryColor, '#1E40AF'),
+      accent: normalizedHex(form.value.accentColor, '#F97316')
+    };
+    if (String(form.value.fontFamily || '').trim()) {
+      colorPalette.fontFamily = String(form.value.fontFamily).trim();
+    } else {
+      colorPalette.fontFamily = null;
+    }
     const payload = {
       logoUrl: logoInputMethod.value === 'url' ? (form.value.logoUrl?.trim() || null) : null,
       logoPath: logoInputMethod.value === 'upload' ? (form.value.logoPath || null) : null,
       iconId: form.value.iconId ?? null,
-      colorPalette: {
-        primary: normalizedHex(form.value.primaryColor, '#0F172A'),
-        secondary: normalizedHex(form.value.secondaryColor, '#1E40AF'),
-        accent: normalizedHex(form.value.accentColor, '#F97316')
-      }
+      colorPalette
     };
     await api.put(`/agencies/${currentAgencyId.value}`, payload);
     await hydrateIdentity();
     await agencyStore.fetchUserAgencies();
+    try {
+      brandingStore.syncDocumentThemeFromSelectedAgency();
+    } catch {
+      // non-fatal
+    }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to save club identity';
   } finally {
@@ -747,6 +867,15 @@ const onUploadLogo = async (event) => {
   }
 };
 
+const humanizeBillingLoadError = (raw) => {
+  const msg = String(raw || '').trim();
+  if (!msg) return 'Billing details could not be loaded.';
+  if (/mysqld_stmt_execute|ER_WRONG_ARGUMENTS|Incorrect arguments/i.test(msg)) {
+    return 'Billing service is temporarily unavailable. Your club remains on the free trial (beta); try Refresh Billing in a moment.';
+  }
+  return msg;
+};
+
 const loadBilling = async () => {
   if (!currentAgencyId.value) return;
   try {
@@ -758,10 +887,15 @@ const loadBilling = async () => {
       api.get(`/billing/${currentAgencyId.value}/invoices`)
     ]);
     billingSettings.value = settingsRes?.data || {};
-    paymentMethods.value = Array.isArray(methodsRes?.data) ? methodsRes.data : [];
+    const methodsPayload = methodsRes?.data;
+    paymentMethods.value = Array.isArray(methodsPayload?.methods)
+      ? methodsPayload.methods
+      : (Array.isArray(methodsPayload) ? methodsPayload : []);
     invoices.value = Array.isArray(invoicesRes?.data) ? invoicesRes.data : [];
   } catch (e) {
-    billingError.value = e?.response?.data?.error?.message || 'Failed to load billing';
+    billingError.value = humanizeBillingLoadError(
+      e?.response?.data?.error?.message || e?.message || 'Failed to load billing'
+    );
   } finally {
     billingLoading.value = false;
   }
@@ -794,7 +928,9 @@ const publicPageForm = ref({
   showCurrentSeason: true,
   showActiveParticipants: true,
   showFeaturedWorkout: true,
-  showPhotoAlbum: true
+  showPhotoAlbum: true,
+  showClubFeed: true,
+  publicFeedEnabled: false
 });
 
 const BUILT_IN_GENDER_OPTIONS = [
@@ -948,7 +1084,9 @@ const loadPublicPageConfig = async () => {
       showCurrentSeason: cfg.showCurrentSeason !== false,
       showActiveParticipants: cfg.showActiveParticipants !== false,
       showFeaturedWorkout: cfg.showFeaturedWorkout !== false,
-      showPhotoAlbum: cfg.showPhotoAlbum !== false
+      showPhotoAlbum: cfg.showPhotoAlbum !== false,
+      showClubFeed: cfg.showClubFeed !== false,
+      publicFeedEnabled: cfg.publicFeedEnabled === true
     };
     genderOptionsSelected.value = Array.isArray(cfg.genderOptions) && cfg.genderOptions.length
       ? cfg.genderOptions
@@ -1217,13 +1355,17 @@ onMounted(async () => {
       router.replace(orgTo('/admin/settings'));
       return;
     }
-    if (!currentAgency.value || String(currentAgency.value.organization_type || '').toLowerCase() !== 'affiliation') {
-      const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
-      const club = list.find((a) => String(a?.organization_type || '').toLowerCase() === 'affiliation');
-      if (club) agencyStore.setCurrentAgency(club);
+    const resolved = resolveClubAgencyForSettings();
+    if (resolved) {
+      agencyStore.setCurrentAgency(resolved);
     }
     if (!currentAgencyId.value) {
       error.value = 'No club context found for this user.';
+      return;
+    }
+    if (!isAffiliationOrg(currentAgency.value)) {
+      error.value =
+        'Club settings need a Summit club organization selected. Your account may still be on the platform tenant — pick your club from the organization switcher, then return here.';
       return;
     }
     await Promise.all([hydrateIdentity(), loadBilling(), loadTimePrefs(), loadClubRecords(), loadRecordVerifications(), loadStatsConfig(), loadStoreConfig(), loadPublicPageConfig()]);
@@ -1251,8 +1393,10 @@ onMounted(async () => {
 
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
+  align-items: start;
+  max-width: 920px;
 }
 
 .settings-card {
@@ -1261,6 +1405,9 @@ onMounted(async () => {
   background: white;
   padding: 16px;
   box-shadow: var(--shadow);
+  position: relative;
+  z-index: 0;
+  min-width: 0;
 }
 
 .card-header h2 {
@@ -1347,6 +1494,32 @@ onMounted(async () => {
 .color-picker {
   height: 36px;
   padding: 0;
+}
+
+.club-font-select {
+  width: 100%;
+  max-width: 420px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: var(--bg, #fff);
+  font-size: 14px;
+}
+
+.billing-beta-notice {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--text-primary, #0f172a);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+.billing-beta-notice strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-primary, #0f172a);
 }
 
 .billing-summary {

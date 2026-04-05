@@ -22,8 +22,10 @@ import SupervisionSession from '../models/SupervisionSession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import pool from '../config/database.js';
+import { canUserManageClub } from '../utils/sscClubAccess.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
 import { syncProgramMembershipForSkillBuilderEligibleUser } from '../services/skillBuildersProgramAffiliation.service.js';
+import { isStravaRolloutEnabledForEmail } from '../utils/stravaRollout.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +34,33 @@ const isAdminOrSuperAdmin = (req) => {
   const r = String(req.user?.role || '').toLowerCase();
   return r === 'admin' || r === 'super_admin';
 };
+
+/** Summit club managers may view a user who belongs to their club or has a pending application there. */
+async function clubManagerCanViewClubMemberUser(req, targetUserId) {
+  const tid = parseInt(String(targetUserId), 10);
+  const uid = req.user?.id;
+  if (!Number.isFinite(tid) || tid <= 0 || !uid) return false;
+  if (String(req.user?.role || '').toLowerCase() !== 'club_manager') return false;
+  const clubs = await User.getAgencies(uid);
+  const clubIds = (clubs || [])
+    .filter((a) => String(a?.organization_type || '').toLowerCase() === 'affiliation')
+    .map((a) => Number(a.id));
+  for (const cid of clubIds) {
+    if (!(await canUserManageClub({ user: req.user, clubId: cid }))) continue;
+    const [shared] = await pool.execute(
+      `SELECT 1 FROM user_agencies ua WHERE ua.user_id = ? AND ua.agency_id = ? LIMIT 1`,
+      [tid, cid]
+    );
+    if (shared?.length) return true;
+    const [pending] = await pool.execute(
+      `SELECT 1 FROM challenge_member_applications
+       WHERE agency_id = ? AND user_id = ? AND status = 'pending' LIMIT 1`,
+      [cid, tid]
+    );
+    if (pending?.length) return true;
+  }
+  return false;
+}
 
 const normalizeBoolFlag = (val) => val === 1 || val === true || val === '1';
 
@@ -1629,6 +1658,18 @@ export const getUserById = async (req, res, next) => {
       return res.json({ ...targetUser, profile_photo_url: publicUploadsUrlFromStoredPath(targetUser.profile_photo_path) });
     }
 
+    // Summit Stats: club managers may view members (or pending applicants) in clubs they manage.
+    if (String(req.user?.role || '').toLowerCase() === 'club_manager') {
+      const targetUser = await User.findById(id);
+      if (!targetUser) {
+        return res.status(404).json({ error: { message: 'User not found' } });
+      }
+      if (await clubManagerCanViewClubMemberUser(req, id)) {
+        return res.json({ ...targetUser, profile_photo_url: publicUploadsUrlFromStoredPath(targetUser.profile_photo_path) });
+      }
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
     return res.status(403).json({ error: { message: 'Access denied' } });
   } catch (error) {
     next(error);
@@ -1686,12 +1727,26 @@ export const getUserStravaConnection = async (req, res, next) => {
           if (shared.length === 0) {
             return res.status(403).json({ error: { message: 'Access denied' } });
           }
+        } else if (String(role || '').toLowerCase() === 'club_manager') {
+          if (!(await clubManagerCanViewClubMemberUser(req, targetId))) {
+            return res.status(403).json({ error: { message: 'Access denied' } });
+          }
         } else {
           return res.status(403).json({ error: { message: 'Access denied' } });
         }
       }
     }
 
+    const targetUser = await User.findById(targetId);
+    if (!targetUser) return res.status(404).json({ error: { message: 'User not found' } });
+    if (!isStravaRolloutEnabledForEmail(targetUser.email)) {
+      return res.json({
+        connected: false,
+        username: null,
+        connectedAt: null,
+        stravaRolloutEnabled: false
+      });
+    }
     const [rows] = await pool.execute(
       'SELECT strava_athlete_id, strava_athlete_username, strava_connected_at FROM user_preferences WHERE user_id = ? LIMIT 1',
       [targetId]
@@ -1700,7 +1755,8 @@ export const getUserStravaConnection = async (req, res, next) => {
     return res.json({
       connected: !!(row?.strava_athlete_id),
       username: row?.strava_athlete_username || null,
-      connectedAt: row?.strava_connected_at || null
+      connectedAt: row?.strava_connected_at || null,
+      stravaRolloutEnabled: true
     });
   } catch (error) {
     next(error);

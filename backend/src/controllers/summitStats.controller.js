@@ -121,8 +121,15 @@ const ensureClubAdminAccess = async ({ user, clubId }) => {
     [clubId]
   );
   const club = clubRows?.[0];
-  if (!club || String(club.organization_type || '').toLowerCase() !== 'affiliation') {
+  if (!club) {
     return { ok: false, status: 404, message: 'Club not found' };
+  }
+  if (String(club.organization_type || '').toLowerCase() !== 'affiliation') {
+    return {
+      ok: false,
+      status: 400,
+      message: 'That id is not a Summit club. Club settings and records use the club (affiliation) organization, not the platform tenant.'
+    };
   }
   const hasAccess = await canUserManageClub({ user, clubId });
   if (!hasAccess) return { ok: false, status: 403, message: 'Club manager access required' };

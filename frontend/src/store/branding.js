@@ -387,9 +387,10 @@ export const useBrandingStore = defineStore('branding', () => {
       root.style.setProperty('--accent', colorPalette.primary);
     }
     
-    // Apply fonts
-    if (themeSettings.fontFamily) {
-      root.style.setProperty('--agency-font-family', themeSettings.fontFamily);
+    // Apply fonts (theme_settings.fontFamily or club palette font stored in color_palette.fontFamily)
+    const resolvedFont = themeSettings.fontFamily || colorPalette.fontFamily;
+    if (resolvedFont) {
+      root.style.setProperty('--agency-font-family', resolvedFont);
     }
     
     // Apply login background
@@ -402,7 +403,7 @@ export const useBrandingStore = defineStore('branding', () => {
 
     // Best-effort: if this font family refers to an uploaded font, load it so the CSS family resolves.
     // This is important for portal/login screens where we don't have auth but still need branded fonts.
-    if (themeSettings.fontFamily) {
+    if (resolvedFont) {
       const extractFamily = (cssValue) => {
         const s = String(cssValue || '').trim();
         const m = s.match(/^['"]([^'"]+)['"]/);
@@ -410,7 +411,7 @@ export const useBrandingStore = defineStore('branding', () => {
         return s.split(',')[0].trim().replace(/^['"]|['"]$/g, '');
       };
 
-      const familyName = extractFamily(themeSettings.fontFamily);
+      const familyName = extractFamily(resolvedFont);
       if (familyName) {
         api
           .get('/fonts/public', {
@@ -471,10 +472,22 @@ export const useBrandingStore = defineStore('branding', () => {
       secondary: colorPalette.secondary || pb.secondary_color,
       accent: colorPalette.accent || colorPalette.primary || pb.accent_color
     };
+    const mergedThemeSettings = {
+      ...themeSettings,
+      ...(colorPalette.fontFamily && !themeSettings.fontFamily
+        ? { fontFamily: colorPalette.fontFamily }
+        : {})
+    };
+    // Club affiliations store uploaded fonts on the parent tenant (SSC/SSTC), not the club row.
+    // Font resolution for /fonts/public must use that tenant id or custom faces won't load.
+    const orgType = String(a.organization_type || '').toLowerCase();
+    const parentTenantId = Number(a.affiliated_agency_id || 0) || null;
+    const fontBrandingAgencyId =
+      orgType === 'affiliation' && parentTenantId ? parentTenantId : a.id;
     applyTheme({
       colorPalette: mergedPalette,
-      themeSettings,
-      brandingAgencyId: a.id,
+      themeSettings: mergedThemeSettings,
+      brandingAgencyId: fontBrandingAgencyId,
       agencyId: a.id
     });
   };

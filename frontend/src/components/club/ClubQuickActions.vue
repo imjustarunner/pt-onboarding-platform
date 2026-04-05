@@ -107,7 +107,7 @@ const settingsTo = computed(() => {
 
 const seasonManagementTo = computed(() => {
   const slug = props.orgSlug;
-  return slug ? `/${slug}/club/seasons` : `/${String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase()}/home`;
+  return slug ? `/${slug}/club/seasons` : `/${String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase()}/my_club_dashboard`;
 });
 
 // Public page URL: /:orgSlug/clubs/:clubId

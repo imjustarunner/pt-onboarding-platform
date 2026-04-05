@@ -314,7 +314,7 @@
           </div>
         </div>
 
-        <div v-if="isSsc" class="card compact-card" style="margin-top: 16px;">
+        <div v-if="isSsc && stravaRolloutActive" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">Fitness Integrations</h3>
           </div>
@@ -338,6 +338,14 @@
               <a v-else :href="stravaConnectUrl" class="btn btn-primary btn-compact">Connect Strava</a>
             </div>
           </div>
+        </div>
+        <div v-else-if="isSsc && stravaRolloutDisabled" class="card compact-card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin: 0;">Fitness Integrations</h3>
+          </div>
+          <p class="hint" style="margin-top: 6px; margin-bottom: 0;">
+            Strava is not enabled for your account yet. It will roll out to everyone soon; only pilot accounts can connect during testing.
+          </p>
         </div>
 
         <!-- ── Timezone preference (SSC members) ─────────────────────── -->
@@ -977,6 +985,15 @@ const stravaConnectUrl = computed(() => {
   const base = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '') || window.location.origin;
   return `${base}/api/strava/connect`;
 });
+/** Backend sets stravaRolloutEnabled: false when account is not on STRAVA_ROLLOUT_ALLOWED_EMAILS. */
+const stravaRolloutActive = computed(() => {
+  const s = stravaStatus.value;
+  if (s == null) return true;
+  return s.stravaRolloutEnabled !== false;
+});
+const stravaRolloutDisabled = computed(
+  () => stravaStatus.value && stravaStatus.value.stravaRolloutEnabled === false
+);
 const formatStravaDate = (d) =>
   (d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 

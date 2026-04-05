@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 class AgencyBillingAccount {
   static async getByAgencyId(agencyId) {
     const aId = parseInt(agencyId, 10);
+    if (!Number.isFinite(aId) || aId < 1) return null;
     const [rows] = await pool.execute(
       `SELECT * FROM agency_billing_accounts WHERE agency_id = ? LIMIT 1`,
       [aId]

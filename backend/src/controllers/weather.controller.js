@@ -357,6 +357,23 @@ export const getMyWeather = async (req, res, next) => {
 
     const snow = summarizeSnow({ daily });
 
+    const dayTimes = daily?.time || [];
+    const tmax = daily?.temperature_2m_max || [];
+    const tmin = daily?.temperature_2m_min || [];
+    const snowfallDaily = daily?.snowfall_sum || [];
+    const forecastDays = [];
+    for (let i = 0; i < Math.min(7, dayTimes.length); i++) {
+      const tmaxN = Number(tmax[i]);
+      const tminN = Number(tmin[i]);
+      const sfN = Number(snowfallDaily[i]);
+      forecastDays.push({
+        date: String(dayTimes[i] || ''),
+        tempMaxF: Number.isFinite(tmaxN) ? tmaxN : null,
+        tempMinF: Number.isFinite(tminN) ? tminN : null,
+        snowfallInches: Number.isFinite(sfN) ? Number((sfN * 0.3937007874).toFixed(2)) : null
+      });
+    }
+
     const rawTemp = Number(current.temperature_2m);
     const unit = String(currentUnits.temperature_2m || '').trim();
     // Safety: if upstream returned °C (or any non-F unit), convert to Fahrenheit for the UI.
@@ -374,7 +391,8 @@ export const getMyWeather = async (req, res, next) => {
         temperatureF: typeof temperatureF === 'number' ? temperatureF : null,
         weatherCode: Number.isFinite(Number(current.weather_code)) ? Number(current.weather_code) : null
       },
-      snow
+      snow,
+      forecastDays
     };
 
     // Helpful debug info in development only.

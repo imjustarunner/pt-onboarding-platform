@@ -8,6 +8,7 @@ import path from 'path';
 import pool from '../config/database.js';
 import StorageService from '../services/storage.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import { canUserManageClub } from '../utils/sscClubAccess.js';
 
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
 
@@ -25,6 +26,36 @@ export const photoUpload = multer({
 const canModerate = (role) => {
   const r = String(role || '').toLowerCase();
   return ['super_admin', 'admin', 'support', 'staff', 'provider_plus'].includes(r);
+};
+
+/** Club managers may moderate photos for members in seasons they manage (same club as learning_program_classes.agency_id). */
+const canClubManagerModerateTargetUser = async (req, targetUserId) => {
+  const tid = toInt(targetUserId);
+  if (!tid) return false;
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT lpc.agency_id
+     FROM learning_class_provider_memberships m
+     INNER JOIN learning_program_classes lpc ON lpc.id = m.learning_class_id
+     WHERE m.provider_user_id = ?
+       AND m.membership_status IN ('active','completed')
+       AND lpc.agency_id IS NOT NULL`,
+    [tid]
+  );
+  for (const r of rows || []) {
+    const cid = Number(r.agency_id);
+    if (cid && (await canUserManageClub({ user: req.user, clubId: cid }))) return true;
+  }
+  return false;
+};
+
+const canModeratePhotos = async (req, { targetUserId = null, agencyId = null } = {}) => {
+  if (canModerate(req.user?.role)) return true;
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role !== 'club_manager') return false;
+  const aid = toInt(agencyId);
+  if (aid && (await canUserManageClub({ user: req.user, clubId: aid }))) return true;
+  if (targetUserId != null) return canClubManagerModerateTargetUser(req, targetUserId);
+  return false;
 };
 
 const photoToApi = (row) => ({
@@ -205,7 +236,9 @@ export const flagUserPhoto = async (req, res, next) => {
     const userId = toInt(req.params.id);
     const photoId = toInt(req.params.photoId);
     if (!userId || !photoId) return res.status(400).json({ error: { message: 'Invalid ids' } });
-    if (!canModerate(req.user.role)) return res.status(403).json({ error: { message: 'Moderator access required' } });
+    if (!(await canModeratePhotos(req, { targetUserId: userId }))) {
+      return res.status(403).json({ error: { message: 'Moderator access required' } });
+    }
 
     const reason = req.body?.reason ? String(req.body.reason).trim().slice(0, 512) : null;
     await pool.execute(
@@ -227,7 +260,9 @@ export const unflagUserPhoto = async (req, res, next) => {
     const userId = toInt(req.params.id);
     const photoId = toInt(req.params.photoId);
     if (!userId || !photoId) return res.status(400).json({ error: { message: 'Invalid ids' } });
-    if (!canModerate(req.user.role)) return res.status(403).json({ error: { message: 'Moderator access required' } });
+    if (!(await canModeratePhotos(req, { targetUserId: userId }))) {
+      return res.status(403).json({ error: { message: 'Moderator access required' } });
+    }
 
     await pool.execute(
       'UPDATE user_photos SET is_flagged = 0, flagged_reason = NULL, flagged_at = NULL, flagged_by = NULL WHERE id = ? AND user_id = ?',
@@ -248,7 +283,9 @@ export const moderateRemovePhoto = async (req, res, next) => {
     const userId = toInt(req.params.id);
     const photoId = toInt(req.params.photoId);
     if (!userId || !photoId) return res.status(400).json({ error: { message: 'Invalid ids' } });
-    if (!canModerate(req.user.role)) return res.status(403).json({ error: { message: 'Moderator access required' } });
+    if (!(await canModeratePhotos(req, { targetUserId: userId }))) {
+      return res.status(403).json({ error: { message: 'Moderator access required' } });
+    }
 
     const [rows] = await pool.execute('SELECT * FROM user_photos WHERE id = ? AND user_id = ?', [photoId, userId]);
     if (!rows?.length) return res.status(404).json({ error: { message: 'Photo not found' } });
@@ -271,8 +308,10 @@ export const moderateRemovePhoto = async (req, res, next) => {
  */
 export const listFlaggedPhotos = async (req, res, next) => {
   try {
-    if (!canModerate(req.user.role)) return res.status(403).json({ error: { message: 'Moderator access required' } });
     const agencyId = toInt(req.query.agencyId);
+    if (!(await canModeratePhotos(req, { agencyId }))) {
+      return res.status(403).json({ error: { message: 'Moderator access required' } });
+    }
 
     let sql = `
       SELECT p.*, u.first_name, u.last_name

@@ -6,7 +6,7 @@ import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import ChallengeParticipantProfile from '../models/ChallengeParticipantProfile.model.js';
 import ChallengeSeasonParticipationAcceptance from '../models/ChallengeSeasonParticipationAcceptance.model.js';
-import { canUserManageClub } from '../utils/sscClubAccess.js';
+import { canUserManageClub, getUserClubMembership } from '../utils/sscClubAccess.js';
 import {
   buildParticipationAgreementHash,
   hasParticipationAgreement,
@@ -1017,12 +1017,34 @@ export const joinLearningProgramClass = async (req, res, next) => {
     if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
     const allowed = await canAccessOrganization({ user: req.user, organizationId: klass.organization_id });
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied for this class' } });
+
+    const orgType = String(klass.organization_type || '').toLowerCase();
+    if (orgType === 'affiliation') {
+      const m = await getUserClubMembership(req.user.id, klass.organization_id);
+      if (!m || m.is_active === false) {
+        return res.status(403).json({ error: { message: 'You must be a member of this club to join the season' } });
+      }
+    }
+
+    const opens = klass.enrollment_opens_at ? new Date(klass.enrollment_opens_at).getTime() : null;
+    const closes = klass.enrollment_closes_at ? new Date(klass.enrollment_closes_at).getTime() : null;
+    const nowMs = Date.now();
+    if (opens && nowMs < opens) {
+      return res.status(400).json({ error: { message: 'Enrollment is not open yet' } });
+    }
+    if (closes && nowMs > closes) {
+      return res.status(400).json({
+        error: { message: 'Enrollment has closed. Request a join from the club dashboard.' },
+        code: 'ENROLLMENT_CLOSED'
+      });
+    }
+
     const status = String(klass.status || '').toLowerCase();
     if (status !== 'active' && status !== 'draft') {
       return res.status(400).json({ error: { message: 'This season is not open for joining' } });
     }
     if (status === 'draft') {
-      return res.status(400).json({ error: { message: 'Season has not started yet' } });
+      // Allow joining a released draft season while enrollment window is open (see enrollment checks above).
     }
     await LearningProgramClass.addProviderMember({
       classId,

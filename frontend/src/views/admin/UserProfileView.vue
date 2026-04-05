@@ -2,7 +2,7 @@
   <div class="container">
     <div class="page-header">
       <div>
-        <router-link to="/admin/users" class="back-link" data-tour="user-profile-back">← Back to Users</router-link>
+        <router-link :to="backToUsersList" class="back-link" data-tour="user-profile-back">← Back to Users</router-link>
         <div class="user-header-info" data-tour="user-profile-header">
           <div class="header-avatar">
             <img v-if="headerPhotoUrl" :src="headerPhotoUrl" alt="Profile photo" class="header-photo" />
@@ -244,13 +244,13 @@
               <div class="section-divider" style="margin-top: 18px;">
                 <h3>Integrations</h3>
               </div>
-              <div v-if="memberStravaLoading" class="muted" style="margin-bottom: 8px;">Loading…</div>
-              <div v-else-if="memberStravaError" class="error">{{ memberStravaError }}</div>
-              <div v-else class="form-grid">
+              <div class="form-grid">
                 <div class="form-group form-group-full">
                   <label>Strava</label>
-                  <input :value="memberStravaSummaryLine" type="text" disabled />
-                  <small class="form-help">Whether this member has connected Strava for challenge activities (read-only).</small>
+                  <input value="Strava — coming soon (pending)" type="text" disabled />
+                  <small class="form-help">
+                    Member Strava status is not shown here. Eligible accounts connect under My account → Fitness integrations when enabled.
+                  </small>
                 </div>
               </div>
             </div>
@@ -2582,6 +2582,12 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const userId = computed(() => parseInt(route.params.userId));
 
+const backToUsersList = computed(() => {
+  const org = String(route.params.organizationSlug || '').trim();
+  if (org) return `/${org}/admin/users`;
+  return '/admin/users';
+});
+
 const loading = ref(true);
 const error = ref('');
 const user = ref(null);
@@ -2593,9 +2599,6 @@ const memberSeasonHistoryError = ref('');
 const memberSeasonHistory = ref({ seasonCount: 0, totals: {}, seasons: [] });
 const memberRegistrationProfile = ref({ customFields: {} });
 const memberSeasonAiSummary = ref('');
-const memberStravaLoading = ref(false);
-const memberStravaError = ref('');
-const memberStrava = ref(null);
 const seasonCaptainTogglingKey = ref('');
 const guardianLinkedClients = ref([]);
 const guardianLinkedClientsLoading = ref(false);
@@ -2920,21 +2923,6 @@ const loadMemberSeasonHistory = async () => {
     memberSeasonAiSummary.value = '';
   } finally {
     memberSeasonHistoryLoading.value = false;
-  }
-};
-
-const loadMemberStravaConnection = async () => {
-  if (!isSscMemberProfileMode.value || !userId.value) return;
-  memberStravaLoading.value = true;
-  memberStravaError.value = '';
-  try {
-    const { data } = await api.get(`/users/${userId.value}/strava-connection`);
-    memberStrava.value = data || null;
-  } catch (e) {
-    memberStrava.value = null;
-    memberStravaError.value = e.response?.data?.error?.message || 'Could not load Strava status';
-  } finally {
-    memberStravaLoading.value = false;
   }
 };
 
@@ -3970,7 +3958,6 @@ watch(activeTab, async (t) => {
 watch([isSscMemberProfileMode, selectedClubIdForMemberProfile], async ([enabled, clubId]) => {
   if (!enabled || !clubId || !userId.value) return;
   await loadMemberSeasonHistory();
-  await loadMemberStravaConnection();
 });
 
 let guardianClientSearchTimer = null;
@@ -4585,10 +4572,6 @@ const fetchUser = async () => {
     if (isSscMemberProfileMode.value) {
       leaveOfAbsence.value = null;
       void loadMemberSeasonHistory();
-      void loadMemberStravaConnection();
-    } else {
-      memberStrava.value = null;
-      memberStravaError.value = '';
     }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load user';
@@ -5688,21 +5671,6 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleString();
 };
 
-const memberStravaSummaryLine = computed(() => {
-  const m = memberStrava.value;
-  if (!m) return '—';
-  if (!m.connected) return 'Not connected';
-  const u = m.username ? `@${m.username}` : 'Connected';
-  if (!m.connectedAt) return u;
-  try {
-    const d = new Date(m.connectedAt);
-    if (Number.isNaN(d.getTime())) return u;
-    return `${u} · linked ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
-  } catch {
-    return u;
-  }
-});
-
 const updatingStatus = ref(false);
 const downloadingDocument = ref(false);
 const statusChangeError = ref('');
@@ -5934,7 +5902,7 @@ const archiveUser = async () => {
     await api.post(`/users/${userId.value}/archive`);
     alert('User archived successfully');
     // Redirect to users list
-    router.push('/admin/users');
+    router.push(backToUsersList.value);
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to archive user';
     alert(error.value);

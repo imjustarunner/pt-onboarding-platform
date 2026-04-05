@@ -38,6 +38,18 @@
           <button @click="closeModal" class="btn-close">×</button>
         </div>
         <div class="modal-body">
+          <div v-if="useSummitClubIcons" class="club-icon-upload-row">
+            <label class="upload-label">Upload a club icon</label>
+            <input
+              type="file"
+              accept="image/svg+xml,image/png,image/jpeg,image/jpg"
+              class="club-icon-file"
+              :disabled="uploadingClubIcon"
+              @change="onUploadClubIcon"
+            />
+            <span v-if="uploadingClubIcon" class="upload-status">Uploading…</span>
+            <span v-if="uploadClubIconError" class="upload-error">{{ uploadClubIconError }}</span>
+          </div>
           <div class="icon-search">
             <input
               v-model="searchTerm"
@@ -46,7 +58,12 @@
               class="search-input"
               @input="handleSearch"
             />
-            <select v-model="selectedAgency" class="agency-filter" @change="handleFilterChange">
+            <select
+              v-if="!useSummitClubIcons"
+              v-model="selectedAgency"
+              class="agency-filter"
+              @change="handleFilterChange"
+            >
               <option value="">All Agencies</option>
               <option value="null">Platform</option>
               <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
@@ -57,15 +74,31 @@
               <option value="">All Categories</option>
               <option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
             </select>
-            <select v-model="sortBy" class="sort-filter" @change="handleFilterChange">
+            <select
+              v-if="!useSummitClubIcons"
+              v-model="sortBy"
+              class="sort-filter"
+              @change="handleFilterChange"
+            >
               <option value="name">Sort by Name</option>
               <option value="category">Sort by Category</option>
               <option value="agency_name">Sort by Agency</option>
             </select>
+            <select
+              v-else
+              v-model="summitSort"
+              class="sort-filter"
+              aria-label="Sort icons"
+            >
+              <option value="source">Sort: club → tenant → platform</option>
+              <option value="name">Sort by name (A–Z)</option>
+            </select>
           </div>
           <div v-if="loading" class="loading">Loading icons...</div>
           <div v-else-if="filteredIcons.length === 0" class="empty-state">
-            No icons found. {{ authStore.user?.role === 'super_admin' ? 'Upload icons in the Icon Library.' : '' }}
+            No icons found.
+            <template v-if="useSummitClubIcons"> Upload an icon above, or pick from the platform library when icons are available.</template>
+            <template v-else-if="authStore.user?.role === 'super_admin'"> Upload icons in the Icon Library.</template>
           </div>
           <div v-else class="icon-grid">
             <div
@@ -75,6 +108,7 @@
               @click="selectIcon(icon)"
             >
               <img :src="getIconUrl(icon)" :alt="icon.name" class="icon-img" />
+              <span v-if="useSummitClubIcons && icon.scope" class="icon-scope-badge">{{ summitScopeLabel(icon) }}</span>
               <span class="icon-label">{{ icon.name }}</span>
             </div>
           </div>
@@ -113,6 +147,11 @@ const props = defineProps({
   defaultAgencyId: {
     type: [Number, String],
     default: null
+  },
+  /** When set, load icons from Summit club API (club managers) instead of global /icons (admin-only list). */
+  summitStatsClubId: {
+    type: [Number, String],
+    default: null
   }
 });
 
@@ -130,6 +169,12 @@ const sortBy = ref('name');
 const tempSelectedIcon = ref(null);
 const selectedIcon = ref(null);
 const selectedIconLoading = ref(false);
+const uploadingClubIcon = ref(false);
+const uploadClubIconError = ref('');
+/** Summit picker: preserve server order (club, tenant, platform) or sort A–Z only */
+const summitSort = ref('source');
+
+const SUMMIT_SCOPE_ORDER = { club: 0, tenant: 1, platform: 2 };
 
 const availableAgencies = computed(() => {
   if (authStore.user?.role === 'super_admin') {
@@ -138,13 +183,47 @@ const availableAgencies = computed(() => {
   return agencyStore.userAgencies || [];
 });
 
+const useSummitClubIcons = computed(() => {
+  const n = parseInt(String(props.summitStatsClubId ?? ''), 10);
+  return Number.isFinite(n) && n > 0;
+});
+
 const categories = computed(() => {
   const cats = new Set(icons.value.map(i => i.category).filter(Boolean));
   return Array.from(cats).sort();
 });
 
+const summitScopeLabel = (icon) => {
+  const s = String(icon?.scope || 'platform').toLowerCase();
+  if (s === 'club') return 'Club';
+  if (s === 'tenant') return 'Tenant';
+  return 'Platform';
+};
+
 const filteredIcons = computed(() => {
-  return icons.value; // Filtering is now done on the backend
+  if (!useSummitClubIcons.value) {
+    return icons.value;
+  }
+  let list = icons.value;
+  const q = searchTerm.value.trim().toLowerCase();
+  if (q) {
+    list = list.filter((i) => String(i.name || '').toLowerCase().includes(q));
+  }
+  if (selectedCategory.value) {
+    list = list.filter((i) => String(i.category || '') === selectedCategory.value);
+  }
+  const out = [...list];
+  if (summitSort.value === 'name') {
+    out.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+  } else {
+    out.sort((a, b) => {
+      const sa = SUMMIT_SCOPE_ORDER[String(a.scope || 'platform')] ?? 2;
+      const sb = SUMMIT_SCOPE_ORDER[String(b.scope || 'platform')] ?? 2;
+      if (sa !== sb) return sa - sb;
+      return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+    });
+  }
+  return out;
 });
 
 const getIconUrl = (icon) => {
@@ -170,7 +249,9 @@ const getIconUrl = (icon) => {
 };
 
 const handleSearch = () => {
-  // Debounce search
+  if (useSummitClubIcons.value) {
+    return;
+  }
   clearTimeout(searchTimeout.value);
   searchTimeout.value = setTimeout(() => {
     fetchIcons();
@@ -178,6 +259,9 @@ const handleSearch = () => {
 };
 
 const handleFilterChange = () => {
+  if (useSummitClubIcons.value) {
+    return;
+  }
   fetchIcons();
 };
 
@@ -211,6 +295,39 @@ const ensureAgenciesLoaded = async () => {
 const fetchIcons = async () => {
   try {
     loading.value = true;
+    if (useSummitClubIcons.value) {
+      const cid = parseInt(String(props.summitStatsClubId), 10);
+      const response = await api.get(`/summit-stats/clubs/${cid}/icons`);
+      const raw = response.data?.icons || [];
+      icons.value = raw.map((i) => ({
+        id: i.id,
+        name: i.name,
+        category: i.category || null,
+        url: i.url,
+        file_path: i.url || null,
+        agency_id: i.agency_id ?? null,
+        scope: i.scope || 'platform'
+      }));
+      if (props.modelValue && !selectedIcon.value) {
+        const foundIcon = icons.value.find((i) => i.id === props.modelValue);
+        if (foundIcon) {
+          selectedIcon.value = foundIcon;
+          tempSelectedIcon.value = foundIcon;
+        } else if (props.modelValue) {
+          try {
+            const iconResponse = await api.get(`/icons/${props.modelValue}`);
+            if (iconResponse.data) {
+              selectedIcon.value = iconResponse.data;
+              tempSelectedIcon.value = iconResponse.data;
+            }
+          } catch (err) {
+            console.error('Failed to fetch selected icon:', err);
+          }
+        }
+      }
+      return;
+    }
+
     const params = new URLSearchParams();
     params.append('includePlatform', 'true'); // Always include platform icons in IconSelector so admins can select them
     if (searchTerm.value) {
@@ -272,6 +389,44 @@ const fetchIcons = async () => {
   }
 };
 
+const onUploadClubIcon = async (e) => {
+  const input = e.target;
+  const file = input?.files?.[0];
+  if (input) input.value = '';
+  if (!file || !useSummitClubIcons.value) return;
+  const cid = parseInt(String(props.summitStatsClubId), 10);
+  if (!Number.isFinite(cid) || cid < 1) return;
+  uploadingClubIcon.value = true;
+  uploadClubIconError.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('icon', file);
+    const baseName = String(file.name || 'club-icon').replace(/\.[^.]+$/, '') || 'Club icon';
+    fd.append('name', baseName.slice(0, 255));
+    fd.append('agencyId', String(cid));
+    const { data } = await api.post('/icons/upload', fd);
+    await fetchIcons();
+    if (data?.id) {
+      const mapped = {
+        id: data.id,
+        name: data.name,
+        category: data.category || null,
+        url: data.url,
+        file_path: data.file_path || data.url,
+        agency_id: data.agency_id,
+        scope: 'club'
+      };
+      tempSelectedIcon.value = mapped;
+      selectedIcon.value = mapped;
+      emit('update:modelValue', data.id);
+    }
+  } catch (err) {
+    uploadClubIconError.value = err?.response?.data?.error?.message || err?.message || 'Upload failed';
+  } finally {
+    uploadingClubIcon.value = false;
+  }
+};
+
 const selectIcon = (icon) => {
   tempSelectedIcon.value = icon;
 };
@@ -312,8 +467,9 @@ const handleOpenModal = async (event) => {
   selectedCategory.value = '';
   searchTerm.value = '';
   sortBy.value = 'name';
-  await ensureAgenciesLoaded();
-  // Fetch icons when the modal is opened (not on page load).
+  if (!useSummitClubIcons.value) {
+    await ensureAgenciesLoaded();
+  }
   await fetchIcons();
   showModal.value = true;
 };
@@ -325,6 +481,8 @@ const closeModal = () => {
   selectedCategory.value = '';
   selectedAgency.value = '';
   sortBy.value = 'name';
+  summitSort.value = 'source';
+  uploadClubIconError.value = '';
 };
 
 watch(() => props.modelValue, async (newValue) => {
@@ -393,6 +551,46 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.club-icon-upload-row {
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--surface-secondary, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+}
+.upload-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary, #0f172a);
+}
+.club-icon-file {
+  font-size: 0.85rem;
+}
+.upload-status {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #64748b);
+}
+.upload-error {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: #b91c1c;
+}
+
+.icon-scope-badge {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #64748b);
+  margin-bottom: 4px;
+}
+
 .icon-selector {
   display: flex;
   flex-direction: column;

@@ -296,6 +296,7 @@
     <div
       class="dashboard-shell"
       :class="{
+        'dashboard-shell--ssc': isSummitStatsSurface,
         'schedule-focus': activeTab === 'my_schedule',
         'rail-expanded': !railEffectiveCollapsed,
         'rail-collapsed': railEffectiveCollapsed
@@ -428,7 +429,13 @@
 
       <div class="dashboard-detail">
         <!-- Card Content (for content cards) -->
-        <div class="card-content" :class="{ 'card-content-schedule': activeTab === 'my_schedule' }">
+        <div
+          class="card-content"
+          :class="{
+            'card-content-schedule': activeTab === 'my_schedule',
+            'card-content--ssc-account': isSummitStatsSurface && activeTab === 'my'
+          }"
+        >
           <div v-if="!previewMode && activeTab === PROGRAM_WORKSPACE_TAB && inlineProgramHubState.mode" class="my-panel">
             <ProgramHubModal
               :mode="inlineProgramHubState.mode"
@@ -1334,6 +1341,7 @@ import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tou
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
 import { setDarkMode } from '../utils/darkMode';
+import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
 
 const props = defineProps({
   previewMode: {
@@ -1368,6 +1376,8 @@ const isClubContext = computed(() => {
   ).toLowerCase();
   return t === 'affiliation';
 });
+/** Summit Stats (SSC route or club) — align Account / My panel with mobile Summit dashboard cards. */
+const isSummitStatsSurface = useSummitStatsChallengeChrome();
 const userPrefsStore = useUserPreferencesStore();
 const brandingStore = useBrandingStore();
 const tutorialStore = useTutorialStore();
@@ -4169,7 +4179,7 @@ watch(
 
 function syncClubContextTabs() {
   if (!isClubContext.value) return;
-  const hidden = ['credentials', 'preferences', 'payroll', 'compensation'];
+  const hidden = ['credentials', 'payroll', 'compensation'];
   if (hidden.includes(myTab.value)) {
     myTab.value = 'account';
     if (!props.previewMode) router.replace({ query: { ...route.query, tab: 'my', my: 'account' } });
@@ -5691,6 +5701,61 @@ h1 {
   padding: 32px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
+}
+
+/* Summit Stats desktop: match mobile /home card density — one soft page canvas + one raised panel for Account */
+.dashboard-shell--ssc .dashboard-detail {
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+  border-radius: 20px;
+  padding: 4px 8px 12px;
+  margin: 0 -4px;
+}
+.dashboard-shell--ssc .card-content.card-content--ssc-account {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 12px 8px 28px;
+}
+.dashboard-shell--ssc .card-content.card-content--ssc-account .my-panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+  padding: 22px 24px 28px;
+}
+.dashboard-shell--ssc .my-subnav {
+  border-bottom-color: #e2e8f0;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+}
+.dashboard-shell--ssc .my-subnav .subtab {
+  border-radius: 999px;
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  font-size: 13px;
+}
+.dashboard-shell--ssc .my-subnav .subtab.active {
+  border-color: #d97706;
+  background: linear-gradient(135deg, #fff8ef 0%, #fff 100%);
+  color: #9a3412;
+  box-shadow: 0 1px 0 rgba(217, 119, 6, 0.35);
+}
+[data-theme='dark'] .dashboard-shell--ssc .dashboard-detail {
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+}
+[data-theme='dark'] .dashboard-shell--ssc .card-content.card-content--ssc-account .my-panel {
+  background: var(--bg-card);
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+}
+[data-theme='dark'] .dashboard-shell--ssc .my-subnav .subtab {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border);
+}
+[data-theme='dark'] .dashboard-shell--ssc .my-subnav .subtab.active {
+  background: rgba(217, 119, 6, 0.12);
+  color: #fdba74;
+  border-color: rgba(217, 119, 6, 0.45);
 }
 
 .my-subnav {

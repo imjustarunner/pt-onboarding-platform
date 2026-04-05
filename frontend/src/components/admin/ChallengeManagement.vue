@@ -1,15 +1,34 @@
 <template>
   <div class="challenge-management">
+    <div class="challenge-management-inner">
     <div class="page-header">
-      <h1>Season Management</h1>
-      <p class="page-description">
-        A <strong>season</strong> is the whole competition period (dates, teams, scoring, participants).
-        <strong>Weekly challenges</strong> are the tasks published each week — set those in <strong>Manage → Weekly challenges</strong> after you create a season.
-      </p>
+      <div class="page-header-row">
+        <div>
+          <h1>Season Management</h1>
+          <p class="page-description">
+            A <strong>season</strong> is the whole competition period (dates, teams, scoring, participants).
+            <strong>Weekly challenges</strong> are the tasks published each week — set those in <strong>Manage → Weekly challenges</strong> after you create a season.
+          </p>
+        </div>
+        <div v-if="clubSwitcherOptions.length > 1" class="club-switcher-inline">
+          <label for="season-club-switcher">Club</label>
+          <select
+            id="season-club-switcher"
+            class="input club-switcher-select"
+            :value="String(organizationId || '')"
+            @change="onSeasonClubSwitch($event)"
+          >
+            <option v-for="opt in clubSwitcherOptions" :key="opt.id" :value="String(opt.id)">{{ opt.name }}</option>
+          </select>
+        </div>
+      </div>
     </div>
 
-    <div v-if="!organizationId" class="empty-state">
-      <p>Select a Learning or Affiliation organization above to manage its seasons.</p>
+    <div v-if="seasonsContextLoading" class="loading">Loading club context…</div>
+    <div v-else-if="seasonOrgScopeError" class="error season-scope-error">{{ seasonOrgScopeError }}</div>
+
+    <div v-else-if="!organizationId" class="empty-state">
+      <p>Select your club from the organization menu in the header, or open <router-link :to="clubSettingsLink">Club settings</router-link> to confirm your membership.</p>
     </div>
 
     <div v-else class="panel">
@@ -830,7 +849,7 @@
     </div>
 
     <!-- Custom Fields section (club-level) -->
-    <div class="panel" style="margin-top: 24px;">
+    <div v-if="organizationId" class="panel" style="margin-top: 24px;">
       <ClubCustomFields
         :club-id="organizationId"
         @fields-updated="challengeCustomFields = $event"
@@ -855,7 +874,7 @@
     </div>
 
     <!-- Member Photo Moderation -->
-    <div class="panel" style="margin-top: 24px;">
+    <div v-if="organizationId" class="panel" style="margin-top: 24px;">
       <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
         <h2 style="margin:0;font-size:1.1em;">Member Photos — Moderation</h2>
         <button class="btn btn-secondary btn-compact" @click="loadFlaggedPhotos" :disabled="flaggedLoading">
@@ -903,11 +922,12 @@
       </div>
     </div>
   </div>
+  </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import RecognitionCategoryBuilder from '../challenge/RecognitionCategoryBuilder.vue';
@@ -922,11 +942,170 @@ import {
   formatParticipationAgreementSeasonLabel,
   normalizeParticipationAgreement
 } from '../../utils/seasonParticipationAgreement.js';
+import { useAuthStore } from '../../store/auth';
+import { isSummitPlatformRouteSlug } from '../../utils/summitPlatformSlugs.js';
 
 const router = useRouter();
+const route = useRoute();
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
 
-const organizationId = computed(() => agencyStore.currentAgency?.id || null);
+/** Club manager context (managed clubs list). */
+const clubContext = ref(null);
+const seasonsContextLoading = ref(true);
+
+const clubSettingsLink = computed(() => {
+  const s = String(route.params.organizationSlug || '').trim();
+  if (!s) return '/club/settings';
+  return `/${s}/club/settings`;
+});
+
+/** Affiliation / program / learning orgs the user can scope seasons to (for switcher). */
+const clubSwitcherOptions = computed(() => {
+  const list = clubContext.value?.managedClubs;
+  const clubs = clubContext.value?.clubs;
+  const fromStore = agencyStore.userAgencies || [];
+  const seen = new Set();
+  const out = [];
+  for (const a of [...(Array.isArray(list) ? list : []), ...(Array.isArray(clubs) ? clubs : []), ...fromStore]) {
+    const id = Number(a?.id || 0);
+    if (!id || seen.has(id)) continue;
+    const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+    if (t !== 'affiliation' && t !== 'program' && t !== 'learning') continue;
+    seen.add(id);
+    out.push({ id, name: String(a?.name || '').trim() || `Org ${id}` });
+  }
+  return out.sort((x, y) => x.name.localeCompare(y.name));
+});
+
+const seasonOrgScopeError = computed(() => {
+  if (seasonsContextLoading.value) return '';
+  const a = agencyStore.currentAgency;
+  if (!a?.id) return '';
+  const t = String(a.organization_type || a.organizationType || '').toLowerCase();
+  if (t === 'agency') {
+    return 'Season management must target your club (program, learning, or affiliation), not the Summit platform tenant. Use the Club selector above, or choose your club in the organization menu.';
+  }
+  return '';
+});
+
+/**
+ * Learning program classes API requires a program / learning / affiliation org — never the platform agency row.
+ */
+const organizationId = computed(() => {
+  const a = agencyStore.currentAgency;
+  if (!a?.id) return null;
+  const t = String(a.organization_type || a.organizationType || '').toLowerCase();
+  if (t === 'agency') return null;
+  return Number(a.id);
+});
+
+const applyClubAgency = async (target) => {
+  const targetId = Number(target?.id || 0);
+  if (!targetId) return;
+  const fromList = (agencyStore.userAgencies || []).find((a) => Number(a?.id) === targetId);
+  if (fromList) {
+    agencyStore.setCurrentAgency(fromList);
+    return;
+  }
+  try {
+    const { data } = await api.get(`/agencies/${targetId}`);
+    if (data?.id) agencyStore.setCurrentAgency(data);
+  } catch {
+    /* ignore */
+  }
+};
+
+const syncSeasonClubContext = async () => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'club_manager') {
+    try {
+      const r = await api.get('/summit-stats/club-manager-context', { skipGlobalLoading: true });
+      clubContext.value = r.data || null;
+    } catch {
+      clubContext.value = null;
+    }
+  } else {
+    clubContext.value = null;
+  }
+
+  const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  const managedList = Array.isArray(clubContext.value?.managedClubs) ? clubContext.value.managedClubs : [];
+  const clubsList = Array.isArray(clubContext.value?.clubs) ? clubContext.value.clubs : [];
+
+  const seen = new Set();
+  const candidates = [];
+  for (const a of [...managedList, ...clubsList, ...list]) {
+    const id = Number(a?.id || 0);
+    if (!id || seen.has(id)) continue;
+    const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+    if (t !== 'affiliation' && t !== 'program' && t !== 'learning') continue;
+    seen.add(id);
+    candidates.push(a);
+  }
+  if (!candidates.length) return;
+
+  let queryClubId = Number(route.query.club || route.query.clubId || 0);
+  if (route.query.club != null && String(route.query.club).trim() !== '') {
+    if (!queryClubId || !candidates.some((c) => Number(c.id) === queryClubId)) {
+      const nextQ = { ...route.query };
+      delete nextQ.club;
+      delete nextQ.clubId;
+      await router.replace({ path: route.path, query: nextQ, hash: route.hash });
+      queryClubId = 0;
+    }
+  }
+
+  const cur = agencyStore.currentAgency;
+  const curId = Number(cur?.id || 0);
+  const curType = String(cur?.organization_type || cur?.organizationType || '').toLowerCase();
+
+  if (queryClubId && candidates.some((c) => Number(c.id) === queryClubId)) {
+    if (curId !== queryClubId || !['affiliation', 'program', 'learning'].includes(curType)) {
+      const target = candidates.find((c) => Number(c.id) === queryClubId);
+      await applyClubAgency(target);
+    }
+    return;
+  }
+
+  if (['affiliation', 'program', 'learning'].includes(curType) && candidates.some((c) => Number(c.id) === curId)) {
+    return;
+  }
+
+  const routeSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
+  let target = null;
+  if (routeSlug && !isSummitPlatformRouteSlug(routeSlug)) {
+    target = candidates.find(
+      (c) => String(c.slug || c.portal_url || c.portalUrl || '').trim().toLowerCase() === routeSlug
+    );
+  }
+  if (!target) {
+    target = managedList.length ? managedList[0] : candidates[0];
+  }
+  await applyClubAgency(target);
+};
+
+const onSeasonClubSwitch = async (event) => {
+  const id = Number(event?.target?.value);
+  if (!id) return;
+  if (!clubSwitcherOptions.value.some((c) => c.id === id)) return;
+  const full = (agencyStore.userAgencies || []).find((a) => Number(a?.id) === id);
+  if (full) {
+    agencyStore.setCurrentAgency(full);
+  } else {
+    try {
+      const { data } = await api.get(`/agencies/${id}`);
+      if (data?.id) agencyStore.setCurrentAgency(data);
+    } catch {
+      return;
+    }
+  }
+  await router.replace({
+    path: route.path,
+    query: { ...route.query, club: String(id) },
+    hash: route.hash
+  });
+};
 
 // ── Weekly goal helpers ───────────────────────────────────────────
 const GOAL_METRIC_UNIT = {
@@ -2128,14 +2307,61 @@ watch(organizationId, () => {
   else { challenges.value = []; challengeCustomFields.value = []; flaggedPhotos.value = []; }
 });
 
-onMounted(() => {
-  if (organizationId.value) { loadChallenges(); loadCustomFields(); loadFlaggedPhotos(); }
+watch(
+  () => [route.query.club, route.query.clubId, route.params.organizationSlug],
+  async () => {
+    if (seasonsContextLoading.value) return;
+    await syncSeasonClubContext();
+  }
+);
+
+onMounted(async () => {
+  seasonsContextLoading.value = true;
+  try {
+    await agencyStore.fetchUserAgencies();
+    await syncSeasonClubContext();
+  } finally {
+    seasonsContextLoading.value = false;
+  }
 });
 </script>
 
 <style scoped>
 .challenge-management {
   padding: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.challenge-management-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 16px 32px;
+  box-sizing: border-box;
+}
+.page-header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.club-switcher-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 200px;
+}
+.club-switcher-inline label {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--text-muted, #666);
+}
+.club-switcher-select {
+  max-width: 320px;
+}
+.season-scope-error {
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .page-header {
   margin-bottom: 20px;

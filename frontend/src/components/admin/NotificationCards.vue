@@ -13,9 +13,12 @@
     </div>
     <div v-if="loading" class="loading">Loading notifications...</div>
     <div v-else-if="agencies.length === 0" class="empty-state">
-      <p>No agencies available.</p>
+      <p>{{ isClubScope ? 'No clubs linked to your account.' : 'No agencies available.' }}</p>
     </div>
-    <div v-else-if="totalNotifications === 0 && !showAllAgenciesCard" class="empty-state">
+    <div
+      v-else-if="totalNotifications === 0 && !showAllAgenciesCard && visibleAgencies.length === 0"
+      class="empty-state"
+    >
       <p>No notifications at this time.</p>
     </div>
     <div v-else>
@@ -183,7 +186,13 @@ const scopeSaved = ref(false);
 const scopeError = ref('');
 const selectedOrgTypes = ref(['agency']);
 
+const isClubScope = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return props.compact || r === 'club_manager';
+});
+
 const canCustomizeScope = computed(() => {
+  if (isClubScope.value) return false;
   // Only show the scope UI for admin-like roles (these dashboards)
   const role = authStore.user?.role;
   return role === 'super_admin' || role === 'admin' || role === 'support';
@@ -208,6 +217,8 @@ const totalNotifications = computed(() => {
 });
 
 const showAllAgenciesCard = computed(() => {
+  // Summit / club managers: one card per club only (no aggregate "all notifications" tenant card).
+  if (isClubScope.value) return false;
   // Show "All Agencies" card if user is super_admin or has multiple agencies
   if (authStore.user?.role === 'super_admin') {
     return agencies.value.length > 1;
@@ -236,7 +247,15 @@ const typeOrder = ['agency', 'program', 'school', 'learning'];
 
 const orgTypeValue = (org) => String(org?.organization_type || 'agency').toLowerCase();
 
+const affiliationClubsOnly = computed(() => {
+  const list = agenciesWithNotifications.value || [];
+  return list.filter((o) => String(o?.organization_type || '').toLowerCase() === 'affiliation');
+});
+
 const visibleOrganizationsByType = computed(() => {
+  if (isClubScope.value) {
+    return affiliationClubsOnly.value;
+  }
   const allowed = new Set(normalizedSelectedTypes.value);
   const list = [...(agenciesWithNotifications.value || [])].filter((o) => allowed.has(orgTypeValue(o)));
   return list;
@@ -419,21 +438,27 @@ const closeCategoryModal = () => {
 const fetchAgencies = async () => {
   try {
     loading.value = true;
-    
+
     // Get user's agencies based on role
     if (authStore.user?.role === 'super_admin') {
-      // Super admin sees all agencies
       const response = await api.get('/agencies');
       agencies.value = response.data;
     } else {
-      // Admin/support see their agencies
       await agencyStore.fetchAgencies(authStore.user?.id);
       agencies.value = agencyStore.agencies;
     }
 
-    // Expand organizations with affiliated orgs (program/school/learning) under agency parents.
-    // Best-effort: only used when scope includes non-agency types.
     const base = Array.isArray(agencies.value) ? agencies.value : [];
+
+    // Club dashboard: one notification card per affiliation club (not per platform tenant).
+    if (isClubScope.value) {
+      const clubs = base.filter((a) => String(a?.organization_type || '').toLowerCase() === 'affiliation');
+      agencies.value = clubs;
+      expandedOrganizations.value = clubs;
+      return;
+    }
+
+    // Expand organizations with affiliated orgs (program/school/learning) under agency parents.
     const parents = base.filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
     const affLists = await Promise.all(
       parents.map(async (a) => {
@@ -512,14 +537,21 @@ onUnmounted(() => {
 watch(() => agencyStore.agencies, async () => {
   if (authStore.user?.role !== 'super_admin') {
     agencies.value = agencyStore.agencies;
-    // Keep expanded list in sync; affiliated orgs are best-effort and may remain.
-    expandedOrganizations.value = Array.isArray(agencies.value) ? agencies.value : [];
+    if (isClubScope.value) {
+      const base = Array.isArray(agencies.value) ? agencies.value : [];
+      const clubs = base.filter((a) => String(a?.organization_type || '').toLowerCase() === 'affiliation');
+      agencies.value = clubs;
+      expandedOrganizations.value = clubs;
+    } else {
+      expandedOrganizations.value = Array.isArray(agencies.value) ? agencies.value : [];
+    }
   }
 });
 
 const orgTypeLabel = (org) => {
   const t = orgTypeValue(org);
   if (t === 'agency') return null;
+  if (t === 'affiliation') return null;
   if (t === 'program') return 'Program';
   if (t === 'school') return 'School';
   if (t === 'learning') return 'Learning';

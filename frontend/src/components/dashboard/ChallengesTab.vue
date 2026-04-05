@@ -54,7 +54,7 @@ const challenges = ref([]);
 const challengesOverviewRoute = computed(() => {
   const c = challenges.value?.[0];
   const slug = c?.organization_slug || c?.organizationSlug || null;
-  return slug ? `/${slug}/home` : `/${String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase()}/home`;
+  return slug ? `/${slug}/my_club_dashboard` : `/${String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase()}/my_club_dashboard`;
 });
 const loading = ref(true);
 const error = ref(null);

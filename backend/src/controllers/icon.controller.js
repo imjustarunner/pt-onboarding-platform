@@ -230,6 +230,20 @@ export const uploadIcon = async (req, res, next) => {
           console.log('Super admin: Setting agencyId to', finalAgencyId, 'type:', typeof finalAgencyId);
         }
       }
+    } else if (userRole === 'club_manager') {
+      if (agencyId === 'null' || agencyId === '' || agencyId === null || agencyId === undefined) {
+        return res.status(403).json({ error: { message: 'Club managers must upload icons to a specific club' } });
+      }
+      const requestedAgencyId = parseInt(agencyId, 10);
+      if (isNaN(requestedAgencyId) || requestedAgencyId <= 0) {
+        return res.status(400).json({ error: { message: 'Invalid agency ID' } });
+      }
+      const { canUserManageClub } = await import('../utils/sscClubAccess.js');
+      const ok = await canUserManageClub({ user: req.user, clubId: requestedAgencyId });
+      if (!ok) {
+        return res.status(403).json({ error: { message: 'You can only upload icons for clubs you manage' } });
+      }
+      finalAgencyId = requestedAgencyId;
     } else {
       // Regular admins can only assign to their agencies or platform
       // Get user's agencies

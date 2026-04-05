@@ -3,14 +3,11 @@
     <section class="dashboard-hero card dash-section dash-section--hero">
       <div>
         <p class="eyebrow">{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }}</p>
-        <h1>My Dashboard</h1>
+        <h1>My club dashboard</h1>
         <p class="hero-copy">
           Your home for clubs and seasons. Open a season to see leaderboards, workouts, and each week's team challenges
           (the weekly tasks your team completes).
         </p>
-      </div>
-      <div class="hero-actions">
-        <router-link :to="`/${orgSlug}/clubs`" class="btn btn-primary">Browse Clubs</router-link>
       </div>
     </section>
 
@@ -109,7 +106,11 @@
         </div>
       </div>
       <div v-else class="empty-state">
-        <p>No current seasons yet. Browse clubs or wait for the next season launch.</p>
+        <p>
+          No current seasons yet.
+          <router-link :to="`/${orgSlug}/clubs`" class="text-link">Browse clubs</router-link>
+          or wait for the next season launch.
+        </p>
       </div>
     </section>
 
@@ -180,66 +181,199 @@
           </div>
         </div>
         <div v-else class="empty-state">
-          <p>No active club memberships yet.</p>
-          <router-link :to="`/${orgSlug}/clubs`" class="btn btn-primary btn-sm">Browse Clubs</router-link>
+          <p>
+            No active club memberships yet.
+            <router-link :to="`/${orgSlug}/clubs`" class="text-link">Browse clubs</router-link>
+            to find one.
+          </p>
         </div>
       </article>
 
-      <article class="card">
-        <div class="section-header">
+      <article class="card account-snapshot-card">
+        <div class="section-header section-header--account">
           <div>
             <h2>Account Snapshot</h2>
             <p>Your profile, preferences, and billing status.</p>
           </div>
+          <div v-if="!accountEditing" class="account-header-actions">
+            <button type="button" class="btn btn-secondary btn-sm" @click="startAccountEdit">
+              Edit account
+            </button>
+          </div>
+          <div v-else class="account-header-actions account-header-actions--edit">
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="accountSaving" @click="cancelAccountEdit">
+              Cancel
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" :disabled="accountSaving" @click="saveAccountEdit">
+              {{ accountSaving ? 'Saving…' : 'Save' }}
+            </button>
+          </div>
         </div>
 
-        <dl class="profile-grid">
-          <div>
-            <dt>Name</dt>
-            <dd>{{ fullName }}</dd>
-          </div>
-          <div>
-            <dt>Email</dt>
-            <dd>{{ summary?.member?.email || '—' }}</dd>
-          </div>
-          <div>
-            <dt>Timezone</dt>
-            <dd>{{ summary?.member?.timezone || 'Not set' }}</dd>
-          </div>
-          <div>
-            <dt>Billing</dt>
-            <dd>{{ summary?.account?.billingPlan || 'Free account' }}</dd>
-          </div>
-          <div>
-            <dt>Phone</dt>
-            <dd>{{ summary?.account?.phone || 'Not set' }}</dd>
-          </div>
-          <div>
-            <dt>Gender</dt>
-            <dd>{{ formatText(summary?.account?.gender) }}</dd>
-          </div>
-          <div>
-            <dt>Average miles / week</dt>
-            <dd>{{ summary?.account?.averageMilesPerWeek == null ? 'Not set' : `${formatDecimal(summary.account.averageMilesPerWeek)} mi` }}</dd>
-          </div>
-          <div>
-            <dt>Physical activity / week</dt>
-            <dd>{{ summary?.account?.averageHoursPerWeek == null ? 'Not set' : `${formatDecimal(summary.account.averageHoursPerWeek)} hrs` }}</dd>
-          </div>
-        </dl>
+        <div v-if="accountSaveError" class="inline-error account-inline-error">{{ accountSaveError }}</div>
 
-        <div class="long-answer-list">
-          <div>
-            <h3>How you heard about the club</h3>
-            <p>{{ formatParagraph(summary?.account?.heardAboutClub) }}</p>
+        <div class="account-snapshot-layout">
+          <div class="account-avatar-col">
+            <div class="account-avatar" aria-hidden="true">
+              <img v-if="profilePhotoDisplayUrl" :src="profilePhotoDisplayUrl" alt="" class="account-avatar-img" />
+              <div v-else class="account-avatar-fallback">{{ accountInitials }}</div>
+            </div>
+            <input
+              ref="accountPhotoInput"
+              type="file"
+              class="account-photo-input"
+              accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+              @change="onAccountPhotoSelected"
+            />
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="accountPhotoUploading || !userId"
+              @click="accountPhotoInput?.click()"
+            >
+              {{ accountPhotoUploading ? 'Uploading…' : 'Change photo' }}
+            </button>
+            <p v-if="accountPhotoError" class="account-photo-error">{{ accountPhotoError }}</p>
+            <p class="account-photo-hint muted">Shown on your club profile and team pages.</p>
           </div>
-          <div>
-            <h3>Running and fitness background</h3>
-            <p>{{ formatParagraph(summary?.account?.runningFitnessBackground) }}</p>
-          </div>
-          <div>
-            <h3>Current activities</h3>
-            <p>{{ formatParagraph(summary?.account?.currentFitnessActivities) }}</p>
+
+          <div class="account-snapshot-main">
+            <template v-if="!accountEditing">
+              <dl class="profile-grid">
+                <div>
+                  <dt>Name</dt>
+                  <dd>{{ fullName }}</dd>
+                </div>
+                <div>
+                  <dt>Email</dt>
+                  <dd>{{ summary?.member?.email || '—' }}</dd>
+                </div>
+                <div>
+                  <dt>Timezone</dt>
+                  <dd>{{ summary?.member?.timezone || 'Not set' }}</dd>
+                </div>
+                <div>
+                  <dt>Billing</dt>
+                  <dd>{{ summary?.account?.billingPlan || 'Free account' }}</dd>
+                </div>
+                <div>
+                  <dt>Phone</dt>
+                  <dd>{{ summary?.account?.phone || 'Not set' }}</dd>
+                </div>
+                <div>
+                  <dt>Gender</dt>
+                  <dd>{{ formatText(summary?.account?.gender) }}</dd>
+                </div>
+                <div>
+                  <dt>Average miles / week</dt>
+                  <dd>
+                    {{ summary?.account?.averageMilesPerWeek == null ? 'Not set' : `${formatDecimal(summary.account.averageMilesPerWeek)} mi` }}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Physical activity / week</dt>
+                  <dd>
+                    {{ summary?.account?.averageHoursPerWeek == null ? 'Not set' : `${formatDecimal(summary.account.averageHoursPerWeek)} hrs` }}
+                  </dd>
+                </div>
+              </dl>
+
+              <div class="long-answer-list">
+                <div>
+                  <h3>How you heard about the club</h3>
+                  <p>{{ formatParagraph(summary?.account?.heardAboutClub) }}</p>
+                </div>
+                <div>
+                  <h3>Running and fitness background</h3>
+                  <p>{{ formatParagraph(summary?.account?.runningFitnessBackground) }}</p>
+                </div>
+                <div>
+                  <h3>Current activities</h3>
+                  <p>{{ formatParagraph(summary?.account?.currentFitnessActivities) }}</p>
+                </div>
+              </div>
+            </template>
+
+            <form v-else class="account-edit-form" @submit.prevent="saveAccountEdit">
+              <div class="profile-grid profile-grid--edit">
+                <label class="account-field">
+                  First name
+                  <input v-model="accountForm.firstName" type="text" autocomplete="given-name" />
+                </label>
+                <label class="account-field">
+                  Last name
+                  <input v-model="accountForm.lastName" type="text" autocomplete="family-name" />
+                </label>
+                <div class="account-field account-field--readonly">
+                  <span class="account-field-label">Email</span>
+                  <span class="account-readonly-value">{{ summary?.member?.email || '—' }}</span>
+                </div>
+                <div class="account-field account-field--readonly">
+                  <span class="account-field-label">Billing</span>
+                  <span class="account-readonly-value">{{ summary?.account?.billingPlan || 'Free account' }}</span>
+                </div>
+                <label class="account-field">
+                  Timezone
+                  <select v-model="accountForm.timezone" autocomplete="timezone">
+                    <option value="">Not set</option>
+                    <option v-if="timezoneExtraOption" :value="timezoneExtraOption">{{ timezoneExtraOption }} (current)</option>
+                    <optgroup v-for="grp in TIMEZONE_GROUPS" :key="grp.label" :label="grp.label">
+                      <option v-for="z in grp.zones" :key="z.value" :value="z.value">{{ z.label }}</option>
+                    </optgroup>
+                  </select>
+                </label>
+                <label class="account-field">
+                  Phone
+                  <input v-model="accountForm.phone" type="tel" autocomplete="tel" />
+                </label>
+                <label class="account-field">
+                  Gender
+                  <select v-model="accountForm.genderSelect">
+                    <option value="">Not set</option>
+                    <option v-for="g in genderSelectChoices" :key="g" :value="g">{{ formatGenderOptionLabel(g) }}</option>
+                    <option value="__other__">Other…</option>
+                  </select>
+                  <input
+                    v-if="accountForm.genderSelect === '__other__'"
+                    v-model="accountForm.genderCustom"
+                    type="text"
+                    class="account-field-nested"
+                    placeholder="Your gender"
+                  />
+                </label>
+                <label class="account-field">
+                  Average miles / week
+                  <select v-model="accountForm.averageMilesPerWeek">
+                    <option v-for="opt in averageMilesOptionsWithExtra" :key="`m-${opt.value}`" :value="opt.value">
+                      {{ opt.label }}
+                    </option>
+                  </select>
+                </label>
+                <label class="account-field">
+                  Physical activity / week
+                  <select v-model="accountForm.averageHoursPerWeek">
+                    <option v-for="opt in physicalHoursOptionsWithExtra" :key="`h-${opt.value}`" :value="opt.value">
+                      {{ opt.label }}
+                    </option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="long-answer-list long-answer-list--edit">
+                <label class="account-field account-field--block">
+                  How you heard about the club
+                  <textarea v-model="accountForm.heardAboutClub" rows="3" />
+                </label>
+                <label class="account-field account-field--block">
+                  Running and fitness background
+                  <textarea v-model="accountForm.runningFitnessBackground" rows="3" />
+                </label>
+                <label class="account-field account-field--block">
+                  Current activities
+                  <textarea v-model="accountForm.currentFitnessActivities" rows="3" />
+                </label>
+              </div>
+            </form>
           </div>
         </div>
 
@@ -283,7 +417,7 @@
         <div class="section-header">
           <div>
             <h2>Applications</h2>
-            <p>See where your club requests stand.</p>
+            <p>Pending club join requests. When a manager approves you, the club appears under Club Access.</p>
           </div>
         </div>
         <div v-if="pendingApplications.length" class="stack-list">
@@ -338,12 +472,20 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
+import { useAuthStore } from '../store/auth';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
+import {
+  AVERAGE_MILES_PER_WEEK_OPTIONS,
+  PHYSICAL_ACTIVITY_HOURS_OPTIONS
+} from '../constants/sscAccountFormOptions.js';
+import { TIMEZONE_GROUPS, ALL_TIMEZONES } from '../utils/timezones.js';
+import { toUploadsUrl } from '../utils/uploadsUrl';
 import api from '../services/api';
 
 const route = useRoute();
 const router = useRouter();
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
 
 const orgSlug = computed(() => String(route.params?.organizationSlug || 'ssc').toLowerCase());
 
@@ -353,6 +495,25 @@ const summary = ref(null);
 const applications = ref([]);
 const clubContext = ref(null);
 const showStartClub = ref(false);
+const accountEditing = ref(false);
+const accountSaving = ref(false);
+const accountSaveError = ref('');
+const accountPhotoInput = ref(null);
+const accountPhotoUploading = ref(false);
+const accountPhotoError = ref('');
+const accountForm = reactive({
+  firstName: '',
+  lastName: '',
+  timezone: '',
+  phone: '',
+  genderSelect: '',
+  genderCustom: '',
+  averageMilesPerWeek: '',
+  averageHoursPerWeek: '',
+  heardAboutClub: '',
+  runningFitnessBackground: '',
+  currentFitnessActivities: ''
+});
 const createClubSubmitting = ref(false);
 const createClubError = ref('');
 const createClubForm = reactive({
@@ -367,13 +528,203 @@ const createClubForm = reactive({
 const memberships = computed(() => Array.isArray(summary.value?.memberships) ? summary.value.memberships : []);
 const currentSeasons = computed(() => Array.isArray(summary.value?.seasons?.current) ? summary.value.seasons.current : []);
 const pastSeasons = computed(() => Array.isArray(summary.value?.seasons?.past) ? summary.value.seasons.past : []);
-const pendingApplications = computed(() => (applications.value || []).filter((app) => String(app.status || '').toLowerCase() !== 'approved'));
+const pendingApplications = computed(() =>
+  (applications.value || []).filter((app) => String(app.status || '').toLowerCase() === 'pending')
+);
 const managedClubs = computed(() => Array.isArray(clubContext.value?.managedClubs) ? clubContext.value.managedClubs : []);
 const fullName = computed(() => {
   const first = String(summary.value?.member?.firstName || '').trim();
   const last = String(summary.value?.member?.lastName || '').trim();
   return `${first} ${last}`.trim() || 'Your account';
 });
+
+const userId = computed(() => {
+  const id = authStore.user?.id;
+  const n = Number(id);
+  return Number.isFinite(n) ? n : null;
+});
+
+const profilePhotoDisplayUrl = computed(() => {
+  const fromDash = toUploadsUrl(summary.value?.member?.profilePhotoUrl);
+  if (fromDash) return fromDash;
+  const u = authStore.user?.profile_photo_url || authStore.user?.profilePhotoUrl || authStore.user?.profile_photo_path;
+  return toUploadsUrl(u);
+});
+
+const genderSelectChoices = computed(
+  () => summary.value?.accountSettings?.genderOptions || ['male', 'female']
+);
+
+const normalizeGenderKey = (v) =>
+  String(v || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+
+const formatGenderOptionLabel = (g) => {
+  const raw = String(g || '').trim();
+  if (!raw) return '';
+  return raw
+    .replace(/_/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+};
+
+const timezoneExtraOption = computed(() => {
+  const v = String(accountForm.timezone || '').trim();
+  if (!v) return null;
+  return ALL_TIMEZONES.some((z) => z.value === v) ? null : v;
+});
+
+const averageMilesOptionsWithExtra = computed(() => {
+  const raw = String(accountForm.averageMilesPerWeek || '').trim();
+  if (!raw) return AVERAGE_MILES_PER_WEEK_OPTIONS;
+  if (AVERAGE_MILES_PER_WEEK_OPTIONS.some((o) => o.value === raw)) return AVERAGE_MILES_PER_WEEK_OPTIONS;
+  return [
+    { value: raw, label: `${raw} mi (current)` },
+    ...AVERAGE_MILES_PER_WEEK_OPTIONS.filter((o) => o.value !== '')
+  ];
+});
+
+const physicalHoursOptionsWithExtra = computed(() => {
+  const raw = String(accountForm.averageHoursPerWeek || '').trim();
+  if (!raw) return PHYSICAL_ACTIVITY_HOURS_OPTIONS;
+  if (PHYSICAL_ACTIVITY_HOURS_OPTIONS.some((o) => o.value === raw)) return PHYSICAL_ACTIVITY_HOURS_OPTIONS;
+  return [
+    { value: raw, label: `${raw} hrs (current)` },
+    ...PHYSICAL_ACTIVITY_HOURS_OPTIONS.filter((o) => o.value !== '')
+  ];
+});
+
+const accountInitials = computed(() => {
+  const first = String(
+    (accountEditing.value ? accountForm.firstName : summary.value?.member?.firstName) || ''
+  ).trim();
+  const last = String(
+    (accountEditing.value ? accountForm.lastName : summary.value?.member?.lastName) || ''
+  ).trim();
+  const a = first ? first[0] : '';
+  const b = last ? last[0] : '';
+  return `${a}${b}`.toUpperCase() || 'U';
+});
+
+const fillAccountFormFromSummary = () => {
+  const m = summary.value?.member;
+  const a = summary.value?.account;
+  accountForm.firstName = String(m?.firstName || '').trim();
+  accountForm.lastName = String(m?.lastName || '').trim();
+  accountForm.timezone = String(m?.timezone || '').trim();
+  accountForm.phone = String(a?.phone || '').trim();
+
+  const rawGender = String(a?.gender || '').trim();
+  const opts = genderSelectChoices.value;
+  if (!rawGender) {
+    accountForm.genderSelect = '';
+    accountForm.genderCustom = '';
+  } else {
+    const match = opts.find((o) => normalizeGenderKey(o) === normalizeGenderKey(rawGender));
+    if (match !== undefined) {
+      accountForm.genderSelect = match;
+      accountForm.genderCustom = '';
+    } else {
+      accountForm.genderSelect = '__other__';
+      accountForm.genderCustom = rawGender;
+    }
+  }
+
+  accountForm.averageMilesPerWeek =
+    a?.averageMilesPerWeek != null && Number.isFinite(Number(a.averageMilesPerWeek))
+      ? String(Number(a.averageMilesPerWeek))
+      : '';
+  accountForm.averageHoursPerWeek =
+    a?.averageHoursPerWeek != null && Number.isFinite(Number(a.averageHoursPerWeek))
+      ? String(Number(a.averageHoursPerWeek))
+      : '';
+  accountForm.heardAboutClub = String(a?.heardAboutClub || '').trim();
+  accountForm.runningFitnessBackground = String(a?.runningFitnessBackground || '').trim();
+  accountForm.currentFitnessActivities = String(a?.currentFitnessActivities || '').trim();
+};
+
+const startAccountEdit = () => {
+  accountSaveError.value = '';
+  fillAccountFormFromSummary();
+  accountEditing.value = true;
+};
+
+const cancelAccountEdit = () => {
+  accountSaveError.value = '';
+  accountEditing.value = false;
+};
+
+const parseOptionalDecimal = (raw) => {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+};
+
+const saveAccountEdit = async () => {
+  accountSaving.value = true;
+  accountSaveError.value = '';
+  try {
+    const genderPayload =
+      accountForm.genderSelect === '__other__'
+        ? accountForm.genderCustom.trim() || null
+        : accountForm.genderSelect.trim() || null;
+
+    await api.put('/summit-stats/me/account-snapshot', {
+      firstName: accountForm.firstName,
+      lastName: accountForm.lastName,
+      timezone: accountForm.timezone.trim() || null,
+      phone: accountForm.phone.trim() || null,
+      gender: genderPayload,
+      averageMilesPerWeek: parseOptionalDecimal(accountForm.averageMilesPerWeek),
+      averageHoursPerWeek: parseOptionalDecimal(accountForm.averageHoursPerWeek),
+      heardAboutClub: accountForm.heardAboutClub.trim() || null,
+      runningFitnessBackground: accountForm.runningFitnessBackground.trim() || null,
+      currentFitnessActivities: accountForm.currentFitnessActivities.trim() || null
+    });
+    accountEditing.value = false;
+    await authStore.refreshUser();
+    await loadDashboard();
+  } catch (error) {
+    accountSaveError.value =
+      error?.response?.data?.error?.message || 'Could not save your profile. Please try again.';
+  } finally {
+    accountSaving.value = false;
+  }
+};
+
+const onAccountPhotoSelected = async (event) => {
+  accountPhotoError.value = '';
+  const file = event?.target?.files?.[0] || null;
+  if (!file) return;
+  if (!userId.value) {
+    accountPhotoError.value = 'Sign in required.';
+    return;
+  }
+  const formData = new FormData();
+  formData.append('photo', file);
+  accountPhotoUploading.value = true;
+  try {
+    await api.post(`/users/${userId.value}/profile-photo`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    await authStore.refreshUser();
+    await loadDashboard();
+  } catch (error) {
+    accountPhotoError.value = error?.response?.data?.error?.message || 'Failed to upload photo.';
+  } finally {
+    accountPhotoUploading.value = false;
+    try {
+      if (accountPhotoInput.value) accountPhotoInput.value.value = '';
+    } catch {
+      /* ignore */
+    }
+  }
+};
 
 const loadDashboard = async () => {
   loading.value = true;
@@ -454,7 +805,7 @@ const switchToClubContext = async (clubId, target = 'dashboard') => {
     await router.push(`/${orgSlug.value}/club_manager_dashboard`);
     return;
   }
-  await router.push(`/${orgSlug.value}/home`);
+  await router.push(`/${orgSlug.value}/my_club_dashboard`);
 };
 
 const openSeason = async (season) => {
@@ -463,16 +814,13 @@ const openSeason = async (season) => {
 };
 
 const openClub = async (clubId) => {
-  const clubSeason = currentSeasons.value.find((season) => Number(season.clubId) === Number(clubId));
-  if (clubSeason) {
-    await openSeason(clubSeason);
-    return;
+  const id = Number(clubId);
+  if (!id) return;
+  const match = currentUserAgencies.value.find((agency) => Number(agency?.id) === id);
+  if (match) {
+    agencyStore.setCurrentAgency(match);
   }
-  if (isManagedClub(clubId)) {
-    await switchToClubContext(clubId, 'club_manager_dashboard');
-    return;
-  }
-  await switchToClubContext(clubId, 'dashboard');
+  await router.push(`/${orgSlug.value}/clubs/${id}`);
 };
 
 const isManagedClub = (clubId) => {
@@ -585,10 +933,15 @@ watch(() => route.params.organizationSlug, () => {
   color: #556274;
 }
 
-.hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+.text-link {
+  color: #2563eb;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.text-link:hover {
+  color: #1d4ed8;
 }
 
 .grid-two {
@@ -599,6 +952,9 @@ watch(() => route.params.organizationSlug, () => {
 
 .my-stats-compact {
   padding: 14px 18px;
+  max-width: 520px;
+  margin-inline: auto;
+  width: 100%;
 }
 
 .my-stats-compact-head {
@@ -667,6 +1023,162 @@ watch(() => route.params.organizationSlug, () => {
 .section-header p {
   margin: 0;
   color: #64748b;
+}
+
+.section-header--account {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.account-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.account-header-actions--edit {
+  gap: 10px;
+}
+
+.account-inline-error {
+  margin: 0 0 14px;
+}
+
+.account-snapshot-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 140px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.account-avatar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.account-avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid #e2e8f0;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.account-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.account-avatar-fallback {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #64748b;
+}
+
+.account-photo-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.account-photo-error {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #b91c1c;
+}
+
+.account-photo-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  max-width: 140px;
+}
+
+.account-snapshot-main {
+  min-width: 0;
+}
+
+.account-edit-form .account-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #0f172a;
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+.account-field-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.account-field--readonly {
+  padding-top: 2px;
+}
+
+.account-readonly-value {
+  font-weight: 500;
+  color: #0f172a;
+  font-size: 0.95rem;
+}
+
+.account-field--block {
+  grid-column: 1 / -1;
+}
+
+.account-edit-form input,
+.account-edit-form textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 400;
+  color: #0f172a;
+}
+
+.account-edit-form textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.account-edit-form select {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 400;
+  color: #0f172a;
+  background: #fff;
+}
+
+.account-field-nested {
+  margin-top: 8px;
+}
+
+.profile-grid--edit {
+  margin-bottom: 14px;
+}
+
+.long-answer-list--edit {
+  margin-top: 4px;
 }
 
 .stack-list {
@@ -878,38 +1390,25 @@ watch(() => route.params.organizationSlug, () => {
     gap: 14px;
   }
 
-  /* Current seasons + all-time stats before hero intro on small screens */
-  .dash-section--loading,
-  .dash-section--error {
-    order: 1;
-  }
-  .dash-section--founder {
-    order: 2;
-  }
-  .dash-section--seasons-current {
-    order: 3;
-  }
-  .dash-section--my-stats {
-    order: 4;
-  }
-  .dash-section--hero {
-    order: 5;
-  }
-  .dash-section--club-account {
-    order: 6;
-  }
-  .dash-section--past {
-    order: 7;
-  }
-  .dash-section--applications {
-    order: 8;
-  }
-
   .dashboard-hero,
   .grid-two,
   .form-row,
   .profile-grid {
     grid-template-columns: 1fr;
+  }
+
+  .account-snapshot-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .account-avatar-col {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .account-photo-hint {
+    max-width: none;
   }
 
   .dashboard-hero {

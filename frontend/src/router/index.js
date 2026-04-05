@@ -13,6 +13,8 @@ import { isLikelyMobileViewport, isStandalonePwa } from '../utils/pwa';
 import { getSchoolStaffWaiverStatus } from '../utils/schoolStaffWaiverGate';
 import api from '../services/api';
 import { officeMandatoryBlocking } from '../utils/officeMandatoryGate';
+import { isSummitPlatformRouteSlug, NATIVE_APP_ORG_SLUG } from '../utils/summitPlatformSlugs.js';
+import { isSstcTenantSlug } from '../config/tenantAppProfiles.js';
 
 const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff', 'provider_plus'];
 /** Matches Directory “Programs & events” access (nav + dedicated page). */
@@ -29,10 +31,7 @@ const SKILL_BUILDERS_PROGRAM_EVENTS_ROLES = [
 ];
 const PROVIDER_PLUS_EXPERIENCE_ROLES = ['provider_plus', 'clinical_practice_assistant'];
 const TOOLS_AIDS_ROUTE_SEGMENTS = ['/admin/tools-aids', '/admin/note-aid', '/admin/clinical-note-generator'];
-const NATIVE_APP_ORG_SLUG = String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase();
-const SSC_PORTAL_SLUGS = new Set(['ssc', 'sstc', 'summit-stats', NATIVE_APP_ORG_SLUG].filter(Boolean));
-
-const isSscPortalSlug = (value) => SSC_PORTAL_SLUGS.has(String(value || '').trim().toLowerCase());
+const isSscPortalSlug = isSummitPlatformRouteSlug;
 
 const isAllowedSscAuthenticatedPath = (path) => {
   const normalized = String(path || '').trim().toLowerCase();
@@ -44,7 +43,7 @@ const isAllowedSscAuthenticatedPath = (path) => {
   // Summit tenant: member surfaces + club manager dashboard + operations.
   // `home` = participant portal (not "weekly challenges"); `season` = one season workspace. Legacy `challenges` redirects.
   const allowedOrgScoped =
-    /^\/[^/]+\/(home(?:\/|$)|season(?:\/|$)|challenges(?:\/|$)|messages(?:\/|$)|clubs(?:\/|$)|join(?:\/|$)|club\/settings(?:\/|$)|club\/seasons(?:\/|$)|dashboard(?:\/|$)|preferences(?:\/|$)|credentials(?:\/|$)|account-info(?:\/|$)|change-password(?:\/|$)|logout(?:\/|$)|club_manager_dashboard(?:\/|$)|operations-dashboard(?:\/|$))/;
+    /^\/[^/]+\/(home(?:\/|$)|my_club_dashboard(?:\/|$)|season(?:\/|$)|challenges(?:\/|$)|messages(?:\/|$)|clubs(?:\/[^/]+(?:\/(?:members|records))?)?(?:\/|$)|join(?:\/|$)|club\/settings(?:\/|$)|club\/seasons(?:\/|$)|dashboard(?:\/|$)|preferences(?:\/|$)|credentials(?:\/|$)|account-info(?:\/|$)|change-password(?:\/|$)|logout(?:\/|$)|club_manager_dashboard(?:\/|$)|operations-dashboard(?:\/|$))/;
   const allowedGlobal = /^\/(dashboard|preferences|credentials|account-info|change-password|logout)(?:\/|$)/;
   return allowedOrgScoped.test(normalized) || allowedGlobal.test(normalized);
 };
@@ -53,6 +52,26 @@ const isNonAgencyOrgType = (value) => {
   const t = String(value || '').toLowerCase();
   return t === 'school' || t === 'program' || t === 'learning' || t === 'affiliation';
 };
+
+/** Bare /:slug/dashboard → Summit club home (no personal HR tabs in query). */
+const SSC_DASHBOARD_PERSONAL_QUERY_KEYS = [
+  'tab', 'my', 'sp', 'sso', 'scheduleMode', 'superviseeId', 'employeeId', 'scheduleViewAs', 'programHub', 'sbPrograms', 'programId'
+];
+const shouldRedirectSscDashboardToMyClub = (query) => {
+  const q = query || {};
+  return !SSC_DASHBOARD_PERSONAL_QUERY_KEYS.some((k) => q[k] != null && String(q[k]).length > 0);
+};
+/** Keep classic personal dashboard for internal staff roles (schedule rail, payroll, etc.). */
+const SSC_ROLES_SKIP_MY_CLUB_DASH_REDIRECT = new Set([
+  'provider_plus',
+  'clinical_practice_assistant',
+  'admin',
+  'support',
+  'super_admin',
+  'superadmin',
+  'staff',
+  'supervisor'
+]);
 
 const isToolsAidsRoute = (to) => {
   const path = String(to?.path || '');
@@ -396,6 +415,18 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/clubs/:clubId/members',
+    name: 'SscClubMembersDirectory',
+    component: () => import('../views/SscClubMembersDirectoryView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/clubs/:clubId/records',
+    name: 'SscClubTeamRecords',
+    component: () => import('../views/SscClubTeamRecordsView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/clubs',
     name: 'OrganizationClubSearch',
     component: () => import('../views/ClubSearchView.vue'),
@@ -489,6 +520,12 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/my_club_dashboard',
+    name: 'OrganizationMyClubDashboard',
+    component: () => import('../views/SummitStatsDashboardView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/provider-mobile',
     name: 'ProviderMobileLegacy',
     redirect: () => {
@@ -568,7 +605,7 @@ const routes = [
   },
   {
     path: '/:organizationSlug/challenges',
-    redirect: (to) => ({ path: `/${to.params.organizationSlug}/home`, query: to.query, hash: to.hash })
+    redirect: (to) => ({ path: `/${to.params.organizationSlug}/my_club_dashboard`, query: to.query, hash: to.hash })
   },
   {
     path: '/:organizationSlug/season/:id',
@@ -579,7 +616,11 @@ const routes = [
   {
     path: '/:organizationSlug/home',
     name: 'OrganizationSummitHome',
-    component: () => import('../views/SummitStatsDashboardView.vue'),
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/my_club_dashboard`,
+      query: to.query,
+      hash: to.hash
+    }),
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
@@ -817,7 +858,11 @@ const routes = [
     path: '/:organizationSlug/admin/company-events',
     name: 'OrganizationCompanyEvents',
     component: () => import('../views/admin/CompanyEventsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'club_manager'], organizationSlug: true }
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'club_manager', 'provider', 'intern'],
+      organizationSlug: true
+    }
   },
   {
     path: '/:organizationSlug/admin/surveys/:id/results',
@@ -1293,7 +1338,7 @@ const routes = [
   },
   {
     path: '/challenges',
-    redirect: () => `/${NATIVE_APP_ORG_SLUG}/home`
+    redirect: () => `/${NATIVE_APP_ORG_SLUG}/my_club_dashboard`
   },
   {
     path: '/challenges/:id',
@@ -2103,6 +2148,7 @@ router.beforeEach(async (to, from, next) => {
         rawPath === '/preferences' ||
         rawPath === '/credentials' ||
         rawPath === '/home' ||
+        rawPath === '/my_club_dashboard' ||
         rawPath.startsWith('/season/') ||
         rawPath === '/challenges' ||
         rawPath.startsWith('/challenges/') ||
@@ -2113,10 +2159,10 @@ router.beforeEach(async (to, from, next) => {
     if (shouldScopeToTenant) {
       const scopedPath = (() => {
         if (rawPath === '/') return `/${NATIVE_APP_ORG_SLUG}/login`;
-        if (rawPath === '/challenges') return `/${NATIVE_APP_ORG_SLUG}/home`;
+        if (rawPath === '/challenges') return `/${NATIVE_APP_ORG_SLUG}/my_club_dashboard`;
         if (rawPath.startsWith('/challenges/')) {
           const rest = rawPath.slice('/challenges/'.length);
-          return rest ? `/${NATIVE_APP_ORG_SLUG}/season/${rest}` : `/${NATIVE_APP_ORG_SLUG}/home`;
+          return rest ? `/${NATIVE_APP_ORG_SLUG}/season/${rest}` : `/${NATIVE_APP_ORG_SLUG}/my_club_dashboard`;
         }
         return `/${NATIVE_APP_ORG_SLUG}${rawPath}`;
       })();
@@ -2411,6 +2457,29 @@ router.beforeEach(async (to, from, next) => {
       return;
     }
   }
+
+  // Summit Stats (SSC): default /:slug/dashboard is the club home (SummitStatsDashboardView), not the personal shell.
+  // Personal dashboard: /ssc/dashboard?tab=my&my=account (etc.). Staff roles keep the classic dashboard when no query.
+  if (
+    authStore.isAuthenticated &&
+    to.name === 'OrganizationDashboard' &&
+    typeof to.params.organizationSlug === 'string' &&
+    isSstcTenantSlug(to.params.organizationSlug) &&
+    shouldRedirectSscDashboardToMyClub(to.query)
+  ) {
+    const roleNorm = String(authStore.user?.role || '').toLowerCase();
+    if (!SSC_ROLES_SKIP_MY_CLUB_DASH_REDIRECT.has(roleNorm)) {
+      const slug = String(to.params.organizationSlug).trim();
+      next({
+        path: `/${slug}/my_club_dashboard`,
+        query: to.query,
+        hash: to.hash,
+        replace: true
+      });
+      return;
+    }
+  }
+
   if (
     authStore.isAuthenticated &&
     authStore.user?.role !== 'super_admin' &&
@@ -2581,7 +2650,7 @@ router.beforeEach(async (to, from, next) => {
     isSscPortalSlug(currentOrgSlug) &&
     !isAllowedSscAuthenticatedPath(to.path)
   ) {
-    next(`/${currentOrgSlug}/home`);
+    next(`/${currentOrgSlug}/my_club_dashboard`);
     return;
   }
   
@@ -2662,6 +2731,7 @@ router.beforeEach(async (to, from, next) => {
         const prefix = `/${orgSlugForRoute}`;
         return (
           pathNorm.startsWith(`${prefix}/club_manager_dashboard`) ||
+          pathNorm.startsWith(`${prefix}/my_club_dashboard`) ||
           pathNorm.startsWith(`${prefix}/admin`) ||
           pathNorm.startsWith(`${prefix}/operations-dashboard`)
         );

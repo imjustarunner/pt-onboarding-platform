@@ -446,6 +446,56 @@ export const updateAgency = async (req, res, next) => {
     }
 
     const { id } = req.params;
+    const scope = req.agencyUpdateScope || 'full';
+
+    // Club managers may only update branding fields on their affiliation (not platform-wide agency settings).
+    if (scope === 'club_branding') {
+      const { logoUrl, logoPath, iconId, colorPalette } = req.body;
+      let formattedColorPalette = colorPalette;
+      if (colorPalette !== undefined) {
+        if (typeof colorPalette === 'object') {
+          formattedColorPalette = colorPalette;
+        } else if (typeof colorPalette === 'string' && colorPalette.trim()) {
+          try {
+            formattedColorPalette = JSON.parse(colorPalette);
+          } catch {
+            formattedColorPalette = null;
+          }
+        } else {
+          formattedColorPalette = null;
+        }
+      }
+      let mergedPalette = formattedColorPalette;
+      if (formattedColorPalette && typeof formattedColorPalette === 'object') {
+        const existing = await Agency.findById(id);
+        let prev = {};
+        try {
+          const raw = existing?.color_palette;
+          prev = typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {});
+        } catch {
+          prev = {};
+        }
+        mergedPalette = { ...prev, ...formattedColorPalette };
+        if (Object.prototype.hasOwnProperty.call(formattedColorPalette, 'fontFamily')) {
+          const f = formattedColorPalette.fontFamily;
+          if (f === null || f === undefined || String(f).trim() === '') {
+            delete mergedPalette.fontFamily;
+          }
+        }
+      }
+      const agency = await Agency.update(id, {
+        logoUrl,
+        logoPath,
+        colorPalette: mergedPalette,
+        iconId: iconId !== undefined ? iconId : undefined
+      });
+      if (!agency) {
+        return res.status(404).json({ error: { message: 'Agency not found' } });
+      }
+      const [enriched] = await attachAffiliationMeta([agency]);
+      return res.json(enriched || agency);
+    }
+
     const { name, slug, officialName, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, sessionSettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageClientsIconId, schoolOverviewIconId, programOverviewIconId, providerAvailabilityDashboardIconId, executiveReportIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, dashboardNotificationsIconId, dashboardCommunicationsIconId, dashboardChatsIconId, dashboardPayrollIconId, dashboardBillingIconId, externalCalendarAuditIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, myDashboardChecklistIconId, myDashboardMomentumListIconId, myDashboardMomentumStickiesIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId, schoolPortalPublicDocumentsIconId, schoolPortalAnnouncementsIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId,
       clubAddMemberIconId, clubAddSeasonIconId, clubSettingsIconId,

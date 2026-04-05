@@ -63,7 +63,7 @@ import {
   detachCompanyEventSessionSurvey
 } from '../controllers/companyEvents.controller.js';
 import { listSchoolStaffUsers, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
-import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin, requireBackofficeAdminOrClubManagerForAgency, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -517,7 +517,7 @@ router.post('/:id/company-events/templates', authenticate, createCompanyEventTem
 router.put('/:id/company-events/templates/:templateId', authenticate, updateCompanyEventTemplate);
 router.delete('/:id/company-events/templates/:templateId', authenticate, deleteCompanyEventTemplate);
 router.post('/', authenticate, requireBackofficeAdmin, validateCreateAgency, createAgency);
-router.put('/:id', authenticate, requireBackofficeAdmin, validateUpdateAgency, updateAgency);
+router.put('/:id', authenticate, requireBackofficeAdminOrClubManagerForAgency, validateUpdateAgency, updateAgency);
 router.post('/:id/archive', authenticate, requireSuperAdmin, archiveAgency);
 router.post('/:id/restore', authenticate, requireSuperAdmin, restoreAgency);
 router.delete('/:id', authenticate, requireSuperAdmin, deleteAgencyHard);

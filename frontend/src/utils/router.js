@@ -5,6 +5,7 @@ import { isSupervisor } from './helpers.js';
 import { getOrganizationDashboardRoute } from './organizationContext.js';
 import { hasProviderMobileAccess } from './providerMobileAccess.js';
 import { isLikelyMobileViewport, isStandalonePwa } from './pwa.js';
+import { isSummitPlatformRouteSlug } from './summitPlatformSlugs.js';
 
 /**
  * Returns the correct dashboard route based on user role and organization type
@@ -29,28 +30,25 @@ export function getDashboardRoute() {
     : (Array.isArray(agencyStore.userAgencies?.value ?? agencyStore.userAgencies)
       ? (agencyStore.userAgencies?.value ?? agencyStore.userAgencies)
       : []);
-  const nativePortalSlug = String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase();
-  const isSummitStatsSlug = (value) =>
-    ['ssc', 'sstc', 'summit-stats', nativePortalSlug].filter(Boolean).includes(String(value || '').trim().toLowerCase());
   const resolveSummitStatsSlug = () => {
     const orgContext = organizationStore.organizationContext || null;
     const contextSlug = String(orgContext?.slug || '').trim().toLowerCase();
     const contextParent = String(orgContext?.parentSlug || orgContext?.parent_slug || '').trim().toLowerCase();
-    if (isSummitStatsSlug(contextSlug)) return contextSlug;
-    if (isSummitStatsSlug(contextParent)) return contextParent;
+    if (isSummitPlatformRouteSlug(contextSlug)) return contextSlug;
+    if (isSummitPlatformRouteSlug(contextParent)) return contextParent;
 
     const currentAgency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
     const currentSlug = String(currentAgency?.slug || currentAgency?.portal_url || currentAgency?.portalUrl || '').trim().toLowerCase();
     const currentParent = String(currentAgency?.parent_slug || currentAgency?.parentSlug || '').trim().toLowerCase();
-    if (isSummitStatsSlug(currentSlug)) return currentSlug;
-    if (isSummitStatsSlug(currentParent)) return currentParent;
+    if (isSummitPlatformRouteSlug(currentSlug)) return currentSlug;
+    if (isSummitPlatformRouteSlug(currentParent)) return currentParent;
 
     for (const org of orgs) {
       const slug = String(org?.slug || org?.portal_url || org?.portalUrl || '').trim().toLowerCase();
       const parent = String(org?.parent_slug || org?.parentSlug || '').trim().toLowerCase();
       const orgType = String(org?.organization_type || org?.organizationType || '').trim().toLowerCase();
-      if (isSummitStatsSlug(slug)) return slug;
-      if (isSummitStatsSlug(parent)) return parent;
+      if (isSummitPlatformRouteSlug(slug)) return slug;
+      if (isSummitPlatformRouteSlug(parent)) return parent;
       if (orgType === 'affiliation' && parent) return parent;
     }
     return null;

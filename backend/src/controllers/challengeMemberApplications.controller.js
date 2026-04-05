@@ -16,7 +16,23 @@ import { resolvePreferredSenderIdentityForAgency } from '../services/emailSender
 import { getPlatformAgencyId } from './summitStats.controller.js';
 import { buildRaceDivisions, buildRecordMetricMap } from './challenges.controller.js';
 import { callGeminiText } from '../services/geminiText.service.js';
-import { canUserManageClub } from '../utils/sscClubAccess.js';
+import Notification from '../models/Notification.model.js';
+import { canUserManageClub, getUserClubMembership, getClubPlatformTenantAgencyId, getClubManagerNotificationRecipientUserIds } from '../utils/sscClubAccess.js';
+import LearningProgramClass from '../models/LearningProgramClass.model.js';
+import StorageService from '../services/storage.service.js';
+import multer from 'multer';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+
+/** Multer for club feed image attachments (memory). */
+export const clubFeedImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Invalid file type. Only PNG, JPEG, GIF, and WebP are allowed.'), false);
+  }
+});
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -33,6 +49,14 @@ const normalizePublicSlug = (v) => {
   return cleaned.slice(0, 64);
 };
 
+const MAX_PUBLIC_SLUG_HISTORY = 20;
+
+const omitPublicSlugHistory = (cfg) => {
+  if (!cfg || typeof cfg !== 'object') return cfg;
+  const { publicSlugHistory: _h, ...rest } = cfg;
+  return rest;
+};
+
 /** Verify club exists (affiliation type) and return it. */
 const resolveClub = async (clubId) => {
   if (!clubId) return null;
@@ -46,7 +70,7 @@ const resolveClub = async (clubId) => {
   return club;
 };
 
-/** Resolve club by a manager-defined public slug (stored in store_config_json.publicPageConfig.publicSlug). */
+/** Resolve club by current public slug or a prior slug kept in publicSlugHistory (after renames). */
 const resolveClubByPublicSlug = async (publicSlug) => {
   const slug = normalizePublicSlug(publicSlug);
   if (!slug) return null;
@@ -54,9 +78,16 @@ const resolveClubByPublicSlug = async (publicSlug) => {
     `SELECT id, name, slug, logo_url, logo_path, organization_type, color_palette
      FROM agencies
      WHERE organization_type = 'affiliation'
-       AND LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(store_config_json, '$.publicPageConfig.publicSlug')), '')) = ?
+       AND (
+         LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(store_config_json, '$.publicPageConfig.publicSlug')), '')) = ?
+         OR JSON_CONTAINS(
+           COALESCE(JSON_EXTRACT(store_config_json, '$.publicPageConfig.publicSlugHistory'), JSON_ARRAY()),
+           JSON_QUOTE(?),
+           '$'
+         )
+       )
      LIMIT 1`,
-    [slug]
+    [slug, slug]
   );
   return rows?.[0] || null;
 };
@@ -68,28 +99,39 @@ const resolveClubByPublicRef = async (clubRef) => {
   return resolveClubByPublicSlug(clubRef);
 };
 
-/** Resolve the parent/platform agency a club belongs to so applicants can be added to the tenant. */
-const resolveClubPlatformAgencyId = async (clubId) => {
-  const normalizedClubId = toInt(clubId);
-  if (!normalizedClubId) return null;
-  const preferredSlug = String(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc').trim().toLowerCase();
-  const [rows] = await pool.execute(
-    `SELECT oa.agency_id
-     FROM organization_affiliations oa
-     INNER JOIN agencies parent ON parent.id = oa.agency_id
-     WHERE oa.organization_id = ?
-       AND oa.is_active = 1
-     ORDER BY
-       CASE
-         WHEN LOWER(COALESCE(parent.slug, '')) = ? THEN 0
-         WHEN LOWER(COALESCE(parent.slug, '')) IN ('ssc', 'sstc', 'summit-stats') THEN 1
-         ELSE 2
-       END,
-       oa.agency_id DESC
-     LIMIT 1`,
-    [normalizedClubId, preferredSlug]
-  );
-  return toInt(rows?.[0]?.agency_id);
+/** Enrollment window for SSC season join UI (open vs deadline passed → request-only). */
+const computeJoinPhase = (row, now = new Date()) => {
+  if (!row) return null;
+  const opens = row.enrollment_opens_at ? new Date(row.enrollment_opens_at).getTime() : null;
+  const closes = row.enrollment_closes_at ? new Date(row.enrollment_closes_at).getTime() : null;
+  const nowMs = now.getTime();
+  if (opens && nowMs < opens) return 'not_open';
+  if (closes && nowMs > closes) return 'request_only';
+  return 'open';
+};
+
+const mapSeasonRow = (row) => {
+  if (!row) return null;
+  const startsAt = row.starts_at || row.created_at || null;
+  let daysUntilStart = null;
+  if (startsAt) {
+    const now = new Date();
+    const startDate = new Date(startsAt);
+    const millis = startDate.getTime() - now.getTime();
+    daysUntilStart = millis <= 0 ? 0 : Math.ceil(millis / (1000 * 60 * 60 * 24));
+  }
+  return {
+    id: Number(row.id),
+    name: row.class_name || `Season ${row.id}`,
+    description: String(row.description || '').trim() || null,
+    status: String(row.status || '').toLowerCase() || null,
+    startsAt,
+    endsAt: row.ends_at || null,
+    daysUntilStart,
+    enrollmentOpensAt: row.enrollment_opens_at || null,
+    enrollmentClosesAt: row.enrollment_closes_at || null,
+    joinPhase: computeJoinPhase(row)
+  };
 };
 
 /** Assert club manager access. Returns { ok, club } or sends 4xx response. */
@@ -360,6 +402,33 @@ const isUserEmailVerificationPending = async (userId) => {
 
 const DEFAULT_GENDER_OPTIONS = ['male', 'female'];
 
+const normalizeGenderToken = (v) => {
+  if (v == null || v === '') return '';
+  return String(v).trim().toLowerCase().replace(/\s+/g, '_');
+};
+
+const formatGenderDisplayLabel = (v) => {
+  const raw = String(v || '').trim();
+  if (!raw) return '';
+  return raw
+    .replace(/_/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+};
+
+const ageFromDateOfBirth = (dob) => {
+  if (!dob) return null;
+  const d = new Date(dob);
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const m = today.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age -= 1;
+  return age;
+};
+
 const buildPublicPageConfig = (rawStoreConfig) => {
   const storeObj = parseJsonObject(rawStoreConfig);
   const cfg = parseJsonObject(storeObj?.publicPageConfig);
@@ -384,8 +453,18 @@ const buildPublicPageConfig = (rawStoreConfig) => {
     if (cleaned.length > 0) genderOptions = cleaned;
   }
 
+  let publicSlugHistory = [];
+  if (Array.isArray(cfg.publicSlugHistory)) {
+    for (const s of cfg.publicSlugHistory) {
+      const n = normalizePublicSlug(s);
+      if (n) publicSlugHistory.push(n);
+    }
+  }
+  publicSlugHistory = [...new Set(publicSlugHistory)].slice(0, MAX_PUBLIC_SLUG_HISTORY);
+
   return {
     publicSlug: normalizePublicSlug(cfg.publicSlug),
+    publicSlugHistory,
     bannerTitle: String(cfg.bannerTitle || '').trim().slice(0, 120),
     bannerSubtitle: String(cfg.bannerSubtitle || '').trim().slice(0, 220),
     bannerImageUrl: String(cfg.bannerImageUrl || '').trim().slice(0, 500),
@@ -393,6 +472,9 @@ const buildPublicPageConfig = (rawStoreConfig) => {
     showActiveParticipants: cfg.showActiveParticipants !== false,
     showFeaturedWorkout: cfg.showFeaturedWorkout !== false,
     showPhotoAlbum: cfg.showPhotoAlbum !== false,
+    showClubFeed: cfg.showClubFeed !== false,
+    /** When true, members may mark club feed items as visible on the public club page. */
+    publicFeedEnabled: cfg.publicFeedEnabled === true,
     albumSlides: slides,
     genderOptions
   };
@@ -471,12 +553,31 @@ export const getPublicClubStats = async (req, res, next) => {
     let logoUrl = club.logo_url || null;
     if (club.logo_path) logoUrl = `${baseUrl}/uploads/${club.logo_path.replace(/^uploads\//, '')}`;
     const publicPageConfig = buildPublicPageConfig(clubRow?.[0]?.store_config_json);
+    const publicPageConfigForClient = omitPublicSlugHistory(publicPageConfig);
     const publicStore = buildPublicStoreConfig(clubRow?.[0]?.store_config_json);
+
+    let viewer = {
+      isAuthenticated: false,
+      isMember: false,
+      clubRole: null,
+      isManager: false
+    };
+    if (req.user?.id) {
+      viewer.isAuthenticated = true;
+      const m = await getUserClubMembership(req.user.id, clubId);
+      if (m && m.is_active !== false) {
+        viewer.isMember = true;
+        viewer.clubRole = m.club_role || 'member';
+        const cr = String(m.club_role || '').toLowerCase();
+        viewer.isManager = cr === 'manager' || cr === 'assistant_manager';
+      }
+    }
 
     // Current season (active only)
     let currentSeason = null;
     const [seasonRows] = await pool.execute(
-      `SELECT id, class_name, description, status, starts_at, ends_at, created_at
+      `SELECT id, class_name, description, status, starts_at, ends_at, created_at,
+              enrollment_opens_at, enrollment_closes_at
        FROM learning_program_classes
        WHERE organization_id = ?
          AND LOWER(COALESCE(status, '')) = 'active'
@@ -486,45 +587,84 @@ export const getPublicClubStats = async (req, res, next) => {
     );
     const season = seasonRows?.[0] || null;
     if (season) {
-      currentSeason = {
-        id: Number(season.id),
-        name: season.class_name || `Season ${season.id}`,
-        description: String(season.description || '').trim() || null,
-        status: String(season.status || '').toLowerCase() || null,
-        startsAt: season.starts_at || null,
-        endsAt: season.ends_at || null
-      };
+      currentSeason = mapSeasonRow(season);
     }
 
     let upcomingSeason = null;
     const [upcomingRows] = await pool.execute(
-      `SELECT id, class_name, description, status, starts_at, ends_at, created_at
+      `SELECT id, class_name, description, status, starts_at, ends_at, created_at,
+              enrollment_opens_at, enrollment_closes_at
        FROM learning_program_classes
        WHERE organization_id = ?
-         AND COALESCE(starts_at, created_at) >= NOW()
+         AND LOWER(COALESCE(status, '')) NOT IN ('active', 'archived', 'cancelled')
+         AND (starts_at IS NULL OR starts_at >= NOW())
        ORDER BY COALESCE(starts_at, created_at) ASC, id ASC
        LIMIT 1`,
       [clubId]
     );
     const nextSeason = upcomingRows?.[0] || null;
     if (nextSeason) {
-      const startsAt = nextSeason.starts_at || nextSeason.created_at || null;
-      let daysUntilStart = null;
-      if (startsAt) {
-        const now = new Date();
-        const startDate = new Date(startsAt);
-        const millis = startDate.getTime() - now.getTime();
-        daysUntilStart = millis <= 0 ? 0 : Math.ceil(millis / (1000 * 60 * 60 * 24));
+      upcomingSeason = mapSeasonRow(nextSeason);
+      if (currentSeason && upcomingSeason && Number(upcomingSeason.id) === Number(currentSeason.id)) {
+        upcomingSeason = null;
       }
-      upcomingSeason = {
-        id: Number(nextSeason.id),
-        name: nextSeason.class_name || `Season ${nextSeason.id}`,
-        description: String(nextSeason.description || '').trim() || null,
-        status: String(nextSeason.status || '').toLowerCase() || null,
-        startsAt,
-        endsAt: nextSeason.ends_at || null,
-        daysUntilStart
-      };
+    }
+
+    let viewerSeasonMemberships = {};
+    let viewerPendingSeasonJoinRequest = null;
+    if (req.user?.id && viewer.isMember) {
+      const classIds = [currentSeason?.id, upcomingSeason?.id].filter((id) => id != null);
+      const uniqueIds = [...new Set(classIds.map(Number))];
+      if (uniqueIds.length) {
+        const ph = uniqueIds.map(() => '?').join(',');
+        const [memRows] = await pool.execute(
+          `SELECT learning_class_id, membership_status
+           FROM learning_class_provider_memberships
+           WHERE provider_user_id = ? AND learning_class_id IN (${ph})`,
+          [req.user.id, ...uniqueIds]
+        );
+        for (const r of memRows || []) {
+          viewerSeasonMemberships[Number(r.learning_class_id)] = String(r.membership_status || '').toLowerCase();
+        }
+      }
+      if (upcomingSeason?.id) {
+        try {
+          const [jrRows] = await pool.execute(
+            `SELECT id, status FROM summit_stats_season_join_requests
+             WHERE learning_class_id = ? AND user_id = ? AND status = 'pending'
+             LIMIT 1`,
+            [upcomingSeason.id, req.user.id]
+          );
+          const jr = jrRows?.[0];
+          if (jr) {
+            viewerPendingSeasonJoinRequest = { id: Number(jr.id), status: 'pending' };
+          }
+        } catch {
+          viewerPendingSeasonJoinRequest = null;
+        }
+      }
+    }
+
+    let companyEventsPreview = [];
+    try {
+      const [evRows] = await pool.execute(
+        `SELECT id, title, starts_at, ends_at
+         FROM company_events
+         WHERE agency_id = ?
+           AND is_active = 1
+           AND starts_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)
+         ORDER BY starts_at ASC
+         LIMIT 8`,
+        [clubId]
+      );
+      companyEventsPreview = (evRows || []).map((r) => ({
+        id: Number(r.id),
+        title: String(r.title || '').trim() || `Event ${r.id}`,
+        startsAt: r.starts_at || null,
+        endsAt: r.ends_at || null
+      }));
+    } catch {
+      companyEventsPreview = [];
     }
 
     // Active participants in current season
@@ -551,8 +691,8 @@ export const getPublicClubStats = async (req, res, next) => {
          LIMIT 80`,
         [clubId, currentSeason.id]
       );
+      // Public site: limited roster only (no user ids — names + optional team tooltip for display).
       activeParticipants = (activeRows || []).map((r) => ({
-        userId: Number(r.user_id),
         displayName: `${String(r.first_name || '').trim()} ${String(r.last_name || '').trim().charAt(0)}.`.trim(),
         teamName: r.team_name || null
       }));
@@ -599,7 +739,6 @@ export const getPublicClubStats = async (req, res, next) => {
     const top = featuredRows?.[0] || null;
     if (top) {
       featuredWorkout = {
-        workoutId: Number(top.workout_id),
         activityType: top.activity_type || 'Workout',
         distanceMiles: Number(top.distance_value || 0),
         durationMinutes: Number(top.duration_minutes || 0),
@@ -640,13 +779,20 @@ export const getPublicClubStats = async (req, res, next) => {
     } catch { /* non-blocking */ }
 
     return res.json({
+      viewer: {
+        ...viewer,
+        seasonMembershipByClassId: viewerSeasonMemberships,
+        pendingSeasonJoinRequest: viewerPendingSeasonJoinRequest
+      },
+      companyEventsPreview,
       club: {
         id: club.id,
         name: club.name,
         slug: club.slug,
         publicSlug: publicPageConfig.publicSlug || null,
+        canonicalClubRef: publicPageConfig.publicSlug || String(club.id),
         logoUrl,
-        publicPageConfig
+        publicPageConfig: publicPageConfigForClient
       },
       stats: {
         memberCount,
@@ -688,7 +834,7 @@ export const getPublicPageConfig = async (req, res, next) => {
       [clubId]
     );
     const config = buildPublicPageConfig(rows?.[0]?.store_config_json);
-    return res.json({ config });
+    return res.json({ config: omitPublicSlugHistory(config) });
   } catch (e) { next(e); }
 };
 
@@ -707,8 +853,10 @@ export const updatePublicPageConfig = async (req, res, next) => {
     );
     const storeObj = parseJsonObject(rows?.[0]?.store_config_json);
     const body = req.body || {};
+    const prevCfg = buildPublicPageConfig(storeObj);
     const nextConfig = buildPublicPageConfig({
       publicPageConfig: {
+        ...prevCfg,
         publicSlug: body.publicSlug,
         bannerTitle: body.bannerTitle,
         bannerSubtitle: body.bannerSubtitle,
@@ -717,22 +865,43 @@ export const updatePublicPageConfig = async (req, res, next) => {
         showActiveParticipants: body.showActiveParticipants,
         showFeaturedWorkout: body.showFeaturedWorkout,
         showPhotoAlbum: body.showPhotoAlbum,
+        showClubFeed: body.showClubFeed,
+        publicFeedEnabled: body.publicFeedEnabled,
         albumSlides: body.albumSlides,
         genderOptions: body.genderOptions
       }
     });
+    const prevSlug = prevCfg.publicSlug || '';
+    const newSlug = nextConfig.publicSlug || '';
+    let history = Array.isArray(prevCfg.publicSlugHistory) ? [...prevCfg.publicSlugHistory] : [];
+    if (prevSlug && normalizePublicSlug(prevSlug) !== newSlug) {
+      const oldH = normalizePublicSlug(prevSlug);
+      if (oldH && !history.includes(oldH)) history.unshift(oldH);
+    }
+    history = [...new Set(history.filter(Boolean))]
+      .filter((h) => h !== newSlug)
+      .slice(0, MAX_PUBLIC_SLUG_HISTORY);
+    nextConfig.publicSlugHistory = history;
+
     if (nextConfig.publicSlug) {
       const [dupeRows] = await pool.execute(
         `SELECT id
          FROM agencies
          WHERE id <> ?
            AND organization_type = 'affiliation'
-           AND LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(store_config_json, '$.publicPageConfig.publicSlug')), '')) = ?
+           AND (
+             LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(store_config_json, '$.publicPageConfig.publicSlug')), '')) = ?
+             OR JSON_CONTAINS(
+               COALESCE(JSON_EXTRACT(store_config_json, '$.publicPageConfig.publicSlugHistory'), JSON_ARRAY()),
+               JSON_QUOTE(?),
+               '$'
+             )
+           )
          LIMIT 1`,
-        [clubId, nextConfig.publicSlug]
+        [clubId, nextConfig.publicSlug, nextConfig.publicSlug]
       );
       if (Array.isArray(dupeRows) && dupeRows.length) {
-        return res.status(409).json({ error: { message: 'That public URL slug is already in use by another club.' } });
+        return res.status(409).json({ error: { message: 'That public URL slug is already in use or was used by another club.' } });
       }
     }
     const nextStoreObj = {
@@ -743,7 +912,7 @@ export const updatePublicPageConfig = async (req, res, next) => {
       `UPDATE agencies SET store_config_json = ? WHERE id = ?`,
       [JSON.stringify(nextStoreObj), clubId]
     );
-    return res.json({ ok: true, config: nextConfig });
+    return res.json({ ok: true, config: omitPublicSlugHistory(nextConfig) });
   } catch (e) { next(e); }
 };
 
@@ -869,6 +1038,42 @@ const createApplicationRow = async ({
   return result.insertId;
 };
 
+const notifyClubManagersOfPendingMemberApplication = async ({
+  clubId,
+  applicationId,
+  firstName,
+  lastName,
+  email
+}) => {
+  const applicantName = `${String(firstName || '').trim()} ${String(lastName || '').trim()}`.trim() || String(email || '').trim();
+  let recipientIds = [];
+  try {
+    recipientIds = await getClubManagerNotificationRecipientUserIds(clubId);
+  } catch (e) {
+    console.error('notifyClubManagersOfPendingMemberApplication:', e);
+    return;
+  }
+  if (!recipientIds.length) return;
+  const title = `${applicantName} applied to join your club`;
+  const message = `New member application is pending review. Applicant email: ${String(email || '').trim()}.`;
+  for (const userId of recipientIds) {
+    try {
+      await Notification.create({
+        type: 'ssc_club_member_application_pending',
+        severity: 'info',
+        title,
+        message,
+        userId,
+        agencyId: clubId,
+        relatedEntityType: 'challenge_member_application',
+        relatedEntityId: applicationId
+      });
+    } catch (e) {
+      console.error('notifyClubManagersOfPendingMemberApplication create:', e);
+    }
+  }
+};
+
 /** Create a new user account for an applicant. */
 const createUserForApplication = async ({ firstName, lastName, email, phone, username, password }) => {
   const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -889,7 +1094,7 @@ const createUserForApplication = async ({ firstName, lastName, email, phone, use
 };
 
 const ensureUserInPlatformTenantForClub = async (userId, clubId, knownAgencies = null) => {
-  const platformAgencyId = await resolveClubPlatformAgencyId(clubId);
+  const platformAgencyId = await getClubPlatformTenantAgencyId(clubId);
   if (!platformAgencyId) return null;
   const agencies = Array.isArray(knownAgencies) ? knownAgencies : await User.getAgencies(userId);
   const alreadyInPlatform = (agencies || []).some((a) => Number(a?.id) === Number(platformAgencyId));
@@ -934,7 +1139,7 @@ const getApplicationEmailStatusSnapshot = async ({ clubId, email }) => {
   if (existingUser?.id) {
     const agencies = await User.getAgencies(existingUser.id);
     alreadyMember = (agencies || []).some((a) => Number(a?.id) === Number(clubId));
-    const platformAgencyId = await resolveClubPlatformAgencyId(clubId);
+    const platformAgencyId = await getClubPlatformTenantAgencyId(clubId);
     if (platformAgencyId) {
       inPlatformTenant = (agencies || []).some((a) => Number(a?.id) === Number(platformAgencyId));
     }
@@ -1076,6 +1281,14 @@ export const submitApplication = async (req, res, next) => {
       waiverUserAgent: normalizeShortText(req.get('user-agent'), 255)
     });
 
+    await notifyClubManagersOfPendingMemberApplication({
+      clubId,
+      applicationId: appId,
+      firstName,
+      lastName,
+      email: normalizedEmail
+    });
+
     return res.status(201).json({
       ok: true,
       applicationId: appId,
@@ -1201,6 +1414,14 @@ export const submitInviteApplication = async (req, res, next) => {
           : 'Welcome! You have been added to the club automatically.'
       });
     }
+
+    await notifyClubManagersOfPendingMemberApplication({
+      clubId,
+      applicationId: appId,
+      firstName,
+      lastName,
+      email: normalizedEmail
+    });
 
     return res.status(201).json({
       ok: true, applicationId: appId,
@@ -1557,20 +1778,302 @@ export const getPendingApplicationCount = async (req, res, next) => {
 
 // ── CLUB FEED ─────────────────────────────────────────────────────────────
 
+const mapClubFeedPostRows = (rows) => (rows || []).map((m) => {
+  const role = String(m.club_role || 'member').toLowerCase();
+  const isManagerPost = role === 'manager' || role === 'assistant_manager';
+  let attachments = [];
+  try {
+    const raw = m.attachments_json;
+    const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (Array.isArray(arr)) {
+      attachments = arr
+        .map((a) => ({
+          type: a.type || 'image',
+          url: publicUploadsUrlFromStoredPath(a.path || '')
+        }))
+        .filter((a) => a.url);
+    }
+  } catch {
+    attachments = [];
+  }
+  return {
+    type: isManagerPost ? 'announcement' : 'member_message',
+    source: 'club',
+    id: `cfp-${m.id}`,
+    clubPostId: Number(m.id),
+    userId: null,
+    name: `${m.first_name || ''} ${m.last_name || ''}`.trim(),
+    text: m.message_text,
+    attachments,
+    seasonName: null,
+    visibility: m.visibility === 'public' ? 'public' : 'club',
+    timestamp: m.created_at
+  };
+});
+
+/**
+ * GET /summit-stats/clubs/:id/feed/public
+ * No auth — items the club marked as public (when public feed is enabled in Public page settings).
+ */
+export const getClubFeedPublic = async (req, res, next) => {
+  try {
+    const clubRef = String(req.params.id || '').trim();
+    const club = await resolveClubByPublicRef(clubRef);
+    if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
+    const clubId = Number(club.id);
+    const [cfgRows] = await pool.execute(
+      `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
+      [clubId]
+    );
+    const pubCfg = buildPublicPageConfig(cfgRows?.[0]?.store_config_json);
+    if (!pubCfg.publicFeedEnabled) return res.json({ items: [] });
+
+    const limit = Math.min(60, parseInt(req.query.limit, 10) || 40);
+    const [postRows] = await pool.execute(
+      `SELECT cfp.id, cfp.message_text, cfp.attachments_json, cfp.visibility, cfp.created_at,
+              u.first_name, u.last_name,
+              COALESCE(ua.club_role, 'member') AS club_role
+       FROM club_feed_posts cfp
+       INNER JOIN users u ON u.id = cfp.user_id
+       LEFT JOIN user_agencies ua ON ua.user_id = cfp.user_id AND ua.agency_id = ?
+       WHERE cfp.agency_id = ? AND cfp.visibility = 'public'
+       ORDER BY cfp.created_at DESC
+       LIMIT ?`,
+      [clubId, clubId, limit]
+    );
+    const feedItems = mapClubFeedPostRows(postRows);
+    return res.json({ items: feedItems });
+  } catch (e) { next(e); }
+};
+
+/**
+ * POST /summit-stats/clubs/:id/feed/posts
+ * Authenticated club members — club-wide message (not tied to a season).
+ */
+export const postClubFeedPost = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await assertMemberAccess(req, res, clubId);
+    if (!club) return;
+    const messageText = String(req.body?.messageText || '').trim().slice(0, 4000);
+    if (!messageText) return res.status(400).json({ error: { message: 'messageText is required' } });
+    let visibility = String(req.body?.visibility || 'club').toLowerCase() === 'public' ? 'public' : 'club';
+    const [cfgRows] = await pool.execute(
+      `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
+      [clubId]
+    );
+    const pubCfg = buildPublicPageConfig(cfgRows?.[0]?.store_config_json);
+    if (visibility === 'public' && !pubCfg.publicFeedEnabled) {
+      return res.status(403).json({
+        error: { message: 'Public feed is not enabled for this club. Turn it on under Public page settings.' }
+      });
+    }
+    const uid = req.user.id;
+    const rawPaths = req.body?.attachmentPaths;
+    let paths = [];
+    if (Array.isArray(rawPaths)) {
+      paths = rawPaths.map((p) => String(p || '').trim()).filter(Boolean).slice(0, 8);
+    }
+    const prefix = `uploads/club_feed/${clubId}/${uid}/`;
+    for (const p of paths) {
+      if (!p.startsWith(prefix)) {
+        return res.status(400).json({ error: { message: 'Invalid attachment path' } });
+      }
+    }
+    const attachmentsJson = paths.length ? JSON.stringify(paths.map((path) => ({ type: 'image', path }))) : null;
+    await pool.execute(
+      `INSERT INTO club_feed_posts (agency_id, user_id, message_text, attachments_json, visibility) VALUES (?, ?, ?, ?, ?)`,
+      [clubId, uid, messageText, attachmentsJson, visibility]
+    );
+    return res.status(201).json({ ok: true });
+  } catch (e) { next(e); }
+};
+
+/**
+ * POST /summit-stats/clubs/:id/feed/attachments
+ * Upload one image for a club feed post; returns path for attachmentPaths on POST .../feed/posts.
+ */
+export const postClubFeedAttachment = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await assertMemberAccess(req, res, clubId);
+    if (!club) return;
+    if (!req.file?.buffer) {
+      return res.status(400).json({ error: { message: 'No image file uploaded' } });
+    }
+    const result = await StorageService.saveClubFeedAttachment(
+      clubId,
+      req.user.id,
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype
+    );
+    const url = publicUploadsUrlFromStoredPath(result.relativePath);
+    return res.json({ path: result.relativePath, url });
+  } catch (e) { next(e); }
+};
+
+/**
+ * GET /summit-stats/clubs/:id/feed/season-options
+ * Active seasons in this club the current user belongs to (for "Post to season").
+ */
+export const getClubFeedSeasonOptions = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club = await assertMemberAccess(req, res, clubId);
+    if (!club) return;
+    const userId = req.user.id;
+    const [rows] = await pool.execute(
+      `SELECT c.id, c.class_name, c.status, c.starts_at, c.ends_at
+       FROM learning_program_classes c
+       INNER JOIN learning_class_provider_memberships m ON m.learning_class_id = c.id
+       WHERE c.organization_id = ?
+         AND m.provider_user_id = ?
+         AND m.membership_status = 'active'
+         AND LOWER(COALESCE(c.status, '')) NOT IN ('archived', 'cancelled')
+         AND (c.ends_at IS NULL OR c.ends_at >= NOW())
+       ORDER BY COALESCE(c.starts_at, c.created_at) DESC, c.id DESC
+       LIMIT 12`,
+      [clubId, userId]
+    );
+    const seasons = (rows || []).map((r) => ({
+      id: Number(r.id),
+      name: String(r.class_name || '').trim() || `Season ${r.id}`,
+      status: r.status || null
+    }));
+    return res.json({ seasons });
+  } catch (e) { next(e); }
+};
+
 /**
  * GET /summit-stats/clubs/:id/feed
- * Authenticated — recent workout activity across all club seasons.
- * Seasons whose settings have feedSettings.showInClubFeed === false are excluded.
+ * Authenticated member — club-wide posts; optional merge with season workouts + chat.
+ * Query: includeSeasonFeed=0|1 (default 0) — when 1, merge season workouts + chat into the feed.
+ * Query: seasonId=<classId> — only that season's workouts + messages (no club-wide posts).
  */
 export const getClubFeed = async (req, res, next) => {
   try {
     const clubId = toInt(req.params.id);
-    const club = await resolveClub(clubId);
-    if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
+    const club = await assertMemberAccess(req, res, clubId);
+    if (!club) return;
 
     const limit = Math.min(60, parseInt(req.query.limit, 10) || 40);
+    const seasonId = toInt(req.query.seasonId);
+    const incQ = String(req.query.includeSeasonFeed ?? '').toLowerCase();
+    const includeSeasonFeed = incQ === '1' || incQ === 'true';
 
-    // Get all seasons for this club, filter out those with showInClubFeed === false
+    const [clubPostRows] = await pool.execute(
+      `SELECT cfp.id, cfp.message_text, cfp.attachments_json, cfp.visibility, cfp.created_at,
+              u.first_name, u.last_name,
+              COALESCE(ua.club_role, 'member') AS club_role
+       FROM club_feed_posts cfp
+       INNER JOIN users u ON u.id = cfp.user_id
+       LEFT JOIN user_agencies ua ON ua.user_id = cfp.user_id AND ua.agency_id = ?
+       WHERE cfp.agency_id = ?
+       ORDER BY cfp.created_at DESC
+       LIMIT 80`,
+      [clubId, clubId]
+    );
+    const clubFeedItems = mapClubFeedPostRows(clubPostRows);
+
+    const mapWorkouts = (workoutRows, seasonMap) => (workoutRows || []).map((w) => ({
+      type: 'workout',
+      id: `w-${w.id}`,
+      workoutId: Number(w.id),
+      userId: Number(w.user_id),
+      name: `${w.first_name || ''} ${w.last_name || ''}`.trim(),
+      activityType: w.activity_type,
+      distanceMiles: w.distance_value != null ? Number(w.distance_value) : null,
+      durationMinutes: w.duration_minutes != null ? Number(w.duration_minutes) : null,
+      points: Number(w.points || 0),
+      isRace: w.is_race === 1,
+      notes: w.workout_notes || null,
+      seasonName: seasonMap.get(w.learning_class_id) || null,
+      timestamp: w.completed_at
+    }));
+
+    const mapMsgs = (msgRows, seasonMap) => (msgRows || []).map((m) => {
+      const role = String(m.club_role || 'member').toLowerCase();
+      const isManagerPost = role === 'manager' || role === 'assistant_manager';
+      return {
+        type: isManagerPost ? 'announcement' : 'member_message',
+        source: 'season',
+        id: `m-${m.id}`,
+        userId: null,
+        name: `${m.first_name || ''} ${m.last_name || ''}`.trim(),
+        text: m.message_text,
+        seasonName: seasonMap.get(m.learning_class_id) || null,
+        timestamp: m.created_at
+      };
+    });
+
+    if (seasonId) {
+      const [mem] = await pool.execute(
+        `SELECT 1 FROM learning_class_provider_memberships
+         WHERE provider_user_id = ? AND learning_class_id = ? AND membership_status = 'active' LIMIT 1`,
+        [req.user.id, seasonId]
+      );
+      if (!mem?.length) {
+        return res.status(403).json({ error: { message: 'You are not active in this season' } });
+      }
+      const [clsRows] = await pool.execute(
+        `SELECT id, class_name FROM learning_program_classes WHERE id = ? AND organization_id = ? LIMIT 1`,
+        [seasonId, clubId]
+      );
+      if (!clsRows?.[0]) return res.status(404).json({ error: { message: 'Season not found' } });
+      const seasonMap = new Map([[Number(clsRows[0].id), clsRows[0].class_name || 'Season']]);
+
+      const [workoutRows] = await pool.execute(
+        `SELECT
+           w.id, w.user_id, w.learning_class_id, w.activity_type,
+           w.distance_value, w.duration_minutes, w.points, w.calories_burned,
+           w.workout_notes, w.completed_at, w.is_race,
+           u.first_name, u.last_name
+         FROM challenge_workouts w
+         INNER JOIN users u ON u.id = w.user_id
+         WHERE w.learning_class_id = ?
+           AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         ORDER BY w.completed_at DESC
+         LIMIT ?`,
+        [seasonId, limit]
+      );
+
+      const [msgRows] = await pool.execute(
+        `SELECT
+           cm.id, cm.learning_class_id, cm.message_text, cm.created_at,
+           u.first_name, u.last_name,
+           COALESCE(ua.club_role, 'member') AS club_role
+         FROM challenge_messages cm
+         INNER JOIN users u ON u.id = cm.user_id
+         LEFT JOIN user_agencies ua ON ua.user_id = cm.user_id AND ua.agency_id = ?
+         WHERE cm.learning_class_id = ?
+           AND cm.team_id IS NULL
+           AND cm.deleted_at IS NULL
+         ORDER BY cm.created_at DESC
+         LIMIT 80`,
+        [clubId, seasonId]
+      );
+
+      const feedItems = [
+        ...mapWorkouts(workoutRows, seasonMap),
+        ...mapMsgs(msgRows, seasonMap)
+      ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, limit);
+
+      return res.json({
+        items: feedItems,
+        feedScope: 'season',
+        seasonId,
+        seasonName: clsRows[0].class_name || 'Season'
+      });
+    }
+
+    if (!includeSeasonFeed) {
+      const feedItems = clubFeedItems
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+        .slice(0, limit);
+      return res.json({ items: feedItems, feedScope: 'club' });
+    }
+
     const [seasonRows] = await pool.execute(
       `SELECT id, class_name, season_settings_json FROM learning_program_classes WHERE organization_id = ? ORDER BY created_at DESC LIMIT 20`,
       [clubId]
@@ -1586,7 +2089,12 @@ export const getClubFeed = async (req, res, next) => {
       })
       .map((s) => s.id);
 
-    if (!visibleSeasonIds.length) return res.json({ items: [] });
+    if (!visibleSeasonIds.length) {
+      const feedItems = clubFeedItems
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+        .slice(0, limit);
+      return res.json({ items: feedItems, feedScope: 'merged' });
+    }
 
     const placeholders = visibleSeasonIds.map(() => '?').join(', ');
     const seasonMap = new Map((seasonRows || []).map((s) => [s.id, s.class_name]));
@@ -1606,49 +2114,29 @@ export const getClubFeed = async (req, res, next) => {
       [...visibleSeasonIds, limit]
     );
 
-    // Recent manager messages from visible seasons
     const [msgRows] = await pool.execute(
       `SELECT
          cm.id, cm.learning_class_id, cm.message_text, cm.created_at,
-         u.first_name, u.last_name, u.role
+         u.first_name, u.last_name,
+         COALESCE(ua.club_role, 'member') AS club_role
        FROM challenge_messages cm
        INNER JOIN users u ON u.id = cm.user_id
-       INNER JOIN user_agencies ua ON ua.user_id = cm.user_id AND ua.agency_id = ?
+       LEFT JOIN user_agencies ua ON ua.user_id = cm.user_id AND ua.agency_id = ?
        WHERE cm.learning_class_id IN (${placeholders})
-         AND COALESCE(ua.club_role, 'member') IN ('manager','assistant_manager')
+         AND cm.team_id IS NULL
+         AND cm.deleted_at IS NULL
        ORDER BY cm.created_at DESC
-       LIMIT 20`,
+       LIMIT 80`,
       [clubId, ...visibleSeasonIds]
     );
 
     const feedItems = [
-      ...(workoutRows || []).map((w) => ({
-        type: 'workout',
-        id: `w-${w.id}`,
-        workoutId: Number(w.id),
-        userId: Number(w.user_id),
-        name: `${w.first_name || ''} ${w.last_name || ''}`.trim(),
-        activityType: w.activity_type,
-        distanceMiles: w.distance_value != null ? Number(w.distance_value) : null,
-        durationMinutes: w.duration_minutes != null ? Number(w.duration_minutes) : null,
-        points: Number(w.points || 0),
-        isRace: w.is_race === 1,
-        notes: w.workout_notes || null,
-        seasonName: seasonMap.get(w.learning_class_id) || null,
-        timestamp: w.completed_at
-      })),
-      ...(msgRows || []).map((m) => ({
-        type: 'announcement',
-        id: `m-${m.id}`,
-        userId: null,
-        name: `${m.first_name || ''} ${m.last_name || ''}`.trim(),
-        text: m.message_text,
-        seasonName: seasonMap.get(m.learning_class_id) || null,
-        timestamp: m.created_at
-      }))
+      ...clubFeedItems,
+      ...mapWorkouts(workoutRows, seasonMap),
+      ...mapMsgs(msgRows, seasonMap)
     ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, limit);
 
-    return res.json({ items: feedItems });
+    return res.json({ items: feedItems, feedScope: 'merged' });
   } catch (e) { next(e); }
 };
 
@@ -1708,8 +2196,38 @@ export const listClubMembers = async (req, res, next) => {
       status: r.status || '',
       createdAt: r.created_at || null,
       clubRole: r.club_role || null,
-      isActiveInClub: Number(r.club_is_active || 0) === 1
+      isActiveInClub: Number(r.club_is_active || 0) === 1,
+      applicationPending: false
     })) : [];
+
+    const seenIds = new Set(members.map((m) => m.id).filter((n) => Number.isFinite(n) && n > 0));
+    const [pendingRows] = await pool.execute(
+      `SELECT cma.user_id, cma.email, cma.first_name, cma.last_name, cma.applied_at, u.role, u.status
+       FROM challenge_member_applications cma
+       INNER JOIN users u ON u.id = cma.user_id
+       WHERE cma.agency_id = ?
+         AND cma.status = 'pending'
+         AND cma.user_id IS NOT NULL
+         AND (u.is_archived IS NULL OR u.is_archived = 0)`,
+      [clubId]
+    );
+    for (const pr of pendingRows || []) {
+      const uid = Number(pr.user_id);
+      if (!uid || seenIds.has(uid)) continue;
+      seenIds.add(uid);
+      members.push({
+        id: uid,
+        email: pr.email || '',
+        firstName: pr.first_name || '',
+        lastName: pr.last_name || '',
+        role: pr.role || '',
+        status: pr.status || '',
+        createdAt: pr.applied_at || null,
+        clubRole: 'pending',
+        isActiveInClub: false,
+        applicationPending: true
+      });
+    }
 
     const memberIds = members.map((m) => m.id).filter((n) => Number.isFinite(n) && n > 0);
     const seasonsByUser = {};
@@ -2264,7 +2782,7 @@ export const getMyDashboardSummary = async (req, res, next) => {
     if (!userId) return res.status(401).json({ error: { message: 'Sign in required' } });
 
     const [userRows] = await pool.execute(
-      `SELECT id, email, first_name, last_name, role, status, timezone, created_at
+      `SELECT id, email, first_name, last_name, role, status, timezone, created_at, profile_photo_path, personal_phone
        FROM users
        WHERE id = ?
        LIMIT 1`,
@@ -2390,6 +2908,16 @@ export const getMyDashboardSummary = async (req, res, next) => {
       };
     });
 
+    let accountGenderOptions = [...DEFAULT_GENDER_OPTIONS];
+    if (clubs.length) {
+      const firstClubId = clubs[0].id;
+      const [cfgRows] = await pool.execute(
+        `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
+        [firstClubId]
+      );
+      accountGenderOptions = buildPublicPageConfig(cfgRows?.[0]?.store_config_json).genderOptions;
+    }
+
     return res.json({
       member: {
         userId,
@@ -2397,11 +2925,15 @@ export const getMyDashboardSummary = async (req, res, next) => {
         firstName: user.first_name || '',
         lastName: user.last_name || '',
         timezone: user.timezone || null,
+        profilePhotoUrl: publicUploadsUrlFromStoredPath(user.profile_photo_path),
         role: user.role || '',
         status: user.status || '',
         createdAt: user.created_at || null
       },
       memberships: clubs,
+      accountSettings: {
+        genderOptions: accountGenderOptions
+      },
       pendingClubAccess: {
         hasClub: clubs.some((club) => club.isActive),
         managedClubCount: clubs.filter((club) => club.clubRole === 'manager' || club.clubRole === 'assistant_manager').length
@@ -2432,11 +2964,111 @@ export const getMyDashboardSummary = async (req, res, next) => {
         dateOfBirth: latestApplication?.date_of_birth || null,
         weightLbs: latestApplication?.weight_lbs != null ? Number(latestApplication.weight_lbs) : null,
         heightInches: latestApplication?.height_inches != null ? Number(latestApplication.height_inches) : null,
-        phone: latestApplication?.phone || null,
+        phone: latestApplication?.phone || user.personal_phone || null,
         latestApplicationStatus: latestApplication?.status || null
       }
     });
   } catch (e) { next(e); }
+};
+
+/**
+ * PUT /summit-stats/me/account-snapshot
+ * Self-service — update name, timezone, contact/activity fields shown on the SSC dashboard snapshot.
+ * Persists to `users` and, when present, the latest `challenge_member_applications` row.
+ */
+export const putMyAccountSnapshot = async (req, res, next) => {
+  try {
+    const userId = toInt(req.user?.id);
+    if (!userId) return res.status(401).json({ error: { message: 'Sign in required' } });
+
+    const body = req.body || {};
+    const hasUserField =
+      body.firstName !== undefined ||
+      body.lastName !== undefined ||
+      body.phone !== undefined ||
+      body.timezone !== undefined;
+    const hasAppOnlyField =
+      body.gender !== undefined ||
+      body.averageMilesPerWeek !== undefined ||
+      body.averageHoursPerWeek !== undefined ||
+      body.heardAboutClub !== undefined ||
+      body.runningFitnessBackground !== undefined ||
+      body.currentFitnessActivities !== undefined;
+
+    if (!hasUserField && !hasAppOnlyField) {
+      return res.status(400).json({ error: { message: 'No fields to update' } });
+    }
+
+    const userPatch = {};
+    if (body.firstName !== undefined) userPatch.firstName = String(body.firstName || '').trim();
+    if (body.lastName !== undefined) userPatch.lastName = String(body.lastName || '').trim();
+    if (body.phone !== undefined) userPatch.personalPhone = String(body.phone || '').trim() || null;
+
+    if (Object.keys(userPatch).length > 0) {
+      await User.update(userId, userPatch);
+    }
+
+    if (body.timezone !== undefined) {
+      const tz = body.timezone ? String(body.timezone).trim().slice(0, 64) : null;
+      await pool.execute(`UPDATE users SET timezone = ? WHERE id = ?`, [tz, userId]);
+    }
+
+    const [idRows] = await pool.execute(
+      `SELECT id FROM challenge_member_applications
+       WHERE user_id = ? OR LOWER(COALESCE(email, '')) = LOWER((SELECT email FROM users WHERE id = ? LIMIT 1))
+       ORDER BY applied_at DESC, id DESC
+       LIMIT 1`,
+      [userId, userId]
+    );
+    const appId = idRows?.[0]?.id;
+
+    if (appId) {
+      const appUpdates = [];
+      const appVals = [];
+      const pushCol = (col, val) => {
+        appUpdates.push(`${col} = ?`);
+        appVals.push(val);
+      };
+      if (body.phone !== undefined) pushCol('phone', String(body.phone || '').trim() || null);
+      if (body.gender !== undefined) pushCol('gender', String(body.gender || '').trim() || null);
+      if (body.averageMilesPerWeek !== undefined) {
+        const v = body.averageMilesPerWeek;
+        const n = v === null || v === '' ? null : Number(v);
+        pushCol('average_miles_per_week', Number.isFinite(n) ? n : null);
+      }
+      if (body.averageHoursPerWeek !== undefined) {
+        const v = body.averageHoursPerWeek;
+        const n = v === null || v === '' ? null : Number(v);
+        pushCol('average_hours_per_week', Number.isFinite(n) ? n : null);
+      }
+      if (body.heardAboutClub !== undefined) {
+        pushCol('heard_about_club', String(body.heardAboutClub || '').trim() || null);
+      }
+      if (body.runningFitnessBackground !== undefined) {
+        pushCol('running_fitness_background', String(body.runningFitnessBackground || '').trim() || null);
+      }
+      if (body.currentFitnessActivities !== undefined) {
+        pushCol('current_fitness_activities', String(body.currentFitnessActivities || '').trim() || null);
+      }
+      if (body.firstName !== undefined) pushCol('first_name', String(body.firstName || '').trim());
+      if (body.lastName !== undefined) pushCol('last_name', String(body.lastName || '').trim());
+      if (body.timezone !== undefined) {
+        pushCol('timezone', body.timezone ? String(body.timezone).trim().slice(0, 64) : null);
+      }
+
+      if (appUpdates.length) {
+        appVals.push(appId);
+        await pool.execute(
+          `UPDATE challenge_member_applications SET ${appUpdates.join(', ')} WHERE id = ?`,
+          appVals
+        );
+      }
+    }
+
+    return res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
 };
 
 /**
@@ -2449,15 +3081,18 @@ export const getMyApplications = async (req, res, next) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: { message: 'Sign in required' } });
 
+    const userEmail = String(req.user?.email || '').trim().toLowerCase();
+    const params = userEmail ? [userId, userEmail] : [userId];
+    const emailOrClause = userEmail ? ' OR LOWER(TRIM(cma.email)) = ?' : '';
     const [rows] = await pool.execute(
       `SELECT cma.id, cma.status, cma.applied_at, cma.reviewed_at,
               a.id AS club_id, a.name AS club_name, a.logo_url, a.logo_path
        FROM challenge_member_applications cma
        JOIN agencies a ON a.id = cma.agency_id
-       WHERE cma.user_id = ?
+       WHERE cma.user_id = ?${emailOrClause}
        ORDER BY cma.applied_at DESC
        LIMIT 20`,
-      [userId]
+      params
     );
 
     const baseUrl = process.env.BACKEND_URL || '';
@@ -2476,5 +3111,443 @@ export const getMyApplications = async (req, res, next) => {
     });
 
     return res.json({ applications });
+  } catch (e) { next(e); }
+};
+
+/**
+ * GET /summit-stats/clubs/:id/members/directory
+ * Authenticated club members — roster with photos, stats, location, age; gender shown in list only when it matches club-configured options.
+ */
+export const listClubMembersDirectory = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    if (!clubId) return res.status(400).json({ error: { message: 'Invalid club id' } });
+    const user = req.user;
+    if (!user?.id) return res.status(401).json({ error: { message: 'Sign in required' } });
+    const membership = await getUserClubMembership(user.id, clubId);
+    if (!membership || membership.is_active === false) {
+      return res.status(403).json({ error: { message: 'Club membership required' } });
+    }
+
+    const [cfgRows] = await pool.execute(
+      `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
+      [clubId]
+    );
+    const { genderOptions } = buildPublicPageConfig(cfgRows?.[0]?.store_config_json);
+    const clubGenderSet = new Set((genderOptions || []).map((g) => normalizeGenderToken(g)));
+
+    const [rows] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.profile_photo_path,
+              u.home_city, u.home_state,
+              COALESCE(st.workout_count, 0) AS workout_count,
+              COALESCE(st.total_points, 0) AS total_points,
+              COALESCE(st.total_miles, 0) AS total_miles
+       FROM user_agencies ua
+       INNER JOIN users u ON u.id = ua.user_id
+       LEFT JOIN (
+         SELECT w.user_id,
+                COUNT(w.id) AS workout_count,
+                COALESCE(SUM(w.points), 0) AS total_points,
+                COALESCE(SUM(w.distance_value), 0) AS total_miles
+         FROM challenge_workouts w
+         INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+         WHERE c.organization_id = ?
+           AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         GROUP BY w.user_id
+       ) st ON st.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND ua.is_active = 1
+         AND (u.is_archived IS NULL OR u.is_archived = 0)
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC
+       LIMIT 300`,
+      [clubId, clubId]
+    );
+
+    const userIds = (rows || []).map((r) => Number(r.id));
+    if (!userIds.length) {
+      return res.json({ members: [], genderOptions });
+    }
+
+    const placeholders = userIds.map(() => '?').join(',');
+    const [appRows] = await pool.execute(
+      `SELECT user_id, gender, date_of_birth, applied_at, id
+       FROM challenge_member_applications
+       WHERE agency_id = ? AND user_id IN (${placeholders})
+       ORDER BY user_id ASC, applied_at DESC, id DESC`,
+      [clubId, ...userIds]
+    );
+    const appByUser = new Map();
+    for (const r of appRows || []) {
+      const uid = Number(r.user_id);
+      if (!appByUser.has(uid)) appByUser.set(uid, r);
+    }
+
+    const [profRows] = await pool.execute(
+      `SELECT p.provider_user_id AS user_id, p.gender, p.date_of_birth, p.updated_at, p.id
+       FROM challenge_participant_profiles p
+       INNER JOIN learning_program_classes c ON c.id = p.learning_class_id
+       WHERE c.organization_id = ? AND p.provider_user_id IN (${placeholders})
+       ORDER BY p.provider_user_id ASC, p.updated_at DESC, p.id DESC`,
+      [clubId, ...userIds]
+    );
+    const profByUser = new Map();
+    for (const r of profRows || []) {
+      const uid = Number(r.user_id);
+      if (!profByUser.has(uid)) profByUser.set(uid, r);
+    }
+
+    const members = (rows || []).map((r) => {
+      const uid = Number(r.id);
+      const app = appByUser.get(uid);
+      const prof = profByUser.get(uid);
+      const genderRaw = app?.gender || prof?.gender || null;
+      const dob = app?.date_of_birth || prof?.date_of_birth || null;
+      const gTok = normalizeGenderToken(genderRaw);
+      const genderInClubList = !!(gTok && clubGenderSet.has(gTok));
+
+      return {
+        id: uid,
+        firstName: String(r.first_name || '').trim(),
+        lastName: String(r.last_name || '').trim(),
+        displayName: `${String(r.first_name || '').trim()} ${String(r.last_name || '').trim()}`.trim() || 'Member',
+        profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path),
+        homeCity: r.home_city || null,
+        homeState: r.home_state || null,
+        age: ageFromDateOfBirth(dob),
+        stats: {
+          totalPoints: Math.round(Number(r.total_points || 0)),
+          totalMiles: normalizeNum(r.total_miles, 1),
+          workoutCount: Number(r.workout_count || 0)
+        },
+        genderListLabel: genderInClubList && genderRaw ? formatGenderDisplayLabel(genderRaw) : null,
+        genderHiddenInList: !!(genderRaw && !genderInClubList)
+      };
+    });
+
+    return res.json({ members, genderOptions });
+  } catch (e) { next(e); }
+};
+
+/**
+ * GET /summit-stats/clubs/:id/members/:userId/profile
+ * Club peer profile — extended fields + all-time stats in this club (for directory modal).
+ */
+export const getClubMemberProfile = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const targetUserId = toInt(req.params.userId);
+    const viewerId = req.user?.id;
+    if (!viewerId) return res.status(401).json({ error: { message: 'Sign in required' } });
+    if (!clubId || !targetUserId) return res.status(400).json({ error: { message: 'Invalid club or user' } });
+
+    const membership = await getUserClubMembership(viewerId, clubId);
+    if (!membership || membership.is_active === false) {
+      return res.status(403).json({ error: { message: 'Club membership required' } });
+    }
+
+    const [memRows] = await pool.execute(
+      `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? AND is_active = 1 LIMIT 1`,
+      [targetUserId, clubId]
+    );
+    if (!memRows?.length) {
+      return res.status(404).json({ error: { message: 'Member not found in this club' } });
+    }
+
+    const [cfgRows] = await pool.execute(
+      `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
+      [clubId]
+    );
+    const { genderOptions } = buildPublicPageConfig(cfgRows?.[0]?.store_config_json);
+    const clubGenderSet = new Set((genderOptions || []).map((g) => normalizeGenderToken(g)));
+
+    const [userRows] = await pool.execute(
+      `SELECT id, first_name, last_name, profile_photo_path, home_city, home_state, timezone
+       FROM users WHERE id = ? LIMIT 1`,
+      [targetUserId]
+    );
+    const u = userRows?.[0];
+    if (!u) return res.status(404).json({ error: { message: 'User not found' } });
+
+    const [appRows] = await pool.execute(
+      `SELECT gender, date_of_birth, heard_about_club, running_fitness_background, current_fitness_activities,
+              average_miles_per_week, average_hours_per_week
+       FROM challenge_member_applications
+       WHERE agency_id = ? AND user_id = ?
+       ORDER BY applied_at DESC, id DESC
+       LIMIT 1`,
+      [clubId, targetUserId]
+    );
+    const app = appRows?.[0] || null;
+
+    const [profRows] = await pool.execute(
+      `SELECT p.gender, p.date_of_birth
+       FROM challenge_participant_profiles p
+       INNER JOIN learning_program_classes c ON c.id = p.learning_class_id
+       WHERE c.organization_id = ? AND p.provider_user_id = ?
+       ORDER BY p.updated_at DESC, p.id DESC
+       LIMIT 1`,
+      [clubId, targetUserId]
+    );
+    const prof = profRows?.[0] || null;
+
+    const genderRaw = app?.gender || prof?.gender || null;
+    const dob = app?.date_of_birth || prof?.date_of_birth || null;
+    const gTok = normalizeGenderToken(genderRaw);
+
+    const [statsRows] = await pool.execute(
+      `SELECT
+         COUNT(w.id) AS workout_count,
+         COALESCE(SUM(w.points), 0) AS total_points,
+         COALESCE(SUM(w.distance_value), 0) AS total_miles,
+         COALESCE(SUM(w.duration_minutes), 0) AS total_minutes,
+         MAX(CASE
+           WHEN LOWER(COALESCE(w.activity_type, '')) LIKE '%run%'
+           THEN COALESCE(w.distance_value, 0)
+           ELSE 0
+         END) AS longest_run_miles
+       FROM challenge_workouts w
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+       WHERE w.user_id = ?
+         AND c.organization_id = ?
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)`,
+      [targetUserId, clubId]
+    );
+    const totals = statsRows?.[0] || {};
+
+    return res.json({
+      member: {
+        id: targetUserId,
+        firstName: String(u.first_name || '').trim(),
+        lastName: String(u.last_name || '').trim(),
+        displayName: `${String(u.first_name || '').trim()} ${String(u.last_name || '').trim()}`.trim() || 'Member',
+        profilePhotoUrl: publicUploadsUrlFromStoredPath(u.profile_photo_path),
+        homeCity: u.home_city || null,
+        homeState: u.home_state || null,
+        timezone: u.timezone || null,
+        age: ageFromDateOfBirth(dob),
+        gender: genderRaw ? formatGenderDisplayLabel(genderRaw) : null,
+        genderRaw: genderRaw || null,
+        genderMatchesClubOptions: !!(gTok && clubGenderSet.has(gTok)),
+        heardAboutClub: app?.heard_about_club || null,
+        runningFitnessBackground: app?.running_fitness_background || null,
+        currentFitnessActivities: app?.current_fitness_activities || null,
+        averageMilesPerWeek: app?.average_miles_per_week != null ? Number(app.average_miles_per_week) : null,
+        averageHoursPerWeek: app?.average_hours_per_week != null ? Number(app.average_hours_per_week) : null
+      },
+      allTimeStats: {
+        totalWorkouts: Number(totals.workout_count || 0),
+        totalPoints: Math.round(Number(totals.total_points || 0)),
+        totalMiles: normalizeNum(totals.total_miles, 1),
+        totalMinutes: Math.round(Number(totals.total_minutes || 0)),
+        longestRunMiles: normalizeNum(totals.longest_run_miles, 1)
+      }
+    });
+  } catch (e) { next(e); }
+};
+
+/**
+ * POST /summit-stats/clubs/:clubId/seasons/:classId/join-request
+ * Club member requests to join after enrollment deadline (manager approval).
+ */
+export const requestSeasonJoin = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.clubId);
+    const classId = toInt(req.params.classId);
+    const user = req.user;
+    if (!user?.id) return res.status(401).json({ error: { message: 'Sign in required' } });
+    if (!clubId || !classId) return res.status(400).json({ error: { message: 'Invalid club or season' } });
+
+    const membership = await getUserClubMembership(user.id, clubId);
+    if (!membership || membership.is_active === false) {
+      return res.status(403).json({ error: { message: 'Club membership required' } });
+    }
+
+    const klass = await LearningProgramClass.findById(classId);
+    if (!klass || Number(klass.organization_id) !== clubId) {
+      return res.status(404).json({ error: { message: 'Season not found' } });
+    }
+
+    const phase = computeJoinPhase(klass);
+    if (phase !== 'request_only') {
+      return res.status(400).json({
+        error: { message: 'Join requests are only available after the enrollment deadline. Use Join season while enrollment is open.' }
+      });
+    }
+
+    const statusLower = String(klass.status || '').toLowerCase();
+    if (['archived', 'cancelled'].includes(statusLower)) {
+      return res.status(400).json({ error: { message: 'This season is not open for join requests' } });
+    }
+
+    const [existing] = await pool.execute(
+      `SELECT id, membership_status FROM learning_class_provider_memberships
+       WHERE learning_class_id = ? AND provider_user_id = ? LIMIT 1`,
+      [classId, user.id]
+    );
+    if (existing?.[0] && ['active', 'completed'].includes(String(existing[0].membership_status || '').toLowerCase())) {
+      return res.status(400).json({ error: { message: 'You are already in this season' } });
+    }
+
+    let jrRow = null;
+    try {
+      const [jrExisting] = await pool.execute(
+        `SELECT id, status FROM summit_stats_season_join_requests WHERE learning_class_id = ? AND user_id = ? LIMIT 1`,
+        [classId, user.id]
+      );
+      jrRow = jrExisting?.[0] || null;
+    } catch (e) {
+      if (String(e?.code) === 'ER_NO_SUCH_TABLE') {
+        return res.status(503).json({ error: { message: 'Season join requests are not available yet (database migration pending).' } });
+      }
+      throw e;
+    }
+    if (jrRow) {
+      const st = String(jrRow.status || '');
+      if (st === 'pending') {
+        return res.json({ ok: true, request: { id: Number(jrRow.id), status: 'pending' } });
+      }
+      if (st === 'approved') {
+        return res.status(400).json({ error: { message: 'Your join request was already approved' } });
+      }
+      await pool.execute(
+        `UPDATE summit_stats_season_join_requests
+         SET status = 'pending', reviewed_at = NULL, reviewed_by_user_id = NULL
+         WHERE id = ?`,
+        [jrRow.id]
+      );
+    } else {
+      await pool.execute(
+        `INSERT INTO summit_stats_season_join_requests (agency_id, learning_class_id, user_id, status)
+         VALUES (?, ?, ?, 'pending')`,
+        [clubId, classId, user.id]
+      );
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT id, status FROM summit_stats_season_join_requests WHERE learning_class_id = ? AND user_id = ? LIMIT 1`,
+      [classId, user.id]
+    );
+    const row = rows?.[0];
+    return res.status(jrRow ? 200 : 201).json({
+      ok: true,
+      request: { id: Number(row?.id), status: String(row?.status || 'pending') }
+    });
+  } catch (e) { next(e); }
+};
+
+/**
+ * GET /summit-stats/clubs/:clubId/seasons/:classId/join-requests
+ * Managers — list pending season join requests.
+ */
+export const listSeasonJoinRequests = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.clubId);
+    const classId = toInt(req.params.classId);
+    if (!clubId || !classId) return res.status(400).json({ error: { message: 'Invalid club or season' } });
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+
+    const klass = await LearningProgramClass.findById(classId);
+    if (!klass || Number(klass.organization_id) !== clubId) {
+      return res.status(404).json({ error: { message: 'Season not found' } });
+    }
+
+    let rows = [];
+    try {
+      const [r] = await pool.execute(
+        `SELECT r.id, r.user_id, r.status, r.created_at,
+                u.first_name, u.last_name, u.email
+         FROM summit_stats_season_join_requests r
+         INNER JOIN users u ON u.id = r.user_id
+         WHERE r.learning_class_id = ? AND r.agency_id = ?
+         ORDER BY r.created_at DESC
+         LIMIT 200`,
+        [classId, clubId]
+      );
+      rows = r || [];
+    } catch (e) {
+      if (String(e?.code) === 'ER_NO_SUCH_TABLE') {
+        return res.json({ requests: [] });
+      }
+      throw e;
+    }
+
+    const requests = rows.map((row) => ({
+      id: Number(row.id),
+      userId: Number(row.user_id),
+      status: String(row.status || ''),
+      createdAt: row.created_at || null,
+      firstName: String(row.first_name || '').trim(),
+      lastName: String(row.last_name || '').trim(),
+      email: String(row.email || '').trim()
+    }));
+
+    return res.json({ requests });
+  } catch (e) { next(e); }
+};
+
+/**
+ * PUT /summit-stats/clubs/:clubId/seasons/:classId/join-requests/:requestId
+ * Body: { status: 'approved' | 'denied' }
+ */
+export const reviewSeasonJoinRequest = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.clubId);
+    const classId = toInt(req.params.classId);
+    const requestId = toInt(req.params.requestId);
+    const nextStatus = String(req.body?.status || '').toLowerCase();
+    if (!clubId || !classId || !requestId) return res.status(400).json({ error: { message: 'Invalid parameters' } });
+    if (!['approved', 'denied'].includes(nextStatus)) {
+      return res.status(400).json({ error: { message: 'status must be approved or denied' } });
+    }
+
+    const club = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+
+    const klass = await LearningProgramClass.findById(classId);
+    if (!klass || Number(klass.organization_id) !== clubId) {
+      return res.status(404).json({ error: { message: 'Season not found' } });
+    }
+
+    let reqRow = null;
+    try {
+      const [r] = await pool.execute(
+        `SELECT id, user_id, status FROM summit_stats_season_join_requests
+         WHERE id = ? AND agency_id = ? AND learning_class_id = ?
+         LIMIT 1`,
+        [requestId, clubId, classId]
+      );
+      reqRow = r?.[0] || null;
+    } catch (e) {
+      if (String(e?.code) === 'ER_NO_SUCH_TABLE') {
+        return res.status(503).json({ error: { message: 'Season join requests are not available yet' } });
+      }
+      throw e;
+    }
+    if (!reqRow) return res.status(404).json({ error: { message: 'Request not found' } });
+    if (String(reqRow.status || '') !== 'pending') {
+      return res.status(400).json({ error: { message: 'Request is not pending' } });
+    }
+
+    const memberUserId = Number(reqRow.user_id);
+    const reviewerId = req.user.id;
+
+    await pool.execute(
+      `UPDATE summit_stats_season_join_requests
+       SET status = ?, reviewed_at = NOW(), reviewed_by_user_id = ?
+       WHERE id = ?`,
+      [nextStatus, reviewerId, requestId]
+    );
+
+    if (nextStatus === 'approved') {
+      await LearningProgramClass.addProviderMember({
+        classId,
+        providerUserId: memberUserId,
+        membershipStatus: 'active',
+        actorUserId: reviewerId
+      });
+    }
+
+    return res.json({ ok: true, status: nextStatus });
   } catch (e) { next(e); }
 };

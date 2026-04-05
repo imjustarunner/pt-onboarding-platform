@@ -220,7 +220,16 @@
 
           <div class="filter-section advanced-filters">
             <div class="filter-label">More filters</div>
-            <div class="filter-subsection">
+            <div v-if="isSscSstcTenant" class="filter-subsection">
+              <label for="roleSort" class="filter-label">Role</label>
+              <select id="roleSort" v-model="roleSort" class="filter-select">
+                <option value="">All</option>
+                <option value="member">Members</option>
+                <option value="assistant_manager">Assistant managers</option>
+                <option value="pending">Pending</option>
+              </select>
+            </div>
+            <div v-else class="filter-subsection">
               <label for="roleSort" class="filter-label">Role</label>
               <select id="roleSort" v-model="roleSort" class="filter-select">
                 <option value="">All roles</option>
@@ -308,7 +317,7 @@
 
                 <ul class="ai-query-results-list">
                   <li v-for="u in aiResults.slice(0, 50)" :key="u.id">
-                    <router-link :to="`/admin/users/${u.id}`">
+                    <router-link :to="userProfilePath(u.id)">
                       {{ u.first_name }} {{ u.last_name }}
                     </router-link>
                     <span class="muted"> — {{ u.email }}</span>
@@ -384,7 +393,7 @@
               <tbody>
                 <tr v-for="user in sortedUsers" :key="user.id">
             <td>
-              <router-link :to="`/admin/users/${user.id}`" class="user-name-link">
+              <router-link :to="userProfilePath(user.id)" class="user-name-link">
                 {{ user.first_name }} {{ user.last_name }}
               </router-link>
             </td>
@@ -452,48 +461,60 @@
               <span v-else>—</span>
             </td>
             <td>
-              <span :class="['badge', user.role === 'admin' ? 'badge-success' : 'badge-info']">
-                {{ formatRole(user.role) }}
-              </span>
-              <span
-                v-if="(String(user.role || '').toLowerCase() === 'provider')"
-                :class="['badge', availabilityBadgeClass(user)]"
-                style="margin-left: 6px; font-size: 10px;"
-                :aria-label="availabilityBadgeTitle(user)"
-              >
-                {{ availabilityBadgeText(user) }}
-              </span>
-              <span
-                v-if="canQuickToggleAvailability(user)"
-                class="inline-availability-toggle"
-                title="Global availability (provider can also toggle this themselves)."
-              >
-                <label class="mini-switch">
-                  <input
-                    type="checkbox"
-                    :checked="user.provider_accepting_new_clients !== false"
-                    :disabled="availabilitySavingId === user.id"
-                    @change="toggleUserAvailability(user, $event.target.checked)"
-                  />
-                  <span class="mini-slider" />
-                </label>
-              </span>
-              <span v-if="user.has_provider_access && (user.role === 'staff' || user.role === 'support')" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Provider</span>
-              <span v-if="user.has_staff_access && user.role === 'provider'" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Staff</span>
+              <template v-if="isSscSstcTenant">
+                <span class="badge badge-info">{{ formatSscClubRole(user) }}</span>
+              </template>
+              <template v-else>
+                <span :class="['badge', user.role === 'admin' ? 'badge-success' : 'badge-info']">
+                  {{ formatRole(user.role) }}
+                </span>
+                <span
+                  v-if="(String(user.role || '').toLowerCase() === 'provider')"
+                  :class="['badge', availabilityBadgeClass(user)]"
+                  style="margin-left: 6px; font-size: 10px;"
+                  :aria-label="availabilityBadgeTitle(user)"
+                >
+                  {{ availabilityBadgeText(user) }}
+                </span>
+                <span
+                  v-if="canQuickToggleAvailability(user)"
+                  class="inline-availability-toggle"
+                  title="Global availability (provider can also toggle this themselves)."
+                >
+                  <label class="mini-switch">
+                    <input
+                      type="checkbox"
+                      :checked="user.provider_accepting_new_clients !== false"
+                      :disabled="availabilitySavingId === user.id"
+                      @change="toggleUserAvailability(user, $event.target.checked)"
+                    />
+                    <span class="mini-slider" />
+                  </label>
+                </span>
+                <span v-if="user.has_provider_access && (user.role === 'staff' || user.role === 'support')" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Provider</span>
+                <span v-if="user.has_staff_access && user.role === 'provider'" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Staff</span>
+              </template>
             </td>
             <td class="muted col-credential">
               {{ user.provider_credential || '—' }}
             </td>
             <td class="col-status">
-              <span :class="['badge', isSscSstcTenant ? ((user.club_member_active === 1 || user.club_member_active === true) ? 'badge-success' : 'badge-secondary') : getStatusBadgeClassWrapper(user.status, user.is_active)]">
+              <span
+                v-if="isSscSstcTenant && user.applicationPending"
+                class="badge badge-warning"
+              >Pending review</span>
+              <span
+                v-else
+                :class="['badge', isSscSstcTenant ? ((user.club_member_active === 1 || user.club_member_active === true) ? 'badge-success' : 'badge-secondary') : getStatusBadgeClassWrapper(user.status, user.is_active)]"
+              >
                 {{ isSscSstcTenant ? ((user.club_member_active === 1 || user.club_member_active === true) ? 'Active' : 'Inactive') : getStatusLabelWrapper(user.status, user.is_active) }}
               </span>
             </td>
             <td class="col-created">{{ formatDate(user.created_at) }}</td>
             <td class="actions-cell">
               <div class="action-buttons">
-                <router-link :to="`/admin/users/${user.id}`" class="btn btn-primary btn-sm">View Profile</router-link>
-                <router-link :to="`/admin/users/${user.id}?tab=communications`" class="btn btn-secondary btn-sm">
+                <router-link :to="userProfilePath(user.id)" class="btn btn-primary btn-sm">View Profile</router-link>
+                <router-link :to="`${userProfilePath(user.id)}?tab=communications`" class="btn btn-secondary btn-sm">
                   Announce / Splash
                 </router-link>
                 <button 
@@ -526,7 +547,7 @@
                   Archive
                 </button>
                 <button
-                  v-if="isSscSstcTenant && Number(user.id) !== Number(authStore.user?.id)"
+                  v-if="isSscSstcTenant && Number(user.id) !== Number(authStore.user?.id) && !user.applicationPending"
                   class="btn btn-secondary btn-sm"
                   :disabled="memberStatusSavingId === Number(user.id)"
                   @click="setMemberActive(user, !(user.club_member_active === 1 || user.club_member_active === true))"
@@ -625,7 +646,7 @@
                     <small style="color: var(--text-secondary); font-size: 11px;">Agency: {{ assignment.agency_name }}</small>
                   </div>
                   <router-link 
-                    :to="`/admin/users/${assignment.supervisee_id}`" 
+                    :to="userProfilePath(assignment.supervisee_id)" 
                     class="btn btn-sm btn-primary"
                     @click="showSupervisorsModal = false"
                   >
@@ -1150,7 +1171,7 @@
             </div>
             <div class="user-actions">
               <router-link 
-                :to="`/admin/users/${duplicate.id}`" 
+                :to="userProfilePath(duplicate.id)" 
                 class="btn btn-primary btn-sm"
                 @click="showDuplicateNameModal = false"
               >
@@ -1515,6 +1536,23 @@ import aiErrorAsset from '../../assets/ai/error.svg';
 
 const router = useRouter();
 const route = useRoute();
+
+const userProfilePath = (userId) => {
+  const slug = String(route.params.organizationSlug || '').trim();
+  if (slug) return `/${slug}/admin/users/${userId}`;
+  return `/admin/users/${userId}`;
+};
+
+const formatSscClubRole = (u) => {
+  if (u?.applicationPending) return 'Pending';
+  const cr = String(u?.club_role || '').toLowerCase();
+  if (cr === 'assistant_manager') return 'Assistant manager';
+  if (cr === 'manager') return 'Manager';
+  if (cr === 'pending') return 'Pending';
+  if (cr === 'member' || !cr) return 'Member';
+  return cr.replace(/_/g, ' ');
+};
+
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const user = computed(() => authStore.user);
@@ -1584,11 +1622,11 @@ const userTableExpanded = ref(false);
 const memberStatusSavingId = ref(null);
 
 const assistantManagersOnly = computed(() =>
-  isSscSstcTenant.value && String(roleSort.value || '') === 'provider_plus'
+  isSscSstcTenant.value && String(roleSort.value || '') === 'assistant_manager'
 );
 
 const toggleAssistantManagersView = () => {
-  roleSort.value = assistantManagersOnly.value ? '' : 'provider_plus';
+  roleSort.value = assistantManagersOnly.value ? '' : 'assistant_manager';
 };
 
 const userFiltersStorageKey = 'user-manager-filters';
@@ -2167,7 +2205,9 @@ const fetchUsers = async () => {
         first_name: m.firstName || '',
         last_name: m.lastName || '',
         role: m.clubRole || m.role || 'provider',
-        status: m.isActiveInClub ? 'ACTIVE_EMPLOYEE' : 'INACTIVE',
+        club_role: String(m.clubRole || '').toLowerCase() || null,
+        applicationPending: !!m.applicationPending,
+        status: m.applicationPending ? 'PENDING_APPLICATION' : (m.isActiveInClub ? 'ACTIVE_EMPLOYEE' : 'INACTIVE'),
         is_active: m.isActiveInClub ? 1 : 0,
         club_member_active: m.isActiveInClub ? 1 : 0,
         seasons: Array.isArray(m.seasons) ? m.seasons : [],
@@ -3337,6 +3377,14 @@ watch([isSscSstcTenant, selectedClubId], () => {
   organizationSort.value = '';
 });
 
+watch(isSscSstcTenant, (v) => {
+  if (!v) return;
+  const r = String(roleSort.value || '');
+  if (r && !['', 'member', 'assistant_manager', 'pending'].includes(r)) {
+    roleSort.value = '';
+  }
+});
+
 watch(showCreateModal, (open) => {
   if (!open || !isSscSstcTenant.value) return;
   const clubId = Number(selectedClubId.value || 0);
@@ -3437,12 +3485,27 @@ const sortedUsers = computed(() => {
 
   // Filter by role
   if (roleSort.value) {
-    filtered = filtered.filter((u) => {
-      const r = String(u.role || '').trim();
-      if (!r) return false;
-      if (roleSort.value === 'provider') return r === 'provider';
-      return r === roleSort.value;
-    });
+    if (isSscSstcTenant.value) {
+      if (roleSort.value === 'pending') {
+        filtered = filtered.filter((u) => u.applicationPending === true);
+      } else if (roleSort.value === 'member') {
+        filtered = filtered.filter((u) => {
+          if (u.applicationPending) return false;
+          const cr = String(u.club_role || '').toLowerCase();
+          if (cr === 'assistant_manager' || cr === 'manager') return false;
+          return true;
+        });
+      } else if (roleSort.value === 'assistant_manager') {
+        filtered = filtered.filter((u) => String(u.club_role || '').toLowerCase() === 'assistant_manager');
+      }
+    } else {
+      filtered = filtered.filter((u) => {
+        const r = String(u.role || '').trim();
+        if (!r) return false;
+        if (roleSort.value === 'provider') return r === 'provider';
+        return r === roleSort.value;
+      });
+    }
   }
 
   // Quick user-type buttons
@@ -3687,7 +3750,7 @@ const canViewUser = (user) => {
 
 const navigateToUser = (userId) => {
   showDuplicateNameModal.value = false;
-  router.push(`/admin/users/${userId}`);
+  router.push(userProfilePath(userId));
 };
 
 const proceedWithCreation = async () => {

@@ -246,7 +246,7 @@ const dashboardPath = computed(() => {
   const slug = String(route.params?.organizationSlug || '').trim();
   const normalized = slug.toLowerCase();
   if (normalized === 'ssc' || normalized === 'sstc') {
-    return `/${slug}/home`;
+    return `/${slug}/my_club_dashboard`;
   }
   return slug ? `/${slug}/dashboard` : '/dashboard';
 });

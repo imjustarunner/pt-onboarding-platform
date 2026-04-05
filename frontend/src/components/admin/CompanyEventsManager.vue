@@ -428,12 +428,7 @@ const TIMEZONE_OPTIONS = [
 
 const EVENT_TYPE_OPTIONS = [
   { value: 'company_event', label: 'Company Event' },
-  { value: 'program_event', label: 'Program Event' },
-  { value: 'staff_event', label: 'Staff/Internal Event' },
-  { value: 'skills_group', label: 'Skills Group' },
-  { value: 'program_orientation', label: 'Program Orientation' },
-  { value: 'guardian_program_class', label: 'Guardian Program Class' },
-  { value: 'direct_notice', label: 'Direct Notice' }
+  { value: 'staff_event', label: 'Staff/Internal Event' }
 ];
 
 function browserTimeZone() {
@@ -512,10 +507,6 @@ const eventTypeSelection = computed({
       return;
     }
     draft.value.eventType = value;
-    if (value === 'guardian_program_class') {
-      draft.value.rsvpMode = 'none';
-      draft.value.registrationEligible = true;
-    }
   }
 });
 const isServiceProgramEventType = computed(() => {

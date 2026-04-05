@@ -89,13 +89,17 @@ class AgencyBillingInvoice {
   }
 
   static async listByAgency(agencyId, { limit = 50, billingDomain = 'agency_subscription' } = {}) {
+    const aid = parseInt(agencyId, 10);
+    if (!Number.isFinite(aid) || aid < 1) return [];
+    // Inline LIMIT: some MySQL prepared-statement paths reject LIMIT ? and throw ER_WRONG_ARGUMENTS.
+    const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
     const [rows] = await pool.execute(
       `SELECT * FROM agency_billing_invoices
        WHERE agency_id = ?
          AND billing_domain = ?
        ORDER BY period_start DESC, id DESC
-       LIMIT ?`,
-      [parseInt(agencyId, 10), String(billingDomain || 'agency_subscription'), parseInt(limit, 10)]
+       LIMIT ${lim}`,
+      [aid, String(billingDomain || 'agency_subscription')]
     );
     return rows;
   }

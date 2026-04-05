@@ -4,8 +4,10 @@
  * Activities listing and selective import for challenge workouts.
  */
 import pool from '../config/database.js';
+import User from '../models/User.model.js';
 import ChallengeTeam from '../models/ChallengeTeam.model.js';
 import ChallengeWorkout from '../models/ChallengeWorkout.model.js';
+import { isStravaRolloutEnabledForEmail } from '../utils/stravaRollout.js';
 import { queueClubRecordBreakCandidates } from './summitStats.controller.js';
 import { getWeekStartDate, getWeekDateTimeRange } from '../utils/challengeWeekUtils.js';
 import {
@@ -85,6 +87,10 @@ export const stravaConnectStart = async (req, res, next) => {
   try {
     if (!req.user?.id) return res.status(401).json({ error: { message: 'Unauthorized' } });
     if (!isConfigured()) return res.status(503).json({ error: { message: 'Strava integration is not configured' } });
+    const u = await User.findById(req.user.id);
+    if (!u || !isStravaRolloutEnabledForEmail(u.email)) {
+      return res.status(403).json({ error: { message: 'Strava is not enabled for your account yet.' } });
+    }
     const state = createSignedState({ userId: req.user.id });
     // Use the configured STRAVA_REDIRECT_URI — dynamically derived host can differ on Cloud Run
     const authUrl = getAuthorizeUrl({ state });
@@ -105,6 +111,10 @@ export const stravaCallback = async (req, res, next) => {
     if (!payload?.userId) return res.redirect(302, redirectError);
     const userId = Number(payload.userId);
     if (!userId) return res.redirect(302, redirectError);
+    const oauthUser = await User.findById(userId);
+    if (!oauthUser || !isStravaRolloutEnabledForEmail(oauthUser.email)) {
+      return res.redirect(302, redirectError);
+    }
     const tokens = await exchangeCodeForTokens({
       code: String(code || '').trim(),
       redirectUri: process.env.STRAVA_REDIRECT_URI || `${getRequestBaseUrl(req)}/api/strava/callback`
@@ -139,6 +149,15 @@ export const stravaDisconnect = async (req, res, next) => {
   try {
     const userId = Number(req.user?.id || 0);
     if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    const u = await User.findById(userId);
+    const [tokRow] = await pool.execute(
+      'SELECT strava_access_token FROM user_preferences WHERE user_id = ? LIMIT 1',
+      [userId]
+    );
+    const hadTokens = !!tokRow?.[0]?.strava_access_token;
+    if ((!u || !isStravaRolloutEnabledForEmail(u.email)) && !hadTokens) {
+      return res.status(403).json({ error: { message: 'Strava is not enabled for your account yet.' } });
+    }
     await pool.execute(
       `UPDATE user_preferences SET
         strava_athlete_id = NULL, strava_athlete_username = NULL,
@@ -157,18 +176,37 @@ export const stravaStatus = async (req, res, next) => {
   try {
     const userId = Number(req.user?.id || 0);
     if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    const cfg = getConfigDiagnostics();
+    const u = await User.findById(userId);
+    const rollout = u && isStravaRolloutEnabledForEmail(u.email);
+    if (!rollout) {
+      return res.json({
+        connected: false,
+        athleteId: null,
+        username: null,
+        connectedAt: null,
+        stravaRolloutEnabled: false,
+        stravaConfigured: cfg.configured,
+        stravaConfig: {
+          hasClientId: cfg.hasClientId,
+          hasClientSecret: cfg.hasClientSecret,
+          hasRedirectUri: cfg.hasRedirectUri,
+          redirectUri: cfg.redirectUri
+        }
+      });
+    }
     const [rows] = await pool.execute(
       'SELECT strava_athlete_id, strava_athlete_username, strava_connected_at FROM user_preferences WHERE user_id = ?',
       [userId]
     );
     const row = rows?.[0];
     const connected = !!(row?.strava_athlete_id);
-    const cfg = getConfigDiagnostics();
     return res.json({
       connected,
       athleteId: row?.strava_athlete_id || null,
       username: row?.strava_athlete_username || null,
       connectedAt: row?.strava_connected_at || null,
+      stravaRolloutEnabled: true,
       stravaConfigured: cfg.configured,
       stravaConfig: {
         hasClientId: cfg.hasClientId,
@@ -206,6 +244,10 @@ export const stravaActivities = async (req, res, next) => {
   try {
     const userId = Number(req.user?.id || 0);
     if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    const su = await User.findById(userId);
+    if (!su || !isStravaRolloutEnabledForEmail(su.email)) {
+      return res.status(403).json({ error: { message: 'Strava is not enabled for your account yet.' } });
+    }
     if (!isConfigured()) return res.status(503).json({ error: { message: 'Strava integration is not configured' } });
     const token = await getValidAccessToken(userId);
     if (!token) return res.status(400).json({ error: { message: 'Strava not connected. Connect your Strava account first.' } });
@@ -223,6 +265,10 @@ export const stravaImport = async (req, res, next) => {
   try {
     const userId = Number(req.user?.id || 0);
     if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    const iu = await User.findById(userId);
+    if (!iu || !isStravaRolloutEnabledForEmail(iu.email)) {
+      return res.status(403).json({ error: { message: 'Strava is not enabled for your account yet.' } });
+    }
     if (!isConfigured()) return res.status(503).json({ error: { message: 'Strava integration is not configured' } });
     const token = await getValidAccessToken(userId);
     if (!token) return res.status(400).json({ error: { message: 'Strava not connected. Connect your Strava account first.' } });

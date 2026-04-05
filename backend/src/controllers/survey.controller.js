@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
 import Survey from '../models/Survey.model.js';
+import { canUserManageClub } from '../utils/sscClubAccess.js';
 import SurveyPush from '../models/SurveyPush.model.js';
 import SurveyResponse, { computeSurveyScores } from '../models/SurveyResponse.model.js';
 
@@ -29,19 +30,39 @@ async function resolveAgencyIdFromRequest(req, preferred = null) {
 async function getAgencyMeta(agencyId) {
   const id = parseId(agencyId);
   if (!id) return null;
-  const [rows] = await pool.execute(
-    `SELECT
-       a.id,
-       a.slug,
-       a.organization_type,
-       parent.slug AS parent_slug
-     FROM agencies a
-     LEFT JOIN agencies parent ON parent.id = a.affiliated_agency_id
-     WHERE a.id = ?
-     LIMIT 1`,
-    [id]
-  );
-  return rows?.[0] || null;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT
+         a.id,
+         a.slug,
+         a.organization_type,
+         (
+           SELECT p.slug
+           FROM organization_affiliations oa
+           INNER JOIN agencies p ON p.id = oa.agency_id
+           WHERE oa.organization_id = a.id
+             AND oa.is_active = 1
+           ORDER BY
+             CASE
+               WHEN LOWER(COALESCE(p.slug, '')) IN ('ssc', 'sstc', 'summit-stats') THEN 0
+               ELSE 1
+             END,
+             oa.id ASC
+           LIMIT 1
+         ) AS parent_slug
+       FROM agencies a
+       WHERE a.id = ?
+       LIMIT 1`,
+      [id]
+    );
+    return rows?.[0] || null;
+  } catch {
+    const [rows] = await pool.execute(
+      `SELECT id, slug, organization_type, NULL AS parent_slug FROM agencies WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    return rows?.[0] || null;
+  }
 }
 
 const isSscSstcAffiliation = (agencyMeta) => {
@@ -57,7 +78,9 @@ async function canManageSurveysForAgency(req, agencyId) {
   const agencyMeta = await getAgencyMeta(agencyId);
   if (!agencyMeta) return false;
   if (isSscSstcAffiliation(agencyMeta)) {
-    // SSC/SSTC: manager + assistant manager only.
+    if (role === 'club_manager') {
+      return canUserManageClub({ user: req.user, clubId: agencyId });
+    }
     return role === 'admin' || role === 'provider_plus';
   }
   // Non-SSC/SSTC: preserve existing broad backoffice behavior.
