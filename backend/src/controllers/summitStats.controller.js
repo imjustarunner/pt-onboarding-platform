@@ -142,6 +142,41 @@ export async function getPlatformAgencyId() {
   return agency?.id || null;
 }
 
+export async function getPlatformAgencyIds(platformSlug = null) {
+  const envSlug = String(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc').trim().toLowerCase();
+  const requestedSlug = String(platformSlug || '').trim().toLowerCase();
+  const isSummitStatsAlias = ['ssc', 'sstc', 'summit-stats', envSlug].includes(requestedSlug);
+  const slugSet = new Set();
+
+  if (requestedSlug) slugSet.add(requestedSlug);
+  if (!requestedSlug || isSummitStatsAlias) {
+    slugSet.add(envSlug);
+    slugSet.add('ssc');
+    slugSet.add('sstc');
+    slugSet.add('summit-stats');
+  }
+
+  const slugs = Array.from(slugSet).filter(Boolean);
+  if (!slugs.length) {
+    const fallbackId = await getPlatformAgencyId();
+    return fallbackId ? [fallbackId] : [];
+  }
+
+  const placeholders = slugs.map(() => '?').join(', ');
+  const [rows] = await pool.execute(
+    `SELECT id
+     FROM agencies
+     WHERE LOWER(COALESCE(slug, '')) IN (${placeholders})`,
+    slugs
+  );
+  const ids = (rows || []).map((r) => Number(r.id)).filter(Number.isFinite);
+
+  if (ids.length > 0) return Array.from(new Set(ids));
+
+  const fallbackId = await getPlatformAgencyId();
+  return fallbackId ? [fallbackId] : [];
+}
+
 /**
  * Create a club (affiliation) under the Summit Stats platform.
  * Requires: auth, role=admin, email verified (for club managers).
@@ -233,8 +268,10 @@ export const createClub = async (req, res, next) => {
  */
 export const listClubs = async (req, res, next) => {
   try {
-    const platformAgencyId = await getPlatformAgencyId();
-    if (!platformAgencyId) {
+    const platformAgencyIds = await getPlatformAgencyIds(
+      req.query?.platformSlug || req.query?.orgSlug || req.query?.organizationSlug
+    );
+    if (!platformAgencyIds.length) {
       return res.status(503).json({
         error: { message: 'Summit Stats platform is not configured.' }
       });
@@ -255,8 +292,9 @@ export const listClubs = async (req, res, next) => {
     const limit = Math.trunc(Math.min(100, Math.max(1, parseInt(req.query?.limit, 10) || 50)));
     const offset = Math.trunc(Math.max(0, parseInt(req.query?.offset, 10) || 0));
 
-    let where = `oa.agency_id = ? AND oa.is_active = 1 AND a.organization_type = 'affiliation' AND a.is_active = 1`;
-    const params = [platformAgencyId];
+    const platformPlaceholders = platformAgencyIds.map(() => '?').join(', ');
+    let where = `oa.agency_id IN (${platformPlaceholders}) AND oa.is_active = 1 AND a.organization_type = 'affiliation' AND a.is_active = 1`;
+    const params = [...platformAgencyIds];
 
     if (state && hasState) {
       where += ` AND (a.state = ? OR UPPER(TRIM(a.state)) = ?)`;
@@ -291,7 +329,7 @@ export const listClubs = async (req, res, next) => {
       : [];
 
     const [rows] = await pool.execute(
-      `SELECT ${selectCols.join(', ')}
+      `SELECT DISTINCT ${selectCols.join(', ')}
        FROM organization_affiliations oa
        JOIN agencies a ON a.id = oa.organization_id
        WHERE ${where}
@@ -301,7 +339,7 @@ export const listClubs = async (req, res, next) => {
     );
 
     const [countRows] = await pool.execute(
-      `SELECT COUNT(*) as total FROM organization_affiliations oa
+      `SELECT COUNT(DISTINCT a.id) as total FROM organization_affiliations oa
        JOIN agencies a ON a.id = oa.organization_id
        WHERE ${where}`,
       params

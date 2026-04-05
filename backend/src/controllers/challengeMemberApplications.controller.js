@@ -8,6 +8,12 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import ChallengeParticipantProfile from '../models/ChallengeParticipantProfile.model.js';
+import EmailService from '../services/email.service.js';
+import config from '../config/config.js';
+import { verifyRecaptchaV3 } from '../services/captcha.service.js';
+import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import { resolvePreferredSenderIdentityForAgency } from '../services/emailSenderIdentityResolver.service.js';
+import { getPlatformAgencyId } from './summitStats.controller.js';
 import { buildRaceDivisions, buildRecordMetricMap } from './challenges.controller.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 
@@ -78,6 +84,30 @@ const resolveClubByPublicRef = async (clubRef) => {
   return resolveClubByPublicSlug(clubRef);
 };
 
+/** Resolve the parent/platform agency a club belongs to so applicants can be added to the tenant. */
+const resolveClubPlatformAgencyId = async (clubId) => {
+  const normalizedClubId = toInt(clubId);
+  if (!normalizedClubId) return null;
+  const preferredSlug = String(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc').trim().toLowerCase();
+  const [rows] = await pool.execute(
+    `SELECT oa.agency_id
+     FROM organization_affiliations oa
+     INNER JOIN agencies parent ON parent.id = oa.agency_id
+     WHERE oa.organization_id = ?
+       AND oa.is_active = 1
+     ORDER BY
+       CASE
+         WHEN LOWER(COALESCE(parent.slug, '')) = ? THEN 0
+         WHEN LOWER(COALESCE(parent.slug, '')) IN ('ssc', 'sstc', 'summit-stats') THEN 1
+         ELSE 2
+       END,
+       oa.agency_id DESC
+     LIMIT 1`,
+    [normalizedClubId, preferredSlug]
+  );
+  return toInt(rows?.[0]?.agency_id);
+};
+
 /** Assert club manager access. Returns { ok, club } or sends 4xx response. */
 const assertManagerAccess = async (req, res, clubId) => {
   const user = req.user;
@@ -115,6 +145,8 @@ const genToken = (len = 32) => crypto.randomBytes(len).toString('hex').slice(0, 
 /** Generate a short referral code (8 chars). */
 const genReferralCode = () => crypto.randomBytes(6).toString('base64url').slice(0, 8).toUpperCase();
 const APPLICATION_WAIVER_VERSION = 'ssc_member_participation_waiver_v2';
+const SSC_RECAPTCHA_ACTION = 'ssc_club_application';
+const LOCALHOST_TEST_RECAPTCHA_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI';
 
 /** Hash a plain-text password using bcrypt (reuse pattern from auth). */
 const hashPassword = async (plain) => {
@@ -163,6 +195,186 @@ const getRequestIp = (req) => {
   const forwarded = String(req.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
   const ip = forwarded || String(req.ip || '').trim();
   return ip ? ip.slice(0, 64) : null;
+};
+
+const isLocalRecaptchaBypassRequest = (req) => {
+  const host = String(req.get('host') || '').toLowerCase();
+  const origin = String(req.get('origin') || req.get('referer') || '').toLowerCase();
+  return host.includes('localhost') || host.includes('127.0.0.1') || origin.includes('localhost') || origin.includes('127.0.0.1');
+};
+
+const getSscRecaptchaSiteKey = () => String(process.env.RECAPTCHA_SITE_KEY_INTAKE || config.recaptcha?.siteKey || '').trim();
+const isSscRecaptchaConfigured = () => !!getSscRecaptchaSiteKey() && (!!config.recaptcha?.secretKey || !!config.recaptcha?.enterpriseApiKey);
+const getSscRecaptchaConfig = () => ({
+  siteKey: getSscRecaptchaSiteKey() || null,
+  useEnterprise: !!config.recaptcha?.enterpriseApiKey,
+  forceWidget: true,
+  localhostSiteKey: LOCALHOST_TEST_RECAPTCHA_SITE_KEY
+});
+
+const verifySscApplicationCaptcha = async (req) => {
+  const siteKey = getSscRecaptchaSiteKey();
+  const captchaConfigured = isSscRecaptchaConfigured();
+  const isLocalBypass = isLocalRecaptchaBypassRequest(req);
+
+  if (config.nodeEnv === 'production' && !captchaConfigured) {
+    return { ok: false, status: 500, message: 'Captcha is not configured' };
+  }
+  if (!captchaConfigured) {
+    return { ok: true };
+  }
+  if (isLocalBypass) {
+    return { ok: true, bypassed: true };
+  }
+
+  const captchaToken = String(req.body?.captchaToken || '').trim();
+  if (!captchaToken) {
+    return { ok: false, status: 400, message: 'Captcha is required' };
+  }
+  const verification = await verifyRecaptchaV3({
+    token: captchaToken,
+    remoteip: getRequestIp(req),
+    expectedAction: SSC_RECAPTCHA_ACTION,
+    userAgent: req.get('user-agent'),
+    siteKeyOverride: siteKey || undefined,
+    checkboxKey: true
+  });
+  if (!verification.ok) {
+    const message = config.nodeEnv !== 'production'
+      ? `Captcha verification failed: ${verification.reason}${verification.invalidReason ? ` (${verification.invalidReason})` : ''}.`
+      : 'Captcha verification failed. Please complete the captcha again and try again.';
+    return { ok: false, status: 400, message };
+  }
+  const minScoreRaw = process.env.RECAPTCHA_MIN_SCORE_INTAKE ?? config.recaptcha?.minScore ?? 0.3;
+  const effectiveMinScore = Number.isFinite(Number(minScoreRaw)) ? Number(minScoreRaw) : 0.3;
+  if (verification.score !== null && verification.score < effectiveMinScore && config.nodeEnv === 'production') {
+    return { ok: false, status: 400, message: 'Captcha verification failed. Please try again.' };
+  }
+  return { ok: true };
+};
+
+let userEmailVerificationColumnsPromise = null;
+const getUserEmailVerificationSupport = async () => {
+  if (!userEmailVerificationColumnsPromise) {
+    userEmailVerificationColumnsPromise = (async () => {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('email_verified_at','email_verification_token','email_verification_token_expires_at')",
+        [dbName]
+      );
+      const colSet = new Set((cols || []).map((c) => c.COLUMN_NAME));
+      return {
+        hasVerifiedAt: colSet.has('email_verified_at'),
+        hasVerificationToken: colSet.has('email_verification_token'),
+        hasVerificationTokenExpiresAt: colSet.has('email_verification_token_expires_at')
+      };
+    })().catch(() => ({
+      hasVerifiedAt: false,
+      hasVerificationToken: false,
+      hasVerificationTokenExpiresAt: false
+    }));
+  }
+  return userEmailVerificationColumnsPromise;
+};
+
+const issueUserEmailVerification = async ({ userId, email, firstName = '', portalSlug = 'ssc' }) => {
+  const support = await getUserEmailVerificationSupport();
+  if (!support.hasVerificationToken || !support.hasVerificationTokenExpiresAt) {
+    return { required: false, verifyUrl: null, verificationSent: false };
+  }
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const updateClauses = ['email_verification_token = ?', 'email_verification_token_expires_at = ?'];
+  const updateParams = [token, expiresAt];
+  if (support.hasVerifiedAt) {
+    updateClauses.push('email_verified_at = NULL');
+  }
+  updateParams.push(userId);
+  await pool.execute(
+    `UPDATE users SET ${updateClauses.join(', ')} WHERE id = ?`,
+    updateParams
+  );
+
+  const frontendUrl = String(config.frontendUrl || process.env.FRONTEND_URL || '').replace(/\/\s*$/, '');
+  const backendBase = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || config.frontendUrl || '').replace(/\/\s*$/, '');
+  const slug = String(portalSlug || 'ssc').trim().replace(/[^a-z0-9-]/gi, '') || 'ssc';
+  const verifyUrl = `${backendBase}/api/auth/verify-club-manager-email?token=${token}&portalSlug=${slug}&redirect=1`;
+
+  if (!EmailService.isConfigured()) {
+    return { required: true, verifyUrl, verificationSent: false };
+  }
+
+  const preferredKeys = ['intake', 'school_intake', 'notifications', 'system'];
+  const platformAgencyId = await getPlatformAgencyId();
+  let identity = platformAgencyId
+    ? await resolvePreferredSenderIdentityForAgency({ agencyId: platformAgencyId, preferredKeys })
+    : null;
+  if (!identity?.id) {
+    identity = await resolvePreferredSenderIdentityForAgency({
+      agencyId: null,
+      preferredKeys: ['summit_stats', 'platform', 'default', 'system', 'notifications']
+    });
+  }
+
+  const subject = 'Verify your email for Summit Stats Team Challenge';
+  const text = `Hi${firstName ? ` ${String(firstName).trim()}` : ''},\n\nPlease verify your email to finish activating your Summit Stats Team Challenge application:\n\n${verifyUrl}\n\nThis link expires in 24 hours.`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+      <p>Hi${firstName ? ` ${String(firstName).trim()}` : ''},</p>
+      <p>Please verify your email to finish activating your Summit Stats Team Challenge application.</p>
+      <p><a href="${verifyUrl}" style="display:inline-block;padding:10px 14px;background:#1d4ed8;color:#fff;text-decoration:none;border-radius:6px;">Verify my email</a></p>
+      <p style="color:#555;">Or copy/paste this link:</p>
+      <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+      <p style="color:#777;">This link expires in 24 hours.</p>
+      <p style="color:#777;">If you did not request this application, you can ignore this email.</p>
+    </div>
+  `.trim();
+
+  try {
+    if (identity?.id) {
+      await sendEmailFromIdentity({
+        senderIdentityId: identity.id,
+        to: email,
+        subject,
+        text,
+        html,
+        source: 'auto'
+      });
+    } else {
+      await EmailService.sendEmail({
+        to: email,
+        subject,
+        text,
+        html,
+        fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
+        fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+        replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+        source: 'auto',
+        agencyId: platformAgencyId || null
+      });
+    }
+    return { required: true, verifyUrl: null, verificationSent: true };
+  } catch (error) {
+    console.error('SSC applicant verification email failed:', error?.message || error);
+    return { required: true, verifyUrl, verificationSent: false };
+  }
+};
+
+const isUserEmailVerificationPending = async (userId) => {
+  const support = await getUserEmailVerificationSupport();
+  if (!userId || !support.hasVerificationToken) return false;
+  const selectCols = [
+    support.hasVerifiedAt ? 'email_verified_at' : 'NULL AS email_verified_at',
+    support.hasVerificationToken ? 'email_verification_token' : 'NULL AS email_verification_token'
+  ];
+  const [rows] = await pool.execute(
+    `SELECT ${selectCols.join(', ')} FROM users WHERE id = ? LIMIT 1`,
+    [userId]
+  );
+  const user = rows?.[0];
+  if (!user) return false;
+  return !user.email_verified_at && !!String(user.email_verification_token || '').trim();
 };
 
 const DEFAULT_GENDER_OPTIONS = ['male', 'female'];
@@ -475,7 +687,8 @@ export const getPublicClubStats = async (req, res, next) => {
       activeParticipants,
       featuredWorkout,
       albumSlides,
-      publicStore
+      publicStore,
+      recaptcha: getSscRecaptchaConfig()
     });
   } catch (e) { next(e); }
 };
@@ -608,7 +821,8 @@ export const resolveInviteToken = async (req, res, next) => {
         genderOptions: publicPageConfig.genderOptions,
         bannerImageUrl: publicPageConfig.bannerImageUrl || null
       },
-      customFields: fieldRows || []
+      customFields: fieldRows || [],
+      recaptcha: getSscRecaptchaConfig()
     });
   } catch (e) { next(e); }
 };
@@ -674,7 +888,7 @@ const createApplicationRow = async ({
   return result.insertId;
 };
 
-/** Create a new user account for an applicant. Existing accounts must sign in instead. */
+/** Create a new user account for an applicant. */
 const createUserForApplication = async ({ firstName, lastName, email, phone, username, password }) => {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const hashedPw = await hashPassword(String(password));
@@ -693,6 +907,17 @@ const createUserForApplication = async ({ firstName, lastName, email, phone, use
   return { userId, isNew: true };
 };
 
+const ensureUserInPlatformTenantForClub = async (userId, clubId, knownAgencies = null) => {
+  const platformAgencyId = await resolveClubPlatformAgencyId(clubId);
+  if (!platformAgencyId) return null;
+  const agencies = Array.isArray(knownAgencies) ? knownAgencies : await User.getAgencies(userId);
+  const alreadyInPlatform = (agencies || []).some((a) => Number(a?.id) === Number(platformAgencyId));
+  if (!alreadyInPlatform) {
+    await User.assignToAgency(userId, platformAgencyId);
+  }
+  return platformAgencyId;
+};
+
 const findLatestApplicationForClubEmail = async ({ clubId, email }) => {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   if (!clubId || !normalizedEmail) return null;
@@ -705,6 +930,75 @@ const findLatestApplicationForClubEmail = async ({ clubId, email }) => {
     [clubId, normalizedEmail]
   );
   return rows?.[0] || null;
+};
+
+const getApplicationEmailStatusSnapshot = async ({ clubId, email }) => {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!clubId || !normalizedEmail) {
+    return {
+      existingAccount: false,
+      requiresPassword: true,
+      alreadyMember: false,
+      applicationStatus: null
+    };
+  }
+
+  const existingUser = await User.findByEmail(normalizedEmail);
+  const existingApplication = await findLatestApplicationForClubEmail({ clubId, email: normalizedEmail });
+
+  let alreadyMember = false;
+  let inPlatformTenant = false;
+  let accountLabel = null;
+
+  if (existingUser?.id) {
+    const agencies = await User.getAgencies(existingUser.id);
+    alreadyMember = (agencies || []).some((a) => Number(a?.id) === Number(clubId));
+    const platformAgencyId = await resolveClubPlatformAgencyId(clubId);
+    if (platformAgencyId) {
+      inPlatformTenant = (agencies || []).some((a) => Number(a?.id) === Number(platformAgencyId));
+    }
+    const hasPassword = !!existingUser.password_hash;
+    accountLabel = hasPassword ? 'password' : 'sso';
+  }
+
+  return {
+    existingAccount: !!existingUser,
+    requiresPassword: !existingUser,
+    alreadyMember,
+    inPlatformTenant,
+    applicationStatus: existingApplication?.status || null,
+    signInMethod: accountLabel
+  };
+};
+
+/**
+ * POST /summit-stats/application-email-status
+ * Public — let the join form know whether this email already belongs to a platform account.
+ */
+export const getApplicationEmailStatus = async (req, res, next) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const inviteToken = String(req.body?.inviteToken || '').trim();
+    let clubId = toInt(req.body?.clubId);
+
+    if (!email) {
+      return res.status(400).json({ error: { message: 'Email is required' } });
+    }
+
+    if (!clubId && inviteToken) {
+      const [inviteRows] = await pool.execute(
+        `SELECT agency_id FROM challenge_member_invites WHERE token = ? AND is_active = 1 LIMIT 1`,
+        [inviteToken]
+      );
+      clubId = toInt(inviteRows?.[0]?.agency_id);
+    }
+
+    const club = await resolveClub(clubId);
+    if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
+
+    const status = await getApplicationEmailStatusSnapshot({ clubId, email });
+    return res.json({ ok: true, email, ...status });
+  } catch (e) { next(e); }
 };
 
 /**
@@ -727,17 +1021,21 @@ export const submitApplication = async (req, res, next) => {
       heardAboutClub, runningFitnessBackground,
       averageMilesPerWeek, averageHoursPerWeek,
       currentFitnessActivities,
-      waiverAccepted, waiverSignatureName
+      waiverAccepted, waiverSignatureName,
+      captchaToken, portalSlug
     } = req.body;
 
     if (!firstName || !lastName) return res.status(400).json({ error: { message: 'First and last name are required' } });
     if (!email) return res.status(400).json({ error: { message: 'Email is required' } });
-    if (!password || String(password).length < 8) return res.status(400).json({ error: { message: 'Password must be at least 8 characters' } });
     if (!(waiverAccepted === true || waiverAccepted === 1 || String(waiverAccepted || '').toLowerCase() === 'true')) {
       return res.status(400).json({ error: { message: 'You must accept the participation waiver to submit your application.' } });
     }
     if (!normalizeShortText(waiverSignatureName, 255)) {
       return res.status(400).json({ error: { message: 'Please type your full name to sign the waiver.' } });
+    }
+    const captchaResult = await verifySscApplicationCaptcha(req);
+    if (!captchaResult.ok) {
+      return res.status(captchaResult.status || 400).json({ error: { message: captchaResult.message } });
     }
 
     const existingApplication = await findLatestApplicationForClubEmail({ clubId, email });
@@ -747,17 +1045,27 @@ export const submitApplication = async (req, res, next) => {
     if (existingApplication?.status === 'pending') {
       return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
     }
-    const existingUser = await User.findByEmail(String(email).trim().toLowerCase());
-    if (existingUser) {
-      return res.status(409).json({
-        error: {
-          message: 'An account with this email already exists. Sign in to your account before joining this club.'
-        }
-      });
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const existingUser = await User.findByEmail(normalizedEmail);
+    let existingUserAgencies = [];
+    if (existingUser?.id) {
+      existingUserAgencies = await User.getAgencies(existingUser.id);
+      const alreadyMember = existingUserAgencies.some((a) => Number(a?.id) === Number(clubId));
+      if (alreadyMember) {
+        return res.status(409).json({ error: { message: 'This account is already a member of this club' } });
+      }
+    } else if (!password || String(password).length < 8) {
+      return res.status(400).json({ error: { message: 'Password must be at least 8 characters' } });
     }
 
-    // Create the applicant account immediately so they can sign in while pending approval.
-    const { userId } = await createUserForApplication({ firstName, lastName, email, phone, username, password });
+    const { userId, isNew } = existingUser
+      ? { userId: Number(existingUser.id), isNew: false }
+      : await createUserForApplication({ firstName, lastName, email: normalizedEmail, phone, username, password });
+
+    await ensureUserInPlatformTenantForClub(userId, clubId, existingUserAgencies);
+    const verification = isNew
+      ? await issueUserEmailVerification({ userId, email: normalizedEmail, firstName, portalSlug: portalSlug || 'ssc' })
+      : { required: false, verificationSent: false, verifyUrl: null };
 
     // Resolve referrer
     let referrerUserId = null;
@@ -772,7 +1080,7 @@ export const submitApplication = async (req, res, next) => {
 
     const appId = await createApplicationRow({
       clubId, referrerUserId, userId,
-      firstName, lastName, email, phone, username,
+      firstName, lastName, email: normalizedEmail, phone, username,
       gender, dateOfBirth, weightLbs, heightInches, timezone,
       customFields,
       heardAboutClub: normalizeLongText(heardAboutClub, 1000),
@@ -790,7 +1098,12 @@ export const submitApplication = async (req, res, next) => {
     return res.status(201).json({
       ok: true,
       applicationId: appId,
-      message: 'Application submitted! Your club manager will review it shortly.'
+      verificationRequired: !!verification.required,
+      verificationSent: !!verification.verificationSent,
+      verifyUrl: verification.verifyUrl || null,
+      message: verification.required
+        ? 'Application submitted! Please verify your email to finish activating your account while the club manager reviews your application.'
+        : 'Application submitted! Your club manager will review it shortly.'
     });
   } catch (e) { next(e); }
 };
@@ -825,17 +1138,21 @@ export const submitInviteApplication = async (req, res, next) => {
       heardAboutClub, runningFitnessBackground,
       averageMilesPerWeek, averageHoursPerWeek,
       currentFitnessActivities,
-      waiverAccepted, waiverSignatureName
+      waiverAccepted, waiverSignatureName,
+      captchaToken, portalSlug
     } = req.body;
 
     if (!firstName || !lastName) return res.status(400).json({ error: { message: 'First and last name are required' } });
     if (!email) return res.status(400).json({ error: { message: 'Email is required' } });
-    if (!password || String(password).length < 8) return res.status(400).json({ error: { message: 'Password must be at least 8 characters' } });
     if (!(waiverAccepted === true || waiverAccepted === 1 || String(waiverAccepted || '').toLowerCase() === 'true')) {
       return res.status(400).json({ error: { message: 'You must accept the participation waiver to submit your application.' } });
     }
     if (!normalizeShortText(waiverSignatureName, 255)) {
       return res.status(400).json({ error: { message: 'Please type your full name to sign the waiver.' } });
+    }
+    const captchaResult = await verifySscApplicationCaptcha(req);
+    if (!captchaResult.ok) {
+      return res.status(captchaResult.status || 400).json({ error: { message: captchaResult.message } });
     }
 
     const existingApplication = await findLatestApplicationForClubEmail({ clubId, email });
@@ -845,21 +1162,31 @@ export const submitInviteApplication = async (req, res, next) => {
     if (existingApplication?.status === 'pending') {
       return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
     }
-    const existingUser = await User.findByEmail(String(email).trim().toLowerCase());
-    if (existingUser) {
-      return res.status(409).json({
-        error: {
-          message: 'An account with this email already exists. Sign in to your account before using this invite.'
-        }
-      });
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const existingUser = await User.findByEmail(normalizedEmail);
+    let existingUserAgencies = [];
+    if (existingUser?.id) {
+      existingUserAgencies = await User.getAgencies(existingUser.id);
+      const alreadyMember = existingUserAgencies.some((a) => Number(a?.id) === Number(clubId));
+      if (alreadyMember) {
+        return res.status(409).json({ error: { message: 'This account is already a member of this club' } });
+      }
+    } else if (!password || String(password).length < 8) {
+      return res.status(400).json({ error: { message: 'Password must be at least 8 characters' } });
     }
 
-    // Create user account immediately so the applicant can sign in while pending approval.
-    const { userId } = await createUserForApplication({ firstName, lastName, email, phone, username, password });
+    const { userId, isNew } = existingUser
+      ? { userId: Number(existingUser.id), isNew: false }
+      : await createUserForApplication({ firstName, lastName, email: normalizedEmail, phone, username, password });
+
+    await ensureUserInPlatformTenantForClub(userId, clubId, existingUserAgencies);
+    const verification = isNew
+      ? await issueUserEmailVerification({ userId, email: normalizedEmail, firstName, portalSlug: portalSlug || 'ssc' })
+      : { required: false, verificationSent: false, verifyUrl: null };
 
     const appId = await createApplicationRow({
       clubId, inviteId: invite.id, userId,
-      firstName, lastName, email, phone, username,
+      firstName, lastName, email: normalizedEmail, phone, username,
       gender, dateOfBirth, weightLbs, heightInches, timezone,
       customFields,
       heardAboutClub: normalizeLongText(heardAboutClub, 1000),
@@ -881,17 +1208,29 @@ export const submitInviteApplication = async (req, res, next) => {
     );
 
     // Auto-approve if the invite flag is set
-    if (invite.auto_approve) {
+    if (invite.auto_approve && !verification.required) {
       await _approveApplication(appId, null /* no manager */, 'Auto-approved via invite link');
       return res.status(201).json({
         ok: true, applicationId: appId,
-        message: 'Welcome! You have been added to the club automatically.'
+        verificationRequired: !!verification.required,
+        verificationSent: !!verification.verificationSent,
+        verifyUrl: verification.verifyUrl || null,
+        message: verification.required
+          ? 'Application submitted and club access is ready once you verify your email.'
+          : 'Welcome! You have been added to the club automatically.'
       });
     }
 
     return res.status(201).json({
       ok: true, applicationId: appId,
-      message: 'Application submitted! Your club manager will review it shortly.'
+      verificationRequired: !!verification.required,
+      verificationSent: !!verification.verificationSent,
+      verifyUrl: verification.verifyUrl || null,
+      message: verification.required
+        ? (invite.auto_approve
+            ? 'Application submitted! Verify your email to finish activating your invite-based access.'
+            : 'Application submitted! Please verify your email while the club manager reviews your application.')
+        : 'Application submitted! Your club manager will review it shortly.'
     });
   } catch (e) { next(e); }
 };
@@ -925,6 +1264,10 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
       );
       userId = insertResult.insertId;
     }
+  }
+
+  if (await isUserEmailVerificationPending(userId)) {
+    throw new Error('Applicant must verify their email before approval.');
   }
 
   // Assign to club (idempotent)
@@ -1060,7 +1403,16 @@ export const reviewApplication = async (req, res, next) => {
     }
 
     if (action === 'approve') {
-      const { userId } = await _approveApplication(appId, req.user.id, notes);
+      let approved;
+      try {
+        approved = await _approveApplication(appId, req.user.id, notes);
+      } catch (error) {
+        if (String(error?.message || '').includes('verify their email')) {
+          return res.status(409).json({ error: { message: error.message } });
+        }
+        throw error;
+      }
+      const { userId } = approved;
       return res.json({ ok: true, userId, message: 'Member approved and added to the club.' });
     } else {
       await pool.execute(

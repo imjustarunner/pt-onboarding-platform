@@ -49,6 +49,7 @@ import {
 } from '../controllers/challengeTaskTemplates.controller.js';
 import {
   getPublicClubStats,
+  getApplicationEmailStatus,
   resolveInviteToken,
   submitApplication,
   submitInviteApplication,
@@ -77,6 +78,7 @@ const router = express.Router();
 router.get('/clubs', listClubs);
 router.get('/clubs/:id/public', getPublicClubStats);
 router.get('/clubs/invite/:token', resolveInviteToken);
+router.post('/application-email-status', getApplicationEmailStatus);
 router.post('/clubs/:id/apply-form', submitApplication);
 router.post('/clubs/invite/:token/apply', submitInviteApplication);
 

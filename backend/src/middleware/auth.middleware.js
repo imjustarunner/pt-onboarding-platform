@@ -40,6 +40,9 @@ export const authenticate = (req, res, next) => {
     if (req.method === 'GET' && /^\/api\/summit-stats\/clubs\/invite\/[^/]+\/?$/.test(requestPath)) {
       return next();
     }
+    if (req.method === 'POST' && /^\/api\/summit-stats\/application-email-status\/?$/.test(requestPath)) {
+      return next();
+    }
     if (req.method === 'POST' && /^\/api\/summit-stats\/clubs\/[^/]+\/apply-form\/?$/.test(requestPath)) {
       return next();
     }

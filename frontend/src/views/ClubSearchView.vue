@@ -5,7 +5,7 @@
         <img :src="displayLogoUrl" alt="Logo" class="logo-image" @error="logoError = true" />
       </div>
       <h1>Find a Club</h1>
-      <p class="subtitle">Browse clubs and apply to join. Sign in to apply.</p>
+      <p class="subtitle">Browse clubs and start an application to join.</p>
 
       <div class="search-filters">
         <input
@@ -121,6 +121,7 @@ const fetchClubs = async () => {
   try {
     const r = await api.get('/summit-stats/clubs', {
       params: {
+        platformSlug: orgSlug.value || undefined,
         search: search.value.trim() || undefined,
         state: stateFilter.value || undefined
       },

@@ -18,10 +18,17 @@
       <div class="success-icon">🎉</div>
       <h1>Application Submitted!</h1>
       <p class="success-sub">
-        Your application to <strong>{{ clubDisplayName }}</strong> has been received.
-        The club manager will review it and you'll be notified once approved.
+        {{ submitMessage || `Your application to ${clubDisplayName} has been received.` }}
       </p>
-      <p v-if="inviteData?.autoApprove" class="success-auto">
+      <p v-if="verificationRequired" class="success-verify">
+        Verify your email to finish activating this account.
+        <span v-if="verificationSent"> Check your inbox for the link.</span>
+      </p>
+      <p v-if="verificationRequired && verificationUrl" class="success-auto">
+        Email sending is not configured here, so you can use the verification link directly:
+        <a :href="verificationUrl">Verify email</a>
+      </p>
+      <p v-if="inviteData?.autoApprove && !verificationRequired" class="success-auto">
         You've been automatically approved! <a :href="`/${orgSlug}`">Sign in to get started →</a>
       </p>
       <router-link :to="`/${orgSlug}/login`" class="btn btn-primary">Sign in to your account</router-link>
@@ -90,9 +97,23 @@
                 type="email"
                 autocomplete="email"
                 :readonly="!!inviteData?.email"
+                @input="handleEmailInput"
+                @blur="checkExistingAccount"
                 required
               />
               <p v-if="inviteData?.email" class="field-hint">Pre-filled from your invite link</p>
+              <p v-else-if="emailStatusLoading" class="field-hint">Checking whether this email already has an account…</p>
+            </div>
+
+            <div v-if="existingAccountDetected" class="existing-account-note">
+              <strong>Existing account found.</strong>
+              We recognized this email in the platform, so this application will use that account.
+              No new password is needed here.
+              <span v-if="existingAccountSignInMethod === 'sso'"> This looks like an SSO-only account, so they should keep using their current sign-in method.</span>
+            </div>
+
+            <div v-else-if="emailLookupDone && form.email.trim()" class="field-hint field-hint-success">
+              This email is new to the platform, so we’ll create an SSC account with the password below.
             </div>
 
             <div class="field">
@@ -101,7 +122,7 @@
             </div>
 
             <!-- Username section -->
-            <div class="field">
+            <div v-if="!existingAccountDetected" class="field">
               <label>Username <span class="opt">(optional)</span></label>
               <div class="username-wrap">
                 <input
@@ -119,7 +140,7 @@
               </p>
             </div>
 
-            <div class="field-row">
+            <div v-if="!existingAccountDetected" class="field-row">
               <div class="field">
                 <label>Password <span class="req">*</span></label>
                 <input v-model="form.password" type="password" autocomplete="new-password" minlength="8" required />
@@ -303,11 +324,25 @@
           </section>
 
           <!-- Error -->
+          <section v-if="requiresCaptcha" class="form-section">
+            <h2 class="section-title">Human Check</h2>
+            <div class="captcha-card">
+              <p class="field-hint captcha-intro">Protected by reCAPTCHA. Complete this before submitting your application.</p>
+              <div ref="recaptchaWidgetEl" class="recaptcha-widget-shell"></div>
+              <p v-if="captchaWidgetFailed" class="form-error captcha-inline-error">Verification widget failed to load. Refresh the page and try again.</p>
+              <p v-else-if="captchaError" class="form-error captcha-inline-error">{{ captchaError }}</p>
+            </div>
+          </section>
+
           <div v-if="submitError" class="form-error" role="alert">{{ submitError }}</div>
 
           <!-- Submit -->
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary btn-lg" :disabled="submitting">
+            <button
+              type="submit"
+              class="btn btn-primary btn-lg"
+              :disabled="submitting || (requiresCaptcha && (!captchaToken || captchaWidgetFailed))"
+            >
               {{ submitting ? 'Submitting…' : 'Submit Application' }}
             </button>
             <p class="form-legal">
@@ -322,12 +357,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { TIMEZONE_GROUPS, detectLocalTimezone } from '../utils/timezones.js';
 
 const route = useRoute();
+const LOCALHOST_TEST_RECAPTCHA_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI';
 
 // ── Page state ──────────────────────────────────────────────────────────────
 const pageLoading  = ref(true);
@@ -335,6 +371,15 @@ const pageError    = ref('');
 const submitted    = ref(false);
 const submitting   = ref(false);
 const submitError  = ref('');
+const submitMessage = ref('');
+const verificationRequired = ref(false);
+const verificationSent = ref(false);
+const verificationUrl = ref('');
+const emailStatusLoading = ref(false);
+const emailLookupDone = ref(false);
+const existingAccountDetected = ref(false);
+const existingAccountSignInMethod = ref('');
+let emailLookupTimeout = null;
 
 const inviteData     = ref(null);
 const clubInfo       = ref(null);
@@ -346,6 +391,13 @@ const platformLogoUrl = ref('');
 const platformName    = ref('');
 const clubLogoUrl     = ref('');
 const bannerImageUrl  = ref('');
+const recaptchaConfig = ref({ siteKey: '', useEnterprise: false, forceWidget: false });
+const captchaToken = ref('');
+const captchaError = ref('');
+const captchaWidgetFailed = ref(false);
+const recaptchaWidgetEl = ref(null);
+const recaptchaWidgetId = ref(null);
+let recaptchaInitPromise = null;
 
 // Gender options (from club config, defaults to Male/Female)
 const rawGenderOptions = ref(['male', 'female']);
@@ -358,6 +410,16 @@ const clubIdParam  = computed(() => route.query.club || '');
 
 const clubDisplayName = computed(() =>
   inviteData.value?.clubName || clubInfo.value?.name || clubInfo.value?.clubName || 'this club'
+);
+const requiresCaptcha = computed(() => !!String(recaptchaConfig.value?.siteKey || '').trim());
+const isLocalhostRecaptcha = computed(() => ['localhost', '127.0.0.1'].includes(window.location.hostname));
+const activeRecaptchaSiteKey = computed(() =>
+  isLocalhostRecaptcha.value && requiresCaptcha.value
+    ? LOCALHOST_TEST_RECAPTCHA_SITE_KEY
+    : String(recaptchaConfig.value?.siteKey || '').trim()
+);
+const activeRecaptchaMode = computed(() =>
+  isLocalhostRecaptcha.value ? 'standard' : (recaptchaConfig.value?.useEnterprise ? 'enterprise' : 'standard')
 );
 
 // ── Hero style ──────────────────────────────────────────────────────────────
@@ -409,6 +471,17 @@ const form = reactive({
   customFields: {}
 });
 
+const resetExistingAccountState = () => {
+  existingAccountDetected.value = false;
+  existingAccountSignInMethod.value = '';
+  emailLookupDone.value = false;
+};
+
+const clearCaptchaState = () => {
+  captchaToken.value = '';
+  captchaError.value = '';
+};
+
 const heightInches = computed(() => {
   const ft = Number(form.heightFt) || 0;
   const inches = Number(form.heightIn) || 0;
@@ -432,6 +505,7 @@ onMounted(async () => {
       const { data } = await api.get(`/summit-stats/clubs/invite/${inviteToken.value}`, { skipAuthRedirect: true });
       inviteData.value   = data.invite;
       customFields.value = data.customFields || [];
+      recaptchaConfig.value = data.recaptcha || recaptchaConfig.value;
       clubInfo.value     = { name: data.invite.clubName, id: data.invite.clubId };
       clubLogoUrl.value  = data.invite.logoUrl || '';
       bannerImageUrl.value = data.invite.bannerImageUrl || '';
@@ -442,6 +516,7 @@ onMounted(async () => {
     } else if (clubIdParam.value) {
       const { data } = await api.get(`/summit-stats/clubs/${clubIdParam.value}/public`, { skipAuthRedirect: true });
       clubInfo.value    = data.club;
+      recaptchaConfig.value = data.recaptcha || recaptchaConfig.value;
       clubLogoUrl.value = data.club?.logoUrl || '';
       bannerImageUrl.value = data.club?.publicPageConfig?.bannerImageUrl || '';
       if (Array.isArray(data.club?.publicPageConfig?.genderOptions) && data.club.publicPageConfig.genderOptions.length) {
@@ -457,9 +532,176 @@ onMounted(async () => {
   } catch (e) {
     pageError.value = e?.response?.data?.error?.message || 'Could not load club information.';
   } finally {
+    if (form.email.trim()) {
+      await checkExistingAccount();
+    }
     pageLoading.value = false;
+    await maybeInitRecaptcha();
   }
 });
+
+onBeforeUnmount(() => {
+  if (emailLookupTimeout) clearTimeout(emailLookupTimeout);
+});
+
+const loadRecaptchaScript = async (mode = 'standard', forceReload = false) => {
+  if (!activeRecaptchaSiteKey.value) return null;
+  if (forceReload) {
+    document.querySelectorAll('script[data-ssc-recaptcha]').forEach((el) => el.remove());
+    try {
+      delete window.grecaptcha;
+    } catch {
+      window.grecaptcha = undefined;
+    }
+  }
+  const existing = document.querySelector('script[data-ssc-recaptcha]');
+  if (existing) {
+    return new Promise((resolve) => {
+      existing.addEventListener('load', () => resolve(window.grecaptcha), { once: true });
+      if (window.grecaptcha) resolve(window.grecaptcha);
+    });
+  }
+  if (window.grecaptcha) return window.grecaptcha;
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = mode === 'enterprise'
+      ? 'https://www.google.com/recaptcha/enterprise.js?render=explicit'
+      : 'https://www.google.com/recaptcha/api.js?render=explicit';
+    script.async = true;
+    script.defer = true;
+    script.setAttribute('data-ssc-recaptcha', 'true');
+    script.onload = () => resolve(window.grecaptcha);
+    script.onerror = () => reject(new Error('Failed to load captcha'));
+    document.head.appendChild(script);
+  });
+};
+
+const ensureRecaptchaWidget = async (forceReload = false) => {
+  if (!requiresCaptcha.value) return true;
+  try {
+    const grecaptcha = await loadRecaptchaScript(activeRecaptchaMode.value, forceReload);
+    const api = activeRecaptchaMode.value === 'enterprise' ? grecaptcha?.enterprise : grecaptcha;
+    const renderFn = api?.render;
+    const readyFn = api?.ready;
+    if (!renderFn) return false;
+    let el = recaptchaWidgetEl.value;
+    for (let i = 0; !el && i < 8; i++) {
+      await nextTick();
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      el = recaptchaWidgetEl.value;
+    }
+    if (!el) return false;
+    if (recaptchaWidgetId.value !== null) return true;
+    if (readyFn) {
+      await new Promise((resolve) => readyFn(resolve));
+    }
+    recaptchaWidgetId.value = renderFn(el, {
+      sitekey: activeRecaptchaSiteKey.value,
+      size: 'normal',
+      theme: 'light',
+      callback: (token) => {
+        captchaToken.value = String(token || '').trim();
+        captchaError.value = '';
+        captchaWidgetFailed.value = false;
+      },
+      'expired-callback': () => {
+        captchaToken.value = '';
+        captchaError.value = 'Captcha expired. Please complete it again.';
+      },
+      'error-callback': () => {
+        captchaToken.value = '';
+        captchaError.value = 'Captcha failed to load correctly. Please refresh and try again.';
+      }
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const maybeInitRecaptcha = async () => {
+  if (pageLoading.value || !requiresCaptcha.value) return;
+  if (recaptchaInitPromise) {
+    await recaptchaInitPromise;
+    return;
+  }
+  recaptchaInitPromise = (async () => {
+    await nextTick();
+    await nextTick();
+    const rendered = await ensureRecaptchaWidget();
+    captchaWidgetFailed.value = !rendered;
+    if (!rendered) {
+      const retryRendered = await ensureRecaptchaWidget(true);
+      captchaWidgetFailed.value = !retryRendered;
+    }
+  })().finally(() => {
+    recaptchaInitPromise = null;
+  });
+  await recaptchaInitPromise;
+};
+
+const resetRecaptchaWidget = async () => {
+  clearCaptchaState();
+  try {
+    const grecaptcha = await loadRecaptchaScript(activeRecaptchaMode.value);
+    const api = activeRecaptchaMode.value === 'enterprise' ? grecaptcha?.enterprise : grecaptcha;
+    if (api?.reset && recaptchaWidgetId.value !== null) {
+      api.reset(recaptchaWidgetId.value);
+    }
+  } catch {
+    // ignore
+  }
+};
+
+const checkExistingAccount = async () => {
+  const normalizedEmail = form.email.trim().toLowerCase();
+  if (!normalizedEmail.includes('@')) {
+    resetExistingAccountState();
+    emailStatusLoading.value = false;
+    return;
+  }
+
+  const clubId = inviteData.value?.clubId || clubInfo.value?.id || clubIdParam.value;
+  if (!clubId && !inviteToken.value) return;
+
+  emailStatusLoading.value = true;
+  try {
+    const { data } = await api.post('/summit-stats/application-email-status', {
+      email: normalizedEmail,
+      clubId: clubId || null,
+      inviteToken: inviteToken.value || null
+    }, { skipAuthRedirect: true, skipGlobalLoading: true });
+
+    existingAccountDetected.value = !!data?.existingAccount;
+    existingAccountSignInMethod.value = data?.signInMethod || '';
+    emailLookupDone.value = true;
+
+    if (existingAccountDetected.value) {
+      form.password = '';
+      form.confirmPassword = '';
+      form.username = '';
+    }
+  } catch {
+    resetExistingAccountState();
+  } finally {
+    emailStatusLoading.value = false;
+  }
+};
+
+const handleEmailInput = () => {
+  submitError.value = '';
+  if (emailLookupTimeout) clearTimeout(emailLookupTimeout);
+  const normalizedEmail = form.email.trim().toLowerCase();
+  if (!normalizedEmail) {
+    resetExistingAccountState();
+    form.password = '';
+    form.confirmPassword = '';
+    return;
+  }
+  emailLookupTimeout = setTimeout(() => {
+    checkExistingAccount();
+  }, 300);
+};
 
 // ── Submit ──────────────────────────────────────────────────────────────────
 const handleSubmit = async () => {
@@ -471,17 +713,27 @@ const handleSubmit = async () => {
   if (!form.email.trim()) {
     submitError.value = 'Email address is required.'; return;
   }
-  if (!form.password || form.password.length < 8) {
-    submitError.value = 'Password must be at least 8 characters.'; return;
-  }
-  if (form.password !== form.confirmPassword) {
-    submitError.value = 'Passwords do not match.'; return;
+  if (!existingAccountDetected.value) {
+    if (!form.password || form.password.length < 8) {
+      submitError.value = 'Password must be at least 8 characters.'; return;
+    }
+    if (form.password !== form.confirmPassword) {
+      submitError.value = 'Passwords do not match.'; return;
+    }
   }
   if (!form.waiverAccepted) {
     submitError.value = 'You must accept the participation waiver to submit your application.'; return;
   }
   if (!form.waiverSignatureName.trim()) {
     submitError.value = 'Please type your full name to sign the waiver.'; return;
+  }
+  if (requiresCaptcha.value) {
+    if (captchaWidgetFailed.value) {
+      submitError.value = 'Captcha failed to load. Please refresh the page and try again.'; return;
+    }
+    if (!captchaToken.value) {
+      submitError.value = 'Please complete the captcha verification before submitting.'; return;
+    }
   }
 
   const clubId = inviteData.value?.clubId || clubInfo.value?.id || clubIdParam.value;
@@ -492,8 +744,8 @@ const handleSubmit = async () => {
     lastName:     form.lastName.trim(),
     email:        form.email.trim().toLowerCase(),
     phone:        form.phone.trim() || null,
-    username:     form.username.trim() || null,
-    password:     form.password,
+    username:     existingAccountDetected.value ? null : (form.username.trim() || null),
+    password:     existingAccountDetected.value ? null : form.password,
     gender:       form.gender || null,
     dateOfBirth:  form.dateOfBirth || null,
     weightLbs:    form.weightLbs || null,
@@ -507,16 +759,24 @@ const handleSubmit = async () => {
     waiverAccepted: form.waiverAccepted,
     waiverSignatureName: form.waiverSignatureName.trim(),
     customFields: form.customFields,
-    referralCode: referralCode.value || null
+    referralCode: referralCode.value || null,
+    captchaToken: captchaToken.value || null,
+    portalSlug: orgSlug.value || 'ssc'
   };
 
   submitting.value = true;
   try {
+    let response;
     if (inviteToken.value) {
-      await api.post(`/summit-stats/clubs/invite/${inviteToken.value}/apply`, payload, { skipAuthRedirect: true });
+      response = await api.post(`/summit-stats/clubs/invite/${inviteToken.value}/apply`, payload, { skipAuthRedirect: true });
     } else {
-      await api.post(`/summit-stats/clubs/${clubId}/apply-form`, payload, { skipAuthRedirect: true });
+      response = await api.post(`/summit-stats/clubs/${clubId}/apply-form`, payload, { skipAuthRedirect: true });
     }
+    submitMessage.value = response?.data?.message || '';
+    verificationRequired.value = !!response?.data?.verificationRequired;
+    verificationSent.value = !!response?.data?.verificationSent;
+    verificationUrl.value = String(response?.data?.verifyUrl || '').trim();
+    await resetRecaptchaWidget();
     submitted.value = true;
   } catch (e) {
     submitError.value = e?.response?.data?.error?.message || 'Something went wrong. Please try again.';
@@ -554,6 +814,7 @@ const handleSubmit = async () => {
 @keyframes spin { to { transform: rotate(360deg); } }
 .error-icon, .success-icon { font-size: 52px; margin-bottom: 12px; }
 .success-sub { color: #64748b; margin: 8px 0 16px; line-height: 1.6; }
+.success-verify { color: #1e3a8a; margin: 0 0 14px; line-height: 1.6; }
 .success-auto { margin: 16px 0; padding: 12px 16px; background: #f0fdf4; border-radius: 8px; border: 1px solid #bbf7d0; color: #166534; font-size: 14px; }
 
 /* ── Shell layout ───────────────────────────────────────── */
@@ -755,6 +1016,20 @@ const handleSubmit = async () => {
   margin: 0;
   line-height: 1.4;
 }
+.field-hint-success {
+  margin: -6px 0 12px;
+  color: #0f766e;
+}
+.existing-account-note {
+  margin: -4px 0 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
 
 .req { color: #ef4444; margin-left: 2px; }
 .opt { font-size: 11px; font-weight: 400; color: #94a3b8; margin-left: 4px; }
@@ -816,6 +1091,21 @@ const handleSubmit = async () => {
   flex-direction: column;
   gap: 14px;
   align-items: flex-start;
+}
+.captcha-card {
+  border: 1px solid #dbe4f0;
+  border-radius: 14px;
+  background: #f8fbff;
+  padding: 16px;
+}
+.captcha-intro {
+  margin-bottom: 12px;
+}
+.recaptcha-widget-shell {
+  min-height: 78px;
+}
+.captcha-inline-error {
+  margin-top: 12px;
 }
 .waiver-card {
   border: 1px solid #d7e3f7;
