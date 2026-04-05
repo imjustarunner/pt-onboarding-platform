@@ -18,6 +18,7 @@ import { buildRaceDivisions, buildRecordMetricMap } from './challenges.controlle
 import { callGeminiText } from '../services/geminiText.service.js';
 import Notification from '../models/Notification.model.js';
 import { canUserManageClub, getUserClubMembership, getClubPlatformTenantAgencyId, getClubManagerNotificationRecipientUserIds } from '../utils/sscClubAccess.js';
+import { normalizeSplashImageUrl } from './agencyAnnouncements.controller.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import StorageService from '../services/storage.service.js';
 import multer from 'multer';
@@ -3252,6 +3253,60 @@ export const listClubMembersDirectory = async (req, res, next) => {
 };
 
 /**
+ * GET /summit-stats/clubs/:id/members/directory/public
+ * No authentication — limited roster for public club pages: photo, name, miles, moving time, city/state.
+ * Does not expose user ids, points, age, or gender.
+ */
+export const listClubMembersDirectoryPublic = async (req, res, next) => {
+  try {
+    const clubRef = String(req.params.id || '').trim();
+    const club = await resolveClubByPublicRef(clubRef);
+    if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
+    const clubId = Number(club.id);
+
+    const [rows] = await pool.execute(
+      `SELECT u.first_name, u.last_name, u.profile_photo_path,
+              u.home_city, u.home_state,
+              COALESCE(st.total_miles, 0) AS total_miles,
+              COALESCE(st.total_minutes, 0) AS total_minutes
+       FROM user_agencies ua
+       INNER JOIN users u ON u.id = ua.user_id
+       LEFT JOIN (
+         SELECT w.user_id,
+                COALESCE(SUM(w.distance_value), 0) AS total_miles,
+                COALESCE(SUM(w.duration_minutes), 0) AS total_minutes
+         FROM challenge_workouts w
+         INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+         WHERE c.organization_id = ?
+           AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         GROUP BY w.user_id
+       ) st ON st.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND ua.is_active = 1
+         AND (u.is_archived IS NULL OR u.is_archived = 0)
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC
+       LIMIT 300`,
+      [clubId, clubId]
+    );
+
+    const members = (rows || []).map((r) => ({
+      displayName: `${String(r.first_name || '').trim()} ${String(r.last_name || '').trim()}`.trim() || 'Member',
+      profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path),
+      homeCity: r.home_city || null,
+      homeState: r.home_state || null,
+      stats: {
+        totalMiles: normalizeNum(r.total_miles, 1),
+        totalMinutes: Math.round(Number(r.total_minutes || 0))
+      }
+    }));
+
+    return res.json({ members, public: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
  * GET /summit-stats/clubs/:id/members/:userId/profile
  * Club peer profile — extended fields + all-time stats in this club (for directory modal).
  */
@@ -3573,4 +3628,122 @@ export const reviewSeasonJoinRequest = async (req, res, next) => {
 
     return res.json({ ok: true, status: nextStatus });
   } catch (e) { next(e); }
+};
+
+const ANNOUNCEMENT_MS_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Team captain or club manager: post a scheduled announcement to this team only (roster-backed recipient_user_ids).
+ * POST /summit-stats/clubs/:clubId/seasons/:classId/teams/:teamId/announcements
+ */
+export const postTeamAnnouncementForTeam = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.clubId);
+    const classId = toInt(req.params.classId);
+    const teamId = toInt(req.params.teamId);
+    const userId = toInt(req.user?.id);
+    if (!clubId || !classId || !teamId || !userId) {
+      return res.status(400).json({ error: { message: 'Invalid parameters' } });
+    }
+
+    const agencies = await User.getAgencies(userId);
+    const hasClub = (agencies || []).some((a) => Number(a?.id) === clubId);
+    if (!hasClub && req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Not authorized for this club' } });
+    }
+
+    const [teamRows] = await pool.execute(
+      `SELECT t.id, t.team_manager_user_id, t.learning_class_id, c.organization_id
+       FROM challenge_teams t
+       INNER JOIN learning_program_classes c ON c.id = t.learning_class_id
+       WHERE t.id = ? AND t.learning_class_id = ? AND c.organization_id = ?
+       LIMIT 1`,
+      [teamId, classId, clubId]
+    );
+    const team = teamRows?.[0];
+    if (!team) return res.status(404).json({ error: { message: 'Team not found for this season and club' } });
+
+    const isCaptain = Number(team.team_manager_user_id) === userId;
+    const canManage = await canUserManageClub({ user: req.user, clubId });
+    if (!isCaptain && !canManage) {
+      return res.status(403).json({ error: { message: 'Team captain or club manager access required' } });
+    }
+
+    const [memberRows] = await pool.execute(
+      `SELECT DISTINCT provider_user_id FROM challenge_team_members WHERE team_id = ?`,
+      [teamId]
+    );
+    const recipientUserIds = [...new Set((memberRows || []).map((r) => Number(r.provider_user_id)).filter((n) => n > 0))];
+    if (!recipientUserIds.length) {
+      return res.status(400).json({ error: { message: 'No team members to message' } });
+    }
+
+    const titleRaw = req.body?.title;
+    const title = titleRaw === null || titleRaw === undefined ? null : String(titleRaw || '').trim().slice(0, 255) || null;
+    const message = String(req.body?.message || '').trim();
+    const displayType = String(req.body?.displayType || req.body?.display_type || 'announcement').trim().toLowerCase() === 'splash' ? 'splash' : 'announcement';
+    const splashImageUrl = normalizeSplashImageUrl(req.body?.splashImageUrl ?? req.body?.splash_image_url);
+    if (req.body?.splashImageUrl != null || req.body?.splash_image_url != null) {
+      const raw = req.body?.splashImageUrl ?? req.body?.splash_image_url;
+      if (raw !== null && raw !== undefined && String(raw).trim() !== '' && !splashImageUrl) {
+        return res.status(400).json({ error: { message: 'splash_image_url must be a valid http(s) URL (max 512 chars)' } });
+      }
+    }
+
+    if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
+    if (message.length > 1200) return res.status(400).json({ error: { message: 'Message is too long (max 1200 characters)' } });
+
+    const startsAtRaw = req.body?.starts_at || req.body?.startsAt;
+    const endsAtRaw = req.body?.ends_at || req.body?.endsAt;
+    if (!startsAtRaw || !endsAtRaw) return res.status(400).json({ error: { message: 'starts_at and ends_at are required' } });
+
+    const startsAt = new Date(startsAtRaw);
+    const endsAt = new Date(endsAtRaw);
+    if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
+      return res.status(400).json({ error: { message: 'Invalid starts_at or ends_at' } });
+    }
+    if (endsAt.getTime() <= startsAt.getTime()) {
+      return res.status(400).json({ error: { message: 'ends_at must be after starts_at' } });
+    }
+
+    const durationDays = (endsAt.getTime() - startsAt.getTime()) / ANNOUNCEMENT_MS_DAY;
+    if (durationDays > 14.0001) {
+      return res.status(400).json({ error: { message: 'Announcements must be time-limited to 2 weeks maximum' } });
+    }
+
+    const maxStart = Date.now() + 364 * ANNOUNCEMENT_MS_DAY;
+    if (startsAt.getTime() > maxStart) {
+      return res.status(400).json({ error: { message: 'Announcements can only be scheduled up to 364 days out' } });
+    }
+
+    const audience = 'everyone';
+
+    const [result] = await pool.execute(
+      `INSERT INTO agency_scheduled_announcements
+       (agency_id, created_by_user_id, title, message, display_type, recipient_user_ids, audience, starts_at, ends_at, splash_image_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [clubId, userId, title, message, displayType, JSON.stringify(recipientUserIds), audience, startsAt, endsAt, splashImageUrl]
+    );
+
+    const id = result?.insertId ? Number(result.insertId) : null;
+    return res.status(201).json({
+      announcement: {
+        id,
+        agency_id: clubId,
+        learning_class_id: classId,
+        team_id: teamId,
+        title,
+        message,
+        splash_image_url: splashImageUrl,
+        display_type: displayType,
+        recipient_user_ids: recipientUserIds,
+        audience,
+        starts_at: startsAt,
+        ends_at: endsAt,
+        created_by_user_id: userId
+      }
+    });
+  } catch (e) {
+    next(e);
+  }
 };

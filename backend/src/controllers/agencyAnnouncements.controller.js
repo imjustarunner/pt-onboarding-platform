@@ -76,6 +76,15 @@ const parseAnnouncementDisplayType = (raw) => {
   return value === 'splash' ? 'splash' : 'announcement';
 };
 
+/** Optional hero image URL for splash announcements (https only, max 512 chars). */
+export const normalizeSplashImageUrl = (raw) => {
+  if (raw === null || raw === undefined) return null;
+  const v = String(raw || '').trim();
+  if (!v) return null;
+  if (v.length > 512) return null;
+  return /^https?:\/\//i.test(v) ? v : null;
+};
+
 const VALID_AUDIENCE_BASES = ['everyone', 'providers', 'admin_staff', 'supervisors', 'supervisees', 'specific_users'];
 const VALID_AUDIENCE_PREFIXES = ['title:', 'credential:', 'service_focus:', 'department:'];
 const parseAudience = (raw) => {
@@ -383,7 +392,7 @@ export const listAgencyBannerAnnouncements = async (req, res, next) => {
     const userRole = String(req.user?.role || '').toLowerCase();
 
     const [rows] = await pool.execute(
-      `SELECT id, title, message, starts_at, ends_at, created_at, display_type, recipient_user_ids, audience
+      `SELECT id, title, message, splash_image_url, starts_at, ends_at, created_at, display_type, recipient_user_ids, audience
        FROM agency_scheduled_announcements
        WHERE agency_id = ?
          AND NOW() >= starts_at
@@ -404,6 +413,7 @@ export const listAgencyBannerAnnouncements = async (req, res, next) => {
         id: r.id,
         title: r.title || 'Announcement',
         message: r.message || '',
+        splash_image_url: normalizeSplashImageUrl(r.splash_image_url),
         display_type: parseAnnouncementDisplayType(r.display_type),
         recipient_user_ids: parseRecipientUserIds(r.recipient_user_ids),
         audience: r.audience || 'everyone',
@@ -435,6 +445,7 @@ export const listAgencyScheduledAnnouncements = async (req, res, next) => {
         asa.id,
         asa.title,
         asa.message,
+        asa.splash_image_url,
         asa.display_type,
         asa.recipient_user_ids,
         asa.audience,
@@ -454,6 +465,7 @@ export const listAgencyScheduledAnnouncements = async (req, res, next) => {
       id: r.id,
       title: r.title || null,
       message: r.message || '',
+      splash_image_url: normalizeSplashImageUrl(r.splash_image_url),
       display_type: parseAnnouncementDisplayType(r.display_type),
       recipient_user_ids: parseRecipientUserIds(r.recipient_user_ids),
       audience: r.audience || 'everyone',
@@ -491,6 +503,13 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
     const displayType = parseAnnouncementDisplayType(req.body?.displayType || req.body?.display_type);
     const recipientUserIds = parseRecipientUserIds(req.body?.recipientUserIds || req.body?.recipient_user_ids);
     const audience = parseAudience(req.body?.audience);
+    const splashImageUrl = normalizeSplashImageUrl(req.body?.splashImageUrl ?? req.body?.splash_image_url);
+    if (req.body?.splashImageUrl != null || req.body?.splash_image_url != null) {
+      const raw = req.body?.splashImageUrl ?? req.body?.splash_image_url;
+      if (raw !== null && raw !== undefined && String(raw).trim() !== '' && !splashImageUrl) {
+        return res.status(400).json({ error: { message: 'splash_image_url must be a valid http(s) URL (max 512 chars)' } });
+      }
+    }
     if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
     if (message.length > 1200) return res.status(400).json({ error: { message: 'Message is too long (max 1200 characters)' } });
 
@@ -519,9 +538,9 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
 
     const [result] = await pool.execute(
       `INSERT INTO agency_scheduled_announcements
-       (agency_id, created_by_user_id, title, message, display_type, recipient_user_ids, audience, starts_at, ends_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [agencyId, userId, title, message, displayType, JSON.stringify(recipientUserIds), audience, startsAt, endsAt]
+       (agency_id, created_by_user_id, title, message, display_type, recipient_user_ids, audience, starts_at, ends_at, splash_image_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [agencyId, userId, title, message, displayType, JSON.stringify(recipientUserIds), audience, startsAt, endsAt, splashImageUrl]
     );
 
     const id = result?.insertId ? Number(result.insertId) : null;
@@ -531,6 +550,7 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
         agency_id: agencyId,
         title,
         message,
+        splash_image_url: splashImageUrl,
         display_type: displayType,
         recipient_user_ids: recipientUserIds,
         audience,
@@ -565,6 +585,23 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
     const displayType = parseAnnouncementDisplayType(req.body?.displayType || req.body?.display_type);
     const recipientUserIds = parseRecipientUserIds(req.body?.recipientUserIds || req.body?.recipient_user_ids);
     const audience = parseAudience(req.body?.audience);
+    let splashImageUrl;
+    if (req.body && ('splashImageUrl' in req.body || 'splash_image_url' in req.body)) {
+      splashImageUrl = normalizeSplashImageUrl(req.body?.splashImageUrl ?? req.body?.splash_image_url);
+      const raw = req.body?.splashImageUrl ?? req.body?.splash_image_url;
+      if (raw !== null && raw !== undefined && String(raw).trim() !== '' && !splashImageUrl) {
+        return res.status(400).json({ error: { message: 'splash_image_url must be a valid http(s) URL (max 512 chars)' } });
+      }
+    } else {
+      const [exRows] = await pool.execute(
+        `SELECT splash_image_url FROM agency_scheduled_announcements WHERE id = ? AND agency_id = ? LIMIT 1`,
+        [announcementId, agencyId]
+      );
+      if (!exRows?.length) {
+        return res.status(404).json({ error: { message: 'Announcement not found' } });
+      }
+      splashImageUrl = normalizeSplashImageUrl(exRows[0].splash_image_url);
+    }
     if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
     if (message.length > 1200) return res.status(400).json({ error: { message: 'Message is too long (max 1200 characters)' } });
 
@@ -600,7 +637,8 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
          recipient_user_ids = ?,
          audience = ?,
          starts_at = ?,
-         ends_at = ?
+         ends_at = ?,
+         splash_image_url = ?
        WHERE id = ? AND agency_id = ?`,
       [
         title,
@@ -610,6 +648,7 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
         audience,
         startsAt,
         endsAt,
+        splashImageUrl,
         announcementId,
         agencyId
       ]
@@ -624,6 +663,7 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
         agency_id: agencyId,
         title,
         message,
+        splash_image_url: splashImageUrl,
         display_type: displayType,
         recipient_user_ids: recipientUserIds,
         audience,

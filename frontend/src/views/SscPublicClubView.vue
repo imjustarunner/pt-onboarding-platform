@@ -631,13 +631,6 @@ const showCurrentSeasonBlock = computed(() => publicPageConfig.value?.showCurren
 const showActiveParticipantsBlock = computed(() => publicPageConfig.value?.showActiveParticipants !== false);
 
 const goMembersGuest = () => {
-  const hasPreview =
-    showActiveParticipantsBlock.value && (clubData.value?.activeParticipants?.length || 0) > 0;
-  const el = document.getElementById('club-participants-section');
-  if (hasPreview && el) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    return;
-  }
   router.push(membersDirectoryTo.value);
 };
 

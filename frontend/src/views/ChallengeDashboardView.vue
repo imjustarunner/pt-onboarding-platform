@@ -4,6 +4,28 @@
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else-if="!challenge" class="empty-state">Season not found.</div>
     <div v-else class="challenge-detail">
+      <div
+        v-if="clubDashboardBannerTexts.length"
+        class="ssc-announcement-banner"
+        role="region"
+        aria-label="Club announcements"
+      >
+        <div class="ssc-announcement-inner">
+          <div class="ssc-announcement-track">
+            <span
+              v-for="(t, idx) in clubDashboardBannerTexts"
+              :key="`b-${idx}-${String(t).slice(0, 24)}`"
+              class="ssc-announcement-item"
+            >{{ t }}</span>
+            <span
+              v-for="(t, idx) in clubDashboardBannerTexts"
+              :key="`br-${idx}-${String(t).slice(0, 24)}`"
+              class="ssc-announcement-item"
+              aria-hidden="true"
+            >{{ t }}</span>
+          </div>
+        </div>
+      </div>
       <!-- Challenge Overview -->
       <div class="challenge-overview">
         <router-link :to="backRoute" class="back-link">← Back to My Dashboard</router-link>
@@ -31,6 +53,12 @@
         >
           View Club Store
         </router-link>
+        <div v-if="captainTeamId && challenge.organization_id" class="team-captain-msg-row">
+          <button type="button" class="btn btn-secondary btn-sm" @click="openTeamMessageModal">
+            Message your team
+          </button>
+          <span class="hint">Scheduled announcement to your team roster only.</span>
+        </div>
       </div>
 
       <div class="challenge-sections">
@@ -585,6 +613,83 @@
         </div>
       </div>
     </div>
+
+    <div
+      v-if="currentClubSplash"
+      class="ssc-blocking-splash"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Club announcement"
+    >
+      <div class="ssc-blocking-splash-card">
+        <div class="ssc-blocking-splash-head">
+          <span class="ssc-blocking-splash-brand">{{ clubSplashBrandLabel }}</span>
+        </div>
+        <h3 class="ssc-blocking-splash-title">{{ clubSplashTitle }}</h3>
+        <div v-if="currentClubSplash.splash_image_url" class="ssc-blocking-splash-image-wrap">
+          <img :src="currentClubSplash.splash_image_url" alt="" class="ssc-blocking-splash-image" />
+        </div>
+        <p class="ssc-blocking-splash-message">{{ currentClubSplash.message || '' }}</p>
+        <div v-if="currentClubSplash.ends_at" class="ssc-blocking-splash-meta">
+          Scheduled through {{ formatClubSplashEndsAt(currentClubSplash.ends_at) }}
+        </div>
+        <div class="ssc-blocking-splash-actions">
+          <button type="button" class="btn btn-secondary" @click="remindLaterClubSplash">Remind me later</button>
+          <button type="button" class="btn btn-primary" @click="dismissClubSplash">Dismiss</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showTeamMessageModal" class="modal-overlay" @click.self="showTeamMessageModal = false">
+      <div class="modal-content modal-wide team-msg-modal" @click.stop>
+        <h2>Message your team</h2>
+        <p class="hint">Only members on your team receive this (via the club announcement system).</p>
+        <div v-if="teamMsgError" class="error-inline">{{ teamMsgError }}</div>
+        <div class="form-row">
+          <label>Type</label>
+          <select v-model="teamMsgDraft.displayType" class="form-control">
+            <option value="announcement">Banner (scrolling line)</option>
+            <option value="splash">Splash (pop-up)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Title (optional)</label>
+          <input v-model="teamMsgDraft.title" type="text" maxlength="255" class="form-control" />
+        </div>
+        <div class="form-row">
+          <label>Message</label>
+          <textarea v-model="teamMsgDraft.message" rows="4" maxlength="1200" class="form-control" />
+        </div>
+        <div v-if="teamMsgDraft.displayType === 'splash'" class="form-row">
+          <label>Splash image (optional)</label>
+          <input v-model="teamMsgDraft.splashImageUrl" type="url" class="form-control" placeholder="https://…" />
+          <input
+            ref="teamSplashFileInput"
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            class="team-msg-file"
+            :disabled="teamSplashUploading"
+            @change="onTeamSplashFile"
+          />
+          <span v-if="teamSplashUploading" class="hint">Uploading…</span>
+        </div>
+        <div class="form-row form-row--2">
+          <label>Starts<br />
+            <input v-model="teamMsgDraft.startsAt" type="datetime-local" class="form-control" />
+          </label>
+          <label>Ends<br />
+            <input v-model="teamMsgDraft.endsAt" type="datetime-local" class="form-control" />
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" @click="showTeamMessageModal = false">Cancel</button>
+          <button type="button" class="btn btn-primary" :disabled="teamMsgSubmitting || !canSubmitTeamMsg" @click="submitTeamAnnouncement">
+            {{ teamMsgSubmitting ? 'Posting…' : 'Post to team' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <ChallengeParticipationAgreementModal
       :open="showParticipationAgreementModal"
       :challenge-name="challenge?.class_name || challenge?.className || ''"
@@ -602,6 +707,8 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
+import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
+import { useAffiliationClubAnnouncements } from '../composables/useAffiliationClubAnnouncements.js';
 import { getWeekDeadline, timeUntil, formatInTimezone, countdownUrgency } from '../utils/timezones.js';
 import ChallengeRules from '../components/challenge/ChallengeRules.vue';
 import ChallengeTeamList from '../components/challenge/ChallengeTeamList.vue';
@@ -692,6 +799,25 @@ const backRoute = computed(() => {
   }
   return '/dashboard';
 });
+
+const announcementClubId = computed(() => {
+  const id = Number(challenge.value?.organization_id || 0);
+  return id > 0 ? id : null;
+});
+const splashBrandLabelForAnnouncements = computed(() => {
+  const n = String(challenge.value?.organization_name || '').trim();
+  return n || SUMMIT_STATS_TEAM_CHALLENGE_NAME;
+});
+const {
+  clubDashboardBannerTexts,
+  currentClubSplash,
+  clubSplashTitle,
+  clubSplashBrandLabel,
+  formatClubSplashEndsAt,
+  loadClubAnnouncements,
+  dismissClubSplash,
+  remindLaterClubSplash
+} = useAffiliationClubAnnouncements(announcementClubId, splashBrandLabelForAnnouncements);
 
 const canSubmitWorkout = computed(() => {
   const members = providerMembers.value || [];
@@ -800,6 +926,109 @@ const myTeamId = computed(() => {
   );
   return myTeam?.id || null;
 });
+
+const captainTeamId = computed(() => {
+  const myId = Number(authStore.user?.id || 0);
+  const t = (teams.value || []).find((x) => Number(x.team_manager_user_id) === myId);
+  return t?.id || null;
+});
+
+const showTeamMessageModal = ref(false);
+const teamMsgSubmitting = ref(false);
+const teamMsgError = ref('');
+const teamSplashUploading = ref(false);
+const teamSplashFileInput = ref(null);
+const teamMsgDraft = ref({
+  title: '',
+  message: '',
+  displayType: 'announcement',
+  splashImageUrl: '',
+  startsAt: '',
+  endsAt: ''
+});
+
+const toTeamMsgLocalInput = (d) => {
+  const dt = d instanceof Date ? d : new Date(d);
+  if (!Number.isFinite(dt.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+};
+
+const openTeamMessageModal = () => {
+  const now = new Date();
+  const in24 = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  teamMsgDraft.value = {
+    title: '',
+    message: '',
+    displayType: 'announcement',
+    splashImageUrl: '',
+    startsAt: toTeamMsgLocalInput(now),
+    endsAt: toTeamMsgLocalInput(in24)
+  };
+  teamMsgError.value = '';
+  showTeamMessageModal.value = true;
+};
+
+const canSubmitTeamMsg = computed(() => {
+  const d = teamMsgDraft.value;
+  if (!String(d.message || '').trim()) return false;
+  if (!d.startsAt || !d.endsAt) return false;
+  const starts = new Date(d.startsAt);
+  const ends = new Date(d.endsAt);
+  if (!Number.isFinite(starts.getTime()) || !Number.isFinite(ends.getTime())) return false;
+  return ends.getTime() > starts.getTime();
+});
+
+const onTeamSplashFile = async (e) => {
+  const file = e.target.files?.[0];
+  const cid = Number(challenge.value?.organization_id || 0);
+  if (!file || !cid) return;
+  teamSplashUploading.value = true;
+  teamMsgError.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await api.post(`/summit-stats/clubs/${cid}/feed/attachments`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      skipGlobalLoading: true
+    });
+    if (r.data?.url) teamMsgDraft.value = { ...teamMsgDraft.value, splashImageUrl: r.data.url };
+  } catch (err) {
+    teamMsgError.value = err.response?.data?.error?.message || 'Image upload failed';
+  } finally {
+    teamSplashUploading.value = false;
+    if (teamSplashFileInput.value) teamSplashFileInput.value.value = '';
+  }
+};
+
+const submitTeamAnnouncement = async () => {
+  if (!canSubmitTeamMsg.value || teamMsgSubmitting.value) return;
+  const cid = Number(challenge.value?.organization_id || 0);
+  const classId = Number(challengeId.value);
+  const tid = Number(captainTeamId.value);
+  if (!cid || !classId || !tid) return;
+  teamMsgSubmitting.value = true;
+  teamMsgError.value = '';
+  try {
+    const d = teamMsgDraft.value;
+    const payload = {
+      title: String(d.title || '').trim() || null,
+      message: String(d.message || '').trim(),
+      display_type: d.displayType === 'splash' ? 'splash' : 'announcement',
+      starts_at: new Date(d.startsAt),
+      ends_at: new Date(d.endsAt)
+    };
+    const splash = String(d.splashImageUrl || '').trim();
+    if (splash) payload.splash_image_url = splash;
+    await api.post(`/summit-stats/clubs/${cid}/seasons/${classId}/teams/${tid}/announcements`, payload, { skipGlobalLoading: true });
+    showTeamMessageModal.value = false;
+    await loadClubAnnouncements();
+  } catch (err) {
+    teamMsgError.value = err.response?.data?.error?.message || 'Failed to post';
+  } finally {
+    teamMsgSubmitting.value = false;
+  }
+};
 
 const selectedTaskProofPolicyLabel = computed(() => {
   const id = Number(workoutForm.value.weeklyTaskId || 0);
@@ -1873,5 +2102,135 @@ watch(challengeId, () => {
   border-radius: 6px;
   padding: 8px 12px;
   font-size: 0.85em;
+}
+
+.team-captain-msg-row {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.team-msg-modal .form-row {
+  margin-bottom: 12px;
+}
+.team-msg-modal .form-row--2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.team-msg-file {
+  margin-top: 6px;
+  font-size: 0.85em;
+}
+.form-control {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+}
+
+/* Match My club dashboard announcement UI */
+.ssc-announcement-banner {
+  background: linear-gradient(90deg, #eff6ff 0%, #ffffff 100%);
+  border-left: 4px solid #2563eb;
+  border-radius: 16px;
+  padding: 8px 0;
+  margin-bottom: 18px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+.ssc-announcement-inner {
+  overflow: hidden;
+  width: 100%;
+}
+.ssc-announcement-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  padding-left: 100%;
+  animation: sscBannerMarquee 28s linear infinite;
+  white-space: nowrap;
+  color: #1d4ed8;
+  font-weight: 600;
+  font-size: clamp(14px, 3.5vw, 16px);
+}
+.ssc-announcement-banner:hover .ssc-announcement-track {
+  animation-play-state: paused;
+}
+@keyframes sscBannerMarquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ssc-blocking-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  background: rgba(15, 23, 42, 0.72);
+  display: grid;
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-bottom));
+}
+.ssc-blocking-splash-card {
+  width: min(700px, 96vw);
+  max-height: min(90vh, 900px);
+  overflow-y: auto;
+  border-radius: 18px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 20px;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
+}
+.ssc-blocking-splash-head {
+  margin-bottom: 8px;
+}
+.ssc-blocking-splash-brand {
+  font-weight: 800;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+}
+.ssc-blocking-splash-title {
+  margin: 0 0 10px 0;
+  color: #1d4ed8;
+  font-size: clamp(22px, 6vw, 32px);
+  line-height: 1.15;
+}
+.ssc-blocking-splash-image-wrap {
+  margin: 0 0 12px 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f1f5f9;
+}
+.ssc-blocking-splash-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(40vh, 360px);
+  object-fit: contain;
+}
+.ssc-blocking-splash-message {
+  margin: 0;
+  color: #0f172a;
+  font-size: clamp(16px, 4.2vw, 1.25rem);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ssc-blocking-splash-meta {
+  margin-top: 10px;
+  color: #64748b;
+  font-size: 12px;
+}
+.ssc-blocking-splash-actions {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
 }
 </style>

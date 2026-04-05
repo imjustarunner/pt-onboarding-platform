@@ -41,6 +41,11 @@
       <div class="pub-content">
         <div class="pub-card members-roster-card">
           <div class="card-label">Roster</div>
+          <p v-if="isPublicRoster && !membersLoading" class="public-roster-hint">
+            Public view — names, photos, and totals only.
+            <router-link class="public-roster-signin" :to="loginWithRedirect">Sign in</router-link>
+            as a member for clickable cards and full profiles.
+          </p>
 
           <div v-if="membersLoading" class="roster-loading">Loading members…</div>
           <div
@@ -64,8 +69,13 @@
             <template v-else>{{ membersError }}</template>
           </div>
           <ul v-else class="member-grid">
-            <li v-for="m in members" :key="m.id">
-              <button type="button" class="member-card" @click="openMember(m)">
+            <li v-for="(m, idx) in members" :key="memberRowKey(m, idx)">
+              <button
+                v-if="!isPublicRoster"
+                type="button"
+                class="member-card"
+                @click="openMember(m)"
+              >
                 <div class="member-avatar" aria-hidden="true">
                   <img v-if="photoUrl(m.profilePhotoUrl)" :src="photoUrl(m.profilePhotoUrl)" alt="" class="member-avatar-img" />
                   <div v-else class="member-avatar-fallback">{{ initials(m) }}</div>
@@ -83,6 +93,27 @@
                   <div v-if="m.genderListLabel" class="member-gender">{{ m.genderListLabel }}</div>
                 </div>
               </button>
+              <div v-else class="member-card member-card--readonly">
+                <div class="member-avatar" aria-hidden="true">
+                  <img
+                    v-if="photoUrl(m.profilePhotoUrl)"
+                    :src="photoUrl(m.profilePhotoUrl)"
+                    alt=""
+                    class="member-avatar-img member-avatar-img--static"
+                    draggable="false"
+                  />
+                  <div v-else class="member-avatar-fallback">{{ initials(m) }}</div>
+                </div>
+                <div class="member-card-body">
+                  <div class="member-name">{{ m.displayName }}</div>
+                  <div class="member-stats">
+                    {{ formatDecimal(m.stats?.totalMiles) }} mi · {{ formatDurationMinutes(m.stats?.totalMinutes) }} moving
+                  </div>
+                  <div v-if="locationLine(m)" class="member-meta">
+                    <span class="member-loc">{{ locationLine(m) }}</span>
+                  </div>
+                </div>
+              </div>
             </li>
           </ul>
         </div>
@@ -90,7 +121,7 @@
     </template>
 
     <Teleport to="body">
-      <div v-if="modalOpen" class="member-modal-backdrop" @click.self="closeModal">
+      <div v-if="modalOpen && !isPublicRoster" class="member-modal-backdrop" @click.self="closeModal">
         <div class="member-modal pub-modal" role="dialog" aria-modal="true" aria-labelledby="member-modal-title">
           <button type="button" class="member-modal-close" aria-label="Close" @click="closeModal">×</button>
           <div v-if="profileLoading" class="member-modal-loading">Loading…</div>
@@ -171,8 +202,10 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import api from '../services/api';
+import { useAuthStore } from '../store/auth';
 
 const route = useRoute();
+const authStore = useAuthStore();
 const orgSlug = computed(() => route.params.organizationSlug || 'ssc');
 const clubId = computed(() => route.params.clubId);
 
@@ -185,6 +218,8 @@ const membersLoading = ref(true);
 const membersError = ref('');
 /** Set when roster request fails (e.g. 401 guest, 403 non-member). */
 const membersErrorStatus = ref(null);
+/** True when showing the no-auth public roster (read-only cards). */
+const isPublicRoster = ref(false);
 
 const modalOpen = ref(false);
 const profileLoading = ref(false);
@@ -210,6 +245,11 @@ const clubLogoUrl = computed(() => clubData.value?.club?.logoUrl || null);
 const clubTitle = computed(() => String(clubData.value?.club?.name || 'Club').trim() || 'Club');
 
 const clubBackTo = computed(() => `/${orgSlug.value}/clubs/${clubId.value}`);
+
+const loginWithRedirect = computed(() => ({
+  path: `/${orgSlug.value}/login`,
+  query: { redirect: route.fullPath }
+}));
 
 const photoUrl = (pathOrUrl) => toUploadsUrl(pathOrUrl);
 
@@ -242,6 +282,20 @@ const formatWhole = (value) => Number(value || 0).toLocaleString();
 const formatDecimal = (value) =>
   Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 
+const formatDurationMinutes = (raw) => {
+  const n = Math.round(Number(raw || 0));
+  if (!n) return '—';
+  const h = Math.floor(n / 60);
+  const min = n % 60;
+  if (h > 0) return `${h}h ${min}m`;
+  return `${min}m`;
+};
+
+const memberRowKey = (m, idx) => {
+  if (m?.id != null) return `m-${m.id}`;
+  return `pub-${idx}-${String(m?.displayName || '').slice(0, 24)}`;
+};
+
 const hasBio = (m) =>
   !!(m?.heardAboutClub || m?.runningFitnessBackground || m?.currentFitnessActivities);
 
@@ -273,18 +327,41 @@ const loadMembers = async () => {
   membersLoading.value = true;
   membersError.value = '';
   membersErrorStatus.value = null;
+  isPublicRoster.value = false;
+  const publicUrl = `/summit-stats/clubs/${clubId.value}/members/directory/public`;
+  const memberUrl = `/summit-stats/clubs/${clubId.value}/members/directory`;
   try {
-    const { data } = await api.get(`/summit-stats/clubs/${clubId.value}/members/directory`);
+    if (!authStore.isAuthenticated) {
+      const { data } = await api.get(publicUrl, { skipAuthRedirect: true });
+      members.value = Array.isArray(data?.members) ? data.members : [];
+      isPublicRoster.value = true;
+      return;
+    }
+    const { data } = await api.get(memberUrl, { skipAuthRedirect: true });
     members.value = Array.isArray(data?.members) ? data.members : [];
+    isPublicRoster.value = false;
   } catch (e) {
-    membersErrorStatus.value = e?.response?.status ?? null;
-    membersError.value = e?.response?.data?.error?.message || 'Could not load members.';
+    const st = e?.response?.status;
+    if (st === 401 || st === 403) {
+      try {
+        const { data } = await api.get(publicUrl, { skipAuthRedirect: true });
+        members.value = Array.isArray(data?.members) ? data.members : [];
+        isPublicRoster.value = true;
+      } catch (e2) {
+        membersErrorStatus.value = e2?.response?.status ?? null;
+        membersError.value = e2?.response?.data?.error?.message || 'Could not load members.';
+      }
+    } else {
+      membersErrorStatus.value = st ?? null;
+      membersError.value = e?.response?.data?.error?.message || 'Could not load members.';
+    }
   } finally {
     membersLoading.value = false;
   }
 };
 
 const openMember = async (m) => {
+  if (isPublicRoster.value) return;
   profileDetail.value = null;
   profileError.value = '';
   modalOpen.value = true;
@@ -533,6 +610,24 @@ onMounted(async () => {
   color: #94a3b8;
   margin-bottom: 14px;
 }
+.public-roster-hint {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.public-roster-signin {
+  color: #1d4ed8;
+  font-weight: 700;
+  text-decoration: none;
+}
+.public-roster-signin:hover {
+  text-decoration: underline;
+}
 
 .roster-loading,
 .roster-error {
@@ -591,6 +686,17 @@ onMounted(async () => {
 .member-card:hover {
   border-color: #bae6fd;
   box-shadow: 0 4px 16px rgba(29, 78, 216, 0.08);
+}
+.member-card--readonly {
+  cursor: default;
+}
+.member-card--readonly:hover {
+  border-color: rgba(226, 232, 240, 0.9);
+  box-shadow: none;
+}
+.member-avatar-img--static {
+  pointer-events: none;
+  user-select: none;
 }
 
 .member-avatar {

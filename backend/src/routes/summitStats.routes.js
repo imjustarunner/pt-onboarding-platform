@@ -82,7 +82,9 @@ import {
   listSeasonJoinRequests,
   reviewSeasonJoinRequest,
   listClubMembersDirectory,
-  getClubMemberProfile
+  listClubMembersDirectoryPublic,
+  getClubMemberProfile,
+  postTeamAnnouncementForTeam
 } from '../controllers/challengeMemberApplications.controller.js';
 
 const router = express.Router();
@@ -90,6 +92,7 @@ const router = express.Router();
 // ── Public routes (no auth) ──────────────────────────────────────
 router.get('/clubs', listClubs);
 router.get('/clubs/:id/public', authenticateOptional, getPublicClubStats);
+router.get('/clubs/:id/members/directory/public', authenticateOptional, listClubMembersDirectoryPublic);
 router.get('/clubs/:id/feed/public', getClubFeedPublic);
 router.get('/clubs/invite/:token', resolveInviteToken);
 router.post('/application-email-status', getApplicationEmailStatus);
@@ -183,6 +186,7 @@ router.get('/clubs/:id/members/:userId/season-history', getClubMemberSeasonHisto
 router.put('/clubs/:id/members/:userId/profile', putClubMemberProfile);
 router.put('/clubs/:id/members/:userId/team-captain', putClubMemberTeamCaptain);
 router.put('/clubs/:id/members/:userId/status', setClubMemberStatus);
+router.post('/clubs/:clubId/seasons/:classId/teams/:teamId/announcements', postTeamAnnouncementForTeam);
 
 // Club stats (computed + seed)
 router.get('/clubs/:id/stats', getClubStats);

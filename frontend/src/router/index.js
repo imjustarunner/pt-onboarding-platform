@@ -418,7 +418,7 @@ const routes = [
     path: '/:organizationSlug/clubs/:clubId/members',
     name: 'SscClubMembersDirectory',
     component: () => import('../views/SscClubMembersDirectoryView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    meta: { requiresGuest: false, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/clubs/:clubId/records',

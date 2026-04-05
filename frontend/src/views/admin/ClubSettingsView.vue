@@ -201,6 +201,23 @@
             <label>Message</label>
             <textarea v-model="clubAnnouncementDraft.message" rows="4" maxlength="1200" placeholder="Your announcement…" />
           </div>
+          <div v-if="clubAnnouncementDraft.displayType === 'splash'" class="field">
+            <label>Splash image (optional)</label>
+            <input
+              v-model="clubAnnouncementDraft.splashImageUrl"
+              type="url"
+              maxlength="512"
+              placeholder="https://…"
+            />
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              class="club-splash-file-input"
+              :disabled="clubSplashUploading"
+              @change="onClubAnnouncementSplashFile"
+            />
+            <p v-if="clubSplashUploading" class="hint">Uploading image…</p>
+          </div>
           <div class="form-row">
             <div class="field">
               <label>Starts</label>
@@ -1414,10 +1431,12 @@ const clubAnnouncementsLoading = ref(false);
 const clubAnnouncementsError = ref('');
 const clubAnnouncementsList = ref([]);
 const clubAnnouncementSubmitting = ref(false);
+const clubSplashUploading = ref(false);
 const clubAnnouncementDraft = ref({
   displayType: 'announcement',
   title: '',
   message: '',
+  splashImageUrl: '',
   startsAt: '',
   endsAt: ''
 });
@@ -1436,6 +1455,7 @@ const initClubAnnouncementDraft = () => {
     displayType: 'announcement',
     title: '',
     message: '',
+    splashImageUrl: '',
     startsAt: toClubLocalDt(now),
     endsAt: toClubLocalDt(in24)
   };
@@ -1468,12 +1488,33 @@ const loadClubAnnouncementsList = async () => {
   }
 };
 
+const onClubAnnouncementSplashFile = async (e) => {
+  const file = e.target.files?.[0];
+  if (!file || !currentAgencyId.value) return;
+  clubSplashUploading.value = true;
+  clubAnnouncementsError.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await api.post(`/summit-stats/clubs/${currentAgencyId.value}/feed/attachments`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      skipGlobalLoading: true
+    });
+    if (r.data?.url) clubAnnouncementDraft.value.splashImageUrl = r.data.url;
+  } catch (err) {
+    clubAnnouncementsError.value = err.response?.data?.error?.message || 'Image upload failed';
+  } finally {
+    clubSplashUploading.value = false;
+    e.target.value = '';
+  }
+};
+
 const postClubAnnouncement = async () => {
   if (!currentAgencyId.value || clubAnnouncementSubmitting.value || !canSubmitClubAnnouncement.value) return;
   clubAnnouncementSubmitting.value = true;
   clubAnnouncementsError.value = '';
   try {
-    await api.post(`/agencies/${currentAgencyId.value}/announcements`, {
+    const body = {
       title: String(clubAnnouncementDraft.value.title || '').trim() || null,
       message: String(clubAnnouncementDraft.value.message || '').trim(),
       display_type: clubAnnouncementDraft.value.displayType === 'splash' ? 'splash' : 'announcement',
@@ -1481,7 +1522,10 @@ const postClubAnnouncement = async () => {
       audience: 'everyone',
       starts_at: new Date(clubAnnouncementDraft.value.startsAt),
       ends_at: new Date(clubAnnouncementDraft.value.endsAt)
-    });
+    };
+    const splash = String(clubAnnouncementDraft.value.splashImageUrl || '').trim();
+    if (splash) body.splash_image_url = splash;
+    await api.post(`/agencies/${currentAgencyId.value}/announcements`, body);
     initClubAnnouncementDraft();
     await loadClubAnnouncementsList();
   } catch (e) {

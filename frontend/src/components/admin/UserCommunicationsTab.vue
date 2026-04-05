@@ -59,6 +59,25 @@
           :disabled="viewOnly || posting"
         />
       </div>
+      <div v-if="String(postDraft.displayType || '').toLowerCase() === 'splash'" style="margin-top: 12px;">
+        <label class="muted" style="display:block; margin-bottom: 6px;">Splash image URL (optional)</label>
+        <input
+          v-model="postDraft.splashImageUrl"
+          class="form-select"
+          type="url"
+          maxlength="512"
+          placeholder="https://…"
+          :disabled="viewOnly || posting"
+        />
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          style="margin-top: 8px; font-size: 0.9em;"
+          :disabled="viewOnly || posting || profileSplashUploading || !postDraft.agencyId"
+          @change="onProfileAnnouncementSplashFile"
+        />
+        <span v-if="profileSplashUploading" class="muted" style="margin-left: 8px;">Uploading…</span>
+      </div>
       <div style="margin-top: 12px; display:flex; gap: 8px; align-items:center;">
         <button class="btn btn-primary btn-sm" type="button" @click="postAnnouncementFromProfile" :disabled="viewOnly || posting || !canPostFromProfile">
           {{ posting ? 'Posting…' : 'Post now' }}
@@ -288,9 +307,34 @@ const postDraft = ref({
   scope: 'user',
   title: '',
   message: '',
+  splashImageUrl: '',
   startsAt: toLocalInput(now),
   endsAt: toLocalInput(in24h)
 });
+
+const profileSplashUploading = ref(false);
+
+const onProfileAnnouncementSplashFile = async (e) => {
+  const file = e.target.files?.[0];
+  const aid = parseInt(String(postDraft.value.agencyId || ''), 10);
+  if (!file || !aid) return;
+  profileSplashUploading.value = true;
+  postError.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await api.post(`/summit-stats/clubs/${aid}/feed/attachments`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      skipGlobalLoading: true
+    });
+    if (r.data?.url) postDraft.value.splashImageUrl = r.data.url;
+  } catch (err) {
+    postError.value = err.response?.data?.error?.message || 'Image upload failed';
+  } finally {
+    profileSplashUploading.value = false;
+    e.target.value = '';
+  }
+};
 
 watch(
   () => [props.preferredClubAgencyId, props.userAgencies],
@@ -326,10 +370,13 @@ const postAnnouncementFromProfile = async () => {
       starts_at: new Date(postDraft.value.startsAt),
       ends_at: new Date(postDraft.value.endsAt)
     };
+    const splash = String(postDraft.value.splashImageUrl || '').trim();
+    if (splash) payload.splash_image_url = splash;
     await api.post(`/agencies/${agencyId}/announcements`, payload);
     postSuccess.value = 'Posted. It will appear in the agency announcement feed.';
     postDraft.value.message = '';
     postDraft.value.title = '';
+    postDraft.value.splashImageUrl = '';
   } catch (err) {
     postError.value = err.response?.data?.error?.message || 'Failed to post announcement';
   } finally {
