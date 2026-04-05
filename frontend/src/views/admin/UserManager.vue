@@ -2222,6 +2222,10 @@ const fetchUsers = async () => {
         seasons: Array.isArray(m.seasons) ? m.seasons : [],
         created_at: m.createdAt
       }));
+    } else if (isSscSstcTenant.value) {
+      // SSC context but no club ID yet (agency store still hydrating).
+      // Leave the list empty — the selectedClubId watcher will trigger a re-fetch once it resolves.
+      users.value = [];
     } else {
       // Archived users are managed in Settings → Archive, not in the main user list.
       const response = await api.get('/users');
@@ -3818,14 +3822,24 @@ const cancelCreation = () => {
   pendingUserData.value = null;
 };
 
+// Re-fetch club members when selectedClubId becomes available after an initially-null load.
+// This handles SPA navigation where the agency store hydrates after the component mounts.
+watch(selectedClubId, (newId, oldId) => {
+  if (isSscSstcTenant.value && newId && !oldId) {
+    void fetchUsers();
+  }
+});
+
 onMounted(async () => {
   loadUserFilters();
   loadQuickAnnouncementCollapsed();
   // Ensure the current brand/agency selection is hydrated (used for default filters).
+  // Always run for non-super-admins — skipping when authStore.user is transiently null
+  // (common on first SPA navigation) would leave selectedClubId = null and show a blank list.
   try {
     const role = String(authStore.user?.role || '').toLowerCase();
     // For super admins, don't overwrite the brand/agency preview selection.
-    if (role && role !== 'super_admin') {
+    if (role !== 'super_admin') {
       await agencyStore.fetchUserAgencies();
     }
   } catch {
