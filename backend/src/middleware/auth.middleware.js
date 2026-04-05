@@ -53,6 +53,9 @@ export const authenticate = (req, res, next) => {
     if (req.method === 'GET' && /^\/api\/summit-stats\/clubs\/[^/]+\/public\/?$/.test(requestPath)) {
       return next();
     }
+    if (req.method === 'GET' && /^\/api\/summit-stats\/clubs\/[^/]+\/members\/directory\/public\/?$/.test(requestPath)) {
+      return next();
+    }
     if (req.method === 'GET' && /^\/api\/summit-stats\/clubs\/invite\/[^/]+\/?$/.test(requestPath)) {
       return next();
     }

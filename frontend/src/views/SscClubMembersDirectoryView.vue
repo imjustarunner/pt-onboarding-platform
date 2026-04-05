@@ -42,9 +42,9 @@
         <div class="pub-card members-roster-card">
           <div class="card-label">Roster</div>
           <p v-if="isPublicRoster && !membersLoading" class="public-roster-hint">
-            Public view — names, photos, and totals only.
+            Public view — first names, photos, miles, moving time, and city/state.
             <router-link class="public-roster-signin" :to="loginWithRedirect">Sign in</router-link>
-            as a member for clickable cards and full profiles.
+            as a member for full names and profiles.
           </p>
 
           <div v-if="membersLoading" class="roster-loading">Loading members…</div>
@@ -54,10 +54,10 @@
             :class="{ 'roster-error--muted': membersErrorStatus === 401 || membersErrorStatus === 403 }"
           >
             <template v-if="membersErrorStatus === 401">
-              <p class="roster-error-lead">The full roster is for signed-in club members.</p>
+              <p class="roster-error-lead">The full member directory requires sign-in.</p>
               <p class="roster-error-hint">
                 <a class="roster-error-link" :href="`/${orgSlug}`">Sign in</a>
-                to see photos, stats, and profiles. The public club page shows a name preview only.
+                to open profiles and see full details. If this message persists, try refreshing the page.
               </p>
             </template>
             <template v-else-if="membersErrorStatus === 403">
@@ -70,6 +70,7 @@
           </div>
           <ul v-else class="member-grid">
             <li v-for="(m, idx) in members" :key="memberRowKey(m, idx)">
+              <div v-if="publicSectionHeading(m, idx)" class="roster-section-heading">{{ publicSectionHeading(m, idx) }}</div>
               <button
                 v-if="!isPublicRoster"
                 type="button"
@@ -105,7 +106,7 @@
                   <div v-else class="member-avatar-fallback">{{ initials(m) }}</div>
                 </div>
                 <div class="member-card-body">
-                  <div class="member-name">{{ m.displayName }}</div>
+                  <div class="member-name">{{ publicDisplayName(m) }}</div>
                   <div class="member-stats">
                     {{ formatDecimal(m.stats?.totalMiles) }} mi · {{ formatDurationMinutes(m.stats?.totalMinutes) }} moving
                   </div>
@@ -256,12 +257,16 @@ const photoUrl = (pathOrUrl) => toUploadsUrl(pathOrUrl);
 const initials = (entry) => {
   const first = String(entry?.firstName || '').trim();
   const last = String(entry?.lastName || '').trim();
+  if (first && isPublicRoster.value) {
+    return first.slice(0, 1).toUpperCase();
+  }
   const a = first ? first[0] : '';
   const b = last ? last[0] : '';
   const fromName = `${a}${b}`.toUpperCase();
   if (fromName) return fromName;
   const dn = String(entry?.displayName || '').trim();
   if (dn.length >= 2) return dn.slice(0, 2).toUpperCase();
+  if (dn.length === 1) return dn.toUpperCase();
   return 'M';
 };
 
@@ -293,7 +298,28 @@ const formatDurationMinutes = (raw) => {
 
 const memberRowKey = (m, idx) => {
   if (m?.id != null) return `m-${m.id}`;
-  return `pub-${idx}-${String(m?.displayName || '').slice(0, 24)}`;
+  return `pub-${idx}-${String(m?.firstName || m?.displayName || '').slice(0, 24)}`;
+};
+
+const publicDisplayName = (m) => {
+  const fn = String(m?.firstName || '').trim();
+  if (fn) return fn;
+  return String(m?.displayName || '').trim() || 'Member';
+};
+
+/** Section headings when roster is grouped by publicRole (manager → assistants → members). */
+const publicSectionHeading = (m, idx) => {
+  if (!isPublicRoster.value) return null;
+  const list = members.value;
+  const prev = idx > 0 ? list[idx - 1] : null;
+  const r = m?.publicRole || 'member';
+  const pr = prev?.publicRole || null;
+  if (idx === 0 || r !== pr) {
+    if (r === 'manager') return 'Club manager';
+    if (r === 'assistant_manager') return 'Assistant managers';
+    return 'Members';
+  }
+  return null;
 };
 
 const hasBio = (m) =>
@@ -330,30 +356,40 @@ const loadMembers = async () => {
   isPublicRoster.value = false;
   const publicUrl = `/summit-stats/clubs/${clubId.value}/members/directory/public`;
   const memberUrl = `/summit-stats/clubs/${clubId.value}/members/directory`;
+
+  let publicRows = [];
   try {
-    if (!authStore.isAuthenticated) {
-      const { data } = await api.get(publicUrl, { skipAuthRedirect: true });
-      members.value = Array.isArray(data?.members) ? data.members : [];
-      isPublicRoster.value = true;
-      return;
-    }
+    const { data } = await api.get(publicUrl, { skipAuthRedirect: true });
+    publicRows = Array.isArray(data?.members) ? data.members : [];
+  } catch (e) {
+    membersErrorStatus.value = e?.response?.status ?? null;
+    membersError.value = e?.response?.data?.error?.message || 'Could not load the public roster.';
+    members.value = [];
+    membersLoading.value = false;
+    return;
+  }
+
+  if (!authStore.isAuthenticated) {
+    members.value = publicRows;
+    isPublicRoster.value = true;
+    membersLoading.value = false;
+    return;
+  }
+
+  try {
     const { data } = await api.get(memberUrl, { skipAuthRedirect: true });
     members.value = Array.isArray(data?.members) ? data.members : [];
     isPublicRoster.value = false;
   } catch (e) {
     const st = e?.response?.status;
     if (st === 401 || st === 403) {
-      try {
-        const { data } = await api.get(publicUrl, { skipAuthRedirect: true });
-        members.value = Array.isArray(data?.members) ? data.members : [];
-        isPublicRoster.value = true;
-      } catch (e2) {
-        membersErrorStatus.value = e2?.response?.status ?? null;
-        membersError.value = e2?.response?.data?.error?.message || 'Could not load members.';
-      }
+      members.value = publicRows;
+      isPublicRoster.value = true;
     } else {
       membersErrorStatus.value = st ?? null;
-      membersError.value = e?.response?.data?.error?.message || 'Could not load members.';
+      membersError.value = e?.response?.data?.error?.message || 'Could not load the full directory.';
+      members.value = publicRows;
+      isPublicRoster.value = true;
     }
   } finally {
     membersLoading.value = false;
@@ -667,6 +703,22 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.member-grid > li {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.roster-section-heading {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  margin: 4px 2px 0;
+}
+.member-grid > li:first-child .roster-section-heading {
+  margin-top: 0;
 }
 
 .member-card {

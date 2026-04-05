@@ -3267,6 +3267,7 @@ export const listClubMembersDirectoryPublic = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT u.first_name, u.last_name, u.profile_photo_path,
               u.home_city, u.home_state,
+              COALESCE(ua.club_role, 'member') AS club_role,
               COALESCE(st.total_miles, 0) AS total_miles,
               COALESCE(st.total_minutes, 0) AS total_minutes
        FROM user_agencies ua
@@ -3284,21 +3285,39 @@ export const listClubMembersDirectoryPublic = async (req, res, next) => {
        WHERE ua.agency_id = ?
          AND ua.is_active = 1
          AND (u.is_archived IS NULL OR u.is_archived = 0)
-       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC
+       ORDER BY
+         CASE LOWER(COALESCE(ua.club_role, 'member'))
+           WHEN 'manager' THEN 0
+           WHEN 'assistant_manager' THEN 1
+           ELSE 2
+         END,
+         u.last_name ASC,
+         u.first_name ASC,
+         u.id ASC
        LIMIT 300`,
       [clubId, clubId]
     );
 
-    const members = (rows || []).map((r) => ({
-      displayName: `${String(r.first_name || '').trim()} ${String(r.last_name || '').trim()}`.trim() || 'Member',
-      profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path),
-      homeCity: r.home_city || null,
-      homeState: r.home_state || null,
-      stats: {
-        totalMiles: normalizeNum(r.total_miles, 1),
-        totalMinutes: Math.round(Number(r.total_minutes || 0))
-      }
-    }));
+    const members = (rows || []).map((r) => {
+      const cr = String(r.club_role || 'member').trim().toLowerCase();
+      let publicRole = 'member';
+      if (cr === 'manager') publicRole = 'manager';
+      else if (cr === 'assistant_manager') publicRole = 'assistant_manager';
+      const firstName = String(r.first_name || '').trim() || 'Member';
+      return {
+        firstName,
+        /** @deprecated use firstName for public roster */
+        displayName: firstName,
+        publicRole,
+        profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path),
+        homeCity: r.home_city || null,
+        homeState: r.home_state || null,
+        stats: {
+          totalMiles: normalizeNum(r.total_miles, 1),
+          totalMinutes: Math.round(Number(r.total_minutes || 0))
+        }
+      };
+    });
 
     return res.json({ members, public: true });
   } catch (e) {

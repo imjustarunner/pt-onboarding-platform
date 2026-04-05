@@ -70,6 +70,7 @@ api.interceptors.response.use(
     const isPublicApi =
       reqUrl.includes('/public/') ||
       reqUrl.startsWith('/public/') ||
+      reqUrl.includes('/members/directory/public') ||
       reqUrl.includes('/public-intake') ||
       reqUrl.startsWith('/public-intake');
     const publicPathPrefixes = ['/intake/', '/schools', '/kiosk', '/p/'];
