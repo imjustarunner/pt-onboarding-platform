@@ -280,20 +280,14 @@ export const getPublicClubStats = async (req, res, next) => {
     const publicPageConfig = buildPublicPageConfig(clubRow?.[0]?.store_config_json);
     const publicStore = buildPublicStoreConfig(clubRow?.[0]?.store_config_json);
 
-    // Current season
+    // Current season (active only)
     let currentSeason = null;
     const [seasonRows] = await pool.execute(
-      `SELECT id, class_name, status, starts_at, ends_at, created_at
+      `SELECT id, class_name, description, status, starts_at, ends_at, created_at
        FROM learning_program_classes
        WHERE organization_id = ?
-       ORDER BY
-         CASE
-           WHEN LOWER(COALESCE(status, '')) = 'active' THEN 0
-           WHEN LOWER(COALESCE(status, '')) = 'draft' THEN 1
-           WHEN LOWER(COALESCE(status, '')) = 'closed' THEN 2
-           ELSE 3
-         END,
-         COALESCE(starts_at, created_at) DESC
+         AND LOWER(COALESCE(status, '')) = 'active'
+       ORDER BY COALESCE(starts_at, created_at) DESC, id DESC
        LIMIT 1`,
       [clubId]
     );
@@ -302,9 +296,41 @@ export const getPublicClubStats = async (req, res, next) => {
       currentSeason = {
         id: Number(season.id),
         name: season.class_name || `Season ${season.id}`,
+        description: String(season.description || '').trim() || null,
         status: String(season.status || '').toLowerCase() || null,
         startsAt: season.starts_at || null,
         endsAt: season.ends_at || null
+      };
+    }
+
+    let upcomingSeason = null;
+    const [upcomingRows] = await pool.execute(
+      `SELECT id, class_name, description, status, starts_at, ends_at, created_at
+       FROM learning_program_classes
+       WHERE organization_id = ?
+         AND COALESCE(starts_at, created_at) >= NOW()
+       ORDER BY COALESCE(starts_at, created_at) ASC, id ASC
+       LIMIT 1`,
+      [clubId]
+    );
+    const nextSeason = upcomingRows?.[0] || null;
+    if (nextSeason) {
+      const startsAt = nextSeason.starts_at || nextSeason.created_at || null;
+      let daysUntilStart = null;
+      if (startsAt) {
+        const now = new Date();
+        const startDate = new Date(startsAt);
+        const millis = startDate.getTime() - now.getTime();
+        daysUntilStart = millis <= 0 ? 0 : Math.ceil(millis / (1000 * 60 * 60 * 24));
+      }
+      upcomingSeason = {
+        id: Number(nextSeason.id),
+        name: nextSeason.class_name || `Season ${nextSeason.id}`,
+        description: String(nextSeason.description || '').trim() || null,
+        status: String(nextSeason.status || '').toLowerCase() || null,
+        startsAt,
+        endsAt: nextSeason.ends_at || null,
+        daysUntilStart
       };
     }
 
@@ -316,16 +342,18 @@ export const getPublicClubStats = async (req, res, next) => {
            u.id AS user_id,
            u.first_name,
            u.last_name,
-           t.team_name
+           MIN(t.team_name) AS team_name
          FROM learning_class_provider_memberships m
          INNER JOIN users u ON u.id = m.provider_user_id
-         LEFT JOIN challenge_teams t ON t.learning_class_id = m.learning_class_id
          LEFT JOIN challenge_team_members tm
-           ON tm.team_id = t.id AND tm.provider_user_id = m.provider_user_id
+           ON tm.provider_user_id = m.provider_user_id
+         LEFT JOIN challenge_teams t
+           ON t.id = tm.team_id AND t.learning_class_id = m.learning_class_id
          INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
          WHERE m.learning_class_id = ?
            AND m.membership_status = 'active'
            AND ua.is_active = 1
+         GROUP BY u.id, u.first_name, u.last_name
          ORDER BY u.first_name ASC, u.last_name ASC
          LIMIT 80`,
         [clubId, currentSeason.id]
@@ -443,6 +471,7 @@ export const getPublicClubStats = async (req, res, next) => {
         marathon:     raceDivisions.marathon?.allTime || []
       },
       currentSeason,
+      upcomingSeason,
       activeParticipants,
       featuredWorkout,
       albumSlides,
@@ -645,15 +674,12 @@ const createApplicationRow = async ({
   return result.insertId;
 };
 
-/** Create or find a user account so the applicant can sign in immediately. */
-const createOrFindUserForApplication = async ({ firstName, lastName, email, phone, username, password }) => {
+/** Create a new user account for an applicant. Existing accounts must sign in instead. */
+const createUserForApplication = async ({ firstName, lastName, email, phone, username, password }) => {
   const normalizedEmail = String(email || '').trim().toLowerCase();
-  const existingUser = await User.findByEmail(normalizedEmail);
-  if (existingUser) return { userId: existingUser.id, isNew: false };
-
   const hashedPw = await hashPassword(String(password));
   const [insertResult] = await pool.execute(
-    `INSERT INTO users (first_name, last_name, email, password, role, status, created_at, updated_at)
+    `INSERT INTO users (first_name, last_name, email, password_hash, role, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, 'provider', 'ACTIVE_EMPLOYEE', NOW(), NOW())`,
     [String(firstName || '').trim(), String(lastName || '').trim(), normalizedEmail, hashedPw]
   );
@@ -665,6 +691,20 @@ const createOrFindUserForApplication = async ({ firstName, lastName, email, phon
     try { await pool.execute(`UPDATE users SET username = ? WHERE id = ?`, [String(username).trim(), userId]); } catch { /* non-fatal: column may not exist or conflict */ }
   }
   return { userId, isNew: true };
+};
+
+const findLatestApplicationForClubEmail = async ({ clubId, email }) => {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!clubId || !normalizedEmail) return null;
+  const [rows] = await pool.execute(
+    `SELECT id, status
+     FROM challenge_member_applications
+     WHERE agency_id = ? AND email = ?
+     ORDER BY applied_at DESC, id DESC
+     LIMIT 1`,
+    [clubId, normalizedEmail]
+  );
+  return rows?.[0] || null;
 };
 
 /**
@@ -700,21 +740,24 @@ export const submitApplication = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Please type your full name to sign the waiver.' } });
     }
 
-    // Check for duplicate pending/approved application
-    const [existing] = await pool.execute(
-      `SELECT id, status FROM challenge_member_applications WHERE agency_id = ? AND email = ? LIMIT 1`,
-      [clubId, String(email).trim().toLowerCase()]
-    );
-    if (existing?.[0]?.status === 'approved') {
+    const existingApplication = await findLatestApplicationForClubEmail({ clubId, email });
+    if (existingApplication?.status === 'approved') {
       return res.status(409).json({ error: { message: 'An account with this email is already a member of this club' } });
     }
-    if (existing?.[0]?.status === 'pending') {
+    if (existingApplication?.status === 'pending') {
       return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
     }
+    const existingUser = await User.findByEmail(String(email).trim().toLowerCase());
+    if (existingUser) {
+      return res.status(409).json({
+        error: {
+          message: 'An account with this email already exists. Sign in to your account before joining this club.'
+        }
+      });
+    }
 
-    // Create (or find) the user account immediately so the applicant can sign in right away.
-    // They will be active but not yet attached to the club — that happens on approval.
-    const { userId } = await createOrFindUserForApplication({ firstName, lastName, email, phone, username, password });
+    // Create the applicant account immediately so they can sign in while pending approval.
+    const { userId } = await createUserForApplication({ firstName, lastName, email, phone, username, password });
 
     // Resolve referrer
     let referrerUserId = null;
@@ -795,8 +838,24 @@ export const submitInviteApplication = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Please type your full name to sign the waiver.' } });
     }
 
-    // Create (or find) user account immediately so the applicant can sign in while pending approval.
-    const { userId } = await createOrFindUserForApplication({ firstName, lastName, email, phone, username, password });
+    const existingApplication = await findLatestApplicationForClubEmail({ clubId, email });
+    if (existingApplication?.status === 'approved') {
+      return res.status(409).json({ error: { message: 'An account with this email is already a member of this club' } });
+    }
+    if (existingApplication?.status === 'pending') {
+      return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
+    }
+    const existingUser = await User.findByEmail(String(email).trim().toLowerCase());
+    if (existingUser) {
+      return res.status(409).json({
+        error: {
+          message: 'An account with this email already exists. Sign in to your account before using this invite.'
+        }
+      });
+    }
+
+    // Create user account immediately so the applicant can sign in while pending approval.
+    const { userId } = await createUserForApplication({ firstName, lastName, email, phone, username, password });
 
     const appId = await createApplicationRow({
       clubId, inviteId: invite.id, userId,
@@ -860,7 +919,7 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
       userId = existingUser.id;
     } else {
       const [insertResult] = await pool.execute(
-        `INSERT INTO users (first_name, last_name, email, password, role, status, created_at, updated_at)
+        `INSERT INTO users (first_name, last_name, email, password_hash, role, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, 'provider', 'ACTIVE_EMPLOYEE', NOW(), NOW())`,
         [app.first_name, app.last_name, app.email, await hashPassword(genToken(16))]
       );

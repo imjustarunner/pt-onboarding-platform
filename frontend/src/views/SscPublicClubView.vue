@@ -96,10 +96,36 @@
       <div class="pub-content">
 
         <!-- Current season + active participants -->
-        <div class="pub-row" v-if="(showCurrentSeasonBlock && clubData.currentSeason) || (showActiveParticipantsBlock && clubData.activeParticipants?.length)">
+        <div class="pub-row" v-if="(showCurrentSeasonBlock && (clubData.upcomingSeason || clubData.currentSeason)) || (showActiveParticipantsBlock && clubData.activeParticipants?.length)">
+          <div v-if="showCurrentSeasonBlock && clubData.upcomingSeason" class="pub-card pub-season-card pub-season-card--upcoming">
+            <div class="card-label">Upcoming Season</div>
+            <div class="season-name">{{ clubData.upcomingSeason.name }}</div>
+            <div class="season-countdown" v-if="clubData.upcomingSeason.daysUntilStart != null">
+              {{ seasonCountdownText(clubData.upcomingSeason.daysUntilStart) }}
+            </div>
+            <p v-if="clubData.upcomingSeason.description" class="season-description">
+              {{ clubData.upcomingSeason.description }}
+            </p>
+            <div class="season-meta">
+              <span class="season-status-pill" :class="`status-${clubData.upcomingSeason.status || 'draft'}`">
+                {{ clubData.upcomingSeason.status || 'draft' }}
+              </span>
+              <span v-if="clubData.upcomingSeason.startsAt" class="season-date">
+                Starts {{ formatDate(clubData.upcomingSeason.startsAt) }}
+              </span>
+              <span v-if="clubData.upcomingSeason.startsAt && clubData.upcomingSeason.endsAt" class="season-sep">→</span>
+              <span v-if="clubData.upcomingSeason.endsAt" class="season-date">
+                Ends {{ formatDate(clubData.upcomingSeason.endsAt) }}
+              </span>
+            </div>
+          </div>
+
           <div v-if="showCurrentSeasonBlock && clubData.currentSeason" class="pub-card pub-season-card">
             <div class="card-label">Current Season</div>
             <div class="season-name">{{ clubData.currentSeason.name }}</div>
+            <p v-if="clubData.currentSeason.description" class="season-description">
+              {{ clubData.currentSeason.description }}
+            </p>
             <div class="season-meta">
               <span class="season-status-pill" :class="`status-${clubData.currentSeason.status || 'active'}`">
                 {{ clubData.currentSeason.status || 'active' }}
@@ -327,6 +353,14 @@ const formatDate = (raw) => {
   } catch {
     return String(raw);
   }
+};
+
+const seasonCountdownText = (daysUntilStart) => {
+  const days = Number(daysUntilStart);
+  if (!Number.isFinite(days)) return '';
+  if (days <= 0) return 'Starts today';
+  if (days === 1) return 'Starts in 1 day';
+  return `Starts in ${days} days`;
 };
 
 const nextSlide = () => {
@@ -595,12 +629,34 @@ onBeforeUnmount(() => {
 
 /* ─── Season card ─────────────────────────────────────────────── */
 .pub-season-card {}
+.pub-season-card--upcoming {
+  background: linear-gradient(180deg, #fff7ed 0%, #ffffff 100%);
+  border-color: #fdba74;
+}
 .season-name {
   font-size: 1.35rem;
   font-weight: 900;
   color: #0f172a;
   letter-spacing: -0.02em;
   margin-bottom: 12px;
+}
+.season-countdown {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #fff1db;
+  color: #c2410c;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.season-description {
+  margin: 0 0 12px;
+  color: #475569;
+  line-height: 1.55;
 }
 .season-meta {
   display: flex;
