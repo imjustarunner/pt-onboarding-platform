@@ -1,10 +1,34 @@
 <template>
   <section class="challenge-activity-feed">
-    <h2>Recent Activity</h2>
+    <div class="activity-feed-header">
+      <h2>Recent Activity</h2>
+      <div v-if="myTeamId" class="feed-scope-tabs" role="tablist" aria-label="Activity feed scope">
+        <button
+          type="button"
+          role="tab"
+          class="feed-scope-tab"
+          :class="{ active: feedScope === 'team' }"
+          :aria-selected="feedScope === 'team'"
+          @click="feedScope = 'team'"
+        >
+          My team
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="feed-scope-tab"
+          :class="{ active: feedScope === 'all' }"
+          :aria-selected="feedScope === 'all'"
+          @click="feedScope = 'all'"
+        >
+          Whole season
+        </button>
+      </div>
+    </div>
     <div v-if="loading" class="loading-inline">Loading…</div>
     <div v-else class="activity-list">
       <div
-        v-for="w in workouts"
+        v-for="w in displayedWorkouts"
         :key="w.id"
         class="activity-card"
         :style="{ borderLeftColor: activityColor(w.activity_type), boxShadow: `inset 3px 0 0 ${activityColor(w.activity_type)}` }"
@@ -260,7 +284,10 @@
         </div>
         <div class="activity-time hint">Logged {{ formatTime(w.completed_at || w.created_at) }}</div>
       </div>
-      <div v-if="!workouts.length" class="empty-hint">No activity yet. Be the first to log a workout!</div>
+      <div v-if="!displayedWorkouts.length" class="empty-hint">
+        <template v-if="feedScope === 'team' && myTeamId">No workouts from your team in this feed yet.</template>
+        <template v-else>No activity yet. Be the first to log a workout!</template>
+      </div>
     </div>
   </section>
 
@@ -274,7 +301,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
 import api from '../../services/api';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 
@@ -287,6 +314,17 @@ const props = defineProps({
   myTeamId: { type: [String, Number], default: null }
 });
 const emit = defineEmits(['media-uploaded']);
+
+/** Whole season vs workouts from the viewer's team only (same idea as Season / Team chat). */
+const feedScope = ref('all');
+
+const displayedWorkouts = computed(() => {
+  const list = props.workouts || [];
+  if (feedScope.value === 'team' && props.myTeamId) {
+    return list.filter((w) => w.team_id != null && Number(w.team_id) === Number(props.myTeamId));
+  }
+  return list;
+});
 
 const commentsOpen = ref({});
 const commentsLoading = ref({});
@@ -676,9 +714,46 @@ const reviewProof = async (workoutId, status) => {
 </script>
 
 <style scoped>
+.activity-feed-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 12px;
+}
+
 .challenge-activity-feed h2 {
-  margin: 0 0 12px 0;
+  margin: 0;
   font-size: 1.1em;
+}
+
+.feed-scope-tabs {
+  display: inline-flex;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.feed-scope-tab {
+  border: none;
+  background: transparent;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.feed-scope-tab:hover {
+  background: #f1f5f9;
+}
+
+.feed-scope-tab.active {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: inset 0 -2px 0 #2563eb;
 }
 .activity-list {
   display: flex;

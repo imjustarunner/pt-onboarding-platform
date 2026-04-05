@@ -1,6 +1,6 @@
 <template>
   <div class="ssc-dashboard">
-    <section class="dashboard-hero card">
+    <section class="dashboard-hero card dash-section dash-section--hero">
       <div>
         <p class="eyebrow">{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }}</p>
         <h1>My Dashboard</h1>
@@ -14,44 +14,17 @@
       </div>
     </section>
 
-    <section class="stats-grid">
-      <article class="stat-card">
-        <span class="stat-label">Total points</span>
-        <strong>{{ formatWhole(summary?.stats?.totalPoints) }}</strong>
-      </article>
-      <article class="stat-card">
-        <span class="stat-label">Workouts logged</span>
-        <strong>{{ formatWhole(summary?.stats?.totalWorkouts) }}</strong>
-      </article>
-      <article class="stat-card">
-        <span class="stat-label">All-time miles</span>
-        <strong>{{ formatDecimal(summary?.stats?.totalMiles) }}</strong>
-      </article>
-      <article class="stat-card">
-        <span class="stat-label">Longest run</span>
-        <strong>{{ formatDecimal(summary?.stats?.longestRunMiles) }} mi</strong>
-      </article>
-      <article class="stat-card">
-        <span class="stat-label">Best workout</span>
-        <strong>{{ formatWhole(summary?.stats?.bestWorkoutPoints) }} pts</strong>
-      </article>
-      <article class="stat-card">
-        <span class="stat-label">Longest workout</span>
-        <strong>{{ formatWhole(summary?.stats?.longestWorkoutMinutes) }} min</strong>
-      </article>
-    </section>
-
-    <section v-if="loading" class="card">
+    <section v-if="loading" class="card dash-section dash-section--loading">
       Loading your dashboard…
     </section>
 
-    <section v-if="dashboardError" class="card card-error">
+    <section v-if="dashboardError" class="card card-error dash-section dash-section--error">
       {{ dashboardError }}
     </section>
 
     <section
       v-if="showStartClub"
-      class="card founder-card"
+      class="card founder-card dash-section dash-section--founder"
       :class="{ 'founder-card--disabled': !clubContext?.emailVerified }"
     >
       <div class="section-header">
@@ -107,7 +80,63 @@
       </form>
     </section>
 
-    <section class="grid-two">
+    <section class="card dash-section dash-section--seasons-current">
+      <div class="section-header">
+        <div>
+          <h2>Current and Upcoming Seasons</h2>
+          <p>What's live now or coming up — stats here are for each season you're in.</p>
+        </div>
+      </div>
+      <div v-if="currentSeasons.length" class="season-list">
+        <div v-for="season in currentSeasons" :key="season.classId" class="season-card">
+          <div class="season-card-top">
+            <div>
+              <strong>{{ season.className }}</strong>
+              <div class="muted">{{ season.clubName }}</div>
+            </div>
+            <span class="pill" :class="pillClass(season.bucket)">{{ season.bucket === 'upcoming' ? 'Upcoming' : 'Current' }}</span>
+          </div>
+          <div class="season-meta">
+            <span v-if="season.teamName">Team: {{ season.teamName }}</span>
+            <span>{{ formatSeasonDates(season) }}</span>
+          </div>
+          <div class="season-totals">
+            {{ formatWhole(season.totalPoints) }} pts • {{ formatDecimal(season.totalMiles) }} mi • {{ formatWhole(season.workoutCount) }} workouts
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" @click="openSeason(season)">
+            Open Season
+          </button>
+        </div>
+      </div>
+      <div v-else class="empty-state">
+        <p>No current seasons yet. Browse clubs or wait for the next season launch.</p>
+      </div>
+    </section>
+
+    <section class="card my-stats-compact dash-section dash-section--my-stats">
+      <div class="my-stats-compact-head">
+        <h2>My stats</h2>
+        <span class="muted">All-time (across seasons)</span>
+      </div>
+      <div class="my-stats-rows">
+        <div class="my-stats-row">
+          <span class="my-stats-kpi"><strong>{{ formatWhole(summary?.stats?.totalPoints) }}</strong> pts</span>
+          <span class="my-stats-dot" aria-hidden="true">·</span>
+          <span class="my-stats-kpi"><strong>{{ formatWhole(summary?.stats?.totalWorkouts) }}</strong> workouts</span>
+          <span class="my-stats-dot" aria-hidden="true">·</span>
+          <span class="my-stats-kpi"><strong>{{ formatDecimal(summary?.stats?.totalMiles) }}</strong> mi</span>
+        </div>
+        <div class="my-stats-row my-stats-row--secondary">
+          <span>Longest run <strong>{{ formatDecimal(summary?.stats?.longestRunMiles) }}</strong> mi</span>
+          <span class="my-stats-dot" aria-hidden="true">·</span>
+          <span>Best workout <strong>{{ formatWhole(summary?.stats?.bestWorkoutPoints) }}</strong> pts</span>
+          <span class="my-stats-dot" aria-hidden="true">·</span>
+          <span>Longest <strong>{{ formatWhole(summary?.stats?.longestWorkoutMinutes) }}</strong> min</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid-two dash-section dash-section--club-account">
       <article class="card">
         <div class="section-header">
           <div>
@@ -222,69 +251,34 @@
       </article>
     </section>
 
-    <section class="grid-two">
-      <article class="card">
-        <div class="section-header">
-          <div>
-            <h2>Current and Upcoming Seasons</h2>
-            <p>Jump back into what’s live now or coming up next.</p>
-          </div>
+    <section class="card dash-section dash-section--past">
+      <div class="section-header">
+        <div>
+          <h2>Past Seasons</h2>
+          <p>Your completed season history and archived results.</p>
         </div>
-        <div v-if="currentSeasons.length" class="season-list">
-          <div v-for="season in currentSeasons" :key="season.classId" class="season-card">
-            <div class="season-card-top">
-              <div>
-                <strong>{{ season.className }}</strong>
-                <div class="muted">{{ season.clubName }}</div>
-              </div>
-              <span class="pill" :class="pillClass(season.bucket)">{{ season.bucket === 'upcoming' ? 'Upcoming' : 'Current' }}</span>
-            </div>
-            <div class="season-meta">
-              <span v-if="season.teamName">Team: {{ season.teamName }}</span>
-              <span>{{ formatSeasonDates(season) }}</span>
-            </div>
-            <div class="season-totals">
-              {{ formatWhole(season.totalPoints) }} pts • {{ formatDecimal(season.totalMiles) }} mi • {{ formatWhole(season.workoutCount) }} workouts
-            </div>
-            <button type="button" class="btn btn-primary btn-sm" @click="openSeason(season)">
-              Open Season
-            </button>
-          </div>
-        </div>
-        <div v-else class="empty-state">
-          <p>No current seasons yet. Browse clubs or wait for the next season launch.</p>
-        </div>
-      </article>
-
-      <article class="card">
-        <div class="section-header">
-          <div>
-            <h2>Past Seasons</h2>
-            <p>Your completed season history and archived results.</p>
-          </div>
-        </div>
-        <div v-if="pastSeasons.length" class="season-history">
-          <button
-            v-for="season in pastSeasons"
-            :key="season.classId"
-            type="button"
-            class="season-history-row"
-            @click="openSeason(season)"
-          >
-            <span>
-              <strong>{{ season.className }}</strong>
-              <span class="muted"> · {{ season.clubName }}</span>
-            </span>
-            <span>{{ formatWhole(season.totalPoints) }} pts</span>
-          </button>
-        </div>
-        <div v-else class="empty-state">
-          <p>No archived seasons yet.</p>
-        </div>
-      </article>
+      </div>
+      <div v-if="pastSeasons.length" class="season-history">
+        <button
+          v-for="season in pastSeasons"
+          :key="season.classId"
+          type="button"
+          class="season-history-row"
+          @click="openSeason(season)"
+        >
+          <span>
+            <strong>{{ season.className }}</strong>
+            <span class="muted"> · {{ season.clubName }}</span>
+          </span>
+          <span>{{ formatWhole(season.totalPoints) }} pts</span>
+        </button>
+      </div>
+      <div v-else class="empty-state">
+        <p>No archived seasons yet.</p>
+      </div>
     </section>
 
-    <section class="grid-two">
+    <section class="grid-two dash-section dash-section--applications">
       <article class="card">
         <div class="section-header">
           <div>
@@ -549,6 +543,9 @@ watch(() => route.params.organizationSlug, () => {
   max-width: 1180px;
   margin: 0 auto;
   padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .card {
@@ -564,7 +561,6 @@ watch(() => route.params.organizationSlug, () => {
   justify-content: space-between;
   gap: 24px;
   align-items: flex-start;
-  margin-bottom: 20px;
   background: linear-gradient(135deg, #fff8ef 0%, #f8fbff 100%);
 }
 
@@ -595,39 +591,64 @@ watch(() => route.params.organizationSlug, () => {
   gap: 10px;
 }
 
-.stats-grid,
 .grid-two {
   display: grid;
   gap: 18px;
-  margin-bottom: 20px;
-}
-
-.stats-grid {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-}
-
-.grid-two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.stat-card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 18px;
-  padding: 18px;
+.my-stats-compact {
+  padding: 14px 18px;
+}
+
+.my-stats-compact-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.my-stats-compact-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.my-stats-rows {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
-.stat-label {
-  color: #64748b;
-  font-size: 0.88rem;
-}
-
-.stat-card strong {
-  font-size: 1.55rem;
+.my-stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 0.95rem;
   color: #0f172a;
+}
+
+.my-stats-row--secondary {
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.my-stats-row--secondary strong {
+  color: #475569;
+  font-weight: 700;
+}
+
+.my-stats-kpi strong {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.my-stats-dot {
+  color: #cbd5e1;
+  user-select: none;
 }
 
 .section-header {
@@ -789,10 +810,6 @@ watch(() => route.params.organizationSlug, () => {
   margin: 0 0 12px;
 }
 
-.founder-card {
-  margin-bottom: 20px;
-}
-
 .founder-card--disabled {
   opacity: 0.9;
 }
@@ -855,20 +872,41 @@ watch(() => route.params.organizationSlug, () => {
   border: 1px solid #fecaca;
 }
 
-@media (max-width: 1080px) {
-  .stats-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 760px) {
   .ssc-dashboard {
     padding: 16px;
+    gap: 14px;
+  }
+
+  /* Current seasons + all-time stats before hero intro on small screens */
+  .dash-section--loading,
+  .dash-section--error {
+    order: 1;
+  }
+  .dash-section--founder {
+    order: 2;
+  }
+  .dash-section--seasons-current {
+    order: 3;
+  }
+  .dash-section--my-stats {
+    order: 4;
+  }
+  .dash-section--hero {
+    order: 5;
+  }
+  .dash-section--club-account {
+    order: 6;
+  }
+  .dash-section--past {
+    order: 7;
+  }
+  .dash-section--applications {
+    order: 8;
   }
 
   .dashboard-hero,
   .grid-two,
-  .stats-grid,
   .form-row,
   .profile-grid {
     grid-template-columns: 1fr;
@@ -876,6 +914,10 @@ watch(() => route.params.organizationSlug, () => {
 
   .dashboard-hero {
     display: grid;
+  }
+
+  .my-stats-row {
+    justify-content: flex-start;
   }
 
   .membership-top,
