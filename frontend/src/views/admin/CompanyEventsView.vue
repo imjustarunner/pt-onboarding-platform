@@ -28,7 +28,7 @@ const sscManagerOnlyDenied = computed(() => {
   const slug = String(route.params?.organizationSlug || '').trim().toLowerCase();
   if (slug !== 'ssc' && slug !== 'sstc') return false;
   const role = String(authStore.user?.role || '').trim().toLowerCase();
-  return !['admin', 'super_admin', 'provider_plus'].includes(role);
+  return !['admin', 'super_admin', 'provider_plus', 'club_manager'].includes(role);
 });
 </script>
 

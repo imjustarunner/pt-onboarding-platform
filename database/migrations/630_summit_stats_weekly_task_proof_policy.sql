@@ -1,4 +1,4 @@
--- Summit Stats Challenge: per-weekly-challenge proof policy + confidence metadata
+-- Summit Stats Team Challenge: per-weekly-challenge proof policy + confidence metadata
 
 ALTER TABLE challenge_weekly_tasks
   ADD COLUMN proof_policy VARCHAR(32) NOT NULL DEFAULT 'none' AFTER description,

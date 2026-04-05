@@ -13,6 +13,7 @@
  *   --migration N: Run only migration N (e.g., --migration=091)
  *   --baseline-existing: Mark all current migration files as already run (safe bootstrap for legacy DBs)
  *   --unlog N: Remove migration N from migrations_log so it can be run again (e.g., --unlog=461)
+ *   --force: With --migration N, run even if migrations_log marks it successful (re-executes SQL)
  */
 
 import fs from 'fs/promises';
@@ -239,6 +240,7 @@ async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const baselineExisting = args.includes('--baseline-existing');
+  const forceMigration = args.includes('--force');
   const specificMigration = parseSpecificMigrationArg(args);
   const unlogSpec = parseUnlogArg(args);
 
@@ -263,6 +265,9 @@ async function main() {
     console.log(`Dry run: ${dryRun ? 'YES' : 'NO'}`);
     if (specificMigration) {
       console.log(`Specific migration: ${specificMigration}`);
+    }
+    if (forceMigration && specificMigration) {
+      console.log('Force: YES (will run even if logged as successful)');
     }
     if (baselineExisting) {
       console.log('Baseline existing: YES');
@@ -305,7 +310,7 @@ async function main() {
         process.exit(1);
       }
       const migrationName = path.basename(migrationFile, '.sql');
-      if (!dryRun && await hasMigrationRun(migrationName)) {
+      if (!dryRun && !forceMigration && (await hasMigrationRun(migrationName))) {
         console.log(`Migration ${migrationName} has already been run. Use --force to re-run.`);
         process.exit(0);
       }

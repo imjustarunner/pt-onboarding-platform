@@ -30,7 +30,7 @@ export const authenticate = (req, res, next) => {
     if (requestPath.includes('/verify-club-manager-email')) {
       return next();
     }
-    // Summit Stats public endpoints.
+    // Summit Stats Team Challenge public endpoints.
     if (req.method === 'GET' && /^\/api\/summit-stats\/clubs\/?$/.test(requestPath)) {
       return next();
     }
@@ -173,7 +173,8 @@ export const requireAdmin = async (req, res, next) => {
   const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
   
   if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support' && 
-      !isSupervisor && req.user.role !== 'clinical_practice_assistant' && req.user.role !== 'provider_plus') {
+      !isSupervisor && req.user.role !== 'clinical_practice_assistant' && req.user.role !== 'provider_plus' &&
+      req.user.role !== 'club_manager') {
     return res.status(403).json({ error: { message: 'Admin access required' } });
   }
   next();

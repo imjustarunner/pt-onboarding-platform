@@ -24,7 +24,7 @@ User logs in
 "Create your club" (first-time flow)
     │
     ▼
-Club (affiliation) created under Summit Stats platform
+Club (affiliation) created under Summit Stats Team Challenge platform
     │
     ▼
 User assigned as admin of that club
@@ -81,12 +81,12 @@ Club Manager can now: add teams, add users, create seasons, launch, manage store
 
 - **After login** — Club Manager (admin with no clubs yet) sees "Create your club"
 - **Creates** — New organization with `organization_type: affiliation` (club)
-- **Parent** — Club must be affiliated under the **Summit Stats platform agency**
+- **Parent** — Club must be affiliated under the **Summit Stats Team Challenge platform agency**
 - **Assignment** — Creating user is automatically assigned to the new club as admin
 
 ### Platform Agency
 
-- Summit Stats needs a **platform agency** (organization_type=agency) — e.g. "Summit Stats" or "Summit Stats Challenge"
+- Summit Stats Team Challenge needs a **platform agency** (organization_type=agency) — display name e.g. **Summit Stats Team Challenge**
 - All clubs (affiliations) are children of this agency via `organization_affiliations`
 - Config: `SUMMIT_STATS_PLATFORM_AGENCY_ID` or resolve by slug (e.g. `summit-stats`)
 
@@ -150,7 +150,7 @@ Club Manager can now: add teams, add users, create seasons, launch, manage store
 
 ### Phase 3: Platform Configuration
 
-- Ensure Summit Stats platform agency exists (migration or seed)
+- Ensure Summit Stats Team Challenge platform agency exists (migration or seed)
 - Config: `SUMMIT_STATS_PLATFORM_AGENCY_ID` or slug
 - Add `affiliation` to `createAgency` child-org handling if not already (for consistency)
 
@@ -172,7 +172,7 @@ Club Manager can now: add teams, add users, create seasons, launch, manage store
 
 ## 7. Summit Stats Login Scoping
 
-- **When people log in via Summit Stats Challenge**, their admin role is **automatically scoped**.
+- **When people log in via Summit Stats Team Challenge**, their admin role is **automatically scoped**.
 - **They can't do anything except create a club** — until they have at least one club.
 - No access to platform-wide admin features; no access to other organizations.
 - After creating a club: access is limited to that club (and any other clubs they manage or belong to).

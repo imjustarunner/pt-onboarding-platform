@@ -25,7 +25,7 @@ ALTER TABLE users
 
 -- Convert Summit Stats-only club leaders away from global admin/provider-style roles.
 -- Safety rule: only convert users whose active non-affiliation memberships are limited
--- to Summit Stats platform agencies (`ssc`, `sstc`, `summit-stats`).
+-- to Summit Stats Team Challenge platform agencies (`ssc`, `sstc`, `summit-stats`).
 UPDATE users u
 SET u.role = 'club_manager'
 WHERE LOWER(COALESCE(u.role, '')) IN ('admin', 'provider', 'provider_plus', 'staff', 'clinical_practice_assistant')

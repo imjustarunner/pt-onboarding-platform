@@ -1,4 +1,4 @@
--- Summit Stats Challenge: async Google Vision processing queue for workouts
+-- Summit Stats Team Challenge: async Google Vision processing queue for workouts
 
 CREATE TABLE IF NOT EXISTS challenge_workout_vision_jobs (
   id INT AUTO_INCREMENT PRIMARY KEY,

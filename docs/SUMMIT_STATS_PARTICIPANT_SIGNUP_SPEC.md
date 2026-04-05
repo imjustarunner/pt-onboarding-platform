@@ -5,7 +5,7 @@
 In addition to the **Club Manager** signup (create club), participants can join via a self-service flow:
 
 1. **Create account** — Public signup for participants (role=provider)
-2. **Search clubs** — Browse clubs on the Summit Stats platform
+2. **Search clubs** — Browse clubs on the Summit Stats Team Challenge platform
 3. **Apply to join** — Request to join a club (direct assignment or approval flow)
 
 This complements the invite flow where Club Managers add users directly.
@@ -50,7 +50,7 @@ Participant can: join teams, submit workouts, view leaderboards
 ## 2. Club Search (Public)
 
 - **Public** — No auth required to browse clubs
-- **Returns** — List of clubs (affiliations under Summit Stats platform)
+- **Returns** — List of clubs (affiliations under Summit Stats Team Challenge platform)
 - **Endpoint** — `GET /api/summit-stats/clubs` (public route)
 - **Filters** — Optional: search by name, slug
 

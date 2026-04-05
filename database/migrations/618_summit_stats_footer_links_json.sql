@@ -1,4 +1,4 @@
--- Summit Stats Challenge: optional footer legal links (label + URL) for /ssc and club (affiliation) portals.
+-- Summit Stats Team Challenge: optional footer legal links (label + URL) for /ssc and club (affiliation) portals.
 -- When non-empty JSON array, replaces default Privacy/Terms/Public Proof/Platform HIPAA row in PoweredByFooter.
 
 ALTER TABLE platform_branding

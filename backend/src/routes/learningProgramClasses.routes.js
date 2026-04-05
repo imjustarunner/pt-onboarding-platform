@@ -139,7 +139,7 @@ router.post('/:classId/resources', createClassResource);
 router.put('/:classId/resources/:resourceId', updateClassResource);
 router.delete('/:classId/resources/:resourceId', deleteClassResource);
 
-// Summit Stats Challenge: teams, workouts, leaderboards, activity feed
+// Summit Stats Team Challenge: teams, workouts, leaderboards, activity feed
 router.get('/:classId/teams', listTeams);
 router.post('/:classId/teams', createTeam);
 router.put('/:classId/teams/:teamId', updateTeam);
@@ -172,7 +172,7 @@ router.post('/:classId/workouts/:workoutId/comments', postWorkoutComment);
 router.delete('/:classId/workout-comments/:commentId', deleteWorkoutComment);
 router.post('/:classId/workouts/:workoutId/media', workoutMediaUpload.single('file'), uploadWorkoutMedia);
 
-// Summit Stats Scoreboard: weekly scoreboard, elimination, weekly tasks
+// Summit Stats Team Challenge — Scoreboard: weekly scoreboard, elimination, weekly tasks
 router.get('/:classId/scoreboard', getScoreboard);
 router.get('/:classId/season-summary', getSeasonSummary);
 router.get('/:classId/elimination-board', getEliminationBoard);

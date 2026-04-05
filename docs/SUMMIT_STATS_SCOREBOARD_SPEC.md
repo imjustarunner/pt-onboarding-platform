@@ -1,4 +1,4 @@
-# Summit Stats Challenge — Weekly Scoreboard & Game Model Spec
+# Summit Stats Team Challenge — Weekly Scoreboard & Game Model Spec
 
 ## Overview
 

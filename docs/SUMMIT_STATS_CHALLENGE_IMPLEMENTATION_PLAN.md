@@ -1,4 +1,4 @@
-# Summit Stats Challenge – Phased Implementation Plan
+# Summit Stats Team Challenge – Phased Implementation Plan
 
 ## Phase 1: Data Model Updates (Completed)
 

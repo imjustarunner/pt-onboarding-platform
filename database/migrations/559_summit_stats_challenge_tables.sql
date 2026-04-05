@@ -1,4 +1,4 @@
--- Summit Stats Challenge: Teams, Workouts, and Challenge Configuration
+-- Summit Stats Team Challenge: Teams, Workouts, and Challenge Configuration
 -- Extends learning_program_classes (internally "classes", UI displays as "Challenges")
 -- Teams exist within each challenge; providers submit workouts that contribute to team points.
 
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS challenge_workouts (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Extend learning_program_classes with Summit Stats Challenge configuration
+-- Extend learning_program_classes with Summit Stats Team Challenge configuration
 ALTER TABLE learning_program_classes
   ADD COLUMN activity_types_json JSON NULL COMMENT 'Allowed activity types: running, cycling, workout_session, steps' AFTER metadata_json,
   ADD COLUMN scoring_rules_json JSON NULL COMMENT 'Points per activity type, per mile, etc.' AFTER activity_types_json,

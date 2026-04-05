@@ -1,4 +1,4 @@
--- Summit Stats Challenge: Weekly Scoreboard, Elimination, Weekly Tasks
+-- Summit Stats Team Challenge: Weekly Scoreboard, Elimination, Weekly Tasks
 -- Week = Sunday to Sunday; configurable start time. Scoreboard posted at end of week.
 
 -- Extend learning_program_classes with scoreboard thresholds

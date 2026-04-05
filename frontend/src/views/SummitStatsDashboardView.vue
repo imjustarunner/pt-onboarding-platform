@@ -2,7 +2,7 @@
   <div class="ssc-dashboard">
     <section class="dashboard-hero card">
       <div>
-        <p class="eyebrow">Summit Stats Team Challenge</p>
+        <p class="eyebrow">{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }}</p>
         <h1>My Dashboard</h1>
         <p class="hero-copy">
           Your personal competition home for clubs, seasons, records, and account details.
@@ -112,7 +112,7 @@
           <div>
             <h2>Club Access</h2>
             <p v-if="summary?.pendingClubAccess?.hasClub">Your active clubs and competition roles.</p>
-            <p v-else>You're in SSC, but you still need a club to unlock the full competition experience.</p>
+            <p v-else>You're signed in to {{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }}, but you still need a club to unlock the full competition experience.</p>
           </div>
         </div>
 
@@ -343,6 +343,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
+import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import api from '../services/api';
 
 const route = useRoute();
@@ -392,7 +393,8 @@ const loadDashboard = async () => {
     applications.value = applicationsRes.data?.applications || [];
     clubContext.value = contextRes.data || null;
   } catch (error) {
-    dashboardError.value = error?.response?.data?.error?.message || 'Failed to load your SSC dashboard.';
+    dashboardError.value =
+      error?.response?.data?.error?.message || `Failed to load your ${SUMMIT_STATS_TEAM_CHALLENGE_NAME} dashboard.`;
   } finally {
     loading.value = false;
   }
@@ -453,6 +455,10 @@ const switchToClubContext = async (clubId, target = 'dashboard') => {
     await router.push(`/${orgSlug.value}/club/seasons`);
     return;
   }
+  if (target === 'club_manager_dashboard') {
+    await router.push(`/${orgSlug.value}/club_manager_dashboard`);
+    return;
+  }
   await router.push(`/${orgSlug.value}/challenges`);
 };
 
@@ -467,10 +473,21 @@ const openClub = async (clubId) => {
     await openSeason(clubSeason);
     return;
   }
+  if (isManagedClub(clubId)) {
+    await switchToClubContext(clubId, 'club_manager_dashboard');
+    return;
+  }
   await switchToClubContext(clubId, 'dashboard');
 };
 
-const isManagedClub = (clubId) => managedClubs.value.some((club) => Number(club.id) === Number(clubId));
+const isManagedClub = (clubId) => {
+  const id = Number(clubId);
+  if (managedClubs.value.some((club) => Number(club.id) === id)) return true;
+  const roleNorm = (r) => String(r || '').toLowerCase();
+  return memberships.value.some(
+    (m) => Number(m.clubId) === id && ['manager', 'assistant_manager'].includes(roleNorm(m.clubRole))
+  );
+};
 
 const submitCreateClub = async () => {
   createClubError.value = '';

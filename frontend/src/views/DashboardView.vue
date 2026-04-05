@@ -3302,7 +3302,7 @@ const dashboardCards = computed(() => {
         description: 'Always available after onboarding is complete.'
       });
     }
-    // Summit Stats Challenge: Challenges/seasons card when user has challenge memberships
+    // Summit Stats Team Challenge: Challenges/seasons card when user has challenge memberships
     if (myChallenges.value?.length > 0) {
       cards.push({
         id: 'challenges',

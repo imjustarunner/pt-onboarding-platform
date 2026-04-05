@@ -1,4 +1,4 @@
--- Summit Stats Challenge: Recognition categories overhaul + extended participant profiles
+-- Summit Stats Team Challenge: Recognition categories overhaul + extended participant profiles
 -- Adds weight_lbs + height_inches to challenge_participant_profiles for Clydesdale/Athena
 -- and height-based custom recognition categories.
 -- Adds challenge_custom_field_definitions + challenge_custom_field_values for club-defined

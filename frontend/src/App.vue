@@ -109,7 +109,7 @@
               </router-link>
               <router-link
                 v-if="canShowAdminDashboardIcon"
-                :to="orgTo('/admin')"
+                :to="adminDashboardNavTo"
                 class="nav-icon-btn"
                 title="Admin dashboard"
                 aria-label="Admin dashboard"
@@ -1103,12 +1103,13 @@ import { buildSuperadminAgencyBrandUrl } from './utils/brandSwitchUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 import { useSummitStatsChallengeChrome } from './composables/useSummitStatsChallengeChrome';
 import SummitStatsContextBar from './components/summit/SummitStatsContextBar.vue';
+import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from './constants/summitStatsBranding.js';
 
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const isSummitStatsChallengeChrome = useSummitStatsChallengeChrome();
-const summitTeamBrandLabel = 'Summit Stats: Team Challenge';
+const summitTeamBrandLabel = SUMMIT_STATS_TEAM_CHALLENGE_NAME;
 
 const currentAgencyIdForAddon = computed(() => agencyStore.currentAgency?.id ?? null);
 const { momentumListEnabled } = useMomentumListAddon(currentAgencyIdForAddon);
@@ -2069,7 +2070,17 @@ const scheduleIconUrl = computed(() => {
 const canShowAdminDashboardIcon = computed(() => {
   const u = authStore.user;
   if (!u) return false;
+  const role = String(u?.role || '').toLowerCase();
+  if (role === 'club_manager' && isSscSstcTenant.value) return true;
   return isTrueAdmin.value && !isSscSstcTenant.value;
+});
+
+/** Summit club managers use a dedicated route (not global /admin). */
+const adminDashboardNavTo = computed(() => {
+  if (String(authStore.user?.role || '').toLowerCase() === 'club_manager' && isSscSstcTenant.value) {
+    return orgTo('/club_manager_dashboard');
+  }
+  return orgTo('/admin');
 });
 
 const adminDashboardIconUrl = computed(() => {

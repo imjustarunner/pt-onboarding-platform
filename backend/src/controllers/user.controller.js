@@ -192,7 +192,7 @@ async function attachAffiliationMeta(orgs) {
       }
     }
 
-    // For affiliations (e.g. Summit Stats Clubs): add parent_slug for admin routing, inherit branding when missing
+    // For affiliations (e.g. Summit Stats Team Challenge clubs): add parent_slug for admin routing, inherit branding when missing
     const Agency = (await import('../models/Agency.model.js')).default;
     for (const o of list) {
       if (!o || !o.affiliated_agency_id) continue;

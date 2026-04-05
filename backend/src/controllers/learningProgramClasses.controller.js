@@ -278,7 +278,7 @@ const normalizeSeasonSettings = (input = {}) => {
   };
 };
 
-// Roles that can manage challenges/classes. provider_plus = Team Manager / Team Lead (Summit Stats Challenge).
+// Roles that can manage challenges/classes. provider_plus = Team Manager / Team Lead (Summit Stats Team Challenge).
 const canManageRole = (role) => {
   const r = String(role || '').toLowerCase();
   return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
@@ -302,7 +302,7 @@ const getUserAgencyContext = async (userId) => {
   return { allOrgIds, agencyIds };
 };
 
-// Summit Stats Challenge: Challenges can live under 'learning' or 'affiliation' orgs (program divisions).
+// Summit Stats Team Challenge: Challenges can live under 'learning' or 'affiliation' orgs (program divisions).
 const ensureLearningOrganization = async (organizationId) => {
   const orgId = asInt(organizationId);
   if (!orgId) return { ok: false, status: 400, message: 'organizationId is required' };
@@ -335,7 +335,7 @@ const canAccessOrganization = async ({ user, organizationId }) => {
   return !!affAgencyId && ctx.agencyIds.includes(Number(affAgencyId));
 };
 
-// Summit Stats: Agency-level management is super_admin only. Admins manage affiliations only.
+// Summit Stats Team Challenge: Agency-level management is super_admin only. Admins manage affiliations only.
 const canManageAtOrganization = async ({ user, organizationId }) => {
   const orgId = asInt(organizationId);
   if (!orgId) return false;

@@ -1,5 +1,5 @@
 /**
- * Custom Field Definitions & Values for Summit Stats Challenge clubs.
+ * Custom Field Definitions & Values for Summit Stats Team Challenge clubs.
  *
  * Club managers define custom profile fields (e.g. "reach_inches", "bench_press_max_lbs").
  * Members fill in their values. These values can be used as criteria in custom recognition categories.

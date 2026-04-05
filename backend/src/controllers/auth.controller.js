@@ -20,6 +20,7 @@ import pool from '../config/database.js';
 import ChallengeParticipantProfile from '../models/ChallengeParticipantProfile.model.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import { SUPPORT_TICKET_SOURCE_KEYS, normalizeSupportTicketSourceKey } from '../constants/supportTicketSources.js';
+import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 
 async function buildPayrollCaps(user) {
   const [payrollAgencyIds, departmentAgencyIds, credentialingAgencyIds] = user?.id
@@ -416,7 +417,7 @@ export const login = async (req, res, next) => {
     const identifierDigits = identifier.replace(/\D/g, '');
     const looksLikePhone = identifierDigits.length >= 7 && identifierDigits.length <= 15 && !/[@.]/.test(identifier);
 
-    /** True when the login is happening on the Summit Stats Challenge tenant. */
+    /** True when the login is happening on the Summit Stats Team Challenge tenant (SSC / SSTC / aliases). */
     const sscSlug = (process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc').toLowerCase();
     const isSSCTenant = orgSlug === 'ssc' || orgSlug === 'summit-stats' || orgSlug === sscSlug;
 
@@ -2401,7 +2402,7 @@ const resolveRecoverySenderIdentity = async (agencyId) => {
   });
 };
 
-/** Platform-level email (Summit Stats). Uses same sender identity as ROI intake when platform agency is configured. */
+/** Platform-level email (Summit Stats Team Challenge). Uses same sender identity as ROI intake when platform agency is configured. */
 const sendPlatformEmail = async ({ to, subject, text, html = null, source = 'auto' }) => {
   const platformAgencyId = await getPlatformAgencyId();
   const preferredKeys = ['intake', 'school_intake', 'notifications', 'system'];
@@ -3497,7 +3498,7 @@ export const register = async (req, res, next) => {
   }
 };
 
-// --- Club Manager Signup (Summit Stats) ---
+// --- Club Manager Signup (Summit Stats Team Challenge) ---
 
 /**
  * Public: Register a Club Manager account. Creates user with role=club_manager, no agencies.
@@ -3570,7 +3571,7 @@ export const registerClubManager = async (req, res, next) => {
       try {
         await sendPlatformEmail({
           to: resolvedEmail,
-          subject: 'Verify your email - Summit Stats Club Manager',
+          subject: `Verify your email - ${SUMMIT_STATS_TEAM_CHALLENGE_NAME}`,
           html: `
             <p>Hi${firstName ? ` ${String(firstName).trim()}` : ''},</p>
             <p>Thanks for signing up as a Club Manager. Please verify your email to create your club.</p>
@@ -3742,7 +3743,7 @@ export const resendClubManagerVerification = async (req, res, next) => {
       try {
         await sendPlatformEmail({
           to: u.email,
-          subject: 'Verify your email - Summit Stats Club Manager',
+          subject: `Verify your email - ${SUMMIT_STATS_TEAM_CHALLENGE_NAME}`,
           html: `
             <p>Hi${u.first_name ? ` ${String(u.first_name).trim()}` : ''},</p>
             <p>Here's a new verification link. Please verify your email to create your club.</p>

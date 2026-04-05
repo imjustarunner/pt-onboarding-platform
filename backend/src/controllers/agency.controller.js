@@ -107,7 +107,7 @@ async function attachAffiliationMeta(orgs) {
       }
     }
 
-    // For affiliations (e.g. Summit Stats Clubs): add parent_slug for admin routing, inherit branding when missing
+    // For affiliations (e.g. Summit Stats Team Challenge clubs): add parent_slug for admin routing, inherit branding when missing
     const parentIds = [
       ...new Set(
         list.map((o) => (o && o.affiliated_agency_id ? Number(o.affiliated_agency_id) : 0)).filter((n) => n > 0)
@@ -1202,7 +1202,7 @@ export const getThemeByPortalUrl = async (req, res, next) => {
 
     // If this portal belongs to a school/program/learning/affiliation org, brand it using the linked
     // parent agency by default, unless the child org explicitly opts out.
-    // Affiliations (clubs) default to Summit Stats platform agency branding; never fall back to generic platform.
+    // Affiliations (clubs) default to Summit Stats Team Challenge platform agency branding; never fall back to generic platform.
     const orgType = String(agency.organization_type || 'agency').toLowerCase();
     const parseJsonObject = (v) => {
       if (!v) return {};
@@ -1322,7 +1322,7 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
     // Parse JSON fields if they're strings.
     // If this portal belongs to a school/program/learning/affiliation org, brand it using the linked
     // parent agency by default, unless the child org explicitly opts out.
-    // Affiliations (clubs) default to Summit Stats platform agency branding; never fall back to generic platform.
+    // Affiliations (clubs) default to Summit Stats Team Challenge platform agency branding; never fall back to generic platform.
     const orgType = String(agency.organization_type || 'agency').toLowerCase();
     const parseJsonObject = (v) => {
       if (!v) return {};

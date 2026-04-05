@@ -37,7 +37,9 @@ const isSscPortalSlug = (value) => SSC_PORTAL_SLUGS.has(String(value || '').trim
 const isAllowedSscAuthenticatedPath = (path) => {
   const normalized = String(path || '').trim().toLowerCase();
   if (!normalized) return false;
-  const allowedOrgScoped = /^\/[^/]+\/(challenges(?:\/|$)|messages(?:\/|$)|clubs(?:\/|$)|join(?:\/|$)|club\/settings(?:\/|$)|club\/seasons(?:\/|$)|dashboard(?:\/|$)|preferences(?:\/|$)|credentials(?:\/|$)|account-info(?:\/|$)|change-password(?:\/|$)|logout(?:\/|$))/;
+  // Summit tenant: allow member surfaces + org-scoped admin (SSC admin dashboard work) + club manager dashboard.
+  const allowedOrgScoped =
+    /^\/[^/]+\/(challenges(?:\/|$)|messages(?:\/|$)|clubs(?:\/|$)|join(?:\/|$)|club\/settings(?:\/|$)|club\/seasons(?:\/|$)|dashboard(?:\/|$)|preferences(?:\/|$)|credentials(?:\/|$)|account-info(?:\/|$)|change-password(?:\/|$)|logout(?:\/|$)|admin(?:\/|$)|club_manager_dashboard(?:\/|$)|operations-dashboard(?:\/|$))/;
   const allowedGlobal = /^\/(dashboard|preferences|credentials|account-info|change-password|logout)(?:\/|$)/;
   return allowedOrgScoped.test(normalized) || allowedGlobal.test(normalized);
 };
@@ -752,6 +754,12 @@ const routes = [
     meta: { requiresAuth: true, requiresApprovedEmployee: true, requiresCapability: 'canViewTraining', organizationSlug: true }
   },
   // Slug-prefixed admin routes
+  {
+    path: '/:organizationSlug/club_manager_dashboard',
+    name: 'OrganizationClubManagerDashboard',
+    component: () => import('../views/admin/AdminDashboard.vue'),
+    meta: { requiresAuth: true, requiresRole: 'club_manager', organizationSlug: true }
+  },
   {
     path: '/:organizationSlug/admin',
     name: 'OrganizationAdminDashboard',
@@ -2533,6 +2541,18 @@ router.beforeEach(async (to, from, next) => {
   const currentOrgSlug = typeof to.params?.organizationSlug === 'string' ? to.params.organizationSlug : '';
   if (
     authStore.isAuthenticated &&
+    currentUserRoleNorm === 'club_manager' &&
+    currentOrgSlug &&
+    isSscPortalSlug(String(currentOrgSlug).toLowerCase())
+  ) {
+    const p = String(to.path || '');
+    if (p === `/${currentOrgSlug}/admin` || p === `/${currentOrgSlug}/admin/`) {
+      next({ path: `/${currentOrgSlug}/club_manager_dashboard`, query: to.query, hash: to.hash, replace: true });
+      return;
+    }
+  }
+  if (
+    authStore.isAuthenticated &&
     to.meta.requiresAuth &&
     currentUserRoleNorm !== 'super_admin' &&
     isSscPortalSlug(currentOrgSlug) &&
@@ -2609,6 +2629,29 @@ router.beforeEach(async (to, from, next) => {
     const userRoleNorm = String(userRole || '').toLowerCase();
     const requiredRole = to.meta.requiresRole;
     const requiredRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+    const orgSlugForRoute = typeof to.params?.organizationSlug === 'string' ? to.params.organizationSlug : '';
+    const clubManagerSscBypass =
+      userRoleNorm === 'club_manager' &&
+      orgSlugForRoute &&
+      isSscPortalSlug(String(orgSlugForRoute).toLowerCase()) &&
+      (() => {
+        const pathNorm = String(to.path || '');
+        const prefix = `/${orgSlugForRoute}`;
+        return (
+          pathNorm.startsWith(`${prefix}/club_manager_dashboard`) ||
+          pathNorm.startsWith(`${prefix}/admin`) ||
+          pathNorm.startsWith(`${prefix}/operations-dashboard`)
+        );
+      })();
+
+    // Club managers (Summit): keep them off global payroll/audit surfaces even under /:slug/admin/*.
+    if (userRoleNorm === 'club_manager') {
+      const p = String(to.path || '');
+      if (p.includes('/admin/audit-center') || p.includes('/admin/payroll') || p.includes('/admin/expenses')) {
+        next(getDashboardRoute());
+        return;
+      }
+    }
 
     // Audit Center is limited to admin/super_admin only.
     if (String(to.path || '').includes('/admin/audit-center') && userRoleNorm === 'support') {
@@ -2667,7 +2710,7 @@ router.beforeEach(async (to, from, next) => {
 
     const hasSubCoordinatorRoleBypass = to.meta.allowSubCoordinator === true && hasSubCoordinatorAccess(authStore.user);
 
-    if (hasRequiredRole || hasSubCoordinatorRoleBypass) {
+    if (clubManagerSscBypass || hasRequiredRole || hasSubCoordinatorRoleBypass) {
       // Optional: capability gate (e.g., canViewTraining / canSignDocuments)
       const required = to.meta.requiresCapability
         ? (Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability])
@@ -2682,6 +2725,7 @@ router.beforeEach(async (to, from, next) => {
       const capsMissing = !caps || typeof caps !== 'object' || Object.keys(caps).length === 0;
       const hasAll = capsMissing ? true : (required.length === 0 ? true : required.every((k) => !!caps?.[k]));
       if (hasAll) next();
+      else if (clubManagerSscBypass) next();
       else next(getDashboardRoute());
     } else {
       // Redirect to appropriate dashboard
@@ -2733,7 +2777,7 @@ router.afterEach((to) => {
   const authStore = useAuthStore();
   if (!authStore.isAuthenticated) return;
   const path = String(to?.path || '');
-  if (!path.includes('/admin')) return;
+  if (!path.includes('/admin') && !path.includes('/club_manager_dashboard')) return;
   const page = path.replace(/^\/[^/]+\/admin\/?/, '').replace(/^\/admin\/?/, '') || 'dashboard';
   api.post('/auth/activity-log', {
     actionType: 'admin_page_view',

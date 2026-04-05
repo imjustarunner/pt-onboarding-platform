@@ -545,7 +545,7 @@ app.use('/api/company-events', companyEventsPublicRoutes);
 app.get('/api/auth/verify-club-manager-email', verifyClubManagerEmail);
 app.get('/api/auth/verify-club-manager-email/:token', verifyClubManagerEmail);
 
-// Summit Stats: list clubs (public, no auth) - mount before summit-stats router
+// Summit Stats Team Challenge: list clubs (public, no auth) - mount before summit-stats router
 app.get('/api/summit-stats/clubs', listClubs);
 
 // API Routes

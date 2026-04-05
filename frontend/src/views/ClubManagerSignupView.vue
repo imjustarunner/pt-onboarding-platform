@@ -10,7 +10,7 @@
       <div class="expectation-card">
         <h2>Before you start</h2>
         <ul>
-          <li>You’re creating a free SSC account first, not an instant all-access admin account.</li>
+          <li>You’re creating a free {{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }} account first, not an instant all-access admin account.</li>
           <li>Club-management access is only for the club you start here.</li>
           <li>We’ll guide you into club setup after your email is verified.</li>
         </ul>
@@ -81,6 +81,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { useBrandingStore } from '../store/branding';
+import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -96,7 +97,7 @@ const displayLogoUrl = computed(() => {
 });
 
 const displaySubtitle = computed(() => {
-  const name = orgSlug.value && loginTheme.value?.agency?.name ? loginTheme.value.agency.name : 'Summit Stats: Team Challenge';
+  const name = orgSlug.value && loginTheme.value?.agency?.name ? loginTheme.value.agency.name : SUMMIT_STATS_TEAM_CHALLENGE_NAME;
   return `Launch a club inside ${name} with a dedicated founder account and club-scoped management access.`;
 });
 

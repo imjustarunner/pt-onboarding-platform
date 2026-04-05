@@ -1,4 +1,4 @@
--- Summit Stats Challenge: in-app message feed for each season dashboard
+-- Summit Stats Team Challenge: in-app message feed for each season dashboard
 
 CREATE TABLE IF NOT EXISTS challenge_messages (
   id INT AUTO_INCREMENT PRIMARY KEY,

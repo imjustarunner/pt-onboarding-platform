@@ -1,4 +1,4 @@
--- Summit Stats Challenge: participant bye week declarations
+-- Summit Stats Team Challenge: participant bye week declarations
 
 CREATE TABLE IF NOT EXISTS challenge_bye_weeks (
   id INT AUTO_INCREMENT PRIMARY KEY,

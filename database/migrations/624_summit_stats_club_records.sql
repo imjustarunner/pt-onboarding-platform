@@ -1,4 +1,4 @@
--- Summit Stats Challenge: manual all-time club records managed by club admins
+-- Summit Stats Team Challenge: manual all-time club records managed by club admins
 
 CREATE TABLE IF NOT EXISTS summit_stats_club_records (
   id INT AUTO_INCREMENT PRIMARY KEY,

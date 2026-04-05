@@ -1,4 +1,4 @@
-# Platform Email Setup (Summit Stats)
+# Platform Email Setup (Summit Stats Team Challenge)
 
 Club manager verification and other platform-level emails use the same sending mechanism as the rest of the app.
 
@@ -23,7 +23,7 @@ Or:
 GMAIL_IMPERSONATE_USER=ai@yourdomain.com
 ```
 
-Emails will be sent as `Summit Stats <ai@yourdomain.com>` when no other From address is configured.
+Emails will be sent as `Summit Stats Team Challenge <ai@yourdomain.com>` when no other From address is configured.
 
 ## Optional: custom From address
 
@@ -31,7 +31,7 @@ To use a different From address (e.g. `noreply@summitstats.com`):
 
 ```
 GOOGLE_WORKSPACE_FROM_ADDRESS=noreply@summitstats.com
-GOOGLE_WORKSPACE_FROM_NAME=Summit Stats
+GOOGLE_WORKSPACE_FROM_NAME=Summit Stats Team Challenge
 GOOGLE_WORKSPACE_REPLY_TO=support@summitstats.com
 ```
 

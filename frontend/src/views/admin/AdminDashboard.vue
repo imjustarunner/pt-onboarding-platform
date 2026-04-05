@@ -5,7 +5,7 @@
     </div>
   </div>
   <SuperAdminDashboard v-else-if="user?.role === 'super_admin' || user?.role?.toLowerCase() === 'superadmin'" />
-  <AgencyAdminDashboard v-else-if="user?.role === 'admin' || user?.role === 'support' || isSupervisor(user) || user?.role === 'clinical_practice_assistant' || user?.role === 'provider_plus'" />
+  <AgencyAdminDashboard v-else-if="user?.role === 'admin' || user?.role === 'support' || isSupervisor(user) || user?.role === 'clinical_practice_assistant' || user?.role === 'provider_plus' || user?.role === 'club_manager'" />
   <div v-else class="container">
     <div class="error">Access denied. This dashboard is only available to administrators, supervisors, and clinical practice assistants.</div>
   </div>

@@ -1,8 +1,8 @@
-# Summit Stats Challenge — Records, Divisions & Club Manager Workflow Spec
+# Summit Stats Team Challenge — Records, Divisions & Club Manager Workflow Spec
 
 ## Overview
 
-This spec extends the Summit Stats platform with:
+This spec extends the Summit Stats Team Challenge platform with:
 - **Record tracking** (especially by gender)
 - **Master's Division** (53+) and other customizable recognition categories
 - **Club Manager workflow** — add teams, add users, launch season with parameters

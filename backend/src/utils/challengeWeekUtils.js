@@ -1,5 +1,5 @@
 /**
- * Summit Stats Challenge: Week boundary utilities
+ * Summit Stats Team Challenge: Week boundary utilities
  * Week = Sunday(cutoff) to next Sunday(cutoff). Configurable cutoff time.
  */
 

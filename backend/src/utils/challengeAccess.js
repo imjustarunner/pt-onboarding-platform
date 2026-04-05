@@ -1,5 +1,5 @@
 /**
- * Summit Stats Challenge: Shared access control
+ * Summit Stats Team Challenge: Shared access control
  * canAccessChallenge checks org membership, provider membership, and elimination status.
  */
 import pool from '../config/database.js';

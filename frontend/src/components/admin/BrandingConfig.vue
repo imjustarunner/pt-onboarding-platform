@@ -225,7 +225,7 @@
           <small>Additional always-visible footer link ("Platform HIPAA"), commonly used for HIPAA policy docs.</small>
         </div>
         <div class="form-section-divider">
-          <h4>Summit Stats: Team Challenge footer</h4>
+          <h4>{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }} footer</h4>
           <p class="section-description">
             When you add one or more links here, club managers and members on <code>/ssc</code> or any club (affiliation)
             portal see this set instead of the default Privacy / Terms / Public Proof / HIPAA row. Use full
@@ -2261,6 +2261,7 @@ import { useBrandingStore } from '../../store/branding';
 import IconSelector from './IconSelector.vue';
 import FontSelector from '../FontSelector.vue';
 import { useRouter } from 'vue-router';
+import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../../constants/summitStatsBranding.js';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();

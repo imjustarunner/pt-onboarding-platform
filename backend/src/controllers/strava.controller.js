@@ -1,5 +1,5 @@
 /**
- * Strava OAuth controller for Summit Stats Challenge
+ * Strava OAuth controller for Summit Stats Team Challenge
  * Connect/disconnect Strava accounts for fitness profile linking.
  * Activities listing and selective import for challenge workouts.
  */

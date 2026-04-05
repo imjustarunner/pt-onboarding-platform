@@ -1,4 +1,4 @@
--- Summit Stats Challenge: captain application workflow
+-- Summit Stats Team Challenge: captain application workflow
 
 CREATE TABLE IF NOT EXISTS challenge_captain_applications (
   id INT AUTO_INCREMENT PRIMARY KEY,

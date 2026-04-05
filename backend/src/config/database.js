@@ -1,9 +1,15 @@
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// Load environment variables from .env file, but don't override existing env vars
-// By default, dotenv.config() does NOT override existing environment variables
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Load .env from cwd first, then backend/.env for vars not set (e.g. `node database/run-migrations.js`
+// from repo root, where credentials live in backend/.env).
+// dotenv does not override existing env vars or keys already set by an earlier load.
 dotenv.config();
+dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 // Detect if DB_HOST is a Unix socket path (Cloud SQL) or TCP host
 const dbHost = process.env.DB_HOST || 'localhost';

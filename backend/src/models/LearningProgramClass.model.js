@@ -20,7 +20,7 @@ const normalizeClass = (row) => {
   return {
     ...row,
     metadata_json: parseJsonMaybe(row.metadata_json),
-    // Summit Stats Challenge config (Phase 1 extension)
+    // Summit Stats Team Challenge config (Phase 1 extension)
     activity_types_json: parseJsonMaybe(row.activity_types_json),
     scoring_rules_json: parseJsonMaybe(row.scoring_rules_json),
     recognition_categories_json: parseJsonMaybe(row.recognition_categories_json),

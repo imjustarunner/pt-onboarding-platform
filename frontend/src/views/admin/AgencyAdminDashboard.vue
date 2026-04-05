@@ -303,7 +303,7 @@ const requestVerificationLink = async () => {
 
 const loadClubManagerContext = async () => {
   const slug = String(route.params?.organizationSlug || '').toLowerCase();
-  if (slug !== 'ssc') return;
+  if (slug !== 'ssc' && slug !== 'sstc') return;
   clubContextLoading.value = true;
   try {
     const r = await api.get('/summit-stats/club-manager-context', { skipGlobalLoading: true });
@@ -335,7 +335,11 @@ const submitCreateClub = async () => {
     await agencyStore.fetchUserAgencies();
     const adminSlug = club?.parent_slug || club?.slug || club?.portal_url || route.params.organizationSlug;
     if (adminSlug) {
-      await router.replace(`/${adminSlug}/admin`);
+      const dest =
+        String(authStore.user?.role || '').toLowerCase() === 'club_manager'
+          ? `/${adminSlug}/club_manager_dashboard`
+          : `/${adminSlug}/admin`;
+      await router.replace(dest);
     }
     setTimeout(() => {
       createClubSuccess.value = false;
@@ -539,7 +543,7 @@ const quickActions = computed(() => {
     emoji: '👥',
     iconKey: 'provider_availability_dashboard',
     category: 'Management',
-    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus'],
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus', 'club_manager'],
     capabilities: ['canAccessPlatform']
   },
   {
@@ -550,7 +554,7 @@ const quickActions = computed(() => {
     emoji: '📅',
     iconKey: 'schedule',
     category: 'Scheduling',
-    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus'],
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus', 'club_manager'],
     capabilities: ['canAccessPlatform']
   },
   {
@@ -561,7 +565,7 @@ const quickActions = computed(() => {
     emoji: '🏁',
     iconKey: 'challenges',
     category: 'Management',
-    roles: ['admin', 'support', 'super_admin', 'staff', 'provider_plus'],
+    roles: ['admin', 'support', 'super_admin', 'staff', 'provider_plus', 'club_manager'],
     capabilities: ['canAccessPlatform']
   },
   {
@@ -572,7 +576,7 @@ const quickActions = computed(() => {
     emoji: '🏁',
     iconKey: 'challenges',
     category: 'Seasons',
-    roles: ['admin', 'support', 'super_admin'],
+    roles: ['admin', 'support', 'super_admin', 'club_manager'],
     capabilities: ['canAccessPlatform']
   },
   {
@@ -695,7 +699,7 @@ const quickActions = computed(() => {
     emoji: '📅',
     iconKey: 'dashboard_communications',
     category: 'Club',
-    roles: ['admin', 'super_admin', 'provider_plus'],
+    roles: ['admin', 'super_admin', 'provider_plus', 'club_manager'],
     capabilities: ['canAccessPlatform']
   },
   {
@@ -706,7 +710,7 @@ const quickActions = computed(() => {
     emoji: '📊',
     iconKey: 'intake_links',
     category: 'Documents',
-    roles: ['admin', 'super_admin', 'provider_plus'],
+    roles: ['admin', 'super_admin', 'provider_plus', 'club_manager'],
     capabilities: ['canAccessPlatform']
   },
   {
@@ -739,7 +743,7 @@ const quickActions = computed(() => {
     emoji: '👥',
     iconKey: 'manage_users',
     category: 'Management',
-    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'supervisor'],
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'supervisor', 'club_manager'],
     capabilities: ['canAccessPlatform']
   },
   {
@@ -761,7 +765,7 @@ const quickActions = computed(() => {
     emoji: '⚙️',
     iconKey: 'settings',
     category: 'System',
-    roles: ['admin', 'support', 'super_admin', 'staff'],
+    roles: ['admin', 'support', 'super_admin', 'staff', 'club_manager'],
     capabilities: ['canAccessPlatform']
   },
   {

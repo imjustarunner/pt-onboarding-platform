@@ -1,5 +1,5 @@
 /**
- * Summit Stats Challenge: Scoreboard, Elimination, Weekly Tasks
+ * Summit Stats Team Challenge: Scoreboard, Elimination, Weekly Tasks
  * Weekly scoreboard (top 5 athletes, top 5 teams, top per team), elimination board, weekly challenges.
  */
 import pool from '../config/database.js';

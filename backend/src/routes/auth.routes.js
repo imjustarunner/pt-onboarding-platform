@@ -171,7 +171,7 @@ router.post('/verify-session-pin', authenticate, [
 ], verifySessionPin);
 router.post('/register', requireAdminOrFirstUser, validateRegister, register);
 
-// Club Manager signup (public, Summit Stats)
+// Club Manager signup (public, Summit Stats Team Challenge)
 router.post('/register-club-manager', signupLimiter, [
   body('email').isEmail().normalizeEmail(),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
@@ -180,7 +180,7 @@ router.post('/register-club-manager', signupLimiter, [
   body('portalSlug').optional().trim().isString()
 ], registerClubManager);
 
-// Participant signup (public, Summit Stats - join clubs)
+// Participant signup (public, Summit Stats Team Challenge — join clubs)
 router.post('/register-participant', signupLimiter, [
   body('email').isEmail().normalizeEmail(),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),

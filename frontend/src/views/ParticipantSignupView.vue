@@ -84,6 +84,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { useBrandingStore } from '../store/branding';
+import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -103,7 +104,7 @@ const displayLogoUrl = computed(() => {
 });
 
 const displaySubtitle = computed(() => {
-  const name = orgSlug.value && loginTheme.value?.agency?.name ? loginTheme.value.agency.name : 'Summit Stats: Team Challenge';
+  const name = orgSlug.value && loginTheme.value?.agency?.name ? loginTheme.value.agency.name : SUMMIT_STATS_TEAM_CHALLENGE_NAME;
   return `Join ${name} with a personal athlete account, then apply to the club that fits you best.`;
 });
 

@@ -1,4 +1,4 @@
--- Summit Stats Challenge: manager verification flow for record-breaking workouts
+-- Summit Stats Team Challenge: manager verification flow for record-breaking workouts
 
 CREATE TABLE IF NOT EXISTS summit_stats_club_record_verifications (
   id INT AUTO_INCREMENT PRIMARY KEY,

@@ -9,6 +9,7 @@ import {
   getManagedClubsForUser,
   getPrimaryClubManager
 } from '../utils/sscClubAccess.js';
+import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 
 function slugify(name) {
   let s = String(name || '').trim();
@@ -146,7 +147,7 @@ const hasUserEmailVerified = async (userId) => {
   }
 };
 
-/** Resolve Summit Stats platform agency ID (for club creation, club manager emails, etc.). */
+/** Resolve Summit Stats Team Challenge platform agency ID (for club creation, club manager emails, etc.). */
 export async function getPlatformAgencyId() {
   const envId = process.env.SUMMIT_STATS_PLATFORM_AGENCY_ID;
   if (envId) {
@@ -194,7 +195,7 @@ export async function getPlatformAgencyIds(platformSlug = null) {
 }
 
 /**
- * Create a club (affiliation) under the Summit Stats platform.
+ * Create a club (affiliation) under the Summit Stats Team Challenge platform.
  * Requires: auth + email verified. Manager power is scoped to the created club.
  */
 export const createClub = async (req, res, next) => {
@@ -213,7 +214,7 @@ export const createClub = async (req, res, next) => {
     const platformAgencyId = await getPlatformAgencyId();
     if (!platformAgencyId) {
       return res.status(503).json({
-        error: { message: 'Summit Stats platform is not configured. Contact support.' }
+        error: { message: `${SUMMIT_STATS_TEAM_CHALLENGE_NAME} is not configured. Contact support.` }
       });
     }
 
@@ -297,7 +298,7 @@ export const createClub = async (req, res, next) => {
 };
 
 /**
- * Public: List clubs (affiliations under Summit Stats platform).
+ * Public: List clubs (affiliations under Summit Stats Team Challenge platform).
  * No auth required - for browsing/searching clubs.
  */
 export const listClubs = async (req, res, next) => {
@@ -307,7 +308,7 @@ export const listClubs = async (req, res, next) => {
     );
     if (!platformAgencyIds.length) {
       return res.status(503).json({
-        error: { message: 'Summit Stats platform is not configured.' }
+        error: { message: `${SUMMIT_STATS_TEAM_CHALLENGE_NAME} is not configured.` }
       });
     }
 
@@ -407,7 +408,7 @@ export const applyToClub = async (req, res, next) => {
 
     const platformAgencyId = await getPlatformAgencyId();
     if (!platformAgencyId) {
-      return res.status(503).json({ error: { message: 'Summit Stats platform is not configured.' } });
+      return res.status(503).json({ error: { message: `${SUMMIT_STATS_TEAM_CHALLENGE_NAME} is not configured.` } });
     }
 
     const [affRows] = await pool.execute(
@@ -544,7 +545,7 @@ export const startContactManagerThread = async (req, res, next) => {
 
     const platformAgencyId = await getPlatformAgencyId();
     if (!platformAgencyId) {
-      return res.status(503).json({ error: { message: 'Summit Stats platform is not configured.' } });
+      return res.status(503).json({ error: { message: `${SUMMIT_STATS_TEAM_CHALLENGE_NAME} is not configured.` } });
     }
 
     await User.assignToAgency(req.user.id, platformAgencyId, { isActive: true });

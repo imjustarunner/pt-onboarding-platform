@@ -1,5 +1,5 @@
 /**
- * Strava OAuth service for Summit Stats Challenge
+ * Strava OAuth service for Summit Stats Team Challenge
  * Connect user Strava accounts for profile linking and future workout auto-import.
  * Strava API: https://developers.strava.com/docs/authentication/
  */

@@ -1,5 +1,5 @@
 /**
- * Summit Stats Challenge: Club Store routes
+ * Summit Stats Team Challenge: Club Store routes
  * Mounted at /api/club-store, paths: /:orgId/products, /:orgId/orders, etc.
  */
 import express from 'express';

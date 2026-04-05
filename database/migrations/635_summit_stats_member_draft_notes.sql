@@ -1,4 +1,4 @@
--- Summit Stats Challenge: manager draft notes for captain draft report
+-- Summit Stats Team Challenge: manager draft notes for captain draft report
 
 CREATE TABLE IF NOT EXISTS challenge_member_draft_notes (
   id INT NOT NULL AUTO_INCREMENT,

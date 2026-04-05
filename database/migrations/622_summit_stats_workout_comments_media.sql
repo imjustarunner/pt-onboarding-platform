@@ -1,4 +1,4 @@
--- Summit Stats Challenge: workout comments and media uploads (GIF supported)
+-- Summit Stats Team Challenge: workout comments and media uploads (GIF supported)
 
 CREATE TABLE IF NOT EXISTS challenge_workout_comments (
   id INT AUTO_INCREMENT PRIMARY KEY,

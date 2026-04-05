@@ -1,4 +1,4 @@
-# Summit Stats Challenge — Club Store Spec
+# Summit Stats Team Challenge — Club Store Spec
 
 ## Overview
 

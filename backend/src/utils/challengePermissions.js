@@ -1,5 +1,5 @@
 /**
- * Summit Stats Challenge permission helpers.
+ * Summit Stats Team Challenge permission helpers.
  * provider_plus = Team Manager / Team Lead when assigned to a team by Program Manager.
  * Program Managers (admin) assign provider_plus users as team_manager_user_id on challenge_teams.
  */

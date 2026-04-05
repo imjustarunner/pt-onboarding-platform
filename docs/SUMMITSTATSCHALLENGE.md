@@ -1,11 +1,11 @@
-# Summit Stats Challenge  
+# Summit Stats Team Challenge  
 ## Platform Structure & System Design Document
 
 ---
 
 # 1. Platform Overview
 
-**Summit Stats Challenge** is a competitive fitness platform designed for organizations to create and manage team-based fitness challenges.
+**Summit Stats Team Challenge** is a competitive fitness platform designed for organizations to create and manage team-based fitness challenges.
 
 The platform allows organizations to create structured programs where participants track workouts, contribute points to their teams, and compete on leaderboards through customizable fitness challenges.
 
@@ -17,20 +17,20 @@ The system is designed around a hierarchy that enables scalable management of or
 
 The system structure is organized as follows:
 
-**Agency** (Summit Stats Challenge — the app/platform)
+**Agency** (Summit Stats Team Challenge — the app/platform)
 └── **Club** (organization_type: affiliation) — People sign up their clubs!
 └── **Season** (challenge / learning_program_class) — A club runs seasons
 └── **Teams**
 └── **Users** (Participants)
 
 ### Agency
-The **Agency** is the Summit Stats Challenge platform. Organizations sign up their **clubs** to the platform.
+The **Agency** is the Summit Stats Team Challenge platform. Organizations sign up their **clubs** to the platform.
 
 ---
 
 ### Club (Affiliation)
 
-**The affiliation is the CLUB.** Clubs are the primary organizational unit. People sign up their clubs to the Summit Stats platform.
+**The affiliation is the CLUB.** Clubs are the primary organizational unit. People sign up their clubs to the Summit Stats Team Challenge platform.
 
 - **Club** = `organization_type: affiliation` in the database
 - Clubs are created and managed by **Program Managers (Club Manager Accounts)**
@@ -383,7 +383,7 @@ Workout submission: **screenshots by default**, with **Strava sign-in** as the p
 
 # 14. Future Expansion Opportunities
 
-The Summit Stats Challenge platform is designed to expand with additional features, including:
+The Summit Stats Team Challenge platform is designed to expand with additional features, including:
 
 - Wearable integrations
 - Automatic workout imports
@@ -398,7 +398,7 @@ The Summit Stats Challenge platform is designed to expand with additional featur
 
 # 15. Core Platform Goal
 
-The goal of Summit Stats Challenge is to transform fitness tracking into a **structured competitive environment** where individuals and teams can:
+The goal of Summit Stats Team Challenge is to transform fitness tracking into a **structured competitive environment** where individuals and teams can:
 
 - Track performance
 - Stay accountable

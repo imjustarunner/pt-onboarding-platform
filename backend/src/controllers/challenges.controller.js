@@ -1,5 +1,5 @@
 /**
- * Summit Stats Challenge controller
+ * Summit Stats Team Challenge controller
  * Teams, workouts, leaderboards, activity feed.
  * Challenges are learning_program_classes; UI displays as "Challenges".
  */

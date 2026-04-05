@@ -1,3 +1,5 @@
+import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
+
 const normalizeSlug = (value) => String(value || '').trim().toLowerCase();
 
 const profileSlugs = (...values) => {
@@ -8,8 +10,8 @@ const profileSlugs = (...values) => {
 export const TENANT_APP_PROFILES = [
   {
     id: 'sstc',
-    label: 'Summit Stats: Team Challenge',
-    slugs: profileSlugs('ssc', 'summit-stats', import.meta.env.VITE_SUMMIT_STATS_PLATFORM_SLUG),
+    label: SUMMIT_STATS_TEAM_CHALLENGE_NAME,
+    slugs: profileSlugs('ssc', 'sstc', 'summit-stats', import.meta.env.VITE_SUMMIT_STATS_PLATFORM_SLUG),
     mobileDashboard: 'summit_stats'
   },
   {

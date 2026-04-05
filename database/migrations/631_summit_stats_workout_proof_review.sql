@@ -1,4 +1,4 @@
--- Summit Stats Challenge: treadmill proof + manager review/edit controls
+-- Summit Stats Team Challenge: treadmill proof + manager review/edit controls
 
 ALTER TABLE challenge_workouts
   ADD COLUMN is_treadmill TINYINT(1) NOT NULL DEFAULT 0 AFTER activity_type,

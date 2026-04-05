@@ -1,4 +1,4 @@
--- Summit Stats Challenge: Club Store
+-- Summit Stats Team Challenge: Club Store
 -- Each Club (organization_type = affiliation) has its own store. Products can be points or cash.
 
 -- club_store_products: Products in a club's store

@@ -1,4 +1,4 @@
-# Summit Stats Challenge – Gap Analysis
+# Summit Stats Team Challenge – Gap Analysis
 
 ## What Already Exists
 

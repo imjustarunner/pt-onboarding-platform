@@ -1,4 +1,4 @@
--- Summit Stats Challenge: workout disqualification + richer season casualties metadata
+-- Summit Stats Team Challenge: workout disqualification + richer season casualties metadata
 
 ALTER TABLE challenge_workouts
   ADD COLUMN is_disqualified TINYINT(1) NOT NULL DEFAULT 0 AFTER proof_reviewed_at,

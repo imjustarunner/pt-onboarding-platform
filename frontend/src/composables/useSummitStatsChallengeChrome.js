@@ -13,7 +13,7 @@ const SSC_SLUGS = new Set(
   )
 );
 
-/** True when the user is in the Summit Stats Challenge surface. */
+/** True when the user is in the Summit Stats Team Challenge surface (SSC / SSTC / aliases). */
 export function useSummitStatsChallengeChrome() {
   const route = useRoute();
   const agencyStore = useAgencyStore();

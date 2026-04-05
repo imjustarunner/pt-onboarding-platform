@@ -49,7 +49,7 @@
             class="platform-bar-logo"
             alt="Platform logo"
           />
-          <span class="platform-bar-name">{{ platformName || 'Summit Stats Team Challenge' }}</span>
+          <span class="platform-bar-name">{{ platformName || SUMMIT_STATS_TEAM_CHALLENGE_NAME }}</span>
         </div>
 
         <!-- Club tier -->
@@ -264,7 +264,7 @@
             <h2 class="section-title">Participation Waiver</h2>
             <div class="waiver-card">
               <p class="waiver-copy">
-                By applying to join this club through the Summit Stats Team Challenge platform, you understand that your account
+                By applying to join this club through the {{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }} platform, you understand that your account
                 activity, posts, comments, workout submissions, and other participation may be visible within the club experience
                 and are tied to your user profile.
               </p>
@@ -361,6 +361,7 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } 
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { TIMEZONE_GROUPS, detectLocalTimezone } from '../utils/timezones.js';
+import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 
 const route = useRoute();
 const LOCALHOST_TEST_RECAPTCHA_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI';

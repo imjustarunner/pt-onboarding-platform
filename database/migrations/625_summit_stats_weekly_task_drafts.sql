@@ -1,4 +1,4 @@
--- Summit Stats Challenge: AI-assisted weekly task drafts (manager reviews + publishes)
+-- Summit Stats Team Challenge: AI-assisted weekly task drafts (manager reviews + publishes)
 
 CREATE TABLE IF NOT EXISTS challenge_weekly_task_drafts (
   id INT AUTO_INCREMENT PRIMARY KEY,

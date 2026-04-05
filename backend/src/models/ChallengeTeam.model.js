@@ -1,6 +1,6 @@
 /**
  * ChallengeTeam model
- * Teams within a Summit Stats Challenge (learning_program_classes).
+ * Teams within Summit Stats Team Challenge seasons (`learning_program_classes`).
  * Program Managers create teams; provider_plus users can be assigned as Team Manager / Team Lead.
  */
 import pool from '../config/database.js';

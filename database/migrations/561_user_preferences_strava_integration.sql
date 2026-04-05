@@ -1,4 +1,4 @@
--- Summit Stats Challenge: Strava integration
+-- Summit Stats Team Challenge: Strava integration
 -- Store Strava OAuth tokens and athlete ID for workout auto-import (future) and profile linking.
 -- Tokens are encrypted at rest; access tokens expire every 6 hours and must be refreshed.
 

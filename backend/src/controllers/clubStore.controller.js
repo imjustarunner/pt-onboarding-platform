@@ -1,5 +1,5 @@
 /**
- * Summit Stats Challenge: Club Store
+ * Summit Stats Team Challenge: Club Store
  * Per-club store for merchandise/rewards. Club = organization_type affiliation.
  */
 import pool from '../config/database.js';

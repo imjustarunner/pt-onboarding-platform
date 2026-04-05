@@ -1,4 +1,4 @@
--- Summit Stats Challenge: Ensure platform agency exists for club affiliations
+-- Summit Stats Team Challenge: Ensure platform agency exists for club affiliations
 -- Clubs (affiliations) are linked to this platform agency via organization_affiliations.
 -- getPlatformAgencyId() looks up by SUMMIT_STATS_PLATFORM_SLUG (default: ssc) or SUMMIT_STATS_PLATFORM_AGENCY_ID.
 -- slug = 'ssc' is the canonical identifier for /ssc/* routes.

@@ -35,7 +35,7 @@
           <img
             v-if="displayLogoUrl"
             :src="displayLogoUrl"
-            alt="Summit Stats Team Challenge"
+            :alt="SUMMIT_STATS_TEAM_CHALLENGE_NAME"
             class="ipad-hero-logo"
             @error="handleLogoError"
           />
@@ -78,11 +78,11 @@
           class="login-dual-brand login-dual-brand--ssc"
         >
           <div class="login-dual-brand__col">
-            <span class="login-dual-brand__label">Team Challenge</span>
+            <span class="login-dual-brand__label">{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }}</span>
             <img
               v-if="displayLogoUrl"
               :src="displayLogoUrl"
-              alt="Summit Stats Team Challenge"
+              :alt="SUMMIT_STATS_TEAM_CHALLENGE_NAME"
               class="login-dual-brand__logo login-dual-brand__logo--ssc"
               @error="handleLogoError"
             />
@@ -437,6 +437,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
+import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 import api from '../services/api';
 import { getBackendBaseUrl } from '../utils/uploadsUrl';
@@ -552,18 +553,18 @@ const clubsPath = computed(() =>
 );
 
 // Show club links (Sign up, Browse Clubs, Create Club Manager) when backend says so:
-// - affiliation (direct club login), OR agency that hosts clubs (e.g. Summit Stats Challenge)
+// - affiliation (direct club login), OR agency that hosts clubs (e.g. Summit Stats Team Challenge)
 const showClubLinks = computed(() => !!loginTheme.value?.agency?.showClubLinks);
 
-/** SSC tenant: phone number is an accepted login identifier. */
+/** Summit Stats tenants (SSC / SSTC / alias): phone number is an accepted login identifier. */
 const isSSCLogin = computed(() => {
   const slug = String(loginSlug.value || '').toLowerCase().trim();
-  return slug === 'ssc' || slug === 'summit-stats';
+  return slug === 'ssc' || slug === 'sstc' || slug === 'summit-stats';
 });
 const isAppPreviewMode = computed(() => appPreviewMode.value !== 'off');
 const isIpadPreviewMode = computed(() => appPreviewMode.value === 'ipad');
 const isAppLike = computed(() => isAppPreviewMode.value || browserIsStandalone());
-const primaryLoginTitle = computed(() => (isSSCLogin.value ? 'Summit Stats: Team Challenge' : displayTitle.value));
+const primaryLoginTitle = computed(() => (isSSCLogin.value ? SUMMIT_STATS_TEAM_CHALLENGE_NAME : displayTitle.value));
 const primaryLoginSubtitle = computed(() =>
   isSSCLogin.value ? 'Sign in to continue' : defaultLoginSubtitle.value
 );

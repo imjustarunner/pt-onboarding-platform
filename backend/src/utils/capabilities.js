@@ -74,7 +74,7 @@ export function getUserCapabilities(user) {
   const hasHiringFlag = user?.has_hiring_access === true || user?.has_hiring_access === 1 || user?.has_hiring_access === '1';
   const canManageHiring = ['admin', 'super_admin', 'support', 'staff'].includes(roleNorm) || hasHiringFlag;
 
-  // Summit Stats Challenge: Program Managers (admin/super_admin) and Team Managers (provider_plus) can manage challenges.
+  // Summit Stats Team Challenge: Program Managers (admin/super_admin) and Team Managers (provider_plus) can manage challenges.
   // provider_plus = Team Manager / Team Lead when assigned to a team.
   const canManageChallenges = ['admin', 'super_admin', 'provider_plus', 'club_manager'].includes(roleNorm);
 

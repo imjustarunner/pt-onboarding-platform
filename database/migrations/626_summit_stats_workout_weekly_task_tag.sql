@@ -1,4 +1,4 @@
--- Summit Stats Challenge: optional weekly challenge tag per workout
+-- Summit Stats Team Challenge: optional weekly challenge tag per workout
 -- Keep migration runner-compatible: no PREPARE/EXECUTE blocks.
 
 ALTER TABLE challenge_workouts

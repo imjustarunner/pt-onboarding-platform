@@ -1,6 +1,6 @@
 /**
  * ChallengeWorkout model
- * Workout submissions for Summit Stats Challenges.
+ * Workout submissions for the Summit Stats Team Challenge.
  * Participants log activities (running, cycling, etc.) that contribute points to their teams.
  */
 import pool from '../config/database.js';

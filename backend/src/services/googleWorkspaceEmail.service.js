@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { getWorkspaceClientsForEmployee, logGoogleUnauthorizedHint } from './googleWorkspaceAuth.service.js';
+import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 
 function base64UrlEncode(str) {
   return Buffer.from(str)
@@ -150,7 +151,7 @@ class GoogleWorkspaceEmailService {
     const fromDisplayName =
       fromName ||
       process.env.GOOGLE_WORKSPACE_FROM_NAME ||
-      (fromEmail === impersonate ? 'Summit Stats' : null);
+      (fromEmail === impersonate ? SUMMIT_STATS_TEAM_CHALLENGE_NAME : null);
     const fromHeader = fromDisplayName ? `${fromDisplayName} <${fromEmail}>` : fromEmail;
 
     // Domain-wide delegation impersonation via JWT

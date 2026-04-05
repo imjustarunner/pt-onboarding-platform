@@ -1,4 +1,4 @@
--- Summit Stats Challenge seasonal workflow foundation.
+-- Summit Stats Team Challenge seasonal workflow foundation.
 -- Adds lifecycle and season-settings fields to learning_program_classes.
 
 ALTER TABLE learning_program_classes

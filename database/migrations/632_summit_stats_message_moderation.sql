@@ -1,4 +1,4 @@
--- Summit Stats Challenge: message moderation support
+-- Summit Stats Team Challenge: message moderation support
 
 ALTER TABLE challenge_messages
   ADD COLUMN is_pinned TINYINT(1) NOT NULL DEFAULT 0 AFTER message_text,

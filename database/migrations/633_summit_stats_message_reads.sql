@@ -1,4 +1,4 @@
--- Summit Stats Challenge: per-user read tracking for season/team chat scopes
+-- Summit Stats Team Challenge: per-user read tracking for season/team chat scopes
 
 CREATE TABLE IF NOT EXISTS challenge_message_reads (
   id INT NOT NULL AUTO_INCREMENT,
