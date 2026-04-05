@@ -122,7 +122,7 @@ const selectedTeam = computed(() => {
 
 function challengeLink(row) {
   if (!row?.challengeId || !orgSlug.value) return null;
-  return `/${orgSlug.value}/challenges/${row.challengeId}`;
+  return `/${orgSlug.value}/season/${row.challengeId}`;
 }
 
 async function loadSummary() {

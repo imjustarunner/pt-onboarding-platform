@@ -1232,8 +1232,8 @@ const organizationSlug = computed(() => agencyStore.currentAgency?.slug || agenc
 
 const challengeDashboardLink = (c) => {
   const id = c.id;
-  if (organizationSlug.value) return `/${organizationSlug.value}/challenges/${id}`;
-  return `/challenges/${id}`;
+  if (organizationSlug.value) return `/${organizationSlug.value}/season/${id}`;
+  return `/${String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase()}/season/${id}`;
 };
 
 const formatStatus = (c) => {

@@ -54,7 +54,7 @@ const challenges = ref([]);
 const challengesOverviewRoute = computed(() => {
   const c = challenges.value?.[0];
   const slug = c?.organization_slug || c?.organizationSlug || null;
-  return slug ? `/${slug}/challenges` : '/challenges';
+  return slug ? `/${slug}/home` : `/${String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase()}/home`;
 });
 const loading = ref(true);
 const error = ref(null);
@@ -118,8 +118,8 @@ const challengeRoute = (c) => {
   const slug = c.organization_slug || c.organizationSlug;
   const mode = String(c.delivery_mode || c.deliveryMode || 'group').toLowerCase();
   if (mode === 'group') return slug ? `/${slug}/learning/classes/${id}` : `/learning/classes/${id}`;
-  if (slug) return `/${slug}/challenges/${id}`;
-  return `/challenges/${id}`;
+  if (slug) return `/${slug}/season/${id}`;
+  return `/${String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase()}/season/${id}`;
 };
 
 onMounted(loadChallenges);

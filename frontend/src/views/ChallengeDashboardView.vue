@@ -681,8 +681,15 @@ const kudosStatsLoading = ref(false);
 const challengeId = computed(() => route.params.id || route.params.challengeId);
 const organizationSlug = computed(() => route.params.organizationSlug || null);
 
+const SSC_HOME_SLUGS = new Set(
+  ['ssc', 'sstc', 'summit-stats', String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase()].filter(Boolean)
+);
 const backRoute = computed(() => {
-  if (organizationSlug.value) return `/${organizationSlug.value}/dashboard`;
+  const slug = organizationSlug.value;
+  if (slug) {
+    if (SSC_HOME_SLUGS.has(String(slug).toLowerCase())) return `/${slug}/home`;
+    return `/${slug}/dashboard`;
+  }
   return '/dashboard';
 });
 

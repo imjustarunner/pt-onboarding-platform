@@ -913,7 +913,7 @@ function openEnrollmentWorkspace(tile) {
     router.push(`/${slug}/learning/classes/${id}`);
     return;
   }
-  router.push(`/${slug}/challenges/${id}`);
+  router.push(`/${slug}/season/${id}`);
 }
 
 function selectPortalTile(t) {
@@ -958,7 +958,7 @@ function openEnrollmentFromList(c) {
     router.push(`/${slug}/learning/classes/${id}`);
     return;
   }
-  router.push(`/${slug}/challenges/${id}`);
+  router.push(`/${slug}/season/${id}`);
 }
 
 async function submitNewEnrollment() {

@@ -42,8 +42,9 @@ const isAllowedSscAuthenticatedPath = (path) => {
   // Notifications hub lives outside `/admin` (still org-scoped).
   if (/^\/[^/]+\/notifications(\/|$)/.test(normalized)) return true;
   // Summit tenant: member surfaces + club manager dashboard + operations.
+  // `home` = participant portal (not "weekly challenges"); `season` = one season workspace. Legacy `challenges` redirects.
   const allowedOrgScoped =
-    /^\/[^/]+\/(challenges(?:\/|$)|messages(?:\/|$)|clubs(?:\/|$)|join(?:\/|$)|club\/settings(?:\/|$)|club\/seasons(?:\/|$)|dashboard(?:\/|$)|preferences(?:\/|$)|credentials(?:\/|$)|account-info(?:\/|$)|change-password(?:\/|$)|logout(?:\/|$)|club_manager_dashboard(?:\/|$)|operations-dashboard(?:\/|$))/;
+    /^\/[^/]+\/(home(?:\/|$)|season(?:\/|$)|challenges(?:\/|$)|messages(?:\/|$)|clubs(?:\/|$)|join(?:\/|$)|club\/settings(?:\/|$)|club\/seasons(?:\/|$)|dashboard(?:\/|$)|preferences(?:\/|$)|credentials(?:\/|$)|account-info(?:\/|$)|change-password(?:\/|$)|logout(?:\/|$)|club_manager_dashboard(?:\/|$)|operations-dashboard(?:\/|$))/;
   const allowedGlobal = /^\/(dashboard|preferences|credentials|account-info|change-password|logout)(?:\/|$)/;
   return allowedOrgScoped.test(normalized) || allowedGlobal.test(normalized);
 };
@@ -559,13 +560,25 @@ const routes = [
   },
   {
     path: '/:organizationSlug/challenges/:id',
-    name: 'OrganizationChallengeDashboard',
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/season/${to.params.id}`,
+      query: to.query,
+      hash: to.hash
+    })
+  },
+  {
+    path: '/:organizationSlug/challenges',
+    redirect: (to) => ({ path: `/${to.params.organizationSlug}/home`, query: to.query, hash: to.hash })
+  },
+  {
+    path: '/:organizationSlug/season/:id',
+    name: 'OrganizationSeasonDashboard',
     component: () => import('../views/ChallengeDashboardView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
-    path: '/:organizationSlug/challenges',
-    name: 'OrganizationChallengesOverview',
+    path: '/:organizationSlug/home',
+    name: 'OrganizationSummitHome',
     component: () => import('../views/SummitStatsDashboardView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
   },
@@ -1280,15 +1293,11 @@ const routes = [
   },
   {
     path: '/challenges',
-    name: 'ChallengesOverview',
-    component: () => import('../views/SummitStatsDashboardView.vue'),
-    meta: { requiresAuth: true }
+    redirect: () => `/${NATIVE_APP_ORG_SLUG}/home`
   },
   {
     path: '/challenges/:id',
-    name: 'ChallengeDashboard',
-    component: () => import('../views/ChallengeDashboardView.vue'),
-    meta: { requiresAuth: true }
+    redirect: (to) => `/${NATIVE_APP_ORG_SLUG}/season/${to.params.id}`
   },
   {
     path: '/learning/classes/:classId',
@@ -2093,6 +2102,8 @@ router.beforeEach(async (to, from, next) => {
         rawPath === '/account-info' ||
         rawPath === '/preferences' ||
         rawPath === '/credentials' ||
+        rawPath === '/home' ||
+        rawPath.startsWith('/season/') ||
         rawPath === '/challenges' ||
         rawPath.startsWith('/challenges/') ||
         rawPath.startsWith('/admin') ||
@@ -2100,7 +2111,15 @@ router.beforeEach(async (to, from, next) => {
         rawPath.startsWith('/club-store'));
 
     if (shouldScopeToTenant) {
-      const scopedPath = rawPath === '/' ? `/${NATIVE_APP_ORG_SLUG}/login` : `/${NATIVE_APP_ORG_SLUG}${rawPath}`;
+      const scopedPath = (() => {
+        if (rawPath === '/') return `/${NATIVE_APP_ORG_SLUG}/login`;
+        if (rawPath === '/challenges') return `/${NATIVE_APP_ORG_SLUG}/home`;
+        if (rawPath.startsWith('/challenges/')) {
+          const rest = rawPath.slice('/challenges/'.length);
+          return rest ? `/${NATIVE_APP_ORG_SLUG}/season/${rest}` : `/${NATIVE_APP_ORG_SLUG}/home`;
+        }
+        return `/${NATIVE_APP_ORG_SLUG}${rawPath}`;
+      })();
       next({ path: scopedPath, query: to.query, hash: to.hash, replace: true });
       return;
     }
@@ -2562,7 +2581,7 @@ router.beforeEach(async (to, from, next) => {
     isSscPortalSlug(currentOrgSlug) &&
     !isAllowedSscAuthenticatedPath(to.path)
   ) {
-    next(`/${currentOrgSlug}/challenges`);
+    next(`/${currentOrgSlug}/home`);
     return;
   }
   

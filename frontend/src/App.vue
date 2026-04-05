@@ -2220,7 +2220,7 @@ const myDashboardTo = computed(() => {
 
   if (isSscSstcTenant.value) {
     if (role === 'club_manager') return orgTo('/club_manager_dashboard');
-    return orgTo('/challenges');
+    return orgTo('/home');
   }
 
   // "My Dashboard" should always land on the user's personal dashboard, not admin.

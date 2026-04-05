@@ -5,7 +5,8 @@
         <p class="eyebrow">{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }}</p>
         <h1>My Dashboard</h1>
         <p class="hero-copy">
-          Your personal competition home for clubs, seasons, records, and account details.
+          Your home for clubs and seasons. Open a season to see leaderboards, workouts, and each week's team challenges
+          (the weekly tasks your team completes).
         </p>
       </div>
       <div class="hero-actions">
@@ -459,12 +460,12 @@ const switchToClubContext = async (clubId, target = 'dashboard') => {
     await router.push(`/${orgSlug.value}/club_manager_dashboard`);
     return;
   }
-  await router.push(`/${orgSlug.value}/challenges`);
+  await router.push(`/${orgSlug.value}/home`);
 };
 
 const openSeason = async (season) => {
   if (!season?.classId) return;
-  await router.push(`/${orgSlug.value}/challenges/${season.classId}`);
+  await router.push(`/${orgSlug.value}/season/${season.classId}`);
 };
 
 const openClub = async (clubId) => {
