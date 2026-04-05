@@ -21,7 +21,7 @@
             <div class="nav-brand">
               <div class="brand-switcher" @click.stop>
                 <button class="brand-trigger" @click="toggleBrandMenu" :title="`Switch Tenant (${currentBrandLabel})`">
-                  <BrandingLogo :logoUrl="navBrandLogoUrl" size="medium" class="nav-logo" />
+                  <BrandingLogo :logoUrl="navBarLogoUrl" size="medium" class="nav-logo" />
                   <span v-if="canOpenBrandMenu" class="brand-caret">▾</span>
                 </button>
 
@@ -113,6 +113,8 @@
                 <router-link :to="orgTo('/admin/company-events')" @click="closeMobileMenu">Club Events</router-link>
                 <router-link :to="orgTo('/club/seasons')" @click="closeMobileMenu">Season Management</router-link>
                 <router-link :to="orgTo('/admin/users')" @click="closeMobileMenu">Members</router-link>
+                <router-link :to="orgTo('/club/settings')" @click="closeMobileMenu">Club settings</router-link>
+                <router-link :to="orgTo('/preferences')" @click="closeMobileMenu">Account</router-link>
               </template>
               <router-link
                 v-if="canShowAdminDashboardIcon"
@@ -123,6 +125,15 @@
               >
                 <img v-if="adminDashboardIconUrl" :src="adminDashboardIconUrl" alt="" class="nav-icon-img" />
                 <span v-else aria-hidden="true">🏢</span>
+              </router-link>
+              <router-link
+                v-if="isSscClubManager"
+                :to="orgTo('/club/settings')"
+                class="nav-icon-btn"
+                title="Club settings"
+                aria-label="Club settings"
+              >
+                <span aria-hidden="true">⚙</span>
               </router-link>
 
               <!-- Portal navigation (admins must see this even if ACTIVE_EMPLOYEE) -->
@@ -543,6 +554,9 @@
           </div>
         </div>
       </nav>
+      <div v-if="sscClubBannerImageUrl" class="ssc-club-banner-strip" aria-hidden="true">
+        <img :src="sscClubBannerImageUrl" alt="" class="ssc-club-banner-img" />
+      </div>
       <SummitStatsContextBar :visible="showSummitStatsClubContextBar" />
       <!-- Welcome tag (hangs under navbar); omitted on SSC / club portals to avoid a dead band under the header -->
       <div v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isSummitStatsChallengeChrome" class="welcome-hang-wrap">
@@ -565,7 +579,7 @@
       >
         <div class="mobile-sidebar-content">
           <div class="mobile-sidebar-header">
-            <BrandingLogo size="medium" class="mobile-logo" />
+            <BrandingLogo size="medium" class="mobile-logo" :logoUrl="navBarLogoUrl" />
             <h2 v-if="navTitleText" class="mobile-title">{{ navTitleText }}</h2>
             <p v-if="isSummitStatsChallengeChrome" class="mobile-brand-label">{{ summitTeamBrandLabel }}</p>
             <button class="mobile-close" @click="mobileMenuOpen = false" aria-label="Close menu">×</button>
@@ -608,11 +622,13 @@
               class="mobile-nav-link"
             >Messages</router-link>
             <template v-if="isSscClubManager">
-              <router-link :to="orgTo('/admin/surveys')" @click="closeMobileMenu" class="mobile-nav-link">Surveys</router-link>
-              <router-link :to="orgTo('/notifications')" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
-              <router-link :to="orgTo('/admin/company-events')" @click="closeMobileMenu" class="mobile-nav-link">Club Events</router-link>
-              <router-link :to="orgTo('/club/seasons')" @click="closeMobileMenu" class="mobile-nav-link">Season Management</router-link>
-              <router-link :to="orgTo('/admin/users')" @click="closeMobileMenu" class="mobile-nav-link">Members</router-link>
+                <router-link :to="orgTo('/admin/surveys')" @click="closeMobileMenu" class="mobile-nav-link">Surveys</router-link>
+                <router-link :to="orgTo('/notifications')" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
+                <router-link :to="orgTo('/admin/company-events')" @click="closeMobileMenu" class="mobile-nav-link">Club Events</router-link>
+                <router-link :to="orgTo('/club/seasons')" @click="closeMobileMenu" class="mobile-nav-link">Season Management</router-link>
+                <router-link :to="orgTo('/admin/users')" @click="closeMobileMenu" class="mobile-nav-link">Members</router-link>
+                <router-link :to="orgTo('/club/settings')" @click="closeMobileMenu" class="mobile-nav-link">Club settings</router-link>
+                <router-link :to="orgTo('/preferences')" @click="closeMobileMenu" class="mobile-nav-link">Account</router-link>
             </template>
             <router-link
               v-if="hasCapability('canJoinProgramEvents') && user?.role !== 'provider' && !isSscSstcTenant"
@@ -1192,6 +1208,47 @@ const navBrandLogoUrl = computed(() => {
   }
   return null;
 });
+
+/** Public club page config (banner, etc.) — may be JSON string on agency row. */
+function parseAgencyPublicPageConfig(agency) {
+  if (!agency) return null;
+  const raw = agency.public_page_config ?? agency.publicPageConfig;
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return typeof raw === 'object' ? raw : null;
+}
+
+/** When viewing an affiliation (club), prefer its logo in nav over the SSC portal slug logo. */
+const sscAffiliationNavLogoUrl = computed(() => {
+  if (!isSummitStatsChallengeChrome.value) return null;
+  const a = agencyStore.currentAgency;
+  if (!a?.id) return null;
+  const t = String(a.organization_type || a.organizationType || '').toLowerCase();
+  if (t !== 'affiliation') return null;
+  if (a.logo_path) return toUploadsUrl(a.logo_path);
+  if (a.icon_file_path) return toUploadsUrl(a.icon_file_path);
+  if (a.logo_url && /^https?:\/\//i.test(String(a.logo_url))) return String(a.logo_url);
+  return null;
+});
+
+const sscClubBannerImageUrl = computed(() => {
+  if (!isSummitStatsChallengeChrome.value) return null;
+  const a = agencyStore.currentAgency;
+  if (!a?.id) return null;
+  const t = String(a.organization_type || a.organizationType || '').toLowerCase();
+  if (t !== 'affiliation') return null;
+  const cfg = parseAgencyPublicPageConfig(a);
+  const u = String(cfg?.bannerImageUrl || '').trim();
+  return u || null;
+});
+
+const navBarLogoUrl = computed(() => sscAffiliationNavLogoUrl.value || navBrandLogoUrl.value);
 
 function syncPageLoading(isOn) {
   if (isOn) {
@@ -4216,6 +4273,23 @@ onUnmounted(() => {
   transform: rotate(-45deg) translate(8px, -8px);
 }
 
+/* Club banner (affiliation public page) under main nav on Summit / club surfaces */
+.ssc-club-banner-strip {
+  width: 100%;
+  max-height: 120px;
+  overflow: hidden;
+  background: rgba(30, 58, 138, 0.15);
+  line-height: 0;
+  flex-shrink: 0;
+}
+
+.ssc-club-banner-img {
+  width: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  display: block;
+}
+
 /* Mobile Sidebar (available on all screen sizes) */
 .mobile-sidebar {
   position: fixed;
@@ -4223,13 +4297,17 @@ onUnmounted(() => {
   left: 0;
   width: 280px;
   height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
   background-color: var(--primary);
   color: white;
   transform: translateX(-100%);
   transition: transform 0.3s ease;
   z-index: 1000;
   box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
-  overflow-y: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .mobile-sidebar.open {
@@ -4239,7 +4317,8 @@ onUnmounted(() => {
 .mobile-sidebar-content {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 .mobile-sidebar-header {
@@ -4249,6 +4328,7 @@ onUnmounted(() => {
   padding: 20px;
   border-bottom: 2px solid rgba(255, 255, 255, 0.2);
   position: relative;
+  flex-shrink: 0;
 }
 
 .mobile-logo {
@@ -4303,8 +4383,11 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-height: 0;
   padding: 20px 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .mobile-nav-link {
@@ -4380,7 +4463,10 @@ onUnmounted(() => {
 
 .mobile-sidebar-footer {
   padding: 20px;
+  padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
   border-top: 2px solid rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+  background-color: var(--primary);
 }
 
 .mobile-logout {

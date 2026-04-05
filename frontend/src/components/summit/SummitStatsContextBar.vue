@@ -4,6 +4,14 @@
       <div class="ssc-context-inner">
         <!-- Club identity -->
         <div class="ssc-club-block">
+          <img
+            v-if="clubLogoSrc"
+            :src="clubLogoSrc"
+            alt=""
+            class="ssc-club-logo"
+            width="36"
+            height="36"
+          />
           <span class="ssc-pill-badge">Club</span>
           <span class="ssc-club-name" :title="clubDisplayName">{{ clubDisplayName }}</span>
         </div>
@@ -68,6 +76,7 @@ import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import api from '../../services/api';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const props = defineProps({
   visible: {
@@ -100,6 +109,17 @@ const orgSlug = computed(() => {
 });
 
 const clubDisplayName = computed(() => String(agencyStore.currentAgency?.name || '').trim() || 'Club');
+
+const clubLogoSrc = computed(() => {
+  const a = agencyStore.currentAgency;
+  if (!a?.id) return null;
+  const t = String(a.organization_type || a.organizationType || '').toLowerCase();
+  if (t !== 'affiliation') return null;
+  if (a.logo_path) return toUploadsUrl(a.logo_path);
+  if (a.icon_file_path) return toUploadsUrl(a.icon_file_path);
+  if (a.logo_url && /^https?:\/\//i.test(String(a.logo_url))) return String(a.logo_url);
+  return null;
+});
 
 function storageKey() {
   return orgId.value ? `sscContextTeamId:${orgId.value}` : null;
@@ -219,6 +239,16 @@ watch(
   gap: 10px;
   min-width: 0;
   flex-shrink: 1;
+}
+
+.ssc-club-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid rgba(30, 58, 138, 0.2);
+  background: #fff;
+  flex-shrink: 0;
 }
 
 .ssc-club-name {
