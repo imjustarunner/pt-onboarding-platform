@@ -47,7 +47,7 @@
       <div class="pub-action-bar-wrap">
         <div class="pub-action-bar">
           <router-link
-            v-if="viewer.isMember"
+            v-if="isSignedIn"
             :to="`/${orgSlug}/dashboard`"
             class="pub-act pub-act--dashboard"
           >My Dashboard</router-link>
@@ -59,14 +59,25 @@
             rel="noopener"
           >{{ clubData.publicStore.title || 'Team store' }}</a>
           <button type="button" class="pub-act pub-act--records" @click="scrollToClubRecords">Team records</button>
+          <router-link
+            v-if="isSignedIn"
+            :to="membersDirectoryTo"
+            class="pub-act pub-act--members"
+          >Members</router-link>
           <button
-            v-if="viewer.isMember && (clubData.companyEventsPreview || []).length"
+            v-else
+            type="button"
+            class="pub-act pub-act--members"
+            @click="goMembersGuest"
+          >Members</button>
+          <button
+            v-if="isSignedIn && (clubData.companyEventsPreview || []).length"
             type="button"
             class="pub-act pub-act--events"
             @click="scrollToClubEvents"
           >Events</button>
           <button
-            v-if="viewer.isMember && primarySeasonButton"
+            v-if="isSignedIn && primarySeasonButton"
             type="button"
             class="pub-act pub-act--season"
             @click="goSeason"
@@ -220,7 +231,11 @@
             </div>
           </div>
 
-          <div v-if="showActiveParticipantsBlock && clubData.activeParticipants?.length" class="pub-card pub-participants-card">
+          <div
+            v-if="showActiveParticipantsBlock && clubData.activeParticipants?.length"
+            id="club-participants-section"
+            class="pub-card pub-participants-card"
+          >
             <div class="card-label">Active Participants</div>
             <p class="pub-participants-hint">
               Public preview — first name and last initial only. This page does not open the full member directory.
@@ -417,6 +432,18 @@ const viewer = computed(() => {
   return { isAuthenticated: false, isMember: false, clubRole: null, isManager: false, seasonMembershipByClassId: {}, pendingSeasonJoinRequest: null };
 });
 
+/** Client-side session (Pinia + localStorage user). Public API may not see HttpOnly cookies on cross-origin calls, so `viewer.isMember` is unreliable for UI chrome. */
+const isSignedIn = computed(() => authStore.isAuthenticated);
+
+const membersDirectoryTo = computed(() => {
+  const ref =
+    clubData.value?.club?.canonicalClubRef ||
+    clubRef.value ||
+    clubData.value?.club?.id;
+  if (ref == null || ref === '') return `/${orgSlug.value}/clubs`;
+  return `/${orgSlug.value}/clubs/${ref}/members`;
+});
+
 const goJoin = () => {
   const numericClubId = Number(clubData.value?.club?.id || 0);
   if (!numericClubId) return;
@@ -454,7 +481,7 @@ const primarySeasonButton = computed(() => {
   const cur = clubData.value?.currentSeason;
   const up = clubData.value?.upcomingSeason;
   if (cur?.id) return { kind: 'current', id: cur.id };
-  if (up?.id && viewer.value.isMember) return { kind: 'upcoming', id: up.id };
+  if (up?.id && authStore.isAuthenticated) return { kind: 'upcoming', id: up.id };
   return null;
 });
 
@@ -602,6 +629,18 @@ const heroStyle = computed(() => {
 });
 const showCurrentSeasonBlock = computed(() => publicPageConfig.value?.showCurrentSeason !== false);
 const showActiveParticipantsBlock = computed(() => publicPageConfig.value?.showActiveParticipants !== false);
+
+const goMembersGuest = () => {
+  const hasPreview =
+    showActiveParticipantsBlock.value && (clubData.value?.activeParticipants?.length || 0) > 0;
+  const el = document.getElementById('club-participants-section');
+  if (hasPreview && el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  router.push(membersDirectoryTo.value);
+};
+
 const showFeaturedWorkoutBlock = computed(() => publicPageConfig.value?.showFeaturedWorkout !== false);
 const showPhotoAlbumBlock = computed(() => publicPageConfig.value?.showPhotoAlbum !== false);
 const currentAlbumSlide = computed(() => {
@@ -903,6 +942,7 @@ onBeforeUnmount(() => {
 }
 .pub-act--store { background: linear-gradient(135deg, #059669, #10b981); }
 .pub-act--records { background: linear-gradient(135deg, #7c3aed, #a78bfa); }
+.pub-act--members { background: linear-gradient(135deg, #0e7490, #14b8a6); }
 .pub-act--events { background: linear-gradient(135deg, #c2410c, #f97316); }
 .pub-act--season { background: linear-gradient(135deg, #b45309, #eab308); }
 .pub-act--dashboard {

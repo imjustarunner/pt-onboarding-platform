@@ -11,6 +11,30 @@
       </div>
     </section>
 
+    <!-- Club-wide banner + splashes (same API as main org dashboard) -->
+    <div
+      v-if="!loading && !dashboardError && clubDashboardBannerTexts.length"
+      class="ssc-announcement-banner"
+      role="region"
+      aria-label="Club announcements"
+    >
+      <div class="ssc-announcement-inner">
+        <div class="ssc-announcement-track">
+          <span
+            v-for="(t, idx) in clubDashboardBannerTexts"
+            :key="`b-${idx}-${String(t).slice(0, 24)}`"
+            class="ssc-announcement-item"
+          >{{ t }}</span>
+          <span
+            v-for="(t, idx) in clubDashboardBannerTexts"
+            :key="`br-${idx}-${String(t).slice(0, 24)}`"
+            class="ssc-announcement-item"
+            aria-hidden="true"
+          >{{ t }}</span>
+        </div>
+      </div>
+    </div>
+
     <section v-if="loading" class="card dash-section dash-section--loading">
       Loading your dashboard…
     </section>
@@ -133,6 +157,41 @@
           <span>Best workout <strong>{{ formatWhole(summary?.stats?.bestWorkoutPoints) }}</strong> pts</span>
           <span class="my-stats-dot" aria-hidden="true">·</span>
           <span>Longest <strong>{{ formatWhole(summary?.stats?.longestWorkoutMinutes) }}</strong> min</span>
+        </div>
+      </div>
+    </section>
+
+    <section
+      v-if="stravaRolloutActive || stravaRolloutDisabled"
+      class="card dash-section dash-section--strava"
+    >
+      <div class="section-header">
+        <div>
+          <h2>Fitness integrations</h2>
+          <p v-if="stravaRolloutActive" class="muted">
+            Connect Strava to import activities when you open a season — use “Import from Strava” next to Log workout.
+          </p>
+          <p v-else class="muted">
+            Strava is not enabled for your account yet. Only pilot accounts can connect during testing.
+          </p>
+        </div>
+      </div>
+      <div v-if="stravaRolloutActive" class="strava-dash-body">
+        <div v-if="stravaDisconnectError" class="inline-error strava-dash-error">{{ stravaDisconnectError }}</div>
+        <div v-if="stravaStatus?.connected">
+          <p class="strava-dash-line">
+            Connected as <strong>{{ stravaStatus.username || 'Strava athlete' }}</strong>
+            <span v-if="stravaStatus.connectedAt" class="muted"> · Connected {{ formatStravaDate(stravaStatus.connectedAt) }}</span>
+          </p>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="stravaDisconnecting" @click="disconnectStrava">
+            {{ stravaDisconnecting ? 'Disconnecting…' : 'Disconnect Strava' }}
+          </button>
+        </div>
+        <div v-else>
+          <p v-if="stravaStatus && !stravaStatus.stravaConfigured" class="muted strava-dash-line">
+            Strava integration is not configured on the server. Contact your Program Manager.
+          </p>
+          <a v-else :href="stravaConnectUrl" class="btn btn-primary btn-sm">Connect Strava</a>
         </div>
       </div>
     </section>
@@ -261,6 +320,17 @@
                   <dd>{{ summary?.account?.phone || 'Not set' }}</dd>
                 </div>
                 <div>
+                  <dt>City &amp; state (public)</dt>
+                  <dd>{{ publicHomeLocationDisplay }}</dd>
+                </div>
+                <div class="profile-grid-row--wide">
+                  <dt>Street &amp; ZIP (private)</dt>
+                  <dd class="account-home-private-dd">{{ privateHomeAddressDisplay }}</dd>
+                  <p class="account-home-privacy-note muted">
+                    Only city and state appear on your public club profile. The full address powers local weather where available.
+                  </p>
+                </div>
+                <div>
                   <dt>Gender</dt>
                   <dd>{{ formatText(summary?.account?.gender) }}</dd>
                 </div>
@@ -326,6 +396,39 @@
                   Phone
                   <input v-model="accountForm.phone" type="tel" autocomplete="tel" />
                 </label>
+                <div class="account-field account-field--block account-home-edit-block">
+                  <span class="account-field-label">Home address</span>
+                  <p class="account-home-privacy-note muted">
+                    City and state are shared on your club’s public pages. Street and ZIP stay private and are used for weather.
+                  </p>
+                  <label class="account-field account-field--block account-field--inner">
+                    Street address
+                    <input
+                      v-model="accountForm.homeStreetAddress"
+                      type="text"
+                      autocomplete="street-address"
+                      placeholder="123 Main St"
+                    />
+                  </label>
+                  <label class="account-field account-field--block account-field--inner">
+                    Apt / suite (optional)
+                    <input v-model="accountForm.homeAddressLine2" type="text" autocomplete="address-line2" />
+                  </label>
+                  <div class="account-home-city-state-zip">
+                    <label class="account-field account-field--inner">
+                      City
+                      <input v-model="accountForm.homeCity" type="text" autocomplete="address-level2" />
+                    </label>
+                    <label class="account-field account-field--inner">
+                      State
+                      <input v-model="accountForm.homeState" type="text" autocomplete="address-level1" />
+                    </label>
+                    <label class="account-field account-field--inner">
+                      ZIP / postal code
+                      <input v-model="accountForm.homePostalCode" type="text" autocomplete="postal-code" />
+                    </label>
+                  </div>
+                </div>
                 <label class="account-field">
                   Gender
                   <select v-model="accountForm.genderSelect">
@@ -465,6 +568,30 @@
         </div>
       </article>
     </section>
+
+    <!-- One-time splash (display_type: splash) — dismiss or remind in 24h -->
+    <div
+      v-if="currentClubSplash"
+      class="ssc-blocking-splash"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Club announcement"
+    >
+      <div class="ssc-blocking-splash-card">
+        <div class="ssc-blocking-splash-head">
+          <span class="ssc-blocking-splash-brand">{{ clubSplashBrandLabel }}</span>
+        </div>
+        <h3 class="ssc-blocking-splash-title">{{ clubSplashTitle }}</h3>
+        <p class="ssc-blocking-splash-message">{{ currentClubSplash.message || '' }}</p>
+        <div v-if="currentClubSplash.ends_at" class="ssc-blocking-splash-meta">
+          Scheduled through {{ formatClubSplashEndsAt(currentClubSplash.ends_at) }}
+        </div>
+        <div class="ssc-blocking-splash-actions">
+          <button type="button" class="btn btn-secondary" @click="remindLaterClubSplash">Remind me later</button>
+          <button type="button" class="btn btn-primary" @click="dismissClubSplash">Dismiss</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -506,6 +633,11 @@ const accountForm = reactive({
   lastName: '',
   timezone: '',
   phone: '',
+  homeStreetAddress: '',
+  homeAddressLine2: '',
+  homeCity: '',
+  homeState: '',
+  homePostalCode: '',
   genderSelect: '',
   genderCustom: '',
   averageMilesPerWeek: '',
@@ -516,6 +648,176 @@ const accountForm = reactive({
 });
 const createClubSubmitting = ref(false);
 const createClubError = ref('');
+
+const stravaStatus = ref(null);
+const stravaDisconnecting = ref(false);
+const stravaDisconnectError = ref('');
+const stravaConnectUrl = computed(() => {
+  const base = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '') || window.location.origin;
+  return `${base}/api/strava/connect`;
+});
+/** Backend sets stravaRolloutEnabled: false when account is not on the pilot allowlist. */
+const stravaRolloutActive = computed(() => {
+  const s = stravaStatus.value;
+  if (s == null) return true;
+  return s.stravaRolloutEnabled !== false;
+});
+const stravaRolloutDisabled = computed(
+  () => stravaStatus.value && stravaStatus.value.stravaRolloutEnabled === false
+);
+
+const formatStravaDate = (d) =>
+  d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+
+/** Affiliation club id for banner + splash APIs (current club or first member club). */
+const announcementClubId = computed(() => {
+  const raw = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
+  const cur = raw || null;
+  if (cur && String(cur.organization_type || cur.organizationType || '').toLowerCase() === 'affiliation') {
+    const id = Number(cur.id || 0);
+    return id > 0 ? id : null;
+  }
+  const list = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
+  const arr = Array.isArray(list) ? list : [];
+  const aff = arr.find((a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation');
+  return aff && Number(aff.id) > 0 ? Number(aff.id) : null;
+});
+
+const clubDashboardBanner = ref(null);
+const clubScheduledBannerItems = ref([]);
+const splashDismissVersion = ref(0);
+const SPLASH_DISMISS_PREFIX = 'sscDashboardSplashDismissed.v1';
+
+const clubDashboardBannerTexts = computed(() => {
+  const scheduled = Array.isArray(clubScheduledBannerItems.value) ? clubScheduledBannerItems.value : [];
+  const scheduledTexts = scheduled
+    .filter((a) => String(a?.display_type || 'announcement').trim().toLowerCase() !== 'splash')
+    .map((a) => {
+      const title = String(a?.title || '').trim();
+      const msg = String(a?.message || '').trim();
+      const base = title && title.toLowerCase() !== 'announcement' ? `${title}: ${msg}` : msg;
+      return String(base || '').trim();
+    })
+    .filter(Boolean);
+  const birthdayText = String(clubDashboardBanner.value?.message || '').trim();
+  return [...scheduledTexts, birthdayText].filter(Boolean).slice(0, 10);
+});
+
+const splashAnnouncements = computed(() => {
+  const scheduled = Array.isArray(clubScheduledBannerItems.value) ? clubScheduledBannerItems.value : [];
+  return scheduled
+    .filter((a) => String(a?.display_type || 'announcement').trim().toLowerCase() === 'splash')
+    .sort((a, b) => new Date(a?.starts_at || 0) - new Date(b?.starts_at || 0));
+});
+
+const splashDismissKey = (item) => {
+  const userId = Number(authStore.user?.id || 0);
+  const orgId = Number(announcementClubId.value || 0);
+  const splashId = Number(item?.id || 0);
+  if (!userId || !orgId || !splashId) return null;
+  return `${SPLASH_DISMISS_PREFIX}:${userId}:${orgId}:${splashId}`;
+};
+
+const isSplashDismissed = (item) => {
+  const key = splashDismissKey(item);
+  if (!key) return false;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return false;
+    const untilTs = Number.parseInt(String(raw), 10);
+    if (!Number.isFinite(untilTs) || untilTs <= Date.now()) {
+      localStorage.removeItem(key);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const openClubSplashes = computed(() => {
+  void splashDismissVersion.value;
+  return splashAnnouncements.value.filter((item) => !isSplashDismissed(item));
+});
+
+const currentClubSplash = computed(() => openClubSplashes.value[0] || null);
+
+const clubSplashTitle = computed(() => {
+  const title = String(currentClubSplash.value?.title || '').trim();
+  if (title && title.toLowerCase() !== 'announcement') return title;
+  return 'Important announcement';
+});
+
+const clubSplashBrandLabel = computed(() => {
+  const m = summary.value?.memberships?.find((x) => Number(x?.clubId) === Number(announcementClubId.value));
+  const name = String(m?.clubName || '').trim();
+  return name || SUMMIT_STATS_TEAM_CHALLENGE_NAME;
+});
+
+const formatClubSplashEndsAt = (dateLike) => {
+  const dt = new Date(dateLike || 0);
+  if (!Number.isFinite(dt.getTime())) return '';
+  return dt.toLocaleString();
+};
+
+const dismissClubSplash = () => {
+  const item = currentClubSplash.value;
+  if (!item) return;
+  const key = splashDismissKey(item);
+  if (!key) return;
+  const endTs = new Date(item?.ends_at || 0).getTime();
+  const fallbackTs = Date.now() + 24 * 60 * 60 * 1000;
+  const persistUntil = Number.isFinite(endTs) ? endTs : fallbackTs;
+  try {
+    localStorage.setItem(key, String(persistUntil));
+  } catch {
+    /* ignore */
+  }
+  splashDismissVersion.value += 1;
+};
+
+const remindLaterClubSplash = () => {
+  const item = currentClubSplash.value;
+  if (!item) return;
+  const key = splashDismissKey(item);
+  if (!key) return;
+  const until = Date.now() + 24 * 60 * 60 * 1000;
+  try {
+    localStorage.setItem(key, String(until));
+  } catch {
+    /* ignore */
+  }
+  splashDismissVersion.value += 1;
+};
+
+const loadClubAnnouncements = async () => {
+  const cid = announcementClubId.value;
+  if (!cid) {
+    clubDashboardBanner.value = null;
+    clubScheduledBannerItems.value = [];
+    return;
+  }
+  try {
+    const [birthdayResp, scheduledResp] = await Promise.allSettled([
+      api.get(`/agencies/${cid}/dashboard-banner`, { skipGlobalLoading: true }),
+      api.get(`/agencies/${cid}/announcements/banner`, { skipGlobalLoading: true })
+    ]);
+    if (birthdayResp.status === 'fulfilled') {
+      clubDashboardBanner.value = birthdayResp.value?.data?.banner || null;
+    } else {
+      clubDashboardBanner.value = null;
+    }
+    if (scheduledResp.status === 'fulfilled') {
+      clubScheduledBannerItems.value = Array.isArray(scheduledResp.value?.data) ? scheduledResp.value.data : [];
+    } else {
+      clubScheduledBannerItems.value = [];
+    }
+  } catch {
+    clubDashboardBanner.value = null;
+    clubScheduledBannerItems.value = [];
+  }
+};
+
 const createClubForm = reactive({
   name: '',
   slug: '',
@@ -538,11 +840,57 @@ const fullName = computed(() => {
   return `${first} ${last}`.trim() || 'Your account';
 });
 
+const publicHomeLocationDisplay = computed(() => {
+  const a = summary.value?.account;
+  const city = String(a?.homeCity || '').trim();
+  const st = String(a?.homeState || '').trim();
+  if (city && st) return `${city}, ${st}`;
+  if (city || st) return city || st;
+  return 'Not set';
+});
+
+const privateHomeAddressDisplay = computed(() => {
+  const a = summary.value?.account;
+  const line1 = String(a?.homeStreetAddress || '').trim();
+  const line2 = String(a?.homeAddressLine2 || '').trim();
+  const city = String(a?.homeCity || '').trim();
+  const st = String(a?.homeState || '').trim();
+  const zip = String(a?.homePostalCode || '').trim();
+  const cityState = [city, st].filter(Boolean).join(', ');
+  const tail = [cityState, zip].filter(Boolean).join(' ');
+  const parts = [line1, line2, tail].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'Not set';
+});
+
 const userId = computed(() => {
   const id = authStore.user?.id;
   const n = Number(id);
   return Number.isFinite(n) ? n : null;
 });
+
+const fetchStravaStatus = async () => {
+  if (!userId.value) return;
+  stravaDisconnectError.value = '';
+  try {
+    const r = await api.get('/strava/status', { skipGlobalLoading: true });
+    stravaStatus.value = r.data || null;
+  } catch {
+    stravaStatus.value = null;
+  }
+};
+
+const disconnectStrava = async () => {
+  stravaDisconnectError.value = '';
+  try {
+    stravaDisconnecting.value = true;
+    await api.delete('/strava/disconnect');
+    stravaStatus.value = { ...stravaStatus.value, connected: false, username: null, connectedAt: null };
+  } catch (e) {
+    stravaDisconnectError.value = e?.response?.data?.error?.message || 'Failed to disconnect Strava.';
+  } finally {
+    stravaDisconnecting.value = false;
+  }
+};
 
 const profilePhotoDisplayUrl = computed(() => {
   const fromDash = toUploadsUrl(summary.value?.member?.profilePhotoUrl);
@@ -617,6 +965,11 @@ const fillAccountFormFromSummary = () => {
   accountForm.lastName = String(m?.lastName || '').trim();
   accountForm.timezone = String(m?.timezone || '').trim();
   accountForm.phone = String(a?.phone || '').trim();
+  accountForm.homeStreetAddress = String(a?.homeStreetAddress || '').trim();
+  accountForm.homeAddressLine2 = String(a?.homeAddressLine2 || '').trim();
+  accountForm.homeCity = String(a?.homeCity || '').trim();
+  accountForm.homeState = String(a?.homeState || '').trim();
+  accountForm.homePostalCode = String(a?.homePostalCode || '').trim();
 
   const rawGender = String(a?.gender || '').trim();
   const opts = genderSelectChoices.value;
@@ -679,6 +1032,11 @@ const saveAccountEdit = async () => {
       lastName: accountForm.lastName,
       timezone: accountForm.timezone.trim() || null,
       phone: accountForm.phone.trim() || null,
+      homeStreetAddress: accountForm.homeStreetAddress.trim() || null,
+      homeAddressLine2: accountForm.homeAddressLine2.trim() || null,
+      homeCity: accountForm.homeCity.trim() || null,
+      homeState: accountForm.homeState.trim() || null,
+      homePostalCode: accountForm.homePostalCode.trim() || null,
       gender: genderPayload,
       averageMilesPerWeek: parseOptionalDecimal(accountForm.averageMilesPerWeek),
       averageHoursPerWeek: parseOptionalDecimal(accountForm.averageHoursPerWeek),
@@ -879,10 +1237,16 @@ onMounted(async () => {
     await agencyStore.fetchUserAgencies();
   }
   await loadDashboard();
+  await loadClubAnnouncements();
+  await fetchStravaStatus();
 });
 
 watch(() => route.params.organizationSlug, () => {
   loadDashboard();
+});
+
+watch(announcementClubId, () => {
+  loadClubAnnouncements();
 });
 </script>
 
@@ -1275,6 +1639,57 @@ watch(() => route.params.organizationSlug, () => {
   color: #0f172a;
 }
 
+.profile-grid-row--wide {
+  grid-column: 1 / -1;
+}
+
+.account-home-private-dd {
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.account-home-privacy-note {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.account-home-edit-block {
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: #f8fafc;
+  gap: 10px;
+}
+
+.account-home-edit-block > .account-field-label {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.account-field--inner {
+  font-weight: 600;
+  font-size: 0.82rem;
+  margin-top: 10px;
+}
+
+.account-field--inner:first-of-type {
+  margin-top: 6px;
+}
+
+.account-home-city-state-zip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 2px;
+}
+
+@media (max-width: 640px) {
+  .account-home-city-state-zip {
+    grid-template-columns: 1fr;
+  }
+}
+
 .long-answer-list {
   display: grid;
   gap: 14px;
@@ -1382,6 +1797,109 @@ watch(() => route.params.organizationSlug, () => {
   background: #fef2f2;
   color: #b91c1c;
   border: 1px solid #fecaca;
+}
+
+.dash-section--strava .strava-dash-body {
+  margin-top: 4px;
+}
+.dash-section--strava .strava-dash-line {
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+.dash-section--strava .strava-dash-error {
+  margin-bottom: 10px;
+}
+
+.ssc-announcement-banner {
+  background: linear-gradient(90deg, #eff6ff 0%, #ffffff 100%);
+  border-left: 4px solid #2563eb;
+  border-radius: 16px;
+  padding: 8px 0;
+  margin-bottom: 0;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+.ssc-announcement-inner {
+  overflow: hidden;
+  width: 100%;
+}
+.ssc-announcement-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  padding-left: 100%;
+  animation: sscBannerMarquee 28s linear infinite;
+  white-space: nowrap;
+  color: #1d4ed8;
+  font-weight: 600;
+  font-size: clamp(14px, 3.5vw, 16px);
+}
+.ssc-announcement-banner:hover .ssc-announcement-track {
+  animation-play-state: paused;
+}
+@keyframes sscBannerMarquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.ssc-blocking-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  background: rgba(15, 23, 42, 0.72);
+  display: grid;
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-bottom));
+}
+.ssc-blocking-splash-card {
+  width: min(700px, 96vw);
+  max-height: min(90vh, 900px);
+  overflow-y: auto;
+  border-radius: 18px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 20px;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
+}
+.ssc-blocking-splash-head {
+  margin-bottom: 8px;
+}
+.ssc-blocking-splash-brand {
+  font-weight: 800;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+}
+.ssc-blocking-splash-title {
+  margin: 0 0 10px 0;
+  color: #1d4ed8;
+  font-size: clamp(22px, 6vw, 32px);
+  line-height: 1.15;
+}
+.ssc-blocking-splash-message {
+  margin: 0;
+  color: #0f172a;
+  font-size: clamp(16px, 4.2vw, 1.25rem);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ssc-blocking-splash-meta {
+  margin-top: 10px;
+  color: #64748b;
+  font-size: 12px;
+}
+.ssc-blocking-splash-actions {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 @media (max-width: 760px) {

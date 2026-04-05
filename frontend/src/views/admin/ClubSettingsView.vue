@@ -175,6 +175,69 @@
         </div>
       </section>
 
+      <!-- ── Announcements & splashes (club-wide) ────────── -->
+      <section v-if="currentAgencyId" class="settings-card">
+        <div class="card-header">
+          <h2>Announcements &amp; splashes</h2>
+          <p>
+            Banner posts scroll across the top of members&apos; club dashboard. Splashes show once as a full-screen pop-up; members can dismiss or choose &quot;remind me later&quot; (24 hours). Emoji and line breaks are supported in the message.
+          </p>
+        </div>
+        <div v-if="clubAnnouncementsError" class="error">{{ clubAnnouncementsError }}</div>
+        <div v-if="clubAnnouncementsLoading" class="hint">Loading announcements…</div>
+        <div v-else class="settings-form">
+          <div class="field">
+            <label>Type</label>
+            <select v-model="clubAnnouncementDraft.displayType">
+              <option value="announcement">Banner (scrolling line)</option>
+              <option value="splash">Splash (one-time pop-up)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Title (optional)</label>
+            <input v-model="clubAnnouncementDraft.title" type="text" maxlength="255" placeholder="Short headline" />
+          </div>
+          <div class="field">
+            <label>Message</label>
+            <textarea v-model="clubAnnouncementDraft.message" rows="4" maxlength="1200" placeholder="Your announcement…" />
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label>Starts</label>
+              <input v-model="clubAnnouncementDraft.startsAt" type="datetime-local" />
+            </div>
+            <div class="field">
+              <label>Ends</label>
+              <input v-model="clubAnnouncementDraft.endsAt" type="datetime-local" />
+            </div>
+          </div>
+          <p class="hint">Announcements must be two weeks or less per post. Members see banners and splashes for this club only.</p>
+          <div class="actions-row">
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="clubAnnouncementSubmitting || !canSubmitClubAnnouncement"
+              @click="postClubAnnouncement"
+            >
+              {{ clubAnnouncementSubmitting ? 'Posting…' : 'Post to club' }}
+            </button>
+            <button type="button" class="btn btn-secondary" :disabled="clubAnnouncementsLoading" @click="loadClubAnnouncementsList">
+              Refresh list
+            </button>
+          </div>
+        </div>
+        <div v-if="clubAnnouncementsList.length" class="mini-list" style="margin-top: 16px;">
+          <h3>Recent &amp; scheduled</h3>
+          <div v-for="row in clubAnnouncementsList.slice(0, 12)" :key="row.id" class="mini-row">
+            <div>
+              <strong>{{ row.display_type === 'splash' ? 'Splash' : 'Banner' }}</strong>
+              <span class="hint" style="margin-left: 8px;">{{ formatAnnouncementWindow(row) }}</span>
+              <div class="hint" style="margin-top: 4px;">{{ truncateAnnouncement(row.message) }}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- ── Time Preferences ────────────────────────────── -->
       <section class="settings-card">
         <div class="card-header">
@@ -1347,6 +1410,99 @@ const formatCurrency = (cents) => {
   return value.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 };
 
+const clubAnnouncementsLoading = ref(false);
+const clubAnnouncementsError = ref('');
+const clubAnnouncementsList = ref([]);
+const clubAnnouncementSubmitting = ref(false);
+const clubAnnouncementDraft = ref({
+  displayType: 'announcement',
+  title: '',
+  message: '',
+  startsAt: '',
+  endsAt: ''
+});
+
+const toClubLocalDt = (d) => {
+  const dt = d instanceof Date ? d : new Date(d);
+  if (!Number.isFinite(dt.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+};
+
+const initClubAnnouncementDraft = () => {
+  const now = new Date();
+  const in24 = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  clubAnnouncementDraft.value = {
+    displayType: 'announcement',
+    title: '',
+    message: '',
+    startsAt: toClubLocalDt(now),
+    endsAt: toClubLocalDt(in24)
+  };
+};
+
+initClubAnnouncementDraft();
+
+const canSubmitClubAnnouncement = computed(() => {
+  const d = clubAnnouncementDraft.value;
+  if (!String(d.message || '').trim()) return false;
+  if (!d.startsAt || !d.endsAt) return false;
+  const starts = new Date(d.startsAt);
+  const ends = new Date(d.endsAt);
+  if (!Number.isFinite(starts.getTime()) || !Number.isFinite(ends.getTime())) return false;
+  return ends.getTime() > starts.getTime();
+});
+
+const loadClubAnnouncementsList = async () => {
+  if (!currentAgencyId.value) return;
+  clubAnnouncementsLoading.value = true;
+  clubAnnouncementsError.value = '';
+  try {
+    const { data } = await api.get(`/agencies/${currentAgencyId.value}/announcements/list`);
+    clubAnnouncementsList.value = Array.isArray(data) ? data : [];
+  } catch (e) {
+    clubAnnouncementsError.value = e?.response?.data?.error?.message || 'Could not load announcements';
+    clubAnnouncementsList.value = [];
+  } finally {
+    clubAnnouncementsLoading.value = false;
+  }
+};
+
+const postClubAnnouncement = async () => {
+  if (!currentAgencyId.value || clubAnnouncementSubmitting.value || !canSubmitClubAnnouncement.value) return;
+  clubAnnouncementSubmitting.value = true;
+  clubAnnouncementsError.value = '';
+  try {
+    await api.post(`/agencies/${currentAgencyId.value}/announcements`, {
+      title: String(clubAnnouncementDraft.value.title || '').trim() || null,
+      message: String(clubAnnouncementDraft.value.message || '').trim(),
+      display_type: clubAnnouncementDraft.value.displayType === 'splash' ? 'splash' : 'announcement',
+      recipient_user_ids: [],
+      audience: 'everyone',
+      starts_at: new Date(clubAnnouncementDraft.value.startsAt),
+      ends_at: new Date(clubAnnouncementDraft.value.endsAt)
+    });
+    initClubAnnouncementDraft();
+    await loadClubAnnouncementsList();
+  } catch (e) {
+    clubAnnouncementsError.value = e?.response?.data?.error?.message || 'Could not post announcement';
+  } finally {
+    clubAnnouncementSubmitting.value = false;
+  }
+};
+
+const formatAnnouncementWindow = (row) => {
+  const a = row?.starts_at ? new Date(row.starts_at) : null;
+  const b = row?.ends_at ? new Date(row.ends_at) : null;
+  if (!a || !b || !Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return '';
+  return `${a.toLocaleString()} → ${b.toLocaleString()}`;
+};
+
+const truncateAnnouncement = (msg) => {
+  const s = String(msg || '').trim().replace(/\s+/g, ' ');
+  return s.length > 140 ? `${s.slice(0, 137)}…` : s;
+};
+
 onMounted(async () => {
   try {
     loading.value = true;
@@ -1368,7 +1524,17 @@ onMounted(async () => {
         'Club settings need a Summit club organization selected. Your account may still be on the platform tenant — pick your club from the organization switcher, then return here.';
       return;
     }
-    await Promise.all([hydrateIdentity(), loadBilling(), loadTimePrefs(), loadClubRecords(), loadRecordVerifications(), loadStatsConfig(), loadStoreConfig(), loadPublicPageConfig()]);
+    await Promise.all([
+      hydrateIdentity(),
+      loadBilling(),
+      loadTimePrefs(),
+      loadClubRecords(),
+      loadRecordVerifications(),
+      loadStatsConfig(),
+      loadStoreConfig(),
+      loadPublicPageConfig(),
+      loadClubAnnouncementsList()
+    ]);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load club settings';
   } finally {

@@ -2284,6 +2284,7 @@
           v-if="activeTab === 'communications'"
           :userId="userId"
           :userAgencies="userAgencies"
+          :preferred-club-agency-id="isSscMemberProfileMode ? selectedClubIdForMemberProfile : null"
           :viewOnly="!canEditUser"
         />
 
@@ -3121,6 +3122,7 @@ const tabs = computed(() => {
     return [
       { id: 'account', label: 'Account' },
       { id: 'season_history', label: 'Season History' },
+      ...(canEditUser.value ? [{ id: 'communications', label: 'Communications' }] : []),
       ...(canViewActivityLog.value ? [{ id: 'activity', label: 'Activity Log' }] : [])
     ];
   }

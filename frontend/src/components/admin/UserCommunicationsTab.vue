@@ -232,7 +232,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -243,6 +243,11 @@ const props = defineProps({
   userAgencies: {
     type: Array,
     default: () => []
+  },
+  /** When set (e.g. SSC member profile), pre-select this club for posting announcements. */
+  preferredClubAgencyId: {
+    type: Number,
+    default: null
   },
   viewOnly: {
     type: Boolean,
@@ -267,7 +272,14 @@ const toLocalInput = (d) => {
   return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
 };
 
-const defaultAgencyId = String(props.userAgencies?.[0]?.id || '');
+const pickDefaultAgencyId = () => {
+  const pref = Number(props.preferredClubAgencyId || 0);
+  if (pref > 0 && (props.userAgencies || []).some((a) => Number(a?.id) === pref)) {
+    return String(pref);
+  }
+  return String(props.userAgencies?.[0]?.id || '');
+};
+const defaultAgencyId = pickDefaultAgencyId();
 const now = new Date();
 const in24h = new Date(now.getTime() + (24 * 60 * 60 * 1000));
 const postDraft = ref({
@@ -279,6 +291,15 @@ const postDraft = ref({
   startsAt: toLocalInput(now),
   endsAt: toLocalInput(in24h)
 });
+
+watch(
+  () => [props.preferredClubAgencyId, props.userAgencies],
+  () => {
+    const id = pickDefaultAgencyId();
+    if (id) postDraft.value.agencyId = id;
+  },
+  { deep: true }
+);
 
 const canPostFromProfile = computed(() => {
   if (!postDraft.value.agencyId) return false;

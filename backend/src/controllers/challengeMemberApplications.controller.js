@@ -2782,7 +2782,8 @@ export const getMyDashboardSummary = async (req, res, next) => {
     if (!userId) return res.status(401).json({ error: { message: 'Sign in required' } });
 
     const [userRows] = await pool.execute(
-      `SELECT id, email, first_name, last_name, role, status, timezone, created_at, profile_photo_path, personal_phone
+      `SELECT id, email, first_name, last_name, role, status, timezone, created_at, profile_photo_path, personal_phone,
+              home_street_address, home_address_line2, home_city, home_state, home_postal_code
        FROM users
        WHERE id = ?
        LIMIT 1`,
@@ -2965,7 +2966,12 @@ export const getMyDashboardSummary = async (req, res, next) => {
         weightLbs: latestApplication?.weight_lbs != null ? Number(latestApplication.weight_lbs) : null,
         heightInches: latestApplication?.height_inches != null ? Number(latestApplication.height_inches) : null,
         phone: latestApplication?.phone || user.personal_phone || null,
-        latestApplicationStatus: latestApplication?.status || null
+        latestApplicationStatus: latestApplication?.status || null,
+        homeStreetAddress: user.home_street_address || null,
+        homeAddressLine2: user.home_address_line2 || null,
+        homeCity: user.home_city || null,
+        homeState: user.home_state || null,
+        homePostalCode: user.home_postal_code || null
       }
     });
   } catch (e) { next(e); }
@@ -2982,11 +2988,23 @@ export const putMyAccountSnapshot = async (req, res, next) => {
     if (!userId) return res.status(401).json({ error: { message: 'Sign in required' } });
 
     const body = req.body || {};
+    const trimAddr = (v, maxLen) => {
+      if (v === undefined) return undefined;
+      const s = String(v ?? '').trim();
+      if (!s) return null;
+      return s.slice(0, maxLen);
+    };
+
     const hasUserField =
       body.firstName !== undefined ||
       body.lastName !== undefined ||
       body.phone !== undefined ||
-      body.timezone !== undefined;
+      body.timezone !== undefined ||
+      body.homeStreetAddress !== undefined ||
+      body.homeAddressLine2 !== undefined ||
+      body.homeCity !== undefined ||
+      body.homeState !== undefined ||
+      body.homePostalCode !== undefined;
     const hasAppOnlyField =
       body.gender !== undefined ||
       body.averageMilesPerWeek !== undefined ||
@@ -3003,6 +3021,11 @@ export const putMyAccountSnapshot = async (req, res, next) => {
     if (body.firstName !== undefined) userPatch.firstName = String(body.firstName || '').trim();
     if (body.lastName !== undefined) userPatch.lastName = String(body.lastName || '').trim();
     if (body.phone !== undefined) userPatch.personalPhone = String(body.phone || '').trim() || null;
+    if (body.homeStreetAddress !== undefined) userPatch.homeStreetAddress = trimAddr(body.homeStreetAddress, 255);
+    if (body.homeAddressLine2 !== undefined) userPatch.homeAddressLine2 = trimAddr(body.homeAddressLine2, 255);
+    if (body.homeCity !== undefined) userPatch.homeCity = trimAddr(body.homeCity, 128);
+    if (body.homeState !== undefined) userPatch.homeState = trimAddr(body.homeState, 64);
+    if (body.homePostalCode !== undefined) userPatch.homePostalCode = trimAddr(body.homePostalCode, 32);
 
     if (Object.keys(userPatch).length > 0) {
       await User.update(userId, userPatch);

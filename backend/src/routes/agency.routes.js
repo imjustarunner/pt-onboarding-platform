@@ -463,11 +463,11 @@ router.post('/:id/school-staff/users/:userId/revoke-access', authenticate, revok
 router.get('/:id/announcements', authenticate, requireBackofficeAdmin, getAgencyAnnouncements);
 router.put('/:id/announcements', authenticate, requireBackofficeAdmin, updateAgencyAnnouncements);
 router.get('/:id/announcements/banner', authenticate, listAgencyBannerAnnouncements);
-router.get('/:id/announcements/list', authenticate, requireBackofficeAdmin, listAgencyScheduledAnnouncements);
-router.get('/:id/announcements/audience-groups', authenticate, requireBackofficeAdmin, listAnnouncementAudienceGroups);
-router.post('/:id/announcements', authenticate, requireBackofficeAdmin, createAgencyScheduledAnnouncement);
-router.put('/:id/announcements/:announcementId', authenticate, requireBackofficeAdmin, updateAgencyScheduledAnnouncement);
-router.delete('/:id/announcements/:announcementId', authenticate, requireBackofficeAdmin, deleteAgencyScheduledAnnouncement);
+router.get('/:id/announcements/list', authenticate, requireBackofficeAdminOrClubManagerForAgency, listAgencyScheduledAnnouncements);
+router.get('/:id/announcements/audience-groups', authenticate, requireBackofficeAdminOrClubManagerForAgency, listAnnouncementAudienceGroups);
+router.post('/:id/announcements', authenticate, requireBackofficeAdminOrClubManagerForAgency, createAgencyScheduledAnnouncement);
+router.put('/:id/announcements/:announcementId', authenticate, requireBackofficeAdminOrClubManagerForAgency, updateAgencyScheduledAnnouncement);
+router.delete('/:id/announcements/:announcementId', authenticate, requireBackofficeAdminOrClubManagerForAgency, deleteAgencyScheduledAnnouncement);
 router.get('/:id/dashboard-banner', authenticate, getAgencyDashboardBanner);
 router.get('/:id/management-team', authenticate, getManagementTeam);
 router.get('/:id/management-team/today', authenticate, getManagementTeamToday);

@@ -43,7 +43,26 @@
           <div class="card-label">Roster</div>
 
           <div v-if="membersLoading" class="roster-loading">Loading members…</div>
-          <div v-else-if="membersError" class="roster-error">{{ membersError }}</div>
+          <div
+            v-else-if="membersError"
+            class="roster-error"
+            :class="{ 'roster-error--muted': membersErrorStatus === 401 || membersErrorStatus === 403 }"
+          >
+            <template v-if="membersErrorStatus === 401">
+              <p class="roster-error-lead">The full roster is for signed-in club members.</p>
+              <p class="roster-error-hint">
+                <a class="roster-error-link" :href="`/${orgSlug}`">Sign in</a>
+                to see photos, stats, and profiles. The public club page shows a name preview only.
+              </p>
+            </template>
+            <template v-else-if="membersErrorStatus === 403">
+              <p class="roster-error-lead">Club membership is required to view the full roster.</p>
+              <p class="roster-error-hint">
+                <router-link class="roster-error-link" :to="clubBackTo">Return to club page</router-link>
+              </p>
+            </template>
+            <template v-else>{{ membersError }}</template>
+          </div>
           <ul v-else class="member-grid">
             <li v-for="m in members" :key="m.id">
               <button type="button" class="member-card" @click="openMember(m)">
@@ -164,6 +183,8 @@ const clubData = ref(null);
 const members = ref([]);
 const membersLoading = ref(true);
 const membersError = ref('');
+/** Set when roster request fails (e.g. 401 guest, 403 non-member). */
+const membersErrorStatus = ref(null);
 
 const modalOpen = ref(false);
 const profileLoading = ref(false);
@@ -251,10 +272,12 @@ const loadClubBranding = async () => {
 const loadMembers = async () => {
   membersLoading.value = true;
   membersError.value = '';
+  membersErrorStatus.value = null;
   try {
     const { data } = await api.get(`/summit-stats/clubs/${clubId.value}/members/directory`);
     members.value = Array.isArray(data?.members) ? data.members : [];
   } catch (e) {
+    membersErrorStatus.value = e?.response?.status ?? null;
     membersError.value = e?.response?.data?.error?.message || 'Could not load members.';
   } finally {
     membersLoading.value = false;
@@ -518,6 +541,28 @@ onMounted(async () => {
 }
 .roster-error {
   color: #b91c1c;
+}
+.roster-error--muted {
+  color: #475569;
+}
+.roster-error-lead {
+  margin: 0 0 10px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.roster-error-hint {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 400;
+}
+.roster-error-link {
+  color: #2563eb;
+  font-weight: 700;
+  text-decoration: none;
+}
+.roster-error-link:hover {
+  text-decoration: underline;
 }
 
 .member-grid {
