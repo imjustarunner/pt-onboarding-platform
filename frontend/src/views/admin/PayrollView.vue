@@ -655,7 +655,7 @@
 
     <!-- V2 modals: isolated from page state -->
     <teleport to="body">
-      <div v-if="showRunModalV2" class="modal-backdrop" @click.self="showRunModalV2 = false">
+      <div v-if="showRunModalV2" class="modal-backdrop" @click.self="confirmClose(() => { showRunModalV2 = false; })">
         <div class="modal modal-payroll-results">
           <div class="modal-header">
             <div>
@@ -666,7 +666,7 @@
               <button class="btn btn-secondary btn-sm" type="button" @click="refreshRunModalV2" :disabled="runModalV2Loading">
                 {{ runModalV2Loading ? 'Loading…' : 'Refresh' }}
               </button>
-              <button class="btn btn-secondary btn-sm" type="button" @click="showRunModalV2 = false" style="margin-left: 8px;">Close</button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="confirmClose(() => { showRunModalV2 = false; })" style="margin-left: 8px;">Close</button>
             </div>
           </div>
           <div v-if="runModalV2Error" class="warn-box">{{ runModalV2Error }}</div>
@@ -743,7 +743,7 @@
     </teleport>
 
     <teleport to="body">
-      <div v-if="showPreviewPostModalV2" class="modal-backdrop" @click.self="showPreviewPostModalV2 = false">
+      <div v-if="showPreviewPostModalV2" class="modal-backdrop" @click.self="confirmClose(() => { showPreviewPostModalV2 = false; })">
         <div class="modal modal-payroll-results">
           <div class="modal-header">
             <div>
@@ -754,7 +754,7 @@
               <button class="btn btn-secondary btn-sm" type="button" @click="refreshPreviewPostModalV2" :disabled="previewPostV2Loading">
                 {{ previewPostV2Loading ? 'Loading…' : 'Refresh' }}
               </button>
-              <button class="btn btn-secondary btn-sm" type="button" @click="showPreviewPostModalV2 = false" style="margin-left: 8px;">Close</button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="confirmClose(() => { showPreviewPostModalV2 = false; })" style="margin-left: 8px;">Close</button>
             </div>
           </div>
 
@@ -886,7 +886,18 @@
                   <div class="right">Rate</div>
                   <div class="right">Amount</div>
                 </div>
-                <div v-for="l in (previewPostV2ServiceLines || []).filter(Boolean)" :key="`v2-line:${l?.code || '—'}`" class="code-row">
+                <div
+                  v-for="l in (previewPostV2ServiceLines || []).filter(Boolean)"
+                  :key="`v2-line:${l?.code || '—'}`"
+                  class="code-row"
+                  :style="
+                    (String(l?.code || '').includes('(Old Note)') || String(l?.code || '').includes('(Late Addition)') || String(l?.code || '').includes('(Code Changed)'))
+                      ? { background: '#fffbe6', borderLeft: '3px solid #f0b429', paddingLeft: '9px' }
+                      : (Number(l?.noNoteUnits ?? 0) > 0)
+                        ? { background: '#fff0f0', borderLeft: '3px solid #e53e3e', paddingLeft: '9px' }
+                        : {}
+                  "
+                >
                   <div class="code">{{ l?.code || '—' }}</div>
                   <div class="right muted">{{ fmtNum(l?.noNoteUnits ?? 0) }}</div>
                   <div class="right muted">{{ fmtNum(l?.draftUnits ?? 0) }}</div>
@@ -931,250 +942,6 @@
         </div>
       </div>
     </teleport>
-
-    <!-- Payroll Tools modal (no persistence) -->
-    <div v-if="showPayrollToolsModal" class="modal-backdrop" @click.self="showPayrollToolsModal = false">
-      <div class="modal" style="width: min(1100px, 100%);">
-        <div class="modal-header">
-          <div>
-            <div class="modal-title">Payroll Tools (Checker)</div>
-            <div class="hint">
-              This modal does <strong>not</strong> import, stage, run, post, or save anything. Each run overwrites the prior results.
-            </div>
-          </div>
-          <div class="actions" style="margin: 0; justify-content: flex-end;">
-            <button class="btn btn-secondary btn-sm" @click="showPayrollToolsModal = false">Close</button>
-          </div>
-        </div>
-
-        <div class="card" style="margin-top: 12px;">
-          <div v-if="!agencyId" class="warn-box" style="margin-bottom: 10px;">
-            Select an organization first to use Payroll Tools.
-          </div>
-          <div class="actions" style="margin: 0 0 10px 0; justify-content: flex-start; gap: 8px;">
-            <button class="btn btn-secondary btn-sm" :class="{ active: payrollToolsTab === 'compare' }" @click="payrollToolsTab = 'compare'">
-              Compare files
-            </button>
-            <button class="btn btn-secondary btn-sm" :class="{ active: payrollToolsTab === 'viewer' }" @click="payrollToolsTab = 'viewer'">
-              Viewer (staging-like)
-            </button>
-          </div>
-
-          <div v-if="payrollToolsTab === 'compare'">
-            <div class="field-row" style="grid-template-columns: 1fr 1fr auto; align-items: end;">
-              <div class="field">
-                <label>Document 1</label>
-                <input type="file" accept=".csv,.xlsx,.xls" @change="onToolsFile1" />
-              </div>
-              <div class="field">
-                <label>Document 2</label>
-                <input type="file" accept=".csv,.xlsx,.xls" @change="onToolsFile2" />
-              </div>
-              <div class="field">
-                <label>&nbsp;</label>
-                <button class="btn btn-primary" @click="runPayrollToolsCompare" :disabled="payrollToolsLoading || !toolsFile1 || !toolsFile2 || !agencyId">
-                  {{ payrollToolsLoading ? 'Comparing…' : 'Compare' }}
-                </button>
-              </div>
-            </div>
-
-            <div v-if="payrollToolsError" class="error-box" style="margin-top: 10px;">{{ payrollToolsError }}</div>
-
-            <div v-if="payrollToolsCompareResult" style="margin-top: 12px;">
-              <div class="field-row" style="grid-template-columns: 1fr 1fr auto; margin-top: 10px; align-items: end;">
-                <div class="field">
-                  <label>Filter</label>
-                  <select v-model="payrollToolsCompareFilter">
-                    <option value="changed">Changed only</option>
-                    <option value="added">Added only</option>
-                    <option value="removed">Removed only</option>
-                    <option value="all">All (added/removed/changed)</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label>Sort</label>
-                  <select v-model="payrollToolsCompareSort">
-                    <option value="human">Provider (A → Z)</option>
-                    <option value="change">Change type</option>
-                    <option value="code">Service code</option>
-                    <option value="date">Date (newest → oldest)</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label>&nbsp;</label>
-                  <button class="btn btn-secondary btn-sm" type="button" @click="payrollToolsCompareMode = (payrollToolsCompareMode === 'detail' ? 'summary' : 'detail')">
-                    {{ payrollToolsCompareMode === 'detail' ? 'Summarize (Provider + Code)' : 'Back to detail' }}
-                  </button>
-                </div>
-              </div>
-
-              <div class="hint">
-                <strong>Summary:</strong>
-                {{ payrollToolsCompareResult.summary?.changed || 0 }} changed •
-                {{ payrollToolsCompareResult.summary?.added || 0 }} added •
-                {{ payrollToolsCompareResult.summary?.removed || 0 }} removed •
-                {{ payrollToolsCompareResult.summary?.unchanged || 0 }} unchanged
-                <span v-if="Number(payrollToolsCompareResult.summary?.lateAddedFinalizedUnitsTotal || 0) > 0">
-                  • <strong>Late added FINAL:</strong> {{ fmtNum(payrollToolsCompareResult.summary?.lateAddedFinalizedUnitsTotal || 0) }}
-                </span>
-              </div>
-
-              <div v-if="payrollToolsCompareMode === 'summary'" class="table-wrap" style="margin-top: 10px;">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>Provider</th>
-                      <th>Code</th>
-                      <th class="right">Doc1 NO_NOTE</th>
-                      <th class="right">Doc1 DRAFT</th>
-                      <th class="right">Doc1 FINAL</th>
-                      <th class="right">Doc2 NO_NOTE</th>
-                      <th class="right">Doc2 DRAFT</th>
-                      <th class="right">Doc2 FINAL</th>
-                      <th>Net change</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(r, idx) in payrollToolsSummaryRows" :key="`sum-${idx}`">
-                      <td>{{ r.providerName }}</td>
-                      <td>{{ r.serviceCode }}</td>
-                      <td class="right">{{ fmtNum(r.doc1.NO_NOTE) }}</td>
-                      <td class="right">{{ fmtNum(r.doc1.DRAFT) }}</td>
-                      <td class="right">{{ fmtNum(r.doc1.FINALIZED) }}</td>
-                      <td class="right">{{ fmtNum(r.doc2.NO_NOTE) }}</td>
-                      <td class="right">{{ fmtNum(r.doc2.DRAFT) }}</td>
-                      <td class="right">{{ fmtNum(r.doc2.FINALIZED) }}</td>
-                      <td class="muted">{{ r.narrative }}</td>
-                    </tr>
-                    <tr v-if="!(payrollToolsSummaryRows || []).length">
-                      <td colspan="9" class="muted">No rows in this filter.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <div v-else class="table-wrap" style="margin-top: 10px;">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>Change</th>
-                      <th>Provider</th>
-                      <th>First name</th>
-                      <th>Code</th>
-                      <th>Date</th>
-                      <th class="right">Doc1 NO_NOTE</th>
-                      <th class="right">Doc1 DRAFT</th>
-                      <th class="right">Doc1 FINAL</th>
-                      <th class="right">Doc2 NO_NOTE</th>
-                      <th class="right">Doc2 DRAFT</th>
-                      <th class="right">Doc2 FINAL</th>
-                      <th class="right">Late add FINAL</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template v-for="(c, idx) in payrollToolsCompareRows" :key="`cmp-${idx}`">
-                      <tr>
-                        <td>
-                          <strong v-if="c.changeType === 'added'">late_added</strong>
-                          <strong v-else>{{ c.changeType }}</strong>
-                        </td>
-                        <td>{{ (c.after || c.before)?.providerName || '—' }}</td>
-                        <td>{{ (c.after || c.before)?.patientFirstName || '—' }}</td>
-                        <td>{{ (c.after || c.before)?.serviceCode || '—' }}</td>
-                        <td>{{ (c.after || c.before)?.dos || '—' }}</td>
-                        <td class="right">{{ fmtNum((c.before?.unitsByStatus?.NO_NOTE || 0)) }}</td>
-                        <td class="right">{{ fmtNum((c.before?.unitsByStatus?.DRAFT || 0)) }}</td>
-                        <td class="right">{{ fmtNum((c.before?.unitsByStatus?.FINALIZED || 0)) }}</td>
-                        <td class="right">{{ fmtNum((c.after?.unitsByStatus?.NO_NOTE || 0)) }}</td>
-                        <td class="right">{{ fmtNum((c.after?.unitsByStatus?.DRAFT || 0)) }}</td>
-                        <td class="right">{{ fmtNum((c.after?.unitsByStatus?.FINALIZED || 0)) }}</td>
-                        <td class="right">
-                          <strong v-if="Number(c?.metrics?.lateAddedFinalizedUnits || 0) > 0">{{ fmtNum(c.metrics.lateAddedFinalizedUnits) }}</strong>
-                          <span v-else class="muted">—</span>
-                        </td>
-                      </tr>
-                      <tr v-if="c.changeType === 'added' || Number(c?.metrics?.lateAddedFinalizedUnits || 0) > 0">
-                        <td colspan="12" class="muted">
-                          <span v-if="c.changeType === 'added'">
-                            Late added service (present only in Doc2). If FINALIZED it should be paid; if DRAFT it should be reviewed; if NO_NOTE it should be carried forward.
-                          </span>
-                          <span v-else>
-                            Late added FINAL indicates finalized units beyond the unpaid drop (helps catch new services added late).
-                          </span>
-                        </td>
-                      </tr>
-                    </template>
-                    <tr v-if="!(payrollToolsCompareRows || []).length">
-                      <td colspan="12" class="muted">No rows in this filter.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <div v-else>
-            <div class="field-row" style="grid-template-columns: 1fr auto; align-items: end;">
-              <div class="field">
-                <label>Document</label>
-                <input type="file" accept=".csv,.xlsx,.xls" @change="onToolsViewerFile" />
-              </div>
-              <div class="field">
-                <label>&nbsp;</label>
-                <button class="btn btn-primary" @click="runPayrollToolsViewer" :disabled="payrollToolsLoading || !toolsViewerFile || !agencyId">
-                  {{ payrollToolsLoading ? 'Loading…' : 'Open Viewer' }}
-                </button>
-              </div>
-            </div>
-
-            <div v-if="payrollToolsError" class="error-box" style="margin-top: 10px;">{{ payrollToolsError }}</div>
-
-            <div v-if="payrollToolsViewerResult" style="margin-top: 12px;">
-              <div class="hint">
-                <strong>Matched:</strong> {{ (payrollToolsViewerResult.matched || []).length }}
-                • <strong>Unmatched:</strong> {{ (payrollToolsViewerResult.unmatched || []).length }}
-              </div>
-
-              <div class="table-wrap" style="margin-top: 10px;">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>Provider</th>
-                      <th>Code</th>
-                      <th class="right">No Note</th>
-                      <th class="right">Draft</th>
-                      <th class="right">Finalized</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(r, idx) in (payrollToolsViewerResult.matched || [])" :key="`vw-m-${idx}`">
-                      <td>{{ r.lastName ? `${r.lastName}, ${r.firstName || ''}` : (r.providerName || '—') }}</td>
-                      <td>{{ r.serviceCode }}</td>
-                      <td class="right">{{ fmtNum(r.raw?.noNoteUnits || 0) }}</td>
-                      <td class="right">{{ fmtNum(r.raw?.draftUnits || 0) }}</td>
-                      <td class="right">{{ fmtNum(r.raw?.finalizedUnits || 0) }}</td>
-                    </tr>
-                    <tr v-if="(payrollToolsViewerResult.unmatched || []).length">
-                      <td colspan="5" class="muted"><strong>Unmatched providers</strong> (couldn’t map provider name to a user)</td>
-                    </tr>
-                    <tr v-for="(r, idx) in (payrollToolsViewerResult.unmatched || [])" :key="`vw-u-${idx}`">
-                      <td>{{ r.providerName || '—' }}</td>
-                      <td>{{ r.serviceCode }}</td>
-                      <td class="right">{{ fmtNum(r.raw?.noNoteUnits || 0) }}</td>
-                      <td class="right">{{ fmtNum(r.raw?.draftUnits || 0) }}</td>
-                      <td class="right">{{ fmtNum(r.raw?.finalizedUnits || 0) }}</td>
-                    </tr>
-                    <tr v-if="!(payrollToolsViewerResult.matched || []).length && !(payrollToolsViewerResult.unmatched || []).length">
-                      <td colspan="5" class="muted">No rows parsed from this file.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
 
     <div ref="processChangesCard" class="card" v-if="agencyId" style="margin-bottom: 12px;">
       <div class="actions" style="justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
@@ -1268,7 +1035,7 @@
             </button>
           </div>
         </div>
-        <div v-if="batchCatchUpResult" style="margin-top: 10px;">
+        <div v-if="batchCatchUpResult" ref="batchCatchUpResultsRef" style="margin-top: 10px;">
           <div v-if="batchCatchUpResult.applied" class="actions" style="align-items: center; gap: 12px;">
             <div class="hint" style="color: var(--success); margin: 0;">Added {{ batchCatchUpResult.carryoverRowsApplied }} rows to payroll staging{{ batchCatchUpDestPeriodLabel ? ` for ${batchCatchUpDestPeriodLabel}` : '' }}. Select the period above to review.</div>
             <button class="btn btn-secondary btn-sm" @click="resetBatchCatchUp">Reset</button>
@@ -1290,11 +1057,26 @@
               {{ batchCatchUpApplying ? 'Adding…' : 'Add all (late add + notes to be paid + no note) to current period' }}
             </button>
           </div>
-          <div v-if="(batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
-            <strong>Late add + notes to be paid ({{ batchCatchUpSelectedCount }} of {{ batchCatchUpResult.carryoverRowsApplied }} selected)</strong>
-            <div class="hint muted" style="margin-top: 4px;">{{ batchCatchUpResult.twoRunMode ? 'Late add: new in Run 2. Notes to be paid: no note or draft unpaid in Run 1 → finalized or draft in Run 2.' : 'Late add: new in Run 3. Notes to be paid: no note or draft unpaid in Run 2 → finalized or draft in Run 3.' }} Check rows, edit units if needed, then click Add.</div>
-            <div v-if="!batchCatchUpResult.applied && (batchCatchUpResult.rowsForApply || []).length > 0" class="actions" style="margin-top: 10px;">
+
+          <!-- ── Section 1: Late Add & Notes to be Paid ── -->
+          <div v-if="(batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 16px; padding: 16px; border-left: 4px solid var(--primary, #2563eb);">
+            <div style="display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+              <h3 class="card-title" style="margin: 0; font-size: 1.05em;">
+                Section 1 — Late Add &amp; Notes to be Paid
+                <span class="muted" style="font-weight: 400; font-size: 0.88em; margin-left: 8px;">{{ batchCatchUpSelectedCount }} of {{ batchCatchUpResult.carryoverRowsApplied }} rows selected</span>
+              </h3>
+            </div>
+            <div class="hint muted" style="margin-bottom: 10px;">{{ batchCatchUpResult.twoRunMode ? 'Late add: new in Run 2. Notes to be paid: no note or draft unpaid in Run 1 → finalized or draft in Run 2.' : 'Late add: new in Run 3. Notes to be paid: no note or draft unpaid in Run 2 → finalized or draft in Run 3.' }} Check rows, edit units if needed, then click Add.</div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+              <input
+                v-model="batchCatchUpSearch"
+                type="text"
+                placeholder="Search provider, code, client, date…"
+                class="input"
+                style="max-width: 300px;"
+              />
               <button
+                v-if="!batchCatchUpResult.applied && (batchCatchUpResult.rowsForApply || []).length > 0"
                 class="btn btn-primary"
                 @click="applyBatchCatchUpToPeriod"
                 :disabled="batchCatchUpApplying || !batchCatchUpDestinationPeriodId || batchCatchUpSelectedCount === 0 || isBatchCatchUpDestPosted"
@@ -1302,21 +1084,12 @@
                 {{ batchCatchUpApplying ? 'Adding…' : 'Add selected to current period' }}
               </button>
             </div>
-            <div class="field-row" style="margin-bottom: 8px; grid-template-columns: 1fr auto; align-items: center; gap: 8px;">
-              <input
-                v-model="batchCatchUpSearch"
-                type="text"
-                placeholder="Search (user, code, client, date…)"
-                class="input"
-                style="max-width: 280px;"
-              />
-            </div>
-            <table class="table" style="margin-top: 8px; font-size: 0.9em;">
+            <table class="table" style="font-size: 0.9em;">
               <thead>
                 <tr>
                   <th style="width: 36px;"></th>
-                  <th class="th-sortable" @click="batchCatchUpSortBy('providerName')">User{{ batchCatchUpSortIndicator('providerName') }}</th>
-                  <th class="th-sortable" @click="batchCatchUpSortBy('serviceCode')">Service code{{ batchCatchUpSortIndicator('serviceCode') }}</th>
+                  <th class="th-sortable" @click="batchCatchUpSortBy('providerName')">Provider{{ batchCatchUpSortIndicator('providerName') }}</th>
+                  <th class="th-sortable" @click="batchCatchUpSortBy('serviceCode')">Service Code{{ batchCatchUpSortIndicator('serviceCode') }}</th>
                   <th class="th-sortable" @click="batchCatchUpSortBy('clientHint')">Client{{ batchCatchUpSortIndicator('clientHint') }}</th>
                   <th class="th-sortable" @click="batchCatchUpSortBy('serviceDate')">DOS{{ batchCatchUpSortIndicator('serviceDate') }}</th>
                   <th class="th-sortable" @click="batchCatchUpSortBy('carryoverType')">Type{{ batchCatchUpSortIndicator('carryoverType') }}</th>
@@ -1340,10 +1113,24 @@
               </tbody>
             </table>
           </div>
-          <div v-if="!batchCatchUpResult.applied && (batchCatchUpResult.superFlag || []).length > 0" class="card" style="margin-top: 10px; padding: 12px;">
-            <strong>No note ({{ batchCatchUpResult.superFlagCount }} rows)</strong>
-            <div class="hint muted" style="margin-top: 4px;">Add these to the current period so providers know what they're missing.</div>
-            <div class="actions" style="margin-top: 10px;">
+
+          <!-- ── Section 2: Persistent No-Notes ── -->
+          <div v-if="batchCatchUpResult.superFlagCount > 0" class="card" style="margin-top: 16px; padding: 16px; border-left: 4px solid #e53e3e;">
+            <div style="display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+              <h3 class="card-title" style="margin: 0; font-size: 1.05em; color: #c53030;">
+                Section 2 — Persistent No-Notes
+                <span class="muted" style="font-weight: 400; font-size: 0.88em; margin-left: 8px; color: var(--text-secondary);">{{ batchCatchUpResult.superFlagCount }} rows</span>
+              </h3>
+            </div>
+            <div class="hint muted" style="margin-bottom: 10px;">{{ batchCatchUpResult.twoRunMode ? 'No note in Run 1, still no note in Run 2.' : 'No note in Run 2, still no note in Run 3.' }} Add these to the current period so providers know what they're missing.</div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+              <input
+                v-model="superFlagSearch"
+                type="text"
+                placeholder="Search provider, code…"
+                class="input"
+                style="max-width: 300px;"
+              />
               <button
                 class="btn btn-primary"
                 @click="applyStillNoNoteToPeriod"
@@ -1352,34 +1139,13 @@
                 {{ batchCatchUpApplying ? 'Adding…' : 'Add no-note to current period' }}
               </button>
             </div>
-          </div>
-          <div
-            v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) + (batchCatchUpResult.h2014PendingCount || 0) + (batchCatchUpResult.h2032PendingCount || 0) > 0"
-            class="warn-box"
-            style="margin-top: 10px; padding: 12px;"
-          >
-            <strong>H0031/H0032/H2014 minutes:</strong>
-            {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031, {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032, {{ batchCatchUpResult.h2014PendingCount || 0 }} H2014, {{ batchCatchUpResult.h2032PendingCount || 0 }} H2032 rows need minutes updated.
-            Open <strong>Raw Import</strong> → <strong>Process H0031</strong> / <strong>Process H0032</strong> / <strong>Process H2014</strong> / <strong>Process H2032</strong> to edit. Unpaid rows are highlighted in amber.
-          </div>
-          <div v-if="batchCatchUpResult.superFlagCount > 0" class="warn-box" style="margin-top: 10px; padding: 12px;">
-            <strong>No note ({{ batchCatchUpResult.superFlagCount }}):</strong> {{ batchCatchUpResult.twoRunMode ? 'No note in Run 1, still no note in Run 2.' : 'No note in Run 2, still no note in Run 3.' }} Please address.
-            <div style="margin-top: 8px; margin-bottom: 6px;">
-              <input
-                v-model="superFlagSearch"
-                type="text"
-                placeholder="Search (user, code…)"
-                class="input"
-                style="max-width: 240px; font-size: 0.9em;"
-              />
-            </div>
-            <table class="table" style="margin-top: 4px; font-size: 0.9em;">
+            <table class="table" style="font-size: 0.9em;">
               <thead>
                 <tr>
-                  <th class="th-sortable" @click="superFlagSortBy('providerName')">User{{ superFlagSortIndicator('providerName') }}</th>
-                  <th class="th-sortable" @click="superFlagSortBy('serviceCode')">Service code{{ superFlagSortIndicator('serviceCode') }}</th>
-                  <th class="th-sortable right" @click="superFlagSortBy('run2')">{{ batchCatchUpResult.twoRunMode ? 'Run 1 no note' : 'Run 2 no note' }}{{ superFlagSortIndicator('run2') }}</th>
-                  <th class="th-sortable right" @click="superFlagSortBy('run3')">{{ batchCatchUpResult.twoRunMode ? 'Run 2 no note' : 'Run 3 no note' }}{{ superFlagSortIndicator('run3') }}</th>
+                  <th class="th-sortable" @click="superFlagSortBy('providerName')">Provider{{ superFlagSortIndicator('providerName') }}</th>
+                  <th class="th-sortable" @click="superFlagSortBy('serviceCode')">Service Code{{ superFlagSortIndicator('serviceCode') }}</th>
+                  <th class="th-sortable right" @click="superFlagSortBy('run2')">{{ batchCatchUpResult.twoRunMode ? 'Run 1 No Note' : 'Run 2 No Note' }}{{ superFlagSortIndicator('run2') }}</th>
+                  <th class="th-sortable right" @click="superFlagSortBy('run3')">{{ batchCatchUpResult.twoRunMode ? 'Run 2 No Note' : 'Run 3 No Note' }}{{ superFlagSortIndicator('run3') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1391,6 +1157,17 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+
+          <!-- ── H-code minutes warning ── -->
+          <div
+            v-if="(batchCatchUpResult.h0031PendingCount || 0) + (batchCatchUpResult.h0032PendingCount || 0) + (batchCatchUpResult.h2014PendingCount || 0) + (batchCatchUpResult.h2032PendingCount || 0) > 0"
+            class="warn-box"
+            style="margin-top: 10px; padding: 12px;"
+          >
+            <strong>H0031/H0032/H2014 minutes:</strong>
+            {{ batchCatchUpResult.h0031PendingCount || 0 }} H0031, {{ batchCatchUpResult.h0032PendingCount || 0 }} H0032, {{ batchCatchUpResult.h2014PendingCount || 0 }} H2014, {{ batchCatchUpResult.h2032PendingCount || 0 }} H2032 rows need minutes updated.
+            Open <strong>Raw Import</strong> → <strong>Process H0031</strong> / <strong>Process H0032</strong> / <strong>Process H2014</strong> / <strong>Process H2032</strong> to edit. Unpaid rows are highlighted in amber.
           </div>
         </div>
         <div v-if="isBatchCatchUpDestPosted" class="warn-box" style="margin-top: 10px;">
@@ -1434,14 +1211,14 @@
         </div>
 
       <!-- Manage Imports modal -->
-      <div v-if="showManageImportsModal" class="modal-backdrop" @click.self="showManageImportsModal = false">
+      <div v-if="showManageImportsModal" class="modal-backdrop" @click.self="confirmClose(() => { showManageImportsModal = false; })">
         <div class="modal" style="width: min(700px, 100%);">
           <div class="modal-header">
             <div>
               <div class="modal-title">View & Manage Imports</div>
               <div class="hint">View imports in order, delete wrong ones, or open Raw Import. <strong>To make Run 2 become Run 1:</strong> delete Run 1 — the remaining imports are renumbered automatically (no re-upload needed).</div>
             </div>
-            <button class="btn btn-secondary btn-sm" @click="showManageImportsModal = false">Close</button>
+            <button class="btn btn-secondary btn-sm" @click="confirmClose(() => { showManageImportsModal = false; })">Close</button>
           </div>
           <div class="field" style="margin-top: 10px;">
             <label>Pay period</label>
@@ -1738,12 +1515,6 @@
         </button>
         <button class="btn btn-secondary" @click="openManageImportsModal" :disabled="!selectedPeriodId">
           Manage Imports (delete/reorder)
-        </button>
-        <button class="btn btn-secondary" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">
-          No-note/Draft Unpaid
-        </button>
-        <button class="btn btn-secondary" @click="openPayrollToolsModal">
-          Payroll Tools (Checker)
         </button>
         <button class="btn btn-secondary" type="button" @click="openSubmitOnBehalfModal" :disabled="!agencyId">
           Submit on behalf
@@ -2364,7 +2135,7 @@
         </teleport>
 
         <!-- Payroll Stage modal -->
-        <div v-show="showStageModal" class="modal-backdrop" @click.self="showStageModal = false">
+        <div v-show="showStageModal" class="modal-backdrop" @click.self="confirmClose(() => { showStageModal = false; })">
           <div class="modal" style="width: min(95vw, 1800px); max-height: 95vh;">
             <div class="modal-header">
               <div>
@@ -2431,7 +2202,7 @@
                 >
                   Unpost
                 </button>
-                <button class="btn btn-secondary btn-sm" @click="showStageModal = false" style="margin-left: 8px;">Close</button>
+                <button class="btn btn-secondary btn-sm" @click="confirmClose(() => { showStageModal = false; })" style="margin-left: 8px;">Close</button>
               </div>
             </div>
 
@@ -2786,7 +2557,7 @@
                       <td>{{ nameForUserId(c.user_id) }}</td>
                       <td>{{ submittedAtYmd(c) }}</td>
                       <td>{{ submitterLabel(c) }}</td>
-                      <td>{{ c.claim_date }}</td>
+                      <td>{{ fmtClaimDate(c.claim_date) }}</td>
                       <td>{{ timeTypeLabel(c) }}</td>
                       <td class="right">{{ timeRequestedLabel(c) }}</td>
                       <td class="right">
@@ -2822,6 +2593,9 @@
                       </td>
                       <td class="right">
                         <div class="actions" style="justify-content: flex-end; margin: 0;">
+                          <button class="btn btn-secondary btn-sm" @click="openTimeClaimReview(c)" type="button">
+                            Review
+                          </button>
                           <button
                             class="btn btn-primary btn-sm"
                             @click="approveTimeClaim(c)"
@@ -3270,7 +3044,7 @@
                   <tbody>
                     <tr v-for="c in approvedTimeClaims" :key="c.id">
                       <td>{{ nameForUserId(c.user_id) }}</td>
-                      <td>{{ c.claim_date }}</td>
+                      <td>{{ fmtClaimDate(c.claim_date) }}</td>
                       <td>{{ timeTypeLabel(c) }}</td>
                       <td class="right">{{ String(c.bucket || 'indirect').toLowerCase() === 'direct' ? 'Direct' : 'Indirect' }}</td>
                       <td class="right">{{ fmtNum(timeClaimHours(c)) }}</td>
@@ -4003,8 +3777,12 @@
               </div>
             </div>
             <div class="field">
-              <label>PTO Hours</label>
-              <input v-model="adjustments.ptoHours" type="number" step="0.01" :disabled="isPeriodPosted" />
+              <label>Sick Leave Hours</label>
+              <input v-model="adjustments.sickPtoHours" type="number" step="0.01" :disabled="isPeriodPosted" />
+            </div>
+            <div class="field">
+              <label>Training PTO Hours</label>
+              <input v-model="adjustments.trainingPtoHours" type="number" step="0.01" :disabled="isPeriodPosted" />
             </div>
             <div class="field">
               <label>PTO Rate ($/hr)</label>
@@ -4118,7 +3896,7 @@
 
         <!-- View Ran Payroll modal -->
         <teleport to="body">
-          <div v-if="showRunModal" class="modal-backdrop" @click.self="showRunModal = false">
+          <div v-if="showRunModal" class="modal-backdrop" @click.self="confirmClose(() => { showRunModal = false; })">
             <div class="modal modal-payroll-results">
             <div class="modal-header">
               <div>
@@ -4132,7 +3910,7 @@
                 <button class="btn btn-secondary btn-sm" @click="nextRunProvider" :disabled="(summaries || []).length <= 1">
                   Next Provider
                 </button>
-                <button class="btn btn-secondary btn-sm" @click="showRunModal = false">Close</button>
+                <button class="btn btn-secondary btn-sm" @click="confirmClose(() => { showRunModal = false; })">Close</button>
               </div>
             </div>
 
@@ -4289,8 +4067,12 @@
                     </div>
                   </div>
                   <div class="field">
-                    <label>PTO Hours</label>
-                    <input v-model="adjustments.ptoHours" type="number" step="0.01" :disabled="isPeriodPosted" />
+                    <label>Sick Leave Hours</label>
+                    <input v-model="adjustments.sickPtoHours" type="number" step="0.01" :disabled="isPeriodPosted" />
+                  </div>
+                  <div class="field">
+                    <label>Training PTO Hours</label>
+                    <input v-model="adjustments.trainingPtoHours" type="number" step="0.01" :disabled="isPeriodPosted" />
                   </div>
                   <div class="field">
                     <label>PTO Rate ($/hr)</label>
@@ -4310,7 +4092,7 @@
 
         <!-- Preview Post modal -->
         <teleport to="body">
-          <div v-if="showPreviewPostModal" class="modal-backdrop" @click.self="showPreviewPostModal = false">
+          <div v-if="showPreviewPostModal" class="modal-backdrop" @click.self="confirmClose(() => { showPreviewPostModal = false; })">
             <div class="modal modal-payroll-results">
             <div class="modal-header">
               <div>
@@ -4324,7 +4106,7 @@
                 <button class="btn btn-secondary btn-sm" @click="nextPreviewProvider" :disabled="(summaries || []).length <= 1">
                   Next Provider
                 </button>
-                <button class="btn btn-secondary btn-sm" @click="showPreviewPostModal = false">Close</button>
+                <button class="btn btn-secondary btn-sm" @click="confirmClose(() => { showPreviewPostModal = false; })">Close</button>
               </div>
             </div>
 
@@ -4463,7 +4245,18 @@
                   <div class="right">Rate</div>
                   <div class="right">Amount</div>
                 </div>
-                <div v-for="l in previewSummaryServiceLines" :key="l.code" class="code-row">
+                <div
+                  v-for="l in previewSummaryServiceLines"
+                  :key="l.code"
+                  class="code-row"
+                  :style="
+                    (String(l.code).includes('(Old Note)') || String(l.code).includes('(Late Addition)') || String(l.code).includes('(Code Changed)'))
+                      ? { background: '#fffbe6', borderLeft: '3px solid #f0b429', paddingLeft: '9px' }
+                      : (Number(l.noNoteUnits ?? 0) > 0)
+                        ? { background: '#fff0f0', borderLeft: '3px solid #e53e3e', paddingLeft: '9px' }
+                        : {}
+                  "
+                >
                   <div class="code">{{ l.code }}</div>
                   <div class="right muted">{{ fmtNum(l.noNoteUnits ?? 0) }}</div>
                   <div class="right muted">{{ fmtNum(l.draftUnits ?? 0) }}</div>
@@ -4517,7 +4310,7 @@
 
         <!-- Raw import modal -->
         <teleport to="body">
-          <div v-if="showRawModal" class="modal-backdrop" @click.self="showRawModal = false">
+          <div v-if="showRawModal" class="modal-backdrop" @click.self="confirmClose(closeRawModal)">
             <div class="modal">
             <div class="modal-header">
               <div>
@@ -4567,7 +4360,15 @@
                 <button class="btn btn-secondary btn-sm" @click="downloadRawCsv" :disabled="!selectedPeriodId">
                   Download CSV
                 </button>
-                <button class="btn btn-secondary btn-sm" @click="showRawModal = false">Close</button>
+                <button
+                  v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || []).length >= 2"
+                  class="btn btn-primary btn-sm"
+                  @click="viewAddToCurrentPeriod"
+                  title="Close this modal and scroll to the Add to Current Period results"
+                >
+                  View Add to Current Period
+                </button>
+                <button class="btn btn-secondary btn-sm" @click="confirmClose(closeRawModal)">Close</button>
               </div>
             </div>
             <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr; margin-top: 10px;">
@@ -4916,7 +4717,7 @@
 
         <!-- Runs Side-by-Side (Audit) modal -->
         <teleport to="body">
-          <div v-if="showRunsSideBySideModal" class="modal-backdrop" @click.self="showRunsSideBySideModal = false">
+          <div v-if="showRunsSideBySideModal" class="modal-backdrop" @click.self="confirmClose(() => { showRunsSideBySideModal = false; })">
             <div class="modal" style="width: min(95vw, 1200px); max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;">
               <div class="modal-header">
                 <div>
@@ -4925,7 +4726,7 @@
                     Clinician, service, date, client, units, and status for Run 1, Run 2, Run 3. Rows that appear only in Run 2 or Run 3 show as late adds.
                   </div>
                 </div>
-                <button class="btn btn-secondary btn-sm" @click="showRunsSideBySideModal = false">Close</button>
+                <button class="btn btn-secondary btn-sm" @click="confirmClose(() => { showRunsSideBySideModal = false; })">Close</button>
               </div>
               <div v-if="runsSideBySideLoading" class="hint" style="padding: 20px;">Loading…</div>
               <div v-else-if="runsSideBySideData?.rows?.length" class="table-wrap" style="flex: 1; overflow: auto; padding: 0 16px 16px;">
@@ -4992,7 +4793,7 @@
 
         <!-- No-note/Draft Unpaid carryover modal -->
         <teleport to="body">
-          <div v-if="showCarryoverModal" class="modal-backdrop" @click.self="showCarryoverModal = false">
+          <div v-if="showCarryoverModal" class="modal-backdrop" @click.self="confirmClose(() => { showCarryoverModal = false; })">
             <div class="modal">
             <div class="modal-header">
               <div>
@@ -5001,7 +4802,7 @@
                   Select the prior pay period and compare two “Run Payroll” snapshots. If No-note/Draft unpaid drops, those units are treated as “Old Done Notes” to add into the current pay period.
                 </div>
               </div>
-              <button class="btn btn-secondary btn-sm" @click="showCarryoverModal = false">Close</button>
+              <button class="btn btn-secondary btn-sm" @click="confirmClose(() => { showCarryoverModal = false; })">Close</button>
             </div>
 
             <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr;">
@@ -5621,6 +5422,118 @@
     </div>
 
     <!-- Rate Sheet Import removed (no longer needed) -->
+
+    <!-- Time Claim Review Modal -->
+    <teleport to="body">
+      <div v-if="showTimeClaimReviewModal" class="modal-backdrop" @click.self="showTimeClaimReviewModal = false">
+        <div class="modal" style="max-width: 600px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Time Claim Details</div>
+              <div class="hint" v-if="reviewedTimeClaim">
+                {{ nameForUserId(reviewedTimeClaim.user_id) }} — {{ timeTypeLabel(reviewedTimeClaim) }} — {{ fmtClaimDate(reviewedTimeClaim.claim_date) }}
+              </div>
+            </div>
+            <button class="btn btn-secondary btn-sm" @click="showTimeClaimReviewModal = false">Close</button>
+          </div>
+          <div v-if="reviewedTimeClaim" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+
+            <!-- service_correction -->
+            <template v-if="reviewedTimeClaim.claim_type === 'service_correction'">
+              <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Client Initials</label><div>{{ reviewedTimeClaim.payload?.clientInitials || '—' }}</div></div>
+                <div class="field"><label>Duration</label><div>{{ reviewedTimeClaim.payload?.duration || '—' }}</div></div>
+              </div>
+              <div class="field"><label>Original Service</label><div>{{ reviewedTimeClaim.payload?.originalService || '—' }}</div></div>
+              <div class="field"><label>Corrected Service</label><div>{{ reviewedTimeClaim.payload?.correctedService || '—' }}</div></div>
+              <div class="field"><label>Reason</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.reason || '—' }}</div></div>
+            </template>
+
+            <!-- overtime_evaluation -->
+            <template v-else-if="reviewedTimeClaim.claim_type === 'overtime_evaluation'">
+              <div class="field"><label>Dates &amp; Hours</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.datesAndHours || '—' }}</div></div>
+              <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Estimated Workweek Hours</label><div>{{ reviewedTimeClaim.payload?.estimatedWorkweekHours ?? '—' }}</div></div>
+                <div class="field"><label>Approved By</label><div>{{ reviewedTimeClaim.payload?.approvedBy || '—' }}</div></div>
+              </div>
+              <div class="field"><label>Notes for Payroll</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.notesForPayroll || '—' }}</div></div>
+              <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Worked Over 12h?</label><div>{{ reviewedTimeClaim.payload?.workedOver12Hours ? 'Yes' : 'No' }}</div></div>
+                <div class="field"><label>Overtime Approved?</label><div>{{ reviewedTimeClaim.payload?.overtimeApproved ? 'Yes' : 'No' }}</div></div>
+              </div>
+            </template>
+
+            <!-- meeting_training / mentor_cpa_meeting -->
+            <template v-else-if="reviewedTimeClaim.claim_type === 'meeting_training' || reviewedTimeClaim.claim_type === 'mentor_cpa_meeting'">
+              <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Total Minutes</label><div>{{ reviewedTimeClaim.payload?.totalMinutes ?? '—' }}</div></div>
+                <div class="field"><label>Meeting Date</label><div>{{ reviewedTimeClaim.payload?.meetingDate || '—' }}</div></div>
+              </div>
+              <div class="field" v-if="reviewedTimeClaim.payload?.googleMeetLink">
+                <label>Google Meet Link</label>
+                <div><a :href="reviewedTimeClaim.payload.googleMeetLink" target="_blank" rel="noopener noreferrer">{{ reviewedTimeClaim.payload.googleMeetLink }}</a></div>
+              </div>
+              <div class="field" v-if="reviewedTimeClaim.payload?.description">
+                <label>Description</label>
+                <div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload.description }}</div>
+              </div>
+            </template>
+
+            <!-- excess_holiday -->
+            <template v-else-if="reviewedTimeClaim.claim_type === 'excess_holiday'">
+              <div v-if="(reviewedTimeClaim.payload?.items || []).length">
+                <label style="font-weight: 600; font-size: 0.85em; color: #888; text-transform: uppercase; letter-spacing: 0.05em;">Time Items</label>
+                <div v-for="(it, idx) in reviewedTimeClaim.payload.items" :key="idx" style="margin-top: 6px; padding: 8px; background: #f8f9fa; border-radius: 6px; font-size: 0.92em;">
+                  <span v-if="it.directMinutes">Direct: {{ it.directMinutes }} min</span>
+                  <span v-if="it.directMinutes && it.indirectMinutes"> · </span>
+                  <span v-if="it.indirectMinutes">Indirect: {{ it.indirectMinutes }} min</span>
+                  <span v-if="it.description"> — {{ it.description }}</span>
+                </div>
+              </div>
+              <div v-else class="field-row" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Direct Minutes</label><div>{{ reviewedTimeClaim.payload?.directMinutes ?? '—' }}</div></div>
+                <div class="field"><label>Indirect Minutes</label><div>{{ reviewedTimeClaim.payload?.indirectMinutes ?? '—' }}</div></div>
+              </div>
+            </template>
+
+            <!-- holiday_pay -->
+            <template v-else-if="reviewedTimeClaim.claim_type === 'holiday_pay'">
+              <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+                <div class="field"><label>Holiday Date</label><div>{{ fmtClaimDate(reviewedTimeClaim.payload?.holidayDate) }}</div></div>
+                <div class="field"><label>Hours Worked</label><div>{{ reviewedTimeClaim.payload?.hoursWorked ?? '—' }}</div></div>
+              </div>
+            </template>
+
+            <!-- jury_duty -->
+            <template v-else-if="reviewedTimeClaim.claim_type === 'jury_duty'">
+              <div class="field"><label>Court Date</label><div>{{ fmtClaimDate(reviewedTimeClaim.payload?.courtDate) }}</div></div>
+              <div class="field"><label>Description</label><div style="white-space: pre-wrap;">{{ reviewedTimeClaim.payload?.description || '—' }}</div></div>
+              <div class="field" v-if="reviewedTimeClaim.payload?.proofFilePath">
+                <label>Court Summons</label>
+                <div><a :href="receiptUrl({ receipt_file_path: reviewedTimeClaim.payload.proofFilePath })" target="_blank" rel="noopener noreferrer">View Uploaded Summons</a></div>
+              </div>
+            </template>
+
+            <!-- fallback: show raw payload -->
+            <template v-else>
+              <div class="field" v-for="(val, key) in reviewedTimeClaim.payload" :key="key">
+                <label>{{ key }}</label>
+                <div style="white-space: pre-wrap;">{{ val }}</div>
+              </div>
+            </template>
+
+            <!-- Submitted by & notes -->
+            <div class="field-row" style="grid-template-columns: 1fr 1fr; border-top: 1px solid #eee; padding-top: 12px; margin-top: 4px;">
+              <div class="field"><label>Submitted by</label><div>{{ submitterLabel(reviewedTimeClaim) }}</div></div>
+              <div class="field"><label>Submitted on</label><div>{{ submittedAtYmd(reviewedTimeClaim) }}</div></div>
+            </div>
+          </div>
+          <div style="padding: 12px 16px; border-top: 1px solid #eee; display: flex; justify-content: flex-end;">
+            <button class="btn btn-secondary" @click="showTimeClaimReviewModal = false">Close</button>
+          </div>
+        </div>
+      </div>
+    </teleport>
     </div>
     </div>
   </div>
@@ -5771,21 +5684,12 @@ const runsSideBySideSearch = ref('');
 const runsSideBySideSortColumn = ref('provider_name');
 const runsSideBySideSortDirection = ref('asc');
 const showRunModal = ref(false);
-const showPayrollToolsModal = ref(false);
 const showSubmitOnBehalfModal = ref(false);
 const showTodoModal = ref(false);
 const showHolidayHoursModal = ref(false);
 const showSupervisionAttendanceModal = ref(false);
 const showSupervisionConflictsModal = ref(false);
 const showPayrollWizardModal = ref(false);
-const payrollToolsTab = ref('compare'); // compare | viewer
-const payrollToolsLoading = ref(false);
-const payrollToolsError = ref('');
-const toolsFile1 = ref(null);
-const toolsFile2 = ref(null);
-const toolsViewerFile = ref(null);
-const payrollToolsCompareResult = ref(null);
-const payrollToolsViewerResult = ref(null);
 
 const holidayHoursLoading = ref(false);
 const holidayHoursError = ref('');
@@ -5808,10 +5712,6 @@ const meetingAttendanceStartDate = ref('');
 const meetingAttendanceEndDate = ref('');
 const meetingAttendanceSyncing = ref(false);
 
-// Compare controls
-const payrollToolsCompareMode = ref('detail'); // detail | summary
-const payrollToolsCompareFilter = ref('changed'); // all | changed | added | removed
-const payrollToolsCompareSort = ref('human'); // human | change | code | date
 
 const submitOnBehalfSearch = ref('');
 const submitOnBehalfUserId = ref(null);
@@ -5909,183 +5809,7 @@ const submitOnBehalfUser = computed(() => {
   return (agencyUsers.value || []).find((x) => Number(x?.id) === id) || null;
 });
 
-const payrollToolsCompareAllRows = computed(() => {
-  const r = payrollToolsCompareResult.value;
-  const rows = Array.isArray(r?.changes) ? r.changes : [];
-  return rows.filter((x) => x && x.changeType);
-});
 
-const payrollToolsCompareFilteredRows = computed(() => {
-  const rows = payrollToolsCompareAllRows.value || [];
-  switch (String(payrollToolsCompareFilter.value || 'changed')) {
-    case 'all':
-      return rows;
-    case 'added':
-      return rows.filter((r) => r.changeType === 'added');
-    case 'removed':
-      return rows.filter((r) => r.changeType === 'removed');
-    case 'changed':
-    default:
-      return rows.filter((r) => r.changeType === 'changed');
-  }
-});
-
-const toolsProviderKey = (row) => {
-  const x = row?.after || row?.before || null;
-  return String(x?.providerName || '').trim().toLowerCase();
-};
-const toolsCodeKey = (row) => {
-  const x = row?.after || row?.before || null;
-  return String(x?.serviceCode || '').trim().toUpperCase();
-};
-const toolsDateKey = (row) => {
-  const x = row?.after || row?.before || null;
-  return String(x?.ymd || '').trim(); // YYYY-MM-DD
-};
-const toolsChangeKey = (row) => {
-  const t = String(row?.changeType || '');
-  // Sort order: changed > added > removed (most relevant first)
-  if (t === 'changed') return 0;
-  if (t === 'added') return 1;
-  if (t === 'removed') return 2;
-  return 9;
-};
-
-const payrollToolsCompareRows = computed(() => {
-  const rows = (payrollToolsCompareFilteredRows.value || []).slice();
-  const sortKey = String(payrollToolsCompareSort.value || 'human');
-  rows.sort((a, b) => {
-    if (sortKey === 'change') {
-      const d = toolsChangeKey(a) - toolsChangeKey(b);
-      if (d) return d;
-    }
-    if (sortKey === 'code') {
-      const d = toolsCodeKey(a).localeCompare(toolsCodeKey(b));
-      if (d) return d;
-    }
-    if (sortKey === 'date') {
-      const d = toolsDateKey(b).localeCompare(toolsDateKey(a)); // desc
-      if (d) return d;
-    }
-    // default/human
-    const d = toolsProviderKey(a).localeCompare(toolsProviderKey(b));
-    if (d) return d;
-    const c = toolsCodeKey(a).localeCompare(toolsCodeKey(b));
-    if (c) return c;
-    return toolsDateKey(b).localeCompare(toolsDateKey(a));
-  });
-  // Keep UI responsive.
-  return rows.slice(0, 2500);
-});
-
-const payrollToolsSummaryRows = computed(() => {
-  // Summarize ONLY over the filtered set (so you can summarize "changed only", etc.)
-  const rows = payrollToolsCompareFilteredRows.value || [];
-  const by = new Map(); // `${provider}|${code}` -> agg
-  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
-  for (const r of rows) {
-    const x = r?.after || r?.before || null;
-    if (!x) continue;
-    const providerName = String(x.providerName || '').trim() || '—';
-    const serviceCode = String(x.serviceCode || '').trim() || '—';
-    const k = `${providerName.toLowerCase()}|${serviceCode.toUpperCase()}`;
-    if (!by.has(k)) {
-      by.set(k, {
-        providerName,
-        serviceCode,
-        doc1: { NO_NOTE: 0, DRAFT: 0, FINALIZED: 0 },
-        doc2: { NO_NOTE: 0, DRAFT: 0, FINALIZED: 0 }
-      });
-    }
-    const agg = by.get(k);
-    const b = r.before?.unitsByStatus || {};
-    const a = r.after?.unitsByStatus || {};
-    agg.doc1.NO_NOTE += num(b.NO_NOTE);
-    agg.doc1.DRAFT += num(b.DRAFT);
-    agg.doc1.FINALIZED += num(b.FINALIZED);
-    agg.doc2.NO_NOTE += num(a.NO_NOTE);
-    agg.doc2.DRAFT += num(a.DRAFT);
-    agg.doc2.FINALIZED += num(a.FINALIZED);
-  }
-  const out = Array.from(by.values()).map((x) => {
-    const dNo = Number((x.doc2.NO_NOTE - x.doc1.NO_NOTE).toFixed(2));
-    const dDr = Number((x.doc2.DRAFT - x.doc1.DRAFT).toFixed(2));
-    const dFi = Number((x.doc2.FINALIZED - x.doc1.FINALIZED).toFixed(2));
-    const narrativeParts = [];
-    if (Math.abs(dNo) > 1e-9) narrativeParts.push(`NO_NOTE ${dNo > 0 ? '+' : ''}${dNo}`);
-    if (Math.abs(dDr) > 1e-9) narrativeParts.push(`DRAFT ${dDr > 0 ? '+' : ''}${dDr}`);
-    if (Math.abs(dFi) > 1e-9) narrativeParts.push(`FINAL ${dFi > 0 ? '+' : ''}${dFi}`);
-    const narrative = narrativeParts.length ? narrativeParts.join(', ') : 'no net change';
-    return { ...x, delta: { NO_NOTE: dNo, DRAFT: dDr, FINALIZED: dFi }, narrative };
-  });
-  const sortKey = String(payrollToolsCompareSort.value || 'human');
-  out.sort((a, b) => {
-    if (sortKey === 'code') return String(a.serviceCode).localeCompare(String(b.serviceCode));
-    if (sortKey === 'human') return String(a.providerName).localeCompare(String(b.providerName), undefined, { sensitivity: 'base' }) || String(a.serviceCode).localeCompare(String(b.serviceCode));
-    // For change sorting in summary, sort by absolute finalized delta desc.
-    if (sortKey === 'change') return Math.abs(Number(b.delta.FINALIZED || 0)) - Math.abs(Number(a.delta.FINALIZED || 0));
-    return String(a.providerName).localeCompare(String(b.providerName), undefined, { sensitivity: 'base' }) || String(a.serviceCode).localeCompare(String(b.serviceCode));
-  });
-  return out.slice(0, 5000);
-});
-
-const openPayrollToolsModal = () => {
-  payrollToolsTab.value = 'compare';
-  payrollToolsLoading.value = false;
-  payrollToolsError.value = '';
-  toolsFile1.value = null;
-  toolsFile2.value = null;
-  toolsViewerFile.value = null;
-  payrollToolsCompareResult.value = null;
-  payrollToolsViewerResult.value = null;
-  payrollToolsCompareMode.value = 'detail';
-  payrollToolsCompareFilter.value = 'changed';
-  payrollToolsCompareSort.value = 'human';
-  showPayrollToolsModal.value = true;
-};
-
-const onToolsFile1 = (e) => { toolsFile1.value = e?.target?.files?.[0] || null; };
-const onToolsFile2 = (e) => { toolsFile2.value = e?.target?.files?.[0] || null; };
-const onToolsViewerFile = (e) => { toolsViewerFile.value = e?.target?.files?.[0] || null; };
-
-const runPayrollToolsCompare = async () => {
-  if (!agencyId.value || !toolsFile1.value || !toolsFile2.value) return;
-  try {
-    payrollToolsLoading.value = true;
-    payrollToolsError.value = '';
-    payrollToolsCompareResult.value = null;
-    payrollToolsViewerResult.value = null;
-    const fd = new FormData();
-    fd.append('agencyId', String(agencyId.value));
-    fd.append('file1', toolsFile1.value);
-    fd.append('file2', toolsFile2.value);
-    const resp = await api.post('/payroll/tools/payroll/compare', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-    payrollToolsCompareResult.value = resp.data || null;
-  } catch (e) {
-    payrollToolsError.value = e.response?.data?.error?.message || e.message || 'Failed to compare files';
-  } finally {
-    payrollToolsLoading.value = false;
-  }
-};
-
-const runPayrollToolsViewer = async () => {
-  if (!agencyId.value || !toolsViewerFile.value) return;
-  try {
-    payrollToolsLoading.value = true;
-    payrollToolsError.value = '';
-    payrollToolsViewerResult.value = null;
-    payrollToolsCompareResult.value = null;
-    const fd = new FormData();
-    fd.append('agencyId', String(agencyId.value));
-    fd.append('file', toolsViewerFile.value);
-    const resp = await api.post('/payroll/tools/payroll/viewer', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-    payrollToolsViewerResult.value = resp.data || null;
-  } catch (e) {
-    payrollToolsError.value = e.response?.data?.error?.message || e.message || 'Failed to open viewer';
-  } finally {
-    payrollToolsLoading.value = false;
-  }
-};
 
 const showPreviewPostModal = ref(false);
 const previewPostNotificationsLoading = ref(false);
@@ -6146,6 +5870,9 @@ const rawAuditLatestRunId = ref(null);
 const rawAuditSelectedImportId = ref(null);
 const rawAuditBaselineImportId = ref(null);
 const rawAuditLatestImportId = ref(null);
+// Tracks the period being viewed in the raw modal independently of selectedPeriodId,
+// so opening a prior-period import never switches the main pay period.
+const rawModalActivePeriodId = ref(null);
 const rawAuditChanges = ref([]);
 const rawAuditShowAllChanges = ref(false);
 const rawAuditLoading = ref(false);
@@ -6204,6 +5931,13 @@ const pendingTimeClaims = ref([]);
 const pendingTimeLoading = ref(false);
 const pendingTimeError = ref('');
 const approvingTimeClaimId = ref(null);
+
+const showTimeClaimReviewModal = ref(false);
+const reviewedTimeClaim = ref(null);
+const openTimeClaimReview = (c) => {
+  reviewedTimeClaim.value = c;
+  showTimeClaimReviewModal.value = true;
+};
 const timeTargetPeriodByClaimId = ref({});
 const pendingTimeMode = ref('period'); // 'period' | 'all'
 
@@ -6411,6 +6145,8 @@ const adjustments = ref({
   salaryPerPayPeriod: 0,
   salaryIncludeServicePay: 0,
   salaryIsProrated: 0,
+  sickPtoHours: 0,
+  trainingPtoHours: 0,
   ptoHours: 0,
   ptoRate: 0
 });
@@ -7493,6 +7229,7 @@ const timeTypeLabel = (c) => {
   if (t === 'service_correction') return 'Service correction';
   if (t === 'overtime_evaluation') return 'Overtime eval';
   if (t === 'holiday_pay') return 'Holiday pay';
+  if (t === 'jury_duty') return 'Jury Duty';
   return t ? t.replace(/_/g, ' ') : 'Time';
 };
 
@@ -7515,6 +7252,20 @@ const timeClaimMinutes = (c) => {
   const combined = direct + indirect;
   const hrs = Number(payload?.hoursWorked || 0);
   if (Number.isFinite(hrs) && hrs > 0) return Math.round(hrs * 60);
+  // overtime_evaluation: sum hours from daysHours object (e.g. { mon: 2, tue: 3.5, ... })
+  const daysHours = payload?.daysHours;
+  if (daysHours && typeof daysHours === 'object') {
+    const dayVals = Object.values(daysHours).map((v) => Number(v || 0)).filter((v) => v > 0);
+    const daysTotal = dayVals.reduce((s, v) => s + v, 0);
+    if (daysTotal > 0) return Math.round(daysTotal * 60);
+  }
+  // overtime_evaluation: sum hours from datesAndHours string (e.g. "4/7 (Mon): 2, 4/8 (Tue): 3.5, ...")
+  const dah = String(payload?.datesAndHours || '');
+  if (dah) {
+    const matches = [...dah.matchAll(/\((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\):\s*([\d.]+)/gi)];
+    const totalHrs = matches.reduce((s, m) => s + Number(m[1] || 0), 0);
+    if (totalHrs > 0) return Math.round(totalHrs * 60);
+  }
   return (Number.isFinite(combined) && combined > 0) ? combined : 0;
 };
 
@@ -9224,6 +8975,13 @@ const nameForUserId = (uid) => {
 };
 
 const submittedAtYmd = (row) => String(row?.created_at || '').slice(0, 10) || '—';
+
+const fmtClaimDate = (d) => {
+  if (!d) return '';
+  const ymd = String(d).slice(0, 10);
+  const dt = new Date(ymd + 'T12:00:00');
+  return Number.isNaN(dt.getTime()) ? ymd : dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
 const submitterLabel = (row) => {
   const submittedById = row?.submitted_by_user_id === null || row?.submitted_by_user_id === undefined ? null : Number(row.submitted_by_user_id);
   const fn = String(row?.submitted_by_first_name || '').trim();
@@ -9671,8 +9429,8 @@ const splitBreakdownForDisplay = (breakdown) => {
     const carryAmountSum = Number((oldNoteAmount + codeChangedAmount + lateAdditionAmount).toFixed(2));
     const baseAmount = Math.max(0, Number((totalAmount - carryAmountSum).toFixed(2)));
 
-    // Base row
-    if (baseUnits > 1e-9 && baseAmount > 1e-9) {
+    // Base row — always show codes with units, even when amount is $0 (e.g. no-pay benefit codes).
+    if (baseUnits > 1e-9) {
       out.push({
         code,
         ...v,
@@ -10563,10 +10321,11 @@ const rawAuditImportOptionLabel = (imp) => {
 };
 
 const loadRawAuditData = async ({ runId = null, baselineRunId = null, importId = null, baselineImportId = null } = {}) => {
-  if (!selectedPeriodId.value) return;
+  const activePeriodId = rawModalActivePeriodId.value ?? selectedPeriodId.value;
+  if (!activePeriodId) return;
   try {
     rawAuditLoading.value = true;
-    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/raw-audit`, {
+    const resp = await api.get(`/payroll/periods/${activePeriodId}/raw-audit`, {
       params: {
         runId: runId || rawAuditSelectedRunId.value || undefined,
         baselineRunId: baselineRunId || rawAuditBaselineRunId.value || undefined,
@@ -10715,6 +10474,8 @@ const loadPeriodDetails = async () => {
 const openRawModal = async () => {
   if (!selectedPeriodId.value) return;
   error.value = '';
+  // Clear any prior-period override so we use selectedPeriodId for the current-period view.
+  rawModalActivePeriodId.value = null;
   // Open immediately so a failed refresh doesn't feel like a dead click.
   showRawModal.value = true;
   await loadRawAuditData();
@@ -12061,6 +11822,8 @@ const loadAdjustments = async () => {
       salaryPerPayPeriod: Number(a.salary_per_pay_period || 0),
       salaryIncludeServicePay: Number(a.salary_include_service_pay || 0),
       salaryIsProrated: Number(a.salary_is_prorated || 0),
+      sickPtoHours: Number(a.sick_pto_hours || 0),
+      trainingPtoHours: Number(a.training_pto_hours || 0),
       ptoHours: Number(a.pto_hours || 0),
       ptoRate: Number(a.pto_rate || 0)
     };
@@ -12091,6 +11854,8 @@ const saveAdjustments = async () => {
       otherRate2Hours: Number(adjustments.value.otherRate2Hours || 0),
       otherRate3Hours: Number(adjustments.value.otherRate3Hours || 0),
       salaryAmount: Number(adjustments.value.salaryAmount || 0),
+      sickPtoHours: Number(adjustments.value.sickPtoHours || 0),
+      trainingPtoHours: Number(adjustments.value.trainingPtoHours || 0),
       ptoHours: Number(adjustments.value.ptoHours || 0),
       ptoRate: Number(adjustments.value.ptoRate || 0)
     });
@@ -12586,8 +12351,28 @@ const loadBatchCatchUpPriorImports = async () => {
   }
 };
 
+// Ask "are you sure?" before closing any payroll modal to prevent accidental data loss.
+const confirmClose = (fn) => {
+  if (window.confirm("Are you sure you're done? Any unsaved changes will be lost.")) fn();
+};
+
+const closeRawModal = () => {
+  showRawModal.value = false;
+  rawModalActivePeriodId.value = null;
+};
+
+const viewAddToCurrentPeriod = async () => {
+  // Close the raw modal without the "are you sure" prompt — user is just navigating
+  showRawModal.value = false;
+  rawModalActivePeriodId.value = null;
+  await nextTick();
+  batchCatchUpResultsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
 const openRawModalForPeriodAndImport = async (periodId, importId) => {
-  await selectPeriod(periodId);
+  // Set the modal's own active period WITHOUT touching selectedPeriodId so the
+  // main pay-period selection stays unchanged.
+  rawModalActivePeriodId.value = periodId;
   rawAuditSelectedImportId.value = importId;
   // Default baseline to previous import so we see Run 3 vs Run 2 (or Run 2 vs Run 1) changes
   let baselineImportId = importId;
@@ -12715,6 +12500,15 @@ const uploadRun2Only = async () => {
     batchCatchUpError.value = '';
     await loadBatchCatchUpPriorImports();
     await loadPeriods();
+    // Auto-open the raw import viewer (Run 2 vs Run 1) so the user can review immediately.
+    const freshImports = batchCatchUpPriorPeriodImports.value || [];
+    if (freshImports.length >= 2) {
+      const run2 = freshImports[freshImports.length - 1];
+      const run1 = freshImports[freshImports.length - 2];
+      if (run2?.id && run1?.id) {
+        await openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId.value, run2.id);
+      }
+    }
   } catch (e) {
     batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Upload failed';
   } finally {
@@ -12734,10 +12528,19 @@ const uploadRun3Only = async () => {
     fd.append('priorPeriodId', String(batchCatchUpPriorPeriodId.value));
     fd.append('useDbBaseline', 'true');
     fd.append('persistOnly', 'true');
-    const resp = await api.post('/payroll/periods/batch-catch-up', fd);
+    await api.post('/payroll/periods/batch-catch-up', fd);
     batchCatchUpError.value = '';
     await loadBatchCatchUpPriorImports();
     await loadPeriods();
+    // Auto-open the raw import viewer (Run 3 vs Run 2) so the user can review immediately.
+    const freshImports = batchCatchUpPriorPeriodImports.value || [];
+    if (freshImports.length >= 2) {
+      const latestRun = freshImports[freshImports.length - 1];
+      const prevRun = freshImports[freshImports.length - 2];
+      if (latestRun?.id && prevRun?.id) {
+        await openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId.value, latestRun.id);
+      }
+    }
   } catch (e) {
     batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Upload failed';
   } finally {
@@ -12775,6 +12578,15 @@ const runBatchCatchUpDbBaseline = async () => {
     }
     await loadPeriods();
     await loadBatchCatchUpPriorImports();
+    // Auto-open the raw import viewer so the user can review the diff immediately.
+    const freshImports = batchCatchUpPriorPeriodImports.value || [];
+    if (freshImports.length >= 2 && batchCatchUpPriorPeriodId.value) {
+      const latestRun = freshImports[freshImports.length - 1];
+      const prevRun = freshImports[freshImports.length - 2];
+      if (latestRun?.id && prevRun?.id) {
+        await openRawModalForPeriodAndImport(batchCatchUpPriorPeriodId.value, latestRun.id);
+      }
+    }
   } catch (e) {
     batchCatchUpError.value = e.response?.data?.error?.message || e.message || 'Batch catch-up failed';
   } finally {
@@ -12821,6 +12633,7 @@ const runBatchCatchUp = async () => {
 };
 
 const batchCatchUpSearch = ref('');
+const batchCatchUpResultsRef = ref(null);
 const batchCatchUpSortColumn = ref('providerName');
 const batchCatchUpSortDirection = ref('asc');
 

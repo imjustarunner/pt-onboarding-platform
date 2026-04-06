@@ -270,7 +270,7 @@ router.post('/users/:userId/company-card-expenses', ...createUserCompanyCardExpe
 router.get('/me/company-card-expenses', listMyCompanyCardExpenses);
 router.put('/me/company-card-expenses/:id', ...updateMyCompanyCardExpense);
 router.delete('/me/company-card-expenses/:id', deleteMyCompanyCardExpense);
-router.post('/me/time-claims', createMyTimeClaim);
+router.post('/me/time-claims', ...createMyTimeClaim);
 router.post('/users/:userId/time-claims', createUserTimeClaim);
 router.get('/me/time-claims', listMyTimeClaims);
 router.delete('/me/time-claims/:id', deleteMyTimeClaim);

@@ -7414,6 +7414,7 @@ export const createPayrollTodoTemplate = async (req, res, next) => {
       // Store NULL (and the model will fall back to 0 only if the schema forces NOT NULL).
       targetUserId: scope === 'provider' ? targetUserId : null,
       startPayrollPeriodId,
+      isActive,
       createdByUserId: requesterId,
       updatedByUserId: requesterId
     });
@@ -11579,11 +11580,59 @@ export const previewPostPayrollPeriod = async (req, res, next) => {
       providerUserId: userId
     });
 
+    // Check for current-period no-notes and build a human-friendly notification.
+    let currentNoNoteNotification = null;
+    if (userId) {
+      const [summaryRows] = await pool.execute(
+        'SELECT no_note_units, breakdown FROM payroll_summaries WHERE payroll_period_id = ? AND user_id = ? LIMIT 1',
+        [payrollPeriodId, userId]
+      );
+      if (summaryRows.length > 0) {
+        const noNoteUnits = Number(summaryRows[0].no_note_units || 0);
+        if (noNoteUnits > 0) {
+          let breakdown = null;
+          try {
+            const raw = summaryRows[0].breakdown;
+            breakdown = typeof raw === 'string' ? JSON.parse(raw) : (raw || null);
+          } catch { /* ignore parse error */ }
+
+          const noNoteDetails = [];
+          let totalSessions = 0;
+          if (breakdown && typeof breakdown === 'object') {
+            for (const [code, v] of Object.entries(breakdown)) {
+              if (String(code).startsWith('_')) continue;
+              const codeNoNote = Number(v?.noNoteUnits ?? 0);
+              if (codeNoNote > 0) {
+                const payDivisor = Number(v?.payDivisor || 1);
+                const safeDiv = Number.isFinite(payDivisor) && payDivisor > 0 ? payDivisor : 1;
+                const sessions = Math.max(1, Math.round(codeNoNote / safeDiv));
+                totalSessions += sessions;
+                noNoteDetails.push(
+                  `${code}: ${sessions} session${sessions !== 1 ? 's' : ''} (${codeNoNote} units)`
+                );
+              }
+            }
+          }
+
+          const message = noNoteDetails.length > 0
+            ? `Incomplete notes this period: ${noNoteDetails.join(', ')}.`
+            : `${noNoteUnits} no-note unit${noNoteUnits !== 1 ? 's' : ''} remain unpaid this period.`;
+
+          currentNoNoteNotification = {
+            type: 'no_note_current_period',
+            title: 'Incomplete Notes This Period',
+            message
+          };
+        }
+      }
+    }
+
     res.json({
       ok: true,
       payrollPeriodId,
       agencyId: period.agency_id,
       notifications: [
+        ...(currentNoNoteNotification ? [currentNoNoteNotification] : []),
         ...(unpaidNotes?.notifications || [])
       ],
       meta: {
@@ -11860,6 +11909,8 @@ export const upsertPayrollAdjustmentsForUser = async (req, res, next) => {
     const otherRate2Hours = toNum(body.otherRate2Hours);
     const otherRate3Hours = toNum(body.otherRate3Hours);
     const salaryAmount = toNum(body.salaryAmount);
+    const sickPtoHours = toNum(body.sickPtoHours);
+    const trainingPtoHours = toNum(body.trainingPtoHours);
     const ptoHours = toNum(body.ptoHours);
     const ptoRate = toNum(body.ptoRate);
 
@@ -11876,6 +11927,8 @@ export const upsertPayrollAdjustmentsForUser = async (req, res, next) => {
       otherRate2Hours,
       otherRate3Hours,
       salaryAmount,
+      sickPtoHours,
+      trainingPtoHours,
       ptoHours,
       ptoRate
     ];
@@ -11899,6 +11952,8 @@ export const upsertPayrollAdjustmentsForUser = async (req, res, next) => {
       otherRate2Hours,
       otherRate3Hours,
       salaryAmount,
+      sickPtoHours,
+      trainingPtoHours,
       ptoHours,
       ptoRate,
       updatedByUserId: req.user.id
@@ -14836,7 +14891,7 @@ export const patchReimbursementClaim = async (req, res, next) => {
 
 function timeClaimAllowedType(t) {
   const k = String(t || '').trim().toLowerCase();
-  return ['meeting_training', 'mentor_cpa_meeting', 'excess_holiday', 'service_correction', 'overtime_evaluation', 'holiday_pay'].includes(k) ? k : null;
+  return ['meeting_training', 'mentor_cpa_meeting', 'excess_holiday', 'service_correction', 'overtime_evaluation', 'holiday_pay', 'jury_duty'].includes(k) ? k : null;
 }
 
 function isOfficeStaffForHolidayPay(role) {
@@ -15029,7 +15084,7 @@ async function hydrateTimeClaimListTranscripts(rows) {
   return out;
 }
 
-export const createMyTimeClaim = async (req, res, next) => {
+const _createMyTimeClaimHandler = async (req, res, next) => {
   try {
     const userId = req.user?.id;
     const body = req.body || {};
@@ -15051,6 +15106,10 @@ export const createMyTimeClaim = async (req, res, next) => {
     const claimType = timeClaimAllowedType(body.claimType);
     const claimDate = String(body.claimDate || '').slice(0, 10);
     let payload = body.payload || {};
+    // When submitted via multipart/form-data (e.g. jury duty), payload arrives as a JSON string.
+    if (typeof payload === 'string') {
+      try { payload = JSON.parse(payload); } catch { payload = {}; }
+    }
     const attestation = payload?.attestation === true || payload?.attestation === 1 || payload?.attestation === '1';
 
     const agencyRow = await Agency.findById(agencyId);
@@ -15135,6 +15194,20 @@ export const createMyTimeClaim = async (req, res, next) => {
       if (!holidayDates.includes(holidayDate)) {
         return res.status(400).json({ error: { message: 'The selected date is not an approved agency holiday' } });
       }
+    } else if (claimType === 'jury_duty') {
+      const courtDate = String(payload?.courtDate || '').trim().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(courtDate)) {
+        return res.status(400).json({ error: { message: 'courtDate (YYYY-MM-DD) is required for jury duty claims' } });
+      }
+      if (!String(payload?.description || '').trim()) {
+        return res.status(400).json({ error: { message: 'description is required for jury duty claims' } });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: { message: 'Court summons file upload is required for jury duty claims' } });
+      }
+      // Save the uploaded summons and attach the path to the payload.
+      const saved = await StorageService.savePtoProof(req.file.buffer, req.file.originalname, req.file.mimetype);
+      payload = { ...payload, proofFilePath: saved.path, proofOriginalName: req.file.originalname, proofMimeType: req.file.mimetype };
     }
 
     // Enforce submission deadlines (and choose suggested period accordingly).
@@ -15177,6 +15250,8 @@ export const createMyTimeClaim = async (req, res, next) => {
   }
 };
 
+export const createMyTimeClaim = [receiptUpload.single('proof'), _createMyTimeClaimHandler];
+
 export const createUserTimeClaim = async (req, res, next) => {
   try {
     const targetUserId = req.params.userId ? parseInt(req.params.userId, 10) : null;
@@ -15191,7 +15266,7 @@ export const createUserTimeClaim = async (req, res, next) => {
     req.actorUser = prev;
     req.user = { ...(prev || {}), id: targetUserId, role: 'provider' };
     try {
-      return await createMyTimeClaim(req, res, next);
+      return await _createMyTimeClaimHandler(req, res, next);
     } finally {
       req.user = prev;
       req.actorUser = prevActor;
@@ -16522,10 +16597,12 @@ export const patchPtoRequest = async (req, res, next) => {
     if (!action) return res.status(400).json({ error: { message: 'action is required' } });
 
     if (action === 'approve') {
-      const overrideDeadline = parseBool(req.body?.overrideDeadline);
+      // Admin approval only blocks when the target period is already posted/finalized.
+      // The old 60-day submission window is not enforced at approval time.
+      const overrideDeadline = req.body?.overrideDeadline !== undefined ? parseBool(req.body.overrideDeadline) : true;
       const overrideBalance = parseBool(req.body?.overrideBalance);
-      if ((overrideDeadline || overrideBalance) && !isAdminRole(req.user?.role)) {
-        return res.status(403).json({ error: { message: 'override flags require admin role' } });
+      if (overrideBalance && !isAdminRole(req.user?.role)) {
+        return res.status(403).json({ error: { message: 'overrideBalance requires admin role' } });
       }
       const result = await approvePtoRequestAndPostToPayroll({
         agencyId: reqRow.agency_id,

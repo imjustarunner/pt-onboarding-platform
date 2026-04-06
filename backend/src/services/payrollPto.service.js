@@ -302,7 +302,7 @@ export async function approvePtoRequestAndPostToPayroll({
   agencyId,
   requestId,
   approvedByUserId,
-  overrideDeadline = false,
+  overrideDeadline = true,
   overrideBalance = false
 }) {
   const req = await PayrollPtoRequest.findById(requestId);

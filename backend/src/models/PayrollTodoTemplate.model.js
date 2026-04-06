@@ -29,19 +29,22 @@ class PayrollTodoTemplate {
     scope = 'agency',
     targetUserId = 0,
     startPayrollPeriodId = null,
+    isActive = 1,
     createdByUserId,
     updatedByUserId
   }) {
     const targetUserDb = PayrollTodoTemplate._normalizeTargetUserIdForDb(targetUserId);
-    const startDb = startPayrollPeriodId ? Number(startPayrollPeriodId) : null;
+    // Use 0 (not null) when no start period — the original schema has NOT NULL DEFAULT 0.
+    const startDb = (startPayrollPeriodId && Number(startPayrollPeriodId) > 0) ? Number(startPayrollPeriodId) : 0;
+    const isActiveDb = Number(isActive) ? 1 : 0;
 
     let res;
     try {
       [res] = await pool.execute(
         `INSERT INTO payroll_todo_templates
          (agency_id, title, description, scope, target_user_id, start_payroll_period_id, is_active, created_by_user_id, updated_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-        [agencyId, title, description, scope, targetUserDb, startDb, createdByUserId, updatedByUserId]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [agencyId, title, description, scope, targetUserDb, startDb, isActiveDb, createdByUserId, updatedByUserId]
       );
     } catch (e) {
       // Back-compat: older schemas may have target_user_id NOT NULL, so NULL will error.
@@ -49,8 +52,8 @@ class PayrollTodoTemplate {
         [res] = await pool.execute(
           `INSERT INTO payroll_todo_templates
            (agency_id, title, description, scope, target_user_id, start_payroll_period_id, is_active, created_by_user_id, updated_by_user_id)
-           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-          [agencyId, title, description, scope, 0, startDb, createdByUserId, updatedByUserId]
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [agencyId, title, description, scope, 0, startDb, isActiveDb, createdByUserId, updatedByUserId]
         );
       } else {
         throw e;
@@ -71,7 +74,8 @@ class PayrollTodoTemplate {
     updatedByUserId
   }) {
     const targetUserDb = PayrollTodoTemplate._normalizeTargetUserIdForDb(targetUserId);
-    const startDb = startPayrollPeriodId ? Number(startPayrollPeriodId) : null;
+    // Use 0 (not null) when no start period — the original schema has NOT NULL DEFAULT 0.
+    const startDb = (startPayrollPeriodId && Number(startPayrollPeriodId) > 0) ? Number(startPayrollPeriodId) : 0;
     try {
       await pool.execute(
         `UPDATE payroll_todo_templates

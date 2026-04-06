@@ -34,7 +34,20 @@ class PayrollSalaryPosition {
        LIMIT 1`,
       [agencyId, userId, asOf, asOf]
     );
-    return rows?.[0] || null;
+    if (rows?.[0]) return rows[0];
+    // Fallback: some salary positions may be stored with agency_id = 0 (agency-agnostic / single-tenant).
+    const [fallbackRows] = await pool.execute(
+      `SELECT *
+       FROM payroll_salary_positions
+       WHERE agency_id = 0
+         AND user_id = ?
+         AND (effective_start IS NULL OR effective_start <= ?)
+         AND (effective_end IS NULL OR effective_end >= ?)
+       ORDER BY effective_start DESC, id DESC
+       LIMIT 1`,
+      [userId, asOf, asOf]
+    );
+    return fallbackRows?.[0] || null;
   }
 
   static async upsert({

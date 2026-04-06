@@ -454,9 +454,14 @@
             <div class="claim-title">Time Claims</div>
             <div class="muted">Attendance, holiday/excess time, service corrections.</div>
           </div>
-          <button class="btn btn-secondary btn-sm" @click.stop="loadTimeClaims" type="button" :disabled="timeClaimsLoading">
-            {{ timeClaimsLoading ? 'Loading…' : 'Refresh' }}
-          </button>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button class="btn btn-secondary btn-sm" @click.stop="openJuryDutyModal" type="button">
+              + Jury Duty
+            </button>
+            <button class="btn btn-secondary btn-sm" @click.stop="loadTimeClaims" type="button" :disabled="timeClaimsLoading">
+              {{ timeClaimsLoading ? 'Loading…' : 'Refresh' }}
+            </button>
+          </div>
         </summary>
 
         <div v-if="timeClaimsError" class="warn-box" style="margin-top: 10px;">{{ timeClaimsError }}</div>
@@ -1224,16 +1229,28 @@
             <tr>
               <th>Bucket</th>
               <th class="right">Balance (hours)</th>
+              <th class="right" v-if="ptoPendingSickHours + ptoPendingTrainingHours > 0">Available if pending approved</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td>Sick Leave</td>
               <td class="right">{{ fmtNum(ptoBalances.sickHours || 0) }}</td>
+              <td class="right" v-if="ptoPendingSickHours + ptoPendingTrainingHours > 0">
+                <span style="color: #c05600;">{{ fmtNum(Math.max(0, (ptoBalances.sickHours || 0) - ptoPendingSickHours)) }}</span>
+                <span v-if="ptoPendingSickHours > 0" class="muted" style="font-size: 0.85em;"> ({{ fmtNum(ptoPendingSickHours) }} h pending)</span>
+              </td>
             </tr>
             <tr>
               <td>Training PTO</td>
               <td class="right">{{ (ptoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(ptoBalances.trainingHours || 0) : '—' }}</td>
+              <td class="right" v-if="ptoPendingSickHours + ptoPendingTrainingHours > 0">
+                <template v-if="ptoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible">
+                  <span style="color: #c05600;">{{ fmtNum(Math.max(0, (ptoBalances.trainingHours || 0) - ptoPendingTrainingHours)) }}</span>
+                  <span v-if="ptoPendingTrainingHours > 0" class="muted" style="font-size: 0.85em;"> ({{ fmtNum(ptoPendingTrainingHours) }} h pending)</span>
+                </template>
+                <template v-else>—</template>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -1270,6 +1287,10 @@
       <div class="hint" style="margin-top: 10px;">
         Policy reminders: PTO over {{ fmtNum(ptoPolicy?.ptoConsecutiveUseLimitHours ?? 15) }} hours consecutively requires
         {{ fmtNum(ptoPolicy?.ptoConsecutiveUseNoticeDays ?? 30) }} days notice and management approval.
+      </div>
+
+      <div class="hint" style="margin-top: 8px; padding: 8px 12px; background: #fffbe6; border-left: 3px solid #f0b429; border-radius: 4px; color: #7a4f00;">
+        PTO cannot be added to a pay period that has already been processed. Ensure you submit before payroll is run for that period.
       </div>
 
       <div class="card" style="margin-top: 12px;">
@@ -1330,6 +1351,10 @@
       </div>
 
       <div v-if="submitPtoError" class="warn-box" style="margin-top: 10px;">{{ submitPtoError }}</div>
+
+      <div class="hint" style="margin-top: 8px; padding: 8px 12px; background: #fffbe6; border-left: 3px solid #f0b429; border-radius: 4px; color: #7a4f00;">
+        PTO cannot be added to a pay period that has already been processed. Ensure you submit before payroll is run for that period.
+      </div>
 
       <div class="card" style="margin-top: 12px;">
         <div class="muted"><strong>Entries</strong></div>
@@ -2024,6 +2049,67 @@
       </div>
     </div>
   </div>
+
+  <!-- Jury Duty Modal -->
+  <div v-if="showJuryDutyModal" class="modal-backdrop" @click.self="closeJuryDutyModal">
+    <div class="modal" style="width: min(560px, 100%);">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Time Claim — Jury Duty</div>
+          <div class="hint">Submit your jury duty service for payroll review.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="closeJuryDutyModal">Close</button>
+      </div>
+
+      <div v-if="submitTimeClaimError" class="warn-box" style="margin-top: 10px;">{{ submitTimeClaimError }}</div>
+
+      <div
+        class="warn-box"
+        style="margin-top: 10px; background: #fffbe6; border-color: #f0b429; color: #7a4f00;"
+      >
+        You will be compensated at a rate of up to <strong>$50 per day</strong> for jury duty, or as outlined in the current Workplace Handbook. Please upload a copy of your official court summons below.
+      </div>
+
+      <div class="field" style="margin-top: 12px;">
+        <label>Start date of jury duty</label>
+        <input v-model="juryDutyForm.claimDate" type="date" />
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Description <span style="color:#888; font-size:0.9em;">(include dates served, court name, case info if applicable)</span></label>
+        <textarea v-model="juryDutyForm.description" rows="3" placeholder="e.g., Served jury duty at County Court from April 7–9, 2026. Case #12345."></textarea>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Court summons / documentation <span style="color: #e53e3e;">*</span></label>
+        <input
+          type="file"
+          accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,application/pdf,image/*"
+          @change="onJuryDutyFileChange"
+          style="margin-top: 4px;"
+        />
+        <div class="hint" style="margin-top: 4px;">PDF or image (photo of summons). Max 10 MB.</div>
+        <div v-if="juryDutyForm.fileName" class="hint" style="margin-top: 4px; color: #2d7a2d;">
+          Selected: {{ juryDutyForm.fileName }}
+        </div>
+      </div>
+
+      <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+        <input v-model="juryDutyForm.attestation" type="checkbox" />
+        <span>I certify this information is accurate. I served on official jury duty during the stated dates.</span>
+      </label>
+
+      <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button
+          class="btn btn-primary"
+          @click="submitJuryDuty"
+          :disabled="submittingTimeClaim || !juryDutyForm.claimDate || !juryDutyForm.description || !juryDutyForm.file || !juryDutyForm.attestation"
+        >
+          {{ submittingTimeClaim ? 'Submitting…' : 'Submit for approval' }}
+        </button>
+      </div>
+    </div>
+  </div>
   </Teleport>
 </template>
 
@@ -2210,6 +2296,8 @@ const showTimeMeetingModal = ref(false);
 const showTimeExcessModal = ref(false);
 const showTimeCorrectionModal = ref(false);
 const showTimeOvertimeModal = ref(false);
+const showJuryDutyModal = ref(false);
+const juryDutyForm = ref({ claimDate: '', description: '', file: null, fileName: '', attestation: false });
 const submittingTimeClaim = ref(false);
 const submitTimeClaimError = ref('');
 const timeClaims = ref([]);
@@ -3597,6 +3685,7 @@ const timeClaimTypeLabel = (c) => {
   if (t === 'service_correction') return 'Service correction';
   if (t === 'overtime_evaluation') return 'Overtime eval';
   if (t === 'holiday_pay') return 'Holiday pay';
+  if (t === 'jury_duty') return 'Jury Duty';
   return t ? t.replace(/_/g, ' ') : 'Time';
 };
 
@@ -3762,6 +3851,49 @@ const openTimeOvertimeModal = () => {
 const closeTimeOvertimeModal = () => {
   showTimeOvertimeModal.value = false;
   emit('time-modal-closed');
+};
+
+const openJuryDutyModal = () => {
+  submitTimeClaimError.value = '';
+  juryDutyForm.value = { claimDate: '', description: '', file: null, fileName: '', attestation: false };
+  showJuryDutyModal.value = true;
+};
+const closeJuryDutyModal = () => {
+  showJuryDutyModal.value = false;
+  emit('time-modal-closed');
+};
+const onJuryDutyFileChange = (e) => {
+  const file = e?.target?.files?.[0] || null;
+  juryDutyForm.value.file = file;
+  juryDutyForm.value.fileName = file?.name || '';
+};
+const submitJuryDuty = async () => {
+  if (!agencyId.value) return;
+  submitTimeClaimError.value = '';
+  const f = juryDutyForm.value;
+  if (!f.claimDate || !f.description || !f.file || !f.attestation) {
+    submitTimeClaimError.value = 'Please fill in all required fields and upload your court summons.';
+    return;
+  }
+  try {
+    submittingTimeClaim.value = true;
+    const fd = new FormData();
+    fd.append('agencyId', agencyId.value);
+    fd.append('claimType', 'jury_duty');
+    fd.append('claimDate', f.claimDate);
+    fd.append('payload', JSON.stringify({ courtDate: f.claimDate, description: f.description, attestation: true }));
+    fd.append('proof', f.file);
+    await api.post('/payroll/me/time-claims', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    submitSuccess.value = 'Jury duty claim submitted successfully. Payroll will review and approve it.';
+    window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    await loadTimeClaims();
+    emit('time-submitted');
+    closeJuryDutyModal();
+  } catch (e) {
+    submitTimeClaimError.value = e.response?.data?.error?.message || e.message || 'Failed to submit jury duty claim';
+  } finally {
+    submittingTimeClaim.value = false;
+  }
 };
 
 const openEditTimeClaim = (c) => {
@@ -4408,6 +4540,9 @@ watch(
       } else if (key === 'time_overtime_evaluation') {
         openTimeOvertimeModal();
         opened = true;
+      } else if (key === 'time_jury_duty') {
+        openJuryDutyModal();
+        opened = true;
       } else if (key === 'pto') {
         await openPtoChooserModal();
         opened = true;
@@ -4480,6 +4615,7 @@ onMounted(async () => {
     else if (t === 'excess') openTimeExcessModal();
     else if (t === 'correction') openTimeCorrectionModal();
     else if (t === 'overtime') openTimeOvertimeModal();
+    else if (t === 'jury_duty') openJuryDutyModal();
   }
 
   // Fallback: if submission param is in URL but modal didn't open (e.g. route timing), open it now.
