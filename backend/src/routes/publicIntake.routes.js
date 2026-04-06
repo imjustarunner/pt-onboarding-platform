@@ -21,6 +21,8 @@ import {
   uploadIntakeFiles,
   saveInsuranceCardPhotos,
   saveGuardianPaymentCard,
+  getStripeConfig,
+  createStripeSetupIntent,
   identifyPreferencesUser,
   savePreferencesUser
 } from '../controllers/publicIntake.controller.js';
@@ -112,13 +114,21 @@ router.post(
 router.post('/:publicKey/preferences/identify', identifyPreferencesUser);
 router.put('/:publicKey/preferences/save', savePreferencesUser);
 
+// Stripe card collection endpoints
+router.get('/:publicKey/stripe-config', getStripeConfig);
+router.post('/:publicKey/:submissionId/stripe-setup-intent', createStripeSetupIntent);
+
 router.post(
   '/:publicKey/:submissionId/payment-card',
   [
-    body('card.number').notEmpty().withMessage('Card number is required'),
-    body('card.expMonth').notEmpty().withMessage('Expiry month is required'),
-    body('card.expYear').notEmpty().withMessage('Expiry year is required'),
-    body('card.cvc').notEmpty().withMessage('CVV is required')
+    // Stripe path: stripePaymentMethodId replaces raw card fields
+    body('stripePaymentMethodId').optional().isString(),
+    body('stripeCustomerId').optional().isString(),
+    // QB Payments fallback: card fields required only when no stripe PM
+    body('card.number').optional().isString(),
+    body('card.expMonth').optional().isString(),
+    body('card.expYear').optional().isString(),
+    body('card.cvc').optional().isString()
   ],
   saveGuardianPaymentCard
 );

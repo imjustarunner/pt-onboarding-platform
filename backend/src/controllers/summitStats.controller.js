@@ -295,11 +295,38 @@ export const createClub = async (req, res, next) => {
       );
     }
 
+    await pool.execute(
+      `INSERT INTO club_billing_accounts
+         (club_id, plan_type, trial_starts_at, trial_ends_at)
+       VALUES (?, 'trial', NOW(), DATE_ADD(NOW(), INTERVAL 3 MONTH))
+       ON DUPLICATE KEY UPDATE club_id = club_id`,
+      [agency.id]
+    );
+
     res.status(201).json(agency);
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({ error: { message: 'A club with this slug already exists' } });
     }
+    next(error);
+  }
+};
+
+/**
+ * Returns the billing status row for a club. Used to show trial countdowns etc.
+ */
+export const getClubBillingStatus = async (req, res, next) => {
+  try {
+    const clubId = parseInt(req.params.id, 10);
+    if (!clubId || isNaN(clubId)) {
+      return res.status(400).json({ error: { message: 'Invalid club id' } });
+    }
+    const [rows] = await pool.execute(
+      'SELECT * FROM club_billing_accounts WHERE club_id = ? LIMIT 1',
+      [clubId]
+    );
+    res.json(rows[0] || null);
+  } catch (error) {
     next(error);
   }
 };

@@ -3,19 +3,36 @@ import AgencyBillingAccount from '../models/AgencyBillingAccount.model.js';
 import AgencyBillingPaymentMethod from '../models/AgencyBillingPaymentMethod.model.js';
 import BillingMerchantContextService from '../services/billingMerchantContext.service.js';
 import { normalizeClientPaymentsMode, normalizeSubscriptionMerchantMode } from '../constants/billingDomains.js';
+import pool from '../config/database.js';
+
+async function getStripeConnectStatusForAgency(agencyId) {
+  const [rows] = await pool.query(
+    `SELECT stripe_connect_account_id, stripe_connect_status
+     FROM agency_billing_accounts WHERE agency_id = ? LIMIT 1`,
+    [agencyId]
+  );
+  const row = rows[0];
+  return {
+    stripeConnectStatus: row?.stripe_connect_status || 'not_connected',
+    stripeConnectAccountId: row?.stripe_connect_account_id || null
+  };
+}
 
 export const getBillingSettings = async (req, res, next) => {
   try {
     const { agencyId } = req.params;
     const account = await AgencyBillingAccount.getByAgencyId(agencyId);
     const qboStatus = await BillingMerchantContextService.getQuickBooksStatusForAgencySubscription(agencyId);
+    const stripeConnect = await getStripeConnectStatusForAgency(agencyId);
     res.json({
       agencyId: parseInt(agencyId, 10),
       billingEmail: account?.billing_email || null,
       autopayEnabled: !!account?.autopay_enabled,
       subscriptionMerchantMode: account?.subscription_merchant_mode || 'agency_managed',
       clientPaymentsMode: account?.client_payments_mode || 'not_configured',
-      quickBooksStatus: qboStatus
+      quickBooksStatus: qboStatus,
+      stripeConnectStatus: stripeConnect.stripeConnectStatus,
+      stripeConnectAccountId: stripeConnect.stripeConnectAccountId
     });
   } catch (error) {
     next(error);

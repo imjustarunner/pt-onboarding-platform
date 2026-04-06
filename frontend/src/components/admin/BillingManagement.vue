@@ -560,27 +560,11 @@
         </div>
 
         <div class="card" style="margin-top: 16px;">
-          <h4 style="margin: 0 0 10px 0;">Future Client Payments</h4>
-          <p class="muted">This is reserved for the agency charging parents or guardians directly. It is separate from the agency’s subscription billing.</p>
-          <div class="manage-grid">
-            <div>
-              <div class="label">Setup Mode</div>
-              <div class="inline">
-                <select v-model="clientPaymentsMode" class="select">
-                  <option value="not_configured">Not configured yet</option>
-                  <option value="agency_managed">Agency-owned merchant (future)</option>
-                  <option value="platform_managed">Platform-assisted merchant (future)</option>
-                </select>
-                <button class="btn" :disabled="savingSettings" @click="saveBillingSettings">
-                  {{ savingSettings ? 'Saving…' : 'Save' }}
-                </button>
-              </div>
-            </div>
-            <div>
-              <div class="label">Current Status</div>
-              <div class="value">{{ clientPaymentsModeLabel }}</div>
-            </div>
-          </div>
+          <AgencyStripeConnectSection
+            v-if="currentAgencyId"
+            :agency-id="currentAgencyId"
+            @status-changed="onStripeStatusChanged"
+          />
         </div>
 
         <div class="card" style="margin-top: 16px;">
@@ -812,6 +796,7 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import AgencyStripeConnectSection from './AgencyStripeConnectSection.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -1599,6 +1584,12 @@ watch(currentAgencyId, async (newId, oldId) => {
     ...(isSuperAdmin.value ? [loadPlatformQboStatus()] : [])
   ]);
 });
+
+const onStripeStatusChanged = (newStatus) => {
+  // Optionally reload settings to reflect new stripe connect status
+  if (newStatus === 'active') loadSettings();
+};
+
 </script>
 
 <style scoped>

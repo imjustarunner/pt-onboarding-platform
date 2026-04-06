@@ -348,7 +348,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_medical_records_release_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'sso_password_override', 'provider_start_date')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_medical_records_release_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'sso_password_override', 'provider_start_date', 'work_role')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -394,6 +394,7 @@ class User {
       if (existingColumns.includes('is_hourly_worker')) query += ', is_hourly_worker';
       if (existingColumns.includes('sso_password_override')) query += ', sso_password_override';
       if (existingColumns.includes('provider_start_date')) query += ', provider_start_date';
+      if (existingColumns.includes('work_role')) query += ', work_role';
     } catch (err) {
       // If we can't check columns, just use the base query
       console.warn('Could not check for pending columns:', err.message);
@@ -734,7 +735,8 @@ class User {
       hasMedicalRecordsReleaseAccess,
       externalBusyIcsUrl,
       providerStartDate,
-      username
+      username,
+      work_role
     } = userData;
     
     // Get current user to check if it's superadmin
@@ -913,6 +915,19 @@ class User {
         }
       } catch {
         // ignore (older DBs)
+      }
+    }
+    if (work_role !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'work_role'"
+        );
+        if (columns.length > 0) {
+          updates.push('work_role = ?');
+          values.push(work_role ? String(work_role).trim().toLowerCase() : null);
+        }
+      } catch {
+        // ignore (older DBs without migration 662)
       }
     }
     if (role !== undefined) {

@@ -43,64 +43,6 @@
       {{ dashboardError }}
     </section>
 
-    <section
-      v-if="showStartClub"
-      class="card founder-card dash-section dash-section--founder"
-      :class="{ 'founder-card--disabled': !clubContext?.emailVerified }"
-    >
-      <div class="section-header">
-        <div>
-          <h2>Start Your Club</h2>
-          <p>Founders are promoted only inside the club they create. This does not grant broad admin access.</p>
-        </div>
-      </div>
-
-      <div v-if="!clubContext?.emailVerified" class="founder-notice">
-        Verify your email before starting your club. After that, you can create your club and move into season setup.
-      </div>
-
-      <form v-else class="founder-form" @submit.prevent="submitCreateClub">
-        <div class="form-row">
-          <label>
-            Club name
-            <input v-model="createClubForm.name" type="text" required placeholder="Peak City Run Club" />
-          </label>
-          <label>
-            URL slug
-            <input v-model="createClubForm.slug" type="text" placeholder="Optional short slug" />
-          </label>
-        </div>
-        <div class="form-row">
-          <label>
-            City
-            <input v-model="createClubForm.city" type="text" placeholder="Denver" />
-          </label>
-          <label>
-            State
-            <input v-model="createClubForm.state" type="text" maxlength="2" placeholder="CO" />
-          </label>
-        </div>
-        <label>
-          Who is this club for?
-          <textarea
-            v-model="createClubForm.summary"
-            rows="3"
-            placeholder="Tell us about the type of athletes, community, and competition culture you want to build."
-          />
-        </label>
-        <label class="checkbox-row">
-          <input v-model="createClubForm.timelineAcknowledged" type="checkbox" />
-          <span>I understand club setup is a serious process and may include review, configuration, and launch steps.</span>
-        </label>
-        <div v-if="createClubError" class="inline-error">{{ createClubError }}</div>
-        <div class="founder-actions">
-          <button type="submit" class="btn btn-primary" :disabled="createClubSubmitting">
-            {{ createClubSubmitting ? 'Creating…' : 'Create Club' }}
-          </button>
-        </div>
-      </form>
-    </section>
-
     <section class="card dash-section dash-section--seasons-current">
       <div class="section-header">
         <div>
@@ -481,9 +423,9 @@
         </div>
 
         <div class="membership-actions">
-          <button type="button" class="btn btn-secondary btn-sm" @click="showStartClub = !showStartClub">
-            {{ showStartClub ? 'Close Founder Setup' : 'Start Your Club' }}
-          </button>
+          <router-link :to="`/${orgSlug}/clubs`" class="btn btn-secondary btn-sm">
+            Apply to a Club
+          </router-link>
         </div>
       </article>
     </section>
@@ -625,7 +567,6 @@ const dashboardError = ref('');
 const summary = ref(null);
 const applications = ref([]);
 const clubContext = ref(null);
-const showStartClub = ref(false);
 const accountEditing = ref(false);
 const accountSaving = ref(false);
 const accountSaveError = ref('');
@@ -650,9 +591,6 @@ const accountForm = reactive({
   runningFitnessBackground: '',
   currentFitnessActivities: ''
 });
-const createClubSubmitting = ref(false);
-const createClubError = ref('');
-
 const stravaStatus = ref(null);
 const stravaDisconnecting = ref(false);
 const stravaDisconnectError = ref('');
@@ -702,15 +640,6 @@ const {
   dismissClubSplash,
   remindLaterClubSplash
 } = useAffiliationClubAnnouncements(announcementClubId, splashBrandLabelForAnnouncements);
-
-const createClubForm = reactive({
-  name: '',
-  slug: '',
-  city: '',
-  state: '',
-  summary: '',
-  timelineAcknowledged: false
-});
 
 const memberships = computed(() => Array.isArray(summary.value?.memberships) ? summary.value.memberships : []);
 const currentSeasons = computed(() => Array.isArray(summary.value?.seasons?.current) ? summary.value.seasons.current : []);
@@ -1073,48 +1002,6 @@ const isManagedClub = (clubId) => {
   return memberships.value.some(
     (m) => Number(m.clubId) === id && ['manager', 'assistant_manager'].includes(roleNorm(m.clubRole))
   );
-};
-
-const submitCreateClub = async () => {
-  createClubError.value = '';
-  if (!createClubForm.timelineAcknowledged) {
-    createClubError.value = 'Please confirm that you understand club setup includes review and launch steps.';
-    return;
-  }
-  if (!String(createClubForm.name || '').trim()) {
-    createClubError.value = 'Club name is required.';
-    return;
-  }
-  createClubSubmitting.value = true;
-  try {
-    const payload = {
-      name: String(createClubForm.name || '').trim(),
-      slug: String(createClubForm.slug || '').trim() || undefined,
-      city: String(createClubForm.city || '').trim() || undefined,
-      state: String(createClubForm.state || '').trim().toUpperCase() || undefined
-    };
-    const { data } = await api.post('/summit-stats/clubs', payload);
-    await agencyStore.fetchUserAgencies();
-    const match = currentUserAgencies.value.find((agency) => Number(agency?.id) === Number(data?.id));
-    if (match) {
-      agencyStore.setCurrentAgency(match);
-    } else if (data?.id) {
-      agencyStore.setCurrentAgency(data);
-    }
-    createClubForm.name = '';
-    createClubForm.slug = '';
-    createClubForm.city = '';
-    createClubForm.state = '';
-    createClubForm.summary = '';
-    createClubForm.timelineAcknowledged = false;
-    showStartClub.value = false;
-    await loadDashboard();
-    await router.push(`/${orgSlug.value}/club/seasons`);
-  } catch (error) {
-    createClubError.value = error?.response?.data?.error?.message || 'Failed to create your club.';
-  } finally {
-    createClubSubmitting.value = false;
-  }
 };
 
 onMounted(async () => {

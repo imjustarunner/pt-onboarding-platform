@@ -2631,9 +2631,29 @@ router.beforeEach(async (to, from, next) => {
 
   const currentUserRoleNorm = String(authStore.user?.role || '').toLowerCase();
   const currentOrgSlug = typeof to.params?.organizationSlug === 'string' ? to.params.organizationSlug : '';
+
+  // Compute the context-aware effective role for the current agency selection.
+  // - Affiliation (club) context: map club_role (manager/assistant_manager → club_manager; member → global role).
+  // - Work context: club_manager global role falls back to 'provider' so they can reach work routes.
+  // - No agency context or anything else: use the global role unchanged.
+  const _currentAgencyOrgType = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
+  const _isAffiliationContext = _currentAgencyOrgType === 'affiliation';
+  const _clubRole = String(agencyStore.currentAgency?.club_role || '').toLowerCase();
+  const currentEffectiveRoleNorm = (() => {
+    if (_isAffiliationContext) {
+      // Club managers in club context act as club_manager regardless of their global work role.
+      if (_clubRole === 'manager' || _clubRole === 'assistant_manager') return 'club_manager';
+      // Club members fall back to their global role for general route access.
+      return currentUserRoleNorm;
+    }
+    // In a work-tenant context a global club_manager should navigate as a provider.
+    if (currentUserRoleNorm === 'club_manager') return 'provider';
+    return currentUserRoleNorm;
+  })();
+
   if (
     authStore.isAuthenticated &&
-    currentUserRoleNorm === 'club_manager' &&
+    (currentUserRoleNorm === 'club_manager' || (_isAffiliationContext && (_clubRole === 'manager' || _clubRole === 'assistant_manager'))) &&
     currentOrgSlug &&
     isSscPortalSlug(String(currentOrgSlug).toLowerCase())
   ) {
@@ -2718,7 +2738,9 @@ router.beforeEach(async (to, from, next) => {
     }
   } else if (to.meta.requiresRole) {
     const userRole = authStore.user?.role;
-    const userRoleNorm = String(userRole || '').toLowerCase();
+    // Use context-aware effectiveRole for navigation decisions (computed above from currentAgency).
+    // Falls back to the global role for users with no active agency context.
+    const userRoleNorm = currentEffectiveRoleNorm;
     const requiredRole = to.meta.requiresRole;
     const requiredRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
     const orgSlugForRoute = typeof to.params?.organizationSlug === 'string' ? to.params.organizationSlug : '';
@@ -2737,7 +2759,7 @@ router.beforeEach(async (to, from, next) => {
         );
       })();
 
-    // Club managers (Summit): keep them off global payroll/audit surfaces even under /:slug/admin/*.
+    // Club managers in club context (effectiveRole = 'club_manager'): block payroll/audit surfaces.
     if (userRoleNorm === 'club_manager') {
       const p = String(to.path || '');
       if (p.includes('/admin/audit-center') || p.includes('/admin/payroll') || p.includes('/admin/expenses')) {
@@ -2774,31 +2796,31 @@ router.beforeEach(async (to, from, next) => {
       // Backoffice admin routes: true admins/support only.
       if (role === 'admin') {
         return (
-          userRole === 'admin' ||
-          userRole === 'super_admin' ||
-          userRole === 'support'
+          userRoleNorm === 'admin' ||
+          userRoleNorm === 'super_admin' ||
+          userRoleNorm === 'support'
         );
       }
 
       if (role === 'schedule_manager') {
         return (
-          userRole === 'clinical_practice_assistant' ||
-          userRole === 'provider_plus' ||
-          userRole === 'admin' ||
-          userRole === 'super_admin' ||
-          userRole === 'support'
+          userRoleNorm === 'clinical_practice_assistant' ||
+          userRoleNorm === 'provider_plus' ||
+          userRoleNorm === 'admin' ||
+          userRoleNorm === 'super_admin' ||
+          userRoleNorm === 'support'
         );
       }
 
       if (role === 'supervisor_or_cpa') {
-        return userRole === 'supervisor' || userRole === 'clinical_practice_assistant' || userRole === 'provider_plus';
+        return userRoleNorm === 'supervisor' || userRoleNorm === 'clinical_practice_assistant' || userRoleNorm === 'provider_plus';
       }
 
       if (role === 'clinical_practice_assistant') {
-        return userRole === 'clinical_practice_assistant' || userRole === 'provider_plus';
+        return userRoleNorm === 'clinical_practice_assistant' || userRoleNorm === 'provider_plus';
       }
 
-      return userRole === role;
+      return userRoleNorm === role;
     });
 
     const hasSubCoordinatorRoleBypass = to.meta.allowSubCoordinator === true && hasSubCoordinatorAccess(authStore.user);
@@ -2830,7 +2852,7 @@ router.beforeEach(async (to, from, next) => {
     const required = Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability];
     const caps = authStore.user?.capabilities;
     // Super admins should not be blocked by capability flags.
-    if (String(authStore.user?.role || '').toLowerCase() === 'super_admin') {
+    if (currentEffectiveRoleNorm === 'super_admin') {
       next();
       return;
     }

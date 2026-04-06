@@ -26,7 +26,19 @@ api.interceptors.request.use(
 
     // Token is now in HttpOnly cookie, so we don't need to set Authorization header
     // Cookies are sent automatically with withCredentials: true
-    
+
+    // Attach the active agency context so the backend can resolve the correct effectiveRole
+    // (club context vs work context). currentAgency is persisted to localStorage by agencyStore.
+    try {
+      const raw = localStorage.getItem('currentAgency');
+      const currentAgency = raw ? JSON.parse(raw) : null;
+      if (currentAgency?.id) {
+        config.headers['X-Agency-Id'] = String(currentAgency.id);
+      }
+    } catch {
+      // Ignore — missing header is a safe no-op on the backend
+    }
+
     // If data is FormData, remove Content-Type header to let browser set it with boundary
     if (config.data instanceof FormData) {
       delete config.headers['Content-Type'];

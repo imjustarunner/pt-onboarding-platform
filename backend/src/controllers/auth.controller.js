@@ -3525,7 +3525,12 @@ export const registerClubManager = async (req, res, next) => {
 
     const existingUser = await User.findByEmail(resolvedEmail);
     if (existingUser) {
-      return res.status(400).json({ error: { message: 'An account with this email already exists' } });
+      return res.status(409).json({
+        error: {
+          message: 'An account with this email already exists. Log in to start your club from your dashboard.',
+          code: 'ACCOUNT_EXISTS'
+        }
+      });
     }
 
     const bcrypt = (await import('bcrypt')).default;

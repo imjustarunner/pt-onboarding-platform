@@ -5,10 +5,16 @@ import { checkAccess } from './accessControl.js';
  * This is the server-side source of truth for feature flags / permissions.
  *
  * @param {object|null} user - user record (prefer DB row) with at least { role, status }.
+ * @param {object} [options]
+ * @param {string} [options.effectiveRole] - Context-aware role override (from req.user.effectiveRole).
+ *   When provided, permission decisions use this role instead of user.role. This allows a
+ *   club_manager to get work-tenant capabilities (e.g. provider) when in a work-agency context,
+ *   or a regular provider to be treated as a club member when in a club (affiliation) context.
  * @returns {object} capabilities object
  */
-export function getUserCapabilities(user) {
-  const role = user?.role || null;
+export function getUserCapabilities(user, { effectiveRole } = {}) {
+  // Use effectiveRole when provided; fall back to stored user.role.
+  const role = effectiveRole ?? user?.role ?? null;
   const status = user?.status || null;
   const email = String(user?.email || '').trim().toLowerCase();
 
@@ -38,8 +44,8 @@ export function getUserCapabilities(user) {
     };
   }
 
-  // Existing status-based access model
-  const access = checkAccess(user);
+  // Existing status-based access model, resolved with the effective role.
+  const access = checkAccess(user, { effectiveRole });
 
   // NOTE: These are conservative defaults based on current platform behavior.
   // Future roles (e.g., client/participant) can be added here without changing callers.
@@ -74,7 +80,8 @@ export function getUserCapabilities(user) {
   const hasHiringFlag = user?.has_hiring_access === true || user?.has_hiring_access === 1 || user?.has_hiring_access === '1';
   const canManageHiring = ['admin', 'super_admin', 'support', 'staff'].includes(roleNorm) || hasHiringFlag;
 
-  // Summit Stats Team Challenge: Program Managers (admin/super_admin) and Team Managers (provider_plus) can manage challenges.
+  // Summit Stats Team Challenge: Program Managers (admin/super_admin) and Team Managers (provider_plus)
+  // can manage challenges. club_manager effectiveRole covers users in an affiliation club context.
   // provider_plus = Team Manager / Team Lead when assigned to a team.
   const canManageChallenges = ['admin', 'super_admin', 'provider_plus', 'club_manager'].includes(roleNorm);
 

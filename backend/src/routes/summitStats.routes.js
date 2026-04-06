@@ -3,6 +3,7 @@ import { body } from 'express-validator';
 import { authenticate, authenticateOptional } from '../middleware/auth.middleware.js';
 import {
   createClub,
+  getClubBillingStatus,
   getClubManagerContext,
   getClubSpecs,
   listClubs,
@@ -206,5 +207,8 @@ router.get('/clubs/:id/challenge-templates', listTaskTemplates);
 router.post('/clubs/:id/challenge-templates', createTaskTemplate);
 router.put('/clubs/:id/challenge-templates/:tId', updateTaskTemplate);
 router.delete('/clubs/:id/challenge-templates/:tId', deleteTaskTemplate);
+
+// Billing status
+router.get('/clubs/:id/billing-status', authenticate, getClubBillingStatus);
 
 export default router;

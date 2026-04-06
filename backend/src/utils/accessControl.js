@@ -56,11 +56,17 @@ export function hasStaffAccess(user) {
 }
 
 /**
- * Check user access permissions based on status
- * @param {Object} user - User object with status field
+ * Check user access permissions based on status.
+ *
+ * @param {Object} user - User object with at least { role, status }.
+ * @param {Object} [options]
+ * @param {string} [options.effectiveRole] - Context-aware role override (from req.user.effectiveRole).
+ *   When provided, used instead of user.role for permission decisions. Allows a club_manager
+ *   to act as their work role in a work-agency context, or a work-role user to be treated as
+ *   a club member/manager in a club (affiliation) context.
  * @returns {Object} Access permissions object
  */
-export function checkAccess(user) {
+export function checkAccess(user, { effectiveRole } = {}) {
   if (!user) {
     return {
       canAccessOnDemand: false,
@@ -72,7 +78,8 @@ export function checkAccess(user) {
   }
 
   const status = user.status;
-  const userRole = user.role;
+  // Use effectiveRole when provided (context-aware); fall back to stored role.
+  const userRole = effectiveRole ?? user.role;
 
   // Superadmins have full access regardless of status (except ARCHIVED)
   if (userRole === 'super_admin' && status !== 'ARCHIVED') {
@@ -85,8 +92,11 @@ export function checkAccess(user) {
     };
   }
 
-  // Summit Stats Team Challenge club managers are authenticated platform users, but they should
-  // not inherit generic training/documents/admin surfaces from ACTIVE_EMPLOYEE.
+  // Summit Stats club context: club_manager effectiveRole means the user is operating as a club
+  // leader inside an affiliation agency. Give dashboard access only — no work-tenant surfaces.
+  // This also correctly handles a work-role user whose effectiveRole resolved to 'manager'
+  // via inferLegacyClubRole — the club_role values ('member','manager','assistant_manager') fall
+  // through to the status-based switch below, which grants them normal employee access.
   if (userRole === 'club_manager' && status !== 'ARCHIVED') {
     return {
       canAccessOnDemand: false,

@@ -32,6 +32,23 @@ import HiringJobDescription from '../models/HiringJobDescription.model.js';
 import GuardianInsuranceProfile from '../models/GuardianInsuranceProfile.model.js';
 import GuardianPaymentCard from '../models/GuardianPaymentCard.model.js';
 import QuickBooksPaymentsService from '../services/quickbooksPayments.service.js';
+import StripePaymentsService, { isStripeConfigured, getStripePublishableKey } from '../services/stripePayments.service.js';
+
+/** Fetch the Stripe Connect account ID for an agency (null if not connected). */
+async function getAgencyStripeConnectAccountId(agencyId) {
+  if (!agencyId) return null;
+  const [rows] = await pool.execute(
+    `SELECT stripe_connect_account_id, stripe_connect_status
+     FROM agency_billing_accounts WHERE agency_id = ? LIMIT 1`,
+    [agencyId]
+  );
+  const row = rows[0];
+  // Only return the account if it's fully active (charges_enabled)
+  if (row?.stripe_connect_status === 'active' && row?.stripe_connect_account_id) {
+    return row.stripe_connect_account_id;
+  }
+  return null;
+}
 import HiringProfile from '../models/HiringProfile.model.js';
 import HiringResumeParse from '../models/HiringResumeParse.model.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
@@ -6058,9 +6075,132 @@ export const saveInsuranceCardPhotos = async (req, res, next) => {
 };
 
 /**
+ * GET /:publicKey/stripe-config
+ * Returns the Stripe publishable key + connected account ID so the frontend
+ * can initialize Stripe.js scoped to the agency's own Stripe account.
+ * Safe to expose — publishable keys and account IDs are client-side values.
+ */
+export const getStripeConfig = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link?.is_active) return res.status(404).json({ error: { message: 'Intake link not found' } });
+
+    const publishableKey = getStripePublishableKey();
+    if (!publishableKey) {
+      return res.json({ stripeEnabled: false, publishableKey: null, connectedAccountId: null });
+    }
+
+    // Resolve the agency for this intake link
+    let agencyId = Number(link?.agency_id || 0) || null;
+    if (!agencyId && link?.organization_id) {
+      const scope = String(link?.scope_type || '').toLowerCase();
+      if (scope === 'school') agencyId = await AgencySchool.getActiveAgencyIdForSchool(link.organization_id);
+      if (!agencyId) agencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(link.organization_id);
+      if (!agencyId) agencyId = Number(link.organization_id || 0) || null;
+    }
+
+    const connectedAccountId = agencyId ? await getAgencyStripeConnectAccountId(agencyId) : null;
+
+    res.json({
+      stripeEnabled: !!connectedAccountId,
+      publishableKey,
+      connectedAccountId
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /:publicKey/:submissionId/stripe-setup-intent
+ * Creates a Stripe SetupIntent so the frontend can securely collect card details
+ * via Stripe Elements. No raw card data ever touches our server.
+ */
+export const createStripeSetupIntent = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const submissionId = parseInt(req.params.submissionId, 10);
+    if (!submissionId) return res.status(400).json({ error: { message: 'submissionId is required' } });
+
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link?.is_active) return res.status(404).json({ error: { message: 'Intake link not found' } });
+
+    const submission = await IntakeSubmission.findById(submissionId);
+    if (!submission || submission.intake_link_id !== link.id) {
+      return res.status(404).json({ error: { message: 'Submission not found' } });
+    }
+
+    // Resolve guardian user
+    const intakeData = (() => {
+      const raw = submission.intake_data;
+      if (!raw) return {};
+      if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return {}; } }
+      return (raw && typeof raw === 'object') ? raw : {};
+    })();
+    const signerEmail = String(intakeData?.signerInfo?.email || submission.signer_email || '').trim().toLowerCase();
+    let guardianUserId = submission.guardian_user_id || null;
+    let guardianEmail = signerEmail || null;
+    let guardianName = null;
+    if (!guardianUserId && signerEmail) {
+      const userRow = await User.findByEmail(signerEmail);
+      guardianUserId = userRow?.id || null;
+      guardianName = userRow ? `${userRow.first_name || ''} ${userRow.last_name || ''}`.trim() || null : null;
+    }
+    if (!guardianUserId) {
+      return res.status(400).json({
+        error: { message: 'Guardian account not yet established. Please complete the earlier steps first.' }
+      });
+    }
+
+    let agencyId = Number(link?.agency_id || 0) || null;
+    if (!agencyId && link?.organization_id) {
+      const scope = String(link?.scope_type || '').toLowerCase();
+      if (scope === 'school') agencyId = await AgencySchool.getActiveAgencyIdForSchool(link.organization_id);
+      if (!agencyId) agencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(link.organization_id);
+      if (!agencyId) agencyId = Number(link.organization_id || 0) || null;
+    }
+
+    const connectedAccountId = await getAgencyStripeConnectAccountId(agencyId);
+    if (!connectedAccountId) {
+      return res.status(400).json({
+        error: { message: 'This agency has not connected their Stripe account yet. Contact the organization to complete payment setup.' }
+      });
+    }
+
+    const customer = await StripePaymentsService.ensureCustomer({
+      guardianUserId,
+      agencyId,
+      email: guardianEmail,
+      name: guardianName,
+      connectedAccountId
+    });
+
+    const setupIntent = await StripePaymentsService.createSetupIntent({
+      customerId: customer.id,
+      connectedAccountId
+    });
+
+    res.json({
+      clientSecret: setupIntent.client_secret,
+      customerId: customer.id,
+      connectedAccountId
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * POST /:publicKey/:submissionId/payment-card
- * Tokenize and store a guardian's credit card via QuickBooks Payments.
- * Requires the agency to have QuickBooks Payments enabled.
+ * Attach a confirmed Stripe PaymentMethod (or fall back to QuickBooks Payments).
+ *
+ * Stripe flow (preferred):
+ *   Frontend sends { stripePaymentMethodId, stripeCustomerId, autoCharge }
+ *   — raw card numbers never reach this server.
+ *
+ * QB Payments fallback (legacy):
+ *   Frontend sends { card: { number, expMonth, expYear, cvc }, autoCharge }
  */
 export const saveGuardianPaymentCard = async (req, res, next) => {
   try {
@@ -6076,11 +6216,6 @@ export const saveGuardianPaymentCard = async (req, res, next) => {
     const submission = await IntakeSubmission.findById(submissionId);
     if (!submission || submission.intake_link_id !== link.id) {
       return res.status(404).json({ error: { message: 'Submission not found' } });
-    }
-
-    const cardPayload = req.body?.card;
-    if (!cardPayload?.number || !cardPayload?.expMonth || !cardPayload?.expYear || !cardPayload?.cvc) {
-      return res.status(400).json({ error: { message: 'Complete card details are required' } });
     }
 
     let agencyId = Number(link?.agency_id || 0) || null;
@@ -6105,11 +6240,7 @@ export const saveGuardianPaymentCard = async (req, res, next) => {
       const raw = submission.intake_data;
       if (!raw) return {};
       if (typeof raw === 'string') {
-        try {
-          return JSON.parse(raw);
-        } catch {
-          return {};
-        }
+        try { return JSON.parse(raw); } catch { return {}; }
       }
       return (raw && typeof raw === 'object') ? raw : {};
     })();
@@ -6119,14 +6250,64 @@ export const saveGuardianPaymentCard = async (req, res, next) => {
       const userRow = await User.findByEmail(signerEmail);
       guardianUserId = userRow?.id || null;
     }
-
     if (!guardianUserId) {
       return res.status(400).json({
         error: { message: 'Guardian account not yet established. Please complete the earlier steps first.' }
       });
     }
 
-    // Create token + store card in QuickBooks Payments.
+    const autoCharge = req.body?.autoCharge === true || req.body?.autoCharge === 'true';
+    const stripePaymentMethodId = String(req.body?.stripePaymentMethodId || '').trim() || null;
+    const stripeCustomerId = String(req.body?.stripeCustomerId || '').trim() || null;
+
+    // ── Stripe path ────────────────────────────────────────────────────────────
+    if (stripePaymentMethodId && stripeCustomerId) {
+      const connectedAccountId = await getAgencyStripeConnectAccountId(agencyId);
+      let pm;
+      try {
+        pm = await StripePaymentsService.attachPaymentMethod({
+          customerId: stripeCustomerId,
+          paymentMethodId: stripePaymentMethodId,
+          connectedAccountId
+        });
+      } catch (stripeErr) {
+        const msg = stripeErr?.message || 'Card could not be saved';
+        return res.status(422).json({ error: { message: `Card declined or invalid: ${msg}` } });
+      }
+
+      const cardDetails = pm.card || {};
+      const last4 = String(cardDetails.last4 || '');
+      const brand = String(cardDetails.brand || 'Card');
+      const expMonth = cardDetails.exp_month ? String(cardDetails.exp_month).padStart(2, '0') : null;
+      const expYear = cardDetails.exp_year ? String(cardDetails.exp_year) : null;
+
+      await GuardianPaymentCard.create({
+        guardianUserId,
+        agencyId,
+        paymentProvider: 'STRIPE',
+        stripeCustomerId,
+        stripePaymentMethodId: stripePaymentMethodId,
+        qbPaymentCustomerId: null,
+        qbCardId: null,
+        cardBrand: brand,
+        cardLast4: last4,
+        cardExpMonth: expMonth,
+        cardExpYear: expYear,
+        cardholderName: pm.billing_details?.name || null,
+        autoCharge,
+        isDefault: true,
+        intakeSubmissionId: submissionId
+      });
+
+      return res.json({ success: true, last4, brand, stripePaymentMethodId, autoCharge });
+    }
+
+    // ── QuickBooks Payments fallback ───────────────────────────────────────────
+    const cardPayload = req.body?.card;
+    if (!cardPayload?.number || !cardPayload?.expMonth || !cardPayload?.expYear || !cardPayload?.cvc) {
+      return res.status(400).json({ error: { message: 'Complete card details are required' } });
+    }
+
     let qbResult;
     try {
       qbResult = await QuickBooksPaymentsService.createCard({
@@ -6151,11 +6332,11 @@ export const saveGuardianPaymentCard = async (req, res, next) => {
     const cardObj = qbResult.card || {};
     const last4 = String(cardObj.last4 || cardPayload.number.replace(/[^\d]/g, '').slice(-4) || '');
     const brand = String(cardObj.cardType || cardObj.brand || 'Card');
-    const autoCharge = req.body?.autoCharge === true || req.body?.autoCharge === 'true';
 
     await GuardianPaymentCard.create({
       guardianUserId,
       agencyId,
+      paymentProvider: 'QUICKBOOKS_PAYMENTS',
       qbPaymentCustomerId: qbResult.customerId || null,
       qbCardId: cardObj.id,
       cardBrand: brand,

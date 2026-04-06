@@ -1058,6 +1058,28 @@
             <small v-else-if="userForm.role === 'admin' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
             <small v-else-if="userForm.role === 'support' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the staff role</small>
           </div>
+
+          <!-- Work Role: only visible for club_manager users. Sets the role they use when
+               operating in a work-tenant (non-affiliation) agency context. -->
+          <div v-if="userForm.role === 'club_manager'" class="form-group">
+            <label>Work Role</label>
+            <select v-model="userForm.work_role">
+              <option value="">— same as Club Manager —</option>
+              <option value="provider">Provider</option>
+              <option value="supervisor">Supervisor</option>
+              <option value="facilitator">Facilitator</option>
+              <option value="intern">Intern</option>
+              <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
+              <option value="provider_plus">Provider Plus</option>
+              <option value="staff">Staff</option>
+              <option value="school_staff">School Staff</option>
+              <option value="admin">Admin</option>
+            </select>
+            <small class="form-help">
+              This user manages a club (Club Manager role). Their <strong>Work Role</strong> determines what they can access when they switch to a regular work-tenant agency via the org dropdown. Leave blank to default to Provider.
+            </small>
+          </div>
+
           <div v-if="userForm.role === 'provider' || userForm.role === 'admin' || userForm.role === 'super_admin' || userForm.role === 'clinical_practice_assistant' || userForm.role === 'provider_plus'" class="form-group">
             <label class="toggle-label">
               <span>Supervisor Privileges</span>
@@ -2465,6 +2487,7 @@ const editUser = async (user) => {
     workPhone: user.work_phone || '',
     workPhoneExtension: user.work_phone_extension || '',
     role: user.role,
+    work_role: user.work_role || '',
     hasSupervisorPrivileges: user.has_supervisor_privileges === true || user.has_supervisor_privileges === 1 || user.has_supervisor_privileges === '1' || false,
     agencyIds: [],
     onboardingPackageId: '',
@@ -2569,6 +2592,11 @@ const saveUser = async () => {
         workPhoneExtension: userForm.value.workPhoneExtension,
         role: userForm.value.role
       };
+
+      // Persist work_role for club_manager users so they can access work-tenant features.
+      if (userForm.value.role === 'club_manager') {
+        updateData.work_role = userForm.value.work_role || null;
+      }
       
       if (canManageLoginAliasesForEditingUser.value) {
         updateData.loginEmailAliases = (userForm.value.loginEmailAliases || []).map(e => String(e || '').trim().toLowerCase()).filter(Boolean);

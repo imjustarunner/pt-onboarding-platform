@@ -1533,6 +1533,43 @@ export const deleteUser = async (req, res, next) => {
   }
 };
 
+export const deleteMe = async (req, res, next) => {
+  try {
+    const user = req.user;
+    if (!user?.id) {
+      return res.status(401).json({ error: { message: 'Authentication required' } });
+    }
+
+    const protectedRoles = ['admin', 'super_admin'];
+    if (protectedRoles.includes(String(user.role || '').toLowerCase())) {
+      return res.status(403).json({
+        error: { message: 'Administrator accounts cannot be self-deleted. Contact your system administrator.' }
+      });
+    }
+
+    const { confirmPhrase } = req.body;
+    if (String(confirmPhrase || '').trim() !== 'DELETE') {
+      return res.status(400).json({
+        error: { message: 'Confirmation phrase is required. Type DELETE to confirm.' }
+      });
+    }
+
+    const pool = (await import('../config/database.js')).default;
+    await pool.execute(
+      `UPDATE users SET status = 'ARCHIVED', is_archived = TRUE, archived_at = NOW() WHERE id = ?`,
+      [user.id]
+    );
+
+    const config = (await import('../config/index.js')).default;
+    const clearCookieOptions = config.authCookie.clear();
+    res.clearCookie('authToken', clearCookieOptions);
+
+    res.json({ message: 'Your account has been deleted.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getArchivedUsers = async (req, res, next) => {
   try {
     // Get selected agency ID from query params (if user selected a specific agency)
@@ -1935,7 +1972,8 @@ export const updateUser = async (req, res, next) => {
       hasHiringAccess,
       hasMedicalRecordsReleaseAccess,
       externalBusyIcsUrl,
-      providerStartDate
+      providerStartDate,
+      work_role: workRoleRaw
     } = req.body;
     const loginEmailAliases = req.body?.loginEmailAliases;
 
@@ -2074,6 +2112,20 @@ export const updateUser = async (req, res, next) => {
 
     // Build update object
     const updateData = { firstName, lastName, role };
+
+    // work_role: for club_manager users, stores the role they use in a work-tenant context.
+    // Only admins/super_admins/support can set this field.
+    if (workRoleRaw !== undefined) {
+      if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+        return res.status(403).json({ error: { message: 'Only admins, super admins, or support can change work_role' } });
+      }
+      const validWorkRoles = ['admin', 'assistant_admin', 'supervisor', 'facilitator', 'intern', 'support', 'staff', 'provider', 'school_staff', 'client_guardian', 'clinical_practice_assistant', 'provider_plus'];
+      const normalizedWorkRole = workRoleRaw ? String(workRoleRaw).trim().toLowerCase() : null;
+      if (normalizedWorkRole && !validWorkRoles.includes(normalizedWorkRole)) {
+        return res.status(400).json({ error: { message: `Invalid work_role. Must be one of: ${validWorkRoles.join(', ')}` } });
+      }
+      updateData.work_role = normalizedWorkRole;
+    }
 
     // Login email updates (does NOT change password).
     const nextLoginEmailRaw = (loginEmail !== undefined ? loginEmail : email);

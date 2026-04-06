@@ -848,11 +848,136 @@
         </div>
       </div>
     </section>
+
+    <!-- Danger Zone -->
+    <section class="preferences-section danger-zone-section">
+      <div class="section-header">
+        <h2 class="danger-zone-title">Danger Zone</h2>
+        <p class="section-description">These actions are permanent or have significant consequences. Proceed carefully.</p>
+      </div>
+      <div class="section-content">
+        <div class="danger-zone-card">
+
+          <!-- Start a New Club -->
+          <div class="danger-zone-item">
+            <div class="danger-zone-item-info">
+              <strong>Start a New Club</strong>
+              <p>Create and manage your own club. 3 months free, then subject to future platform fees.</p>
+            </div>
+            <button type="button" class="btn-danger-outline" @click="startClubStep = 1">Start a New Club</button>
+          </div>
+
+          <div class="danger-zone-divider"></div>
+
+          <!-- Delete My Account -->
+          <div class="danger-zone-item">
+            <div class="danger-zone-item-info">
+              <strong>Delete My Account</strong>
+              <p>Permanently remove your account and all associated data. This cannot be undone.</p>
+            </div>
+            <button type="button" class="btn-danger" @click="deleteAccountStep = 1">Delete My Account</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Start a New Club Modal -->
+    <div v-if="startClubStep > 0" class="modal-backdrop" @click.self="startClubStep = 0; startClubError = ''">
+      <div class="modal-box">
+        <!-- Step 1: Info + form -->
+        <div v-if="startClubStep === 1">
+          <h2>Start a New Club</h2>
+          <p class="modal-body-text">
+            As the founder, you become the <strong>club manager</strong> of the new club.
+            All new clubs begin with <strong>3 months of free, unlimited access</strong>.
+            After that, future platform fees may apply — we will communicate any changes well in advance.
+          </p>
+          <div class="form-group-modal">
+            <label>Club name <span class="required-star">*</span></label>
+            <input v-model="startClubForm.name" type="text" placeholder="Peak City Run Club" />
+          </div>
+          <div class="form-row-modal">
+            <div class="form-group-modal">
+              <label>City</label>
+              <input v-model="startClubForm.city" type="text" placeholder="Denver" />
+            </div>
+            <div class="form-group-modal">
+              <label>State</label>
+              <input v-model="startClubForm.state" type="text" maxlength="2" placeholder="CO" />
+            </div>
+          </div>
+          <div class="form-group-modal">
+            <label>Who is this for? (optional)</label>
+            <textarea v-model="startClubForm.purpose" rows="2" placeholder="Describe your community or training style"></textarea>
+          </div>
+          <div v-if="startClubError" class="modal-error">{{ startClubError }}</div>
+          <div class="modal-actions">
+            <button type="button" class="btn-neutral" @click="startClubStep = 0; startClubError = ''">Cancel</button>
+            <button type="button" class="btn-danger-outline" @click="startClubStep = 2" :disabled="!startClubForm.name.trim()">Continue</button>
+          </div>
+        </div>
+
+        <!-- Step 2: Final confirm -->
+        <div v-if="startClubStep === 2">
+          <h2>Confirm Club Creation</h2>
+          <p class="modal-body-text">You are about to create <strong>{{ startClubForm.name }}</strong> and become its club manager. Type <code>START</code> below to confirm.</p>
+          <div class="form-group-modal">
+            <input v-model="startClubConfirm" type="text" placeholder="Type START" />
+          </div>
+          <div v-if="startClubError" class="modal-error">{{ startClubError }}</div>
+          <div class="modal-actions">
+            <button type="button" class="btn-neutral" @click="startClubStep = 1">Back</button>
+            <button type="button" class="btn-danger-outline" :disabled="startClubConfirm !== 'START' || startClubSubmitting" @click="submitStartClub">
+              {{ startClubSubmitting ? 'Creating…' : 'Create Club' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete My Account Modal -->
+    <div v-if="deleteAccountStep > 0" class="modal-backdrop" @click.self="deleteAccountStep = 0; deleteAccountError = ''">
+      <div class="modal-box">
+        <!-- Step 1: Warning -->
+        <div v-if="deleteAccountStep === 1">
+          <h2>Delete Your Account</h2>
+          <p class="modal-body-text"><strong>This action is permanent and cannot be undone.</strong> Deleting your account will:</p>
+          <ul class="modal-list">
+            <li>Remove your access to all tenants and clubs</li>
+            <li>Archive all your data — workouts, records, memberships</li>
+            <li>Sign you out immediately</li>
+          </ul>
+          <p class="modal-body-text">If you manage a club, please transfer ownership or contact support before deleting.</p>
+          <div class="modal-actions">
+            <button type="button" class="btn-neutral" @click="deleteAccountStep = 0">Cancel</button>
+            <button type="button" class="btn-danger" @click="deleteAccountStep = 2">I understand, continue</button>
+          </div>
+        </div>
+
+        <!-- Step 2: Confirm phrase -->
+        <div v-if="deleteAccountStep === 2">
+          <h2>Final Confirmation</h2>
+          <p class="modal-body-text">Type <code>DELETE</code> below to permanently delete your account.</p>
+          <div class="form-group-modal">
+            <input v-model="deleteAccountConfirm" type="text" placeholder="Type DELETE" />
+          </div>
+          <div v-if="deleteAccountError" class="modal-error">{{ deleteAccountError }}</div>
+          <div class="modal-actions">
+            <button type="button" class="btn-neutral" @click="deleteAccountStep = 1">Back</button>
+            <button type="button" class="btn-danger" :disabled="deleteAccountConfirm !== 'DELETE' || deleteAccountSubmitting" @click="submitDeleteAccount">
+              {{ deleteAccountSubmitting ? 'Deleting…' : 'Delete My Account' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useUserPreferencesStore } from '../store/userPreferences';
 import api from '../services/api';
@@ -1467,6 +1592,61 @@ const identityOrganizations = computed(() => {
 });
 
 onMounted(load);
+
+// --- Danger Zone: Start a New Club ---
+const router = useRouter();
+const startClubStep = ref(0);
+const startClubConfirm = ref('');
+const startClubSubmitting = ref(false);
+const startClubError = ref('');
+const startClubForm = reactive({ name: '', city: '', state: '', purpose: '' });
+
+const submitStartClub = async () => {
+  startClubError.value = '';
+  startClubSubmitting.value = true;
+  try {
+    const { data } = await api.post('/summit-stats/clubs', {
+      name: startClubForm.name.trim(),
+      city: startClubForm.city.trim() || undefined,
+      state: startClubForm.state.trim().toUpperCase() || undefined
+    });
+    startClubStep.value = 0;
+    startClubConfirm.value = '';
+    startClubForm.name = '';
+    startClubForm.city = '';
+    startClubForm.state = '';
+    startClubForm.purpose = '';
+    if (data?.slug) {
+      router.push(`/${data.slug}/club/seasons`);
+    }
+  } catch (e) {
+    startClubError.value = e?.response?.data?.error?.message || 'Failed to create your club. Please try again.';
+    startClubStep.value = 1;
+  } finally {
+    startClubSubmitting.value = false;
+  }
+};
+
+// --- Danger Zone: Delete My Account ---
+const deleteAccountStep = ref(0);
+const deleteAccountConfirm = ref('');
+const deleteAccountSubmitting = ref(false);
+const deleteAccountError = ref('');
+
+const submitDeleteAccount = async () => {
+  deleteAccountError.value = '';
+  deleteAccountSubmitting.value = true;
+  try {
+    await api.delete('/users/me', { data: { confirmPhrase: 'DELETE' } });
+    authStore.logout?.();
+    localStorage.clear();
+    router.push('/login');
+  } catch (e) {
+    deleteAccountError.value = e?.response?.data?.error?.message || 'Failed to delete account. Please try again.';
+  } finally {
+    deleteAccountSubmitting.value = false;
+  }
+};
 </script>
 
 <style scoped>
@@ -1685,5 +1865,158 @@ input, select {
 .kv:last-child { border-bottom: none; }
 .k { color: var(--text-secondary); font-size: 13px; }
 .v { color: var(--text-primary); }
+
+/* Danger Zone */
+.danger-zone-section .section-header h2.danger-zone-title {
+  color: #b91c1c;
+}
+.danger-zone-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.danger-zone-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  flex-wrap: wrap;
+}
+.danger-zone-item-info strong {
+  display: block;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+.danger-zone-item-info p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.danger-zone-divider {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 0;
+}
+.btn-danger {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-danger:hover:not(:disabled) { background: #b91c1c; }
+.btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-danger-outline {
+  padding: 8px 16px;
+  border: 1.5px solid #dc2626;
+  border-radius: 6px;
+  background: transparent;
+  color: #dc2626;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-danger-outline:hover:not(:disabled) { background: #fef2f2; }
+.btn-danger-outline:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-neutral {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-alt, #f9fafb);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn-neutral:hover { background: var(--border); }
+
+/* Modals */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+  padding: 16px;
+}
+.modal-box {
+  background: var(--bg, #fff);
+  border-radius: 12px;
+  padding: 28px 32px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+}
+.modal-box h2 {
+  margin: 0 0 12px 0;
+  font-size: 1.2rem;
+  color: var(--text-primary);
+}
+.modal-body-text {
+  margin: 0 0 14px 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.modal-list {
+  margin: 0 0 14px 16px;
+  padding: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.8;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+.form-group-modal {
+  margin-bottom: 12px;
+}
+.form-group-modal label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: var(--text-primary);
+}
+.form-group-modal input,
+.form-group-modal textarea {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+.form-group-modal textarea {
+  resize: vertical;
+}
+.form-row-modal {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.required-star {
+  color: #dc2626;
+}
+.modal-error {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
 </style>
 

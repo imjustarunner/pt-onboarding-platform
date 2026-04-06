@@ -4,7 +4,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import { getUserCapabilities } from '../utils/capabilities.js';
 import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
-import { canUserManageClub } from '../utils/sscClubAccess.js';
+import { canUserManageClub, getUserClubMembership, inferLegacyClubRole } from '../utils/sscClubAccess.js';
 
 /** Normalize role strings for authorization (JWT quirks / legacy variants). */
 function normalizeAuthRole(role) {
@@ -16,6 +16,48 @@ function normalizeAuthRole(role) {
 function isBackofficeAdminRole(role) {
   const r = normalizeAuthRole(role);
   return r === 'admin' || r === 'super_admin' || r === 'support';
+}
+
+/**
+ * Resolves req.user.effectiveRole based on the X-Agency-Id request header.
+ *
+ * - Affiliation agency (club context): effectiveRole = user_agencies.club_role,
+ *   falling back to inferLegacyClubRole(users.role).
+ * - Work agency context: effectiveRole = users.work_role (if club_manager), else users.role.
+ * - No header / no user id: effectiveRole = users.role (unchanged behaviour).
+ *
+ * Errors are swallowed so a DB hiccup never blocks a request.
+ */
+async function resolveEffectiveRole(req) {
+  if (!req.user) return;
+
+  const agencyIdHeader = req.headers['x-agency-id'];
+  const agencyId = agencyIdHeader ? parseInt(agencyIdHeader, 10) : NaN;
+
+  if (!agencyId || isNaN(agencyId) || !req.user.id) {
+    req.user.effectiveRole = req.user.role;
+    return;
+  }
+
+  try {
+    const agency = await Agency.findById(agencyId);
+    const orgType = String(agency?.organization_type || '').toLowerCase();
+
+    if (orgType === 'affiliation') {
+      const membership = await getUserClubMembership(req.user.id, agencyId);
+      req.user.effectiveRole = membership?.club_role ?? inferLegacyClubRole(req.user.role);
+    } else {
+      if (req.user.role === 'club_manager') {
+        const dbUser = await User.findById(req.user.id);
+        req.user.effectiveRole = dbUser?.work_role ?? 'provider';
+      } else {
+        req.user.effectiveRole = req.user.role;
+      }
+    }
+  } catch (err) {
+    console.warn('[auth] Could not resolve effectiveRole:', err.message);
+    req.user.effectiveRole = req.user.role;
+  }
 }
 
 /** Platform admins or Summit club managers (e.g. icon upload scoped to a club). */
@@ -32,7 +74,7 @@ export const requireBackofficeAdminOrClubManager = (req, res, next) => {
   return res.status(403).json({ error: { message: 'Admin access required' } });
 };
 
-export const authenticate = (req, res, next) => {
+export const authenticate = async (req, res, next) => {
   try {
     // Public endpoints (no auth) - never block these with session auth.
     // Note: Some environments may inadvertently wrap `/api/public/*` with `authenticate`.
@@ -82,14 +124,15 @@ export const authenticate = (req, res, next) => {
 
     const decoded = jwt.verify(token, config.jwt.secret);
     
-    // Handle approved employee tokens
+    // Handle approved employee tokens — agency context already embedded in JWT claims.
     if (decoded.type === 'approved_employee') {
       req.user = {
         email: decoded.email,
         role: 'approved_employee',
+        effectiveRole: 'approved_employee',
         type: decoded.type || 'approved_employee',
-        agencyId: decoded.agencyId, // Default agency
-        agencyIds: decoded.agencyIds || (decoded.agencyId ? [decoded.agencyId] : []) // All agencies
+        agencyId: decoded.agencyId,
+        agencyIds: decoded.agencyIds || (decoded.agencyId ? [decoded.agencyId] : [])
       };
       return next();
     }
@@ -110,6 +153,7 @@ export const authenticate = (req, res, next) => {
         demoMode: decoded.demoMode === true,
         demoRealRole: decoded.demoRealRole || null
       };
+      await resolveEffectiveRole(req);
       return next();
     }
 
@@ -117,7 +161,7 @@ export const authenticate = (req, res, next) => {
     // The token contains email field which may be username or email
     req.user = {
       id: decoded.id,
-      email: decoded.email, // This may be username or email
+      email: decoded.email,
       role: decoded.role,
       type: decoded.type || 'regular',
       agencyId: decoded.agencyId,
@@ -125,6 +169,7 @@ export const authenticate = (req, res, next) => {
       demoMode: decoded.demoMode === true,
       demoRealRole: decoded.demoRealRole || null
     };
+    await resolveEffectiveRole(req);
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -343,7 +388,7 @@ export const requireCapability = (required) => {
         userForCaps = await User.findById(req.user.id);
       }
 
-      let caps = getUserCapabilities(userForCaps);
+      let caps = getUserCapabilities(userForCaps, { effectiveRole: req.user?.effectiveRole });
 
       // canManagePayroll, canAccessBudgetManagement, canManageCredentialing require async resolution from user_agencies
       const needsPayrollCaps = requiredList.some((k) => k === 'canManagePayroll' || k === 'canAccessBudgetManagement');

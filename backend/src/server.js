@@ -154,6 +154,7 @@ import billingPolicyRoutes from './routes/billingPolicy.routes.js';
 import companyEventClientsRoutes from './routes/companyEventClients.routes.js';
 import companyEventsPublicRoutes from './routes/companyEventsPublic.routes.js';
 import surveyRoutes from './routes/survey.routes.js';
+import stripeWebhookRoutes from './routes/stripeWebhook.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -197,13 +198,19 @@ app.use(cors({
   origin: corsOriginFn,
   credentials: true,
   // Explicitly set allowed headers for mobile browser compatibility
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Agency-Id'],
   // Explicitly set exposed headers (cookies are automatically exposed)
   exposedHeaders: ['Set-Cookie'],
   // Ensure preflight requests work correctly on mobile
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']
 }));
 app.use(cookieParser());
+
+// Stripe webhooks MUST be mounted before express.json() so they receive the raw body.
+// Stripe's signature verification requires the exact raw bytes.
+// Handles both /api/stripe/webhook (direct) and /api/stripe/connect-webhook (Connect).
+app.use('/api/stripe', stripeWebhookRoutes);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

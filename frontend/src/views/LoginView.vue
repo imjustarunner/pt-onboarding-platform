@@ -335,7 +335,7 @@
               <span class="help-separator">|</span>
               <router-link :to="clubsPath" class="help-link">Browse Clubs</router-link>
               <span class="help-separator">|</span>
-              <router-link :to="clubManagerSignupPath" class="help-link">Create Club Manager Account</router-link>
+              <router-link :to="clubManagerSignupPath" class="help-link">Start My Club</router-link>
             </template>
             <template v-else-if="showClubLinks && isAppLike">
               <span class="help-separator">|</span>
@@ -347,7 +347,7 @@
           <div v-if="showClubLinks && isAppLike && showAppMoreLinks" class="app-login-links">
             <router-link :to="participantSignupPath" class="app-login-link-btn">Sign up</router-link>
             <router-link :to="clubsPath" class="app-login-link-btn">Browse Clubs</router-link>
-            <router-link :to="clubManagerSignupPath" class="app-login-link-btn app-login-link-btn--secondary">Create Club Manager Account</router-link>
+            <router-link :to="clubManagerSignupPath" class="app-login-link-btn app-login-link-btn--secondary">Start My Club</router-link>
           </div>
         </div>
         

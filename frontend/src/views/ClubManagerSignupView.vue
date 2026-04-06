@@ -4,15 +4,20 @@
       <div v-if="displayLogoUrl && !logoError" class="signup-logo">
         <img :src="displayLogoUrl" alt="Logo" class="logo-image" @error="handleLogoError" />
       </div>
-      <h1>Start Your Club</h1>
+      <h1>Start My Club</h1>
       <p class="subtitle">{{ displaySubtitle }}</p>
 
       <div class="expectation-card">
         <h2>Before you start</h2>
         <ul>
-          <li>You’re creating a free {{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }} account first, not an instant all-access admin account.</li>
-          <li>Club-management access is only for the club you start here.</li>
-          <li>We’ll guide you into club setup after your email is verified.</li>
+          <li>You are creating a free {{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }} account first, not an instant all-access admin account.</li>
+          <li>Club-management access is only for the club you start here. As the founder you become the club manager.</li>
+          <li>We will guide you into club setup after your email is verified.</li>
+          <li>
+            Already have an account with us?
+            <router-link :to="loginPath">Log in</router-link>
+            and go to your SSC dashboard — you can start a club directly from your account settings.
+          </li>
         </ul>
       </div>
 
@@ -22,7 +27,11 @@
       </div>
 
       <form v-else @submit.prevent="submit" class="signup-form">
-        <div v-if="error" class="error">{{ error }}</div>
+        <div v-if="accountExists" class="account-exists-callout">
+          <strong>You already have an account.</strong>
+          <router-link :to="loginPath">Log in here</router-link> to start your club from your dashboard.
+        </div>
+        <div v-else-if="error" class="error">{{ error }}</div>
         <!-- reCAPTCHA placeholder: public-facing club manager signup - add verifyRecaptchaV3() before submit when ready -->
         <div class="form-group">
           <label for="email">Email</label>
@@ -65,8 +74,9 @@
           </label>
         </div>
         <button type="submit" class="btn btn-primary" :disabled="loading">
-          {{ loading ? 'Creating…' : 'Create Founder Account' }}
+          {{ loading ? 'Creating…' : 'Start My Club' }}
         </button>
+        <p class="trial-notice">All new clubs start with <strong>3 months of free, unlimited access</strong>. No credit card required.</p>
       </form>
 
       <p class="login-link">
@@ -140,9 +150,11 @@ const timelineAcknowledged = ref(false);
 const loading = ref(false);
 const error = ref('');
 const success = ref('');
+const accountExists = ref(false);
 
 const submit = async () => {
   error.value = '';
+  accountExists.value = false;
   if (!timelineAcknowledged.value) {
     error.value = 'Please confirm that you understand club setup includes a review/setup timeline.';
     return;
@@ -165,7 +177,11 @@ const submit = async () => {
       success.value += `\n\nVerification link (if email not configured): ${r.data.verifyUrl}`;
     }
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Signup failed. Please try again.';
+    if (e?.response?.status === 409 && e?.response?.data?.error?.code === 'ACCOUNT_EXISTS') {
+      accountExists.value = true;
+    } else {
+      error.value = e?.response?.data?.error?.message || 'Signup failed. Please try again.';
+    }
   } finally {
     loading.value = false;
   }
@@ -224,6 +240,9 @@ const submit = async () => {
 }
 .expectation-card li + li {
   margin-top: 6px;
+}
+.expectation-card a {
+  color: var(--primary, #0066cc);
 }
 .signup-form .form-group {
   margin-bottom: 16px;
@@ -288,6 +307,27 @@ const submit = async () => {
   color: #c62828;
   border-radius: 6px;
   font-size: 0.9em;
+}
+.account-exists-callout {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: #fff8e1;
+  border: 1px solid #f9c74f;
+  border-radius: 6px;
+  font-size: 0.92em;
+  color: #5a4000;
+  line-height: 1.5;
+}
+.account-exists-callout a {
+  color: var(--primary, #0066cc);
+  font-weight: 600;
+  margin-left: 4px;
+}
+.trial-notice {
+  margin-top: 14px;
+  font-size: 0.85em;
+  color: var(--text-muted, #555);
+  text-align: center;
 }
 .success-message {
   padding: 16px 0;

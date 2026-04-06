@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import stripeConnectRoutes from './stripeConnect.routes.js';
 import { getAgencyBillingEstimate, getAgencyAddons } from '../controllers/billing.controller.js';
 import {
   disconnectPlatformQuickBooks,
@@ -85,6 +86,9 @@ router.post('/:agencyId/quickbooks/disconnect', authenticate, requireAgencyAdmin
 
 // OAuth callback from Intuit (public, verified via signed state)
 router.get('/quickbooks/callback', quickBooksOAuthCallback);
+
+// Stripe Connect per-agency routes (/:agencyId/stripe/*)
+router.use('/:agencyId/stripe', stripeConnectRoutes);
 
 export default router;
 
