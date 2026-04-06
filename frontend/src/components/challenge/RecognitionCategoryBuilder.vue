@@ -109,19 +109,50 @@
         <span class="rcb-panel-hint">Each award is given to a winner based on the rules you set.</span>
       </div>
 
-      <!-- Add from library -->
-      <div v-if="libraryAwards.length" class="rcb-library-bar">
-        <select v-model="selectedLibraryAwardId" class="rcb-select rcb-library-select">
-          <option value="">Add from library…</option>
-          <option v-for="la in libraryAwards" :key="la.id" :value="la.id">
-            {{ la.icon }} {{ la.label }}
-          </option>
-        </select>
-        <button type="button" class="rcb-confirm-btn"
-          :disabled="!selectedLibraryAwardId"
-          @click="addAwardFromLibrary(libraryAwards.find(a => String(a.id) === String(selectedLibraryAwardId)))">
-          Add
-        </button>
+      <!-- ── Import panel ─────────────────────────────────────────── -->
+      <div v-if="props.clubId" class="rcb-import-panel">
+        <!-- Row 1: Add one from club library (existing) -->
+        <div v-if="libraryAwards.length" class="rcb-library-bar">
+          <select v-model="selectedLibraryAwardId" class="rcb-select rcb-library-select">
+            <option value="">Add one from club library…</option>
+            <option v-for="la in libraryAwards" :key="la.id" :value="la.id">
+              {{ la.icon }} {{ la.label }}
+            </option>
+          </select>
+          <button type="button" class="rcb-confirm-btn"
+            :disabled="!selectedLibraryAwardId"
+            @click="addAwardFromLibrary(libraryAwards.find(a => String(a.id) === String(selectedLibraryAwardId)))">
+            Add
+          </button>
+        </div>
+
+        <!-- Row 2: Add all from tenant library -->
+        <div class="rcb-import-row">
+          <button type="button" class="rcb-import-btn"
+            :disabled="tenantAwardsLoading"
+            @click="importAllTenantAwards">
+            <span v-if="tenantAwardsLoading">Loading tenant awards…</span>
+            <span v-else-if="tenantAwardsLoaded && !tenantImportAwards.length">No tenant awards available</span>
+            <span v-else>+ Add all from tenant library <span v-if="tenantImportAwards.length">({{ tenantImportAwards.length }})</span></span>
+          </button>
+        </div>
+
+        <!-- Row 3: Copy all from a previous season -->
+        <div class="rcb-import-row">
+          <select v-model="selectedSeasonId" class="rcb-select rcb-library-select"
+            @focus="ensureSeasonsLoaded">
+            <option value="">Copy all awards from a previous season…</option>
+            <option v-for="s in previousSeasons" :key="s.id" :value="s.id">
+              {{ s.class_name || s.className || `Season ${s.id}` }}
+            </option>
+          </select>
+          <button type="button" class="rcb-confirm-btn"
+            :disabled="!selectedSeasonId || seasonImportLoading"
+            @click="importFromSeason">
+            {{ seasonImportLoading ? 'Importing…' : 'Copy all' }}
+          </button>
+        </div>
+        <div v-if="importMessage" class="rcb-import-msg" :class="{ 'rcb-import-msg--ok': importOk }">{{ importMessage }}</div>
       </div>
 
       <!-- Empty state -->
@@ -557,6 +588,103 @@ watch(awards, (list) => {
 
 // ── Library selection ─────────────────────────────────────────────
 const selectedLibraryAwardId = ref('');
+
+// ── Tenant award import ───────────────────────────────────────────
+const tenantImportAwards  = ref([]);
+const tenantAwardsLoading = ref(false);
+const tenantAwardsLoaded  = ref(false);
+const importMessage       = ref('');
+const importOk            = ref(false);
+
+async function ensureTenantAwardsLoaded() {
+  if (tenantAwardsLoaded.value || !props.clubId) return;
+  tenantAwardsLoading.value = true;
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${props.clubId}/tenant-awards`);
+    tenantImportAwards.value = Array.isArray(data?.awards) ? data.awards : [];
+    tenantAwardsLoaded.value = true;
+  } catch {
+    tenantImportAwards.value = [];
+    tenantAwardsLoaded.value = true;
+  } finally {
+    tenantAwardsLoading.value = false;
+  }
+}
+
+function importAllTenantAwards() {
+  if (!tenantAwardsLoaded.value) {
+    ensureTenantAwardsLoaded().then(() => importAllTenantAwards());
+    return;
+  }
+  if (!tenantImportAwards.value.length) {
+    importMessage.value = 'No tenant awards found.';
+    importOk.value = false;
+    return;
+  }
+  let added = 0;
+  for (const ta of tenantImportAwards.value) {
+    addAwardFromLibrary(ta);
+    added++;
+  }
+  importMessage.value = `Added ${added} award${added === 1 ? '' : 's'} from tenant library.`;
+  importOk.value = true;
+  setTimeout(() => { importMessage.value = ''; }, 4000);
+}
+
+// ── Previous season import ────────────────────────────────────────
+const previousSeasons     = ref([]);
+const seasonsLoaded       = ref(false);
+const seasonsLoading      = ref(false);
+const selectedSeasonId    = ref('');
+const seasonImportLoading = ref(false);
+
+async function ensureSeasonsLoaded() {
+  if (seasonsLoaded.value || !props.clubId || seasonsLoading.value) return;
+  seasonsLoading.value = true;
+  try {
+    const { data } = await api.get('/learning-program-classes', { params: { organizationId: props.clubId, includeArchived: true } });
+    previousSeasons.value = Array.isArray(data?.classes) ? data.classes : (Array.isArray(data) ? data : []);
+    seasonsLoaded.value = true;
+  } catch {
+    previousSeasons.value = [];
+    seasonsLoaded.value = true;
+  } finally {
+    seasonsLoading.value = false;
+  }
+}
+
+async function importFromSeason() {
+  if (!selectedSeasonId.value) return;
+  seasonImportLoading.value = true;
+  importMessage.value = '';
+  try {
+    const { data } = await api.get(`/learning-program-classes/${selectedSeasonId.value}`);
+    const rawSettings = data?.class?.season_settings_json ?? data?.season_settings_json;
+    const settings = rawSettings
+      ? (typeof rawSettings === 'string' ? JSON.parse(rawSettings) : rawSettings)
+      : {};
+    const seasonAwards = (settings?.recognition?.categories || []).filter(c => c.type === 'award' || c.type === 'standard' || c.type === 'custom');
+    if (!seasonAwards.length) {
+      importMessage.value = 'No recognition awards found in that season.';
+      importOk.value = false;
+      return;
+    }
+    let added = 0;
+    for (const sa of seasonAwards) {
+      addAwardFromLibrary(sa);
+      added++;
+    }
+    importMessage.value = `Copied ${added} award${added === 1 ? '' : 's'} from selected season.`;
+    importOk.value = true;
+    selectedSeasonId.value = '';
+    setTimeout(() => { importMessage.value = ''; }, 4000);
+  } catch {
+    importMessage.value = 'Could not load that season. Please try again.';
+    importOk.value = false;
+  } finally {
+    seasonImportLoading.value = false;
+  }
+}
 
 // ── Icon picker ───────────────────────────────────────────────────
 const iconPickerOpenId = ref(null);
@@ -1199,6 +1327,12 @@ function commitActivityType() {
 }
 
 /* ── Library bar (add from library row) ──────────────────────── */
+.rcb-import-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
 .rcb-library-bar {
   display: flex;
   align-items: center;
@@ -1207,6 +1341,42 @@ function commitActivityType() {
   background: #eff6ff;
   border: 1px solid #bfdbfe;
   border-radius: 7px;
+}
+.rcb-import-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 7px;
+}
+.rcb-import-btn {
+  flex: 1;
+  padding: 6px 12px;
+  border: 1px dashed #22c55e;
+  border-radius: 6px;
+  background: transparent;
+  color: #15803d;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.rcb-import-btn:hover:not(:disabled) {
+  background: #dcfce7;
+}
+.rcb-import-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.rcb-import-msg {
+  font-size: 0.82rem;
+  color: #b91c1c;
+  padding: 2px 4px;
+}
+.rcb-import-msg--ok {
+  color: #15803d;
 }
 .rcb-library-select {
   flex: 1;

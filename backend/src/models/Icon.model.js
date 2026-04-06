@@ -60,11 +60,23 @@ class Icon {
       params.push(filters.category);
     }
     
+    // Filter by activity_type
+    if (filters.activityType) {
+      conditions.push('i.activity_type = ?');
+      params.push(filters.activityType);
+    }
+
+    // Filter by sub_category
+    if (filters.subCategory) {
+      conditions.push('i.sub_category = ?');
+      params.push(filters.subCategory);
+    }
+
     // Filter by search term
     if (filters.search) {
-      conditions.push('(i.name LIKE ? OR i.description LIKE ?)');
+      conditions.push('(i.name LIKE ? OR i.description LIKE ? OR i.activity_type LIKE ? OR i.sub_category LIKE ?)');
       const searchTerm = `%${filters.search}%`;
-      params.push(searchTerm, searchTerm);
+      params.push(searchTerm, searchTerm, searchTerm, searchTerm);
     }
     
     if (conditions.length > 0) {
@@ -195,6 +207,8 @@ class Icon {
       mimeType,
       category,
       description,
+      activityType,
+      subCategory,
       createdByUserId,
       agencyId
     } = iconData;
@@ -259,20 +273,20 @@ class Icon {
     
     if (hasAgencyColumn) {
       query = `INSERT INTO icons 
-               (name, file_path, file_name, file_size, mime_type, category, description, created_by_user_id, agency_id, is_active)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`;
+               (name, file_path, file_name, file_size, mime_type, category, description, activity_type, sub_category, created_by_user_id, agency_id, is_active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`;
       // Ensure finalAgencyId is explicitly null (not undefined) for platform icons
       const agencyIdParam = finalAgencyId !== null && finalAgencyId !== undefined ? finalAgencyId : null;
-      params = [name, filePath, fileName, fileSize, mimeType, category || null, description || null, createdByUserId || null, agencyIdParam];
+      params = [name, filePath, fileName, fileSize, mimeType, category || null, description || null, activityType || null, subCategory || null, createdByUserId || null, agencyIdParam];
       console.log('Icon.create - SQL INSERT params array:', params);
-      console.log('Icon.create - agency_id param (index 8):', params[8], 'type:', typeof params[8], 'value:', JSON.stringify(params[8]));
+      console.log('Icon.create - agency_id param (index 10):', params[10], 'type:', typeof params[10], 'value:', JSON.stringify(params[10]));
       console.log('Icon.create - finalAgencyId:', finalAgencyId, 'agencyIdParam:', agencyIdParam);
       console.log('Icon.create - SQL query will insert agency_id as:', agencyIdParam === null ? 'NULL' : agencyIdParam);
     } else {
       query = `INSERT INTO icons 
-               (name, file_path, file_name, file_size, mime_type, category, description, created_by_user_id, is_active)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)`;
-      params = [name, filePath, fileName, fileSize, mimeType, category || null, description || null, createdByUserId || null];
+               (name, file_path, file_name, file_size, mime_type, category, description, activity_type, sub_category, created_by_user_id, is_active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`;
+      params = [name, filePath, fileName, fileSize, mimeType, category || null, description || null, activityType || null, subCategory || null, createdByUserId || null];
     }
 
     console.log('Icon.create - Executing SQL query:', query);
@@ -326,6 +340,14 @@ class Icon {
     if (iconData.description !== undefined) {
       updates.push('description = ?');
       values.push(iconData.description || null);
+    }
+    if (iconData.activityType !== undefined) {
+      updates.push('activity_type = ?');
+      values.push(iconData.activityType || null);
+    }
+    if (iconData.subCategory !== undefined) {
+      updates.push('sub_category = ?');
+      values.push(iconData.subCategory || null);
     }
     if (iconData.agencyId !== undefined && hasAgencyColumn) {
       updates.push('agency_id = ?');

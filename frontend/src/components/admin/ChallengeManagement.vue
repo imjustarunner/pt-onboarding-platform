@@ -545,6 +545,14 @@
                 <label>Treadmillpocalypse starts week</label>
                 <input v-model="challengeForm.treadmillpocalypseStartsAtWeek" type="date" />
               </div>
+              <div v-if="challengeForm.treadmillpocalypseEnabled" class="form-group">
+                <label>Treadmillpocalypse icon</label>
+                <IconSelector
+                  v-model="challengeForm.treadmillpocalypseIconId"
+                  :summitStatsClubId="managingChallenge?.organization_id || editingChallenge?.organization_id"
+                  :context="`treadmillpocalypse-${managingChallenge?.organization_id || editingChallenge?.organization_id}`"
+                />
+              </div>
             </div>
           </div>
           <div class="form-group">
@@ -864,13 +872,38 @@
           <p style="margin:4px 0 0;font-size:12px;color:var(--text-secondary);">Manage reusable awards and eligibility groups that can be selected when configuring any season.</p>
         </div>
       </div>
+      <div v-if="currentUserRole === 'super_admin'" class="tenant-write-toggle-bar">
+        <label class="tenant-write-label">
+          <input type="checkbox" v-model="tenantWriteEnabled" />
+          Temporarily enable tenant library write access for all managers
+        </label>
+        <span class="tenant-write-hint">Enable this to add/edit icons and awards at the tenant level, then disable when done.</span>
+      </div>
       <RecognitionLibraryManager
         ref="libraryManagerRef"
         :club-id="organizationId"
         :custom-field-defs="challengeCustomFields"
+        :user-role="currentUserRole"
+        :tenant-write-enabled="tenantWriteEnabled"
         @groups-updated="libraryGroups = $event"
         @awards-updated="libraryAwards = $event"
       />
+    </div>
+
+    <!-- Tenant Icon Library (super_admin only) -->
+    <div v-if="organizationId && currentUserRole === 'super_admin'" class="panel" style="margin-top: 24px;">
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div>
+          <h2 style="margin:0;font-size:1.1em;">Tenant Icon Library</h2>
+          <p style="margin:4px 0 0;font-size:12px;color:var(--text-secondary);">Upload and manage icons at the tenant level. These become available to all clubs in this tenant.</p>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="showTenantIconLibrary = !showTenantIconLibrary">
+          {{ showTenantIconLibrary ? 'Hide' : 'Manage Icons' }}
+        </button>
+      </div>
+      <div v-if="showTenantIconLibrary">
+        <IconLibraryView />
+      </div>
     </div>
 
     <!-- Member Photo Moderation -->
@@ -933,6 +966,8 @@ import { useAgencyStore } from '../../store/agency';
 import RecognitionCategoryBuilder from '../challenge/RecognitionCategoryBuilder.vue';
 import RecognitionLibraryManager from '../challenge/RecognitionLibraryManager.vue';
 import ClubCustomFields from '../club/ClubCustomFields.vue';
+import IconSelector from '../admin/IconSelector.vue';
+import IconLibraryView from '../../views/admin/IconLibraryView.vue';
 import { TIMEZONE_GROUPS } from '../../utils/timezones.js';
 import {
   agreementItemsToTextarea,
@@ -949,6 +984,9 @@ const router = useRouter();
 const route = useRoute();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const tenantWriteEnabled = ref(false);
+const showTenantIconLibrary = ref(false);
+const currentUserRole = computed(() => String(authStore.user?.role || '').toLowerCase());
 
 /** Club manager context (managed clubs list). */
 const clubContext = ref(null);
@@ -1259,6 +1297,7 @@ const challengeForm = ref({
   treadmillPhotoRequired: true,
   treadmillpocalypseEnabled: false,
   treadmillpocalypseStartsAtWeek: '',
+  treadmillpocalypseIconId: null,
   workoutModerationMode: 'treadmill_only',
   showInClubFeed: true,
   recordMetrics: []
@@ -1561,6 +1600,7 @@ const openCreateModal = () => {
     treadmillPhotoRequired: true,
     treadmillpocalypseEnabled: false,
     treadmillpocalypseStartsAtWeek: '',
+    treadmillpocalypseIconId: null,
     workoutModerationMode: 'treadmill_only',
     showInClubFeed: true,
     recordMetrics: []
@@ -1646,6 +1686,9 @@ const openEditModal = (c) => {
     treadmillPhotoRequired: treadmillSettings.photoProofRequired !== false,
     treadmillpocalypseEnabled: treadmillpocalypseSettings.enabled === true,
     treadmillpocalypseStartsAtWeek: treadmillpocalypseSettings.startsAtWeek || '',
+    treadmillpocalypseIconId: treadmillpocalypseSettings.icon
+      ? (String(treadmillpocalypseSettings.icon).startsWith('icon:') ? Number(String(treadmillpocalypseSettings.icon).slice(5)) : null)
+      : null,
     workoutModerationMode: moderationSettings.mode || 'treadmill_only',
     showInClubFeed: seasonSettings?.feedSettings?.showInClubFeed !== false,
     recordMetrics: normalizeRecordMetricSelection(recordsSettings.metrics)
@@ -1758,7 +1801,8 @@ const saveChallenge = async () => {
         },
         treadmillpocalypse: {
           enabled: challengeForm.value.treadmillpocalypseEnabled === true,
-          startsAtWeek: challengeForm.value.treadmillpocalypseStartsAtWeek || null
+          startsAtWeek: challengeForm.value.treadmillpocalypseStartsAtWeek || null,
+          icon: challengeForm.value.treadmillpocalypseIconId ? `icon:${challengeForm.value.treadmillpocalypseIconId}` : null
         },
         workoutModeration: {
           mode: challengeForm.value.workoutModerationMode || 'treadmill_only'
@@ -2327,6 +2371,30 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.tenant-write-toggle-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.tenant-write-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: #92400e;
+}
+.tenant-write-hint {
+  font-size: 0.8rem;
+  color: #b45309;
+  padding-left: 22px;
+}
 .challenge-management {
   padding: 0;
   width: 100%;

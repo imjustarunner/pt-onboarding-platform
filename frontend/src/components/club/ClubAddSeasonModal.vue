@@ -304,6 +304,14 @@
               <label>Treadmillpocalypse starts week</label>
               <input v-model="form.treadmillpocalypseStartsAtWeek" type="date" class="form-input" />
             </div>
+            <div v-if="form.treadmillpocalypseEnabled" class="form-group">
+              <label>Treadmillpocalypse icon</label>
+              <IconSelector
+                v-model="form.treadmillpocalypseIconId"
+                :summitStatsClubId="props.clubId"
+                :context="`treadmillpocalypse-${props.clubId}`"
+              />
+            </div>
           </div>
           <div class="form-group">
             <label>Record board metrics</label>
@@ -335,6 +343,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import RecognitionCategoryBuilder from '../challenge/RecognitionCategoryBuilder.vue';
+import IconSelector from '../admin/IconSelector.vue';
 import {
   agreementItemsToTextarea,
   agreementTextareaToItems,
@@ -408,6 +417,7 @@ const defaultForm = () => ({
   treadmillPhotoRequired: true,
   treadmillpocalypseEnabled: false,
   treadmillpocalypseStartsAtWeek: '',
+  treadmillpocalypseIconId: null,
   recordMetrics: []
 });
 
@@ -581,7 +591,8 @@ const submit = async () => {
       },
       treadmillpocalypse: {
         enabled: form.value.treadmillpocalypseEnabled === true,
-        startsAtWeek: form.value.treadmillpocalypseStartsAtWeek || null
+        startsAtWeek: form.value.treadmillpocalypseStartsAtWeek || null,
+        icon: form.value.treadmillpocalypseIconId ? `icon:${form.value.treadmillpocalypseIconId}` : null
       },
       workoutModeration: {
         mode: form.value.workoutModerationMode || 'treadmill_only'

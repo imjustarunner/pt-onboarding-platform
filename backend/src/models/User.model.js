@@ -2108,11 +2108,72 @@ class User {
     return this.findById(userId);
   }
 
+  /**
+   * Check whether a plaintext password matches any of the user's last N stored hashes.
+   * Returns true if the password was recently used (i.e. reuse should be rejected).
+   */
+  static async isPasswordReused(userId, plaintext, limit = 5) {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT password_hash FROM user_password_history WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
+        [userId, limit]
+      );
+      if (!rows || rows.length === 0) return false;
+      const bcrypt = (await import('bcrypt')).default;
+      for (const row of rows) {
+        if (await bcrypt.compare(plaintext, row.password_hash)) return true;
+      }
+      return false;
+    } catch {
+      // If history table doesn't exist yet, skip the check
+      return false;
+    }
+  }
+
+  /** Persist the current password hash into history, keeping only the last 5 records. */
+  static async _savePasswordHistory(userId, passwordHash) {
+    try {
+      await pool.execute(
+        'INSERT INTO user_password_history (user_id, password_hash) VALUES (?, ?)',
+        [userId, passwordHash]
+      );
+      // Prune rows older than the 5 most recent
+      await pool.execute(
+        `DELETE FROM user_password_history
+         WHERE user_id = ?
+           AND id NOT IN (
+             SELECT id FROM (
+               SELECT id FROM user_password_history
+               WHERE user_id = ?
+               ORDER BY created_at DESC
+               LIMIT 5
+             ) AS keep
+           )`,
+        [userId, userId]
+      );
+    } catch {
+      // best-effort — do not fail the password change if history table not yet migrated
+    }
+  }
+
   static async changePassword(userId, newPassword) {
     const bcrypt = (await import('bcrypt')).default;
     const passwordHash = await bcrypt.hash(newPassword, 10);
 
-    // Best-effort: set password_changed_at when column exists (used for 6-month password expiry).
+    // Persist old hash to history before overwriting
+    try {
+      const [currentRows] = await pool.execute(
+        'SELECT password_hash FROM users WHERE id = ? LIMIT 1',
+        [userId]
+      );
+      if (currentRows?.[0]?.password_hash) {
+        await this._savePasswordHistory(userId, currentRows[0].password_hash);
+      }
+    } catch {
+      // best-effort
+    }
+
+    // Best-effort: set password_changed_at when column exists (used for 120-day password expiry).
     let hasPasswordChangedAt = false;
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';

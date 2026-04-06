@@ -102,7 +102,7 @@ export const getMyTimezone = async (req, res, next) => {
 /**
  * GET /summit-stats/clubs/:id/icons
  * Returns icons for the recognition icon picker: this club, shared tenant (SSC/SSTC platform agency), and global (agency_id NULL).
- * Super admins publish tenant icons by uploading with that platform agency as `icons.agency_id`.
+ * Supports server-side search across name, description, activity_type, sub_category, and club-private details.
  */
 export const listClubIcons = async (req, res, next) => {
   try {
@@ -112,15 +112,45 @@ export const listClubIcons = async (req, res, next) => {
 
     const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
 
-    let sql = `SELECT id, name, file_path, category, agency_id FROM icons WHERE is_active = 1 AND (
-      agency_id = ?
-      OR agency_id IS NULL`;
+    const search      = req.query.search ? String(req.query.search).trim() : null;
+    const activityType = req.query.activityType ? String(req.query.activityType).trim() : null;
+    const subCategory  = req.query.subCategory  ? String(req.query.subCategory).trim()  : null;
+
+    // Build the scope filter
+    const scopeConditions = ['i.agency_id = ?'];
     const params = [clubId];
+    scopeConditions.push('i.agency_id IS NULL');
     if (tenantAgencyId) {
-      sql += ' OR agency_id = ?';
+      scopeConditions.push('i.agency_id = ?');
       params.push(tenantAgencyId);
     }
-    sql += ') ORDER BY name ASC LIMIT 400';
+
+    // Start building SQL with LEFT JOIN on icon_club_details for this club
+    let sql = `SELECT i.id, i.name, i.file_path, i.category, i.agency_id,
+                      i.activity_type, i.sub_category, i.description,
+                      icd.details AS club_details
+               FROM icons i
+               LEFT JOIN icon_club_details icd ON icd.icon_id = i.id AND icd.agency_id = ?
+               WHERE i.is_active = 1
+                 AND (${scopeConditions.join(' OR ')})`;
+    // icd.agency_id param for the JOIN is the first param
+    params.unshift(clubId);
+
+    if (activityType) {
+      sql += ' AND i.activity_type = ?';
+      params.push(activityType);
+    }
+    if (subCategory) {
+      sql += ' AND i.sub_category = ?';
+      params.push(subCategory);
+    }
+    if (search) {
+      const like = `%${search}%`;
+      sql += ' AND (i.name LIKE ? OR i.description LIKE ? OR i.activity_type LIKE ? OR i.sub_category LIKE ? OR icd.details LIKE ?)';
+      params.push(like, like, like, like, like);
+    }
+
+    sql += ' ORDER BY i.name ASC LIMIT 400';
 
     const [rows] = await pool.execute(sql, params);
 
@@ -135,12 +165,16 @@ export const listClubIcons = async (req, res, next) => {
       const aid = icon.agency_id != null ? Number(icon.agency_id) : null;
       let scope = 'platform';
       if (aid === clubId) scope = 'club';
-      else if (tenantAgencyId && aid === tenantAgencyId) scope = 'tenant';
+      else if (tenantAgencyId && aid === Number(tenantAgencyId)) scope = 'tenant';
       return {
         id: icon.id,
         name: icon.name,
         url,
         category: icon.category || null,
+        activityType: icon.activity_type || null,
+        subCategory: icon.sub_category || null,
+        description: icon.description || null,
+        clubDetails: icon.club_details || null,
         scope
       };
     });
@@ -248,6 +282,7 @@ const awardToApi = (row) => ({
   aggregation: row.aggregation,
   groupFilter: row.group_filter || '',
   genderVariants: parseJson(row.gender_variants),
+  isTenantTemplate: !!row.is_tenant_template,
   isActive: !!row.is_active,
   createdAt: row.created_at,
   updatedAt: row.updated_at
@@ -262,7 +297,7 @@ export const listRecognitionAwards = async (req, res, next) => {
     if (!clubId) return res.status(400).json({ error: { message: 'Invalid club id' } });
     if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
     const [rows] = await pool.execute(
-      `SELECT * FROM challenge_recognition_awards WHERE agency_id = ? AND is_active = 1 ORDER BY label ASC`,
+      `SELECT * FROM challenge_recognition_awards WHERE agency_id = ? AND is_active = 1 AND (is_tenant_template = 0 OR is_tenant_template IS NULL) ORDER BY label ASC`,
       [clubId]
     );
     return res.json({ awards: (rows || []).map(awardToApi) });
@@ -279,7 +314,7 @@ export const createRecognitionAward = async (req, res, next) => {
     if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
     const label = String(req.body?.label || '').trim();
     if (!label) return res.status(400).json({ error: { message: 'label is required' } });
-    const icon          = String(req.body?.icon || '🏆').slice(0, 16);
+    const icon          = String(req.body?.icon || '🏆').slice(0, 64);
     const period        = ['weekly', 'monthly', 'season'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
     const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
@@ -287,8 +322,8 @@ export const createRecognitionAward = async (req, res, next) => {
     const groupFilter   = String(req.body?.groupFilter || '').trim().slice(0, 128);
     const genderVariants = Array.isArray(req.body?.genderVariants) ? req.body.genderVariants : [];
     const [result] = await pool.execute(
-      `INSERT INTO challenge_recognition_awards (agency_id, label, icon, period, activity_type, metric, aggregation, group_filter, gender_variants)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO challenge_recognition_awards (agency_id, label, icon, period, activity_type, metric, aggregation, group_filter, gender_variants, is_tenant_template)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       [clubId, label, icon, period, activityType || null, metric, aggregation, groupFilter || null, JSON.stringify(genderVariants)]
     );
     const [rows] = await pool.execute(`SELECT * FROM challenge_recognition_awards WHERE id = ?`, [result.insertId]);
@@ -306,7 +341,7 @@ export const updateRecognitionAward = async (req, res, next) => {
     if (!clubId || !awardId) return res.status(400).json({ error: { message: 'Invalid ids' } });
     if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
     const label         = String(req.body?.label || '').trim() || 'Unnamed Award';
-    const icon          = String(req.body?.icon || '🏆').slice(0, 16);
+    const icon          = String(req.body?.icon || '🏆').slice(0, 64);
     const period        = ['weekly', 'monthly', 'season'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
     const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
@@ -339,6 +374,233 @@ export const deleteRecognitionAward = async (req, res, next) => {
       [awardId, clubId]
     );
     return res.json({ ok: true });
+  } catch (e) { next(e); }
+};
+
+// ════════════════════════════════════════════════════════════════
+// CLUB ICON DETAILS (per-club private notes on icons)
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * GET /summit-stats/clubs/:id/icon-details/:iconId
+ * Returns the club's private details/notes for a specific icon.
+ */
+export const getClubIconDetails = async (req, res, next) => {
+  try {
+    const clubId  = toInt(req.params.id);
+    const iconId  = toInt(req.params.iconId);
+    if (!clubId || !iconId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+    if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
+    const [rows] = await pool.execute(
+      `SELECT details, updated_at FROM icon_club_details WHERE icon_id = ? AND agency_id = ? LIMIT 1`,
+      [iconId, clubId]
+    );
+    return res.json({ details: rows?.[0]?.details || null, updatedAt: rows?.[0]?.updated_at || null });
+  } catch (e) { next(e); }
+};
+
+/**
+ * PUT /summit-stats/clubs/:id/icon-details/:iconId
+ * Upserts the club's private details/notes for a specific icon.
+ */
+export const upsertClubIconDetails = async (req, res, next) => {
+  try {
+    const clubId  = toInt(req.params.id);
+    const iconId  = toInt(req.params.iconId);
+    if (!clubId || !iconId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+    if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
+    const details = req.body?.details != null ? String(req.body.details).slice(0, 4000) : null;
+    await pool.execute(
+      `INSERT INTO icon_club_details (icon_id, agency_id, details)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE details = VALUES(details)`,
+      [iconId, clubId, details]
+    );
+    return res.json({ ok: true, details });
+  } catch (e) { next(e); }
+};
+
+// ════════════════════════════════════════════════════════════════
+// TENANT RECOGNITION AWARD LIBRARY
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Resolve the tenant agency for the current request.
+ * Accepts an optional clubId (for manager context) to look up the tenant via affiliations.
+ */
+async function resolveTenantAgencyId(req) {
+  const clubIdParam = toInt(req.params.clubId || req.query.clubId);
+  if (clubIdParam) {
+    return getClubPlatformTenantAgencyId(clubIdParam);
+  }
+  // For superadmin requests without a club context, look up via query param tenantAgencyId
+  const direct = toInt(req.query.tenantAgencyId);
+  return direct || null;
+}
+
+/**
+ * Check whether the current user has write access to the tenant award library.
+ * Superadmins always do; club managers need the feature flag enabled.
+ */
+async function assertTenantAwardWriteAccess(req, tenantAgencyId) {
+  if (!tenantAgencyId) return false;
+  if (req.user?.role === 'super_admin') return true;
+
+  // Check feature flag: agencies.feature_flags_json -> ssc_tenant_award_manager_write
+  const [rows] = await pool.execute(
+    `SELECT feature_flags_json FROM agencies WHERE id = ? LIMIT 1`,
+    [tenantAgencyId]
+  );
+  let flags = {};
+  try { flags = JSON.parse(rows?.[0]?.feature_flags_json || '{}'); } catch { /**/ }
+  return !!flags.ssc_tenant_award_manager_write;
+}
+
+/**
+ * GET /summit-stats/clubs/:id/tenant-awards
+ * Returns all tenant-level award templates visible to the club.
+ */
+export const listTenantAwards = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    if (!clubId) return res.status(400).json({ error: { message: 'Invalid club id' } });
+    if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
+    if (!tenantAgencyId) return res.json({ awards: [], tenantAgencyId: null });
+
+    const [rows] = await pool.execute(
+      `SELECT * FROM challenge_recognition_awards WHERE agency_id = ? AND is_tenant_template = 1 AND is_active = 1 ORDER BY label ASC`,
+      [tenantAgencyId]
+    );
+    return res.json({ awards: (rows || []).map(awardToApi), tenantAgencyId });
+  } catch (e) { next(e); }
+};
+
+/**
+ * POST /summit-stats/clubs/:id/tenant-awards
+ * Creates a new tenant-level award template.
+ */
+export const createTenantAward = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    if (!clubId) return res.status(400).json({ error: { message: 'Invalid club id' } });
+    if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
+    if (!tenantAgencyId) return res.status(400).json({ error: { message: 'No tenant found for this club' } });
+    if (!(await assertTenantAwardWriteAccess(req, tenantAgencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized to add to tenant library' } });
+    }
+
+    const label         = String(req.body?.label || '').trim();
+    if (!label) return res.status(400).json({ error: { message: 'label is required' } });
+    const icon          = String(req.body?.icon || '🏆').slice(0, 64);
+    const period        = ['weekly', 'monthly', 'season'].includes(req.body?.period) ? req.body.period : 'weekly';
+    const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
+    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
+    const aggregation   = ['most', 'average'].includes(req.body?.aggregation) ? req.body.aggregation : 'most';
+    const groupFilter   = String(req.body?.groupFilter || '').trim().slice(0, 128);
+    const genderVariants = Array.isArray(req.body?.genderVariants) ? req.body.genderVariants : [];
+
+    const [result] = await pool.execute(
+      `INSERT INTO challenge_recognition_awards (agency_id, is_tenant_template, label, icon, period, activity_type, metric, aggregation, group_filter, gender_variants)
+       VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [tenantAgencyId, label, icon, period, activityType || null, metric, aggregation, groupFilter || null, JSON.stringify(genderVariants)]
+    );
+    const [rows] = await pool.execute(`SELECT * FROM challenge_recognition_awards WHERE id = ?`, [result.insertId]);
+    return res.status(201).json({ award: awardToApi(rows[0]) });
+  } catch (e) { next(e); }
+};
+
+/**
+ * PUT /summit-stats/clubs/:id/tenant-awards/:awardId
+ * Updates a tenant-level award template.
+ */
+export const updateTenantAward = async (req, res, next) => {
+  try {
+    const clubId  = toInt(req.params.id);
+    const awardId = toInt(req.params.awardId);
+    if (!clubId || !awardId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+    if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
+    if (!tenantAgencyId) return res.status(400).json({ error: { message: 'No tenant found for this club' } });
+    if (!(await assertTenantAwardWriteAccess(req, tenantAgencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized to edit tenant library' } });
+    }
+
+    const label         = String(req.body?.label || '').trim() || 'Unnamed Award';
+    const icon          = String(req.body?.icon || '🏆').slice(0, 64);
+    const period        = ['weekly', 'monthly', 'season'].includes(req.body?.period) ? req.body.period : 'weekly';
+    const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
+    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
+    const aggregation   = ['most', 'average'].includes(req.body?.aggregation) ? req.body.aggregation : 'most';
+    const groupFilter   = String(req.body?.groupFilter || '').trim().slice(0, 128);
+    const genderVariants = Array.isArray(req.body?.genderVariants) ? req.body.genderVariants : [];
+
+    await pool.execute(
+      `UPDATE challenge_recognition_awards
+       SET label = ?, icon = ?, period = ?, activity_type = ?, metric = ?, aggregation = ?, group_filter = ?, gender_variants = ?
+       WHERE id = ? AND agency_id = ? AND is_tenant_template = 1`,
+      [label, icon, period, activityType || null, metric, aggregation, groupFilter || null, JSON.stringify(genderVariants), awardId, tenantAgencyId]
+    );
+    const [rows] = await pool.execute(`SELECT * FROM challenge_recognition_awards WHERE id = ?`, [awardId]);
+    if (!rows?.length) return res.status(404).json({ error: { message: 'Award not found' } });
+    return res.json({ award: awardToApi(rows[0]) });
+  } catch (e) { next(e); }
+};
+
+/**
+ * DELETE /summit-stats/clubs/:id/tenant-awards/:awardId
+ */
+export const deleteTenantAward = async (req, res, next) => {
+  try {
+    const clubId  = toInt(req.params.id);
+    const awardId = toInt(req.params.awardId);
+    if (!clubId || !awardId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+    if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
+    if (!tenantAgencyId) return res.status(400).json({ error: { message: 'No tenant found for this club' } });
+    if (!(await assertTenantAwardWriteAccess(req, tenantAgencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized to delete from tenant library' } });
+    }
+
+    await pool.execute(
+      `UPDATE challenge_recognition_awards SET is_active = 0 WHERE id = ? AND agency_id = ? AND is_tenant_template = 1`,
+      [awardId, tenantAgencyId]
+    );
+    return res.json({ ok: true });
+  } catch (e) { next(e); }
+};
+
+/**
+ * POST /summit-stats/clubs/:id/recognition-awards/clone-from-tenant/:awardId
+ * Clones a tenant-level award template into the club's own library.
+ */
+export const cloneTenantAward = async (req, res, next) => {
+  try {
+    const clubId  = toInt(req.params.id);
+    const awardId = toInt(req.params.awardId);
+    if (!clubId || !awardId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+    if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
+    const [sourceRows] = await pool.execute(
+      `SELECT * FROM challenge_recognition_awards WHERE id = ? AND is_tenant_template = 1 AND is_active = 1 LIMIT 1`,
+      [awardId]
+    );
+    if (!sourceRows?.length) return res.status(404).json({ error: { message: 'Tenant award not found' } });
+    const src = sourceRows[0];
+
+    const [result] = await pool.execute(
+      `INSERT INTO challenge_recognition_awards (agency_id, is_tenant_template, label, icon, period, activity_type, metric, aggregation, group_filter, gender_variants)
+       VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [clubId, src.label, src.icon, src.period, src.activity_type, src.metric, src.aggregation, src.group_filter, src.gender_variants]
+    );
+    const [rows] = await pool.execute(`SELECT * FROM challenge_recognition_awards WHERE id = ?`, [result.insertId]);
+    return res.status(201).json({ award: awardToApi(rows[0]) });
   } catch (e) { next(e); }
 };
 

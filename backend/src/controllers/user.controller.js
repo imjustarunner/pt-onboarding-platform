@@ -312,6 +312,8 @@ export const getCurrentUser = async (req, res, next) => {
       requiresPasswordChange: pw.requiresPasswordChange || tempActive,
       passwordExpiresAt: pw.passwordExpiresAt,
       passwordExpired: pw.passwordExpired,
+      passwordExpiresSoon: pw.passwordExpiresSoon,
+      passwordExpiresInDays: pw.passwordExpiresInDays,
       // Provider global availability (best-effort; defaults true for older DBs)
       provider_accepting_new_clients:
         user.provider_accepting_new_clients === undefined || user.provider_accepting_new_clients === null
@@ -5467,8 +5469,14 @@ export const setCustomTemporaryPassword = async (req, res, next) => {
     }
 
     const password = String(customPassword || '').trim();
-    if (!password || password.length < 8) {
-      return res.status(400).json({ error: { message: 'Temporary password must be at least 8 characters' } });
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: { message: 'Temporary password must be at least 6 characters' } });
+    }
+    if (password.length > 128) {
+      return res.status(400).json({ error: { message: 'Temporary password must be no more than 128 characters' } });
+    }
+    if (!/[a-zA-Z]/.test(password)) {
+      return res.status(400).json({ error: { message: 'Temporary password must contain at least one letter (a–z or A–Z)' } });
     }
 
     const finalExpiresInHours =
@@ -7680,6 +7688,14 @@ export const changePassword = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'New password must be at least 6 characters' } });
     }
 
+    if (newPassword.length > 128) {
+      return res.status(400).json({ error: { message: 'New password must be no more than 128 characters' } });
+    }
+
+    if (!/[a-zA-Z]/.test(newPassword)) {
+      return res.status(400).json({ error: { message: 'New password must contain at least one letter (a–z or A–Z)' } });
+    }
+
     // NOTE: `User.findById` may omit sensitive fields like password hashes.
     // For password changes we must ensure we have password_hash / temporary_password_hash available.
     const user = await User.findById(userId);
@@ -7747,6 +7763,51 @@ export const changePassword = async (req, res, next) => {
       [userId]
     );
     const isFirstPasswordChange = parseInt(passwordChanges[0]?.count || 0) === 0;
+
+    // Max 1 password change per hour (enforced for self-service changes only)
+    if (userId === req.user.id) {
+      try {
+        const [recentChange] = await pool.execute(
+          "SELECT password_changed_at FROM users WHERE id = ? LIMIT 1",
+          [userId]
+        );
+        const lastChange = recentChange?.[0]?.password_changed_at;
+        if (lastChange) {
+          const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+          if (new Date(lastChange) > hourAgo) {
+            return res.status(429).json({
+              error: { message: 'You may only change your password once per hour. Please try again later.' }
+            });
+          }
+        }
+      } catch {
+        // best-effort — do not block if column not available
+      }
+    }
+
+    // Username similarity check
+    const accountId = user.username || user.email;
+    if (accountId) {
+      const { validatePasswordStrength } = await import('../utils/passwordValidation.js');
+      const pwCheck = await validatePasswordStrength(newPassword, { accountId });
+      if (!pwCheck.valid) {
+        return res.status(400).json({ error: { message: pwCheck.message } });
+      }
+    } else {
+      const { validatePasswordStrength } = await import('../utils/passwordValidation.js');
+      const pwCheck = await validatePasswordStrength(newPassword);
+      if (!pwCheck.valid) {
+        return res.status(400).json({ error: { message: pwCheck.message } });
+      }
+    }
+
+    // Password history reuse check (last 5 passwords)
+    const isReused = await User.isPasswordReused(userId, newPassword, 5);
+    if (isReused) {
+      return res.status(400).json({
+        error: { message: 'You cannot reuse one of your last 5 passwords. Please choose a different password.' }
+      });
+    }
 
     // Change the password
     await User.changePassword(userId, newPassword);

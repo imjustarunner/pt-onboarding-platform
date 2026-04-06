@@ -1480,13 +1480,13 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
       platformLogoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : null;
     }
 
-    // Club links (Sign up, Browse Clubs, Create Club Manager) ONLY on /ssc/login.
+    // Club links are only available on Summit Stats tenant-family logins.
     // NLU and all other agencies must NOT show these links.
     const normalizedSlug = (portalUrl || agency.portal_url || agency.slug || '')
       .toString()
       .trim()
       .toLowerCase();
-    const showClubLinks = normalizedSlug === 'ssc';
+    const showClubLinks = ['ssc', 'sstc', 'summit-stats'].includes(normalizedSlug);
 
     // SSC: only /ssc/login (parent slug) should serve login. Affiliations (clubs) redirect to parent.
     let parentAgencyForLogin = null;

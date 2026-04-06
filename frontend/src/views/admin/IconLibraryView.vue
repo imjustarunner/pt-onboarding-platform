@@ -137,6 +137,23 @@
             <textarea v-model="iconForm.description" rows="3"></textarea>
           </div>
           <div class="form-group">
+            <label>Activity Type</label>
+            <select v-model="iconForm.activityType" class="form-select">
+              <option value="">— None —</option>
+              <option value="Running">Running</option>
+              <option value="Rucking">Rucking</option>
+              <option value="General Fitness">General Fitness</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Sub-category</label>
+            <select v-model="iconForm.subCategory" class="form-select">
+              <option value="">— None —</option>
+              <option value="Challenge">Challenge</option>
+              <option value="Award">Award</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label>Assign to Agency</label>
             <select 
               v-model.number="iconForm.agencyId" 
@@ -462,6 +479,8 @@ const iconForm = ref({
   name: '',
   category: '',
   description: '',
+  activityType: '',
+  subCategory: '',
   agencyId: null
 });
 
@@ -630,6 +649,8 @@ const saveIcon = async () => {
         if (iconForm.value.description !== undefined) {
           formData.append('description', iconForm.value.description || '');
         }
+        formData.append('activityType', iconForm.value.activityType || '');
+        formData.append('subCategory', iconForm.value.subCategory || '');
         
         // Handle agencyId
         const agencyIdValue = (iconForm.value.agencyId !== null && iconForm.value.agencyId !== undefined && iconForm.value.agencyId !== '') 
@@ -660,6 +681,8 @@ const saveIcon = async () => {
         if (iconForm.value.description !== undefined) {
           updateData.description = iconForm.value.description || null;
         }
+        updateData.activityType = iconForm.value.activityType || null;
+        updateData.subCategory = iconForm.value.subCategory || null;
         
         // Handle agencyId
         if (iconForm.value.agencyId !== null && iconForm.value.agencyId !== undefined && iconForm.value.agencyId !== '') {
@@ -714,6 +737,12 @@ const saveIcon = async () => {
       if (iconForm.value.description) {
         formData.append('description', iconForm.value.description);
       }
+      if (iconForm.value.activityType) {
+        formData.append('activityType', iconForm.value.activityType);
+      }
+      if (iconForm.value.subCategory) {
+        formData.append('subCategory', iconForm.value.subCategory);
+      }
       // Handle agencyId - send as string, 'null' for platform
       // Always append agencyId, even if it's null (send as 'null' string)
       console.log('=== BEFORE FORM SUBMISSION ===');
@@ -764,6 +793,8 @@ const editIcon = (icon) => {
     name: icon.name,
     category: icon.category || '',
     description: icon.description || '',
+    activityType: icon.activity_type || '',
+    subCategory: icon.sub_category || '',
     agencyId: icon.agency_id || null
   };
   selectedFile.value = null;
@@ -880,6 +911,8 @@ const closeUploadModal = () => {
     name: '',
     category: '',
     description: '',
+    activityType: '',
+    subCategory: '',
     agencyId: authStore.user?.role === 'super_admin' ? null : (availableAgencies.value.length > 0 ? availableAgencies.value[0].id : null)
   };
   selectedFile.value = null;

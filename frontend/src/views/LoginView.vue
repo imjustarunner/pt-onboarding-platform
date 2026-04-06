@@ -72,31 +72,39 @@
           </div>
         </div>
 
-        <!-- SSC + club dual-brand split (shown after username verify when user's club has a logo) -->
+        <!-- Summit Stats + club dual-brand split (shown after username verify when we know the club context) -->
         <div
-          v-else-if="isSSCLogin && sscClubBranding && sscClubBranding.logoUrl"
+          v-else-if="isSSCLogin && sscClubBranding && (sscClubBranding.logoUrl || sscClubBranding.name)"
           class="login-dual-brand login-dual-brand--ssc"
         >
           <div class="login-dual-brand__col">
-            <span class="login-dual-brand__label">{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }}</span>
+            <span class="login-dual-brand__label">Main App</span>
             <img
               v-if="displayLogoUrl"
               :src="displayLogoUrl"
-              :alt="SUMMIT_STATS_TEAM_CHALLENGE_NAME"
+              :alt="sscTenantDisplayName"
               class="login-dual-brand__logo login-dual-brand__logo--ssc"
               @error="handleLogoError"
             />
+            <div v-else class="login-dual-brand__fallback login-dual-brand__fallback--ssc">
+              {{ sscTenantInitials }}
+            </div>
+            <div class="login-dual-brand__name">{{ sscTenantDisplayName }}</div>
           </div>
           <div class="login-dual-brand__divider" aria-hidden="true" />
           <div class="login-dual-brand__col">
             <span class="login-dual-brand__label">Your Club</span>
             <img
+              v-if="sscClubBranding.logoUrl"
               :src="sscClubBranding.logoUrl"
               alt=""
               class="login-dual-brand__logo login-dual-brand__logo--club"
               @error="handleLogoError"
             />
-            <div v-if="sscClubBranding.name" class="login-dual-brand__name">{{ sscClubBranding.name }}</div>
+            <div v-else class="login-dual-brand__fallback login-dual-brand__fallback--club">
+              {{ sscClubInitials }}
+            </div>
+            <div class="login-dual-brand__name">{{ sscClubDisplayName }}</div>
           </div>
         </div>
 
@@ -571,11 +579,26 @@ const showSignupSuggestion = computed(() => {
   const message = String(error.value || '').toLowerCase();
   return message.includes('user not found') || message.includes("doesn't have an account") || message.includes('does not have an account');
 });
+const normalizeSummitTenantSlug = (value) => String(value || '').trim().toLowerCase();
+const isSummitTenantSlug = (value) => {
+  const slug = normalizeSummitTenantSlug(value);
+  return slug === 'ssc' || slug === 'sstc' || slug === 'summit-stats';
+};
+const buildInitials = (value, fallback = 'SS') => {
+  const words = String(value || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return fallback;
+  return words
+    .slice(0, 2)
+    .map((word) => word.charAt(0).toUpperCase())
+    .join('');
+};
 
 /** Summit Stats tenants (SSC / SSTC / alias): phone number is an accepted login identifier. */
 const isSSCLogin = computed(() => {
-  const slug = String(loginSlug.value || '').toLowerCase().trim();
-  return slug === 'ssc' || slug === 'sstc' || slug === 'summit-stats';
+  return isSummitTenantSlug(loginSlug.value);
 });
 const isAppPreviewMode = computed(() => appPreviewMode.value !== 'off');
 const isIpadPreviewMode = computed(() => appPreviewMode.value === 'ipad');
@@ -671,6 +694,16 @@ const portalLoginSubtitle = computed(() => {
 const defaultLoginSubtitle = computed(() =>
   isOrgLogin.value && isSchoolPortalOrg.value ? 'Sign in to your School Portal' : 'Sign in to continue'
 );
+const sscTenantDisplayName = computed(() => {
+  const themedName = String(loginTheme.value?.agency?.name || '').trim();
+  return themedName || SUMMIT_STATS_TEAM_CHALLENGE_NAME;
+});
+const sscTenantInitials = computed(() => buildInitials(sscTenantDisplayName.value, 'SS'));
+const sscClubDisplayName = computed(() => {
+  const name = String(sscClubBranding.value?.name || '').trim();
+  return name || 'Your Club';
+});
+const sscClubInitials = computed(() => buildInitials(sscClubDisplayName.value, 'CL'));
 
 const loginBackground = computed(() => {
   if (isOrgLogin.value && loginTheme.value?.agency?.themeSettings?.loginBackground) {
@@ -694,12 +727,12 @@ const fetchLoginTheme = async (portalUrl) => {
     const response = await api.get(`/agencies/portal/${portalUrl}/login-theme`);
     const data = response.data;
 
-    // SSC: only /ssc/login serves login. Child orgs (affiliations) redirect to parent.
+    // Summit-family logins serve on the tenant slug directly. Child orgs redirect to the parent tenant login.
     const canonical = (data?.agency?.canonicalLoginSlug || '').toString().trim().toLowerCase();
     const current = (portalUrl || '').toString().trim().toLowerCase();
     if (canonical && current && canonical !== current) {
-      if (canonical === 'ssc') {
-        router.replace({ path: '/ssc/login', query: route.query });
+      if (isSummitTenantSlug(canonical)) {
+        router.replace({ path: `/${canonical}/login`, query: route.query });
       } else {
         const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
         router.replace({
@@ -843,9 +876,9 @@ onMounted(async () => {
       await verifyUsername({ reason: 'pending_route' });
       return;
     }
-    // SSC: when username is pre-filled from URL, auto-verify to show password immediately
+    // Summit-family logins: when username is pre-filled from URL, auto-verify to show password immediately.
     const currentSlugForAuto = String(loginSlug.value || '').trim().toLowerCase();
-    if (restored && currentSlugForAuto === 'ssc') {
+    if (restored && isSummitTenantSlug(currentSlugForAuto)) {
       await verifyUsername({ reason: 'pending_route' });
       return;
     }
@@ -924,7 +957,7 @@ const orgOptions = ref([]);
 const selectedOrgSlug = ref('');
 const rememberLogin = ref(false);
 const rememberedGoogleLogin = ref(null);
-const sscClubBranding = ref(null); // populated after identify on SSC when user belongs to a club with a logo
+const sscClubBranding = ref(null); // populated after identify on Summit-family logins when we know the club context
 const identifiedLoginMethod = ref('password');
 const lastVerifiedUsername = ref('');
 const lastUsernameInputAt = ref(0);
@@ -1147,10 +1180,11 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     const resolvedSlug = String(ro?.portal_url || ro?.portalUrl || ro?.slug || '').trim().toLowerCase();
 
     const current = isOrgLogin.value && loginSlug.value ? String(loginSlug.value).trim().toLowerCase() : '';
-    const isSscLogin = current === 'ssc';
+    const isSummitLogin = isSummitTenantSlug(current);
 
-    // SSC: stay on /ssc/login when account is recognized. No slug swap—just show password.
-    if (isSscLogin) {
+    // Summit-family logins stay on the tenant login the user chose.
+    // This prevents /ssc from snapping over to unrelated org portals like /itsco or /rudy.
+    if (isSummitLogin) {
       // Skip redirect; fall through to show password (or Google)
     } else if (resolvedSlug) {
       // If this verification indicates we should be on a different branded login, route there.
@@ -1185,7 +1219,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
       // current canonical loginSlug rather than the internal org alias ('summit-stats').
       // This prevents the partner-hub redirect from building /ssc/summit-stats/login on the
       // next visit and trapping the user in the two-step nested flow.
-      const slugToStore = (isSscLogin && loginSlug.value) ? loginSlug.value : resolvedSlug;
+      const slugToStore = (isSummitLogin && loginSlug.value) ? loginSlug.value : resolvedSlug;
       setRememberedLogin({
         username: u,
         orgSlug: slugToStore,
@@ -1196,7 +1230,10 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     }
 
     // Capture SSC club branding for the dual-brand split panel
-    sscClubBranding.value = data?.affiliationBranding?.logoUrl ? data.affiliationBranding : null;
+    sscClubBranding.value =
+      data?.affiliationBranding && (data.affiliationBranding.logoUrl || data.affiliationBranding.name)
+        ? data.affiliationBranding
+        : null;
 
     // Decide between Google vs password.
     const method = String(data?.login?.method || 'password').toLowerCase();
@@ -2033,8 +2070,13 @@ const handleLogoError = (event) => {
 
 /* SSC-specific variant: transparent background to blend with the SSC card */
 .login-page--ssc .login-dual-brand--ssc {
-  background: rgba(255, 255, 255, 0.92);
-  border-color: rgba(200, 220, 255, 0.5);
+  gap: 6px;
+  padding: 12px 12px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(238, 247, 255, 0.98) 52%, rgba(241, 255, 247, 0.96) 100%);
+  border-color: rgba(162, 197, 255, 0.46);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(10px);
 }
 
 .login-dual-brand__logo--ssc {
@@ -2046,6 +2088,29 @@ const handleLogoError = (event) => {
   max-height: 64px !important;
   max-width: 130px !important;
   width: auto;
+}
+
+.login-dual-brand__fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 4px;
+  border-radius: 22px;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #0f172a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.login-dual-brand__fallback--ssc {
+  background: linear-gradient(135deg, rgba(51, 122, 255, 0.16) 0%, rgba(28, 189, 126, 0.18) 100%);
+}
+
+.login-dual-brand__fallback--club {
+  background: linear-gradient(135deg, rgba(255, 196, 72, 0.18) 0%, rgba(255, 123, 84, 0.2) 100%);
 }
 
 .login-dual-brand__col {
@@ -2061,10 +2126,10 @@ const handleLogoError = (event) => {
 .login-dual-brand__label {
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-secondary, #64748b);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .login-dual-brand__logo {
@@ -2085,7 +2150,7 @@ const handleLogoError = (event) => {
 .login-dual-brand__divider {
   width: 1px;
   align-self: stretch;
-  background: var(--border, #e5e7eb);
+  background: linear-gradient(180deg, rgba(203, 213, 225, 0) 0%, rgba(148, 163, 184, 0.85) 50%, rgba(203, 213, 225, 0) 100%);
   margin: 0 4px;
   min-height: 56px;
 }

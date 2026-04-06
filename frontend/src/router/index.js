@@ -2745,7 +2745,7 @@ router.beforeEach(async (to, from, next) => {
     const requiredRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
     const orgSlugForRoute = typeof to.params?.organizationSlug === 'string' ? to.params.organizationSlug : '';
     const clubManagerSscBypass =
-      userRoleNorm === 'club_manager' &&
+      currentUserRoleNorm === 'club_manager' &&
       orgSlugForRoute &&
       isSscPortalSlug(String(orgSlugForRoute).toLowerCase()) &&
       (() => {
@@ -2759,8 +2759,8 @@ router.beforeEach(async (to, from, next) => {
         );
       })();
 
-    // Club managers in club context (effectiveRole = 'club_manager'): block payroll/audit surfaces.
-    if (userRoleNorm === 'club_manager') {
+    // Club managers (any context, including SSC work-tenant where effectiveRole = 'provider'): block payroll/audit surfaces.
+    if (userRoleNorm === 'club_manager' || currentUserRoleNorm === 'club_manager') {
       const p = String(to.path || '');
       if (p.includes('/admin/audit-center') || p.includes('/admin/payroll') || p.includes('/admin/expenses')) {
         next(getDashboardRoute());

@@ -58,41 +58,43 @@
               class="search-input"
               @input="handleSearch"
             />
-            <select
-              v-if="!useSummitClubIcons"
-              v-model="selectedAgency"
-              class="agency-filter"
-              @change="handleFilterChange"
-            >
-              <option value="">All Agencies</option>
-              <option value="null">Platform</option>
-              <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
-                {{ agency.name }}
-              </option>
-            </select>
-            <select v-model="selectedCategory" class="category-filter" @change="handleFilterChange">
-              <option value="">All Categories</option>
-              <option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
-            </select>
-            <select
-              v-if="!useSummitClubIcons"
-              v-model="sortBy"
-              class="sort-filter"
-              @change="handleFilterChange"
-            >
-              <option value="name">Sort by Name</option>
-              <option value="category">Sort by Category</option>
-              <option value="agency_name">Sort by Agency</option>
-            </select>
-            <select
-              v-else
-              v-model="summitSort"
-              class="sort-filter"
-              aria-label="Sort icons"
-            >
-              <option value="source">Sort: club → tenant → platform</option>
-              <option value="name">Sort by name (A–Z)</option>
-            </select>
+            <!-- SSC mode: activity type + sub-category filters -->
+            <template v-if="useSummitClubIcons">
+              <select v-model="summitActivityType" class="category-filter" @change="handleSummitFilterChange">
+                <option value="">All Activity Types</option>
+                <option value="Running">Running</option>
+                <option value="Rucking">Rucking</option>
+                <option value="General Fitness">General Fitness</option>
+              </select>
+              <select v-model="summitSubCategory" class="category-filter" @change="handleSummitFilterChange">
+                <option value="">All Sub-categories</option>
+                <option value="Challenge">Challenge</option>
+                <option value="Award">Award</option>
+              </select>
+              <select v-model="summitSort" class="sort-filter" aria-label="Sort icons">
+                <option value="source">Sort: club → tenant → platform</option>
+                <option value="name">Sort by name (A–Z)</option>
+              </select>
+            </template>
+            <!-- Standard admin mode filters -->
+            <template v-else>
+              <select v-model="selectedAgency" class="agency-filter" @change="handleFilterChange">
+                <option value="">All Agencies</option>
+                <option value="null">Platform</option>
+                <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
+                  {{ agency.name }}
+                </option>
+              </select>
+              <select v-model="selectedCategory" class="category-filter" @change="handleFilterChange">
+                <option value="">All Categories</option>
+                <option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
+              </select>
+              <select v-model="sortBy" class="sort-filter" @change="handleFilterChange">
+                <option value="name">Sort by Name</option>
+                <option value="category">Sort by Category</option>
+                <option value="agency_name">Sort by Agency</option>
+              </select>
+            </template>
           </div>
           <div v-if="loading" class="loading">Loading icons...</div>
           <div v-else-if="filteredIcons.length === 0" class="empty-state">
@@ -110,6 +112,20 @@
               <img :src="getIconUrl(icon)" :alt="icon.name" class="icon-img" />
               <span v-if="useSummitClubIcons && icon.scope" class="icon-scope-badge">{{ summitScopeLabel(icon) }}</span>
               <span class="icon-label">{{ icon.name }}</span>
+              <span v-if="useSummitClubIcons && icon.activityType" class="icon-meta-badge">{{ icon.activityType }}</span>
+              <span v-if="useSummitClubIcons && icon.subCategory" class="icon-meta-badge icon-meta-badge--sub">{{ icon.subCategory }}</span>
+              <!-- Club Details inline edit (SSC mode) -->
+              <div v-if="useSummitClubIcons" class="icon-club-details" @click.stop>
+                <input
+                  :value="clubDetailsMap[icon.id] ?? icon.clubDetails ?? ''"
+                  type="text"
+                  class="icon-club-details-input"
+                  placeholder="Club notes…"
+                  maxlength="500"
+                  @input="onClubDetailsInput(icon, $event.target.value)"
+                  @blur="saveClubDetails(icon)"
+                />
+              </div>
             </div>
           </div>
           <!-- Show selected icon even if not in filtered list -->
@@ -142,8 +158,6 @@ const props = defineProps({
     type: Number,
     default: null
   },
-  // If provided, the icon picker will default to showing this agency's icons when opened.
-  // Intended for agency settings (so you don't start in "All Agencies" every time).
   defaultAgencyId: {
     type: [Number, String],
     default: null
@@ -151,6 +165,15 @@ const props = defineProps({
   /** When set, load icons from Summit club API (club managers) instead of global /icons (admin-only list). */
   summitStatsClubId: {
     type: [Number, String],
+    default: null
+  },
+  /**
+   * A unique string used to key sessionStorage state for this picker instance.
+   * e.g. "recognition-${clubId}", "club-settings-${clubId}".
+   * Defaults to "summitStatsClubId" or "admin" if not provided.
+   */
+  context: {
+    type: String,
     default: null
   }
 });
@@ -173,8 +196,54 @@ const uploadingClubIcon = ref(false);
 const uploadClubIconError = ref('');
 /** Summit picker: preserve server order (club, tenant, platform) or sort A–Z only */
 const summitSort = ref('source');
+/** SSC mode: activity type filter */
+const summitActivityType = ref('');
+/** SSC mode: sub-category filter */
+const summitSubCategory = ref('');
+/** SSC mode: per-icon club details edits (iconId -> string) */
+const clubDetailsMap = ref({});
+/** SSC mode: debounce timer for club details saves */
+const clubDetailsTimers = ref({});
 
 const SUMMIT_SCOPE_ORDER = { club: 0, tenant: 1, platform: 2 };
+
+// ── sessionStorage state persistence ────────────────────────────
+
+const storageKey = computed(() => {
+  if (props.context) return `icon-picker-${props.context}`;
+  const cid = parseInt(String(props.summitStatsClubId ?? ''), 10);
+  if (Number.isFinite(cid) && cid > 0) return `icon-picker-club-${cid}`;
+  return 'icon-picker-admin';
+});
+
+const savePickerState = () => {
+  if (!useSummitClubIcons.value) return;
+  try {
+    sessionStorage.setItem(storageKey.value, JSON.stringify({
+      search: searchTerm.value,
+      activityType: summitActivityType.value,
+      subCategory: summitSubCategory.value,
+      summitSort: summitSort.value
+    }));
+  } catch { /**/ }
+};
+
+const restorePickerState = () => {
+  if (!useSummitClubIcons.value) return;
+  try {
+    const raw = sessionStorage.getItem(storageKey.value);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    if (state.search !== undefined) searchTerm.value = state.search;
+    if (state.activityType !== undefined) summitActivityType.value = state.activityType;
+    if (state.subCategory !== undefined) summitSubCategory.value = state.subCategory;
+    if (state.summitSort !== undefined) summitSort.value = state.summitSort;
+  } catch { /**/ }
+};
+
+const clearPickerState = () => {
+  try { sessionStorage.removeItem(storageKey.value); } catch { /**/ }
+};
 
 const availableAgencies = computed(() => {
   if (authStore.user?.role === 'super_admin') {
@@ -204,15 +273,9 @@ const filteredIcons = computed(() => {
   if (!useSummitClubIcons.value) {
     return icons.value;
   }
-  let list = icons.value;
-  const q = searchTerm.value.trim().toLowerCase();
-  if (q) {
-    list = list.filter((i) => String(i.name || '').toLowerCase().includes(q));
-  }
-  if (selectedCategory.value) {
-    list = list.filter((i) => String(i.category || '') === selectedCategory.value);
-  }
-  const out = [...list];
+  // In SSC mode, search and activity/sub-category filtering is server-side.
+  // Only client-side sort is applied here.
+  const out = [...icons.value];
   if (summitSort.value === 'name') {
     out.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
   } else {
@@ -250,6 +313,9 @@ const getIconUrl = (icon) => {
 
 const handleSearch = () => {
   if (useSummitClubIcons.value) {
+    savePickerState();
+    clearTimeout(searchTimeout.value);
+    searchTimeout.value = setTimeout(() => fetchIcons(), 300);
     return;
   }
   clearTimeout(searchTimeout.value);
@@ -262,6 +328,11 @@ const handleFilterChange = () => {
   if (useSummitClubIcons.value) {
     return;
   }
+  fetchIcons();
+};
+
+const handleSummitFilterChange = () => {
+  savePickerState();
   fetchIcons();
 };
 
@@ -297,12 +368,21 @@ const fetchIcons = async () => {
     loading.value = true;
     if (useSummitClubIcons.value) {
       const cid = parseInt(String(props.summitStatsClubId), 10);
-      const response = await api.get(`/summit-stats/clubs/${cid}/icons`);
+      const ssParams = new URLSearchParams();
+      if (searchTerm.value.trim()) ssParams.set('search', searchTerm.value.trim());
+      if (summitActivityType.value) ssParams.set('activityType', summitActivityType.value);
+      if (summitSubCategory.value) ssParams.set('subCategory', summitSubCategory.value);
+      const qs = ssParams.toString();
+      const response = await api.get(`/summit-stats/clubs/${cid}/icons${qs ? `?${qs}` : ''}`);
       const raw = response.data?.icons || [];
       icons.value = raw.map((i) => ({
         id: i.id,
         name: i.name,
         category: i.category || null,
+        activityType: i.activityType || null,
+        subCategory: i.subCategory || null,
+        description: i.description || null,
+        clubDetails: i.clubDetails || null,
         url: i.url,
         file_path: i.url || null,
         agency_id: i.agency_id ?? null,
@@ -435,6 +515,7 @@ const confirmSelection = () => {
   if (tempSelectedIcon.value) {
     selectedIcon.value = tempSelectedIcon.value;
     emit('update:modelValue', tempSelectedIcon.value.id);
+    if (useSummitClubIcons.value) clearPickerState();
     closeModal();
   }
 };
@@ -462,12 +543,14 @@ const handleOpenModal = async (event) => {
     event.stopPropagation();
     event.preventDefault();
   }
-  // Reset filters when opening modal, but default to the current agency if provided
-  applyDefaultAgencyFilterIfProvided();
-  selectedCategory.value = '';
-  searchTerm.value = '';
-  sortBy.value = 'name';
-  if (!useSummitClubIcons.value) {
+  if (useSummitClubIcons.value) {
+    // Restore previous search/filter state for SSC mode
+    restorePickerState();
+  } else {
+    applyDefaultAgencyFilterIfProvided();
+    selectedCategory.value = '';
+    searchTerm.value = '';
+    sortBy.value = 'name';
     await ensureAgenciesLoaded();
   }
   await fetchIcons();
@@ -477,11 +560,15 @@ const handleOpenModal = async (event) => {
 const closeModal = () => {
   showModal.value = false;
   tempSelectedIcon.value = selectedIcon.value;
-  searchTerm.value = '';
-  selectedCategory.value = '';
-  selectedAgency.value = '';
-  sortBy.value = 'name';
-  summitSort.value = 'source';
+  if (useSummitClubIcons.value) {
+    savePickerState();
+  } else {
+    searchTerm.value = '';
+    selectedCategory.value = '';
+    selectedAgency.value = '';
+    sortBy.value = 'name';
+    summitSort.value = 'source';
+  }
   uploadClubIconError.value = '';
 };
 
@@ -541,6 +628,30 @@ watch(() => icons.value, (newIcons) => {
   }
 }, { immediate: true });
 
+// ── Club Details inline edit ──────────────────────────────────────
+
+const onClubDetailsInput = (icon, value) => {
+  clubDetailsMap.value = { ...clubDetailsMap.value, [icon.id]: value };
+  // Debounce save
+  clearTimeout(clubDetailsTimers.value[icon.id]);
+  clubDetailsTimers.value[icon.id] = setTimeout(() => saveClubDetails(icon), 1500);
+};
+
+const saveClubDetails = async (icon) => {
+  if (!useSummitClubIcons.value) return;
+  const cid = parseInt(String(props.summitStatsClubId), 10);
+  if (!Number.isFinite(cid) || cid < 1) return;
+  const details = clubDetailsMap.value[icon.id] ?? icon.clubDetails ?? null;
+  try {
+    await api.put(`/summit-stats/clubs/${cid}/icon-details/${icon.id}`, { details });
+    // Update the icon in the list
+    const idx = icons.value.findIndex((i) => i.id === icon.id);
+    if (idx !== -1) icons.value[idx] = { ...icons.value[idx], clubDetails: details };
+  } catch (err) {
+    console.error('Failed to save club icon details:', err);
+  }
+};
+
 onMounted(async () => {
   // Do not fetch the full icon library on mount. This component can appear many times
   // on settings pages; loading 400+ icons per instance causes a huge delay.
@@ -588,7 +699,39 @@ onMounted(async () => {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-secondary, #64748b);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+}
+.icon-meta-badge {
+  display: block;
+  font-size: 9px;
+  color: var(--text-secondary, #64748b);
+  background: var(--surface-secondary, #f1f5f9);
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin: 1px auto 0;
+  text-align: center;
+  max-width: 90%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.icon-meta-badge--sub {
+  background: var(--primary-light, #eff6ff);
+  color: var(--primary, #2563eb);
+}
+.icon-club-details {
+  margin-top: 4px;
+  width: 100%;
+}
+.icon-club-details-input {
+  width: 100%;
+  font-size: 10px;
+  padding: 2px 4px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 4px;
+  background: var(--surface, #fff);
+  color: var(--text-secondary, #64748b);
+  box-sizing: border-box;
 }
 
 .icon-selector {

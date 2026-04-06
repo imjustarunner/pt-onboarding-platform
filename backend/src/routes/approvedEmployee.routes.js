@@ -33,7 +33,10 @@ router.get('/', getApprovedEmployees);
 router.put('/company-default-password',
   [
     body('agencyId').isInt().withMessage('Agency ID is required'),
-    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+    body('password')
+      .isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+      .isLength({ max: 128 }).withMessage('Password must be no more than 128 characters')
+      .matches(/[a-zA-Z]/).withMessage('Password must contain at least one letter (a–z or A–Z)')
   ],
   setCompanyDefaultPassword
 );
@@ -81,7 +84,10 @@ router.delete('/:id', deleteApprovedEmployee);
 router.post('/:id/send-verification', sendVerificationEmail);
 router.post('/:id/archive', archiveUser);
 router.put('/:id/password',
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('password')
+    .isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+    .isLength({ max: 128 }).withMessage('Password must be no more than 128 characters')
+    .matches(/[a-zA-Z]/).withMessage('Password must contain at least one letter (a–z or A–Z)'),
   updatePassword
 );
 

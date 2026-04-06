@@ -367,6 +367,15 @@
         <div v-if="isChallengeManager || isTeamCaptain" class="challenge-section">
           <ChallengeDraftReport :challenge-id="challengeId" :can-edit="isChallengeManager" />
         </div>
+        <div v-if="treadmillpocalypseWeek" class="challenge-section treadmillpocalypse-banner">
+          <div class="treadmillpocalypse-inner">
+            <img v-if="treadmillpocalypseIconUrl" :src="treadmillpocalypseIconUrl" class="treadmillpocalypse-icon" alt="" />
+            <div class="treadmillpocalypse-text">
+              <strong>🚫 Treadmillpocalypse Week</strong>
+              <span>Outdoor GPS workouts only — no treadmill allowed this week.</span>
+            </div>
+          </div>
+        </div>
         <div class="challenge-section">
           <ChallengeWeeklyTasks :challenge-id="challengeId" :my-user-id="authStore.user?.id" :is-captain="isTeamCaptain" />
         </div>
@@ -773,6 +782,8 @@ const captainAppsLoading = ref(false);
 const captainAppsError = ref('');
 const captainsFinalizeSubmitting = ref(false);
 const weeklyTaskOptions = ref([]);
+const treadmillpocalypseWeek = ref(null);
+const treadmillpocalypseIconUrl = ref(null);
 const seasonSummary = ref(null);
 const seasonSummaryLoading = ref(false);
 const recordBoards = ref({ seasonRecords: [], clubAllTimeRecords: [] });
@@ -1181,8 +1192,22 @@ const loadWeeklyTaskOptions = async () => {
   try {
     const r = await api.get(`/learning-program-classes/${id}/weekly-tasks`, { skipGlobalLoading: true });
     weeklyTaskOptions.value = Array.isArray(r.data?.tasks) ? r.data.tasks : [];
+    const tp = r.data?.treadmillpocalypse;
+    treadmillpocalypseWeek.value = (tp?.active === true) ? tp : null;
+    if (tp?.active && tp?.icon && String(tp.icon).startsWith('icon:')) {
+      const iconId = parseInt(String(tp.icon).replace('icon:', ''), 10);
+      if (iconId) {
+        try {
+          const { data: iconData } = await api.get(`/icons/${iconId}`, { skipGlobalLoading: true });
+          treadmillpocalypseIconUrl.value = iconData?.url || null;
+        } catch { treadmillpocalypseIconUrl.value = null; }
+      }
+    } else {
+      treadmillpocalypseIconUrl.value = null;
+    }
   } catch {
     weeklyTaskOptions.value = [];
+    treadmillpocalypseWeek.value = null;
   }
 };
 
@@ -1621,6 +1646,38 @@ watch(challengeId, () => {
   padding: 16px;
   border: 1px solid var(--border-color, #ddd);
   border-radius: 8px;
+}
+.treadmillpocalypse-banner {
+  background: linear-gradient(135deg, #1e3a5f 0%, #c0392b 100%);
+  border-color: #a93226;
+  padding: 14px 18px;
+}
+.treadmillpocalypse-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.treadmillpocalypse-icon {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  flex-shrink: 0;
+  border-radius: 8px;
+}
+.treadmillpocalypse-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #fff;
+}
+.treadmillpocalypse-text strong {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.treadmillpocalypse-text span {
+  font-size: 0.88rem;
+  opacity: 0.88;
 }
 .challenge-section h2 {
   margin: 0 0 12px 0;

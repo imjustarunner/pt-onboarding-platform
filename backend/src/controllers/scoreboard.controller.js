@@ -276,7 +276,15 @@ export const listWeeklyTasks = async (req, res, next) => {
     const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
     const tasks = await ChallengeWeeklyTask.listByWeek(classId, weekStart);
     const weekPhase = getSeasonWeekPhase({ klass: access.class, weekStartDate: weekStart, cutoffTime: weekCutoffTime, timeZone: weekTimeZone });
-    return res.json({ weekStartDate: weekStart, weekPhase, tasks });
+    const tpSettings = parseJsonObject(parseJsonObject(access.class?.season_settings_json || {})?.treadmillpocalypse || {});
+    const treadmillpocalypse = tpSettings.enabled === true && tpSettings.startsAtWeek
+      ? {
+          active: String(weekStart) >= String(tpSettings.startsAtWeek).slice(0, 10),
+          icon: tpSettings.icon || null,
+          startsAtWeek: tpSettings.startsAtWeek
+        }
+      : null;
+    return res.json({ weekStartDate: weekStart, weekPhase, tasks, treadmillpocalypse });
   } catch (e) {
     next(e);
   }

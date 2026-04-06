@@ -44,7 +44,7 @@ export const uploadMultiple = multer({
 
 export const getAllIcons = async (req, res, next) => {
   try {
-    const { category, search, includeInactive, agencyId, sortBy, sortOrder, includePlatform } = req.query;
+    const { category, search, includeInactive, agencyId, sortBy, sortOrder, includePlatform, activityType, subCategory } = req.query;
     
     // Build filters
     // agencyId handling:
@@ -72,7 +72,9 @@ export const getAllIcons = async (req, res, next) => {
       search: search || null,
       agencyId: parsedAgencyId,
       sortBy: sortBy || 'name',
-      sortOrder: sortOrder || 'asc'
+      sortOrder: sortOrder || 'asc',
+      activityType: activityType || null,
+      subCategory: subCategory || null
     };
 
     console.log('getAllIcons: Request params:', { 
@@ -161,7 +163,7 @@ export const uploadIcon = async (req, res, next) => {
     }
 
     // Get and validate name field (validation already done in route middleware, but double-check)
-    const { name, category, description, agencyId } = req.body;
+    const { name, category, description, agencyId, activityType, subCategory } = req.body;
     
     // Use sanitized body to prevent sensitive data leakage
     const sanitizedBody = req.sanitizedBody || (await import('../utils/sanitizeRequest.js')).sanitizeRequestBody(req.body);
@@ -336,6 +338,8 @@ export const uploadIcon = async (req, res, next) => {
       mimeType: req.file.mimetype,
       category: category || null,
       description: description || null,
+      activityType: activityType ? String(activityType).trim().slice(0, 64) : null,
+      subCategory: subCategory ? String(subCategory).trim().slice(0, 64) : null,
       createdByUserId: req.user.id,
       agencyId: finalAgencyId
     };
@@ -397,7 +401,7 @@ export const updateIcon = async (req, res, next) => {
     // Handle both JSON and FormData requests
     // If file is uploaded, body fields come as strings from FormData
     // If no file, body fields come as JSON
-    let name, category, description, isActive, agencyId;
+    let name, category, description, isActive, agencyId, activityType, subCategory;
     
     if (req.file) {
       // FormData request - fields are strings
@@ -406,9 +410,11 @@ export const updateIcon = async (req, res, next) => {
       description = req.body.description || null;
       isActive = req.body.isActive === 'true' || req.body.isActive === true || req.body.isActive === '1' || req.body.isActive === 1;
       agencyId = req.body.agencyId;
+      activityType = req.body.activityType || null;
+      subCategory = req.body.subCategory || null;
     } else {
       // JSON request
-      ({ name, category, description, isActive, agencyId } = req.body);
+      ({ name, category, description, isActive, agencyId, activityType, subCategory } = req.body);
     }
     
     console.log('Update icon request:', { id, body: req.body, hasFile: !!req.file, parsedFields: { name, category, description, isActive, agencyId } });
@@ -614,6 +620,8 @@ export const updateIcon = async (req, res, next) => {
     if (name !== undefined) updateData.name = finalName;
     if (category !== undefined) updateData.category = category || null;
     if (description !== undefined) updateData.description = description || null;
+    if (activityType !== undefined) updateData.activityType = activityType ? String(activityType).trim().slice(0, 64) : null;
+    if (subCategory !== undefined) updateData.subCategory = subCategory ? String(subCategory).trim().slice(0, 64) : null;
     if (isActive !== undefined) updateData.isActive = isActive;
     if (agencyId !== undefined) updateData.agencyId = finalAgencyId;
     if (newFilePath) {
@@ -866,7 +874,7 @@ export const bulkUploadIcons = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'No files uploaded. Please select at least one icon file.' } });
     }
 
-    const { category, description, agencyId } = req.body;
+    const { category, description, agencyId, activityType, subCategory } = req.body;
     const userRole = req.user.role;
     
     // Determine agency assignment (same logic as single upload)
@@ -957,6 +965,8 @@ export const bulkUploadIcons = async (req, res, next) => {
           mimeType: file.mimetype,
           category: category || null,
           description: description || null,
+          activityType: activityType ? String(activityType).trim().slice(0, 64) : null,
+          subCategory: subCategory ? String(subCategory).trim().slice(0, 64) : null,
           createdByUserId: req.user.id,
           agencyId: finalAgencyId
         };

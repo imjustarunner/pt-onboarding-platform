@@ -13,41 +13,61 @@
         <div v-else class="setup-form">
           <h2>Welcome, {{ userFirstName }}!</h2>
           <p class="subtitle">Create your password to get started</p>
-          
-          <form @submit.prevent="handleSetup">
+
+          <form @submit.prevent="handleSetup" autocomplete="on">
+            <!-- New password -->
             <div class="form-group">
               <label for="password">Password</label>
-              <input
-                id="password"
-                v-model="password"
-                type="password"
-                placeholder="Enter your password"
-                required
-                class="form-input"
-                :disabled="setting"
-                minlength="6"
-              />
+              <div class="input-wrap">
+                <input
+                  id="password"
+                  v-model="password"
+                  :type="showPassword ? 'text' : 'password'"
+                  placeholder="Choose your password"
+                  required
+                  class="form-input"
+                  :disabled="setting"
+                  autocomplete="new-password"
+                  minlength="6"
+                  maxlength="128"
+                />
+                <button type="button" class="toggle-vis" @click="showPassword = !showPassword" :aria-label="showPassword ? 'Hide password' : 'Show password'">
+                  {{ showPassword ? 'Hide' : 'Show' }}
+                </button>
+              </div>
+              <PasswordStrengthMeter :password="password" :confirm-password="confirmPassword" />
             </div>
-            
+
+            <!-- Confirm password -->
             <div class="form-group">
               <label for="confirmPassword">Confirm Password</label>
-              <input
-                id="confirmPassword"
-                v-model="confirmPassword"
-                type="password"
-                placeholder="Confirm your password"
-                required
-                class="form-input"
-                :disabled="setting"
-                minlength="6"
-              />
+              <div class="input-wrap">
+                <input
+                  id="confirmPassword"
+                  v-model="confirmPassword"
+                  :type="showConfirm ? 'text' : 'password'"
+                  placeholder="Re-enter your password"
+                  required
+                  class="form-input"
+                  :disabled="setting"
+                  autocomplete="new-password"
+                  minlength="6"
+                  maxlength="128"
+                />
+                <button type="button" class="toggle-vis" @click="showConfirm = !showConfirm" :aria-label="showConfirm ? 'Hide password' : 'Show password'">
+                  {{ showConfirm ? 'Hide' : 'Show' }}
+                </button>
+              </div>
             </div>
-            
-            <p v-if="passwordMismatch" class="error-message">Passwords do not match</p>
+
             <p v-if="setupError" class="error-message">{{ setupError }}</p>
-            
-            <button type="submit" class="btn btn-primary" :disabled="setting || passwordMismatch || !password || !confirmPassword">
-              {{ setting ? 'Setting Password...' : 'Create Password' }}
+
+            <button
+              type="submit"
+              class="btn btn-primary"
+              :disabled="setting || !!passwordMismatch || !password || !confirmPassword"
+            >
+              {{ setting ? 'Setting Password…' : 'Create Password' }}
             </button>
           </form>
         </div>
@@ -66,6 +86,7 @@ import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
 import { getDashboardRoute } from '../utils/router';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
+import PasswordStrengthMeter from '../components/PasswordStrengthMeter.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -80,15 +101,20 @@ const confirmPassword = ref('');
 const setting = ref(false);
 const setupError = ref('');
 
-const passwordMismatch = computed(() => {
-  return password.value && confirmPassword.value && password.value !== confirmPassword.value;
-});
+const showPassword = ref(false);
+const showConfirm = ref(false);
 
 const loginBackground = computed(() => brandingStore.loginBackground);
 
+const passwordMismatch = computed(() =>
+  password.value && confirmPassword.value && password.value !== confirmPassword.value
+    ? 'Passwords do not match'
+    : ''
+);
+
 const validateToken = async () => {
   const token = route.params.token;
-  
+
   if (!token) {
     error.value = 'Invalid setup link. Token is missing.';
     loading.value = false;
@@ -102,20 +128,26 @@ const validateToken = async () => {
     userFirstName.value = preferred ? `${first} "${preferred}"` : first;
     loading.value = false;
   } catch (err) {
-    const errorMessage = err.response?.data?.error?.message || err.message || 'Invalid or expired setup link. Please contact your administrator.';
-    error.value = errorMessage;
+    error.value = err.response?.data?.error?.message || err.message || 'Invalid or expired setup link. Please contact your administrator.';
     loading.value = false;
   }
 };
 
 const handleSetup = async () => {
   if (passwordMismatch.value) {
-    setupError.value = 'Passwords do not match';
+    setupError.value = passwordMismatch.value;
     return;
   }
-
   if (password.value.length < 6) {
     setupError.value = 'Password must be at least 6 characters';
+    return;
+  }
+  if (password.value.length > 128) {
+    setupError.value = 'Password must be no more than 128 characters';
+    return;
+  }
+  if (!/[a-zA-Z]/.test(password.value)) {
+    setupError.value = 'Password must contain at least one letter (a–z or A–Z)';
     return;
   }
 
@@ -132,47 +164,36 @@ const handleSetup = async () => {
     const response = await api.post(`/auth/initial-setup/${encodeURIComponent(token)}`, {
       password: password.value
     });
-    
-    // Set auth user (token is in HttpOnly cookie, set by backend)
+
     authStore.setAuth(null, response.data.user, response.data.sessionId);
-    
-    // Mark that we just logged in to help with cookie timing issues
     sessionStorage.setItem('justLoggedIn', 'true');
-    
-    // Fetch user's agencies and store them for future login redirects
+
     if (authStore.user.role !== 'super_admin' && authStore.user.type !== 'approved_employee') {
       try {
         const { useAgencyStore } = await import('../store/agency');
         const agencyStore = useAgencyStore();
         await agencyStore.fetchUserAgencies();
-        // Agencies are now stored in localStorage by fetchUserAgencies
       } catch (err) {
         console.error('Failed to fetch user agencies after initial setup:', err);
-        // Don't block redirect on agency fetch failure
       }
     } else if (response.data.agencies && response.data.agencies.length > 0) {
-      // For approved employees or if agencies are in response
       const { useAgencyStore } = await import('../store/agency');
       const agencyStore = useAgencyStore();
       agencyStore.setCurrentAgency(response.data.agencies[0]);
-      // Store agencies for future login redirects
       const { storeUserAgencies } = await import('../utils/loginRedirect');
       storeUserAgencies(response.data.agencies);
     }
-    
-    // Redirect to role-aware dashboard
+
     setTimeout(() => {
       router.push(getDashboardRoute());
     }, 500);
   } catch (err) {
-    const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to set password. Please try again.';
-    setupError.value = errorMessage;
+    setupError.value = err.response?.data?.error?.message || err.message || 'Failed to set password. Please try again.';
     setting.value = false;
   }
 };
 
 onMounted(async () => {
-  // If this setup link is org-scoped, load org theme for branded experience
   if (route.params.organizationSlug) {
     await brandingStore.fetchAgencyTheme(route.params.organizationSlug);
   }
@@ -231,9 +252,16 @@ onMounted(async () => {
   font-weight: 500;
 }
 
+/* Input + show/hide wrapper */
+.input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
 .form-input {
   width: 100%;
-  padding: 12px;
+  padding: 12px 72px 12px 12px;
   border: 1px solid #ddd;
   border-radius: 6px;
   font-size: 16px;
@@ -244,6 +272,23 @@ onMounted(async () => {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(198, 154, 43, 0.1);
+}
+
+.toggle-vis {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #6366f1;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.toggle-vis:hover {
+  background: #f0f0ff;
 }
 
 .btn {

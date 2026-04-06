@@ -35,11 +35,27 @@
         <!-- reCAPTCHA placeholder: public-facing club manager signup - add verifyRecaptchaV3() before submit when ready -->
         <div class="form-group">
           <label for="email">Email</label>
-          <input id="email" v-model="email" type="email" required placeholder="you@example.com" :disabled="loading" />
+          <input id="email" v-model="email" type="email" required placeholder="you@example.com" autocomplete="email" :disabled="loading" />
         </div>
         <div class="form-group">
           <label for="password">Password</label>
-          <input id="password" v-model="password" type="password" required placeholder="At least 6 characters" minlength="6" :disabled="loading" />
+          <div class="input-wrap">
+            <input
+              id="password"
+              v-model="password"
+              :type="showPassword ? 'text' : 'password'"
+              required
+              placeholder="Choose a password"
+              autocomplete="new-password"
+              minlength="6"
+              maxlength="128"
+              :disabled="loading"
+            />
+            <button type="button" class="toggle-vis" @click="showPassword = !showPassword" :aria-label="showPassword ? 'Hide password' : 'Show password'">
+              {{ showPassword ? 'Hide' : 'Show' }}
+            </button>
+          </div>
+          <PasswordStrengthMeter :password="password" />
         </div>
         <div class="form-group">
           <label for="firstName">First name</label>
@@ -92,6 +108,7 @@ import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { useBrandingStore } from '../store/branding';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
+import PasswordStrengthMeter from '../components/PasswordStrengthMeter.vue';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -140,6 +157,7 @@ onMounted(async () => {
 
 const email = ref('');
 const password = ref('');
+const showPassword = ref(false);
 const firstName = ref('');
 const lastName = ref('');
 const clubName = ref('');
@@ -265,6 +283,31 @@ const submit = async () => {
   border: 1px solid var(--border-color, #ddd);
   border-radius: 6px;
   font-size: 1em;
+  box-sizing: border-box;
+}
+.input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.input-wrap input {
+  padding-right: 68px;
+}
+.toggle-vis {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #6366f1;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.toggle-vis:hover {
+  background: #f0f0ff;
 }
 .signup-form textarea {
   min-height: 90px;

@@ -243,7 +243,8 @@ const normalizeSeasonSettings = (input = {}) => {
     },
     treadmillpocalypse: {
       enabled: asBool(treadmillpocalypse.enabled, false),
-      startsAtWeek: asNonEmptyString(treadmillpocalypse.startsAtWeek, null)
+      startsAtWeek: asNonEmptyString(treadmillpocalypse.startsAtWeek, null),
+      icon: asNonEmptyString(treadmillpocalypse.icon, null)
     },
     workoutModeration: {
       mode: toModerationMode(workoutModeration.mode)

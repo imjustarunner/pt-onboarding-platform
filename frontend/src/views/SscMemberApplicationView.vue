@@ -185,15 +185,37 @@
               </p>
             </div>
 
-            <div v-if="!existingAccountDetected" class="field-row">
+            <div v-if="!existingAccountDetected" class="field-row field-row--passwords">
               <div class="field">
                 <label>Password <span class="req">*</span></label>
-                <input v-model="form.password" type="password" autocomplete="new-password" minlength="8" required />
-                <p class="field-hint">At least 8 characters</p>
+                <div class="input-wrap">
+                  <input
+                    v-model="form.password"
+                    :type="showPassword ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    minlength="6"
+                    maxlength="128"
+                    required
+                  />
+                  <button type="button" class="toggle-vis" @click="showPassword = !showPassword" :aria-label="showPassword ? 'Hide password' : 'Show password'">
+                    {{ showPassword ? 'Hide' : 'Show' }}
+                  </button>
+                </div>
+                <PasswordStrengthMeter :password="form.password" :confirm-password="form.confirmPassword" />
               </div>
               <div class="field">
                 <label>Confirm password <span class="req">*</span></label>
-                <input v-model="form.confirmPassword" type="password" autocomplete="new-password" required />
+                <div class="input-wrap">
+                  <input
+                    v-model="form.confirmPassword"
+                    :type="showConfirmPassword ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    required
+                  />
+                  <button type="button" class="toggle-vis" @click="showConfirmPassword = !showConfirmPassword" :aria-label="showConfirmPassword ? 'Hide password' : 'Show password'">
+                    {{ showConfirmPassword ? 'Hide' : 'Show' }}
+                  </button>
+                </div>
               </div>
             </div>
           </section>
@@ -408,6 +430,7 @@ import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { TIMEZONE_GROUPS, detectLocalTimezone } from '../utils/timezones.js';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
+import PasswordStrengthMeter from '../components/PasswordStrengthMeter.vue';
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -518,6 +541,9 @@ const genderOptions = computed(() =>
 );
 
 // ── Form state ──────────────────────────────────────────────────────────────
+const showPassword = ref(false);
+const showConfirmPassword = ref(false);
+
 const form = reactive({
   firstName: '',
   lastName: '',
@@ -1226,7 +1252,32 @@ const handleSubmit = async () => {
   background: #fff;
   transition: border-color .15s, box-shadow .15s;
   color: #0f172a;
+  box-sizing: border-box;
+  width: 100%;
 }
+.input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.input-wrap input {
+  padding-right: 68px;
+}
+.toggle-vis {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  color: #6366f1;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.toggle-vis:hover { background: #f0f0ff; }
+.field-row--passwords { grid-template-columns: 1fr 1fr; align-items: start; }
 .field textarea {
   min-height: 112px;
   resize: vertical;

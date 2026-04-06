@@ -52,6 +52,92 @@ async function buildPayrollCaps(user) {
 }
 
 const SSO_EXCLUDED_ROLES = new Set(['school_staff', 'client_guardian', 'client', 'guardian', 'kiosk']);
+const normalizeTenantSlug = (value) => String(value || '').trim().toLowerCase();
+const SUMMIT_TENANT_SLUGS = new Set(
+  ['ssc', 'sstc', 'summit-stats', normalizeTenantSlug(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc')].filter(Boolean)
+);
+const isSummitTenantSlug = (value) => {
+  const slug = normalizeTenantSlug(value);
+  return !!slug && SUMMIT_TENANT_SLUGS.has(slug);
+};
+const getOrgPortalSlug = (org) => normalizeTenantSlug(org?.portal_url || org?.portalUrl || org?.slug || '');
+const getOrgType = (org) => normalizeTenantSlug(org?.organization_type || org?.organizationType || 'agency');
+const getOrgLogoUrl = (org) => {
+  const direct = String(org?.logo_url || '').trim();
+  if (direct) return direct;
+  const rawPath = String(org?.logo_path || '').trim();
+  if (!rawPath) return null;
+  const cleaned = rawPath.replace(/^\/+/, '').replace(/^uploads\//, '');
+  if (!cleaned) return null;
+  const uploadsBase = String(process.env.UPLOADS_BASE_URL || '').replace(/\/$/, '');
+  return uploadsBase ? `${uploadsBase}/uploads/${cleaned}` : `/uploads/${cleaned}`;
+};
+const resolveSummitTenantContext = async ({ orgs, requestedSlug }) => {
+  const requested = normalizeTenantSlug(requestedSlug);
+  const orgList = Array.isArray(orgs) ? orgs : [];
+  if (!requested || !isSummitTenantSlug(requested) || !orgList.length) {
+    return null;
+  }
+
+  const clubLikeOrgs = orgList.filter((org) => {
+    const type = getOrgType(org);
+    const clubRole = String(org?.club_role || '').trim().toLowerCase();
+    return type === 'affiliation' || !!clubRole;
+  });
+
+  const parentIds = Array.from(
+    new Set(
+      clubLikeOrgs
+        .map((org) => Number(org?.affiliated_agency_id || 0))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )
+  );
+  const parentById = new Map();
+  await Promise.all(parentIds.map(async (id) => {
+    try {
+      const parent = await Agency.findById(id);
+      if (parent) parentById.set(id, parent);
+    } catch {
+      // best-effort
+    }
+  }));
+
+  const summitClubCandidates = clubLikeOrgs
+    .map((club) => {
+      const parentId = Number(club?.affiliated_agency_id || 0);
+      const parent = parentId ? parentById.get(parentId) || null : null;
+      const parentSlug = getOrgPortalSlug(parent);
+      if (!parent || !isSummitTenantSlug(parentSlug)) return null;
+      return { club, parent, parentSlug };
+    })
+    .filter(Boolean);
+
+  const requestedSummitAgency =
+    orgList.find((org) => {
+      const slug = getOrgPortalSlug(org);
+      return slug === requested && getOrgType(org) !== 'affiliation';
+    }) || null;
+  const directSummitAgency =
+    orgList.find((org) => {
+      const slug = getOrgPortalSlug(org);
+      return slug && isSummitTenantSlug(slug) && getOrgType(org) !== 'affiliation';
+    }) || null;
+
+  const preferredClub =
+    summitClubCandidates.find((candidate) => candidate.parentSlug === requested) ||
+    summitClubCandidates[0] ||
+    null;
+
+  return {
+    resolvedOrg: requestedSummitAgency || preferredClub?.parent || directSummitAgency || null,
+    affiliationBranding: preferredClub
+      ? {
+          name: String(preferredClub.club?.name || '').trim() || null,
+          logoUrl: getOrgLogoUrl(preferredClub.club)
+        }
+      : null
+  };
+};
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
   if (typeof raw === 'string') {
@@ -418,8 +504,7 @@ export const login = async (req, res, next) => {
     const looksLikePhone = identifierDigits.length >= 7 && identifierDigits.length <= 15 && !/[@.]/.test(identifier);
 
     /** True when the login is happening on the Summit Stats Team Challenge tenant (SSC / SSTC / aliases). */
-    const sscSlug = (process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc').toLowerCase();
-    const isSSCTenant = orgSlug === 'ssc' || orgSlug === 'summit-stats' || orgSlug === sscSlug;
+    const isSSCTenant = isSummitTenantSlug(orgSlug);
 
     let user;
     try {
@@ -538,6 +623,32 @@ export const login = async (req, res, next) => {
       });
     }
 
+    // Account lockout check (10 consecutive failures → 24-hour lockout)
+    try {
+      const pool = (await import('../config/database.js')).default;
+      const [lockRows] = await pool.execute(
+        'SELECT failed_login_attempts, locked_until FROM users WHERE id = ? LIMIT 1',
+        [user.id]
+      );
+      if (lockRows && lockRows.length > 0) {
+        const { locked_until, failed_login_attempts } = lockRows[0];
+        if (locked_until && new Date(locked_until) > new Date()) {
+          const unlockAt = new Date(locked_until);
+          return res.status(423).json({
+            error: {
+              message: `Account is locked due to too many failed login attempts. Please try again after ${unlockAt.toUTCString()}.`,
+              lockedUntil: unlockAt.toISOString(),
+              code: 'ACCOUNT_LOCKED'
+            }
+          });
+        }
+        // Attach to user object for use after password check
+        user._failedLoginAttempts = Number(failed_login_attempts) || 0;
+      }
+    } catch {
+      // best-effort — do not block login if columns not yet migrated
+    }
+
     // Verify password (supports temporary passwords)
     const hasPasswordHash = !!user.password_hash;
     const hasTempHash = !!user.temporary_password_hash;
@@ -604,7 +715,44 @@ export const login = async (req, res, next) => {
     }
 
     if (!isValidPassword) {
+      // Increment failed attempt counter; lock account on 10th consecutive failure
+      try {
+        const pool = (await import('../config/database.js')).default;
+        const newCount = (Number(user._failedLoginAttempts) || 0) + 1;
+        if (newCount >= 10) {
+          const lockUntil = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+          await pool.execute(
+            'UPDATE users SET failed_login_attempts = ?, locked_until = ? WHERE id = ?',
+            [newCount, lockUntil, user.id]
+          );
+          return res.status(423).json({
+            error: {
+              message: `Account locked after 10 failed login attempts. Please try again after ${lockUntil.toUTCString()}.`,
+              lockedUntil: lockUntil.toISOString(),
+              code: 'ACCOUNT_LOCKED'
+            }
+          });
+        } else {
+          await pool.execute(
+            'UPDATE users SET failed_login_attempts = ? WHERE id = ?',
+            [newCount, user.id]
+          );
+        }
+      } catch {
+        // best-effort — do not swallow the 401
+      }
       return res.status(401).json({ error: { message: 'Invalid email or password' } });
+    }
+
+    // Reset failed attempt counter on successful login
+    try {
+      const pool = (await import('../config/database.js')).default;
+      await pool.execute(
+        'UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?',
+        [user.id]
+      );
+    } catch {
+      // best-effort
     }
     
     // If user is inactive but password is correct, still allow login (they may be reinstated)
@@ -758,6 +906,8 @@ export const login = async (req, res, next) => {
         requiresPasswordChange: pw.requiresPasswordChange || tempActive,
         passwordExpiresAt: pw.passwordExpiresAt,
         passwordExpired: pw.passwordExpired,
+        passwordExpiresSoon: pw.passwordExpiresSoon,
+        passwordExpiresInDays: pw.passwordExpiresInDays,
         has_supervisor_privileges: !!(freshUser?.has_supervisor_privileges === true || freshUser?.has_supervisor_privileges === 1 || freshUser?.has_supervisor_privileges === '1'),
         has_provider_access: !!(freshUser?.has_provider_access === true || freshUser?.has_provider_access === 1 || freshUser?.has_provider_access === '1'),
         has_staff_access: !!(freshUser?.has_staff_access === true || freshUser?.has_staff_access === 1 || freshUser?.has_staff_access === '1'),
@@ -1030,9 +1180,21 @@ export const identifyLogin = async (req, res, next) => {
       organization_type: o?.organization_type ?? o?.organizationType ?? null
     }));
 
+    let affiliationBranding = null;
+
     // Resolve org context
     let resolved = null;
     const requested = requestedOrgSlug ? String(requestedOrgSlug).trim().toLowerCase() : null;
+
+    if (isSummitTenantSlug(requested)) {
+      const summitContext = await resolveSummitTenantContext({ orgs, requestedSlug: requested });
+      if (summitContext?.resolvedOrg) {
+        resolved = summitContext.resolvedOrg;
+      }
+      if (summitContext?.affiliationBranding?.name || summitContext?.affiliationBranding?.logoUrl) {
+        affiliationBranding = summitContext.affiliationBranding;
+      }
+    }
 
     const hasMembership = (slug) => {
       if (!slug) return false;
@@ -1167,41 +1329,6 @@ export const identifyLogin = async (req, res, next) => {
         }
       } catch {
         // best-effort
-      }
-    }
-
-    // SSC login: surface the user's club branding so the login page can show a dual-brand split.
-    // Only included when the club has a logo; silently skipped on any error.
-    let affiliationBranding = null;
-    if (requestedOrgSlug === 'ssc' && user?.id) {
-      try {
-        const [clubRows] = await pool.execute(
-          `SELECT a.id, a.name, a.logo_path, a.logo_url
-           FROM learning_class_provider_memberships m
-           INNER JOIN learning_program_classes lpc ON lpc.id = m.learning_class_id
-           INNER JOIN agencies a ON a.id = lpc.agency_id
-           WHERE m.provider_user_id = ?
-             AND m.membership_status IN ('active', 'completed')
-             AND a.organization_type = 'affiliation'
-             AND a.is_active = 1
-           ORDER BY m.created_at DESC
-           LIMIT 1`,
-          [user.id]
-        );
-        const club = clubRows?.[0];
-        if (club) {
-          const uploadsBase = String(process.env.UPLOADS_BASE_URL || '').replace(/\/$/, '');
-          let logoUrl = club.logo_url || null;
-          if (club.logo_path) {
-            const cleaned = String(club.logo_path).replace(/^\/+/, '').replace(/^uploads\//, '');
-            logoUrl = cleaned ? `${uploadsBase}/uploads/${cleaned}` : logoUrl;
-          }
-          if (logoUrl) {
-            affiliationBranding = { name: club.name || null, logoUrl };
-          }
-        }
-      } catch {
-        // best-effort — never block login
       }
     }
 
@@ -1886,6 +2013,8 @@ export const passwordlessTokenLogin = async (req, res, next) => {
           requiresPasswordChange: pw.requiresPasswordChange,
           passwordExpiresAt: pw.passwordExpiresAt,
           passwordExpired: pw.passwordExpired,
+          passwordExpiresSoon: pw.passwordExpiresSoon,
+          passwordExpiresInDays: pw.passwordExpiresInDays,
           has_supervisor_privileges: !!(fullUser?.has_supervisor_privileges === true || fullUser?.has_supervisor_privileges === 1 || fullUser?.has_supervisor_privileges === '1'),
           has_provider_access: !!(fullUser?.has_provider_access === true || fullUser?.has_provider_access === 1 || fullUser?.has_provider_access === '1'),
           has_staff_access: !!(fullUser?.has_staff_access === true || fullUser?.has_staff_access === 1 || fullUser?.has_staff_access === '1'),
@@ -2112,6 +2241,8 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
           requiresPasswordChange: pw.requiresPasswordChange,
           passwordExpiresAt: pw.passwordExpiresAt,
           passwordExpired: pw.passwordExpired,
+          passwordExpiresSoon: pw.passwordExpiresSoon,
+          passwordExpiresInDays: pw.passwordExpiresInDays,
           medcancelEnabled: ['low', 'high'].includes(String(fullUser?.medcancel_rate_schedule || '').toLowerCase()),
           medcancelRateSchedule: fullUser?.medcancel_rate_schedule || null,
           has_supervisor_privileges: !!(fullUser?.has_supervisor_privileges === true || fullUser?.has_supervisor_privileges === 1 || fullUser?.has_supervisor_privileges === '1'),
@@ -2802,6 +2933,14 @@ export const resetPasswordWithToken = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
     }
 
+    if (password.length > 128) {
+      return res.status(400).json({ error: { message: 'Password must be no more than 128 characters' } });
+    }
+
+    if (!/[a-zA-Z]/.test(password)) {
+      return res.status(400).json({ error: { message: 'Password must contain at least one letter (a–z or A–Z)' } });
+    }
+
     const user = await User.validatePasswordlessToken(token);
     if (!user) {
       return res.status(401).json({ error: { message: 'Invalid or expired reset link' } });
@@ -2809,6 +2948,21 @@ export const resetPasswordWithToken = async (req, res, next) => {
 
     if (user.passwordless_token_purpose !== 'reset') {
       return res.status(400).json({ error: { message: 'This link is not a password reset link' } });
+    }
+
+    // Strength, dictionary, and username similarity check
+    const { validatePasswordStrength } = await import('../utils/passwordValidation.js');
+    const pwCheck = await validatePasswordStrength(password, { accountId: user.username || user.email });
+    if (!pwCheck.valid) {
+      return res.status(400).json({ error: { message: pwCheck.message } });
+    }
+
+    // Password history reuse check (last 5)
+    const isReused = await User.isPasswordReused(user.id, password, 5);
+    if (isReused) {
+      return res.status(400).json({
+        error: { message: 'You cannot reuse one of your last 5 passwords. Please choose a different password.' }
+      });
     }
 
     // Set new password (overwrites old password hash)
@@ -2907,6 +3061,14 @@ export const initialSetup = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
     }
 
+    if (password.length > 128) {
+      return res.status(400).json({ error: { message: 'Password must be no more than 128 characters' } });
+    }
+
+    if (!/[a-zA-Z]/.test(password)) {
+      return res.status(400).json({ error: { message: 'Password must contain at least one letter (a–z or A–Z)' } });
+    }
+
     // Validate token
     const user = await User.validatePasswordlessToken(token);
     if (!user) {
@@ -2916,6 +3078,13 @@ export const initialSetup = async (req, res, next) => {
     // Check if user already has password
     if (user.password_hash) {
       return res.status(400).json({ error: { message: 'Password already set. Please use regular login.' } });
+    }
+
+    // Strength, dictionary, and username similarity check
+    const { validatePasswordStrength: validatePwStrength } = await import('../utils/passwordValidation.js');
+    const pwCheck2 = await validatePwStrength(password, { accountId: user.username || user.email });
+    if (!pwCheck2.valid) {
+      return res.status(400).json({ error: { message: pwCheck2.message } });
     }
 
     // Set password
@@ -3645,7 +3814,7 @@ export const registerParticipant = async (req, res, next) => {
     });
 
     const portalSlugNorm = String(portalSlug || '').trim().toLowerCase();
-    if (portalSlugNorm === 'ssc' || portalSlugNorm === 'sstc' || portalSlugNorm === 'summit-stats') {
+    if (isSummitTenantSlug(portalSlugNorm)) {
       const platformAgencyId = await getPlatformAgencyId();
       if (platformAgencyId) {
         await User.assignToAgency(user.id, platformAgencyId, { isActive: true });

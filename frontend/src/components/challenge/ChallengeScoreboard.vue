@@ -47,7 +47,10 @@
         <h3>Recognition of the Week</h3>
         <div class="scoreboard-list">
           <div v-for="entry in normalizedRecognition" :key="entry.categoryId || entry.label" class="scoreboard-row">
-            <span v-if="entry.icon" class="recognition-icon">{{ entry.icon }}</span>
+            <span v-if="entry.icon && String(entry.icon).startsWith('icon:')" class="recognition-icon">
+              <img :src="resolveScoreboardIconUrl(entry.icon)" class="scoreboard-icon-img" alt="" />
+            </span>
+            <span v-else-if="entry.icon" class="recognition-icon">{{ entry.icon }}</span>
             <span class="recognition-label">{{ entry.label }}</span>
             <template v-if="entry.winner">
               <UserAvatar :photo-path="entry.winner.profile_photo_path" :first-name="entry.winner.first_name" :last-name="entry.winner.last_name" size="sm" />
@@ -100,6 +103,18 @@ function metricUnit(metric) {
   return map[metric] || 'pts';
 }
 
+const scoreboardIconCache = ref({});
+function resolveScoreboardIconUrl(iconRef) {
+  if (!iconRef || !String(iconRef).startsWith('icon:')) return null;
+  const id = parseInt(String(iconRef).replace('icon:', ''), 10);
+  if (!id) return null;
+  if (scoreboardIconCache.value[id]) return scoreboardIconCache.value[id];
+  api.get(`/icons/${id}`).then(({ data }) => {
+    if (data?.url) scoreboardIconCache.value[id] = data.url;
+  }).catch(() => {});
+  return null;
+}
+
 const weekStart = ref(getThisWeekSunday());
 const loading = ref(false);
 const data = ref(null);
@@ -148,7 +163,8 @@ defineExpose({ load });
 .scoreboard-row .team { font-size: 0.9em; color: var(--text-muted, #666); }
 .scoreboard-row .points { font-weight: 600; color: var(--text-muted, #666); }
 .empty-hint, .loading-inline { padding: 12px; color: var(--text-muted, #666); }
-.scoreboard-row .recognition-icon { font-size: 18px; flex-shrink: 0; }
+.scoreboard-row .recognition-icon { font-size: 18px; flex-shrink: 0; display: flex; align-items: center; }
+.scoreboard-icon-img { width: 24px; height: 24px; object-fit: contain; display: block; }
 .scoreboard-row .recognition-label { font-weight: 600; min-width: 140px; color: var(--text-primary); }
 .no-winner { color: var(--text-muted, #999); font-style: italic; }
 </style>

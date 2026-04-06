@@ -1241,8 +1241,12 @@ export const submitApplication = async (req, res, next) => {
       if (alreadyMember) {
         return res.status(409).json({ error: { message: 'This account is already a member of this club' } });
       }
-    } else if (!password || String(password).length < 8) {
-      return res.status(400).json({ error: { message: 'Password must be at least 8 characters' } });
+    } else if (!password || String(password).length < 6) {
+      return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
+    } else if (String(password).length > 128) {
+      return res.status(400).json({ error: { message: 'Password must be no more than 128 characters' } });
+    } else if (!/[a-zA-Z]/.test(String(password))) {
+      return res.status(400).json({ error: { message: 'Password must contain at least one letter (a–z or A–Z)' } });
     }
 
     const { userId, isNew } = existingUser
@@ -1366,8 +1370,12 @@ export const submitInviteApplication = async (req, res, next) => {
       if (alreadyMember) {
         return res.status(409).json({ error: { message: 'This account is already a member of this club' } });
       }
-    } else if (!password || String(password).length < 8) {
-      return res.status(400).json({ error: { message: 'Password must be at least 8 characters' } });
+    } else if (!password || String(password).length < 6) {
+      return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
+    } else if (String(password).length > 128) {
+      return res.status(400).json({ error: { message: 'Password must be no more than 128 characters' } });
+    } else if (!/[a-zA-Z]/.test(String(password))) {
+      return res.status(400).json({ error: { message: 'Password must contain at least one letter (a–z or A–Z)' } });
     }
 
     const { userId, isNew } = existingUser
@@ -3291,8 +3299,10 @@ export const getMyApplications = async (req, res, next) => {
  */
 export const listClubMembersDirectory = async (req, res, next) => {
   try {
-    const clubId = toInt(req.params.id);
-    if (!clubId) return res.status(400).json({ error: { message: 'Invalid club id' } });
+    const clubRef = String(req.params.id || '').trim();
+    const club = await resolveClubByPublicRef(clubRef);
+    if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
+    const clubId = Number(club.id);
     const user = req.user;
     if (!user?.id) return res.status(401).json({ error: { message: 'Sign in required' } });
     const membership = await getUserClubMembership(user.id, clubId);
@@ -3478,11 +3488,13 @@ export const listClubMembersDirectoryPublic = async (req, res, next) => {
  */
 export const getClubMemberProfile = async (req, res, next) => {
   try {
-    const clubId = toInt(req.params.id);
+    const clubRef = String(req.params.id || '').trim();
+    const club = await resolveClubByPublicRef(clubRef);
     const targetUserId = toInt(req.params.userId);
     const viewerId = req.user?.id;
     if (!viewerId) return res.status(401).json({ error: { message: 'Sign in required' } });
-    if (!clubId || !targetUserId) return res.status(400).json({ error: { message: 'Invalid club or user' } });
+    if (!club || !targetUserId) return res.status(400).json({ error: { message: 'Invalid club or user' } });
+    const clubId = Number(club.id);
 
     const membership = await getUserClubMembership(viewerId, clubId);
     if (!membership || membership.is_active === false) {

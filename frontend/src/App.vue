@@ -1022,6 +1022,21 @@
         <!-- Keep legacy selector for non-super-admin users; super admins use the top-nav switcher.
              Hidden on SSC / affiliation portals: the context bar below the navbar replaces it. -->
         <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff && !isSummitStatsChallengeChrome && !String(route.path || '').includes('/tickets')" />
+
+        <!-- Password expiry warning banner (shown 14 days before expiry, dismissible per session) -->
+        <div
+          v-if="showPasswordExpiryBanner"
+          class="pw-expiry-banner"
+          role="alert"
+        >
+          <span class="pw-expiry-icon" aria-hidden="true">⚠️</span>
+          <span class="pw-expiry-text">
+            Your password expires in <strong>{{ user.passwordExpiresInDays }} {{ user.passwordExpiresInDays === 1 ? 'day' : 'days' }}</strong>.
+            <router-link to="/change-password" class="pw-expiry-link">Change it now</router-link> to avoid being locked out.
+          </span>
+          <button class="pw-expiry-dismiss" @click="dismissPasswordExpiryBanner" aria-label="Dismiss">✕</button>
+        </div>
+
         <!-- Use path (not fullPath) so query-only updates don't destroy/recreate the page (avoids flash + repeated dashboard_view logs). -->
         <router-view :key="route.path" />
       </main>
@@ -1739,6 +1754,15 @@ const navTitleText = computed(() => {
 });
 
 const isAuthenticated = computed(() => authStore.isAuthenticated);
+
+const passwordExpiryBannerDismissed = ref(false);
+const showPasswordExpiryBanner = computed(() =>
+  isAuthenticated.value &&
+  !passwordExpiryBannerDismissed.value &&
+  user.value?.passwordExpiresSoon === true &&
+  !user.value?.requiresPasswordChange
+);
+const dismissPasswordExpiryBanner = () => { passwordExpiryBannerDismissed.value = true; };
 const sessionSettingsKey = computed(() => {
   const raw =
     agencyStore.currentAgency?.session_settings_json ??
@@ -4336,6 +4360,39 @@ onUnmounted(() => {
   padding: 0 20px;
   margin-top: -2px; /* visually attaches to navbar bottom border */
 }
+
+/* Password expiry warning banner */
+.pw-expiry-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fef3c7;
+  border-bottom: 1px solid #f59e0b;
+  padding: 10px 20px;
+  font-size: 14px;
+  color: #92400e;
+}
+.pw-expiry-icon { font-size: 16px; flex-shrink: 0; }
+.pw-expiry-text { flex: 1; }
+.pw-expiry-link {
+  color: #92400e;
+  font-weight: 700;
+  text-decoration: underline;
+  margin-left: 6px;
+}
+.pw-expiry-link:hover { color: #78350f; }
+.pw-expiry-dismiss {
+  background: none;
+  border: none;
+  color: #92400e;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.pw-expiry-dismiss:hover { background: #fde68a; }
 
 .welcome-hang-link {
   display: inline-flex;

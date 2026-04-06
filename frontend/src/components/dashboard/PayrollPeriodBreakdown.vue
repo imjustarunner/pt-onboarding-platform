@@ -174,7 +174,18 @@
           <div class="right">Rate</div>
           <div class="right">Amount</div>
         </div>
-        <div v-for="l in serviceLines" :key="l.code" class="code-row">
+        <div
+          v-for="l in serviceLines"
+          :key="l.code"
+          class="code-row"
+          :style="
+            (String(l.code).includes('(Old Note)') || String(l.code).includes('(Late Addition)') || String(l.code).includes('(Code Changed)'))
+              ? { background: '#fffbe6', borderLeft: '3px solid #f0b429', paddingLeft: '9px' }
+              : (Number(l.noNoteUnits ?? 0) > 0)
+                ? { background: '#fff0f0', borderLeft: '3px solid #e53e3e', paddingLeft: '9px' }
+                : {}
+          "
+        >
           <div class="code">{{ l.code }}</div>
           <div class="right muted">{{ fmtNum(l.noNoteUnits ?? 0) }}</div>
           <div class="right muted">{{ fmtNum(l.draftUnits ?? 0) }}</div>
@@ -356,7 +367,8 @@ const splitBreakdownForDisplay = (b) => {
     const carryAmountSum = Number((oldNoteAmount + codeChangedAmount + lateAdditionAmount).toFixed(2));
     const baseAmount = Math.max(0, Number((totalAmount - carryAmountSum).toFixed(2)));
 
-    if (baseUnits > 1e-9 && baseAmount > 1e-9) {
+    // Always show codes that have units, even when amount is $0 (e.g. no-pay benefit codes).
+    if (baseUnits > 1e-9) {
       out.push({
         code,
         ...v,

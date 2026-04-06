@@ -3,7 +3,7 @@
     <div class="reset-content">
       <div class="reset-card">
         <div v-if="loading" class="loading">
-          <p>Loading...</p>
+          <p>Loading…</p>
         </div>
 
         <div v-else-if="error" class="error">
@@ -15,46 +15,62 @@
         <div v-else class="reset-form">
           <h2 v-if="firstName">Hi {{ firstName }},</h2>
           <h2 v-else>Reset your password</h2>
-          <p class="subtitle">Please choose a new password to continue</p>
+          <p class="subtitle">Please choose a new password to continue.</p>
 
-          <form @submit.prevent="handleReset">
+          <form @submit.prevent="handleReset" autocomplete="on">
+            <!-- New password -->
             <div class="form-group">
               <label for="password">New Password</label>
-              <input
-                id="password"
-                v-model="password"
-                type="password"
-                placeholder="Enter a new password"
-                required
-                class="form-input"
-                :disabled="saving"
-                minlength="6"
-              />
+              <div class="input-wrap">
+                <input
+                  id="password"
+                  v-model="password"
+                  :type="showPassword ? 'text' : 'password'"
+                  placeholder="Choose a new password"
+                  required
+                  class="form-input"
+                  :disabled="saving"
+                  autocomplete="new-password"
+                  minlength="6"
+                  maxlength="128"
+                />
+                <button type="button" class="toggle-vis" @click="showPassword = !showPassword" :aria-label="showPassword ? 'Hide password' : 'Show password'">
+                  {{ showPassword ? 'Hide' : 'Show' }}
+                </button>
+              </div>
+              <PasswordStrengthMeter :password="password" :confirm-password="confirmPassword" />
             </div>
 
+            <!-- Confirm password -->
             <div class="form-group">
               <label for="confirmPassword">Confirm New Password</label>
-              <input
-                id="confirmPassword"
-                v-model="confirmPassword"
-                type="password"
-                placeholder="Confirm your new password"
-                required
-                class="form-input"
-                :disabled="saving"
-                minlength="6"
-              />
+              <div class="input-wrap">
+                <input
+                  id="confirmPassword"
+                  v-model="confirmPassword"
+                  :type="showConfirm ? 'text' : 'password'"
+                  placeholder="Re-enter your new password"
+                  required
+                  class="form-input"
+                  :disabled="saving"
+                  autocomplete="new-password"
+                  minlength="6"
+                  maxlength="128"
+                />
+                <button type="button" class="toggle-vis" @click="showConfirm = !showConfirm" :aria-label="showConfirm ? 'Hide password' : 'Show password'">
+                  {{ showConfirm ? 'Hide' : 'Show' }}
+                </button>
+              </div>
             </div>
 
-            <p v-if="passwordMismatch" class="error-message">Passwords do not match</p>
             <p v-if="formError" class="error-message">{{ formError }}</p>
 
             <button
               type="submit"
               class="btn btn-primary"
-              :disabled="saving || passwordMismatch || !password || !confirmPassword"
+              :disabled="saving || !!passwordMismatch || !password || !confirmPassword"
             >
-              {{ saving ? 'Saving...' : 'Reset Password' }}
+              {{ saving ? 'Saving…' : 'Reset Password' }}
             </button>
           </form>
         </div>
@@ -73,6 +89,7 @@ import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
 import { getDashboardRoute } from '../utils/router';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
+import PasswordStrengthMeter from '../components/PasswordStrengthMeter.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -87,11 +104,16 @@ const confirmPassword = ref('');
 const saving = ref(false);
 const formError = ref('');
 
-const passwordMismatch = computed(() => {
-  return password.value && confirmPassword.value && password.value !== confirmPassword.value;
-});
+const showPassword = ref(false);
+const showConfirm = ref(false);
 
 const loginBackground = computed(() => brandingStore.loginBackground);
+
+const passwordMismatch = computed(() =>
+  password.value && confirmPassword.value && password.value !== confirmPassword.value
+    ? 'Passwords do not match'
+    : ''
+);
 
 const token = computed(() => {
   const t = route.params.token;
@@ -109,14 +131,12 @@ const validateToken = async () => {
     const resp = await api.get(`/auth/validate-reset-token/${encodeURIComponent(token.value)}`);
     firstName.value = resp.data.firstName || '';
 
-    // If route isn’t slug-scoped, still apply org branding best-effort.
     if (!route.params.organizationSlug && resp.data.portalSlug) {
       await brandingStore.fetchAgencyTheme(resp.data.portalSlug);
     }
 
     loading.value = false;
   } catch (err) {
-    // If axios couldn't parse JSON (backend/proxy returned plain text), show a cleaner message.
     if (err?.message?.includes('Unexpected token') || err?.message?.includes('JSON')) {
       error.value = 'This reset link could not be validated. Please request a new password reset link.';
     } else {
@@ -128,11 +148,19 @@ const validateToken = async () => {
 
 const handleReset = async () => {
   if (passwordMismatch.value) {
-    formError.value = 'Passwords do not match';
+    formError.value = passwordMismatch.value;
     return;
   }
   if (password.value.length < 6) {
     formError.value = 'Password must be at least 6 characters';
+    return;
+  }
+  if (password.value.length > 128) {
+    formError.value = 'Password must be no more than 128 characters';
+    return;
+  }
+  if (!/[a-zA-Z]/.test(password.value)) {
+    formError.value = 'Password must contain at least one letter (a–z or A–Z)';
     return;
   }
 
@@ -147,7 +175,6 @@ const handleReset = async () => {
     authStore.setAuth(null, resp.data.user, resp.data.sessionId);
     sessionStorage.setItem('justLoggedIn', 'true');
 
-    // Load agencies for redirects / slug enforcement
     if (authStore.user.role !== 'super_admin' && authStore.user.type !== 'approved_employee') {
       try {
         const { useAgencyStore } = await import('../store/agency');
@@ -158,7 +185,6 @@ const handleReset = async () => {
       }
     }
 
-    // Redirect into the app
     setTimeout(() => {
       router.push(getDashboardRoute());
     }, 400);
@@ -169,7 +195,6 @@ const handleReset = async () => {
 };
 
 onMounted(async () => {
-  // If this reset link is org-scoped, load org theme for branded experience
   if (route.params.organizationSlug) {
     await brandingStore.fetchAgencyTheme(route.params.organizationSlug);
   }
@@ -222,18 +247,41 @@ onMounted(async () => {
   font-weight: 500;
 }
 
+.input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
 .form-input {
   width: 100%;
-  padding: 12px;
+  padding: 12px 72px 12px 12px;
   border: 1px solid #ddd;
   border-radius: 6px;
   font-size: 16px;
+  box-sizing: border-box;
+}
+
+.toggle-vis {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #6366f1;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.toggle-vis:hover {
+  background: #f0f0ff;
 }
 
 .error-message {
-  color: var(--error);
+  color: var(--error, #ef4444);
   font-size: 14px;
   margin: 10px 0;
 }
 </style>
-

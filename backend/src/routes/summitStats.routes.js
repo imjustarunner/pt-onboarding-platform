@@ -29,6 +29,8 @@ import {
   getMyTimezone,
   updateMyTimezone,
   listClubIcons,
+  getClubIconDetails,
+  upsertClubIconDetails,
   listEligibilityGroups,
   createEligibilityGroup,
   updateEligibilityGroup,
@@ -37,6 +39,11 @@ import {
   createRecognitionAward,
   updateRecognitionAward,
   deleteRecognitionAward,
+  listTenantAwards,
+  createTenantAward,
+  updateTenantAward,
+  deleteTenantAward,
+  cloneTenantAward,
   getStatsConfig,
   updateStatsConfig,
   getClubStats,
@@ -146,6 +153,8 @@ router.put('/users/me/timezone', updateMyTimezone);
 
 // Club icons (for recognition icon picker)
 router.get('/clubs/:id/icons', listClubIcons);
+router.get('/clubs/:id/icon-details/:iconId', getClubIconDetails);
+router.put('/clubs/:id/icon-details/:iconId', upsertClubIconDetails);
 
 // Eligibility groups library
 router.get('/clubs/:id/eligibility-groups', listEligibilityGroups);
@@ -153,11 +162,18 @@ router.post('/clubs/:id/eligibility-groups', createEligibilityGroup);
 router.put('/clubs/:id/eligibility-groups/:groupId', updateEligibilityGroup);
 router.delete('/clubs/:id/eligibility-groups/:groupId', deleteEligibilityGroup);
 
-// Recognition awards library
+// Recognition awards library (club-level)
 router.get('/clubs/:id/recognition-awards', listRecognitionAwards);
 router.post('/clubs/:id/recognition-awards', createRecognitionAward);
 router.put('/clubs/:id/recognition-awards/:awardId', updateRecognitionAward);
 router.delete('/clubs/:id/recognition-awards/:awardId', deleteRecognitionAward);
+router.post('/clubs/:id/recognition-awards/clone-from-tenant/:awardId', cloneTenantAward);
+
+// Tenant recognition award templates (superadmin or feature-flagged managers)
+router.get('/clubs/:id/tenant-awards', listTenantAwards);
+router.post('/clubs/:id/tenant-awards', createTenantAward);
+router.put('/clubs/:id/tenant-awards/:awardId', updateTenantAward);
+router.delete('/clubs/:id/tenant-awards/:awardId', deleteTenantAward);
 
 // Participant custom field values
 router.get('/clubs/:id/seasons/:classId/participants/:userId/custom-values', getParticipantCustomValues);

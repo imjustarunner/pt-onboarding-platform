@@ -18,58 +18,82 @@
             Enter your temporary password (from your welcome email), then choose a new password.
           </p>
 
-          <form @submit.prevent="handleChange">
+          <form @submit.prevent="handleChange" autocomplete="on">
+            <!-- Current / temporary password -->
             <div class="form-group">
               <label for="currentPassword">Temporary / Current Password</label>
-              <input
-                id="currentPassword"
-                v-model="currentPassword"
-                type="password"
-                placeholder="Enter your temporary password"
-                required
-                class="form-input"
-                :disabled="saving"
-                minlength="6"
-              />
+              <div class="input-wrap">
+                <input
+                  id="currentPassword"
+                  v-model="currentPassword"
+                  :type="showCurrent ? 'text' : 'password'"
+                  placeholder="Enter your temporary password"
+                  required
+                  class="form-input"
+                  :disabled="saving"
+                  autocomplete="current-password"
+                  minlength="6"
+                  maxlength="128"
+                />
+                <button type="button" class="toggle-vis" @click="showCurrent = !showCurrent" :aria-label="showCurrent ? 'Hide password' : 'Show password'">
+                  {{ showCurrent ? 'Hide' : 'Show' }}
+                </button>
+              </div>
             </div>
 
+            <!-- New password + strength meter -->
             <div class="form-group">
               <label for="newPassword">New Password</label>
-              <input
-                id="newPassword"
-                v-model="newPassword"
-                type="password"
-                placeholder="Enter a new password"
-                required
-                class="form-input"
-                :disabled="saving"
-                minlength="6"
-              />
+              <div class="input-wrap">
+                <input
+                  id="newPassword"
+                  v-model="newPassword"
+                  :type="showNew ? 'text' : 'password'"
+                  placeholder="Choose a new password"
+                  required
+                  class="form-input"
+                  :disabled="saving"
+                  autocomplete="new-password"
+                  minlength="6"
+                  maxlength="128"
+                />
+                <button type="button" class="toggle-vis" @click="showNew = !showNew" :aria-label="showNew ? 'Hide password' : 'Show password'">
+                  {{ showNew ? 'Hide' : 'Show' }}
+                </button>
+              </div>
+              <PasswordStrengthMeter :password="newPassword" :confirm-password="confirmPassword" />
             </div>
 
+            <!-- Confirm new password -->
             <div class="form-group">
               <label for="confirmPassword">Confirm New Password</label>
-              <input
-                id="confirmPassword"
-                v-model="confirmPassword"
-                type="password"
-                placeholder="Confirm your new password"
-                required
-                class="form-input"
-                :disabled="saving"
-                minlength="6"
-              />
+              <div class="input-wrap">
+                <input
+                  id="confirmPassword"
+                  v-model="confirmPassword"
+                  :type="showConfirm ? 'text' : 'password'"
+                  placeholder="Re-enter your new password"
+                  required
+                  class="form-input"
+                  :disabled="saving"
+                  autocomplete="new-password"
+                  minlength="6"
+                  maxlength="128"
+                />
+                <button type="button" class="toggle-vis" @click="showConfirm = !showConfirm" :aria-label="showConfirm ? 'Hide password' : 'Show password'">
+                  {{ showConfirm ? 'Hide' : 'Show' }}
+                </button>
+              </div>
             </div>
 
-            <p v-if="passwordMismatch" class="error-message">Passwords do not match</p>
             <p v-if="formError" class="error-message">{{ formError }}</p>
 
             <button
               type="submit"
               class="btn btn-primary"
-              :disabled="saving || passwordMismatch || !currentPassword || !newPassword || !confirmPassword"
+              :disabled="saving || !!passwordMismatch || !currentPassword || !newPassword || !confirmPassword"
             >
-              {{ saving ? 'Saving...' : 'Set Password' }}
+              {{ saving ? 'Saving…' : 'Set Password' }}
             </button>
           </form>
         </div>
@@ -88,6 +112,7 @@ import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
 import { getDashboardRoute } from '../utils/router';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
+import PasswordStrengthMeter from '../components/PasswordStrengthMeter.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -102,16 +127,32 @@ const confirmPassword = ref('');
 const saving = ref(false);
 const formError = ref('');
 
+const showCurrent = ref(false);
+const showNew = ref(false);
+const showConfirm = ref(false);
+
 const loginBackground = computed(() => brandingStore.loginBackground);
-const passwordMismatch = computed(() => newPassword.value && confirmPassword.value && newPassword.value !== confirmPassword.value);
+const passwordMismatch = computed(() =>
+  newPassword.value && confirmPassword.value && newPassword.value !== confirmPassword.value
+    ? 'Passwords do not match'
+    : ''
+);
 
 const handleChange = async () => {
   if (passwordMismatch.value) {
-    formError.value = 'Passwords do not match';
+    formError.value = passwordMismatch.value;
     return;
   }
   if ((newPassword.value || '').length < 6) {
     formError.value = 'New password must be at least 6 characters';
+    return;
+  }
+  if ((newPassword.value || '').length > 128) {
+    formError.value = 'New password must be no more than 128 characters';
+    return;
+  }
+  if (!/[a-zA-Z]/.test(newPassword.value)) {
+    formError.value = 'New password must contain at least one letter (a–z or A–Z)';
     return;
   }
 
@@ -124,7 +165,6 @@ const handleChange = async () => {
       newPassword: newPassword.value
     });
 
-    // Best-effort refresh user (so UI reflects any status changes)
     try {
       await authStore.refreshUser();
     } catch {
@@ -141,12 +181,10 @@ const handleChange = async () => {
 };
 
 onMounted(async () => {
-  // If org-scoped, load theme
   if (route.params.organizationSlug) {
     await brandingStore.fetchAgencyTheme(route.params.organizationSlug);
   }
 
-  // If user isn't authenticated yet, try a refresh (cookie timing)
   if (!authStore.user) {
     try {
       await authStore.refreshUser();
@@ -155,7 +193,6 @@ onMounted(async () => {
     }
   }
 
-  // If still not authenticated, show error (user must use the link again)
   if (!authStore.user) {
     error.value = 'Your session was not established. Please click your login link again, or contact your administrator for a new link.';
   }
@@ -197,7 +234,7 @@ onMounted(async () => {
 }
 
 .form-group {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
   text-align: left;
 }
 
@@ -208,18 +245,42 @@ onMounted(async () => {
   font-weight: 500;
 }
 
+/* Input + show/hide button wrapper */
+.input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
 .form-input {
   width: 100%;
-  padding: 12px;
+  padding: 12px 72px 12px 12px;
   border: 1px solid #ddd;
   border-radius: 6px;
   font-size: 16px;
+  box-sizing: border-box;
+}
+
+.toggle-vis {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #6366f1;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.toggle-vis:hover {
+  background: #f0f0ff;
 }
 
 .error-message {
-  color: var(--error);
+  color: var(--error, #ef4444);
   font-size: 14px;
   margin: 10px 0;
 }
 </style>
-
