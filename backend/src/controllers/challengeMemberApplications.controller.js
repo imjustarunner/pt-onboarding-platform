@@ -2498,7 +2498,7 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
     if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
 
     const [membershipRows] = await pool.execute(
-      `SELECT u.id, u.first_name, u.last_name, u.email, ua.is_active
+      `SELECT u.id, u.first_name, u.last_name, u.email, ua.is_active, COALESCE(ua.club_role, 'member') AS club_role
        FROM user_agencies ua
        INNER JOIN users u ON u.id = ua.user_id
        WHERE ua.agency_id = ? AND ua.user_id = ?
@@ -2739,7 +2739,8 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
         firstName: member.first_name || '',
         lastName: member.last_name || '',
         email: member.email || '',
-        isActiveInClub: Number(member.is_active || 0) === 1
+        isActiveInClub: Number(member.is_active || 0) === 1,
+        clubRole: String(member.club_role || 'member').trim().toLowerCase() || 'member'
       },
       registrationProfile: profile,
       seasonHistory: {

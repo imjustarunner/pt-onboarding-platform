@@ -2630,6 +2630,7 @@ const saving = ref(false);
 const memberSeasonHistoryLoading = ref(false);
 const memberSeasonHistoryError = ref('');
 const memberSeasonHistory = ref({ seasonCount: 0, totals: {}, seasons: [] });
+const memberClubRole = ref('member');
 /** From season-history API: distinct teams where user was team captain in this club. */
 const memberCaptainMeta = ref({ everTeamCaptain: false, captainTeamCount: 0 });
 const memberRegistrationProfile = ref({ customFields: {} });
@@ -2938,6 +2939,12 @@ const memberSeasonHistorySeasons = computed(() => {
   return Array.isArray(memberSeasonHistory.value?.seasons) ? memberSeasonHistory.value.seasons : [];
 });
 
+const normalizeSscClubAccountRole = (raw) => {
+  const value = String(raw || '').trim().toLowerCase();
+  if (value === 'assistant_manager' || value === 'provider_plus') return 'provider_plus';
+  return 'provider';
+};
+
 const loadMemberSeasonHistory = async () => {
   if (!isSscMemberProfileMode.value || !userId.value) return;
   const clubId = selectedClubIdForMemberProfile.value;
@@ -2970,6 +2977,10 @@ const loadMemberSeasonHistory = async () => {
     memberSeasonHistory.value = payload?.seasonHistory && typeof payload.seasonHistory === 'object'
       ? payload.seasonHistory
       : { seasonCount: 0, totals: {}, seasons: [] };
+    memberClubRole.value = String(payload?.member?.clubRole || 'member').trim().toLowerCase() || 'member';
+    if (isSscMemberProfileMode.value) {
+      accountForm.value.role = normalizeSscClubAccountRole(memberClubRole.value);
+    }
     memberSeasonAiSummary.value = String(payload?.aiSummary || '').trim();
     memberCaptainMeta.value = {
       everTeamCaptain: !!payload?.everTeamCaptain,
@@ -2978,6 +2989,7 @@ const loadMemberSeasonHistory = async () => {
   } catch (e) {
     memberSeasonHistoryError.value = e.response?.data?.error?.message || 'Failed to load season history';
     memberSeasonHistory.value = { seasonCount: 0, totals: {}, seasons: [] };
+    memberClubRole.value = 'member';
     memberSeasonAiSummary.value = '';
     memberCaptainMeta.value = { everTeamCaptain: false, captainTeamCount: 0 };
   } finally {
@@ -3900,8 +3912,7 @@ const isEditingAccount = ref(false);
 
 const startEditAccount = () => {
   if (isSscMemberProfileMode.value) {
-    const r = String(user.value?.role || accountForm.value.role || '').toLowerCase();
-    accountForm.value.role = r === 'provider_plus' ? 'provider_plus' : 'provider';
+    accountForm.value.role = normalizeSscClubAccountRole(memberClubRole.value || accountForm.value.role || user.value?.role);
   }
   isEditingAccount.value = true;
 };
@@ -4454,8 +4465,9 @@ const canManageClubMemberRoles = computed(() => {
 });
 
 const sscClubRoleReadOnlyLabel = computed(() => {
-  const r = String(accountForm.value.role || user.value?.role || '').toLowerCase();
-  return r === 'provider_plus' ? 'Assistant manager' : 'Member';
+  const rawRole = String(memberClubRole.value || accountForm.value.role || user.value?.role || '').toLowerCase();
+  if (rawRole === 'manager' || rawRole === 'club_manager') return 'Manager';
+  return rawRole === 'assistant_manager' || rawRole === 'provider_plus' ? 'Assistant manager' : 'Member';
 });
 
 const showSeasonCaptainColumn = computed(() => {
@@ -4501,7 +4513,7 @@ const textingSettingsLink = computed(() => {
   return `${base}?category=system&item=sms-numbers`;
 });
 const fetchAssignedTextingNumbers = async () => {
-  if (!userId.value) return;
+  if (!userId.value || isSscMemberProfileMode.value) return;
   try {
     textingNumbersLoading.value = true;
     const r = await api.get(`/sms-numbers/user/${userId.value}/assigned`);
@@ -4621,23 +4633,26 @@ const fetchUser = async () => {
     loading.value = false;
 
     // Kick off secondary requests in parallel (non-blocking).
-    void Promise.allSettled([
-      fetchUserAgencies().then(() => loadProviderPublicProfile()),
-      fetchAvailableAgencies(),
-      fetchAccountInfo(),
-      fetchProviderCredential(),
-      loadExternalCalendars(),
-      loadOfficeAssignments(),
-      ...(isSscMemberProfileMode.value ? [] : [loadLeaveOfAbsence()]),
-      fetchAssignedTextingNumbers()
-    ]);
+    if (isSscMemberProfileMode.value) {
+      void loadMemberSeasonHistory();
+    } else {
+      void Promise.allSettled([
+        fetchUserAgencies().then(() => loadProviderPublicProfile()),
+        fetchAvailableAgencies(),
+        fetchAccountInfo(),
+        fetchProviderCredential(),
+        loadExternalCalendars(),
+        loadOfficeAssignments(),
+        loadLeaveOfAbsence(),
+        fetchAssignedTextingNumbers()
+      ]);
+    }
 
     if (isViewingGuardian.value && activeTab.value === 'linked_clients') {
       void loadGuardianLinkedClients();
     }
     if (isSscMemberProfileMode.value) {
       leaveOfAbsence.value = null;
-      void loadMemberSeasonHistory();
     }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load user';
@@ -4872,6 +4887,11 @@ const activateUser = async () => {
 };
 
 const fetchUserAgencies = async () => {
+  if (isSscMemberProfileMode.value) {
+    userAgencies.value = [];
+    loginEmailAliasesDetailed.value = [];
+    return;
+  }
   try {
     const response = await api.get(`/users/${userId.value}/agencies`);
     userAgencies.value = response.data || [];
@@ -5237,6 +5257,10 @@ const savePrelicensedSettings = async (agency, patch) => {
 };
 
 const fetchAvailableAgencies = async () => {
+  if (isSscMemberProfileMode.value) {
+    availableAgencies.value = [];
+    return;
+  }
   try {
     if (authStore.user?.role === 'super_admin') {
       await agencyStore.fetchAgencies();
