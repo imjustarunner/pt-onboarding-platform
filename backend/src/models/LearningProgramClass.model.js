@@ -24,7 +24,8 @@ const normalizeClass = (row) => {
     activity_types_json: parseJsonMaybe(row.activity_types_json),
     scoring_rules_json: parseJsonMaybe(row.scoring_rules_json),
     recognition_categories_json: parseJsonMaybe(row.recognition_categories_json),
-    season_settings_json: parseJsonMaybe(row.season_settings_json)
+    season_settings_json: parseJsonMaybe(row.season_settings_json),
+    program_kind: row.program_kind || 'season'
   };
 };
 
@@ -71,6 +72,10 @@ class LearningProgramClass {
     className,
     classCode = null,
     description = null,
+    programKind = 'season',
+    bookAuthor = null,
+    bookCoverUrl = null,
+    bookMonthLabel = null,
     timezone = 'America/New_York',
     startsAt = null,
     endsAt = null,
@@ -103,7 +108,7 @@ class LearningProgramClass {
   }) {
     const [result] = await pool.execute(
       `INSERT INTO learning_program_classes
-       (organization_id, class_name, class_code, description, timezone, starts_at, ends_at,
+       (organization_id, class_name, class_code, program_kind, description, book_author, book_cover_url, book_month_label, timezone, starts_at, ends_at,
         enrollment_opens_at, enrollment_closes_at, status, is_active, allow_late_join, max_clients,
         metadata_json, activity_types_json, scoring_rules_json, weekly_goal_minimum,
         team_min_points_per_week, individual_min_points_per_week, week_start_time,
@@ -111,12 +116,16 @@ class LearningProgramClass {
         captain_application_open, captains_finalized, season_splash_enabled, season_announcement_text, season_settings_json,
         delivery_mode,
         registration_eligible, medicaid_eligible, cash_eligible, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         organizationId,
         className,
         classCode,
+        String(programKind || 'season').trim().toLowerCase() === 'monthly_book' ? 'monthly_book' : 'season',
         description,
+        bookAuthor ? String(bookAuthor).trim() : null,
+        bookCoverUrl ? String(bookCoverUrl).trim() : null,
+        bookMonthLabel ? String(bookMonthLabel).trim() : null,
         timezone,
         startsAt,
         endsAt,
@@ -157,7 +166,11 @@ class LearningProgramClass {
     const mapping = {
       className: 'class_name',
       classCode: 'class_code',
+      programKind: 'program_kind',
       description: 'description',
+      bookAuthor: 'book_author',
+      bookCoverUrl: 'book_cover_url',
+      bookMonthLabel: 'book_month_label',
       timezone: 'timezone',
       startsAt: 'starts_at',
       endsAt: 'ends_at',

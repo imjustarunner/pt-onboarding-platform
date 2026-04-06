@@ -2,21 +2,21 @@
   <section class="company-events-manager">
     <div class="header-row">
       <div>
-        <h4>Company events</h4>
-        <small class="hint">Phase 2: RSVP + SMS voting for targeted internal events.</small>
+        <h4>{{ title }}</h4>
+        <small class="hint">{{ subtitle }}</small>
         <div class="hint" :class="{ 'status-ready': smsReadiness.ready, 'status-not-ready': !smsReadiness.ready }" style="margin-top: 4px;">
           Company Events SMS: {{ smsReadiness.message }}
         </div>
       </div>
       <div class="actions">
         <button type="button" class="btn btn-secondary btn-sm" @click="loadAll" :disabled="loading || !agencyId">
-          {{ loading ? 'Loading…' : 'Reload' }}
+          {{ loading ? 'Loading…' : reloadLabel }}
         </button>
         <button type="button" class="btn btn-primary btn-sm" @click="startCreate" :disabled="saving || !agencyId">
-          New event
+          {{ newEventLabel }}
         </button>
         <button type="button" class="btn btn-secondary btn-sm" @click="startDirectMessage" :disabled="saving || !agencyId">
-          New direct message
+          {{ newDirectMessageLabel }}
         </button>
       </div>
     </div>
@@ -35,7 +35,7 @@
     </div>
 
     <div class="editor-card">
-      <h5 style="margin: 0 0 10px 0;">{{ draft.id ? 'Edit event' : 'Create event' }}</h5>
+      <h5 style="margin: 0 0 10px 0;">{{ draft.id ? editEventLabel : createEventLabel }}</h5>
       <div class="grid">
         <div class="form-group">
           <label class="lbl">Title</label>
@@ -351,7 +351,7 @@
             </td>
           </tr>
           <tr v-if="!events.length">
-            <td colspan="7" class="hint">No company events yet.</td>
+            <td colspan="7" class="hint">{{ emptyEventsLabel }}</td>
           </tr>
         </tbody>
       </table>
@@ -369,6 +369,38 @@ const props = defineProps({
   agencyId: {
     type: Number,
     default: null
+  },
+  title: {
+    type: String,
+    default: 'Company events'
+  },
+  subtitle: {
+    type: String,
+    default: 'Phase 2: RSVP + SMS voting for targeted internal events.'
+  },
+  reloadLabel: {
+    type: String,
+    default: 'Reload'
+  },
+  newEventLabel: {
+    type: String,
+    default: 'New event'
+  },
+  newDirectMessageLabel: {
+    type: String,
+    default: 'New direct message'
+  },
+  createEventLabel: {
+    type: String,
+    default: 'Create event'
+  },
+  editEventLabel: {
+    type: String,
+    default: 'Edit event'
+  },
+  emptyEventsLabel: {
+    type: String,
+    default: 'No company events yet.'
   }
 });
 

@@ -766,6 +766,7 @@ class Agency {
       themeSettings,
       customParameters,
       organizationType,
+      clubKind,
       // Notification icon ids (optional; columns may not exist in all DBs)
       statusExpiredIconId,
       tempPasswordExpiredIconId,
@@ -884,6 +885,16 @@ class Agency {
     // Default organization_type to 'agency' for backward compatibility
     const orgType = organizationType || 'agency';
 
+    let hasClubKind = false;
+    try {
+      const [clubKindColumns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'club_kind'"
+      );
+      hasClubKind = (clubKindColumns || []).length > 0;
+    } catch (e) {
+      hasClubKind = false;
+    }
+
     // Check if tier system columns exist
     let hasTierSystemEnabled = false;
     let hasTierThresholdsJson = false;
@@ -970,6 +981,10 @@ class Agency {
     if (hasOrganizationType) {
       insertFields.push('organization_type');
       insertValues.push(orgType);
+    }
+    if (hasClubKind && clubKind !== undefined) {
+      insertFields.push('club_kind');
+      insertValues.push(clubKind || null);
     }
 
     if (hasTierSystemEnabled) {
@@ -1287,7 +1302,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, intakeLinksIconId, auditCenterIconId, marketingSocialIconId, myDashboardChecklistIconId, myDashboardMomentumListIconId, myDashboardMomentumStickiesIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, myDashboardContactsIconId, myDashboardStaffIconId, myDashboardClinicalNoteGeneratorIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds, companyCarDefaultReason,
+    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, intakeLinksIconId, auditCenterIconId, marketingSocialIconId, myDashboardChecklistIconId, myDashboardMomentumListIconId, myDashboardMomentumStickiesIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, myDashboardContactsIconId, myDashboardStaffIconId, myDashboardClinicalNoteGeneratorIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, clubKind, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds, companyCarDefaultReason,
       schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
       schoolPortalAnnouncementsIconId,
@@ -1387,6 +1402,21 @@ class Agency {
     if (hasOfficialName && officialName !== undefined) {
       updates.push('official_name = ?');
       values.push(officialName || null);
+    }
+    if (clubKind !== undefined) {
+      let hasClubKind = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'club_kind'"
+        );
+        hasClubKind = (cols || []).length > 0;
+      } catch {
+        hasClubKind = false;
+      }
+      if (hasClubKind) {
+        updates.push('club_kind = ?');
+        values.push(clubKind || null);
+      }
     }
     if (hasTemplateState) {
       if (agencyData.defaultBrandingTemplateId !== undefined) {
@@ -2480,4 +2510,3 @@ class Agency {
 }
 
 export default Agency;
-

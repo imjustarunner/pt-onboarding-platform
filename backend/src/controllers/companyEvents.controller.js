@@ -23,6 +23,13 @@ import EmailTemplateService from '../services/emailTemplate.service.js';
 import { sendNotificationEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { fetchRegistrationCatalogItems } from '../services/registrationCatalog.service.js';
 import { canUserManageClub } from '../utils/sscClubAccess.js';
+import {
+  BOOK_CLUB_EVENT_AUDIENCE_KEYS,
+  getAgencySummaryById,
+  getTenantForBookClub,
+  listBookClubAudienceUserIds,
+  listTenantEligibleBookClubUsers
+} from '../utils/bookClub.js';
 
 const DEFAULT_RSVP_OPTIONS = [
   { key: '1', label: 'Yes' },
@@ -39,7 +46,9 @@ const ROLE_AUDIENCE_CODES = {
   staff: 5,
   school_staff: 6,
   clinical_practice_assistant: 7,
-  intern: 8
+  intern: 8,
+  current_book_enrolled: -201,
+  all_book_club_members: -202
 };
 
 const ROLE_AUDIENCE_LABELS = {
@@ -50,7 +59,9 @@ const ROLE_AUDIENCE_LABELS = {
   staff: 'Staff',
   school_staff: 'School Staff',
   clinical_practice_assistant: 'Clinical Practice Assistant',
-  intern: 'Intern'
+  intern: 'Intern',
+  current_book_enrolled: 'Current book enrollees',
+  all_book_club_members: 'All interested book club members'
 };
 
 const SERVICE_PROGRAM_EVENT_TYPES = new Set([
@@ -164,10 +175,19 @@ const userCanManageCompanyEvents = (req) => {
 async function userCanManageCompanyEventsAsync(req, agencyId = null) {
   if (userCanManageCompanyEvents(req)) return true;
   const role = String(req.user?.role || '').toLowerCase();
-  if (role === 'provider_plus' || role === 'club_manager') {
-    const targetAgencyId = resolveRequestedAgencyId(req, agencyId);
-    if (targetAgencyId) return canUserManageClub({ user: req.user, clubId: targetAgencyId });
-    if (role === 'provider_plus') return _isUserOnSscSstcAgency(req);
+  const targetAgencyId = resolveRequestedAgencyId(req, agencyId);
+  if (targetAgencyId) {
+    try {
+      const targetAgency = await Agency.findById(targetAgencyId);
+      if (String(targetAgency?.organization_type || '').toLowerCase() === 'affiliation') {
+        return canUserManageClub({ user: req.user, clubId: targetAgencyId });
+      }
+    } catch {
+      // Ignore and fall through to legacy provider_plus tenant checks.
+    }
+  }
+  if (role === 'provider_plus') {
+    return _isUserOnSscSstcAgency(req);
   }
   return false;
 }
@@ -1064,17 +1084,25 @@ async function resolveRecipientUserIds(agencyId, eventId, audience = null) {
     }
   }
   if (roleKeys.length) {
-    const placeholders = roleKeys.map(() => '?').join(', ');
-    const [roleRows] = await pool.execute(
-      `SELECT DISTINCT ua.user_id
-       FROM user_agencies ua
-       JOIN users u ON u.id = ua.user_id
-       WHERE ua.agency_id = ?
-         AND LOWER(u.role) IN (${placeholders})`,
-      [agencyId, ...roleKeys]
-    );
-    for (const row of roleRows || []) {
-      result.add(Number(row.user_id));
+    const presetKeys = roleKeys.filter((key) => BOOK_CLUB_EVENT_AUDIENCE_KEYS.includes(key));
+    const userRoleKeys = roleKeys.filter((key) => !BOOK_CLUB_EVENT_AUDIENCE_KEYS.includes(key));
+    for (const presetKey of presetKeys) {
+      const ids = await listBookClubAudienceUserIds(agencyId, presetKey);
+      for (const userId of ids) result.add(Number(userId));
+    }
+    if (userRoleKeys.length) {
+      const placeholders = userRoleKeys.map(() => '?').join(', ');
+      const [roleRows] = await pool.execute(
+        `SELECT DISTINCT ua.user_id
+         FROM user_agencies ua
+         JOIN users u ON u.id = ua.user_id
+         WHERE ua.agency_id = ?
+           AND LOWER(u.role) IN (${placeholders})`,
+        [agencyId, ...userRoleKeys]
+      );
+      for (const row of roleRows || []) {
+        result.add(Number(row.user_id));
+      }
     }
   }
   return [...result].filter((id) => id > 0);
@@ -1099,18 +1127,28 @@ async function resolveUsersFromOverride({ agencyId, userIds = [], groupIds = [],
     }
   }
   if (targetRoleKeys.length) {
-    const placeholders = targetRoleKeys.map(() => '?').join(', ');
-    const [roleRows] = await pool.execute(
-      `SELECT DISTINCT ua.user_id
-       FROM user_agencies ua
-       JOIN users u ON u.id = ua.user_id
-       WHERE ua.agency_id = ?
-         AND LOWER(u.role) IN (${placeholders})`,
-      [agencyId, ...targetRoleKeys]
-    );
-    for (const row of roleRows || []) {
-      const userId = Number(row.user_id);
-      if (userId > 0) result.add(userId);
+    const presetKeys = targetRoleKeys.filter((key) => BOOK_CLUB_EVENT_AUDIENCE_KEYS.includes(key));
+    const userRoleKeys = targetRoleKeys.filter((key) => !BOOK_CLUB_EVENT_AUDIENCE_KEYS.includes(key));
+    for (const presetKey of presetKeys) {
+      const ids = await listBookClubAudienceUserIds(agencyId, presetKey);
+      for (const userId of ids) {
+        if (userId > 0) result.add(Number(userId));
+      }
+    }
+    if (userRoleKeys.length) {
+      const placeholders = userRoleKeys.map(() => '?').join(', ');
+      const [roleRows] = await pool.execute(
+        `SELECT DISTINCT ua.user_id
+         FROM user_agencies ua
+         JOIN users u ON u.id = ua.user_id
+         WHERE ua.agency_id = ?
+           AND LOWER(u.role) IN (${placeholders})`,
+        [agencyId, ...userRoleKeys]
+      );
+      for (const row of roleRows || []) {
+        const userId = Number(row.user_id);
+        if (userId > 0) result.add(userId);
+      }
     }
   }
   if (!result.size) return [];
@@ -1498,18 +1536,26 @@ export const listCompanyEventAudienceOptions = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!(await userCanManageCompanyEventsAsync(req))) {
+    if (!(await userCanManageCompanyEventsAsync(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
 
-    const [users] = await pool.execute(
-      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role
-       FROM users u
-       INNER JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id = ? AND u.is_active = 1
-       ORDER BY u.first_name ASC, u.last_name ASC`,
-      [agencyId]
-    );
+    const agencyMeta = await getAgencySummaryById(agencyId);
+    let users = [];
+    if (String(agencyMeta?.club_kind || '').toLowerCase() === 'book_club') {
+      const tenant = await getTenantForBookClub(agencyId);
+      users = await listTenantEligibleBookClubUsers(tenant?.id);
+    } else {
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role
+         FROM users u
+         INNER JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE ua.agency_id = ? AND u.is_active = 1
+         ORDER BY u.first_name ASC, u.last_name ASC`,
+        [agencyId]
+      );
+      users = rows || [];
+    }
     const [groups] = await pool.execute(
       `SELECT id, name
        FROM skills_groups
@@ -1521,7 +1567,7 @@ export const listCompanyEventAudienceOptions = async (req, res, next) => {
     res.json({
       users: (users || []).map((user) => ({
         id: Number(user.id),
-        name: `${String(user.first_name || '').trim()} ${String(user.last_name || '').trim()}`.trim() || user.email,
+        name: user.name || `${String(user.first_name || '').trim()} ${String(user.last_name || '').trim()}`.trim() || user.email,
         email: user.email || null,
         role: user.role || null
       })),
@@ -1529,7 +1575,12 @@ export const listCompanyEventAudienceOptions = async (req, res, next) => {
         id: Number(group.id),
         name: String(group.name || '').trim()
       })),
-      roles: Object.keys(ROLE_AUDIENCE_CODES).map((key) => ({
+      roles: Object.keys(ROLE_AUDIENCE_CODES)
+        .filter((key) => {
+          if (!BOOK_CLUB_EVENT_AUDIENCE_KEYS.includes(key)) return true;
+          return String(agencyMeta?.club_kind || '').toLowerCase() === 'book_club';
+        })
+        .map((key) => ({
         key,
         label: ROLE_AUDIENCE_LABELS[key] || key
       }))

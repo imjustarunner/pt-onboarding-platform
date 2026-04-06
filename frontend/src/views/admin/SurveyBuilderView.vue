@@ -2,8 +2,8 @@
   <div class="container survey-builder">
     <div class="page-header">
       <div>
-        <h1>Surveys</h1>
-        <p class="subtitle">Create surveys, choose delivery targets, and publish to staff or kiosk events.</p>
+        <h1>{{ props.pageTitle }}</h1>
+        <p class="subtitle">{{ props.pageSubtitle }}</p>
       </div>
       <div class="header-actions">
         <button class="btn btn-primary" type="button" @click="startNewSurvey">New Survey</button>
@@ -416,6 +416,25 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 
+const props = defineProps({
+  pageTitle: {
+    type: String,
+    default: 'Surveys'
+  },
+  pageSubtitle: {
+    type: String,
+    default: 'Create surveys, choose delivery targets, and publish to staff or kiosk events.'
+  },
+  pushTypeOptionsOverride: {
+    type: Array,
+    default: null
+  },
+  agencyIdOverride: {
+    type: Number,
+    default: 0
+  }
+});
+
 const route = useRoute();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -458,15 +477,20 @@ const surveyResultsPath = computed(() =>
   selectedSurveyId.value ? `${adminBasePath.value}/surveys/${selectedSurveyId.value}/results` : ''
 );
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').trim().toLowerCase() === 'super_admin');
-const pushTypeOptions = [
-  { value: 'providers', label: 'Providers' },
-  { value: 'all_staff', label: 'All staff' },
-  { value: 'school_staff', label: 'School staff' },
-  { value: 'all', label: 'All roles' }
-];
+const pushTypeOptions = computed(() => {
+  if (Array.isArray(props.pushTypeOptionsOverride) && props.pushTypeOptionsOverride.length) {
+    return props.pushTypeOptionsOverride;
+  }
+  return [
+    { value: 'providers', label: 'Providers' },
+    { value: 'all_staff', label: 'All staff' },
+    { value: 'school_staff', label: 'School staff' },
+    { value: 'all', label: 'All roles' }
+  ];
+});
 const pushRoleLabel = computed(() => {
   const key = String(draft.pushType || '').trim().toLowerCase();
-  return pushTypeOptions.find((o) => o.value === key)?.label || 'selected role';
+  return pushTypeOptions.value.find((o) => o.value === key)?.label || 'selected role';
 });
 const copyAgencyOptions = computed(() => {
   const current = Number(agencyId());
@@ -481,13 +505,15 @@ const pushTargetLabel = computed(() => {
 });
 
 const agencyId = () => Number(
-  agencyStore.currentAgency?.id
+  props.agencyIdOverride
+  || agencyStore.currentAgency?.id
   || resolvedAgencyId.value
   || authStore.user?.agencyId
   || 0
 );
 
 const resolveAgencyFromSlug = async () => {
+  if (Number(props.agencyIdOverride || 0) > 0) return;
   const slug = activeOrgSlug.value;
   if (!slug) return;
   try {
@@ -913,6 +939,15 @@ watch(
   () => isSuperAdmin.value,
   async (v) => {
     if (v && !agenciesForCopy.value.length) await fetchAgenciesForCopy();
+  }
+);
+
+watch(
+  () => props.agencyIdOverride,
+  async () => {
+    if (Number(props.agencyIdOverride || 0) > 0) {
+      await fetchSurveys();
+    }
   }
 );
 </script>

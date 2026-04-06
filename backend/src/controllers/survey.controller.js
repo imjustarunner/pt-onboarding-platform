@@ -5,6 +5,7 @@ import Survey from '../models/Survey.model.js';
 import { canUserManageClub } from '../utils/sscClubAccess.js';
 import SurveyPush from '../models/SurveyPush.model.js';
 import SurveyResponse, { computeSurveyScores } from '../models/SurveyResponse.model.js';
+import { listBookClubAudienceUserIds } from '../utils/bookClub.js';
 
 const isSuperAdmin = (role) => String(role || '').toLowerCase() === 'super_admin';
 
@@ -36,6 +37,15 @@ async function getAgencyMeta(agencyId) {
          a.id,
          a.slug,
          a.organization_type,
+         a.club_kind,
+         (
+           SELECT oa.agency_id
+           FROM organization_affiliations oa
+           WHERE oa.organization_id = a.id
+             AND oa.is_active = 1
+           ORDER BY oa.id ASC
+           LIMIT 1
+         ) AS parent_agency_id,
          (
            SELECT p.slug
            FROM organization_affiliations oa
@@ -58,7 +68,7 @@ async function getAgencyMeta(agencyId) {
     return rows?.[0] || null;
   } catch {
     const [rows] = await pool.execute(
-      `SELECT id, slug, organization_type, NULL AS parent_slug FROM agencies WHERE id = ? LIMIT 1`,
+      `SELECT id, slug, organization_type, club_kind, NULL AS parent_slug, NULL AS parent_agency_id FROM agencies WHERE id = ? LIMIT 1`,
       [id]
     );
     return rows?.[0] || null;
@@ -66,15 +76,14 @@ async function getAgencyMeta(agencyId) {
 }
 
 async function canManageSurveysForAgency(req, agencyId) {
-  const role = String(req.user?.role || '').trim().toLowerCase();
-  if (role === 'super_admin') return true;
+  if (String(req.user?.role || '').trim().toLowerCase() === 'super_admin') return true;
   const agencyMeta = await getAgencyMeta(agencyId);
   if (!agencyMeta) return false;
   if (String(agencyMeta?.organization_type || '').trim().toLowerCase() === 'affiliation') {
-    if (!['admin', 'support', 'staff', 'provider_plus', 'club_manager'].includes(role)) return false;
     return canUserManageClub({ user: req.user, clubId: agencyId });
   }
   // Non-club agencies keep the existing backoffice behavior.
+  const role = String(req.user?.role || '').trim().toLowerCase();
   return role === 'admin' || role === 'support' || role === 'staff';
 }
 
@@ -112,6 +121,7 @@ function sanitizeQuestions(input) {
 
 function roleFilterForPushType(pushType) {
   const pt = String(pushType || '').trim().toLowerCase();
+  if (pt === 'book_club_members') return ['__book_club_members__'];
   if (pt === 'providers') return ['provider', 'provider_plus'];
   if (pt === 'school_staff') return ['school_staff'];
   if (pt === 'all_staff') {
@@ -135,6 +145,9 @@ function roleFilterForPushType(pushType) {
 }
 
 async function listTargetUsersForPush({ agencyId, pushType }) {
+  if (String(pushType || '').trim().toLowerCase() === 'book_club_members') {
+    return listBookClubAudienceUserIds(agencyId, 'all_book_club_members');
+  }
   const roles = roleFilterForPushType(pushType);
   if (!roles.length) return [];
   const placeholders = roles.map(() => '?').join(', ');
@@ -155,12 +168,19 @@ function canAccessAgency(req, agencyId, userAgencyIds) {
   return userAgencyIds.includes(Number(agencyId));
 }
 
+async function canAccessAgencyAsync(req, agencyId, userAgencyIds) {
+  if (canAccessAgency(req, agencyId, userAgencyIds)) return true;
+  const agencyMeta = await getAgencyMeta(agencyId);
+  if (String(agencyMeta?.club_kind || '').trim().toLowerCase() !== 'book_club') return false;
+  return userAgencyIds.includes(Number(agencyMeta?.parent_agency_id || 0));
+}
+
 export const listSurveys = async (req, res, next) => {
   try {
     const userAgencyIds = await getUserAgencyIds(req.user?.id);
     const agencyId = await resolveAgencyIdFromRequest(req, req.query.agencyId);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!canAccessAgency(req, agencyId, userAgencyIds)) {
+    if (!(await canAccessAgencyAsync(req, agencyId, userAgencyIds))) {
       return res.status(403).json({ error: { message: 'Access denied for this agency' } });
     }
     if (!(await canManageSurveysForAgency(req, agencyId))) {
@@ -179,7 +199,7 @@ export const createSurvey = async (req, res, next) => {
     const userAgencyIds = await getUserAgencyIds(req.user?.id);
     const agencyId = await resolveAgencyIdFromRequest(req, req.body?.agencyId);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!canAccessAgency(req, agencyId, userAgencyIds)) {
+    if (!(await canAccessAgencyAsync(req, agencyId, userAgencyIds))) {
       return res.status(403).json({ error: { message: 'Access denied for this agency' } });
     }
     if (!(await canManageSurveysForAgency(req, agencyId))) {
@@ -211,7 +231,7 @@ export const updateSurvey = async (req, res, next) => {
     const existing = await Survey.findById(id);
     if (!existing) return res.status(404).json({ error: { message: 'Survey not found' } });
     const userAgencyIds = await getUserAgencyIds(req.user?.id);
-    if (!canAccessAgency(req, existing.agency_id, userAgencyIds)) {
+    if (!(await canAccessAgencyAsync(req, existing.agency_id, userAgencyIds))) {
       return res.status(403).json({ error: { message: 'Access denied for this survey' } });
     }
     if (!(await canManageSurveysForAgency(req, existing.agency_id))) {
@@ -239,7 +259,7 @@ export const deleteSurvey = async (req, res, next) => {
     const existing = await Survey.findById(id);
     if (!existing) return res.status(404).json({ error: { message: 'Survey not found' } });
     const userAgencyIds = await getUserAgencyIds(req.user?.id);
-    if (!canAccessAgency(req, existing.agency_id, userAgencyIds)) {
+    if (!(await canAccessAgencyAsync(req, existing.agency_id, userAgencyIds))) {
       return res.status(403).json({ error: { message: 'Access denied for this survey' } });
     }
     if (!(await canManageSurveysForAgency(req, existing.agency_id))) {
@@ -259,7 +279,7 @@ export const pushSurvey = async (req, res, next) => {
     const survey = await Survey.findById(id);
     if (!survey) return res.status(404).json({ error: { message: 'Survey not found' } });
     const userAgencyIds = await getUserAgencyIds(req.user?.id);
-    if (!canAccessAgency(req, survey.agency_id, userAgencyIds)) {
+    if (!(await canAccessAgencyAsync(req, survey.agency_id, userAgencyIds))) {
       return res.status(403).json({ error: { message: 'Access denied for this survey' } });
     }
     if (!(await canManageSurveysForAgency(req, survey.agency_id))) {
@@ -272,7 +292,7 @@ export const pushSurvey = async (req, res, next) => {
     }
     const requestedTargetAgencyId = parseId(req.body?.targetAgencyId);
     const targetAgencyId = requestedTargetAgencyId || Number(survey.agency_id);
-    if (!canAccessAgency(req, targetAgencyId, userAgencyIds)) {
+    if (!(await canAccessAgencyAsync(req, targetAgencyId, userAgencyIds))) {
       return res.status(403).json({ error: { message: 'Access denied for target agency' } });
     }
 
@@ -317,7 +337,7 @@ export const listSurveyPushes = async (req, res, next) => {
     const survey = await Survey.findById(id);
     if (!survey) return res.status(404).json({ error: { message: 'Survey not found' } });
     const userAgencyIds = await getUserAgencyIds(req.user?.id);
-    if (!canAccessAgency(req, survey.agency_id, userAgencyIds)) {
+    if (!(await canAccessAgencyAsync(req, survey.agency_id, userAgencyIds))) {
       return res.status(403).json({ error: { message: 'Access denied for this survey' } });
     }
     if (!(await canManageSurveysForAgency(req, survey.agency_id))) {
@@ -337,7 +357,7 @@ export const listSurveyResponses = async (req, res, next) => {
     const survey = await Survey.findById(id);
     if (!survey) return res.status(404).json({ error: { message: 'Survey not found' } });
     const userAgencyIds = await getUserAgencyIds(req.user?.id);
-    if (!canAccessAgency(req, survey.agency_id, userAgencyIds)) {
+    if (!(await canAccessAgencyAsync(req, survey.agency_id, userAgencyIds))) {
       return res.status(403).json({ error: { message: 'Access denied for this survey' } });
     }
     if (!(await canManageSurveysForAgency(req, survey.agency_id))) {

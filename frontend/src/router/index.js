@@ -526,6 +526,12 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/book-club',
+    name: 'OrganizationBookClubPublic',
+    component: () => import('../views/BookClubPublicView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
     path: '/provider-mobile',
     name: 'ProviderMobileLegacy',
     redirect: () => {
@@ -853,6 +859,12 @@ const routes = [
     name: 'OrganizationSurveyBuilder',
     component: () => import('../views/admin/SurveyBuilderView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'club_manager'], organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/book-club',
+    name: 'OrganizationBookClubManagement',
+    component: () => import('../views/admin/BookClubManagementView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/company-events',

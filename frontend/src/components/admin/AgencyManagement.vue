@@ -1256,6 +1256,12 @@
             </div>
             <small class="hint">When enabled, staff can give kudos to coworkers, see their team, and earn points for rewards (dinners, events, gear). Peer kudos require admin approval.</small>
 
+            <div class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Book Club</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.bookClubEnabled" compact />
+            </div>
+            <small class="hint">Creates one tenant-wide Book Club using the existing club stack: monthly books, Book Worms voting, meetings, RSVPs, and a public preview page.</small>
+
             <div v-if="isFeatureAvailable('aiProviderSearchEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable AI Provider Search (Gemini)</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.aiProviderSearchEnabled" compact />
@@ -6173,6 +6179,7 @@ const defaultAgencyForm = () => ({
     shiftProgramsEnabled: false,
     presenceEnabled: false,
     kudosEnabled: false,
+    bookClubEnabled: false,
     // Default OFF until explicitly enabled (requires GEMINI_API_KEY in backend).
     aiProviderSearchEnabled: false,
 
@@ -7544,6 +7551,7 @@ const editAgency = async (agency) => {
       shiftProgramsEnabled: featureFlags.shiftProgramsEnabled === true,
       presenceEnabled: featureFlags.presenceEnabled === true,
       kudosEnabled: featureFlags.kudosEnabled === true,
+      bookClubEnabled: featureFlags.bookClubEnabled === true,
       aiProviderSearchEnabled: featureFlags.aiProviderSearchEnabled === true,
       noteAidEnabled: featureFlags.noteAidEnabled === true,
       standardsLearningEnabled: featureFlags.standardsLearningEnabled === true,
@@ -10479,4 +10487,3 @@ small {
   min-height: 400px;
 }
 </style>
-

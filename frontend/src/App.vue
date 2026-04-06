@@ -140,6 +140,13 @@
                 Browse Clubs
               </router-link>
               <router-link
+                v-if="showBookClubPortalLink"
+                :to="orgTo('/book-club')"
+                @click="closeMobileMenu"
+              >
+                Book Club
+              </router-link>
+              <router-link
                 v-if="showOperationsDashboardLink && user?.role === 'provider_plus' && !isSscSstcTenant"
                 :to="operationsDashboardTo"
                 @click="closeMobileMenu"
@@ -707,6 +714,12 @@
               @click="closeMobileMenu"
               class="mobile-nav-link"
             >Browse Clubs</router-link>
+            <router-link
+              v-if="showBookClubPortalLink"
+              :to="orgTo('/book-club')"
+              @click="closeMobileMenu"
+              class="mobile-nav-link"
+            >Book Club</router-link>
             <router-link
               v-if="showOperationsDashboardLink && user?.role === 'provider_plus' && !isSscSstcTenant"
               :to="operationsDashboardTo"
@@ -1894,6 +1907,12 @@ const isTruthyFlag = (v) => {
 const currentAgencyFeatureFlags = computed(() => {
   const a = agencyStore.currentAgency;
   return parseFeatureFlags(a?.feature_flags);
+});
+
+const showBookClubPortalLink = computed(() => {
+  if (!authStore.isAuthenticated) return false;
+  if (isSummitStatsChallengeChrome.value) return false;
+  return isTruthyFlag(currentAgencyFeatureFlags.value?.bookClubEnabled);
 });
 
 const noteAidEnabled = computed(() => isTruthyFlag(currentAgencyFeatureFlags.value?.noteAidEnabled));

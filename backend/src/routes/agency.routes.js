@@ -63,6 +63,16 @@ import {
   detachCompanyEventSessionSurvey
 } from '../controllers/companyEvents.controller.js';
 import { listSchoolStaffUsers, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
+import {
+  createBookClubBook,
+  getBookClub,
+  getPublicBookClubByPortal,
+  listBookClubBooksForTenant,
+  listBookClubInterests,
+  setupBookClub,
+  updateBookClub,
+  updateBookClubBook
+} from '../controllers/bookClub.controller.js';
 import { authenticate, requireBackofficeAdmin, requireBackofficeAdminOrClubManagerForAgency, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -443,6 +453,7 @@ router.get('/slug/:slug', getAgencyBySlug); // Get organization by slug (support
 router.get('/portal/:portalUrl', getAgencyByPortalUrl);
 router.get('/portal/:portalUrl/theme', getThemeByPortalUrl);
 router.get('/portal/:portalUrl/login-theme', getLoginThemeByPortalUrl);
+router.get('/portal/:portalUrl/book-club/public', getPublicBookClubByPortal);
 
 // Protected routes
 router.get('/', authenticate, getAllAgencies);
@@ -516,6 +527,13 @@ router.get('/:id/company-events/templates', authenticate, listCompanyEventTempla
 router.post('/:id/company-events/templates', authenticate, createCompanyEventTemplate);
 router.put('/:id/company-events/templates/:templateId', authenticate, updateCompanyEventTemplate);
 router.delete('/:id/company-events/templates/:templateId', authenticate, deleteCompanyEventTemplate);
+router.get('/:id/book-club', authenticate, getBookClub);
+router.put('/:id/book-club', authenticate, updateBookClub);
+router.post('/:id/book-club/setup', authenticate, setupBookClub);
+router.get('/:id/book-club/books', authenticate, listBookClubBooksForTenant);
+router.post('/:id/book-club/books', authenticate, createBookClubBook);
+router.put('/:id/book-club/books/:bookId', authenticate, updateBookClubBook);
+router.get('/:id/book-club/interests', authenticate, listBookClubInterests);
 router.post('/', authenticate, requireBackofficeAdmin, validateCreateAgency, createAgency);
 router.put('/:id', authenticate, requireBackofficeAdminOrClubManagerForAgency, validateUpdateAgency, updateAgency);
 router.post('/:id/archive', authenticate, requireSuperAdmin, archiveAgency);
@@ -523,4 +541,3 @@ router.post('/:id/restore', authenticate, requireSuperAdmin, restoreAgency);
 router.delete('/:id', authenticate, requireSuperAdmin, deleteAgencyHard);
 
 export default router;
-

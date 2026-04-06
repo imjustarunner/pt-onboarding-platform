@@ -689,6 +689,12 @@ const clinicalNoteGeneratorEnabledForAgency = computed(() =>
     return isTruthyFlag(flags?.noteAidEnabled) || isTruthyFlag(flags?.clinicalNoteGeneratorEnabled);
   })()
 );
+const bookClubEnabledForAgency = computed(() =>
+  (() => {
+    const flags = parseFeatureFlags(agencyData.value?.feature_flags || currentAgency.value?.feature_flags);
+    return isTruthyFlag(flags?.bookClubEnabled);
+  })()
+);
 
 const orgSlug = computed(() => route.params?.organizationSlug || '');
 const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
@@ -885,6 +891,17 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'book_club',
+    title: 'Book Club',
+    description: 'Manage monthly books, Book Worms voting, and meetings',
+    to: '/admin/book-club',
+    emoji: '📚',
+    iconKey: 'dashboard_communications',
+    category: 'Culture',
+    roles: ['admin', 'support', 'super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'unassigned_documents',
     title: 'Submitted Documents',
     description: 'Assign public form submissions to clients',
@@ -1075,6 +1092,7 @@ const quickActions = computed(() => {
     }
     if (String(a?.id) === 'school_overview') return hasAffiliatedSchools.value;
     if (String(a?.id) === 'program_overview') return hasAffiliatedPrograms.value;
+    if (String(a?.id) === 'book_club') return bookClubEnabledForAgency.value && !isSummitStatsContext.value;
     // Admin/support/supervisor always see Tools & Aids when no agency selected; otherwise use agency feature flag
     const showToolsOrNoteAid = clinicalNoteGeneratorEnabledForAgency.value || !currentAgency.value;
     if (String(a?.id) === 'tools_aids' || String(a?.id) === 'clinical_note_generator') return showToolsOrNoteAid;
@@ -1098,6 +1116,7 @@ const defaultQuickActionIds = computed(() => {
     ...((clinicalNoteGeneratorEnabledForAgency.value || !currentAgency.value) ? ['tools_aids', 'clinical_note_generator'] : []),
     ...(hasAffiliatedSchools.value ? ['school_overview'] : []),
     ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
+    ...(bookClubEnabledForAgency.value ? ['book_club'] : []),
     'manage_modules',
     'manage_documents',
     'surveys',
@@ -1538,4 +1557,3 @@ onMounted(loadMyOpenTickets);
   border-color: var(--border);
 }
 </style>
-

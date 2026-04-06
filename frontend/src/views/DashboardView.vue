@@ -143,6 +143,7 @@
     </div>
 
     <SurveyPromptCard v-if="!previewMode && isOnboardingComplete && !isClubContext" />
+    <BookClubPromptCard v-if="!previewMode && isOnboardingComplete && !isClubContext" />
     
     <!-- Pending Completion Button -->
     <div v-if="isPending && pendingCompletionStatus?.allComplete && !pendingCompletionStatus?.accessLocked && (userStatus === 'PREHIRE_OPEN' || userStatus === 'pending')" class="pending-completion-banner">
@@ -1331,6 +1332,7 @@ import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
 import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.vue';
 import StaffCard from '../components/dashboard/StaffCard.vue';
 import SurveyPromptCard from '../components/dashboard/SurveyPromptCard.vue';
+import BookClubPromptCard from '../components/bookClub/BookClubPromptCard.vue';
 import ToolsAidsView from './admin/ToolsAidsView.vue';
 import CommunicationsFeedView from './admin/CommunicationsFeedView.vue';
 import PlatformChatsView from './admin/PlatformChatsView.vue';

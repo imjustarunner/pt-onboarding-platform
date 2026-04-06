@@ -16,6 +16,7 @@ import {
   createComment
 } from '../controllers/taskComments.controller.js';
 import { listNotesToSign, getNotesToSignCount, signNote, getClinicalNotesEligible } from '../controllers/notesToSign.controller.js';
+import { getMyBookClubStatus, respondToMyBookClubPrompt } from '../controllers/bookClub.controller.js';
 
 const router = express.Router();
 
@@ -36,5 +37,7 @@ router.post('/send-reminder-sms', authenticate, sendReminderSms);
 router.get('/company-events', authenticate, listMyCompanyEvents);
 router.get('/company-events/:eventId/ics', authenticate, downloadCompanyEventIcsForMe);
 router.post('/company-events/:eventId/respond', authenticate, respondToMyCompanyEvent);
+router.get('/book-club/status', authenticate, getMyBookClubStatus);
+router.post('/book-club/respond', authenticate, respondToMyBookClubPrompt);
 
 export default router;

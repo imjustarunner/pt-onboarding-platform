@@ -82,6 +82,12 @@
               Public availability enabled
             </label>
           </div>
+          <div class="form-group checkbox">
+            <label>
+              <input v-model="form.featureFlags.bookClubEnabled" type="checkbox" />
+              Book Club enabled
+            </label>
+          </div>
         </div>
         <div class="form-actions">
           <button type="button" class="btn btn-primary" @click="save" :disabled="saving">
@@ -107,7 +113,8 @@ const form = ref({
   affiliatedAgencyId: '',
   featureFlags: {
     noteAidEnabled: false,
-    publicAvailabilityEnabled: false
+    publicAvailabilityEnabled: false,
+    bookClubEnabled: false
   }
 });
 
@@ -134,7 +141,8 @@ const loadAgency = async () => {
       affiliatedAgencyId: a.affiliated_agency_id != null ? String(a.affiliated_agency_id) : '',
       featureFlags: {
         noteAidEnabled: flags.noteAidEnabled === true || flags.noteAidEnabled === 1,
-        publicAvailabilityEnabled: flags.publicAvailabilityEnabled === true || flags.publicAvailabilityEnabled === 1
+        publicAvailabilityEnabled: flags.publicAvailabilityEnabled === true || flags.publicAvailabilityEnabled === 1,
+        bookClubEnabled: flags.bookClubEnabled === true || flags.bookClubEnabled === 1
       }
     };
   } catch (err) {
@@ -162,6 +170,7 @@ const save = async () => {
     const mergedFlags = { ...lastLoadedFlags };
     mergedFlags.noteAidEnabled = form.value.featureFlags.noteAidEnabled;
     mergedFlags.publicAvailabilityEnabled = form.value.featureFlags.publicAvailabilityEnabled;
+    mergedFlags.bookClubEnabled = form.value.featureFlags.bookClubEnabled;
 
     await api.put(`/agencies/${agency.id}`, {
       isActive: form.value.isActive,
