@@ -3164,6 +3164,16 @@ const supervisors = ref([]);
 const superviseesLoading = ref(false);
 const supervisorsLoading = ref(false);
 
+// Role assignment permissions
+const canEditUser = computed(() => {
+  const user = authStore.user;
+  if (!user) return false;
+  // Admin/support/staff keep full edit access even with supervisor privileges (supervisor is always additive).
+  if (user.role === 'admin' || user.role === 'super_admin' || user.role === 'support' || user.role === 'staff') return true;
+  // CPAs and supervisor-only users have view-only access
+  return !isSupervisor(user) && user.role !== 'clinical_practice_assistant';
+});
+
 const tabs = computed(() => {
   // Guardian accounts are portal-only (non-employee): show only basic account info.
   if (isViewingGuardian.value) {
@@ -4421,16 +4431,6 @@ const userCredentials = ref({
   tokenLink: '',
   username: '',
   generatedEmails: []
-});
-
-// Role assignment permissions
-const canEditUser = computed(() => {
-  const user = authStore.user;
-  if (!user) return false;
-  // Admin/support/staff keep full edit access even with supervisor privileges (supervisor is always additive).
-  if (user.role === 'admin' || user.role === 'super_admin' || user.role === 'support' || user.role === 'staff') return true;
-  // CPAs and supervisor-only users have view-only access
-  return !isSupervisor(user) && user.role !== 'clinical_practice_assistant';
 });
 
 const canRepairProviderSlots = computed(() => {

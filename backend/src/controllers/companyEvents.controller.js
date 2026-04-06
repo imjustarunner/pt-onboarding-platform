@@ -22,6 +22,7 @@ import crypto from 'crypto';
 import EmailTemplateService from '../services/emailTemplate.service.js';
 import { sendNotificationEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { fetchRegistrationCatalogItems } from '../services/registrationCatalog.service.js';
+import { canUserManageClub } from '../utils/sscClubAccess.js';
 
 const DEFAULT_RSVP_OPTIONS = [
   { key: '1', label: 'Yes' },
@@ -143,6 +144,14 @@ async function _isUserOnSscSstcAgency(req) {
   }
 }
 
+const resolveRequestedAgencyId = (req, preferred = null) => parsePositiveInt(
+  preferred
+  ?? req.params?.id
+  ?? req.body?.agencyId
+  ?? req.query?.agencyId
+  ?? req.user?.agencyId
+);
+
 const userCanManageCompanyEvents = (req) => {
   const role = String(req.user?.role || '').toLowerCase();
   // provider_plus is an SSC/SSTC assistant-manager role; the async variant below enforces
@@ -151,11 +160,15 @@ const userCanManageCompanyEvents = (req) => {
   return role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff';
 };
 
-// Async version: same as above but also allows provider_plus on SSC/SSTC agencies only.
-async function userCanManageCompanyEventsAsync(req) {
+// Async version: same as above but also allows SSC club managers / assistant managers on the target club.
+async function userCanManageCompanyEventsAsync(req, agencyId = null) {
   if (userCanManageCompanyEvents(req)) return true;
   const role = String(req.user?.role || '').toLowerCase();
-  if (role === 'provider_plus') return _isUserOnSscSstcAgency(req);
+  if (role === 'provider_plus' || role === 'club_manager') {
+    const targetAgencyId = resolveRequestedAgencyId(req, agencyId);
+    if (targetAgencyId) return canUserManageClub({ user: req.user, clubId: targetAgencyId });
+    if (role === 'provider_plus') return _isUserOnSscSstcAgency(req);
+  }
   return false;
 }
 

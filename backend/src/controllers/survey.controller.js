@@ -65,25 +65,16 @@ async function getAgencyMeta(agencyId) {
   }
 }
 
-const isSscSstcAffiliation = (agencyMeta) => {
-  const slug = String(agencyMeta?.slug || '').trim().toLowerCase();
-  const parentSlug = String(agencyMeta?.parent_slug || '').trim().toLowerCase();
-  const orgType = String(agencyMeta?.organization_type || '').trim().toLowerCase();
-  return orgType === 'affiliation' && (slug === 'ssc' || slug === 'sstc' || parentSlug === 'ssc' || parentSlug === 'sstc');
-};
-
 async function canManageSurveysForAgency(req, agencyId) {
   const role = String(req.user?.role || '').trim().toLowerCase();
   if (role === 'super_admin') return true;
   const agencyMeta = await getAgencyMeta(agencyId);
   if (!agencyMeta) return false;
-  if (isSscSstcAffiliation(agencyMeta)) {
-    if (role === 'club_manager') {
-      return canUserManageClub({ user: req.user, clubId: agencyId });
-    }
-    return role === 'admin' || role === 'provider_plus';
+  if (String(agencyMeta?.organization_type || '').trim().toLowerCase() === 'affiliation') {
+    if (!['admin', 'support', 'staff', 'provider_plus', 'club_manager'].includes(role)) return false;
+    return canUserManageClub({ user: req.user, clubId: agencyId });
   }
-  // Non-SSC/SSTC: preserve existing broad backoffice behavior.
+  // Non-club agencies keep the existing backoffice behavior.
   return role === 'admin' || role === 'support' || role === 'staff';
 }
 

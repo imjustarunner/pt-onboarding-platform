@@ -514,7 +514,7 @@
             <td class="actions-cell">
               <div class="action-buttons">
                 <router-link :to="userProfilePath(user.id)" class="btn btn-primary btn-sm">View Profile</router-link>
-                <router-link :to="`${userProfilePath(user.id)}?tab=communications`" class="btn btn-secondary btn-sm">
+                <router-link :to="userProfileTabPath(user.id, 'communications')" class="btn btn-secondary btn-sm">
                   Announce / Splash
                 </router-link>
                 <button 
@@ -1548,6 +1548,15 @@ const userProfilePath = (userId) => {
   if (ret && isSscSstcTenant.value) {
     params.set('returnTo', ret);
   }
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+};
+
+const userProfileTabPath = (userId, tabId) => {
+  const basePath = userProfilePath(userId);
+  const params = new URLSearchParams(basePath.split('?')[1] || '');
+  params.set('tab', String(tabId || '').trim());
+  const base = basePath.split('?')[0];
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 };
@@ -4926,4 +4935,3 @@ th {
   cursor: not-allowed;
 }
 </style>
-

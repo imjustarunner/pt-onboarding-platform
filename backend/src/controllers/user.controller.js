@@ -4481,7 +4481,7 @@ export const getUserAgencies = async (req, res, next) => {
     // CPAs and supervisors can see agencies for users they supervise
     if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
       // Check if CPA or supervisor has access to this user
-      if (req.user.role === 'clinical_practice_assistant' || req.user.role === 'provider_plus' || req.user.role === 'supervisor') {
+      if (req.user.role === 'clinical_practice_assistant' || req.user.role === 'provider_plus' || req.user.role === 'supervisor' || String(req.user.role || '').toLowerCase() === 'club_manager') {
         const targetUser = await User.findById(userId);
         if (!targetUser) {
           return res.status(404).json({ error: { message: 'User not found' } });
@@ -4502,6 +4502,10 @@ export const getUserAgencies = async (req, res, next) => {
           // Supervisors can only view agencies for their assigned supervisees
           const hasAccess = await User.supervisorHasAccess(req.user.id, userId);
           if (!hasAccess) {
+            return res.status(403).json({ error: { message: 'Access denied' } });
+          }
+        } else if (String(req.user.role || '').toLowerCase() === 'club_manager') {
+          if (!(await clubManagerCanViewClubMemberUser(req, userId))) {
             return res.status(403).json({ error: { message: 'Access denied' } });
           }
         }
@@ -7915,5 +7919,4 @@ export const wipePendingUserData = async (req, res, next) => {
     next(error);
   }
 };
-
 

@@ -109,6 +109,15 @@
         <p v-else-if="!isAppLike" class="subtitle">{{ primaryLoginSubtitle }}</p>
         
         <div v-if="error" class="error" v-html="formatError(error)"></div>
+        <div v-if="showSignupSuggestion" class="login-signup-suggestion">
+          <p class="login-signup-suggestion__text">
+            No account was found for <strong>{{ suggestedSignupEmail }}</strong>. Create an account first, then apply for a club.
+          </p>
+          <div class="login-signup-suggestion__actions">
+            <router-link :to="participantSignupPath" class="btn btn-primary">Create Account</router-link>
+            <router-link :to="clubsPath" class="btn btn-secondary">Browse Clubs</router-link>
+          </div>
+        </div>
         <div v-if="verifiedSuccess" class="success">{{ verifiedSuccess }}</div>
 
         <div v-if="showIntakesTrigger" class="intakes-trigger-row">
@@ -555,6 +564,13 @@ const clubsPath = computed(() =>
 // Show club links (Sign up, Browse Clubs, Create Club Manager) when backend says so:
 // - affiliation (direct club login), OR agency that hosts clubs (e.g. Summit Stats Team Challenge)
 const showClubLinks = computed(() => !!loginTheme.value?.agency?.showClubLinks);
+const suggestedSignupEmail = computed(() => String(username.value || '').trim());
+const showSignupSuggestion = computed(() => {
+  if (!showClubLinks.value) return false;
+  if (!suggestedSignupEmail.value.includes('@')) return false;
+  const message = String(error.value || '').toLowerCase();
+  return message.includes('user not found') || message.includes("doesn't have an account") || message.includes('does not have an account');
+});
 
 /** Summit Stats tenants (SSC / SSTC / alias): phone number is an accepted login identifier. */
 const isSSCLogin = computed(() => {
@@ -1515,6 +1531,39 @@ const handleLogoError = (event) => {
 .app-preview-toggle.active {
   background: #1d4ed8;
   color: #ffffff;
+}
+
+.login-signup-suggestion {
+  margin: 12px 0 0;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  background: rgba(239, 246, 255, 0.96);
+}
+
+.login-signup-suggestion__text {
+  margin: 0;
+  color: #1e3a8a;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.login-signup-suggestion__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+@media (max-width: 520px) {
+  .login-signup-suggestion__actions {
+    flex-direction: column;
+  }
+
+  .login-signup-suggestion__actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 .login-container {
@@ -2537,4 +2586,3 @@ const handleLogoError = (event) => {
   color: #6b7280;
 }
 </style>
-

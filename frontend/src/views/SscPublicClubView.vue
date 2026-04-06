@@ -39,6 +39,7 @@
           </div>
           <div v-if="!viewer.isMember" class="hero-actions">
             <button type="button" class="btn-hero-join" @click="goJoin">Join Our Club</button>
+            <router-link :to="loginTo" class="btn-hero-join btn-hero-join--secondary">Login Now</router-link>
           </div>
         </div>
       </div>
@@ -375,7 +376,8 @@
             </div>
             <div class="cta-actions">
               <button type="button" class="btn-cta" @click="goJoin">Join {{ clubData.club.name }}</button>
-              <p class="cta-note">Already a member? <a :href="`/${orgSlug}`">Sign in</a></p>
+              <router-link :to="loginTo" class="btn-cta btn-cta--secondary">Login Now</router-link>
+              <p class="cta-note">Already a member? <router-link :to="loginTo">Sign in</router-link></p>
             </div>
           </div>
         </div>
@@ -443,6 +445,11 @@ const membersDirectoryTo = computed(() => {
   if (ref == null || ref === '') return `/${orgSlug.value}/clubs`;
   return `/${orgSlug.value}/clubs/${ref}/members`;
 });
+
+const loginTo = computed(() => ({
+  path: `/${orgSlug.value}/login`,
+  query: { redirect: route.fullPath }
+}));
 
 const goJoin = () => {
   const numericClubId = Number(clubData.value?.club?.id || 0);
@@ -825,8 +832,12 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: flex-end;
   gap: 10px;
+  width: min(100%, 320px);
 }
 .btn-hero-join {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 14px 32px;
   background: #fff;
   color: #1d4ed8;
@@ -837,7 +848,14 @@ onBeforeUnmount(() => {
   cursor: pointer;
   box-shadow: 0 4px 24px rgba(0,0,0,.22);
   transition: transform .15s, box-shadow .15s;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+  max-width: 100%;
+  width: 100%;
+  text-decoration: none;
+  line-height: 1.25;
+  box-sizing: border-box;
 }
 .btn-hero-join:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,.28); }
 .btn-hero-shop {
@@ -1448,8 +1466,12 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 14px;
   flex-shrink: 0;
+  width: min(100%, 420px);
 }
 .btn-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 15px 36px;
   background: #fff;
   color: #1d4ed8;
@@ -1458,13 +1480,46 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   border: none;
   cursor: pointer;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
   box-shadow: 0 6px 24px rgba(0,0,0,.2);
   transition: transform .15s, box-shadow .15s;
+  width: 100%;
+  max-width: 100%;
+  text-decoration: none;
+  line-height: 1.25;
+  box-sizing: border-box;
 }
 .btn-cta:hover { transform: translateY(-2px); box-shadow: 0 10px 32px rgba(0,0,0,.28); }
+.btn-cta--secondary {
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  border: 1.5px solid rgba(255,255,255,.28);
+}
+.btn-cta--secondary:hover {
+  background: rgba(255,255,255,.2);
+}
 .cta-note { font-size: 12px; color: rgba(255,255,255,.5); margin: 0; }
 .cta-note a { color: rgba(255,255,255,.8); text-underline-offset: 3px; }
+
+@media (max-width: 720px) {
+  .pub-hero-brand {
+    align-items: flex-start;
+  }
+  .hero-actions {
+    align-items: stretch;
+    width: 100%;
+  }
+  .cta-inner {
+    padding: 36px 24px;
+  }
+  .cta-text,
+  .cta-actions {
+    min-width: 0;
+    width: 100%;
+  }
+}
 
 /* ─── Ghost button ────────────────────────────────────────────── */
 .btn-ghost {
