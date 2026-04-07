@@ -2298,6 +2298,7 @@ const showTimeCorrectionModal = ref(false);
 const showTimeOvertimeModal = ref(false);
 const showJuryDutyModal = ref(false);
 const juryDutyForm = ref({ claimDate: '', description: '', file: null, fileName: '', attestation: false });
+const editingTimeClaimId = ref(null); // tracks which deferred claim is being resubmitted
 const submittingTimeClaim = ref(false);
 const submitTimeClaimError = ref('');
 const timeClaims = ref([]);
@@ -3705,6 +3706,7 @@ const isNoTranscriptAvailableYet = (c) => {
 
 const submitTimeClaim = async ({ claimType, claimDate, payload }) => {
   if (!agencyId.value) return;
+  const replacingId = editingTimeClaimId.value;
   try {
     submittingTimeClaim.value = true;
     submitTimeClaimError.value = '';
@@ -3714,6 +3716,13 @@ const submitTimeClaim = async ({ claimType, claimDate, payload }) => {
       claimDate,
       payload
     });
+    // If this was a resubmit, silently withdraw the old deferred/rejected claim.
+    if (replacingId) {
+      try {
+        await api.delete(`/payroll/me/time-claims/${replacingId}`, { params: { agencyId: agencyId.value } });
+      } catch { /* ignore — old claim may already be gone */ }
+      editingTimeClaimId.value = null;
+    }
     submitSuccess.value = 'Time claim submitted successfully. Payroll will review and approve it before it is added to a pay period.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
     await loadTimeClaims();
@@ -3771,6 +3780,7 @@ const openTimeMeetingModal = () => {
 };
 const closeTimeMeetingModal = () => {
   showTimeMeetingModal.value = false;
+  editingTimeClaimId.value = null;
   emit('time-modal-closed');
 };
 
@@ -3797,6 +3807,7 @@ const openTimeExcessModal = (opts = {}) => {
 };
 const closeTimeExcessModal = () => {
   showTimeExcessModal.value = false;
+  editingTimeClaimId.value = null;
   emit('time-modal-closed');
 };
 
@@ -3814,6 +3825,7 @@ const openTimeCorrectionModal = (opts = {}) => {
 };
 const closeTimeCorrectionModal = () => {
   showTimeCorrectionModal.value = false;
+  editingTimeClaimId.value = null;
   emit('time-modal-closed');
 };
 
@@ -3850,16 +3862,20 @@ const openTimeOvertimeModal = () => {
 };
 const closeTimeOvertimeModal = () => {
   showTimeOvertimeModal.value = false;
+  editingTimeClaimId.value = null;
   emit('time-modal-closed');
 };
 
 const openJuryDutyModal = () => {
   submitTimeClaimError.value = '';
-  juryDutyForm.value = { claimDate: '', description: '', file: null, fileName: '', attestation: false };
+  if (!editingTimeClaimId.value) {
+    juryDutyForm.value = { claimDate: '', description: '', file: null, fileName: '', attestation: false };
+  }
   showJuryDutyModal.value = true;
 };
 const closeJuryDutyModal = () => {
   showJuryDutyModal.value = false;
+  editingTimeClaimId.value = null;
   emit('time-modal-closed');
 };
 const onJuryDutyFileChange = (e) => {
@@ -3883,7 +3899,14 @@ const submitJuryDuty = async () => {
     fd.append('claimDate', f.claimDate);
     fd.append('payload', JSON.stringify({ courtDate: f.claimDate, description: f.description, attestation: true }));
     fd.append('proof', f.file);
+    const replacingId = editingTimeClaimId.value;
     await api.post('/payroll/me/time-claims', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    if (replacingId) {
+      try {
+        await api.delete(`/payroll/me/time-claims/${replacingId}`, { params: { agencyId: agencyId.value } });
+      } catch { /* ignore */ }
+      editingTimeClaimId.value = null;
+    }
     submitSuccess.value = 'Jury duty claim submitted successfully. Payroll will review and approve it.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
     await loadTimeClaims();
@@ -3899,6 +3922,7 @@ const submitJuryDuty = async () => {
 const openEditTimeClaim = (c) => {
   if (!c?.id) return;
   submitTimeClaimError.value = '';
+  editingTimeClaimId.value = c.id; // track so we can auto-withdraw on successful resubmit
   const type = String(c.claim_type || '').toLowerCase();
   const payload = c.payload || {};
   if (type === 'meeting_training' || type === 'mentor_cpa_meeting') {
@@ -4006,7 +4030,19 @@ const openEditTimeClaim = (c) => {
     };
     return;
   }
+  if (type === 'jury_duty') {
+    juryDutyForm.value = {
+      claimDate: String(c.claim_date || '').slice(0, 10),
+      description: payload.description || '',
+      file: null,
+      fileName: payload.proofOriginalName || '',
+      attestation: false
+    };
+    showJuryDutyModal.value = true;
+    return;
+  }
   // Fallback: open meeting modal
+  editingTimeClaimId.value = null; // can't edit unknown types, clear tracking
   openTimeMeetingModal();
 };
 

@@ -3389,6 +3389,7 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
     const [ptoRequestedRows] = await pool.execute(
       `SELECT
          r.user_id,
+         r.request_type,
          COALESCE(SUM(i.hours), 0) AS requested_hours
        FROM payroll_pto_requests r
        JOIN payroll_pto_request_items i ON i.request_id = r.id
@@ -3396,17 +3397,32 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
          AND r.status IN ('submitted', 'approved')
          AND i.request_date >= ?
          AND i.request_date <= ?
-       GROUP BY r.user_id`,
+       GROUP BY r.user_id, r.request_type`,
       [period.agency_id, String(period.period_start || '').slice(0, 10), String(period.period_end || '').slice(0, 10)]
     );
+    const sickPtoRequestedByUserId = new Map();
+    const trainingPtoRequestedByUserId = new Map();
+    for (const r of (ptoRequestedRows || [])) {
+      const uid = Number(r.user_id);
+      const hrs = Number(r.requested_hours || 0);
+      const rtype = String(r.request_type || '').toLowerCase();
+      if (rtype === 'training') {
+        trainingPtoRequestedByUserId.set(uid, (trainingPtoRequestedByUserId.get(uid) || 0) + hrs);
+      } else {
+        // sick_leave, sick, or any unspecified type → sick bucket
+        sickPtoRequestedByUserId.set(uid, (sickPtoRequestedByUserId.get(uid) || 0) + hrs);
+      }
+    }
     const ptoRequestedHoursByUserId = new Map(
-      (ptoRequestedRows || []).map((r) => [Number(r.user_id), Number(r.requested_hours || 0)])
+      [...new Set([...sickPtoRequestedByUserId.keys(), ...trainingPtoRequestedByUserId.keys()])].map(
+        (uid) => [uid, (sickPtoRequestedByUserId.get(uid) || 0) + (trainingPtoRequestedByUserId.get(uid) || 0)]
+      )
     );
 
     // Export format (payroll processor output):
     // - Sorted by provider last name
     // - Direct/indirect hour credits and derived hourly rates
-    // - PTO requested hours + key adjustment columns
+    // - PTO requested hours (sick + training split) + key adjustment columns
     const header = [
       'Employee',
       'Direct Hour Credits',
@@ -3417,7 +3433,8 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       'Indirect Hourly Rate',
       'Total Taxable Pay',
       'Total Extra Taxable Pay (No Hours)',
-      'PTO Requested (Hours)',
+      'Sick Leave PTO (Hours)',
+      'Training PTO (Hours)',
       'Bonus Added (Taxable)',
       'Salary (Taxable)',
       'Mileage',
@@ -3532,6 +3549,12 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
         ? breakdownPtoHours
         : (fallbackPtoHours > 0 ? fallbackPtoHours : safeNum(adjFallback?.pto_hours ?? 0));
       const ptoRequestedHours = safeNum(ptoRequestedHoursByUserId.get(userId) ?? ptoTakenHours);
+      // Split PTO by type for CSV columns
+      const sickPtoRequested = safeNum(sickPtoRequestedByUserId.get(userId) ?? 0);
+      const trainingPtoRequested = safeNum(trainingPtoRequestedByUserId.get(userId) ?? 0);
+      // If no split data exists but there are taken hours, put them all under sick leave (legacy)
+      const sickPtoCsv = (sickPtoRequested + trainingPtoRequested > 0) ? sickPtoRequested : ptoTakenHours;
+      const trainingPtoCsv = (sickPtoRequested + trainingPtoRequested > 0) ? trainingPtoRequested : 0;
 
       const nonTaxableTotal = safeNum(adjFromBreakdown?.nonTaxableAmount ?? (mileage + reimbursement + tuition));
       // Salary is base taxable pay; taxable total should include salary + hourly taxable pay + taxable adjustments.
@@ -3549,7 +3572,8 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
           fmt2(indirectRate),
           fmt2(taxableTotal),
           fmt2(extraTaxableNoHours),
-          fmt2(ptoRequestedHours),
+          fmt2(sickPtoCsv),
+          fmt2(trainingPtoCsv),
           fmt2(bonus),
           fmt2(salary),
           fmt2(mileage),

@@ -2413,7 +2413,7 @@
                       <td>{{ nameForUserId(c.user_id) }}</td>
                       <td>{{ submittedAtYmd(c) }}</td>
                       <td>{{ submitterLabel(c) }}</td>
-                      <td>{{ c.claim_date }}</td>
+                      <td>{{ fmtClaimDate(c.claim_date) }}</td>
                       <td class="right">{{ fmtNum(Number(c.units ?? 0)) }}</td>
                       <td class="right">
                         <select v-model="medcancelTargetPeriodByClaimId[c.id]" :disabled="approvingMedcancelClaimId === c.id">
@@ -2422,6 +2422,9 @@
                       </td>
                       <td class="right">
                         <div class="actions" style="justify-content: flex-end; margin: 0;">
+                          <button class="btn btn-secondary btn-sm" @click="openMedcancelReview(c)" type="button">
+                            Review
+                          </button>
                           <button class="btn btn-primary btn-sm" @click="approveMedcancelClaim(c)" :disabled="approvingMedcancelClaimId === c.id || !isValidTargetPeriodId(medcancelTargetPeriodByClaimId[c.id]) || isTargetPeriodLocked(medcancelTargetPeriodByClaimId[c.id])">
                             {{ approvingMedcancelClaimId === c.id ? 'Approving…' : 'Approve' }}
                           </button>
@@ -2878,7 +2881,7 @@
                   <tbody>
                     <tr v-for="c in approvedMedcancelClaims" :key="c.id">
                       <td>{{ nameForUserId(c.user_id) }}</td>
-                      <td>{{ c.claim_date }}</td>
+                      <td>{{ fmtClaimDate(c.claim_date) }}</td>
                       <td class="right">{{ fmtNum(Number(c.units ?? 0)) }}</td>
                       <td class="right">{{ fmtMoney(Number(c.applied_amount || 0)) }}</td>
                       <td class="right">
@@ -5423,6 +5426,61 @@
 
     <!-- Rate Sheet Import removed (no longer needed) -->
 
+    <!-- MedCancel Review Modal -->
+    <teleport to="body">
+      <div v-if="showMedcancelReviewModal" class="modal-backdrop" @click.self="showMedcancelReviewModal = false">
+        <div class="modal" style="max-width: 600px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">MedCancel Submission Details</div>
+              <div class="hint" v-if="reviewedMedcancelClaim">
+                {{ nameForUserId(reviewedMedcancelClaim.user_id) }} — {{ fmtClaimDate(reviewedMedcancelClaim.claim_date) }}
+              </div>
+            </div>
+            <button class="btn btn-secondary btn-sm" @click="showMedcancelReviewModal = false">Close</button>
+          </div>
+          <div v-if="reviewedMedcancelClaim" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+            <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+              <div class="field"><label>Date</label><div>{{ fmtClaimDate(reviewedMedcancelClaim.claim_date) }}</div></div>
+              <div class="field"><label>Total Units</label><div>{{ fmtNum(Number(reviewedMedcancelClaim.units ?? 0)) }}</div></div>
+            </div>
+            <div class="field-row" style="grid-template-columns: 1fr 1fr;" v-if="reviewedMedcancelClaim.school_organization_id">
+              <div class="field"><label>School/Org ID</label><div>{{ reviewedMedcancelClaim.school_organization_id }}</div></div>
+            </div>
+
+            <div v-if="(reviewedMedcancelClaim.items || []).length">
+              <label style="font-weight: 600; font-size: 0.85em; color: #888; text-transform: uppercase; letter-spacing: 0.05em;">Session Items</label>
+              <div
+                v-for="(it, idx) in reviewedMedcancelClaim.items"
+                :key="idx"
+                style="margin-top: 8px; padding: 10px 12px; background: #f8f9fa; border-radius: 6px;"
+              >
+                <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr;">
+                  <div class="field"><label>Client Initials</label><div>{{ it.client_initials || it.clientInitials || '—' }}</div></div>
+                  <div class="field"><label>Missed Service Code</label><div>{{ it.missed_service_code || it.missedServiceCode || '—' }}</div></div>
+                  <div class="field"><label>Session Time</label><div>{{ it.session_time || it.sessionTime || '—' }}</div></div>
+                </div>
+                <div class="field" v-if="it.note" style="margin-top: 6px;"><label>Note</label><div>{{ it.note }}</div></div>
+              </div>
+            </div>
+            <div v-else class="muted">No session detail items found.</div>
+
+            <div class="field-row" style="grid-template-columns: 1fr 1fr; border-top: 1px solid #eee; padding-top: 12px; margin-top: 4px;">
+              <div class="field"><label>Submitted by</label><div>{{ submitterLabel(reviewedMedcancelClaim) }}</div></div>
+              <div class="field"><label>Submitted on</label><div>{{ submittedAtYmd(reviewedMedcancelClaim) }}</div></div>
+            </div>
+            <div class="field" v-if="reviewedMedcancelClaim.rejection_reason" style="border-top: 1px solid #eee; padding-top: 12px;">
+              <label>Admin Note / Send-back Reason</label>
+              <div style="white-space: pre-wrap; color: #c05600;">{{ reviewedMedcancelClaim.rejection_reason }}</div>
+            </div>
+          </div>
+          <div style="padding: 12px 16px; border-top: 1px solid #eee; display: flex; justify-content: flex-end;">
+            <button class="btn btn-secondary" @click="showMedcancelReviewModal = false">Close</button>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
     <!-- Time Claim Review Modal -->
     <teleport to="body">
       <div v-if="showTimeClaimReviewModal" class="modal-backdrop" @click.self="showTimeClaimReviewModal = false">
@@ -5916,6 +5974,12 @@ const selectedMileageClaim = ref(null);
 const pendingMedcancelClaims = ref([]);
 const pendingMedcancelLoading = ref(false);
 const pendingMedcancelError = ref('');
+const showMedcancelReviewModal = ref(false);
+const reviewedMedcancelClaim = ref(null);
+const openMedcancelReview = (c) => {
+  reviewedMedcancelClaim.value = c;
+  showMedcancelReviewModal.value = true;
+};
 const approvingMedcancelClaimId = ref(null);
 const medcancelTargetPeriodByClaimId = ref({});
 const pendingMedcancelMode = ref('period'); // 'period' | 'all'
