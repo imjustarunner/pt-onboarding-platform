@@ -636,7 +636,7 @@
         </div>
         <h3 class="ssc-blocking-splash-title">{{ clubSplashTitle }}</h3>
         <div v-if="currentClubSplash.splash_image_url" class="ssc-blocking-splash-image-wrap">
-          <img :src="currentClubSplash.splash_image_url" alt="" class="ssc-blocking-splash-image" />
+          <img :src="toUploadsUrl(currentClubSplash.splash_image_url)" alt="" class="ssc-blocking-splash-image" />
         </div>
         <p class="ssc-blocking-splash-message">{{ currentClubSplash.message || '' }}</p>
         <div v-if="currentClubSplash.ends_at" class="ssc-blocking-splash-meta">
@@ -718,6 +718,7 @@ import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import { useAffiliationClubAnnouncements } from '../composables/useAffiliationClubAnnouncements.js';
+import { toUploadsUrl } from '../utils/uploadsUrl.js';
 import { getWeekDeadline, timeUntil, formatInTimezone, countdownUrgency } from '../utils/timezones.js';
 import ChallengeRules from '../components/challenge/ChallengeRules.vue';
 import ChallengeTeamList from '../components/challenge/ChallengeTeamList.vue';

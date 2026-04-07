@@ -3035,16 +3035,36 @@ export const getMyDashboardSummary = async (req, res, next) => {
         isActive: agency.is_active !== false && agency.is_active !== 0 && String(agency.is_active || '1') !== '0'
       }));
 
-    const [applicationRows] = await pool.execute(
-      `SELECT first_name, last_name, email, phone, gender, pronouns, date_of_birth, weight_lbs, height_inches, timezone,
-              heard_about_club, running_fitness_background, average_miles_per_week, average_hours_per_week,
-              current_fitness_activities, waiver_signature_name, waiver_agreed_at, waiver_version, status, applied_at
-       FROM challenge_member_applications
-       WHERE user_id = ? OR LOWER(COALESCE(email, '')) = LOWER(?)
-       ORDER BY applied_at DESC, id DESC
-       LIMIT 1`,
-      [userId, user.email || '']
-    );
+    // Fetch latest application; fall back to a query without `pronouns` if the column
+    // migration has not yet been run on this environment (migration 675).
+    let applicationRows;
+    try {
+      [applicationRows] = await pool.execute(
+        `SELECT first_name, last_name, email, phone, gender, pronouns, date_of_birth, weight_lbs, height_inches, timezone,
+                heard_about_club, running_fitness_background, average_miles_per_week, average_hours_per_week,
+                current_fitness_activities, waiver_signature_name, waiver_agreed_at, waiver_version, status, applied_at
+         FROM challenge_member_applications
+         WHERE user_id = ? OR LOWER(COALESCE(email, '')) = LOWER(?)
+         ORDER BY applied_at DESC, id DESC
+         LIMIT 1`,
+        [userId, user.email || '']
+      );
+    } catch (appQueryErr) {
+      if (String(appQueryErr?.message || '').includes("pronouns")) {
+        [applicationRows] = await pool.execute(
+          `SELECT first_name, last_name, email, phone, gender, NULL AS pronouns, date_of_birth, weight_lbs, height_inches, timezone,
+                  heard_about_club, running_fitness_background, average_miles_per_week, average_hours_per_week,
+                  current_fitness_activities, waiver_signature_name, waiver_agreed_at, waiver_version, status, applied_at
+           FROM challenge_member_applications
+           WHERE user_id = ? OR LOWER(COALESCE(email, '')) = LOWER(?)
+           ORDER BY applied_at DESC, id DESC
+           LIMIT 1`,
+          [userId, user.email || '']
+        );
+      } else {
+        throw appQueryErr;
+      }
+    }
     const latestApplication = applicationRows?.[0] || null;
 
     const [statsRows] = await pool.execute(
@@ -3342,10 +3362,28 @@ export const putMyAccountSnapshot = async (req, res, next) => {
 
       if (appUpdates.length) {
         appVals.push(appId);
-        await pool.execute(
-          `UPDATE challenge_member_applications SET ${appUpdates.join(', ')} WHERE id = ?`,
-          appVals
-        );
+        try {
+          await pool.execute(
+            `UPDATE challenge_member_applications SET ${appUpdates.join(', ')} WHERE id = ?`,
+            appVals
+          );
+        } catch (updateErr) {
+          // If the pronouns column hasn't been migrated yet, retry without it.
+          if (String(updateErr?.message || '').includes('pronouns')) {
+            const filteredPairs = appUpdates
+              .map((col, i) => ({ col, val: appVals[i] }))
+              .filter(({ col }) => !col.startsWith('pronouns'));
+            if (filteredPairs.length) {
+              const retryVals = [...filteredPairs.map((p) => p.val), appId];
+              await pool.execute(
+                `UPDATE challenge_member_applications SET ${filteredPairs.map((p) => p.col).join(', ')} WHERE id = ?`,
+                retryVals
+              );
+            }
+          } else {
+            throw updateErr;
+          }
+        }
       }
     }
 

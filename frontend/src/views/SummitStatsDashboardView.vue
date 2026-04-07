@@ -530,7 +530,7 @@
         </div>
         <h3 class="ssc-blocking-splash-title">{{ clubSplashTitle }}</h3>
         <div v-if="currentClubSplash.splash_image_url" class="ssc-blocking-splash-image-wrap">
-          <img :src="currentClubSplash.splash_image_url" alt="" class="ssc-blocking-splash-image" />
+          <img :src="toUploadsUrl(currentClubSplash.splash_image_url)" alt="" class="ssc-blocking-splash-image" />
         </div>
         <p class="ssc-blocking-splash-message">{{ currentClubSplash.message || '' }}</p>
         <div v-if="currentClubSplash.ends_at" class="ssc-blocking-splash-meta">
