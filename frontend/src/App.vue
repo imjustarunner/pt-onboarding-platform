@@ -277,6 +277,10 @@
                           :to="orgTo('/admin/skill-builders-client-management')"
                         >Client management</router-link>
                         <router-link
+                          v-if="showBookClubPortalLink && isAdmin"
+                          :to="orgTo('/admin/book-club')"
+                        >Book Club</router-link>
+                        <router-link
                           v-if="canSeeSkillBuildersMyAvailabilityNav"
                           :to="orgTo('/admin/skill-builders-my-availability')"
                         >Availability</router-link>
@@ -808,6 +812,12 @@
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
                   >Client management</router-link>
+                  <router-link
+                    v-if="showBookClubPortalLink && isAdmin"
+                    :to="orgTo('/admin/book-club')"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >Book Club</router-link>
                   <router-link
                     v-if="canSeeSkillBuildersMyAvailabilityNav"
                     :to="orgTo('/admin/skill-builders-my-availability')"
@@ -2195,7 +2205,8 @@ const canSeeEventsProgramsNavGroup = computed(
   () =>
     canSeeSkillBuildersCoordinatorNavLinks.value ||
     canOpenSkillBuildersProgramsFromNav.value ||
-    canSeeSkillBuildersMyAvailabilityNav.value
+    canSeeSkillBuildersMyAvailabilityNav.value ||
+    (showBookClubPortalLink.value && isAdmin.value)
 );
 
 const skillBuildersProgramsDashboardTo = computed(() => orgTo('/admin/program-events'));
