@@ -36,6 +36,14 @@ const parseClubRecords = (raw) => {
   return [];
 };
 
+const unitForMetricKey = (metricKey) => {
+  const k = String(metricKey || '').trim().toLowerCase();
+  if (k === 'distance_miles' || k === 'distance') return 'miles';
+  if (k === 'duration_minutes' || k === 'duration') return 'minutes';
+  if (k === 'points') return 'points';
+  return '';
+};
+
 const normalizeClubRecords = (input) => {
   const rows = Array.isArray(input) ? input : [];
   const out = [];
@@ -46,18 +54,37 @@ const normalizeClubRecords = (input) => {
     if (s === 'points') return 'points';
     return null;
   };
+  const normalizeHolderYear = (raw) => {
+    if (raw === null || raw === undefined || raw === '') return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return null;
+    const y = Math.trunc(n);
+    if (y < 1900 || y > 2999) return null;
+    return y;
+  };
+  const normalizeIconId = (raw) => {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 1) return null;
+    return Math.trunc(n);
+  };
   for (const row of rows) {
     const label = String(row?.label || '').trim();
     if (!label) continue;
     const rawValue = Number(row?.value);
     const numericValue = Number.isFinite(rawValue) ? rawValue : null;
+    const metricKey = normalizeMetricKey(row?.metricKey);
+    const unit = String(row?.unit || '').trim() || unitForMetricKey(metricKey);
     out.push({
       id: String(row?.id || `record-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
       label,
       value: numericValue != null ? numericValue : null,
-      unit: String(row?.unit || '').trim(),
+      unit,
       notes: String(row?.notes || '').trim(),
-      metricKey: normalizeMetricKey(row?.metricKey),
+      metricKey,
+      holderName: String(row?.holderName || '').trim(),
+      holderYear: normalizeHolderYear(row?.holderYear),
+      holderTeam: String(row?.holderTeam || '').trim(),
+      iconId: normalizeIconId(row?.iconId),
       verificationRequired: true,
       seededAt: row?.seededAt || null,
       updatedAt: row?.updatedAt || null,
@@ -87,9 +114,13 @@ const mergeSeedRecords = ({ existingRecords, incomingRecords }) => {
     merged.push({
       ...prev,
       label: incoming.label,
-      unit: incoming.unit,
+      unit: incoming.unit || unitForMetricKey(incoming.metricKey || prev.metricKey),
       notes: incoming.notes,
       metricKey: incoming.metricKey || prev.metricKey || null,
+      holderName: incoming.holderName,
+      holderYear: incoming.holderYear,
+      holderTeam: incoming.holderTeam,
+      iconId: incoming.iconId,
       verificationRequired: true
     });
   }
@@ -900,6 +931,29 @@ export const reviewClubRecordVerification = async (req, res, next) => {
     );
 
     if (status === 'approved') {
+      const [proofRows] = await pool.execute(
+        `SELECT
+           w.completed_at,
+           w.team_id,
+           t.team_name,
+           u.first_name,
+           u.last_name
+         FROM challenge_workouts w
+         LEFT JOIN challenge_teams t ON t.id = w.team_id
+         LEFT JOIN users u ON u.id = w.user_id
+         WHERE w.id = ?
+         LIMIT 1`,
+        [verification.workout_id]
+      );
+      const approvedWorkout = proofRows?.[0] || null;
+      const holderName = [approvedWorkout?.first_name, approvedWorkout?.last_name]
+        .map((s) => String(s || '').trim())
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      const completedAt = approvedWorkout?.completed_at ? new Date(approvedWorkout.completed_at) : null;
+      const holderYear = completedAt && Number.isFinite(completedAt.getTime()) ? completedAt.getFullYear() : null;
+      const holderTeam = String(approvedWorkout?.team_name || '').trim();
       const [recRows] = await pool.execute(
         `SELECT records_json
          FROM summit_stats_club_records
@@ -913,6 +967,9 @@ export const reviewClubRecordVerification = async (req, res, next) => {
         return {
           ...r,
           value: Number(verification.candidate_value),
+          holderName: holderName || r.holderName || '',
+          holderYear: holderYear || r.holderYear || null,
+          holderTeam: holderTeam || r.holderTeam || '',
           updatedAt: new Date().toISOString(),
           lastVerifiedAt: new Date().toISOString(),
           lastVerifiedWorkoutId: Number(verification.workout_id),

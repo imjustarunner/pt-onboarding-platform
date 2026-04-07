@@ -308,16 +308,30 @@
         <div class="records-list">
           <div v-if="clubRecords.length === 0" class="hint">No records yet. Add your first all-time record.</div>
           <div v-for="(record, idx) in clubRecords" :key="record.id || `record-${idx}`" class="record-row">
-            <input v-model="record.label" type="text" placeholder="Label (e.g., Longest Trail Run)" />
-            <input v-model.number="record.value" type="number" step="0.01" placeholder="Seed value (e.g., 42.6)" />
-            <input v-model="record.unit" type="text" placeholder="Unit (e.g., miles)" />
-            <select v-model="record.metricKey">
+            <input v-model="record.label" type="text" placeholder="Label (e.g., Longest Trail Run)" class="record-field record-field--label" />
+            <input v-model.number="record.value" type="number" step="0.01" placeholder="Record value (e.g., 22)" class="record-field record-field--value" />
+            <select v-model="record.metricKey" class="record-field record-field--metric">
               <option value="">Metric source</option>
-              <option value="distance_miles">Distance (miles)</option>
-              <option value="duration_minutes">Duration (minutes)</option>
-              <option value="points">Points</option>
+              <option v-for="opt in recordMetricOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
-            <input v-model="record.notes" type="text" placeholder="Notes (optional)" />
+            <input
+              :value="recordUnitForMetric(record.metricKey)"
+              type="text"
+              class="record-field record-field--unit"
+              placeholder="Unit"
+              readonly
+            />
+            <input v-model="record.holderName" type="text" placeholder="Who holds it" class="record-field record-field--holder" />
+            <input v-model.number="record.holderYear" type="number" min="1900" max="2999" step="1" placeholder="Year" class="record-field record-field--year" />
+            <input v-model="record.holderTeam" type="text" placeholder="Team" class="record-field record-field--team" />
+            <div class="record-field record-field--icon">
+              <IconSelector
+                v-model="record.iconId"
+                :summit-stats-club-id="currentAgencyId"
+                :context="`club-record-${currentAgencyId || 'none'}-${idx}`"
+              />
+            </div>
+            <input v-model="record.notes" type="text" placeholder="Notes (optional)" class="record-field record-field--notes" />
             <button type="button" class="btn btn-danger btn-sm" @click="removeRecord(idx)">Remove</button>
           </div>
         </div>
@@ -537,7 +551,7 @@
           <div class="field" style="margin-top: 8px;">
             <label style="font-weight: 700; font-size: 13px;">Registration form — gender options</label>
             <div class="hint" style="margin-bottom: 10px;">
-              Choose which gender options appear on your club's member registration form. Default is Male and Female, and you can add any custom option below.
+              Members can always leave this blank. Only selected options appear in join/profile forms.
             </div>
             <div class="gender-options-list">
               <label
@@ -563,7 +577,10 @@
                 <button type="button" class="gender-remove-btn" @click="removeGenderOption(val)">✕</button>
               </div>
             </div>
-            <div class="gender-add-row">
+            <div v-if="!showGenderAddTools" class="gender-add-row">
+              <button type="button" class="btn btn-sm btn-secondary" @click="showGenderAddTools = true">Add option</button>
+            </div>
+            <div v-else class="gender-add-row">
               <input
                 v-model="customGenderInput"
                 type="text"
@@ -574,6 +591,17 @@
                 @keydown.enter.prevent="addCustomGender"
               />
               <button type="button" class="btn btn-sm" @click="addCustomGender">Add</button>
+              <button
+                type="button"
+                class="btn btn-sm btn-secondary"
+                :disabled="allowCustomPronouns"
+                @click="enableCustomPronouns"
+              >
+                {{ allowCustomPronouns ? 'Pronouns enabled' : 'Add pronouns' }}
+              </button>
+            </div>
+            <div v-if="allowCustomPronouns" class="hint">
+              Pronouns are enabled for this club. Members can optionally set pronouns in join/profile forms.
             </div>
           </div>
 
@@ -660,7 +688,17 @@
                 <button class="stat-toggle-btn" :title="stat.enabled ? 'Hide stat' : 'Show stat'" @click="stat.enabled = !stat.enabled">
                   <span>{{ stat.enabled ? '👁' : '🚫' }}</span>
                 </button>
-                <span class="stat-icon-display">{{ stat.icon }}</span>
+                <div class="stat-icon-display">
+                  <img v-if="stat.iconUrl" :src="stat.iconUrl" alt="" class="stat-icon-img" />
+                  <span v-else-if="!stat.iconId">{{ stat.icon }}</span>
+                </div>
+                <div class="stat-icon-picker">
+                  <IconSelector
+                    v-model="stat.iconId"
+                    :summit-stats-club-id="currentAgencyId"
+                    :context="`club-stats-${currentAgencyId || 'none'}-${stat.key}`"
+                  />
+                </div>
                 <div class="stat-config-info">
                   <input
                     v-model="stat.label"
@@ -788,6 +826,11 @@ const recordsError = ref('');
 const savingRecords = ref(false);
 const recordVerifications = ref([]);
 const verificationsLoading = ref(false);
+const recordMetricOptions = [
+  { value: 'distance_miles', label: 'Distance (miles)' },
+  { value: 'duration_minutes', label: 'Duration (minutes)' },
+  { value: 'points', label: 'Points' }
+];
 
 const form = ref({
   logoUrl: '',
@@ -831,6 +874,13 @@ const extraFontOption = computed(() => {
 
 const currentAgency = computed(() => agencyStore.currentAgency?.value || agencyStore.currentAgency || null);
 const currentAgencyId = computed(() => Number(currentAgency.value?.id || 0) || null);
+const recordUnitForMetric = (metricKey) => {
+  const key = String(metricKey || '').trim().toLowerCase();
+  if (key === 'distance_miles') return 'miles';
+  if (key === 'duration_minutes') return 'minutes';
+  if (key === 'points') return 'points';
+  return '';
+};
 
 const normalizedHex = (raw, fallback) => {
   const src = String(raw || '').trim();
@@ -1019,6 +1069,8 @@ const BUILT_IN_GENDER_OPTIONS = [
 ];
 const genderOptionsSelected = ref(['male', 'female']);
 const customGenderInput = ref('');
+const showGenderAddTools = ref(false);
+const allowCustomPronouns = ref(false);
 
 const toggleBuiltInGender = (value) => {
   const idx = genderOptionsSelected.value.indexOf(value);
@@ -1033,6 +1085,9 @@ const addCustomGender = () => {
   if (!val || genderOptionsSelected.value.includes(val)) { customGenderInput.value = ''; return; }
   genderOptionsSelected.value.push(val);
   customGenderInput.value = '';
+};
+const enableCustomPronouns = () => {
+  allowCustomPronouns.value = true;
 };
 const removeGenderOption = (value) => {
   genderOptionsSelected.value = genderOptionsSelected.value.filter((v) => v !== value);
@@ -1171,6 +1226,8 @@ const loadPublicPageConfig = async () => {
     genderOptionsSelected.value = Array.isArray(cfg.genderOptions) && cfg.genderOptions.length
       ? cfg.genderOptions
       : ['male', 'female'];
+    allowCustomPronouns.value = cfg.allowCustomPronouns === true;
+    showGenderAddTools.value = false;
     publicPageAlbumInput.value = Array.isArray(cfg.albumSlides)
       ? cfg.albumSlides.map((s) => String(s?.imageUrl || '').trim()).filter(Boolean).join('\n')
       : '';
@@ -1195,7 +1252,8 @@ const savePublicPageConfig = async () => {
     await api.put(`/summit-stats/clubs/${currentAgencyId.value}/public-page-config`, {
       ...publicPageForm.value,
       albumSlides,
-      genderOptions: genderOptionsSelected.value.filter(Boolean)
+      genderOptions: genderOptionsSelected.value.filter(Boolean),
+      allowCustomPronouns: allowCustomPronouns.value === true
     });
     await loadPublicPageConfig();
   } catch (e) {
@@ -1250,6 +1308,7 @@ const saveStatsConfig = async () => {
         label:     s.label,
         unit:      s.unit,
         icon:      s.icon,
+        iconId:    Number.isFinite(Number(s.iconId)) ? Number(s.iconId) : null,
         enabled:   s.enabled,
         seedValue: Number(s.seedValue || 0)
       }))
@@ -1272,6 +1331,8 @@ const addStat = () => {
     label:     def.label,
     unit:      def.unit || '',
     icon:      def.icon || '',
+    iconId:    null,
+    iconUrl:   null,
     enabled:   true,
     seedValue: 0,
     liveValue: 0,
@@ -1333,7 +1394,11 @@ const loadClubRecords = async () => {
         value: r.value ?? null,
         unit: r.unit || '',
         notes: r.notes || '',
-        metricKey: r.metricKey || ''
+        metricKey: r.metricKey || '',
+        holderName: r.holderName || '',
+        holderYear: r.holderYear ?? null,
+        holderTeam: r.holderTeam || '',
+        iconId: r.iconId != null ? Number(r.iconId) : null
       }))
       : [];
   } catch (e) {
@@ -1349,7 +1414,11 @@ const addRecord = () => {
     value: '',
     unit: '',
     notes: '',
-    metricKey: ''
+    metricKey: '',
+    holderName: '',
+    holderYear: null,
+    holderTeam: '',
+    iconId: null
   });
 };
 
@@ -1367,9 +1436,13 @@ const saveRecords = async () => {
         id: r.id,
         label: String(r.label || '').trim(),
         value: r.value != null ? Number(r.value) : null,
-        unit: String(r.unit || '').trim(),
+        unit: recordUnitForMetric(r.metricKey),
         notes: String(r.notes || '').trim(),
-        metricKey: String(r.metricKey || '').trim() || null
+        metricKey: String(r.metricKey || '').trim() || null,
+        holderName: String(r.holderName || '').trim(),
+        holderYear: Number.isFinite(Number(r.holderYear)) ? Math.trunc(Number(r.holderYear)) : null,
+        holderTeam: String(r.holderTeam || '').trim(),
+        iconId: Number.isFinite(Number(r.iconId)) ? Math.trunc(Number(r.iconId)) : null
       }))
     };
     await api.put(`/summit-stats/clubs/${currentAgencyId.value}/records`, payload);
@@ -1765,7 +1838,22 @@ onMounted(async () => {
 .record-row {
   display: grid;
   gap: 8px;
-  grid-template-columns: 1.2fr 0.7fr 0.8fr 0.9fr 1.2fr auto;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(110px, 0.7fr) minmax(150px, 0.9fr) minmax(90px, 0.6fr) minmax(160px, 1fr) minmax(90px, 0.6fr) minmax(130px, 0.9fr) minmax(180px, 1fr) minmax(160px, 1fr) auto;
+  align-items: center;
+}
+
+.record-field {
+  min-width: 0;
+}
+
+.record-field--icon {
+  display: flex;
+  align-items: center;
+}
+
+.record-field--unit {
+  background: #f8fafc;
+  color: #334155;
 }
 
 @media (max-width: 1200px) {
@@ -2029,6 +2117,19 @@ onMounted(async () => {
   font-size: 20px;
   flex-shrink: 0;
   line-height: 1.2;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.stat-icon-img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+.stat-icon-picker {
+  flex-shrink: 0;
 }
 .stat-config-info {
   display: flex;

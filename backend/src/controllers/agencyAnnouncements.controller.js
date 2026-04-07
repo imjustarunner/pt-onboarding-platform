@@ -76,13 +76,15 @@ const parseAnnouncementDisplayType = (raw) => {
   return value === 'splash' ? 'splash' : 'announcement';
 };
 
-/** Optional hero image URL for splash announcements (https only, max 512 chars). */
+/** Optional hero image URL for splash announcements (http(s) URL or uploads path, max 512 chars). */
 export const normalizeSplashImageUrl = (raw) => {
   if (raw === null || raw === undefined) return null;
   const v = String(raw || '').trim();
   if (!v) return null;
   if (v.length > 512) return null;
-  return /^https?:\/\//i.test(v) ? v : null;
+  if (/^https?:\/\//i.test(v)) return v;
+  if (/^\/?uploads\//i.test(v)) return v.startsWith('/') ? v : `/${v}`;
+  return null;
 };
 
 const VALID_AUDIENCE_BASES = ['everyone', 'providers', 'admin_staff', 'supervisors', 'supervisees', 'specific_users'];
@@ -507,7 +509,7 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
     if (req.body?.splashImageUrl != null || req.body?.splash_image_url != null) {
       const raw = req.body?.splashImageUrl ?? req.body?.splash_image_url;
       if (raw !== null && raw !== undefined && String(raw).trim() !== '' && !splashImageUrl) {
-        return res.status(400).json({ error: { message: 'splash_image_url must be a valid http(s) URL (max 512 chars)' } });
+        return res.status(400).json({ error: { message: 'splash_image_url must be a valid http(s) URL or /uploads path (max 512 chars)' } });
       }
     }
     if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
@@ -590,7 +592,7 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
       splashImageUrl = normalizeSplashImageUrl(req.body?.splashImageUrl ?? req.body?.splash_image_url);
       const raw = req.body?.splashImageUrl ?? req.body?.splash_image_url;
       if (raw !== null && raw !== undefined && String(raw).trim() !== '' && !splashImageUrl) {
-        return res.status(400).json({ error: { message: 'splash_image_url must be a valid http(s) URL (max 512 chars)' } });
+        return res.status(400).json({ error: { message: 'splash_image_url must be a valid http(s) URL or /uploads path (max 512 chars)' } });
       }
     } else {
       const [exRows] = await pool.execute(

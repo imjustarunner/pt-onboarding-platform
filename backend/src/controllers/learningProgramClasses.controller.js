@@ -165,6 +165,7 @@ const normalizeSeasonSettings = (input = {}) => {
   const workoutModeration = src.workoutModeration && typeof src.workoutModeration === 'object' ? src.workoutModeration : {};
   const records = src.records && typeof src.records === 'object' ? src.records : {};
   const postseason = src.postseason && typeof src.postseason === 'object' ? src.postseason : {};
+  const billing = src.billing && typeof src.billing === 'object' ? src.billing : {};
   const participationAgreement = src.participationAgreement && typeof src.participationAgreement === 'object'
     ? src.participationAgreement
     : (src.communityGuidelines && typeof src.communityGuidelines === 'object' ? src.communityGuidelines : {});
@@ -183,6 +184,17 @@ const normalizeSeasonSettings = (input = {}) => {
   const breakWeekNumber = hasBreakWeek ? Math.max(1, numOr(postseason.breakWeekNumber, regularSeasonWeeks + 1)) : null;
   const playoffWeekNumber = Math.max(1, numOr(postseason.playoffWeekNumber, regularSeasonWeeks + (hasBreakWeek ? 2 : 1)));
   const championshipWeekNumber = Math.max(playoffWeekNumber + 1, numOr(postseason.championshipWeekNumber, playoffWeekNumber + 1));
+  const toChargeTarget = (v) => {
+    const s = String(v || '').trim().toLowerCase();
+    if (s === 'club') return 'club';
+    return 'member';
+  };
+  const toCurrency = (v) => {
+    const s = String(v || '').trim().toLowerCase();
+    return /^[a-z]{3}$/.test(s) ? s : 'usd';
+  };
+  const memberChargeAmountCents = Math.max(0, numOr(billing.memberChargeAmountCents, 0));
+  const enabled = asBool(billing.enabled, false) && memberChargeAmountCents > 0;
   return {
     event: {
       category: (String(event.category || '').toLowerCase() === 'fitness') ? 'fitness' : 'run_ruck',
@@ -261,6 +273,16 @@ const normalizeSeasonSettings = (input = {}) => {
       championshipWeekNumber,
       playoffSeedCount: Math.max(2, numOr(postseason.playoffSeedCount, 4)),
       playoffMatchupMode: toPostseasonMatchupMode(postseason.playoffMatchupMode)
+    },
+    billing: {
+      enabled,
+      chargeTarget: toChargeTarget(billing.chargeTarget),
+      memberChargeAmountCents,
+      currency: toCurrency(billing.currency),
+      stripePriceId: asNonEmptyString(billing.stripePriceId, null),
+      stripeProductId: asNonEmptyString(billing.stripeProductId, null),
+      mode: 'per_season',
+      status: enabled ? 'configured' : 'draft_disabled'
     },
     challengePublish: {
       aiDraftEnabled: asBool(publish.aiDraftEnabled, true),
@@ -1047,6 +1069,17 @@ export const joinLearningProgramClass = async (req, res, next) => {
     if (status === 'draft') {
       // Allow joining a released draft season while enrollment window is open (see enrollment checks above).
     }
+    const seasonSettings = normalizeSeasonSettings(klass?.season_settings_json || {});
+    const billing = seasonSettings?.billing || {};
+    // Billing execution remains disabled until explicit feature enablement.
+    const billingConfigPreview = {
+      enabled: billing.enabled === true,
+      chargeTarget: String(billing.chargeTarget || 'member'),
+      memberChargeAmountCents: Number(billing.memberChargeAmountCents || 0),
+      currency: String(billing.currency || 'usd')
+    };
+    const billingRequired = false;
+
     await LearningProgramClass.addProviderMember({
       classId,
       providerUserId: req.user.id,
@@ -1061,7 +1094,14 @@ export const joinLearningProgramClass = async (req, res, next) => {
       klass,
       providerUserId: req.user.id
     });
-    return res.json({ joined: true, classId, providerMembers, participationAgreementStatus });
+    return res.json({
+      joined: true,
+      classId,
+      providerMembers,
+      participationAgreementStatus,
+      billingRequired,
+      billingConfigPreview
+    });
   } catch (e) {
     next(e);
   }

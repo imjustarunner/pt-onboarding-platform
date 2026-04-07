@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import Icon from '../models/Icon.model.js';
 import ChallengeParticipantProfile from '../models/ChallengeParticipantProfile.model.js';
 import EmailService from '../services/email.service.js';
 import config from '../config/config.js';
@@ -453,6 +454,7 @@ const buildPublicPageConfig = (rawStoreConfig) => {
       .slice(0, 30);
     if (cleaned.length > 0) genderOptions = cleaned;
   }
+  const allowCustomPronouns = cfg.allowCustomPronouns === true || String(cfg.allowCustomPronouns || '').toLowerCase() === 'true';
 
   let publicSlugHistory = [];
   if (Array.isArray(cfg.publicSlugHistory)) {
@@ -477,7 +479,8 @@ const buildPublicPageConfig = (rawStoreConfig) => {
     /** When true, members may mark club feed items as visible on the public club page. */
     publicFeedEnabled: cfg.publicFeedEnabled === true,
     albumSlides: slides,
-    genderOptions
+    genderOptions,
+    allowCustomPronouns
   };
 };
 
@@ -548,6 +551,45 @@ export const getPublicClubStats = async (req, res, next) => {
       const raw = crRows?.[0]?.records_json;
       clubRecords = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [];
     } catch { clubRecords = []; }
+    if (Array.isArray(clubRecords) && clubRecords.length) {
+      try {
+        const iconIds = Array.from(new Set(
+          clubRecords
+            .map((r) => Number(r?.iconId || 0))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        ));
+        const iconUrlById = new Map();
+        if (iconIds.length) {
+          const placeholders = iconIds.map(() => '?').join(', ');
+          const [iconRows] = await pool.execute(
+            `SELECT id, file_path
+             FROM icons
+             WHERE id IN (${placeholders})`,
+            iconIds
+          );
+          for (const icon of iconRows || []) {
+            iconUrlById.set(Number(icon.id), Icon.getIconUrl(icon));
+          }
+        }
+        clubRecords = clubRecords.map((r) => {
+          const iconId = Number(r?.iconId || 0);
+          return {
+            ...r,
+            iconId: Number.isFinite(iconId) && iconId > 0 ? iconId : null,
+            iconUrl: Number.isFinite(iconId) && iconId > 0 ? (iconUrlById.get(iconId) || null) : null
+          };
+        });
+      } catch {
+        clubRecords = clubRecords.map((r) => {
+          const iconId = Number(r?.iconId || 0);
+          return {
+            ...r,
+            iconId: Number.isFinite(iconId) && iconId > 0 ? iconId : null,
+            iconUrl: null
+          };
+        });
+      }
+    }
 
     // Logo URL
     const baseUrl = process.env.BACKEND_URL || '';
@@ -869,7 +911,8 @@ export const updatePublicPageConfig = async (req, res, next) => {
         showClubFeed: body.showClubFeed,
         publicFeedEnabled: body.publicFeedEnabled,
         albumSlides: body.albumSlides,
-        genderOptions: body.genderOptions
+        genderOptions: body.genderOptions,
+        allowCustomPronouns: body.allowCustomPronouns
       }
     });
     const prevSlug = prevCfg.publicSlug || '';
@@ -970,6 +1013,7 @@ export const resolveInviteToken = async (req, res, next) => {
         autoApprove:   !!invite.auto_approve,
         label:         invite.label || null,
         genderOptions: publicPageConfig.genderOptions,
+        allowCustomPronouns: publicPageConfig.allowCustomPronouns === true,
         bannerImageUrl: publicPageConfig.bannerImageUrl || null
       },
       customFields: fieldRows || [],
@@ -984,7 +1028,7 @@ export const resolveInviteToken = async (req, res, next) => {
 const createApplicationRow = async ({
   clubId, inviteId = null, referrerUserId = null, userId = null,
   firstName, lastName, email, phone, username,
-  gender, dateOfBirth, weightLbs, heightInches, timezone,
+  gender, pronouns, dateOfBirth, weightLbs, heightInches, timezone,
   customFields,
   heardAboutClub = null,
   runningFitnessBackground = null,
@@ -1004,11 +1048,11 @@ const createApplicationRow = async ({
     `INSERT INTO challenge_member_applications
        (agency_id, invite_id, referrer_user_id, user_id,
         first_name, last_name, email, phone,
-        gender, date_of_birth, weight_lbs, height_inches, timezone,
+        gender, pronouns, date_of_birth, weight_lbs, height_inches, timezone,
         heard_about_club, running_fitness_background, average_miles_per_week, average_hours_per_week, current_fitness_activities,
         waiver_signature_name, waiver_agreed_at, waiver_version, waiver_ip_address, waiver_user_agent,
         custom_fields, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
     [
       clubId,
       inviteId || null,
@@ -1019,6 +1063,7 @@ const createApplicationRow = async ({
       String(email || '').trim().toLowerCase(),
       String(phone || '').trim() || null,
       gender || null,
+      normalizeShortText(pronouns, 64),
       dateOfBirth || null,
       weightLbs ? Number(weightLbs) : null,
       heightInches ? Number(heightInches) : null,
@@ -1203,7 +1248,7 @@ export const submitApplication = async (req, res, next) => {
     const {
       firstName, lastName, email, phone, username,
       password,
-      gender, dateOfBirth, weightLbs, heightInches, timezone,
+      gender, pronouns, dateOfBirth, weightLbs, heightInches, timezone,
       customFields, referralCode,
       heardAboutClub, runningFitnessBackground,
       averageMilesPerWeek, averageHoursPerWeek,
@@ -1233,6 +1278,12 @@ export const submitApplication = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
     }
     const normalizedEmail = String(email).trim().toLowerCase();
+    const [clubConfigRows] = await pool.execute(
+      `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
+      [clubId]
+    );
+    const clubPublicConfig = buildPublicPageConfig(clubConfigRows?.[0]?.store_config_json);
+    const normalizedPronouns = clubPublicConfig.allowCustomPronouns === true ? normalizeShortText(pronouns, 64) : null;
     const existingUser = await User.findByEmail(normalizedEmail);
     let existingUserAgencies = [];
     if (existingUser?.id) {
@@ -1272,7 +1323,7 @@ export const submitApplication = async (req, res, next) => {
     const appId = await createApplicationRow({
       clubId, referrerUserId, userId,
       firstName, lastName, email: normalizedEmail, phone, username,
-      gender, dateOfBirth, weightLbs, heightInches, timezone,
+      gender, pronouns: normalizedPronouns, dateOfBirth, weightLbs, heightInches, timezone,
       customFields,
       heardAboutClub: normalizeLongText(heardAboutClub, 1000),
       runningFitnessBackground: normalizeLongText(runningFitnessBackground, 4000),
@@ -1332,7 +1383,7 @@ export const submitInviteApplication = async (req, res, next) => {
     const {
       firstName, lastName, email, phone, username,
       password,
-      gender, dateOfBirth, weightLbs, heightInches, timezone,
+      gender, pronouns, dateOfBirth, weightLbs, heightInches, timezone,
       customFields,
       heardAboutClub, runningFitnessBackground,
       averageMilesPerWeek, averageHoursPerWeek,
@@ -1362,6 +1413,12 @@ export const submitInviteApplication = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
     }
     const normalizedEmail = String(email).trim().toLowerCase();
+    const [clubConfigRows] = await pool.execute(
+      `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
+      [clubId]
+    );
+    const clubPublicConfig = buildPublicPageConfig(clubConfigRows?.[0]?.store_config_json);
+    const normalizedPronouns = clubPublicConfig.allowCustomPronouns === true ? normalizeShortText(pronouns, 64) : null;
     const existingUser = await User.findByEmail(normalizedEmail);
     let existingUserAgencies = [];
     if (existingUser?.id) {
@@ -1390,7 +1447,7 @@ export const submitInviteApplication = async (req, res, next) => {
     const appId = await createApplicationRow({
       clubId, inviteId: invite.id, userId,
       firstName, lastName, email: normalizedEmail, phone, username,
-      gender, dateOfBirth, weightLbs, heightInches, timezone,
+      gender, pronouns: normalizedPronouns, dateOfBirth, weightLbs, heightInches, timezone,
       customFields,
       heardAboutClub: normalizeLongText(heardAboutClub, 1000),
       runningFitnessBackground: normalizeLongText(runningFitnessBackground, 4000),
@@ -2785,7 +2842,10 @@ export const putClubMemberProfile = async (req, res, next) => {
     if (!targetUserId) return res.status(400).json({ error: { message: 'Invalid user id' } });
 
     const [membershipRows] = await pool.execute(
-      `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      `SELECT COALESCE(club_role, 'member') AS club_role
+       FROM user_agencies
+       WHERE user_id = ? AND agency_id = ?
+       LIMIT 1`,
       [targetUserId, clubId]
     );
     if (!membershipRows?.length) return res.status(404).json({ error: { message: 'Member not found in this club' } });
@@ -2794,10 +2854,24 @@ export const putClubMemberProfile = async (req, res, next) => {
     if (!target) return res.status(404).json({ error: { message: 'User not found' } });
 
     const currentRole = String(target.role || '').toLowerCase();
-    const memberRoles = new Set(['provider', 'provider_plus']);
-    if (!memberRoles.has(currentRole)) {
+    const currentClubRole = String(membershipRows?.[0]?.club_role || 'member').trim().toLowerCase();
+    const editableCurrentRoles = new Set([
+      // Standard SSC member roles.
+      'provider',
+      'provider_plus',
+      // Legacy/accidental role states that managers may need to normalize.
+      'club_manager',
+      'admin',
+      'support',
+      'staff',
+      'clinical_practice_assistant'
+    ]);
+    const editableClubRoles = new Set(['member', 'assistant_manager', 'manager', 'club_manager']);
+    if (!editableCurrentRoles.has(currentRole) && !editableClubRoles.has(currentClubRole)) {
       return res.status(400).json({
-        error: { message: 'Club member profile can only be edited for accounts with role Member or Assistant manager (provider / provider_plus).' }
+        error: {
+          message: 'Club member profile can only be edited for member/assistant/manager club accounts. If this user is a legacy admin role, re-open and save as Member or Assistant manager.'
+        }
       });
     }
 
@@ -2962,7 +3036,7 @@ export const getMyDashboardSummary = async (req, res, next) => {
       }));
 
     const [applicationRows] = await pool.execute(
-      `SELECT first_name, last_name, email, phone, gender, date_of_birth, weight_lbs, height_inches, timezone,
+      `SELECT first_name, last_name, email, phone, gender, pronouns, date_of_birth, weight_lbs, height_inches, timezone,
               heard_about_club, running_fitness_background, average_miles_per_week, average_hours_per_week,
               current_fitness_activities, waiver_signature_name, waiver_agreed_at, waiver_version, status, applied_at
        FROM challenge_member_applications
@@ -3066,13 +3140,16 @@ export const getMyDashboardSummary = async (req, res, next) => {
     });
 
     let accountGenderOptions = [...DEFAULT_GENDER_OPTIONS];
+    let accountAllowCustomPronouns = false;
     if (clubs.length) {
       const firstClubId = clubs[0].id;
       const [cfgRows] = await pool.execute(
         `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
         [firstClubId]
       );
-      accountGenderOptions = buildPublicPageConfig(cfgRows?.[0]?.store_config_json).genderOptions;
+      const accountConfig = buildPublicPageConfig(cfgRows?.[0]?.store_config_json);
+      accountGenderOptions = accountConfig.genderOptions;
+      accountAllowCustomPronouns = accountConfig.allowCustomPronouns === true;
     }
 
     return res.json({
@@ -3089,7 +3166,8 @@ export const getMyDashboardSummary = async (req, res, next) => {
       },
       memberships: clubs,
       accountSettings: {
-        genderOptions: accountGenderOptions
+        genderOptions: accountGenderOptions,
+        allowCustomPronouns: accountAllowCustomPronouns
       },
       pendingClubAccess: {
         hasClub: clubs.some((club) => club.isActive),
@@ -3118,6 +3196,7 @@ export const getMyDashboardSummary = async (req, res, next) => {
         averageHoursPerWeek: latestApplication?.average_hours_per_week != null ? Number(latestApplication.average_hours_per_week) : null,
         currentFitnessActivities: latestApplication?.current_fitness_activities || null,
         gender: latestApplication?.gender || null,
+        pronouns: latestApplication?.pronouns || null,
         dateOfBirth: latestApplication?.date_of_birth || null,
         weightLbs: latestApplication?.weight_lbs != null ? Number(latestApplication.weight_lbs) : null,
         heightInches: latestApplication?.height_inches != null ? Number(latestApplication.height_inches) : null,
@@ -3163,6 +3242,7 @@ export const putMyAccountSnapshot = async (req, res, next) => {
       body.homePostalCode !== undefined;
     const hasAppOnlyField =
       body.gender !== undefined ||
+      body.pronouns !== undefined ||
       body.averageMilesPerWeek !== undefined ||
       body.averageHoursPerWeek !== undefined ||
       body.heardAboutClub !== undefined ||
@@ -3201,6 +3281,28 @@ export const putMyAccountSnapshot = async (req, res, next) => {
     );
     const appId = idRows?.[0]?.id;
 
+    let accountAllowCustomPronouns = false;
+    try {
+      const userAgencies = await User.getAgencies(userId);
+      const clubIds = (userAgencies || [])
+        .filter((a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation')
+        .map((a) => Number(a?.id || 0))
+        .filter((id) => Number.isFinite(id) && id > 0);
+      for (const cid of clubIds) {
+        const [cfgRows] = await pool.execute(
+          `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
+          [cid]
+        );
+        const cfg = buildPublicPageConfig(cfgRows?.[0]?.store_config_json);
+        if (cfg.allowCustomPronouns === true) {
+          accountAllowCustomPronouns = true;
+          break;
+        }
+      }
+    } catch {
+      accountAllowCustomPronouns = false;
+    }
+
     if (appId) {
       const appUpdates = [];
       const appVals = [];
@@ -3210,6 +3312,9 @@ export const putMyAccountSnapshot = async (req, res, next) => {
       };
       if (body.phone !== undefined) pushCol('phone', String(body.phone || '').trim() || null);
       if (body.gender !== undefined) pushCol('gender', String(body.gender || '').trim() || null);
+      if (body.pronouns !== undefined && accountAllowCustomPronouns) {
+        pushCol('pronouns', normalizeShortText(body.pronouns, 64));
+      }
       if (body.averageMilesPerWeek !== undefined) {
         const v = body.averageMilesPerWeek;
         const n = v === null || v === '' ? null : Number(v);
@@ -3864,7 +3969,7 @@ export const postTeamAnnouncementForTeam = async (req, res, next) => {
     if (req.body?.splashImageUrl != null || req.body?.splash_image_url != null) {
       const raw = req.body?.splashImageUrl ?? req.body?.splash_image_url;
       if (raw !== null && raw !== undefined && String(raw).trim() !== '' && !splashImageUrl) {
-        return res.status(400).json({ error: { message: 'splash_image_url must be a valid http(s) URL (max 512 chars)' } });
+        return res.status(400).json({ error: { message: 'splash_image_url must be a valid http(s) URL or /uploads path (max 512 chars)' } });
       }
     }
 

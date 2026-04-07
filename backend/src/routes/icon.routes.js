@@ -11,7 +11,7 @@ import {
   upload,
   uploadMultiple
 } from '../controllers/icon.controller.js';
-import { authenticate, requireBackofficeAdmin, requireBackofficeAdminOrClubManager, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdminOrClubManager } from '../middleware/auth.middleware.js';
 import { body } from 'express-validator';
 
 const router = express.Router();
@@ -57,13 +57,12 @@ router.post(
   uploadIcon
 );
 
-router.use(requireBackofficeAdmin);
+router.get('/', requireBackofficeAdminOrClubManager, getAllIcons);
 
-router.get('/', getAllIcons);
-
-// Bulk upload route — admins/support/super_admin only
+// Bulk upload route — backoffice admins or club managers (scoped in controller).
 router.post(
   '/bulk-upload',
+  requireBackofficeAdminOrClubManager,
   uploadMultiple.array('icons', 50), // Allow up to 50 files
   (req, res, next) => {
     // Basic validation - files are required
@@ -78,6 +77,7 @@ router.post(
 // Update route - supports both metadata-only updates and file uploads
 router.put(
   '/:id',
+  requireBackofficeAdminOrClubManager,
   upload.single('icon'), // Allow optional file upload
   [
     body('name').optional().trim().notEmpty().withMessage('Icon name cannot be empty'),
@@ -86,7 +86,7 @@ router.put(
   updateIcon
 );
 
-router.delete('/:id', deleteIcon);
+router.delete('/:id', requireBackofficeAdminOrClubManager, deleteIcon);
 
 export default router;
 

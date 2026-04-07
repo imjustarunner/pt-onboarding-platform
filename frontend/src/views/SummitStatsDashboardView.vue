@@ -276,6 +276,10 @@
                   <dt>Gender</dt>
                   <dd>{{ formatText(summary?.account?.gender) }}</dd>
                 </div>
+                <div v-if="allowCustomPronouns">
+                  <dt>Pronouns</dt>
+                  <dd>{{ formatText(summary?.account?.pronouns) }}</dd>
+                </div>
                 <div>
                   <dt>Average miles / week</dt>
                   <dd>
@@ -376,14 +380,15 @@
                   <select v-model="accountForm.genderSelect">
                     <option value="">Not set</option>
                     <option v-for="g in genderSelectChoices" :key="g" :value="g">{{ formatGenderOptionLabel(g) }}</option>
-                    <option value="__other__">Other…</option>
                   </select>
+                </label>
+                <label v-if="allowCustomPronouns" class="account-field">
+                  Pronouns
                   <input
-                    v-if="accountForm.genderSelect === '__other__'"
-                    v-model="accountForm.genderCustom"
+                    v-model="accountForm.pronouns"
                     type="text"
-                    class="account-field-nested"
-                    placeholder="Your gender"
+                    maxlength="64"
+                    placeholder="e.g., she/her, he/him, they/them"
                   />
                 </label>
                 <label class="account-field">
@@ -584,7 +589,7 @@ const accountForm = reactive({
   homeState: '',
   homePostalCode: '',
   genderSelect: '',
-  genderCustom: '',
+  pronouns: '',
   averageMilesPerWeek: '',
   averageHoursPerWeek: '',
   heardAboutClub: '',
@@ -716,6 +721,7 @@ const profilePhotoDisplayUrl = computed(() => {
 const genderSelectChoices = computed(
   () => summary.value?.accountSettings?.genderOptions || ['male', 'female']
 );
+const allowCustomPronouns = computed(() => summary.value?.accountSettings?.allowCustomPronouns === true);
 
 const normalizeGenderKey = (v) =>
   String(v || '')
@@ -789,17 +795,15 @@ const fillAccountFormFromSummary = () => {
   const opts = genderSelectChoices.value;
   if (!rawGender) {
     accountForm.genderSelect = '';
-    accountForm.genderCustom = '';
   } else {
     const match = opts.find((o) => normalizeGenderKey(o) === normalizeGenderKey(rawGender));
     if (match !== undefined) {
       accountForm.genderSelect = match;
-      accountForm.genderCustom = '';
     } else {
-      accountForm.genderSelect = '__other__';
-      accountForm.genderCustom = rawGender;
+      accountForm.genderSelect = '';
     }
   }
+  accountForm.pronouns = allowCustomPronouns.value ? String(a?.pronouns || '').trim() : '';
 
   accountForm.averageMilesPerWeek =
     a?.averageMilesPerWeek != null && Number.isFinite(Number(a.averageMilesPerWeek))
@@ -836,10 +840,7 @@ const saveAccountEdit = async () => {
   accountSaving.value = true;
   accountSaveError.value = '';
   try {
-    const genderPayload =
-      accountForm.genderSelect === '__other__'
-        ? accountForm.genderCustom.trim() || null
-        : accountForm.genderSelect.trim() || null;
+    const genderPayload = accountForm.genderSelect.trim() || null;
 
     await api.put('/summit-stats/me/account-snapshot', {
       firstName: accountForm.firstName,
@@ -852,6 +853,7 @@ const saveAccountEdit = async () => {
       homeState: accountForm.homeState.trim() || null,
       homePostalCode: accountForm.homePostalCode.trim() || null,
       gender: genderPayload,
+      pronouns: allowCustomPronouns.value ? (accountForm.pronouns.trim() || null) : undefined,
       averageMilesPerWeek: parseOptionalDecimal(accountForm.averageMilesPerWeek),
       averageHoursPerWeek: parseOptionalDecimal(accountForm.averageHoursPerWeek),
       heardAboutClub: accountForm.heardAboutClub.trim() || null,

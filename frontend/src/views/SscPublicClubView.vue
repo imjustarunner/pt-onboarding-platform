@@ -96,7 +96,8 @@
               class="stat-pill"
               :class="{ 'stat-pill--race': stat.key === 'half_marathon_count' || stat.key === 'marathon_count' }"
             >
-              <span class="stat-icon" v-if="stat.icon">{{ stat.icon }}</span>
+              <img v-if="stat.iconUrl" :src="stat.iconUrl" alt="" class="stat-icon stat-icon-img" />
+              <span class="stat-icon" v-else-if="stat.icon">{{ stat.icon }}</span>
               <span class="stat-value">{{ fmtPubStat(stat) }}</span>
               <span class="stat-label">{{ stat.label }}</span>
             </div>
@@ -319,11 +320,21 @@
                 :key="record.id || record.label"
                 class="record-row"
               >
-                <span class="record-label">{{ record.label }}</span>
-                <span class="record-value">
-                  {{ record.value != null ? record.value : '—' }}
-                  <span v-if="record.unit" class="record-unit">{{ record.unit }}</span>
-                </span>
+                <div class="record-main">
+                  <img v-if="record.iconUrl" :src="record.iconUrl" alt="" class="record-icon" />
+                  <span class="record-label">{{ record.label }}</span>
+                </div>
+                <div class="record-right">
+                  <span class="record-value">
+                    {{ record.value != null ? record.value : '—' }}
+                    <span v-if="record.unit" class="record-unit">{{ record.unit }}</span>
+                  </span>
+                  <span v-if="record.holderName || record.holderYear || record.holderTeam" class="record-meta">
+                    {{ record.holderName || '—' }}
+                    <span v-if="record.holderYear">• {{ record.holderYear }}</span>
+                    <span v-if="record.holderTeam">• {{ record.holderTeam }}</span>
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -1042,6 +1053,7 @@ onBeforeUnmount(() => {
 .stat-pill:last-child { border-right: none; }
 .stat-pill--race { background: linear-gradient(135deg, #fffbeb, #fef3c7); }
 .stat-icon { font-size: 1.25rem; margin-bottom: 2px; line-height: 1; }
+.stat-icon-img { width: 22px; height: 22px; object-fit: contain; }
 .stat-value {
   font-size: 1.6rem;
   font-weight: 900;
@@ -1293,14 +1305,19 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   padding: 11px 0;
   border-bottom: 1px solid #f1f5f9;
   font-size: 14px;
 }
 .record-row:last-child { border-bottom: none; }
-.record-label { color: #374151; font-weight: 500; }
+.record-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.record-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+.record-icon { width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
+.record-label { color: #374151; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .record-value { font-weight: 800; color: #1d4ed8; font-variant-numeric: tabular-nums; }
 .record-unit { font-weight: 500; font-size: 11px; color: #94a3b8; margin-left: 3px; }
+.record-meta { font-size: 11px; color: #64748b; }
 
 /* ─── Race divisions card ─────────────────────────────────────── */
 .pub-race-card {}

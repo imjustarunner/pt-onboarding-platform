@@ -28,21 +28,21 @@ const canModerate = (role) => {
   return ['super_admin', 'admin', 'support', 'staff', 'provider_plus'].includes(r);
 };
 
-/** Club managers may moderate photos for members in seasons they manage (same club as learning_program_classes.agency_id). */
+/** Club managers may moderate photos for members in seasons they manage (same club as learning_program_classes.organization_id). */
 const canClubManagerModerateTargetUser = async (req, targetUserId) => {
   const tid = toInt(targetUserId);
   if (!tid) return false;
   const [rows] = await pool.execute(
-    `SELECT DISTINCT lpc.agency_id
+    `SELECT DISTINCT lpc.organization_id
      FROM learning_class_provider_memberships m
      INNER JOIN learning_program_classes lpc ON lpc.id = m.learning_class_id
      WHERE m.provider_user_id = ?
        AND m.membership_status IN ('active','completed')
-       AND lpc.agency_id IS NOT NULL`,
+       AND lpc.organization_id IS NOT NULL`,
     [tid]
   );
   for (const r of rows || []) {
-    const cid = Number(r.agency_id);
+    const cid = Number(r.organization_id);
     if (cid && (await canUserManageClub({ user: req.user, clubId: cid }))) return true;
   }
   return false;
@@ -325,7 +325,7 @@ export const listFlaggedPhotos = async (req, res, next) => {
       sql += ` AND EXISTS (
         SELECT 1 FROM learning_class_provider_memberships m
         INNER JOIN learning_program_classes lpc ON lpc.id = m.learning_class_id
-        WHERE lpc.agency_id = ? AND m.provider_user_id = p.user_id
+        WHERE lpc.organization_id = ? AND m.provider_user_id = p.user_id
       )`;
       params.push(agencyId);
     }

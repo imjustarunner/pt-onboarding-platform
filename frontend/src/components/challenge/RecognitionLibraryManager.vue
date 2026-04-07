@@ -501,7 +501,9 @@ const tenantDeleteConfirm  = ref(null);
 const tenantDeleteLoading  = ref(false);
 
 const canWriteTenantLibrary = computed(() =>
-  props.userRole === 'super_admin' || props.tenantWriteEnabled
+  props.userRole === 'super_admin' ||
+  props.userRole === 'club_manager' ||
+  props.tenantWriteEnabled
 );
 
 const hasTenantAwards = computed(() => tenantAwards.value.length > 0);

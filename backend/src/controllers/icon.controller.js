@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 import pool from '../config/database.js';
 import StorageService from '../services/storage.service.js';
+import { canUserManageClub, getClubPlatformTenantAgencyId } from '../utils/sscClubAccess.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,6 +42,35 @@ export const uploadMultiple = multer({
     files: 50 // Maximum 50 files at once
   }
 });
+
+const getClubManagerIconScopeAgencyIds = async (user) => {
+  const User = (await import('../models/User.model.js')).default;
+  const userAgencies = await User.getAgencies(user.id);
+  const candidateClubIds = (userAgencies || [])
+    .map((a) => Number(a?.id || 0))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  const allowed = new Set();
+  for (const clubId of candidateClubIds) {
+    try {
+      const canManage = await canUserManageClub({ user, clubId });
+      if (!canManage) continue;
+      allowed.add(clubId);
+      const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
+      if (tenantAgencyId) allowed.add(Number(tenantAgencyId));
+    } catch {
+      // ignore individual failures and continue building scope
+    }
+  }
+  return [...allowed];
+};
+
+const canClubManagerAccessAgency = async (user, agencyId) => {
+  const target = Number(agencyId || 0);
+  if (!target) return false;
+  const allowedIds = await getClubManagerIconScopeAgencyIds(user);
+  return allowedIds.includes(target);
+};
 
 export const getAllIcons = async (req, res, next) => {
   try {
@@ -87,11 +117,28 @@ export const getAllIcons = async (req, res, next) => {
       parsedAgencyIdType: typeof parsedAgencyId
     });
     let icons = await Icon.findAll(includeInactive === 'true', filters);
+
+    // Club managers are scoped to icons for clubs they manage + their tenant icon libraries.
+    if (req.user.role === 'club_manager') {
+      const allowedIds = await getClubManagerIconScopeAgencyIds(req.user);
+      if (parsedAgencyId === null) {
+        // Club managers cannot access platform icon scope directly.
+        icons = [];
+      } else if (parsedAgencyId !== undefined) {
+        if (!allowedIds.includes(Number(parsedAgencyId))) {
+          icons = [];
+        } else {
+          icons = icons.filter((icon) => Number(icon.agency_id) === Number(parsedAgencyId));
+        }
+      } else {
+        icons = icons.filter((icon) => icon.agency_id != null && allowedIds.includes(Number(icon.agency_id)));
+      }
+    }
     
     // For non-super_admin users: exclude platform icons unless explicitly requested via includePlatform=true
     // This allows IconSelector to still access platform icons (by passing includePlatform=true)
     // while IconLibraryView will not show platform icons for admins
-    if (req.user.role !== 'super_admin' && includePlatform !== 'true' && parsedAgencyId === undefined) {
+    if (req.user.role !== 'super_admin' && req.user.role !== 'club_manager' && includePlatform !== 'true' && parsedAgencyId === undefined) {
       // Filter out platform icons (agency_id IS NULL) for admins when viewing icon library
       icons = icons.filter(icon => icon.agency_id !== null);
       console.log('getAllIcons: Filtered out platform icons for admin user');
@@ -234,16 +281,15 @@ export const uploadIcon = async (req, res, next) => {
       }
     } else if (userRole === 'club_manager') {
       if (agencyId === 'null' || agencyId === '' || agencyId === null || agencyId === undefined) {
-        return res.status(403).json({ error: { message: 'Club managers must upload icons to a specific club' } });
+        return res.status(403).json({ error: { message: 'Club managers must upload icons to a specific club or tenant library' } });
       }
       const requestedAgencyId = parseInt(agencyId, 10);
       if (isNaN(requestedAgencyId) || requestedAgencyId <= 0) {
         return res.status(400).json({ error: { message: 'Invalid agency ID' } });
       }
-      const { canUserManageClub } = await import('../utils/sscClubAccess.js');
-      const ok = await canUserManageClub({ user: req.user, clubId: requestedAgencyId });
+      const ok = await canClubManagerAccessAgency(req.user, requestedAgencyId);
       if (!ok) {
-        return res.status(403).json({ error: { message: 'You can only upload icons for clubs you manage' } });
+        return res.status(403).json({ error: { message: 'You can only upload icons for clubs you manage or their tenant library' } });
       }
       finalAgencyId = requestedAgencyId;
     } else {
@@ -459,12 +505,17 @@ export const updateIcon = async (req, res, next) => {
         }
         return res.status(403).json({ error: { message: 'Only super admins can update platform icons' } });
       }
-      
-      // Check if user is affiliated with this agency
-      const User = (await import('../models/User.model.js')).default;
-      const userAgencies = await User.getAgencies(req.user.id);
-      const hasAccess = userAgencies.some(agency => agency.id === icon.agency_id);
-      
+
+      let hasAccess = false;
+      if (req.user.role === 'club_manager') {
+        hasAccess = await canClubManagerAccessAgency(req.user, icon.agency_id);
+      } else {
+        // Check if user is affiliated with this agency
+        const User = (await import('../models/User.model.js')).default;
+        const userAgencies = await User.getAgencies(req.user.id);
+        hasAccess = userAgencies.some(agency => agency.id === icon.agency_id);
+      }
+
       if (!hasAccess) {
         // Clean up uploaded file if provided
         if (req.file) {
@@ -493,6 +544,20 @@ export const updateIcon = async (req, res, next) => {
           const parsed = typeof agencyId === 'string' ? parseInt(agencyId.trim(), 10) : parseInt(agencyId, 10);
           finalAgencyId = isNaN(parsed) ? icon.agency_id : parsed;
         }
+      } else if (userRole === 'club_manager') {
+        // Club managers can only assign to clubs they manage or their tenant library.
+        if (agencyId === 'null' || agencyId === '' || agencyId === null) {
+          return res.status(403).json({ error: { message: 'Club managers must assign icons to a specific club or tenant library' } });
+        }
+        const requestedAgencyId = typeof agencyId === 'string' ? parseInt(agencyId.trim(), 10) : parseInt(agencyId, 10);
+        if (isNaN(requestedAgencyId) || requestedAgencyId <= 0) {
+          return res.status(400).json({ error: { message: 'Invalid agency ID' } });
+        }
+        const hasAccess = await canClubManagerAccessAgency(req.user, requestedAgencyId);
+        if (!hasAccess) {
+          return res.status(403).json({ error: { message: 'You can only assign icons to clubs you manage or their tenant library' } });
+        }
+        finalAgencyId = requestedAgencyId;
       } else {
         // Regular admins can only assign to their agencies
         // They cannot change agency icons to platform icons (null)
@@ -675,12 +740,17 @@ export const deleteIcon = async (req, res, next) => {
       if (icon.agency_id === null) {
         return res.status(403).json({ error: { message: 'Only super admins can delete platform icons' } });
       }
-      
-      // Check if user is affiliated with this agency
-      const User = (await import('../models/User.model.js')).default;
-      const userAgencies = await User.getAgencies(req.user.id);
-      const hasAccess = userAgencies.some(agency => agency.id === icon.agency_id);
-      
+
+      let hasAccess = false;
+      if (req.user.role === 'club_manager') {
+        hasAccess = await canClubManagerAccessAgency(req.user, icon.agency_id);
+      } else {
+        // Check if user is affiliated with this agency
+        const User = (await import('../models/User.model.js')).default;
+        const userAgencies = await User.getAgencies(req.user.id);
+        hasAccess = userAgencies.some(agency => agency.id === icon.agency_id);
+      }
+
       if (!hasAccess) {
         return res.status(403).json({ error: { message: 'You can only delete icons from agencies you are affiliated with' } });
       }
@@ -887,6 +957,19 @@ export const bulkUploadIcons = async (req, res, next) => {
         const parsed = typeof agencyId === 'number' ? agencyId : parseInt(agencyId?.trim() || '0', 10);
         finalAgencyId = isNaN(parsed) || parsed <= 0 ? null : parsed;
       }
+    } else if (userRole === 'club_manager') {
+      if (agencyId === 'null' || agencyId === '' || agencyId === null || agencyId === undefined) {
+        return res.status(403).json({ error: { message: 'Club managers must choose a club or tenant library for bulk uploads' } });
+      }
+      const requestedAgencyId = parseInt(agencyId, 10);
+      if (isNaN(requestedAgencyId) || requestedAgencyId <= 0) {
+        return res.status(400).json({ error: { message: 'Invalid agency ID' } });
+      }
+      const ok = await canClubManagerAccessAgency(req.user, requestedAgencyId);
+      if (!ok) {
+        return res.status(403).json({ error: { message: 'You can only bulk upload icons for clubs you manage or their tenant library' } });
+      }
+      finalAgencyId = requestedAgencyId;
     } else {
       const User = (await import('../models/User.model.js')).default;
       const userAgencies = await User.getAgencies(req.user.id);

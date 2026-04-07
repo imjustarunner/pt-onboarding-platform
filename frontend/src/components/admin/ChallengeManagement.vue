@@ -115,30 +115,56 @@
               <input v-model="challengeForm.endsAt" type="datetime-local" />
             </div>
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Guardian catalog — registration eligible</label>
-              <select v-model="challengeForm.registrationEligible">
-                <option :value="false">No</option>
-                <option :value="true">Yes</option>
-              </select>
+          <div v-if="!editingChallenge" class="form-group participation-agreement-block">
+            <label style="font-weight:700;">Season Billing (Coming soon)</label>
+            <p class="hint" style="margin: 6px 0 12px 0;">
+              Billing is scaffolded for future Stripe support and is disabled by default. New seasons can be pre-configured now.
+            </p>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Enable season billing</label>
+                <select v-model="challengeForm.billingEnabled">
+                  <option :value="false">Disabled (default)</option>
+                  <option :value="true">Enabled (future activation)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Charge target</label>
+                <select v-model="challengeForm.billingChargeTarget" :disabled="!challengeForm.billingEnabled">
+                  <option value="member">Each participating member</option>
+                  <option value="club">Bill club (future)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Member charge (USD per season)</label>
+                <input
+                  v-model.number="challengeForm.billingMemberAmountDollars"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="e.g., 25.00"
+                  :disabled="!challengeForm.billingEnabled || challengeForm.billingChargeTarget !== 'member'"
+                />
+              </div>
             </div>
-            <div class="form-group">
-              <label>Medicaid eligible</label>
-              <select v-model="challengeForm.medicaidEligible">
-                <option :value="false">No</option>
-                <option :value="true">Yes</option>
-              </select>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Currency</label>
+                <input v-model="challengeForm.billingCurrency" type="text" maxlength="3" :disabled="!challengeForm.billingEnabled" />
+              </div>
+              <div class="form-group">
+                <label>Stripe Price ID (placeholder)</label>
+                <input v-model="challengeForm.billingStripePriceId" type="text" placeholder="price_..." :disabled="!challengeForm.billingEnabled" />
+              </div>
+              <div class="form-group">
+                <label>Stripe Product ID (placeholder)</label>
+                <input v-model="challengeForm.billingStripeProductId" type="text" placeholder="prod_..." :disabled="!challengeForm.billingEnabled" />
+              </div>
             </div>
-            <div class="form-group">
-              <label>Cash / self-pay eligible</label>
-              <select v-model="challengeForm.cashEligible">
-                <option :value="false">No</option>
-                <option :value="true">Yes</option>
-              </select>
-            </div>
+            <small>
+              No charges are executed yet. When enabled in a future release, members will be prompted during in-app season join.
+            </small>
           </div>
-          <p class="hint" style="margin-top: 0;">Uses enrollment open/close dates above for when guardians can enroll (active class + window).</p>
           <div class="form-group participation-agreement-block">
             <label style="font-weight:700;">Season Participation Agreement</label>
             <p class="hint" style="margin: 6px 0 12px 0;">
@@ -872,12 +898,12 @@
           <p style="margin:4px 0 0;font-size:12px;color:var(--text-secondary);">Manage reusable awards and eligibility groups that can be selected when configuring any season.</p>
         </div>
       </div>
-      <div v-if="currentUserRole === 'super_admin'" class="tenant-write-toggle-bar">
+      <div v-if="canManageTenantLibraries" class="tenant-write-toggle-bar">
         <label class="tenant-write-label">
           <input type="checkbox" v-model="tenantWriteEnabled" />
-          Temporarily enable tenant library write access for all managers
+          Temporarily enable tenant library write access
         </label>
-        <span class="tenant-write-hint">Enable this to add/edit icons and awards at the tenant level, then disable when done.</span>
+        <span class="tenant-write-hint">Enable this to add/edit tenant awards and icons from this club context, then disable when done.</span>
       </div>
       <RecognitionLibraryManager
         ref="libraryManagerRef"
@@ -890,8 +916,8 @@
       />
     </div>
 
-    <!-- Tenant Icon Library (super_admin only) -->
-    <div v-if="organizationId && currentUserRole === 'super_admin'" class="panel" style="margin-top: 24px;">
+    <!-- Tenant Icon Library -->
+    <div v-if="organizationId && canManageTenantLibraries" class="panel" style="margin-top: 24px;">
       <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
         <div>
           <h2 style="margin:0;font-size:1.1em;">Tenant Icon Library</h2>
@@ -902,7 +928,7 @@
         </button>
       </div>
       <div v-if="showTenantIconLibrary">
-        <IconLibraryView />
+        <IconLibraryView :preferred-club-id="organizationId" />
       </div>
     </div>
 
@@ -987,6 +1013,9 @@ const authStore = useAuthStore();
 const tenantWriteEnabled = ref(false);
 const showTenantIconLibrary = ref(false);
 const currentUserRole = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canManageTenantLibraries = computed(() =>
+  ['super_admin', 'club_manager'].includes(currentUserRole.value)
+);
 
 /** Club manager context (managed clubs list). */
 const clubContext = ref(null);
@@ -1123,6 +1152,16 @@ const syncSeasonClubContext = async () => {
   await applyClubAgency(target);
 };
 
+watch(currentUserRole, (role) => {
+  if (role === 'club_manager') {
+    tenantWriteEnabled.value = true;
+    return;
+  }
+  if (role !== 'super_admin') {
+    tenantWriteEnabled.value = false;
+  }
+}, { immediate: true });
+
 const onSeasonClubSwitch = async (event) => {
   const id = Number(event?.target?.value);
   if (!id) return;
@@ -1206,6 +1245,7 @@ const error = ref('');
 const challenges = ref([]);
 const saving = ref(false);
 const showChallengeModal = ref(false);
+const challengeFormSnapshotJson = ref('');
 const editingChallenge = ref(null);
 const agreementTemplateOptions = computed(() => collectUniqueParticipationAgreementSnapshots(challenges.value));
 const defaultAgreementFields = () => {
@@ -1258,9 +1298,12 @@ const challengeForm = ref({
   individualMinPointsPerWeek: null,
   mastersAgeThreshold: 53,
   recognitionCategories: [],
-  registrationEligible: false,
-  medicaidEligible: false,
-  cashEligible: false,
+  billingEnabled: false,
+  billingChargeTarget: 'member',
+  billingMemberAmountDollars: null,
+  billingCurrency: 'usd',
+  billingStripePriceId: '',
+  billingStripeProductId: '',
   weekStartsOn: 'monday',
   weekEndsSundayAt: '23:59',
   weekTimeZone: 'UTC',
@@ -1561,9 +1604,12 @@ const openCreateModal = () => {
     individualMinPointsPerWeek: null,
     mastersAgeThreshold: 53,
     recognitionCategories: [],
-    registrationEligible: false,
-    medicaidEligible: false,
-    cashEligible: false,
+    billingEnabled: false,
+    billingChargeTarget: 'member',
+    billingMemberAmountDollars: null,
+    billingCurrency: 'usd',
+    billingStripePriceId: '',
+    billingStripeProductId: '',
     weekStartsOn: 'monday',
     weekEndsSundayAt: '23:59',
     weekTimeZone: 'UTC',
@@ -1605,6 +1651,7 @@ const openCreateModal = () => {
     showInClubFeed: true,
     recordMetrics: []
   };
+  challengeFormSnapshotJson.value = JSON.stringify(challengeForm.value || {});
   showChallengeModal.value = true;
 };
 
@@ -1631,6 +1678,8 @@ const openEditModal = (c) => {
   const moderationSettings = seasonSettings.workoutModeration || {};
   const recordsSettings = seasonSettings.records || {};
   const postseasonSettings = seasonSettings.postseason || {};
+  const billingSettings = seasonSettings.billing && typeof seasonSettings.billing === 'object' ? seasonSettings.billing : {};
+  const billingMemberAmountCents = Number.parseInt(billingSettings.memberChargeAmountCents, 10);
   selectedAgreementTemplateKey.value = '';
   challengeForm.value = {
     ...buildAgreementFieldsFromSettings(seasonSettings),
@@ -1647,9 +1696,12 @@ const openEditModal = (c) => {
     individualMinPointsPerWeek: c.individual_min_points_per_week ?? c.individualMinPointsPerWeek ?? null,
     mastersAgeThreshold: c.masters_age_threshold ?? c.mastersAgeThreshold ?? 53,
     recognitionCategories: recArr,
-    registrationEligible: !!(c.registration_eligible === 1 || c.registration_eligible === true || c.registrationEligible),
-    medicaidEligible: !!(c.medicaid_eligible === 1 || c.medicaid_eligible === true || c.medicaidEligible),
-    cashEligible: !!(c.cash_eligible === 1 || c.cash_eligible === true || c.cashEligible),
+    billingEnabled: billingSettings.enabled === true,
+    billingChargeTarget: String(billingSettings.chargeTarget || 'member').toLowerCase() === 'club' ? 'club' : 'member',
+    billingMemberAmountDollars: Number.isFinite(billingMemberAmountCents) ? (billingMemberAmountCents / 100) : null,
+    billingCurrency: String(billingSettings.currency || 'usd').trim().toLowerCase() || 'usd',
+    billingStripePriceId: String(billingSettings.stripePriceId || '').trim(),
+    billingStripeProductId: String(billingSettings.stripeProductId || '').trim(),
     weekStartsOn: scheduleSettings.weekStartsOn || 'monday',
     weekEndsSundayAt: scheduleSettings.weekEndsSundayAt || '23:59',
     weekTimeZone: scheduleSettings.weekTimeZone || 'UTC',
@@ -1693,13 +1745,27 @@ const openEditModal = (c) => {
     showInClubFeed: seasonSettings?.feedSettings?.showInClubFeed !== false,
     recordMetrics: normalizeRecordMetricSelection(recordsSettings.metrics)
   };
+  challengeFormSnapshotJson.value = JSON.stringify(challengeForm.value || {});
   showChallengeModal.value = true;
 };
 
-const closeChallengeModal = () => {
+const hasUnsavedChallengeModalChanges = () => {
+  try {
+    return JSON.stringify(challengeForm.value || {}) !== String(challengeFormSnapshotJson.value || '');
+  } catch {
+    return false;
+  }
+};
+
+const closeChallengeModal = (force = false) => {
+  if (!force && showChallengeModal.value && hasUnsavedChallengeModalChanges()) {
+    const ok = window.confirm('Discard this season draft? Your unsaved changes will be lost.');
+    if (!ok) return;
+  }
   showChallengeModal.value = false;
   editingChallenge.value = null;
   selectedAgreementTemplateKey.value = '';
+  challengeFormSnapshotJson.value = '';
 };
 
 const saveChallenge = async () => {
@@ -1716,6 +1782,45 @@ const saveChallenge = async () => {
     }
     const startsAt = challengeForm.value.startsAt ? new Date(challengeForm.value.startsAt).toISOString() : null;
     const endsAt = challengeForm.value.endsAt ? new Date(challengeForm.value.endsAt).toISOString() : null;
+    const buildBillingPayload = (source = {}) => {
+      const src = source && typeof source === 'object' ? source : {};
+      const amountCents = Math.max(0, Math.round(Number(src.billingMemberAmountDollars || 0) * 100));
+      const enabled = src.billingEnabled === true && amountCents > 0;
+      const currencyRaw = String(src.billingCurrency || '').trim().toLowerCase();
+      const currency = /^[a-z]{3}$/.test(currencyRaw) ? currencyRaw : 'usd';
+      const chargeTarget = String(src.billingChargeTarget || '').trim().toLowerCase() === 'club' ? 'club' : 'member';
+      return {
+        enabled,
+        chargeTarget,
+        memberChargeAmountCents: amountCents,
+        currency,
+        stripePriceId: String(src.billingStripePriceId || '').trim() || null,
+        stripeProductId: String(src.billingStripeProductId || '').trim() || null,
+        mode: 'per_season',
+        status: enabled ? 'configured' : 'draft_disabled'
+      };
+    };
+    const buildBillingPayloadFromSeasonSettings = (seasonSettings = {}) => {
+      const billing = seasonSettings?.billing && typeof seasonSettings.billing === 'object' ? seasonSettings.billing : {};
+      const cents = Math.max(0, Number.parseInt(billing.memberChargeAmountCents, 10) || 0);
+      const enabled = billing.enabled === true && cents > 0;
+      const chargeTarget = String(billing.chargeTarget || '').trim().toLowerCase() === 'club' ? 'club' : 'member';
+      const currencyRaw = String(billing.currency || '').trim().toLowerCase();
+      const currency = /^[a-z]{3}$/.test(currencyRaw) ? currencyRaw : 'usd';
+      return {
+        enabled,
+        chargeTarget,
+        memberChargeAmountCents: cents,
+        currency,
+        stripePriceId: String(billing.stripePriceId || '').trim() || null,
+        stripeProductId: String(billing.stripeProductId || '').trim() || null,
+        mode: 'per_season',
+        status: enabled ? 'configured' : 'draft_disabled'
+      };
+    };
+    const seasonSettingsBilling = editingChallenge.value
+      ? buildBillingPayloadFromSeasonSettings(editingChallenge.value.season_settings_json || {})
+      : buildBillingPayload(challengeForm.value);
     const payload = {
       className: name,
       description: challengeForm.value.description || null,
@@ -1734,9 +1839,6 @@ const saveChallenge = async () => {
         return m ? (m.ageThreshold ?? 53) : (challengeForm.value.mastersAgeThreshold ?? 53);
       })(),
       recognitionCategoriesJson: challengeForm.value.recognitionCategories?.length ? challengeForm.value.recognitionCategories : null,
-      registrationEligible: !!challengeForm.value.registrationEligible,
-      medicaidEligible: !!challengeForm.value.medicaidEligible,
-      cashEligible: !!challengeForm.value.cashEligible,
       seasonSettingsJson: {
         event: {
           category: challengeForm.value.eventCategory || 'run_ruck',
@@ -1796,6 +1898,7 @@ const saveChallenge = async () => {
           playoffSeedCount: Number(challengeForm.value.playoffSeedCount ?? 4),
           playoffMatchupMode: challengeForm.value.playoffMatchupMode || '1v4_2v3'
         },
+        billing: seasonSettingsBilling,
         treadmill: {
           photoProofRequired: challengeForm.value.treadmillPhotoRequired !== false
         },
@@ -1832,7 +1935,7 @@ const saveChallenge = async () => {
     } else {
       await api.post('/learning-program-classes', { organizationId: organizationId.value, ...payload });
     }
-    closeChallengeModal();
+    closeChallengeModal(true);
     await loadChallenges();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to save season';

@@ -3,6 +3,7 @@
  * CRUD for reusable recognition awards and eligibility groups per club.
  */
 import pool from '../config/database.js';
+import Icon from '../models/Icon.model.js';
 import { canUserManageClub, getClubPlatformTenantAgencyId } from '../utils/sscClubAccess.js';
 
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
@@ -633,6 +634,35 @@ const parseStatsConfig = (raw) => {
   try { return JSON.parse(raw); } catch { return null; }
 };
 
+const normalizeStatIconId = (raw) => {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return Math.trunc(n);
+};
+
+const loadIconUrlMapByIds = async (iconIds) => {
+  const ids = Array.from(new Set((iconIds || []).map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0)));
+  if (!ids.length) return new Map();
+  try {
+    const placeholders = ids.map(() => '?').join(', ');
+    const [rows] = await pool.execute(
+      `SELECT id, file_path
+       FROM icons
+       WHERE id IN (${placeholders})`,
+      ids
+    );
+    const out = new Map();
+    for (const row of rows || []) {
+      const id = Number(row.id);
+      if (!id) continue;
+      out.set(id, Icon.getIconUrl(row));
+    }
+    return out;
+  } catch {
+    return new Map();
+  }
+};
+
 export const computeLiveStats = async (clubId) => {
   const sqlStats = STAT_DEFINITIONS.filter((d) => d.sql);
   const selectExpr = sqlStats.map((d) => `${d.sql} AS ${d.key}`).join(', ');
@@ -680,7 +710,7 @@ export const computeLiveStats = async (clubId) => {
   return live;
 };
 
-export const buildStatsList = (config, live, enabledOnly = false) => {
+export const buildStatsList = (config, live, enabledOnly = false, iconUrlMap = new Map()) => {
   const items = enabledOnly ? config.filter((c) => c.enabled !== false) : config;
   return items.map((c) => {
     const def = STAT_DEFINITIONS.find((d) => d.key === c.key) || {};
@@ -694,6 +724,8 @@ export const buildStatsList = (config, live, enabledOnly = false) => {
       label:    c.label || def.label || c.key,
       unit:     c.unit != null ? c.unit : (def.unit || ''),
       icon:     c.icon || def.icon || '',
+      iconId:   normalizeStatIconId(c.iconId),
+      iconUrl:  normalizeStatIconId(c.iconId) ? (iconUrlMap.get(normalizeStatIconId(c.iconId)) || null) : null,
       enabled:  c.enabled !== false,
       seedValue: Number(c.seedValue || 0),
       liveValue: liveVal,
@@ -716,9 +748,10 @@ export const getStatsConfig = async (req, res, next) => {
       return { key, label: def.label || key, unit: def.unit || '', icon: def.icon || '', enabled: true, seedValue: 0 };
     });
     const live = await computeLiveStats(clubId);
+    const iconUrlMap = await loadIconUrlMapByIds(config.map((c) => c?.iconId));
 
     return res.json({
-      config: buildStatsList(config, live),
+      config: buildStatsList(config, live, false, iconUrlMap),
       availableStats: STAT_DEFINITIONS.map((d) => ({ key: d.key, label: d.label, unit: d.unit, icon: d.icon }))
     });
   } catch (e) { next(e); }
@@ -743,6 +776,7 @@ export const updateStatsConfig = async (req, res, next) => {
           label:     item.label ? String(item.label).trim().slice(0, 80) : (def.label || item.key),
           unit:      item.unit != null ? String(item.unit).slice(0, 20) : (def.unit || ''),
           icon:      item.icon ? String(item.icon).slice(0, 16) : (def.icon || ''),
+          iconId:    normalizeStatIconId(item.iconId),
           enabled:   item.enabled !== false,
           seedValue: Number(item.seedValue || 0)
         };
@@ -765,8 +799,9 @@ export const getClubStats = async (req, res, next) => {
       return { key, label: def.label || key, unit: def.unit || '', icon: def.icon || '', enabled: true, seedValue: 0 };
     });
     const live = await computeLiveStats(clubId);
+    const iconUrlMap = await loadIconUrlMapByIds(config.map((c) => c?.iconId));
 
-    return res.json({ stats: buildStatsList(config, live, true) });
+    return res.json({ stats: buildStatsList(config, live, true, iconUrlMap) });
   } catch (e) { next(e); }
 };
 

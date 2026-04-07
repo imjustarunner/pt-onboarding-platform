@@ -161,7 +161,7 @@
               @change="handleAgencyChange"
               :disabled="availableAgencies.length === 0"
             >
-              <option :value="null">Platform (Default)</option>
+              <option v-if="authStore.user?.role === 'super_admin'" :value="null">Platform (Default)</option>
               <option v-for="agency in availableAgencies" :key="agency.id" :value="Number(agency.id)">
                 {{ agency.name }} (ID: {{ agency.id }})
               </option>
@@ -237,7 +237,7 @@
               <div class="form-group">
                 <label>Default Agency</label>
                 <select v-model="defaultAgencyId" @change="applyDefaultAgency">
-                  <option :value="null">Platform (Default)</option>
+                  <option v-if="authStore.user?.role === 'super_admin'" :value="null">Platform (Default)</option>
                   <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
                     {{ agency.name }}
                   </option>
@@ -318,7 +318,7 @@
                 <div class="form-group">
                   <label>Agency</label>
                   <select v-model="iconData.agencyId" @change="iconData.hasCustomAgency = true" :disabled="iconData.uploaded || iconData.uploading">
-                    <option :value="null">Platform (Default)</option>
+                    <option v-if="authStore.user?.role === 'super_admin'" :value="null">Platform (Default)</option>
                     <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
                       {{ agency.name }}
                     </option>
@@ -433,14 +433,19 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { getBackendBaseUrl, toUploadsUrl } from '../../utils/uploadsUrl';
 
+const props = defineProps({
+  preferredClubId: { type: [Number, String], default: null }
+});
+
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const clubManagerTenantAgency = ref(null);
 
 const icons = ref([]);
 const loading = ref(true);
@@ -494,7 +499,18 @@ const availableAgencies = computed(() => {
   if (authStore.user?.role === 'super_admin') {
     return agencyStore.agencies || [];
   }
-  return agencyStore.userAgencies || [];
+  const list = Array.isArray(agencyStore.userAgencies) ? [...agencyStore.userAgencies] : [];
+  if (authStore.user?.role === 'club_manager') {
+    const tenantId = Number(clubManagerTenantAgency.value || 0);
+    if (tenantId && !list.some((a) => Number(a?.id) === tenantId)) {
+      list.push({
+        id: tenantId,
+        name: 'Tenant Library',
+        organization_type: 'agency'
+      });
+    }
+  }
+  return list;
 });
 
 // Store all categories separately to ensure new categories show up even when filtered
@@ -598,6 +614,24 @@ const fetchIcons = async () => {
     loading.value = false;
   }
 };
+
+const loadClubManagerTenantAgency = async () => {
+  if (authStore.user?.role !== 'club_manager') return;
+  const clubId = Number(props.preferredClubId || 0);
+  if (!clubId) return;
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${clubId}/tenant-awards`);
+    const tenantId = Number(data?.tenantAgencyId || 0);
+    if (tenantId > 0) clubManagerTenantAgency.value = tenantId;
+  } catch {
+    clubManagerTenantAgency.value = null;
+  }
+};
+
+watch(() => props.preferredClubId, async () => {
+  await loadClubManagerTenantAgency();
+  await fetchIcons();
+});
 
 const handleAgencyChange = (event) => {
   const selectedValue = event.target.value;
@@ -1179,6 +1213,7 @@ onMounted(async () => {
   if (authStore.user?.role !== 'super_admin' && availableAgencies.value.length > 0) {
     iconForm.value.agencyId = availableAgencies.value[0].id;
   }
+  await loadClubManagerTenantAgency();
   await fetchIcons();
 });
 </script>

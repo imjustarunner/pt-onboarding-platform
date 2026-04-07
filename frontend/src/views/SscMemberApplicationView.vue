@@ -242,6 +242,15 @@
                 <input v-model="form.dateOfBirth" type="date" />
               </div>
             </div>
+            <div v-if="allowCustomPronouns" class="field">
+              <label>Pronouns <span class="opt">(optional)</span></label>
+              <input
+                v-model="form.pronouns"
+                type="text"
+                maxlength="64"
+                placeholder="e.g., she/her, he/him, they/them"
+              />
+            </div>
 
             <div class="field-row">
               <div class="field">
@@ -495,6 +504,7 @@ let recaptchaRetryTimer = null;
 
 // Gender options (from club config, defaults to Male/Female)
 const rawGenderOptions = ref(['male', 'female']);
+const allowCustomPronouns = ref(false);
 
 // ── Route context ───────────────────────────────────────────────────────────
 const orgSlug      = computed(() => route.params.organizationSlug || 'ssc');
@@ -553,6 +563,7 @@ const form = reactive({
   password: '',
   confirmPassword: '',
   gender: '',
+  pronouns: '',
   dateOfBirth: '',
   weightLbs: null,
   heightFt: null,
@@ -623,6 +634,7 @@ onMounted(async () => {
       if (Array.isArray(data.invite.genderOptions) && data.invite.genderOptions.length) {
         rawGenderOptions.value = data.invite.genderOptions;
       }
+      allowCustomPronouns.value = data.invite?.allowCustomPronouns === true;
     } else if (clubIdParam.value) {
       const { data } = await api.get(`/summit-stats/clubs/${clubIdParam.value}/public`, { skipAuthRedirect: true });
       clubInfo.value    = data.club;
@@ -632,6 +644,7 @@ onMounted(async () => {
       if (Array.isArray(data.club?.publicPageConfig?.genderOptions) && data.club.publicPageConfig.genderOptions.length) {
         rawGenderOptions.value = data.club.publicPageConfig.genderOptions;
       }
+      allowCustomPronouns.value = data.club?.publicPageConfig?.allowCustomPronouns === true;
       try {
         const cfRes = await api.get(`/summit-stats/clubs/${clubIdParam.value}/custom-fields`, { skipAuthRedirect: true });
         customFields.value = cfRes.data?.fields || [];
@@ -929,6 +942,7 @@ const handleSubmit = async () => {
     username:     existingAccountDetected.value ? null : (form.username.trim() || null),
     password:     existingAccountDetected.value ? null : form.password,
     gender:       form.gender || null,
+    pronouns:     allowCustomPronouns.value ? (form.pronouns.trim() || null) : null,
     dateOfBirth:  form.dateOfBirth || null,
     weightLbs:    form.weightLbs || null,
     heightInches: heightInches.value,
