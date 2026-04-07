@@ -140,13 +140,6 @@
                 Browse Clubs
               </router-link>
               <router-link
-                v-if="showBookClubPortalLink"
-                :to="orgTo('/book-club')"
-                @click="closeMobileMenu"
-              >
-                Book Club
-              </router-link>
-              <router-link
                 v-if="showOperationsDashboardLink && user?.role === 'provider_plus' && !isSscSstcTenant"
                 :to="operationsDashboardTo"
                 @click="closeMobileMenu"
@@ -718,12 +711,6 @@
               @click="closeMobileMenu"
               class="mobile-nav-link"
             >Browse Clubs</router-link>
-            <router-link
-              v-if="showBookClubPortalLink"
-              :to="orgTo('/book-club')"
-              @click="closeMobileMenu"
-              class="mobile-nav-link"
-            >Book Club</router-link>
             <router-link
               v-if="showOperationsDashboardLink && user?.role === 'provider_plus' && !isSscSstcTenant"
               :to="operationsDashboardTo"

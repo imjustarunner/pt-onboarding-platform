@@ -454,6 +454,7 @@ router.get('/portal/:portalUrl', getAgencyByPortalUrl);
 router.get('/portal/:portalUrl/theme', getThemeByPortalUrl);
 router.get('/portal/:portalUrl/login-theme', getLoginThemeByPortalUrl);
 router.get('/portal/:portalUrl/book-club/public', getPublicBookClubByPortal);
+router.get('/portal/:portalUrl/bookclub/public', getPublicBookClubByPortal);
 
 // Protected routes
 router.get('/', authenticate, getAllAgencies);

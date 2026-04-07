@@ -74,10 +74,16 @@ const currentAgencyId = computed(() => Number(agencyStore.currentAgency?.id || 0
 const orgSlug = computed(() => String(route.params?.organizationSlug || agencyStore.currentAgency?.portal_url || agencyStore.currentAgency?.slug || '').trim());
 const heroBook = computed(() => status.value.currentBook || status.value.upcomingBook || null);
 const initials = computed(() => String(heroBook.value?.className || 'BC').trim().slice(0, 2).toUpperCase());
-const publicPath = computed(() => orgSlug.value ? `/${orgSlug.value}/book-club` : '/book-club');
+const publicPath = computed(() => (orgSlug.value ? `/${orgSlug.value}/bookclub` : '/bookclub'));
 const shouldRender = computed(() => {
   if (loading.value) return false;
-  return status.value?.enabled === true && status.value?.eligible === true && status.value?.configured === true && !!heroBook.value;
+  return (
+    status.value?.enabled === true &&
+    status.value?.eligible === true &&
+    status.value?.configured === true &&
+    status.value?.portalPublished === true &&
+    !!heroBook.value
+  );
 });
 const statusLine = computed(() => {
   if (status.value.currentResponseStatus === 'enrolled') return 'You are enrolled in this month’s book.';

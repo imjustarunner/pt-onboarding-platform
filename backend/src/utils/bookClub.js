@@ -43,6 +43,17 @@ export const isBookClubEligibleRole = (role) =>
 export const isBookClubEnabled = (agency) =>
   parseFeatureFlags(agency?.feature_flags || agency?.featureFlags).bookClubEnabled === true;
 
+/** Book club affiliation row: reader-facing /{portal}/bookclub is hidden until this is true. */
+export const isBookClubPortalPublished = (bookClubRow) => {
+  if (!bookClubRow) return false;
+  const v = bookClubRow.book_club_portal_published;
+  // Column missing (pre-migration) or NULL: behave as published so deploy order does not take the portal down.
+  if (v === undefined || v === null) return true;
+  if (v === true || v === 1) return true;
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === '1' || s === 'true';
+};
+
 export async function getAgencySummaryById(agencyId) {
   const id = parsePositiveInt(agencyId);
   if (!id) return null;

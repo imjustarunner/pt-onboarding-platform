@@ -525,11 +525,27 @@ const routes = [
     component: () => import('../views/SummitStatsDashboardView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
   },
+  // Must be registered before public `/:organizationSlug/bookclub`; otherwise `/admin/book-club` is parsed as
+  // organizationSlug "admin" and loads the public reader page (wrong API → "Book Club not found").
   {
-    path: '/:organizationSlug/book-club',
+    path: '/admin/book-club',
+    name: 'AdminBookClubManagementUnscoped',
+    component: () => import('../views/admin/BookClubManagementView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/admin/bookclub',
+    redirect: '/admin/book-club'
+  },
+  {
+    path: '/:organizationSlug/bookclub',
     name: 'OrganizationBookClubPublic',
     component: () => import('../views/BookClubPublicView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/book-club',
+    redirect: (to) => ({ path: `/${to.params.organizationSlug}/bookclub`, query: to.query, hash: to.hash })
   },
   {
     path: '/provider-mobile',

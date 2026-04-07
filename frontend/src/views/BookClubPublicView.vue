@@ -111,7 +111,7 @@ const load = async () => {
   loading.value = true;
   error.value = '';
   try {
-    const resp = await api.get(`/agencies/portal/${encodeURIComponent(orgSlug.value)}/book-club/public`);
+    const resp = await api.get(`/agencies/portal/${encodeURIComponent(orgSlug.value)}/bookclub/public`);
     data.value = resp.data || null;
   } catch (err) {
     error.value = err?.response?.data?.error?.message || err?.message || 'Unable to load Book Club';

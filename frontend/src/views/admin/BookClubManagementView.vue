@@ -4,7 +4,7 @@
       <div>
         <h1>Book Club Management</h1>
         <p class="muted">
-          Run one tenant-wide Book Club using the existing club stack: monthly books, Book Worms voting, meetings, and public preview.
+          Tenant feature <strong>Book Club</strong> must be on in agency settings first. Set up managers and books here, then publish the reader portal when you are ready for <code>/{{ orgSlug || 'portal' }}/bookclub</code>.
         </p>
       </div>
       <div class="book-club-admin__head-actions">
@@ -15,6 +15,14 @@
 
     <div v-if="loading" class="muted">Loading Book Club...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
+    <div v-else-if="!orgSlug" class="card">
+      <h2 style="margin-top: 0;">No organization selected</h2>
+      <p class="muted">
+        Choose the tenant you want to manage from the organization menu in the header, then open Book Club again.
+        If you use a bookmark, prefer the URL that includes your portal segment (for example
+        <code>/{your-portal}/admin/book-club</code> or <code>/admin/book-club</code>).
+      </p>
+    </div>
     <div v-else-if="!featureEnabled" class="card">
       <h2 style="margin-top: 0;">Feature not enabled</h2>
       <p class="muted">Turn on <strong>Book Club</strong> in the tenant feature flags first, then come back here to set up the manager and monthly books.</p>
@@ -68,6 +76,18 @@
               <label class="lbl">Logo URL</label>
               <input v-model.trim="settingsForm.logoUrl" class="input" type="url" placeholder="https://..." />
             </div>
+            <div class="form-group">
+              <label class="checkbox-row" style="align-items: flex-start; gap: 10px;">
+                <input v-model="settingsForm.portalPublished" type="checkbox" />
+                <span>
+                  <strong>Publish reader portal</strong>
+                  — live at <code>{{ publicPath }}</code> (Book Club feature must remain enabled on the tenant).
+                </span>
+              </label>
+              <p class="muted" style="margin: 8px 0 0 28px;">
+                Leave off while you configure books and managers; members will not see dashboard prompts or the public page until you save with this checked.
+              </p>
+            </div>
             <div class="form-actions">
               <button class="btn btn-primary" type="button" :disabled="saving" @click="saveSettings">
                 {{ saving ? 'Saving...' : (bookClub ? 'Save settings' : 'Create Book Club') }}
@@ -80,6 +100,9 @@
             <p class="muted">This is the reader-facing summary of the current setup.</p>
             <div class="summary-card">
               <div><strong>Public page</strong><span>{{ publicPath }}</span></div>
+              <div>
+                <strong>Reader portal</strong><span>{{ settingsForm.portalPublished ? 'Published' : 'Not published' }}</span>
+              </div>
               <div><strong>Current book</strong><span>{{ currentBook?.className || 'None yet' }}</span></div>
               <div><strong>Upcoming book</strong><span>{{ upcomingBook?.className || 'None scheduled' }}</span></div>
               <div><strong>Next event</strong><span>{{ nextEvent?.title || 'No meeting posted' }}</span></div>
@@ -226,10 +249,12 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { useAgencyStore } from '../../store/agency';
 import CompanyEventsManager from '../../components/admin/CompanyEventsManager.vue';
 import SurveyBuilderView from './SurveyBuilderView.vue';
 
 const route = useRoute();
+const agencyStore = useAgencyStore();
 
 const loading = ref(false);
 const saving = ref(false);
@@ -256,7 +281,8 @@ const settingsForm = ref({
   managerUserId: '',
   assistantManagerUserIds: [],
   name: '',
-  logoUrl: ''
+  logoUrl: '',
+  portalPublished: false
 });
 
 const bookForm = ref({
@@ -277,8 +303,13 @@ const bookWormPushOptions = [
   { value: 'book_club_members', label: 'All interested book club members' }
 ];
 
-const orgSlug = computed(() => String(route.params?.organizationSlug || '').trim());
-const publicPath = computed(() => orgSlug.value ? `/${orgSlug.value}/book-club` : '/book-club');
+const orgSlug = computed(() => {
+  const fromRoute = String(route.params?.organizationSlug || '').trim();
+  if (fromRoute) return fromRoute;
+  const a = agencyStore.currentAgency;
+  return String(a?.portal_url || a?.portalUrl || a?.slug || '').trim();
+});
+const publicPath = computed(() => (orgSlug.value ? `/${orgSlug.value}/bookclub` : '/bookclub'));
 const featureEnabled = computed(() => tenant.value?.featureFlags?.bookClubEnabled === true || tenant.value?.feature_flags?.bookClubEnabled === true || tenant.value?.bookClubEnabled === true);
 
 const roleLabel = (role) => String(role || '').replace(/_/g, ' ');
@@ -327,11 +358,18 @@ const resetBookForm = () => {
 const populateSettingsForm = (payload) => {
   const managers = Array.isArray(payload?.managers) ? payload.managers : [];
   const manager = managers.find((entry) => entry.clubRole === 'manager');
+  const pub = payload?.bookClub?.book_club_portal_published;
+  const portalOn =
+    pub === true ||
+    pub === 1 ||
+    String(pub ?? '').trim().toLowerCase() === '1' ||
+    String(pub ?? '').trim().toLowerCase() === 'true';
   settingsForm.value = {
     managerUserId: manager?.userId ? String(manager.userId) : '',
     assistantManagerUserIds: managers.filter((entry) => entry.clubRole === 'assistant_manager').map((entry) => String(entry.userId)),
     name: String(payload?.bookClub?.name || ''),
-    logoUrl: String(payload?.bookClub?.logo_url || payload?.bookClub?.logoUrl || '')
+    logoUrl: String(payload?.bookClub?.logo_url || payload?.bookClub?.logoUrl || ''),
+    portalPublished: portalOn
   };
 };
 
@@ -380,7 +418,16 @@ const loadInterestRows = async () => {
 };
 
 const load = async () => {
-  if (!orgSlug.value) return;
+  if (!orgSlug.value) {
+    loading.value = false;
+    error.value = '';
+    tenant.value = null;
+    bookClub.value = null;
+    eligibleUsers.value = [];
+    books.value = [];
+    interestRows.value = [];
+    return;
+  }
   loading.value = true;
   error.value = '';
   try {
@@ -421,7 +468,8 @@ const saveSettings = async () => {
       managerUserId: Number(settingsForm.value.managerUserId),
       assistantManagerUserIds: settingsForm.value.assistantManagerUserIds.map((value) => Number(value)),
       name: settingsForm.value.name,
-      logoUrl: settingsForm.value.logoUrl
+      logoUrl: settingsForm.value.logoUrl,
+      portalPublished: settingsForm.value.portalPublished === true
     };
     if (bookClub.value) {
       await api.put(`/agencies/${tenant.value.id}/book-club`, payload);

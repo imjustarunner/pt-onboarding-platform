@@ -15,6 +15,7 @@ import {
   getTenantForBookClub,
   isBookClubEligibleRole,
   isBookClubEnabled,
+  isBookClubPortalPublished,
   listBookClubBooks,
   listBookClubManagers,
   listTenantEligibleBookClubUsers,
@@ -281,6 +282,14 @@ export const setupBookClub = async (req, res, next) => {
       await syncManagerAssignments(bookClub.id, managerUserId, assistantManagerUserIds);
     }
 
+    const publish =
+      req.body?.portalPublished === true ||
+      req.body?.portalPublished === 1 ||
+      String(req.body?.portalPublished || '').trim().toLowerCase() === 'true';
+    if (publish) {
+      await Agency.update(bookClub.id, { bookClubPortalPublished: true });
+    }
+
     const snapshot = await resolveBookClubSnapshot(tenantAgencyId);
     res.status(201).json({
       ok: true,
@@ -317,6 +326,14 @@ export const updateBookClub = async (req, res, next) => {
 
     if (req.body?.managerUserId || Array.isArray(req.body?.assistantManagerUserIds)) {
       await syncManagerAssignments(bookClub.id, req.body.managerUserId, req.body.assistantManagerUserIds || []);
+    }
+
+    if (req.body?.portalPublished !== undefined) {
+      const on =
+        req.body.portalPublished === true ||
+        req.body.portalPublished === 1 ||
+        String(req.body.portalPublished || '').trim().toLowerCase() === 'true';
+      await Agency.update(bookClub.id, { bookClubPortalPublished: on });
     }
 
     const snapshot = await resolveBookClubSnapshot(tenantAgencyId);
@@ -456,8 +473,17 @@ export const getMyBookClubStatus = async (req, res, next) => {
     if (!hasTenantAccess) return res.json({ enabled: true, eligible: false, reason: 'not_in_tenant' });
 
     const bookClub = await findBookClubForTenant(tenantAgencyId);
-    if (!bookClub) return res.json({ enabled: true, eligible: true, configured: false, tenant });
+    if (!bookClub) {
+      return res.json({
+        enabled: true,
+        eligible: true,
+        configured: false,
+        portalPublished: false,
+        tenant
+      });
+    }
 
+    const portalPublished = isBookClubPortalPublished(bookClub);
     const books = await listBookClubBooks(bookClub.id);
     const { currentBook, upcomingBook } = pickBookClubTimeline(books);
     const nextEvent = await getNextBookClubEvent(bookClub.id);
@@ -485,6 +511,7 @@ export const getMyBookClubStatus = async (req, res, next) => {
       enabled: true,
       eligible: true,
       configured: true,
+      portalPublished,
       tenant,
       bookClub,
       currentBook,
@@ -494,7 +521,11 @@ export const getMyBookClubStatus = async (req, res, next) => {
       interestUpdatedAt: preference?.updated_at || null,
       currentResponseStatus: String(currentResponse?.response_status || '').trim().toLowerCase() || null,
       currentResponseAt: currentResponse?.responded_at || null,
-      hasPendingPrompt: Boolean(currentBook?.id) && !currentResponse && String(preference?.interest_status || 'interested').toLowerCase() !== 'never',
+      hasPendingPrompt:
+        portalPublished &&
+        Boolean(currentBook?.id) &&
+        !currentResponse &&
+        String(preference?.interest_status || 'interested').toLowerCase() !== 'never',
       archive: books.filter((book) => Number(book.id) !== Number(currentBook?.id) && Number(book.id) !== Number(upcomingBook?.id)).slice(0, 12)
     });
   } catch (error) {
@@ -516,6 +547,11 @@ export const respondToMyBookClubPrompt = async (req, res, next) => {
     if (!eligibleUser) return res.status(403).json({ error: { message: 'You are not eligible for this tenant book club' } });
     const bookClub = await findBookClubForTenant(tenantAgencyId);
     if (!bookClub) return res.status(404).json({ error: { message: 'Book Club has not been set up yet' } });
+    if (!isBookClubPortalPublished(bookClub)) {
+      return res.status(400).json({
+        error: { message: 'The book club reader portal is not published yet. Ask an admin to publish it in Book Club management.' }
+      });
+    }
     const books = await listBookClubBooks(bookClub.id);
     const { currentBook } = pickBookClubTimeline(books);
 
@@ -590,6 +626,9 @@ export const getPublicBookClubByPortal = async (req, res, next) => {
     if (!tenant || isBookClubEnabled(tenant) !== true) return res.status(404).json({ error: { message: 'Book Club not found' } });
     const bookClub = await findBookClubForTenant(tenant.id);
     if (!bookClub) return res.status(404).json({ error: { message: 'Book Club not found' } });
+    if (!isBookClubPortalPublished(bookClub)) {
+      return res.status(404).json({ error: { message: 'Book Club not found' } });
+    }
     const books = await listBookClubBooks(bookClub.id, { includeArchived: true });
     const { currentBook, upcomingBook } = pickBookClubTimeline(books);
     const nextEvent = await getNextBookClubEvent(bookClub.id);
