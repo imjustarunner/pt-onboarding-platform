@@ -30,6 +30,7 @@ import {
   listBookClubAudienceUserIds,
   listTenantEligibleBookClubUsers
 } from '../utils/bookClub.js';
+import { resolveScopedAgencyIdsForMyDashboard } from '../utils/meDashboardTenantScope.js';
 
 const DEFAULT_RSVP_OPTIONS = [
   { key: '1', label: 'Yes' },
@@ -853,14 +854,23 @@ async function userIsInAudience({ userId, audience }) {
   return (audience.groupIds || []).some((groupId) => userGroupIds.has(Number(groupId)));
 }
 
-async function listEventsVisibleToUser(userId, agencyIds = []) {
+async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
+  const excludeSkillsGroupLinkedEvents = options.excludeSkillsGroupLinkedEvents === true;
   if (!userId || !agencyIds.length) return [];
   const placeholders = agencyIds.map(() => '?').join(', ');
+  const skillsGroupExclusion = excludeSkillsGroupLinkedEvents
+    ? `AND NOT EXISTS (
+         SELECT 1 FROM skills_groups sg
+         WHERE sg.company_event_id = ce.id
+           AND sg.agency_id = ce.agency_id
+       )`
+    : '';
   const [rows] = await pool.execute(
     `SELECT ce.*
      FROM company_events ce
      WHERE ce.agency_id IN (${placeholders})
        AND ce.is_active = 1
+       ${skillsGroupExclusion}
        AND (
          ce.ends_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)
          OR JSON_EXTRACT(ce.recurrence_json, '$.frequency') IN ('weekly', 'monthly')
@@ -3122,9 +3132,8 @@ export const listMyCompanyEvents = async (req, res, next) => {
   try {
     const userId = parsePositiveInt(req.user?.id);
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
-    const agencies = await User.getAgencies(userId);
-    const agencyIds = [...new Set((agencies || []).map((agency) => Number(agency?.id)).filter((id) => id > 0))];
-    const visible = await listEventsVisibleToUser(userId, agencyIds);
+    const agencyIds = await resolveScopedAgencyIdsForMyDashboard(req);
+    const visible = await listEventsVisibleToUser(userId, agencyIds, { excludeSkillsGroupLinkedEvents: true });
     const events = visible.map(({ row, audience }) => ({
       ...mapEventRow(row, req, { myEndpoint: true }),
       audience
@@ -3144,9 +3153,8 @@ export const respondToMyCompanyEvent = async (req, res, next) => {
     const userId = parsePositiveInt(req.user?.id);
     const eventId = parsePositiveInt(req.params.eventId);
     if (!userId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
-    const agencies = await User.getAgencies(userId);
-    const agencyIds = [...new Set((agencies || []).map((agency) => Number(agency?.id)).filter((id) => id > 0))];
-    const visible = await listEventsVisibleToUser(userId, agencyIds);
+    const agencyIds = await resolveScopedAgencyIdsForMyDashboard(req);
+    const visible = await listEventsVisibleToUser(userId, agencyIds, { excludeSkillsGroupLinkedEvents: true });
     const target = visible.find(({ row }) => Number(row.id) === eventId);
     if (!target) return res.status(404).json({ error: { message: 'Company event not found' } });
 
@@ -3180,10 +3188,9 @@ export const respondToMyCompanyEvent = async (req, res, next) => {
   }
 };
 
-async function resolveIcsEventForUser({ eventId, userId }) {
-  const agencies = await User.getAgencies(userId);
-  const agencyIds = [...new Set((agencies || []).map((agency) => Number(agency?.id)).filter((id) => id > 0))];
-  const visible = await listEventsVisibleToUser(userId, agencyIds);
+async function resolveIcsEventForUser({ eventId, userId, req }) {
+  const agencyIds = await resolveScopedAgencyIdsForMyDashboard(req);
+  const visible = await listEventsVisibleToUser(userId, agencyIds, { excludeSkillsGroupLinkedEvents: true });
   const target = visible.find(({ row }) => Number(row.id) === Number(eventId));
   return target?.row || null;
 }
@@ -3193,7 +3200,7 @@ export const downloadCompanyEventIcsForMe = async (req, res, next) => {
     const userId = parsePositiveInt(req.user?.id);
     const eventId = parsePositiveInt(req.params.eventId);
     if (!userId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
-    const row = await resolveIcsEventForUser({ eventId, userId });
+    const row = await resolveIcsEventForUser({ eventId, userId, req });
     if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
     const event = mapEventRow(row, req, { myEndpoint: true });
     const ics = buildEventIcs(event);

@@ -12,6 +12,7 @@ import {
   hasParticipationAgreement,
   normalizeParticipationAgreement
 } from '../utils/seasonParticipationAgreement.js';
+import { resolveScopedAgencyIdsForMyDashboard } from '../utils/meDashboardTenantScope.js';
 
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
@@ -1281,9 +1282,27 @@ export const listMyLearningClasses = async (req, res, next) => {
     const userId = Number(req.user?.id || 0);
     const organizationId = asInt(req.query.organizationId);
     if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+
+    const scopedIds = await resolveScopedAgencyIdsForMyDashboard(req);
+    if (!scopedIds.length) {
+      return res.json({ classes: [] });
+    }
+    const scopedSet = new Set(scopedIds);
+    const scopePlaceholders = scopedIds.map(() => '?').join(', ');
+    let orgFilter;
+    let params;
+    if (organizationId) {
+      if (!scopedSet.has(organizationId)) {
+        return res.json({ classes: [] });
+      }
+      orgFilter = ' AND c.organization_id = ?';
+      params = [userId, organizationId];
+    } else {
+      orgFilter = ` AND c.organization_id IN (${scopePlaceholders})`;
+      params = [userId, ...scopedIds];
+    }
+
     let rows = [];
-    const orgFilter = organizationId ? ' AND c.organization_id = ?' : '';
-    const params = organizationId ? [userId, organizationId] : [userId];
     if (role === 'client_guardian') {
       const [qRows] = await pool.execute(
         `SELECT DISTINCT c.*, a.name AS organization_name, a.slug AS organization_slug, a.organization_type

@@ -15,9 +15,10 @@
         </span>
       </button>
       <button
+        v-if="status.hasPendingPrompt"
         type="button"
         class="btn btn-secondary btn-sm book-club-card__dismiss"
-        title="Hide Book Club on My Dashboard until your next sign-in"
+        title="Hide this reminder until your next sign-in. Your join/skip choice is not changed."
         @click="dismissForSession"
       >
         Not now
