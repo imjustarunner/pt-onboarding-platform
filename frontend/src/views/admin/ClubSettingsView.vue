@@ -955,7 +955,20 @@ const saveIdentity = async () => {
     await hydrateIdentity();
     await agencyStore.fetchUserAgencies();
     try {
-      brandingStore.syncDocumentThemeFromSelectedAgency();
+      // syncDocumentThemeFromSelectedAgency bails out when the club slug differs from the
+      // route slug (e.g. route is /ssc but currentAgency is the affiliation club). Call
+      // applyTheme directly so font and colors are applied immediately after saving.
+      const ag = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
+      const orgType = String(ag?.organization_type || '').toLowerCase();
+      const parentTenantId = Number(ag?.affiliated_agency_id || 0) || null;
+      const fontBrandingAgencyId =
+        orgType === 'affiliation' && parentTenantId ? parentTenantId : (ag?.id ?? currentAgencyId.value);
+      brandingStore.applyTheme({
+        colorPalette,
+        themeSettings: {},
+        brandingAgencyId: fontBrandingAgencyId,
+        agencyId: currentAgencyId.value
+      });
     } catch {
       // non-fatal
     }
@@ -1652,6 +1665,28 @@ onMounted(async () => {
       loadPublicPageConfig(),
       loadClubAnnouncementsList()
     ]);
+    // Apply the club's palette immediately — syncDocumentThemeFromSelectedAgency bails when
+    // the club slug (affiliation) differs from the route slug (tenant, e.g. "ssc").
+    try {
+      const ag = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
+      const orgType = String(ag?.organization_type || '').toLowerCase();
+      const parentTenantId = Number(ag?.affiliated_agency_id || 0) || null;
+      const fontBrandingAgencyId =
+        orgType === 'affiliation' && parentTenantId ? parentTenantId : (ag?.id ?? currentAgencyId.value);
+      brandingStore.applyTheme({
+        colorPalette: {
+          primary: String(form.value.primaryColor || '').trim() || undefined,
+          secondary: String(form.value.secondaryColor || '').trim() || undefined,
+          accent: String(form.value.accentColor || '').trim() || undefined,
+          fontFamily: String(form.value.fontFamily || '').trim() || null
+        },
+        themeSettings: {},
+        brandingAgencyId: fontBrandingAgencyId,
+        agencyId: currentAgencyId.value
+      });
+    } catch {
+      // non-fatal
+    }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load club settings';
   } finally {
