@@ -2885,12 +2885,15 @@ export const putClubMemberProfile = async (req, res, next) => {
       patch.email = e;
     }
     if (body.personalPhone !== undefined) patch.personalPhone = String(body.personalPhone || '').trim() || null;
+    let newClubRole = null; // will be set when role changes
     if (body.role !== undefined) {
       const r = String(body.role || '').trim().toLowerCase();
       if (!['provider', 'provider_plus'].includes(r)) {
         return res.status(400).json({ error: { message: 'role must be provider (member) or provider_plus (assistant manager)' } });
       }
       patch.role = r;
+      // Keep user_agencies.club_role in sync: provider→member, provider_plus→assistant_manager.
+      newClubRole = r === 'provider_plus' ? 'assistant_manager' : 'member';
     }
 
     if (Object.keys(patch).length === 0) {
@@ -2905,6 +2908,15 @@ export const putClubMemberProfile = async (req, res, next) => {
     }
 
     await User.update(targetUserId, patch);
+
+    // Sync club_role in user_agencies so the member management page reflects the change.
+    if (newClubRole) {
+      await pool.execute(
+        `UPDATE user_agencies SET club_role = ? WHERE user_id = ? AND agency_id = ?`,
+        [newClubRole, targetUserId, clubId]
+      );
+    }
+
     const updated = await User.findById(targetUserId);
     return res.json(updated);
   } catch (e) {
