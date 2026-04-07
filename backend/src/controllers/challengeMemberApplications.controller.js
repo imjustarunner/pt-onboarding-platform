@@ -2885,25 +2885,21 @@ export const putClubMemberProfile = async (req, res, next) => {
       patch.email = e;
     }
     if (body.personalPhone !== undefined) patch.personalPhone = String(body.personalPhone || '').trim() || null;
-    // Roles that belong exclusively to SSC/club members and can be safely promoted/demoted.
-    // Elevated roles (admin, super_admin, club_manager, etc.) retain their global role — SSC
-    // club membership is independent; only user_agencies.club_role is changed for those users.
-    const standardSscMemberRoles = new Set(['provider', 'provider_plus']);
 
-    let newClubRole = null; // will be set when role changes
+    // Club role change — tracked exclusively in user_agencies.club_role.
+    // users.role (global system role) is NEVER changed here. A provider at ITSCO who joins
+    // an SSC club is still a provider at ITSCO. An admin who participates in a club is still
+    // an admin. Club membership level (member / assistant_manager) is orthogonal to system role.
+    let newClubRole = null;
     if (body.role !== undefined) {
       const r = String(body.role || '').trim().toLowerCase();
-      if (!['provider', 'provider_plus'].includes(r)) {
-        return res.status(400).json({ error: { message: 'role must be provider (member) or provider_plus (assistant manager)' } });
+      if (r === 'provider_plus' || r === 'assistant_manager') {
+        newClubRole = 'assistant_manager';
+      } else if (r === 'provider' || r === 'member') {
+        newClubRole = 'member';
+      } else {
+        return res.status(400).json({ error: { message: 'Club role must be member or assistant_manager' } });
       }
-      // Only update users.role if the user is already a standard SSC member role.
-      // Admins, super_admins, club_managers, etc. keep their global role — their SSC
-      // participation is tracked exclusively via user_agencies.club_role.
-      if (standardSscMemberRoles.has(currentRole)) {
-        patch.role = r;
-      }
-      // Always sync club_role: provider→member, provider_plus→assistant_manager.
-      newClubRole = r === 'provider_plus' ? 'assistant_manager' : 'member';
     }
 
     const hasUserPatch = Object.keys(patch).length > 0;
@@ -2924,7 +2920,6 @@ export const putClubMemberProfile = async (req, res, next) => {
       await User.update(targetUserId, patch);
     }
 
-    // Sync club_role in user_agencies so the member management page reflects the change.
     if (newClubRole) {
       await pool.execute(
         `UPDATE user_agencies SET club_role = ? WHERE user_id = ? AND agency_id = ?`,

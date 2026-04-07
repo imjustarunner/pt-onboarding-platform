@@ -159,8 +159,8 @@
                   <div v-if="canManageClubMemberRoles" class="form-group form-group-full">
                     <label>Club account role</label>
                     <select v-model="accountForm.role" :disabled="!isEditingAccount" class="agency-select">
-                      <option value="provider">Member</option>
-                      <option value="provider_plus">Assistant manager</option>
+                      <option value="member">Member</option>
+                      <option value="assistant_manager">Assistant manager</option>
                     </select>
                     <small class="form-help">
                       <strong>Member</strong> is the default (season participation, workouts).
@@ -2941,8 +2941,8 @@ const memberSeasonHistorySeasons = computed(() => {
 
 const normalizeSscClubAccountRole = (raw) => {
   const value = String(raw || '').trim().toLowerCase();
-  if (value === 'assistant_manager' || value === 'provider_plus') return 'provider_plus';
-  return 'provider';
+  if (value === 'assistant_manager' || value === 'provider_plus') return 'assistant_manager';
+  return 'member';
 };
 
 const loadMemberSeasonHistory = async () => {
@@ -5368,7 +5368,7 @@ const saveAccount = async () => {
     try {
       saving.value = true;
       const r = String(accountForm.value.role || '').toLowerCase();
-      const role = r === 'provider_plus' ? 'provider_plus' : 'provider';
+      const role = (r === 'provider_plus' || r === 'assistant_manager') ? 'assistant_manager' : 'member';
       await api.put(`/summit-stats/clubs/${clubId}/members/${userId.value}/profile`, {
         firstName: accountForm.value.firstName,
         lastName: accountForm.value.lastName,
