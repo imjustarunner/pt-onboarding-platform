@@ -1342,9 +1342,11 @@ class StorageService {
    * Save a PTO proof document to GCS under uploads/ so it can be served via /uploads/*.
    * Intended for Training PTO proof uploads.
    */
-  static async savePtoProof(fileBuffer, filename, contentType = 'application/pdf') {
+  static async savePtoProof(fileBuffer, filename, contentType = 'application/pdf', userId = null) {
     const sanitizedFilename = this.sanitizeFilename(filename);
-    const key = `uploads/pto_proofs/${sanitizedFilename}`;
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    const userPrefix = userId ? `user_${userId}/` : '';
+    const key = `uploads/pto_proofs/${userPrefix}${unique}-${sanitizedFilename}`;
     const bucket = await this.getGCSBucket();
     const file = bucket.file(key);
 

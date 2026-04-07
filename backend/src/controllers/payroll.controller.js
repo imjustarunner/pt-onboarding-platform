@@ -15230,7 +15230,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Court summons file upload is required for jury duty claims' } });
       }
       // Save the uploaded summons and attach the path to the payload.
-      const saved = await StorageService.savePtoProof(req.file.buffer, req.file.originalname, req.file.mimetype);
+      const saved = await StorageService.savePtoProof(req.file.buffer, req.file.originalname, req.file.mimetype, userId);
       payload = { ...payload, proofFilePath: saved.path, proofOriginalName: req.file.originalname, proofMimeType: req.file.mimetype };
     }
 
@@ -16461,6 +16461,19 @@ export const createMyPtoRequest = [
 
       // Training eligibility + proof requirements.
       const acct = await ensurePtoAccount({ agencyId, userId, updatedByUserId: userId });
+      // Validate balance before creating request
+      const currentBalance = requestType === 'training'
+        ? Number(acct.training_balance_hours || 0)
+        : Number(acct.sick_balance_hours || 0);
+      if (totalHours > currentBalance) {
+        const typeLabel = requestType === 'training' ? 'Training PTO' : 'Sick Leave';
+        return res.status(409).json({
+          error: {
+            message: `Insufficient ${typeLabel} balance. You have ${Number(currentBalance).toFixed(2)} hours available. You requested ${Number(totalHours).toFixed(2)} hours.`
+          }
+        });
+      }
+
       if (requestType === 'training') {
         if (policy.trainingPtoEnabled !== true) {
           return res.status(403).json({ error: { message: 'Training PTO is disabled for this organization' } });
@@ -16471,22 +16484,28 @@ export const createMyPtoRequest = [
         if (!String(trainingDescription || '').trim()) {
           return res.status(400).json({ error: { message: 'Training description is required' } });
         }
-        if (!req.file) {
+        // Accept either a new file upload OR an existing proof path (from re-edit flow)
+        const existingProofFilePath = body.existingProofFilePath ? String(body.existingProofFilePath).trim() : '';
+        if (!req.file && !existingProofFilePath) {
           return res.status(400).json({ error: { message: 'Training proof upload is required' } });
         }
       }
 
       const policyWarnings = computePtoPolicyWarnings({ policy, requestItems: items.map((x) => ({ requestDate: x.requestDate, hours: x.hours })) });
 
+      const existingProofFilePath = body.existingProofFilePath ? String(body.existingProofFilePath).trim() : '';
       let proofMeta = null;
       if (req.file) {
-        const saved = await StorageService.savePtoProof(req.file.buffer, req.file.originalname, req.file.mimetype);
+        const saved = await StorageService.savePtoProof(req.file.buffer, req.file.originalname, req.file.mimetype, userId);
         proofMeta = {
           filePath: saved.path,
           originalName: req.file.originalname,
           mimeType: req.file.mimetype,
           sizeBytes: req.file.size
         };
+      } else if (existingProofFilePath) {
+        // Re-edit: carry forward the existing proof from the old request
+        proofMeta = { filePath: existingProofFilePath, originalName: null, mimeType: null, sizeBytes: null };
       }
 
       // Auditing: who actually submitted this request (provider vs admin-on-behalf).

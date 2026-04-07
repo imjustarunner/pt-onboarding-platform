@@ -98,15 +98,25 @@
                     <a v-if="r.proof_file_path" :href="receiptUrl({ receipt_file_path: r.proof_file_path })" target="_blank" rel="noopener noreferrer">View</a>
                     <span v-else class="muted">—</span>
                   </td>
-                  <td class="right">
-                    <button
-                      v-if="['submitted','deferred','rejected'].includes(String(r.status||'').toLowerCase())"
-                      class="btn btn-danger btn-sm"
-                      type="button"
-                      @click="withdrawPtoRequest(r)"
-                    >
-                      Withdraw
-                    </button>
+                  <td class="right" style="min-width: 130px;">
+                    <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end;">
+                      <button
+                        v-if="['deferred','rejected'].includes(String(r.status||'').toLowerCase())"
+                        class="btn btn-secondary btn-sm"
+                        type="button"
+                        @click="openEditPtoRequest(r)"
+                      >
+                        Edit &amp; resubmit
+                      </button>
+                      <button
+                        v-if="['submitted','deferred','rejected'].includes(String(r.status||'').toLowerCase())"
+                        class="btn btn-danger btn-sm"
+                        type="button"
+                        @click="withdrawPtoRequest(r)"
+                      >
+                        Withdraw
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -1289,8 +1299,8 @@
         {{ fmtNum(ptoPolicy?.ptoConsecutiveUseNoticeDays ?? 30) }} days notice and management approval.
       </div>
 
-      <div class="hint" style="margin-top: 8px; padding: 8px 12px; background: #fffbe6; border-left: 3px solid #f0b429; border-radius: 4px; color: #7a4f00;">
-        PTO cannot be added to a pay period that has already been processed. Ensure you submit before payroll is run for that period.
+      <div class="hint" style="margin-top: 8px; padding: 8px 12px; background: #e8f5e9; border-left: 3px solid #43a047; border-radius: 4px; color: #1b5e20;">
+        PTO can be submitted at any time — you are not restricted by the pay period. Once submitted, your balance will reflect the pending deduction. Payroll will process your request and may take 24–48 hours to approve. Note that PTO cannot be applied to a pay period that has already been finalized, so if your request covers past dates, it will be applied to the next available period.
       </div>
 
       <div class="card" style="margin-top: 12px;">
@@ -1352,8 +1362,8 @@
 
       <div v-if="submitPtoError" class="warn-box" style="margin-top: 10px;">{{ submitPtoError }}</div>
 
-      <div class="hint" style="margin-top: 8px; padding: 8px 12px; background: #fffbe6; border-left: 3px solid #f0b429; border-radius: 4px; color: #7a4f00;">
-        PTO cannot be added to a pay period that has already been processed. Ensure you submit before payroll is run for that period.
+      <div class="hint" style="margin-top: 8px; padding: 8px 12px; background: #e8f5e9; border-left: 3px solid #43a047; border-radius: 4px; color: #1b5e20;">
+        Training PTO can be submitted at any time. Your balance will reflect the pending deduction immediately. Payroll reviews and approves requests within 24–48 hours. PTO cannot be applied to pay periods that have already been finalized — late submissions will be applied to the next available period.
       </div>
 
       <div class="card" style="margin-top: 12px;">
@@ -1386,9 +1396,12 @@
       </div>
 
       <div class="field" style="margin-top: 10px;">
-        <label>Proof of participation (required)</label>
+        <label>Proof of participation {{ editingPtoExistingProofPath ? '(optional — existing proof on file)' : '(required)' }}</label>
         <input type="file" accept="application/pdf,image/png,image/jpeg,image/jpg,image/gif,image/webp" @change="onPtoProofPick" />
-        <div class="hint" v-if="ptoTrainingForm.proofName">Selected: <strong>{{ ptoTrainingForm.proofName }}</strong></div>
+        <div class="hint" v-if="ptoTrainingForm.proofName">New file selected: <strong>{{ ptoTrainingForm.proofName }}</strong></div>
+        <div class="hint" v-else-if="editingPtoExistingProofPath" style="color: #2e7d32;">
+          Existing proof on file will be kept. Upload a new file above only if you need to replace it.
+        </div>
       </div>
 
       <div class="field" style="margin-top: 10px;">
@@ -2298,7 +2311,9 @@ const showTimeCorrectionModal = ref(false);
 const showTimeOvertimeModal = ref(false);
 const showJuryDutyModal = ref(false);
 const juryDutyForm = ref({ claimDate: '', description: '', file: null, fileName: '', attestation: false });
-const editingTimeClaimId = ref(null); // tracks which deferred claim is being resubmitted
+const editingTimeClaimId = ref(null); // tracks which deferred time claim is being resubmitted
+const editingPtoRequestId = ref(null); // tracks which deferred PTO request is being resubmitted
+const editingPtoExistingProofPath = ref(''); // keeps existing proof for training PTO re-edit
 const submittingTimeClaim = ref(false);
 const submitTimeClaimError = ref('');
 const timeClaims = ref([]);
@@ -4249,6 +4264,41 @@ const withdrawPtoRequest = async (r) => {
   }
 };
 
+const openEditPtoRequest = (r) => {
+  if (!r?.id) return;
+  submitPtoError.value = '';
+  const rtype = String(r.request_type || '').toLowerCase();
+  const existingItems = Array.isArray(r.items) ? r.items : [];
+  editingPtoRequestId.value = r.id;
+
+  if (rtype === 'training') {
+    editingPtoExistingProofPath.value = r.proof_file_path || '';
+    ptoTrainingForm.value = {
+      items: existingItems.length
+        ? existingItems.map((it) => ({ date: String(it?.request_date || it?.date || '').slice(0, 10), hours: Number(it?.hours || 0) }))
+        : [{ date: '', hours: '' }],
+      description: r.training_description || '',
+      notes: r.notes || '',
+      proofFile: null,
+      proofName: r.proof_original_name || '',
+      attestation: false
+    };
+    showPtoChooser.value = false;
+    showPtoTrainingModal.value = true;
+  } else {
+    editingPtoExistingProofPath.value = '';
+    ptoSickForm.value = {
+      items: existingItems.length
+        ? existingItems.map((it) => ({ date: String(it?.request_date || it?.date || '').slice(0, 10), hours: Number(it?.hours || 0) }))
+        : [{ date: '', hours: '' }],
+      notes: r.notes || '',
+      attestation: false
+    };
+    showPtoChooser.value = false;
+    showPtoSickModal.value = true;
+  }
+};
+
 const openPtoChooserModal = async () => {
   submitPtoError.value = '';
   await loadPto();
@@ -4282,6 +4332,8 @@ const openPtoSick = () => {
 };
 const closePtoSick = () => {
   showPtoSickModal.value = false;
+  editingPtoRequestId.value = null;
+  editingPtoExistingProofPath.value = '';
   emit('pto-modal-closed');
 };
 
@@ -4305,6 +4357,8 @@ const openPtoTraining = () => {
 };
 const closePtoTraining = () => {
   showPtoTrainingModal.value = false;
+  editingPtoRequestId.value = null;
+  editingPtoExistingProofPath.value = '';
   emit('pto-modal-closed');
 };
 
@@ -4316,6 +4370,8 @@ const onPtoProofPick = (e) => {
 
 const submitPto = async ({ requestType, form }) => {
   if (!agencyId.value) return;
+  const replacingPtoId = editingPtoRequestId.value;
+  const existingProofPath = editingPtoExistingProofPath.value;
   try {
     submittingPtoRequest.value = true;
     submitPtoError.value = '';
@@ -4336,12 +4392,31 @@ const submitPto = async ({ requestType, form }) => {
       submitPtoError.value = 'Attestation is required.';
       return;
     }
+
+    // Balance check — compare requested total against current available balance
+    const totalRequested = items.reduce((s, it) => s + it.hours, 0);
+    const currentBalance = requestType === 'training' ? Number(ptoBalances.value.trainingHours || 0) : Number(ptoBalances.value.sickHours || 0);
+    const pendingHours = requestType === 'training' ? ptoPendingTrainingHours.value : ptoPendingSickHours.value;
+    // When re-editing, the old request's hours are already counted in pending — subtract them so we don't double-count
+    const replacingHours = replacingPtoId ? (() => {
+      const old = (ptoRequests.value || []).find((r) => r.id === replacingPtoId);
+      return Number(old?.total_hours || 0);
+    })() : 0;
+    const effectivePending = Math.max(0, pendingHours - replacingHours);
+    const availableBalance = currentBalance - effectivePending;
+    if (totalRequested > currentBalance) {
+      const typeLabel = requestType === 'training' ? 'Training PTO' : 'Sick Leave';
+      submitPtoError.value = `Insufficient ${typeLabel} balance. You have ${fmtNum(currentBalance)} hours available${effectivePending > 0 ? ` (${fmtNum(availableBalance)} after other pending requests)` : ''}. You requested ${fmtNum(totalRequested)} hours.`;
+      return;
+    }
+
     if (requestType === 'training') {
       if (!String(form.value.description || '').trim()) {
         submitPtoError.value = 'Training description is required.';
         return;
       }
-      if (!form.value.proofFile) {
+      // Allow re-edit without re-uploading proof if one already exists
+      if (!form.value.proofFile && !existingProofPath) {
         submitPtoError.value = 'Proof upload is required for Training PTO.';
         return;
       }
@@ -4354,11 +4429,24 @@ const submitPto = async ({ requestType, form }) => {
     if (String(form.value.notes || '').trim()) fd.append('notes', String(form.value.notes || '').trim());
     if (requestType === 'training') {
       fd.append('trainingDescription', String(form.value.description || '').trim());
-      fd.append('proof', form.value.proofFile);
+      if (form.value.proofFile) {
+        fd.append('proof', form.value.proofFile);
+      } else if (existingProofPath) {
+        fd.append('existingProofFilePath', existingProofPath);
+      }
     }
     fd.append('policyAck', JSON.stringify({ attested: true }));
 
     await api.post('/payroll/me/pto-requests', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+
+    // Auto-withdraw old deferred/rejected request on successful resubmit
+    if (replacingPtoId) {
+      try {
+        await api.delete(`/payroll/me/pto-requests/${replacingPtoId}`, { params: { agencyId: agencyId.value } });
+      } catch { /* ignore — old request may already be gone */ }
+      editingPtoRequestId.value = null;
+      editingPtoExistingProofPath.value = '';
+    }
 
     emit('pto-submitted');
     showPtoSickModal.value = false;
