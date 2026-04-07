@@ -22,7 +22,7 @@
           <option value="">All Agencies</option>
           <option v-if="authStore.user?.role === 'super_admin'" value="null">Platform</option>
           <option v-for="agency in availableAgencies" :key="agency.id" :value="String(agency.id)">
-            {{ agency.name }}
+            {{ agency._displayLabel || agency.name }}
           </option>
         </select>
         <select v-model="selectedCategory" class="category-filter" @change="handleFilterChange">
@@ -163,7 +163,7 @@
             >
               <option v-if="authStore.user?.role === 'super_admin'" :value="null">Platform (Default)</option>
               <option v-for="agency in availableAgencies" :key="agency.id" :value="Number(agency.id)">
-                {{ agency.name }} (ID: {{ agency.id }})
+                {{ agency._displayLabel || agency.name }}
               </option>
             </select>
             <div v-if="availableAgencies.length === 0" style="margin-top: 8px; color: var(--text-secondary); font-size: 12px;">
@@ -235,11 +235,11 @@
             <h3>Default Settings (Apply to All)</h3>
             <div class="default-settings-grid">
               <div class="form-group">
-                <label>Default Agency</label>
+                <label>{{ authStore.user?.role === 'club_manager' ? 'Upload icons to' : 'Default Agency' }}</label>
                 <select v-model="defaultAgencyId" @change="applyDefaultAgency">
                   <option v-if="authStore.user?.role === 'super_admin'" :value="null">Platform (Default)</option>
                   <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
-                    {{ agency.name }}
+                    {{ agency._displayLabel || agency.name }}
                   </option>
                 </select>
                 <small class="form-help">This will apply to all icons. You can change individual icons below.</small>
@@ -320,7 +320,7 @@
                   <select v-model="iconData.agencyId" @change="iconData.hasCustomAgency = true" :disabled="iconData.uploaded || iconData.uploading">
                     <option v-if="authStore.user?.role === 'super_admin'" :value="null">Platform (Default)</option>
                     <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
-                      {{ agency.name }}
+                      {{ agency._displayLabel || agency.name }}
                     </option>
                   </select>
                   <small class="form-help">
@@ -445,6 +445,7 @@ const props = defineProps({
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+// { id: number, name: string } for club_manager's parent tenant, resolved on mount.
 const clubManagerTenantAgency = ref(null);
 
 const icons = ref([]);
@@ -499,18 +500,44 @@ const availableAgencies = computed(() => {
   if (authStore.user?.role === 'super_admin') {
     return agencyStore.agencies || [];
   }
-  const list = Array.isArray(agencyStore.userAgencies) ? [...agencyStore.userAgencies] : [];
-  if (authStore.user?.role === 'club_manager') {
-    const tenantId = Number(clubManagerTenantAgency.value || 0);
-    if (tenantId && !list.some((a) => Number(a?.id) === tenantId)) {
-      list.push({
-        id: tenantId,
-        name: 'Tenant Library',
-        organization_type: 'agency'
-      });
+  if (authStore.user?.role !== 'club_manager') {
+    return Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  }
+
+  // For club managers: show only their club and the shared tenant library.
+  // Deduplicate so the tenant never appears twice under different names.
+  const allUserAgencies = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  const tenant = clubManagerTenantAgency.value; // { id, name } or null
+  const tenantId = tenant ? Number(tenant.id) : 0;
+
+  // Clubs (affiliation type) the manager belongs to.
+  const clubs = allUserAgencies.filter(
+    (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
+  );
+
+  const result = clubs.map((a) => ({ ...a, _displayLabel: a.name }));
+
+  // Add the shared tenant library entry (deduplicated by ID).
+  if (tenantId && !result.some((a) => Number(a.id) === tenantId)) {
+    result.push({
+      id: tenantId,
+      name: `${tenant.name} (shared — all clubs)`,
+      _displayLabel: `${tenant.name} (shared — all clubs)`,
+      organization_type: 'agency'
+    });
+  } else if (tenantId) {
+    // Tenant was already in clubs list; rename it so it's clearly identified.
+    const idx = result.findIndex((a) => Number(a.id) === tenantId);
+    if (idx >= 0) {
+      result[idx] = {
+        ...result[idx],
+        name: `${result[idx].name} (shared — all clubs)`,
+        _displayLabel: `${result[idx].name} (shared — all clubs)`
+      };
     }
   }
-  return list;
+
+  return result;
 });
 
 // Store all categories separately to ensure new categories show up even when filtered
@@ -622,7 +649,17 @@ const loadClubManagerTenantAgency = async () => {
   try {
     const { data } = await api.get(`/summit-stats/clubs/${clubId}/tenant-awards`);
     const tenantId = Number(data?.tenantAgencyId || 0);
-    if (tenantId > 0) clubManagerTenantAgency.value = tenantId;
+    if (tenantId > 0) {
+      // Try to resolve the tenant's real name from the agencies the user belongs to.
+      const allAgencies = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+      const match = allAgencies.find((a) => Number(a?.id) === tenantId);
+      clubManagerTenantAgency.value = {
+        id: tenantId,
+        name: match?.name || data?.tenantAgencyName || 'Shared Library'
+      };
+    } else {
+      clubManagerTenantAgency.value = null;
+    }
   } catch {
     clubManagerTenantAgency.value = null;
   }
@@ -1066,7 +1103,7 @@ const getNextIconNumber = async () => {
 const getAgencyName = (agencyId) => {
   if (!agencyId) return 'Platform';
   const agency = availableAgencies.value.find(a => a.id === agencyId);
-  return agency ? agency.name : 'Unknown';
+  return agency ? (agency._displayLabel || agency.name) : 'Unknown';
 };
 
 const visibleBulkIcons = computed(() => {

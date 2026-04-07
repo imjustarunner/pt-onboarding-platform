@@ -72,7 +72,7 @@
     </div>
 
     <!-- Create/Edit Season Modal -->
-    <div v-if="showChallengeModal" class="modal-overlay" @click.self="closeChallengeModal">
+    <div v-if="showChallengeModal" class="modal-overlay" @click.self="closeChallengeModal()">
       <div class="modal-content modal-wide">
         <h2>{{ editingChallenge ? 'Edit Season' : 'Create Season' }}</h2>
         <form @submit.prevent="saveChallenge">
@@ -224,9 +224,19 @@
             </div>
           </div>
           <div class="form-group">
-            <label>Activity types (comma-separated)</label>
-            <input v-model="challengeForm.activityTypesText" type="text" placeholder="e.g., running, cycling, workout_session, steps" />
-            <small>Leave blank for default options.</small>
+            <label>Allowed activity types</label>
+            <div class="activity-type-checkboxes">
+              <label v-for="opt in ACTIVITY_TYPE_OPTIONS" :key="opt.value" class="activity-type-check">
+                <input
+                  type="checkbox"
+                  :value="opt.value"
+                  :checked="challengeForm.activityTypesText.split(',').map(s => s.trim()).filter(Boolean).includes(opt.value)"
+                  @change="toggleActivityType(opt.value, $event.target.checked)"
+                />
+                {{ opt.label }}
+              </label>
+            </div>
+            <small>Leave all unchecked to allow any activity type.</small>
           </div>
           <!-- ── Weekly Goal Configuration ──────────────────────── -->
           <div class="form-group">
@@ -596,7 +606,7 @@
             <small>Select the records you want shown in season and all-time boards.</small>
           </div>
           <div class="form-actions">
-            <button type="button" class="btn btn-secondary" @click="closeChallengeModal">Cancel</button>
+                <button type="button" class="btn btn-secondary" @click="closeChallengeModal()">Cancel</button>
             <button type="submit" class="btn btn-primary" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
           </div>
         </form>
@@ -1535,6 +1545,23 @@ const formatDates = (c) => {
   if (start && end) return `${fmt(start)} – ${fmt(end)}`;
   if (start) return `Starts ${fmt(start)}`;
   return `Ends ${fmt(end)}`;
+};
+
+const ACTIVITY_TYPE_OPTIONS = [
+  { value: 'run',     label: 'Run' },
+  { value: 'ruck',    label: 'Ruck' },
+  { value: 'walk',    label: 'Walk' },
+  { value: 'fitness', label: 'Fitness / Strength' }
+];
+
+const toggleActivityType = (value, checked) => {
+  const current = String(challengeForm.value.activityTypesText || '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  if (checked && !current.includes(value)) {
+    challengeForm.value.activityTypesText = [...current, value].join(', ');
+  } else if (!checked) {
+    challengeForm.value.activityTypesText = current.filter((v) => v !== value).join(', ');
+  }
 };
 
 const formatActivityTypes = (raw) => {
@@ -2715,6 +2742,24 @@ onMounted(async () => {
 .form-row .form-group {
   flex: 1;
   min-width: 140px;
+}
+.activity-type-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 6px 0 4px;
+}
+.activity-type-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+  cursor: pointer;
+  font-size: 14px;
+}
+.activity-type-check input[type="checkbox"] {
+  width: auto;
+  margin: 0;
 }
 .form-group {
   margin-bottom: 16px;

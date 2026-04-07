@@ -121,7 +121,14 @@
           </div>
           <div class="rlm-field">
             <label class="rlm-label">Activity type</label>
-            <input v-model="tenantAwardForm.activityType" type="text" class="rlm-input" placeholder="Any (leave blank)" maxlength="64" />
+            <select v-model="tenantAwardForm.activityType" class="rlm-select">
+              <option value="">Any activity</option>
+              <option value="run">Run</option>
+              <option value="ruck">Ruck</option>
+              <option value="walk">Walk</option>
+              <option value="fitness">Fitness / Strength</option>
+            </select>
+            <span class="rlm-field-hint">Award only counts workouts of this type. Leave as "Any" to include all activity types.</span>
           </div>
         </div>
         <div class="rlm-modal-footer">
@@ -382,9 +389,14 @@
           <div class="rlm-field-row">
             <div class="rlm-field">
               <label class="rlm-label">Activity type</label>
-              <input v-model="awardForm.activityType" type="text" class="rlm-input"
-                placeholder="Any (leave blank)" maxlength="64" />
-              <span class="rlm-field-hint">e.g. trail_run, cycling — leave blank for all</span>
+              <select v-model="awardForm.activityType" class="rlm-select">
+                <option value="">Any activity</option>
+                <option value="run">Run</option>
+                <option value="ruck">Ruck</option>
+                <option value="walk">Walk</option>
+                <option value="fitness">Fitness / Strength</option>
+              </select>
+              <span class="rlm-field-hint">Award only counts workouts of this type. Leave as "Any" to include all activity types.</span>
             </div>
             <div class="rlm-field">
               <label class="rlm-label">Eligible group</label>

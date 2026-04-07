@@ -2885,18 +2885,31 @@ export const putClubMemberProfile = async (req, res, next) => {
       patch.email = e;
     }
     if (body.personalPhone !== undefined) patch.personalPhone = String(body.personalPhone || '').trim() || null;
+    // Roles that belong exclusively to SSC/club members and can be safely promoted/demoted.
+    // Elevated roles (admin, super_admin, club_manager, etc.) retain their global role — SSC
+    // club membership is independent; only user_agencies.club_role is changed for those users.
+    const standardSscMemberRoles = new Set(['provider', 'provider_plus']);
+
     let newClubRole = null; // will be set when role changes
     if (body.role !== undefined) {
       const r = String(body.role || '').trim().toLowerCase();
       if (!['provider', 'provider_plus'].includes(r)) {
         return res.status(400).json({ error: { message: 'role must be provider (member) or provider_plus (assistant manager)' } });
       }
-      patch.role = r;
-      // Keep user_agencies.club_role in sync: provider→member, provider_plus→assistant_manager.
+      // Only update users.role if the user is already a standard SSC member role.
+      // Admins, super_admins, club_managers, etc. keep their global role — their SSC
+      // participation is tracked exclusively via user_agencies.club_role.
+      if (standardSscMemberRoles.has(currentRole)) {
+        patch.role = r;
+      }
+      // Always sync club_role: provider→member, provider_plus→assistant_manager.
       newClubRole = r === 'provider_plus' ? 'assistant_manager' : 'member';
     }
 
-    if (Object.keys(patch).length === 0) {
+    const hasUserPatch = Object.keys(patch).length > 0;
+    const hasClubRoleChange = !!newClubRole;
+
+    if (!hasUserPatch && !hasClubRoleChange) {
       return res.status(400).json({ error: { message: 'No valid fields to update' } });
     }
 
@@ -2907,7 +2920,9 @@ export const putClubMemberProfile = async (req, res, next) => {
       }
     }
 
-    await User.update(targetUserId, patch);
+    if (hasUserPatch) {
+      await User.update(targetUserId, patch);
+    }
 
     // Sync club_role in user_agencies so the member management page reflects the change.
     if (newClubRole) {
