@@ -228,7 +228,7 @@
         
         <!-- Icon Configuration Step -->
         <div v-else class="bulk-upload-step">
-          <p class="step-description">Configure metadata for each icon before saving. You can edit titles, descriptions, and agency assignments.</p>
+          <p class="step-description">Configure metadata for each icon before saving. You can edit titles, descriptions, activity type, sub-category, and agency assignments.</p>
           
           <!-- Default Settings Section -->
           <div class="default-settings-section">
@@ -258,6 +258,27 @@
                   <option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
                 </datalist>
                 <small class="form-help">This will apply to all icons. You can change individual icons below.</small>
+              </div>
+
+              <div class="form-group">
+                <label>Default Activity Type</label>
+                <select v-model="defaultActivityType" class="form-select" @change="applyDefaultActivityType">
+                  <option value="">— None —</option>
+                  <option value="Running">Running</option>
+                  <option value="Rucking">Rucking</option>
+                  <option value="General Fitness">General Fitness</option>
+                </select>
+                <small class="form-help">Matches single-icon upload. Applies to rows that still follow defaults.</small>
+              </div>
+
+              <div class="form-group">
+                <label>Default Sub-category</label>
+                <select v-model="defaultSubCategory" class="form-select" @change="applyDefaultSubCategory">
+                  <option value="">— None —</option>
+                  <option value="Challenge">Challenge</option>
+                  <option value="Award">Award</option>
+                </select>
+                <small class="form-help">Matches single-icon upload. Applies to rows that still follow defaults.</small>
               </div>
             </div>
           </div>
@@ -312,6 +333,49 @@
                   />
                   <small v-if="!iconData.hasCustomCategory && defaultCategory" class="form-help" style="color: var(--text-secondary);">
                     Using default: "{{ defaultCategory }}"
+                  </small>
+                </div>
+
+                <div class="form-group">
+                  <label>Activity Type</label>
+                  <select
+                    v-model="iconData.activityType"
+                    class="form-select"
+                    :disabled="iconData.uploaded || iconData.uploading"
+                    @change="iconData.hasCustomActivityType = true"
+                  >
+                    <option value="">— None —</option>
+                    <option value="Running">Running</option>
+                    <option value="Rucking">Rucking</option>
+                    <option value="General Fitness">General Fitness</option>
+                  </select>
+                  <small
+                    v-if="!iconData.hasCustomActivityType && defaultActivityType"
+                    class="form-help"
+                    style="color: var(--text-secondary);"
+                  >
+                    Using default: {{ defaultActivityType }}
+                  </small>
+                </div>
+
+                <div class="form-group">
+                  <label>Sub-category</label>
+                  <select
+                    v-model="iconData.subCategory"
+                    class="form-select"
+                    :disabled="iconData.uploaded || iconData.uploading"
+                    @change="iconData.hasCustomSubCategory = true"
+                  >
+                    <option value="">— None —</option>
+                    <option value="Challenge">Challenge</option>
+                    <option value="Award">Award</option>
+                  </select>
+                  <small
+                    v-if="!iconData.hasCustomSubCategory && defaultSubCategory"
+                    class="form-help"
+                    style="color: var(--text-secondary);"
+                  >
+                    Using default: {{ defaultSubCategory }}
                   </small>
                 </div>
                 
@@ -472,6 +536,8 @@ const bulkIconsReady = ref(false);
 const bulkIconsData = ref([]);
 const defaultAgencyId = ref(null);
 const defaultCategory = ref('');
+const defaultActivityType = ref('');
+const defaultSubCategory = ref('');
 const uploadedIconIds = ref(new Set()); // Track successfully uploaded icons
 const failedIcons = ref([]); // Track failed icons with error messages
 
@@ -493,7 +559,9 @@ const iconForm = ref({
 const bulkUploadForm = ref({
   category: '',
   description: '',
-  agencyId: null
+  agencyId: null,
+  activityType: '',
+  subCategory: ''
 });
 
 const availableAgencies = computed(() => {
@@ -1028,6 +1096,8 @@ const prepareBulkIcons = async () => {
     ? bulkUploadForm.value.agencyId 
     : (authStore.user?.role === 'super_admin' ? null : (availableAgencies.value.length > 0 ? availableAgencies.value[0].id : null));
   defaultCategory.value = bulkUploadForm.value.category || '';
+  defaultActivityType.value = bulkUploadForm.value.activityType || '';
+  defaultSubCategory.value = bulkUploadForm.value.subCategory || '';
   
   // Prepare icon data with previews
   bulkIconsData.value = await Promise.all(
@@ -1043,9 +1113,13 @@ const prepareBulkIcons = async () => {
             name: baseName || `Icon ${nextIconNumber + index}`,
             description: '',
             category: defaultCategory.value,
+            activityType: defaultActivityType.value || '',
+            subCategory: defaultSubCategory.value || '',
             agencyId: defaultAgencyId.value,
             hasCustomAgency: false, // Track if user manually changed this
             hasCustomCategory: false, // Track if user manually changed this
+            hasCustomActivityType: false,
+            hasCustomSubCategory: false,
             uploaded: false, // Track if successfully uploaded
             uploading: false, // Track if currently uploading
             hasError: false, // Track if upload failed
@@ -1075,6 +1149,22 @@ const applyDefaultCategory = () => {
   bulkIconsData.value.forEach(icon => {
     if (!icon.hasCustomCategory) {
       icon.category = defaultCategory.value;
+    }
+  });
+};
+
+const applyDefaultActivityType = () => {
+  bulkIconsData.value.forEach((icon) => {
+    if (!icon.hasCustomActivityType) {
+      icon.activityType = defaultActivityType.value || '';
+    }
+  });
+};
+
+const applyDefaultSubCategory = () => {
+  bulkIconsData.value.forEach((icon) => {
+    if (!icon.hasCustomSubCategory) {
+      icon.subCategory = defaultSubCategory.value || '';
     }
   });
 };
@@ -1124,6 +1214,8 @@ const resetBulkUpload = () => {
   bulkIconsData.value = [];
   defaultAgencyId.value = null;
   defaultCategory.value = '';
+  defaultActivityType.value = '';
+  defaultSubCategory.value = '';
   uploadedIconIds.value.clear();
   failedIcons.value = [];
   bulkUploadError.value = '';
@@ -1169,9 +1261,17 @@ const saveBulkIcons = async () => {
         if (iconData.category) {
           formData.append('category', iconData.category);
         }
-        if (iconData.agencyId !== null && iconData.agencyId !== undefined) {
-          formData.append('agencyId', iconData.agencyId === null ? 'null' : String(iconData.agencyId));
+        if (iconData.activityType) {
+          formData.append('activityType', iconData.activityType);
         }
+        if (iconData.subCategory) {
+          formData.append('subCategory', iconData.subCategory);
+        }
+        const agencyIdValue =
+          iconData.agencyId !== null && iconData.agencyId !== undefined && iconData.agencyId !== ''
+            ? String(iconData.agencyId)
+            : 'null';
+        formData.append('agencyId', agencyIdValue);
 
         const response = await api.post('/icons/upload', formData, {
           headers: {
@@ -1227,12 +1327,16 @@ const closeBulkUploadModal = () => {
   bulkIconsData.value = [];
   defaultAgencyId.value = null;
   defaultCategory.value = '';
+  defaultActivityType.value = '';
+  defaultSubCategory.value = '';
   uploadedIconIds.value.clear();
   failedIcons.value = [];
   bulkUploadForm.value = {
     category: '',
     description: '',
-    agencyId: authStore.user?.role === 'super_admin' ? null : (availableAgencies.value.length > 0 ? availableAgencies.value[0].id : null)
+    agencyId: authStore.user?.role === 'super_admin' ? null : (availableAgencies.value.length > 0 ? availableAgencies.value[0].id : null),
+    activityType: '',
+    subCategory: ''
   };
   if (bulkFileInput.value) {
     bulkFileInput.value.value = '';
