@@ -195,6 +195,7 @@
               @click="toggleIconPicker(aw.id)">
               <img v-if="isLibraryIcon(aw.icon) && resolveLibraryIconUrl(aw.icon)"
                 :src="resolveLibraryIconUrl(aw.icon)" class="rcb-icon-img" alt="" />
+              <span v-else-if="isLibraryIcon(aw.icon)" class="rcb-icon-loading" aria-hidden="true">🏆</span>
               <span v-else>{{ aw.icon || '🏆' }}</span>
             </button>
             <div v-if="iconPickerOpenId === aw.id" class="rcb-icon-popover">
@@ -779,8 +780,11 @@ async function ensureLibraryLoaded() {
   try {
     const { data } = await api.get(`/summit-stats/clubs/${props.clubId}/icons`);
     libraryIcons.value = Array.isArray(data?.icons) ? data.icons : [];
-    // Pre-fill cache
-    libraryIcons.value.forEach(i => { if (i.id && i.url) libraryIconCache.value[`icon:${i.id}`] = i.url; });
+    const next = { ...libraryIconCache.value };
+    libraryIcons.value.forEach((i) => {
+      if (i.id && i.url) next[`icon:${i.id}`] = i.url;
+    });
+    libraryIconCache.value = next;
     libraryIconsLoaded.value = true;
   } catch {
     libraryIcons.value = [];
@@ -793,9 +797,31 @@ function isLibraryIcon(icon) {
   return typeof icon === 'string' && icon.startsWith('icon:');
 }
 
+const libraryIconFetchPending = new Set();
+
 function resolveLibraryIconUrl(icon) {
   if (!isLibraryIcon(icon)) return null;
-  return libraryIconCache.value[icon] || null;
+  const key = String(icon).trim();
+  const cached = libraryIconCache.value[key];
+  if (cached) return cached;
+  const id = parseInt(key.replace(/^icon:/i, ''), 10);
+  if (!id) return null;
+  if (!libraryIconFetchPending.has(key)) {
+    libraryIconFetchPending.add(key);
+    api.get(`/icons/${id}`, { skipGlobalLoading: true })
+      .then(({ data }) => {
+        let u = data?.url || null;
+        if (!u && data?.file_path) {
+          u = `/uploads/${data.file_path}`.replace('/uploads/uploads/', '/uploads/');
+        }
+        if (u) {
+          libraryIconCache.value = { ...libraryIconCache.value, [key]: u };
+        }
+      })
+      .catch(() => {})
+      .finally(() => libraryIconFetchPending.delete(key));
+  }
+  return null;
 }
 
 function toggleIconPicker(id) {
@@ -815,11 +841,17 @@ function pickIcon(aw, icon) {
 
 function pickLibraryIcon(aw, libIcon) {
   const key = `icon:${libIcon.id}`;
-  if (libIcon.url) libraryIconCache.value[key] = libIcon.url;
+  if (libIcon.url) libraryIconCache.value = { ...libraryIconCache.value, [key]: libIcon.url };
   aw.icon = key;
   iconPickerOpenId.value = null;
   emit_();
 }
+
+watch(awards, (list) => {
+  list.forEach((aw) => {
+    if (isLibraryIcon(aw?.icon)) resolveLibraryIconUrl(aw.icon);
+  });
+}, { deep: true, immediate: true });
 
 // ── Activity type management ──────────────────────────────────────
 const showAddActivityType = ref(false);
@@ -1194,6 +1226,7 @@ function commitActivityType() {
 .rcb-icon-option--img img { width: 22px; height: 22px; object-fit: contain; }
 
 .rcb-icon-img { width: 22px; height: 22px; object-fit: contain; }
+.rcb-icon-loading { font-size: 18px; line-height: 1; opacity: 0.75; }
 
 .rcb-award-title-input {
   flex: 1;
