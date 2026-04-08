@@ -51,7 +51,12 @@
               <img :src="resolveScoreboardIconUrl(entry.icon)" class="scoreboard-icon-img" alt="" />
             </span>
             <span v-else-if="entry.icon" class="recognition-icon">{{ entry.icon }}</span>
-            <span class="recognition-label">{{ entry.label }}</span>
+            <span class="recognition-label">
+              {{ entry.label }}
+              <template v-if="entry.referenceTarget != null">
+                <span class="recognition-ref"> · ref. {{ entry.referenceTarget }} {{ metricUnit(entry.metric) }}</span>
+              </template>
+            </span>
             <div v-if="entry.winners && entry.winners.length" class="recognition-winners">
               <div v-for="w in entry.winners" :key="w.user_id" class="recognition-winner-line">
                 <UserAvatar :photo-path="w.profile_photo_path" :first-name="w.first_name" :last-name="w.last_name" size="sm" />
@@ -175,6 +180,7 @@ defineExpose({ load });
 .scoreboard-icon-img { width: 24px; height: 24px; object-fit: contain; display: block; }
 .scoreboard-row .recognition-label { font-weight: 600; min-width: 140px; color: var(--text-primary); }
 .no-winner { color: var(--text-muted, #999); font-style: italic; }
+.recognition-ref { font-weight: 400; color: var(--text-muted, #888); font-size: 0.92em; }
 .recognition-block .scoreboard-row { align-items: flex-start; }
 .recognition-winners { display: flex; flex-direction: column; gap: 8px; flex: 1; align-items: flex-start; min-width: 0; }
 .recognition-winner-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; }

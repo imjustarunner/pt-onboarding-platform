@@ -572,6 +572,16 @@ class ChallengeWorkout {
         ? `${cat.label} (${genderLabel.charAt(0).toUpperCase() + genderLabel.slice(1)})`
         : cat.label;
 
+      const referenceTargetOut =
+        aggregation === 'milestone'
+          ? null
+          : (() => {
+              const raw = cat.referenceTarget;
+              if (raw == null || raw === '') return null;
+              const n = Number(raw);
+              return Number.isFinite(n) && n >= 0 ? n : null;
+            })();
+
       // For best_day we need a two-level GROUP BY:
       // 1) sum per user+day, 2) take the max day per user.
       let sql;
@@ -606,6 +616,7 @@ class ChallengeWorkout {
             metric,
             aggregation,
             milestoneThreshold: null,
+            referenceTarget: null,
             winner: null,
             winners: []
           });
@@ -654,6 +665,7 @@ class ChallengeWorkout {
             metric,
             aggregation,
             milestoneThreshold,
+            referenceTarget: null,
             winner: null,
             winners
           });
@@ -665,6 +677,7 @@ class ChallengeWorkout {
             icon: cat.icon || null,
             period,
             metric,
+            referenceTarget: referenceTargetOut,
             winner: row
               ? {
                   user_id: row.user_id,
@@ -679,7 +692,7 @@ class ChallengeWorkout {
         }
       } catch (err) {
         // Don't crash the whole scoreboard if one category fails
-        results.push({ categoryId: cat.id, label: displayLabel, period, metric, winner: null, error: err.message });
+        results.push({ categoryId: cat.id, label: displayLabel, period, metric, referenceTarget: referenceTargetOut, winner: null, error: err.message });
       }
     }
 

@@ -2427,6 +2427,7 @@ const saveAwardToLibrary = async (award) => {
       metric: award.metric || 'distance_miles',
       aggregation: award.aggregation || 'most',
       milestoneThreshold: award.aggregation === 'milestone' && award.milestoneThreshold != null ? Number(award.milestoneThreshold) : undefined,
+      referenceTarget: award.aggregation !== 'milestone' && award.referenceTarget != null ? Number(award.referenceTarget) : undefined,
       activityType: award.activityType || '',
       groupFilter: award.groupFilter || '',
       genderVariants: award.genderVariants || []

@@ -114,6 +114,14 @@ export function normalizeRecognitionCategories(raw) {
           const n = Number(raw);
           return Number.isFinite(n) ? n : undefined;
         })(),
+        referenceTarget: (() => {
+          const agg = item.aggregation || 'most';
+          if (agg === 'milestone') return undefined;
+          const raw = item.referenceTarget;
+          if (raw == null || raw === '') return undefined;
+          const n = Number(raw);
+          return Number.isFinite(n) && n >= 0 ? n : undefined;
+        })(),
         activityType: item.activityType || '',
         groupFilter: item.groupFilter || ''
       };

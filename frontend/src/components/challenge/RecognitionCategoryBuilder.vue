@@ -297,6 +297,19 @@
           />
           <span class="rcb-panel-hint" style="margin:0;">Same units as metric. Everyone at or above this total earns the award.</span>
         </div>
+        <div v-else class="rcb-award-row">
+          <label class="rcb-field-label">Reference amount (optional)</label>
+          <input
+            v-model.number="aw.referenceTarget"
+            type="number"
+            class="rcb-num-input"
+            min="0"
+            step="any"
+            placeholder="e.g. 200"
+            @input="emit_"
+          />
+          <span class="rcb-panel-hint" style="margin:0;">Same units as metric. For display/context; does not change single-winner rules.</span>
+        </div>
 
         <!-- Row 3: Eligible group -->
         <div class="rcb-award-row">
@@ -556,6 +569,7 @@ function addAwardFromLibrary(libAward) {
     metric: libAward.metric || 'distance_miles',
     aggregation: libAward.aggregation || 'most',
     milestoneThreshold: libAward.milestoneThreshold != null ? Number(libAward.milestoneThreshold) : undefined,
+    referenceTarget: libAward.referenceTarget != null ? Number(libAward.referenceTarget) : undefined,
     groupFilter: libAward.groupFilter || ''
   });
   emit_();
@@ -580,6 +594,7 @@ function addAward() {
     metric: 'distance_miles',
     aggregation: 'most',
     milestoneThreshold: undefined,
+    referenceTarget: undefined,
     groupFilter: ''
   });
   emit_();

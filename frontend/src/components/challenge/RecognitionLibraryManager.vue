@@ -38,6 +38,7 @@
               <span class="rlm-row-meta">
                 {{ periodLabel(ta.period) }} · {{ metricLabel(ta.metric) }} · {{ aggregationLabel(ta.aggregation) }}
                 <template v-if="ta.aggregation === 'milestone' && ta.milestoneThreshold != null"> (≥ {{ ta.milestoneThreshold }})</template>
+                <template v-else-if="ta.referenceTarget != null"> (ref. {{ ta.referenceTarget }})</template>
                 <template v-if="ta.activityType"> · {{ ta.activityType }}</template>
               </span>
             </div>
@@ -132,6 +133,18 @@
               placeholder="e.g. 200"
             />
             <span class="rlm-field-hint">Minimum period total in the same units as the metric (e.g. 200 miles). Everyone at or above this value earns the award.</span>
+          </div>
+          <div v-else class="rlm-field">
+            <label class="rlm-label">Reference amount (optional)</label>
+            <input
+              v-model.number="tenantAwardForm.referenceTarget"
+              type="number"
+              class="rlm-input"
+              min="0"
+              step="any"
+              placeholder="e.g. 200 miles / points"
+            />
+            <span class="rlm-field-hint">Same units as the metric. Shown with the award for context; does not change who wins (most/average still pick one winner).</span>
           </div>
           <div class="rlm-field">
             <label class="rlm-label">Activity type</label>
@@ -233,6 +246,7 @@
               <span class="rlm-row-meta">
                 {{ periodLabel(a.period) }} · {{ metricLabel(a.metric) }} · {{ aggregationLabel(a.aggregation) }}
                 <template v-if="a.aggregation === 'milestone' && a.milestoneThreshold != null"> (≥ {{ a.milestoneThreshold }})</template>
+                <template v-else-if="a.referenceTarget != null"> (ref. {{ a.referenceTarget }})</template>
                 <template v-if="a.activityType"> · {{ a.activityType }}</template>
               <template v-if="a.monthEndDay && a.period === 'monthly'"> · ends day {{ a.monthEndDay }}</template>
                 <template v-if="a.groupFilter"> · {{ groupFilterLabel(a.groupFilter) }}</template>
@@ -414,6 +428,18 @@
             />
             <span class="rlm-field-hint">Same units as the metric. Everyone at or above this total for the period earns the award.</span>
           </div>
+          <div v-else class="rlm-field">
+            <label class="rlm-label">Reference amount (optional)</label>
+            <input
+              v-model.number="awardForm.referenceTarget"
+              type="number"
+              class="rlm-input"
+              min="0"
+              step="any"
+              placeholder="e.g. 200"
+            />
+            <span class="rlm-field-hint">Same units as the metric. For display/context only for most, least, average, etc.</span>
+          </div>
 
           <div class="rlm-field-row">
             <div class="rlm-field">
@@ -591,7 +617,7 @@ const deleteConfirm  = ref(null);  // { type: 'group'|'award', id, label }
 const deleteLoading  = ref(false);
 
 function defaultTenantAwardForm() {
-  return { label: '', icon: '🏆', period: 'weekly', metric: 'distance_miles', aggregation: 'most', activityType: '', milestoneThreshold: null };
+  return { label: '', icon: '🏆', period: 'weekly', metric: 'distance_miles', aggregation: 'most', activityType: '', milestoneThreshold: null, referenceTarget: null };
 }
 
 // ── Load ──────────────────────────────────────────────────────────
@@ -685,13 +711,13 @@ async function saveGroup() {
 
 // ── Award modal ───────────────────────────────────────────────────
 function defaultAwardForm() {
-  return { label: '', icon: '🏆', period: 'weekly', monthEndDay: 'last', metric: 'distance_miles', aggregation: 'most', activityType: '', groupFilter: '', milestoneThreshold: null };
+  return { label: '', icon: '🏆', period: 'weekly', monthEndDay: 'last', metric: 'distance_miles', aggregation: 'most', activityType: '', groupFilter: '', milestoneThreshold: null, referenceTarget: null };
 }
 function openAwardModal(a = null) {
   editingAward.value = a;
   const icon = a?.icon || '🏆';
   awardForm.value = a
-    ? { label: a.label, icon, period: a.period, monthEndDay: a.monthEndDay || 'last', metric: a.metric, aggregation: a.aggregation, activityType: a.activityType || '', groupFilter: a.groupFilter || '', milestoneThreshold: a.milestoneThreshold != null ? Number(a.milestoneThreshold) : null }
+    ? { label: a.label, icon, period: a.period, monthEndDay: a.monthEndDay || 'last', metric: a.metric, aggregation: a.aggregation, activityType: a.activityType || '', groupFilter: a.groupFilter || '', milestoneThreshold: a.milestoneThreshold != null ? Number(a.milestoneThreshold) : null, referenceTarget: a.referenceTarget != null ? Number(a.referenceTarget) : null }
     : defaultAwardForm();
   awardSaveError.value = '';
   showIconPicker.value = false;
@@ -730,6 +756,11 @@ async function saveAward() {
       metric: awardForm.value.metric,
       aggregation: awardForm.value.aggregation,
       milestoneThreshold: awardForm.value.aggregation === 'milestone' ? Number(awardForm.value.milestoneThreshold) : undefined,
+      referenceTarget: (() => {
+        if (awardForm.value.aggregation === 'milestone') return undefined;
+        const n = Number(awardForm.value.referenceTarget);
+        return Number.isFinite(n) && n >= 0 ? n : undefined;
+      })(),
       activityType: awardForm.value.activityType.trim(),
       groupFilter: awardForm.value.groupFilter
     };
@@ -755,7 +786,7 @@ function openTenantAwardModal(a = null) {
   editingTenantAward.value = a;
   const icon = a?.icon || '🏆';
   tenantAwardForm.value = a
-    ? { label: a.label, icon, period: a.period, metric: a.metric, aggregation: a.aggregation, activityType: a.activityType || '', milestoneThreshold: a.milestoneThreshold != null ? Number(a.milestoneThreshold) : null }
+    ? { label: a.label, icon, period: a.period, metric: a.metric, aggregation: a.aggregation, activityType: a.activityType || '', milestoneThreshold: a.milestoneThreshold != null ? Number(a.milestoneThreshold) : null, referenceTarget: a.referenceTarget != null ? Number(a.referenceTarget) : null }
     : defaultTenantAwardForm();
   tenantAwardSaveError.value = '';
   showTenantIconPicker.value = false;
@@ -797,6 +828,11 @@ async function saveTenantAward() {
       metric: tenantAwardForm.value.metric,
       aggregation: tenantAwardForm.value.aggregation,
       milestoneThreshold: tenantAwardForm.value.aggregation === 'milestone' ? Number(tenantAwardForm.value.milestoneThreshold) : undefined,
+      referenceTarget: (() => {
+        if (tenantAwardForm.value.aggregation === 'milestone') return undefined;
+        const n = Number(tenantAwardForm.value.referenceTarget);
+        return Number.isFinite(n) && n >= 0 ? n : undefined;
+      })(),
       activityType: tenantAwardForm.value.activityType.trim()
     };
     if (editingTenantAward.value) {
