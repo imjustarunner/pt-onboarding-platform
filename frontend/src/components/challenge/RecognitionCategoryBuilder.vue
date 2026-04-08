@@ -279,8 +279,23 @@
               <option value="average">Average per entry</option>
               <option value="best_single">Best single workout</option>
               <option value="best_day">Best single day</option>
+              <option value="milestone">Milestone (everyone who reaches target)</option>
             </select>
           </div>
+        </div>
+
+        <div v-if="aw.aggregation === 'milestone'" class="rcb-award-row">
+          <label class="rcb-field-label">Target total</label>
+          <input
+            v-model.number="aw.milestoneThreshold"
+            type="number"
+            class="rcb-num-input"
+            min="0.0001"
+            step="any"
+            placeholder="e.g. 200"
+            @input="emit_"
+          />
+          <span class="rcb-panel-hint" style="margin:0;">Same units as metric. Everyone at or above this total earns the award.</span>
         </div>
 
         <!-- Row 3: Eligible group -->
@@ -540,6 +555,7 @@ function addAwardFromLibrary(libAward) {
     activityType: libAward.activityType || '',
     metric: libAward.metric || 'distance_miles',
     aggregation: libAward.aggregation || 'most',
+    milestoneThreshold: libAward.milestoneThreshold != null ? Number(libAward.milestoneThreshold) : undefined,
     groupFilter: libAward.groupFilter || ''
   });
   emit_();
@@ -563,6 +579,7 @@ function addAward() {
     activityType: '',
     metric: 'distance_miles',
     aggregation: 'most',
+    milestoneThreshold: undefined,
     groupFilter: ''
   });
   emit_();

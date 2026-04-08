@@ -106,6 +106,14 @@ export function normalizeRecognitionCategories(raw) {
         period: item.period || 'weekly',
         metric: item.metric || 'points',
         aggregation: item.aggregation || 'most',
+        milestoneThreshold: (() => {
+          const agg = item.aggregation || 'most';
+          if (agg !== 'milestone') return undefined;
+          const raw = item.milestoneThreshold;
+          if (raw == null || raw === '') return undefined;
+          const n = Number(raw);
+          return Number.isFinite(n) ? n : undefined;
+        })(),
         activityType: item.activityType || '',
         groupFilter: item.groupFilter || ''
       };

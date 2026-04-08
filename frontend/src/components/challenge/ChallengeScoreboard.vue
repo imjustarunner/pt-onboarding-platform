@@ -52,7 +52,15 @@
             </span>
             <span v-else-if="entry.icon" class="recognition-icon">{{ entry.icon }}</span>
             <span class="recognition-label">{{ entry.label }}</span>
-            <template v-if="entry.winner">
+            <div v-if="entry.winners && entry.winners.length" class="recognition-winners">
+              <div v-for="w in entry.winners" :key="w.user_id" class="recognition-winner-line">
+                <UserAvatar :photo-path="w.profile_photo_path" :first-name="w.first_name" :last-name="w.last_name" size="sm" />
+                <span class="name">{{ w.first_name }} {{ w.last_name }}</span>
+                <span v-if="w.team_name" class="team">{{ w.team_name }}</span>
+                <span class="points">{{ w.value }} {{ metricUnit(entry.metric) }}</span>
+              </div>
+            </div>
+            <template v-else-if="entry.winner">
               <UserAvatar :photo-path="entry.winner.profile_photo_path" :first-name="entry.winner.first_name" :last-name="entry.winner.last_name" size="sm" />
               <span class="name">{{ entry.winner.first_name }} {{ entry.winner.last_name }}</span>
               <span v-if="entry.winner.team_name" class="team">{{ entry.winner.team_name }}</span>
@@ -167,4 +175,7 @@ defineExpose({ load });
 .scoreboard-icon-img { width: 24px; height: 24px; object-fit: contain; display: block; }
 .scoreboard-row .recognition-label { font-weight: 600; min-width: 140px; color: var(--text-primary); }
 .no-winner { color: var(--text-muted, #999); font-style: italic; }
+.recognition-block .scoreboard-row { align-items: flex-start; }
+.recognition-winners { display: flex; flex-direction: column; gap: 8px; flex: 1; align-items: flex-start; min-width: 0; }
+.recognition-winner-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; }
 </style>

@@ -282,6 +282,7 @@ const awardToApi = (row) => ({
   activityType: row.activity_type || '',
   metric: row.metric,
   aggregation: row.aggregation,
+  milestoneThreshold: row.milestone_threshold != null ? Number(row.milestone_threshold) : null,
   groupFilter: row.group_filter || '',
   genderVariants: parseJson(row.gender_variants),
   isTenantTemplate: !!row.is_tenant_template,
@@ -289,6 +290,20 @@ const awardToApi = (row) => ({
   createdAt: row.created_at,
   updatedAt: row.updated_at
 });
+
+/** @returns {{ aggregation: string, milestoneThreshold: number|null, error?: string }} */
+function resolveAwardAggregation(body) {
+  const allowed = ['most', 'average', 'milestone'];
+  const aggregation = allowed.includes(String(body?.aggregation || '')) ? body.aggregation : 'most';
+  if (aggregation === 'milestone') {
+    const n = Number(body?.milestoneThreshold);
+    if (!Number.isFinite(n) || n <= 0) {
+      return { error: 'For milestone awards, milestoneThreshold must be a positive number (same units as the metric).' };
+    }
+    return { aggregation, milestoneThreshold: n };
+  }
+  return { aggregation, milestoneThreshold: null };
+}
 
 /**
  * GET /summit-stats/clubs/:id/recognition-awards
@@ -320,13 +335,15 @@ export const createRecognitionAward = async (req, res, next) => {
     const period        = ['weekly', 'monthly', 'season'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
     const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
-    const aggregation   = ['most', 'average'].includes(req.body?.aggregation) ? req.body.aggregation : 'most';
+    const resolvedAgg   = resolveAwardAggregation(req.body);
+    if (resolvedAgg.error) return res.status(400).json({ error: { message: resolvedAgg.error } });
+    const { aggregation, milestoneThreshold } = resolvedAgg;
     const groupFilter   = String(req.body?.groupFilter || '').trim().slice(0, 128);
     const genderVariants = Array.isArray(req.body?.genderVariants) ? req.body.genderVariants : [];
     const [result] = await pool.execute(
-      `INSERT INTO challenge_recognition_awards (agency_id, label, icon, period, activity_type, metric, aggregation, group_filter, gender_variants, is_tenant_template)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-      [clubId, label, icon, period, activityType || null, metric, aggregation, groupFilter || null, JSON.stringify(genderVariants)]
+      `INSERT INTO challenge_recognition_awards (agency_id, label, icon, period, activity_type, metric, aggregation, milestone_threshold, group_filter, gender_variants, is_tenant_template)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [clubId, label, icon, period, activityType || null, metric, aggregation, milestoneThreshold, groupFilter || null, JSON.stringify(genderVariants)]
     );
     const [rows] = await pool.execute(`SELECT * FROM challenge_recognition_awards WHERE id = ?`, [result.insertId]);
     return res.status(201).json({ award: awardToApi(rows[0]) });
@@ -347,14 +364,16 @@ export const updateRecognitionAward = async (req, res, next) => {
     const period        = ['weekly', 'monthly', 'season'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
     const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
-    const aggregation   = ['most', 'average'].includes(req.body?.aggregation) ? req.body.aggregation : 'most';
+    const resolvedAgg   = resolveAwardAggregation(req.body);
+    if (resolvedAgg.error) return res.status(400).json({ error: { message: resolvedAgg.error } });
+    const { aggregation, milestoneThreshold } = resolvedAgg;
     const groupFilter   = String(req.body?.groupFilter || '').trim().slice(0, 128);
     const genderVariants = Array.isArray(req.body?.genderVariants) ? req.body.genderVariants : [];
     await pool.execute(
       `UPDATE challenge_recognition_awards
-       SET label = ?, icon = ?, period = ?, activity_type = ?, metric = ?, aggregation = ?, group_filter = ?, gender_variants = ?
+       SET label = ?, icon = ?, period = ?, activity_type = ?, metric = ?, aggregation = ?, milestone_threshold = ?, group_filter = ?, gender_variants = ?
        WHERE id = ? AND agency_id = ?`,
-      [label, icon, period, activityType || null, metric, aggregation, groupFilter || null, JSON.stringify(genderVariants), awardId, clubId]
+      [label, icon, period, activityType || null, metric, aggregation, milestoneThreshold, groupFilter || null, JSON.stringify(genderVariants), awardId, clubId]
     );
     const [rows] = await pool.execute(`SELECT * FROM challenge_recognition_awards WHERE id = ?`, [awardId]);
     if (!rows?.length) return res.status(404).json({ error: { message: 'Award not found' } });
@@ -500,14 +519,16 @@ export const createTenantAward = async (req, res, next) => {
     const period        = ['weekly', 'monthly', 'season'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
     const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
-    const aggregation   = ['most', 'average'].includes(req.body?.aggregation) ? req.body.aggregation : 'most';
+    const resolvedAgg   = resolveAwardAggregation(req.body);
+    if (resolvedAgg.error) return res.status(400).json({ error: { message: resolvedAgg.error } });
+    const { aggregation, milestoneThreshold } = resolvedAgg;
     const groupFilter   = String(req.body?.groupFilter || '').trim().slice(0, 128);
     const genderVariants = Array.isArray(req.body?.genderVariants) ? req.body.genderVariants : [];
 
     const [result] = await pool.execute(
-      `INSERT INTO challenge_recognition_awards (agency_id, is_tenant_template, label, icon, period, activity_type, metric, aggregation, group_filter, gender_variants)
-       VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [tenantAgencyId, label, icon, period, activityType || null, metric, aggregation, groupFilter || null, JSON.stringify(genderVariants)]
+      `INSERT INTO challenge_recognition_awards (agency_id, is_tenant_template, label, icon, period, activity_type, metric, aggregation, milestone_threshold, group_filter, gender_variants)
+       VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [tenantAgencyId, label, icon, period, activityType || null, metric, aggregation, milestoneThreshold, groupFilter || null, JSON.stringify(genderVariants)]
     );
     const [rows] = await pool.execute(`SELECT * FROM challenge_recognition_awards WHERE id = ?`, [result.insertId]);
     return res.status(201).json({ award: awardToApi(rows[0]) });
@@ -536,15 +557,17 @@ export const updateTenantAward = async (req, res, next) => {
     const period        = ['weekly', 'monthly', 'season'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
     const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
-    const aggregation   = ['most', 'average'].includes(req.body?.aggregation) ? req.body.aggregation : 'most';
+    const resolvedAgg   = resolveAwardAggregation(req.body);
+    if (resolvedAgg.error) return res.status(400).json({ error: { message: resolvedAgg.error } });
+    const { aggregation, milestoneThreshold } = resolvedAgg;
     const groupFilter   = String(req.body?.groupFilter || '').trim().slice(0, 128);
     const genderVariants = Array.isArray(req.body?.genderVariants) ? req.body.genderVariants : [];
 
     await pool.execute(
       `UPDATE challenge_recognition_awards
-       SET label = ?, icon = ?, period = ?, activity_type = ?, metric = ?, aggregation = ?, group_filter = ?, gender_variants = ?
+       SET label = ?, icon = ?, period = ?, activity_type = ?, metric = ?, aggregation = ?, milestone_threshold = ?, group_filter = ?, gender_variants = ?
        WHERE id = ? AND agency_id = ? AND is_tenant_template = 1`,
-      [label, icon, period, activityType || null, metric, aggregation, groupFilter || null, JSON.stringify(genderVariants), awardId, tenantAgencyId]
+      [label, icon, period, activityType || null, metric, aggregation, milestoneThreshold, groupFilter || null, JSON.stringify(genderVariants), awardId, tenantAgencyId]
     );
     const [rows] = await pool.execute(`SELECT * FROM challenge_recognition_awards WHERE id = ?`, [awardId]);
     if (!rows?.length) return res.status(404).json({ error: { message: 'Award not found' } });
@@ -596,9 +619,9 @@ export const cloneTenantAward = async (req, res, next) => {
     const src = sourceRows[0];
 
     const [result] = await pool.execute(
-      `INSERT INTO challenge_recognition_awards (agency_id, is_tenant_template, label, icon, period, activity_type, metric, aggregation, group_filter, gender_variants)
-       VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [clubId, src.label, src.icon, src.period, src.activity_type, src.metric, src.aggregation, src.group_filter, src.gender_variants]
+      `INSERT INTO challenge_recognition_awards (agency_id, is_tenant_template, label, icon, period, activity_type, metric, aggregation, milestone_threshold, group_filter, gender_variants)
+       VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [clubId, src.label, src.icon, src.period, src.activity_type, src.metric, src.aggregation, src.milestone_threshold ?? null, src.group_filter, src.gender_variants]
     );
     const [rows] = await pool.execute(`SELECT * FROM challenge_recognition_awards WHERE id = ?`, [result.insertId]);
     return res.status(201).json({ award: awardToApi(rows[0]) });

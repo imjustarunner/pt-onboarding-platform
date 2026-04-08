@@ -407,10 +407,11 @@ class ChallengeWorkout {
       switch (agg) {
         case 'average':     return `AVG(${metricCol})`;
         case 'best_single': return `MAX(${metricCol})`;
+        case 'milestone':   return `SUM(${metricCol})`; // period total vs threshold
         default:            return `SUM(${metricCol})`;  // most, least
       }
     }
-    const metricExpr = buildMetricExpr(aggregation);
+    const metricExpr = buildMetricExpr(aggregation === 'milestone' ? 'milestone' : aggregation);
 
     // Determine which gender labels to iterate over
     const genderVariants = Array.isArray(cat.genderVariants) && cat.genderVariants.length > 0
@@ -574,6 +575,7 @@ class ChallengeWorkout {
       // For best_day we need a two-level GROUP BY:
       // 1) sum per user+day, 2) take the max day per user.
       let sql;
+      const milestoneThreshold = Number(cat.milestoneThreshold);
       if (aggregation === 'best_day') {
         const dayMetric = metric === 'activities_count' ? 'COUNT(w.id)' : `SUM(${metricCol})`;
         sql = `
@@ -594,6 +596,32 @@ class ChallengeWorkout {
           GROUP BY d.user_id, d.first_name, d.last_name, d.profile_photo_path, d.team_id, d.team_name
           ORDER BY metric_value DESC
           LIMIT 1`;
+      } else if (aggregation === 'milestone') {
+        if (!Number.isFinite(milestoneThreshold) || milestoneThreshold <= 0) {
+          results.push({
+            categoryId: cat.id,
+            label: displayLabel,
+            icon: cat.icon || null,
+            period,
+            metric,
+            aggregation,
+            milestoneThreshold: null,
+            winner: null,
+            winners: []
+          });
+          continue;
+        }
+        sql = `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name, ${metricExpr} AS metric_value
+         FROM challenge_workouts w
+         INNER JOIN users u ON u.id = w.user_id
+         LEFT JOIN challenge_teams t ON t.id = w.team_id
+         ${joinClause}
+         WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')} AND w.completed_at >= ? AND w.completed_at < ?
+           ${whereExtra}
+         GROUP BY w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name
+         HAVING metric_value >= ?
+         ORDER BY metric_value DESC`;
+        params.push(milestoneThreshold);
       } else {
         sql = `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name, ${metricExpr} AS metric_value
          FROM challenge_workouts w
@@ -609,24 +637,46 @@ class ChallengeWorkout {
 
       try {
         const [rows] = await pool.execute(sql, params);
-        const row = rows?.[0] || null;
-        results.push({
-          categoryId: cat.id,
-          label: displayLabel,
-          icon: cat.icon || null,
-          period,
-          metric,
-          winner: row
-            ? {
-                user_id: row.user_id,
-                first_name: row.first_name,
-                last_name: row.last_name,
-                profile_photo_path: row.profile_photo_path || null,
-                team_name: row.team_name,
-                value: Number(row.metric_value)
-              }
-            : null
-        });
+        if (aggregation === 'milestone') {
+          const winners = (rows || []).map((row) => ({
+            user_id: row.user_id,
+            first_name: row.first_name,
+            last_name: row.last_name,
+            profile_photo_path: row.profile_photo_path || null,
+            team_name: row.team_name,
+            value: Number(row.metric_value)
+          }));
+          results.push({
+            categoryId: cat.id,
+            label: displayLabel,
+            icon: cat.icon || null,
+            period,
+            metric,
+            aggregation,
+            milestoneThreshold,
+            winner: null,
+            winners
+          });
+        } else {
+          const row = rows?.[0] || null;
+          results.push({
+            categoryId: cat.id,
+            label: displayLabel,
+            icon: cat.icon || null,
+            period,
+            metric,
+            winner: row
+              ? {
+                  user_id: row.user_id,
+                  first_name: row.first_name,
+                  last_name: row.last_name,
+                  profile_photo_path: row.profile_photo_path || null,
+                  team_name: row.team_name,
+                  value: Number(row.metric_value)
+                }
+              : null
+          });
+        }
       } catch (err) {
         // Don't crash the whole scoreboard if one category fails
         results.push({ categoryId: cat.id, label: displayLabel, period, metric, winner: null, error: err.message });
