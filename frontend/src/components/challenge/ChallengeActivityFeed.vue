@@ -109,75 +109,84 @@
             </div>
           </div>
         </div>
-        <div v-if="props.isManager && (w.proof_status || Number(w.is_treadmill) === 1)" class="proof-review-card">
-          <div class="proof-review-header">
-            <strong>Manager proof review</strong>
-            <span class="proof-status" :class="`proof-${String(w.proof_status || '').toLowerCase()}`">
-              {{ String(w.proof_status || 'not_required').replace(/_/g, ' ') }}
-            </span>
-          </div>
-          <div class="proof-review-body">
-            <label class="proof-field">
-              <span>Verified miles (optional)</span>
-              <input
-                v-model.number="proofReviewDraftByWorkout[w.id].verifiedDistanceValue"
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="Use treadmill photo value if corrected"
-              />
-            </label>
-            <label class="proof-field">
-              <span>Review note (optional)</span>
-              <input
-                v-model="proofReviewDraftByWorkout[w.id].proofReviewNote"
-                type="text"
-                maxlength="255"
-                placeholder="Reason/notes for approval or rejection"
-              />
-            </label>
-            <div class="proof-actions">
-              <button class="btn btn-primary btn-small" :disabled="!!proofSubmitting[w.id]" @click="reviewProof(w.id, 'approved')">
-                Approve
-              </button>
-              <button class="btn btn-secondary btn-small" :disabled="!!proofSubmitting[w.id]" @click="reviewProof(w.id, 'pending')">
-                Mark Pending
-              </button>
-              <button class="btn btn-secondary btn-small" :disabled="!!proofSubmitting[w.id]" @click="reviewProof(w.id, 'rejected')">
-                Reject
-              </button>
+        <!-- Unified manager review panel -->
+        <div
+          v-if="props.isManager && (w.proof_status || Number(w.is_treadmill) === 1 || Number(w.is_disqualified) === 1)"
+          class="proof-review-card"
+        >
+          <!-- Collapsed: already approved & not disqualified -->
+          <template v-if="w.proof_status === 'approved' && Number(w.is_disqualified) !== 1">
+            <div class="proof-review-header proof-review-header--approved">
+              <span>✓ Proof approved</span>
+              <button class="btn-link-sm" @click="reviewProof(w.id, 'pending')">Undo</button>
             </div>
-          </div>
+          </template>
+
+          <!-- Expanded: needs review, pending, rejected, or disqualified -->
+          <template v-else>
+            <div class="proof-review-header">
+              <strong>Manager review</strong>
+              <span class="proof-status" :class="`proof-${String(w.proof_status || '').toLowerCase()}`">
+                {{ Number(w.is_disqualified) === 1 ? 'Disqualified' : String(w.proof_status || 'pending').replace(/_/g, ' ') }}
+              </span>
+            </div>
+            <div class="proof-review-body">
+              <label class="proof-field">
+                <span>Verified miles (optional)</span>
+                <input
+                  v-model.number="proofReviewDraftByWorkout[w.id].verifiedDistanceValue"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Override if treadmill photo differs"
+                />
+              </label>
+              <label class="proof-field">
+                <span>Note (optional)</span>
+                <input
+                  v-model="proofReviewDraftByWorkout[w.id].proofReviewNote"
+                  type="text"
+                  maxlength="255"
+                  placeholder="Reason for rejection or notes"
+                />
+              </label>
+              <div class="proof-actions">
+                <button class="btn btn-primary btn-small" :disabled="!!proofSubmitting[w.id]" @click="reviewProof(w.id, 'approved')">
+                  Approve
+                </button>
+                <button
+                  v-if="Number(w.is_disqualified) !== 1"
+                  class="btn btn-secondary btn-small"
+                  :disabled="!!disqualifySubmitting[w.id] || !!proofSubmitting[w.id]"
+                  @click="setWorkoutDisqualification(w.id, true)"
+                >
+                  Reject / Disqualify
+                </button>
+                <button
+                  v-else
+                  class="btn btn-primary btn-small"
+                  :disabled="!!disqualifySubmitting[w.id]"
+                  @click="setWorkoutDisqualification(w.id, false)"
+                >
+                  Reinstate
+                </button>
+              </div>
+            </div>
+          </template>
         </div>
-        <div v-if="props.isManager" class="proof-review-card">
+
+        <!-- Disqualify control even when no proof panel (any manager can disqualify any workout) -->
+        <div
+          v-else-if="props.isManager && Number(w.is_disqualified) === 1"
+          class="proof-review-card"
+        >
           <div class="proof-review-header">
-            <strong>Workout validity</strong>
+            <strong>Manager review</strong>
+            <span class="proof-status proof-rejected">Disqualified</span>
           </div>
           <div class="proof-review-body">
-            <label class="proof-field">
-              <span>Reason (optional)</span>
-              <input
-                v-model="disqualifyDraftByWorkout[w.id]"
-                type="text"
-                maxlength="255"
-                placeholder="e.g., 4.9 miles did not meet 5-mile challenge"
-              />
-            </label>
             <div class="proof-actions">
-              <button
-                v-if="Number(w.is_disqualified) !== 1"
-                class="btn btn-secondary btn-small"
-                :disabled="!!disqualifySubmitting[w.id]"
-                @click="setWorkoutDisqualification(w.id, true)"
-              >
-                Mark Incomplete / Disqualify
-              </button>
-              <button
-                v-else
-                class="btn btn-primary btn-small"
-                :disabled="!!disqualifySubmitting[w.id]"
-                @click="setWorkoutDisqualification(w.id, false)"
-              >
+              <button class="btn btn-primary btn-small" :disabled="!!disqualifySubmitting[w.id]" @click="setWorkoutDisqualification(w.id, false)">
                 Reinstate Workout
               </button>
             </div>
@@ -1142,6 +1151,26 @@ const reviewProof = async (workoutId, status) => {
 .proof-pending { background: #fff8e1; color: #8d6e63; }
 .proof-rejected { background: #ffebee; color: #c62828; }
 .proof-not_required { background: #eceff1; color: #546e7a; }
+.proof-review-header--approved {
+  background: #e8f5e9;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  color: #2e7d32;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.btn-link-sm {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.8rem;
+  color: #888;
+  cursor: pointer;
+  text-decoration: underline;
+}
 .proof-review-body {
   margin-top: 8px;
   display: grid;

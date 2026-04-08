@@ -45,7 +45,7 @@
         <div class="action-split-btns">
           <router-link
             v-if="activeSeason"
-            :to="`/${orgSlug}/season/${activeSeason.id}`"
+            :to="`/${isSummitPlatformRouteSlug(orgSlug) ? orgSlug : NATIVE_APP_ORG_SLUG}/season/${activeSeason.id}`"
             class="split-btn split-btn--primary"
           >Open Season</router-link>
           <router-link
@@ -109,6 +109,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { useBrandingStore } from '../../store/branding';
+import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../../utils/summitPlatformSlugs.js';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -136,7 +137,7 @@ const settingsTo = computed(() => {
 });
 
 const seasonManagementTo = computed(() => {
-  const slug = props.orgSlug || String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase();
+  const slug = isSummitPlatformRouteSlug(props.orgSlug) ? props.orgSlug : NATIVE_APP_ORG_SLUG;
   const base = `/${slug}/club/seasons`;
   // When an active season exists, auto-open its manage modal via query param
   return activeSeason.value?.id ? `${base}?manageSeason=${activeSeason.value.id}` : base;
