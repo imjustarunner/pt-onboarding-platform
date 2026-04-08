@@ -3828,7 +3828,7 @@ export const registerParticipant = async (req, res, next) => {
         let resolvedClassId = challengeClassId ? Number(challengeClassId) : null;
         if (!resolvedClassId && clubId) {
           const [seasonRows] = await pool.execute(
-            `SELECT id FROM learning_program_classes WHERE agency_id = ? ORDER BY created_at DESC LIMIT 1`,
+            `SELECT id FROM learning_program_classes WHERE organization_id = ? ORDER BY created_at DESC LIMIT 1`,
             [Number(clubId)]
           );
           resolvedClassId = seasonRows?.[0]?.id || null;

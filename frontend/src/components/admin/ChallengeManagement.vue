@@ -469,6 +469,10 @@
             </div>
             <label>Preset/temporary team names (comma-separated)</label>
             <input v-model="challengeForm.presetTeamNamesText" type="text" placeholder="e.g., Team Alpha, Team Bravo, Team Charlie" />
+            <p class="help-text" style="margin-top: 6px; font-size: 12px; color: #64748b; max-width: 42rem;">
+              These are saved as suggestions for captains (season settings only). They do not create scoreboard teams.
+              After saving the season, open <strong>Manage</strong> → <strong>Teams</strong> and use <strong>Add team</strong> for each real team.
+            </p>
           </div>
           <div class="form-group">
             <label>Bye week settings</label>

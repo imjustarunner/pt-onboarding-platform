@@ -18,7 +18,13 @@ import { getPlatformAgencyId } from './summitStats.controller.js';
 import { buildRaceDivisions, buildRecordMetricMap } from './challenges.controller.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 import Notification from '../models/Notification.model.js';
-import { canUserManageClub, getUserClubMembership, getClubPlatformTenantAgencyId, getClubManagerNotificationRecipientUserIds } from '../utils/sscClubAccess.js';
+import {
+  canUserManageClub,
+  getUserClubMembership,
+  getClubPlatformTenantAgencyId,
+  getClubManagerNotificationRecipientUserIds,
+  getManagedClubsForUser
+} from '../utils/sscClubAccess.js';
 import { normalizeSplashImageUrl } from './agencyAnnouncements.controller.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import StorageService from '../services/storage.service.js';
@@ -3154,8 +3160,56 @@ export const getMyDashboardSummary = async (req, res, next) => {
       [userId]
     );
 
+    const memberSeasonRows = seasonRows || [];
+    const seenClassIds = new Set(memberSeasonRows.map((r) => Number(r.class_id)));
+
+    const managedClubRows = await getManagedClubsForUser(userId, { includeAssistant: true });
+    const managedClubIds = [
+      ...new Set(
+        (managedClubRows || [])
+          .map((row) => Number(row.id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    ];
+
+    let mergedSeasonRows = memberSeasonRows;
+    if (managedClubIds.length) {
+      const placeholders = managedClubIds.map(() => '?').join(',');
+      const [managedSeasonRows] = await pool.execute(
+        `SELECT
+           c.id AS class_id,
+           c.class_name,
+           c.status AS class_status,
+           c.starts_at,
+           c.ends_at,
+           c.organization_id AS club_id,
+           a.name AS club_name,
+           a.slug AS club_slug,
+           NULL AS membership_status,
+           NULL AS team_name,
+           0 AS workout_count,
+           0 AS total_miles,
+           0 AS total_points
+         FROM learning_program_classes c
+         INNER JOIN agencies a ON a.id = c.organization_id
+         WHERE c.organization_id IN (${placeholders})
+           AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'
+           AND LOWER(COALESCE(c.program_kind, 'season')) <> 'monthly_book'
+         ORDER BY COALESCE(c.starts_at, c.created_at) DESC, c.id DESC`,
+        managedClubIds
+      );
+      const extras = (managedSeasonRows || []).filter((r) => !seenClassIds.has(Number(r.class_id)));
+      mergedSeasonRows = [...memberSeasonRows, ...extras];
+      mergedSeasonRows.sort((a, b) => {
+        const ta = a.starts_at ? new Date(a.starts_at).getTime() : 0;
+        const tb = b.starts_at ? new Date(b.starts_at).getTime() : 0;
+        if (tb !== ta) return tb - ta;
+        return Number(b.class_id) - Number(a.class_id);
+      });
+    }
+
     const now = Date.now();
-    const seasons = (seasonRows || []).map((row) => {
+    const seasons = (mergedSeasonRows || []).map((row) => {
       const startsAt = row.starts_at ? new Date(row.starts_at).getTime() : null;
       const endsAt = row.ends_at ? new Date(row.ends_at).getTime() : null;
       const status = String(row.class_status || '').toLowerCase();

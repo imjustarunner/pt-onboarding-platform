@@ -171,13 +171,13 @@ export const canUserManageChallengeClass = async ({ user, learningClassId, allow
   if (!classId || !user?.id) return false;
   if (normalizeRole(user?.role) === 'super_admin') return true;
   const [rows] = await pool.execute(
-    `SELECT agency_id
+    `SELECT organization_id
      FROM learning_program_classes
      WHERE id = ?
      LIMIT 1`,
     [classId]
   );
-  const clubId = Number(rows?.[0]?.agency_id || 0);
+  const clubId = Number(rows?.[0]?.organization_id || 0);
   if (!clubId) return false;
   return canUserManageClub({ user, clubId, allowAssistant });
 };
