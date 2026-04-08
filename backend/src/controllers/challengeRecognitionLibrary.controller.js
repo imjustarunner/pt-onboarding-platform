@@ -4,6 +4,7 @@
  */
 import pool from '../config/database.js';
 import Icon from '../models/Icon.model.js';
+import { parseFeatureFlags } from '../utils/bookClub.js';
 import { canUserManageClub, getClubPlatformTenantAgencyId } from '../utils/sscClubAccess.js';
 
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
@@ -447,13 +448,12 @@ async function assertTenantAwardWriteAccess(req, tenantAgencyId) {
   if (!tenantAgencyId) return false;
   if (req.user?.role === 'super_admin') return true;
 
-  // Check feature flag: agencies.feature_flags_json -> ssc_tenant_award_manager_write
+  // Check feature flag: agencies.feature_flags -> ssc_tenant_award_manager_write
   const [rows] = await pool.execute(
-    `SELECT feature_flags_json FROM agencies WHERE id = ? LIMIT 1`,
+    `SELECT feature_flags FROM agencies WHERE id = ? LIMIT 1`,
     [tenantAgencyId]
   );
-  let flags = {};
-  try { flags = JSON.parse(rows?.[0]?.feature_flags_json || '{}'); } catch { /**/ }
+  const flags = parseFeatureFlags(rows?.[0]?.feature_flags);
   return !!flags.ssc_tenant_award_manager_write;
 }
 
