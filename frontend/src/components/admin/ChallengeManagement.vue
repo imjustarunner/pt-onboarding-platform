@@ -911,9 +911,9 @@
       <div v-if="canManageTenantLibraries" class="tenant-write-toggle-bar">
         <label class="tenant-write-label">
           <input type="checkbox" v-model="tenantWriteEnabled" />
-          Temporarily enable tenant library write access
+          Temporarily enable Summit Stats Library write access
         </label>
-        <span class="tenant-write-hint">Enable this to add/edit tenant awards and icons from this club context, then disable when done.</span>
+        <span class="tenant-write-hint">When on, club managers can add or edit Summit Stats Library awards and shared icons from this screen. Turn off when finished.</span>
       </div>
       <RecognitionLibraryManager
         ref="libraryManagerRef"
@@ -926,12 +926,12 @@
       />
     </div>
 
-    <!-- Tenant Icon Library -->
+    <!-- Summit Stats (organization) icon library -->
     <div v-if="organizationId && canManageTenantLibraries" class="panel" style="margin-top: 24px;">
       <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
         <div>
-          <h2 style="margin:0;font-size:1.1em;">Tenant Icon Library</h2>
-          <p style="margin:4px 0 0;font-size:12px;color:var(--text-secondary);">Upload and manage icons at the tenant level. These become available to all clubs in this tenant.</p>
+          <h2 style="margin:0;font-size:1.1em;">Summit Stats Library — Icons</h2>
+          <p style="margin:4px 0 0;font-size:12px;color:var(--text-secondary);">Organization-wide icons. All clubs in your Summit Stats tenant can use these.</p>
         </div>
         <button type="button" class="btn btn-secondary btn-sm" @click="showTenantIconLibrary = !showTenantIconLibrary">
           {{ showTenantIconLibrary ? 'Hide' : 'Manage Icons' }}

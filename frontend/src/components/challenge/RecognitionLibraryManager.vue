@@ -2,24 +2,24 @@
   <div class="rlm">
 
     <!-- ════════════════════════════════════════════════════════════
-         TENANT AWARD LIBRARY
+         SUMMIT STATS LIBRARY (organization-wide award templates)
     ══════════════════════════════════════════════════════════════ -->
     <div v-if="hasTenantAwards || canWriteTenantLibrary" class="rlm-section">
       <div class="rlm-section-head">
         <div>
-          <span class="rlm-section-title">Tenant Award Library</span>
-          <span class="rlm-section-hint">Shared award templates available to all clubs. Clone to add to your library.</span>
+          <span class="rlm-section-title">Summit Stats Library</span>
+          <span class="rlm-section-hint">Organization-wide award templates. Every club can copy these into its own library or season.</span>
         </div>
         <button v-if="canWriteTenantLibrary" type="button" class="btn btn-sm btn-secondary"
           @click="openTenantAwardModal()">
-          + Add to Tenant Library
+          + Add to Summit Stats Library
         </button>
       </div>
 
-      <div v-if="tenantAwardsLoading" class="rlm-hint">Loading tenant awards…</div>
+      <div v-if="tenantAwardsLoading" class="rlm-hint">Loading Summit Stats Library…</div>
       <div v-else-if="!tenantAwards.length" class="rlm-empty">
-        No tenant awards yet.
-        <template v-if="canWriteTenantLibrary"> Click "Add to Tenant Library" to create one.</template>
+        No awards in the Summit Stats Library yet.
+        <template v-if="canWriteTenantLibrary"> Click “Add to Summit Stats Library” to create one.</template>
       </div>
       <div v-else class="rlm-list">
         <div v-for="ta in tenantAwards" :key="ta.id" class="rlm-row">
@@ -33,7 +33,7 @@
             <div>
               <span class="rlm-row-title">
                 {{ ta.label }}
-                <span class="rlm-tenant-badge">Tenant</span>
+                <span class="rlm-tenant-badge" title="Summit Stats Library — shared across your organization">Summit Stats Library</span>
               </span>
               <span class="rlm-row-meta">
                 {{ periodLabel(ta.period) }} · {{ metricLabel(ta.metric) }} · {{ aggregationLabel(ta.aggregation) }}
@@ -52,11 +52,11 @@
       </div>
     </div>
 
-    <!-- Tenant Award Modal -->
+    <!-- Summit Stats Library award modal -->
     <div v-if="showTenantAwardModal" class="rlm-modal-overlay" @click.self="closeTenantAwardModal">
       <div class="rlm-modal rlm-modal--wide">
         <div class="rlm-modal-head">
-          <h3>{{ editingTenantAward ? 'Edit Tenant Award' : 'New Tenant Award' }}</h3>
+          <h3>{{ editingTenantAward ? 'Edit Summit Stats Library award' : 'New Summit Stats Library award' }}</h3>
           <button type="button" class="rlm-close-btn" @click="closeTenantAwardModal">×</button>
         </div>
         <div class="rlm-modal-body">
@@ -168,11 +168,11 @@
       </div>
     </div>
 
-    <!-- Tenant Award delete confirmation -->
+    <!-- Summit Stats Library delete confirmation -->
     <div v-if="tenantDeleteConfirm" class="rlm-modal-overlay" @click.self="tenantDeleteConfirm = null">
       <div class="rlm-modal rlm-modal--sm">
         <div class="rlm-modal-head"><h3>Confirm Delete</h3></div>
-        <div class="rlm-modal-body"><p>Delete tenant award <strong>{{ tenantDeleteConfirm.label }}</strong>?</p></div>
+        <div class="rlm-modal-body"><p>Delete <strong>{{ tenantDeleteConfirm.label }}</strong> from the Summit Stats Library?</p></div>
         <div class="rlm-modal-footer">
           <button type="button" class="btn btn-secondary" @click="tenantDeleteConfirm = null">Cancel</button>
           <button type="button" class="btn btn-danger" :disabled="tenantDeleteLoading" @click="executeTenantDelete">
@@ -509,7 +509,7 @@ import IconSelector from '../admin/IconSelector.vue';
 const props = defineProps({
   clubId: { type: [Number, String], default: null },
   customFieldDefs: { type: Array, default: () => [] },
-  /** Whether the superadmin has enabled the temp manager write flag for the tenant library */
+  /** Optional: Challenge Management checkbox for legacy “tenant write” toggle */
   tenantWriteEnabled: { type: Boolean, default: false },
   /** The logged-in user's role */
   userRole: { type: String, default: '' }
@@ -1000,18 +1000,17 @@ function formatCriteria(criteria) {
 }
 .rlm-library-icon-preview { margin-top: 8px; }
 .rlm-tenant-badge {
-  display: inline-block; font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
-  text-transform: uppercase; background: var(--primary-light, #eff6ff); color: var(--primary, #2563eb);
-  border-radius: 4px; padding: 1px 6px; margin-left: 6px;
+  display: inline-block; font-size: 10px; font-weight: 600; letter-spacing: 0.02em;
+  text-transform: none; background: var(--primary-light, #eff6ff); color: var(--primary, #2563eb);
+  border-radius: 4px; padding: 2px 6px; margin-left: 6px; vertical-align: middle; line-height: 1.25;
 }
 
 .rlm-row-title {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary, #0f172a);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
 }
 
 .rlm-row-meta {

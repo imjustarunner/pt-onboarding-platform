@@ -126,14 +126,37 @@
           </button>
         </div>
 
-        <!-- Row 2: Add all from tenant library -->
+        <!-- Row 2: Summit Stats Library — add one or all -->
+        <div class="rcb-library-bar">
+          <select
+            v-model="selectedSummitStatsAwardId"
+            class="rcb-select rcb-library-select"
+            @focus="ensureTenantAwardsLoaded"
+          >
+            <option value="">{{ summitStatsSelectPlaceholder }}</option>
+            <option v-for="ta in tenantImportAwards" :key="ta.id" :value="ta.id">
+              {{ summitStatsAwardOptionLabel(ta) }}
+            </option>
+          </select>
+          <button
+            type="button"
+            class="rcb-confirm-btn"
+            :disabled="!selectedSummitStatsAwardId || tenantAwardsLoading"
+            @click="addOneSummitStatsAward"
+          >
+            Add
+          </button>
+        </div>
         <div class="rcb-import-row">
-          <button type="button" class="rcb-import-btn"
-            :disabled="tenantAwardsLoading"
-            @click="importAllTenantAwards">
-            <span v-if="tenantAwardsLoading">Loading tenant awards…</span>
-            <span v-else-if="tenantAwardsLoaded && !tenantImportAwards.length">No tenant awards available</span>
-            <span v-else>+ Add all from tenant library <span v-if="tenantImportAwards.length">({{ tenantImportAwards.length }})</span></span>
+          <button
+            type="button"
+            class="rcb-import-btn"
+            :disabled="tenantAwardsLoading || (tenantAwardsLoaded && !tenantImportAwards.length)"
+            @click="importAllTenantAwards"
+          >
+            <span v-if="tenantAwardsLoading">Loading Summit Stats Library…</span>
+            <span v-else-if="tenantAwardsLoaded && !tenantImportAwards.length">No Summit Stats Library awards to add</span>
+            <span v-else>+ Add all from Summit Stats Library <span v-if="tenantImportAwards.length">({{ tenantImportAwards.length }})</span></span>
           </button>
         </div>
 
@@ -620,6 +643,7 @@ watch(awards, (list) => {
 
 // ── Library selection ─────────────────────────────────────────────
 const selectedLibraryAwardId = ref('');
+const selectedSummitStatsAwardId = ref('');
 
 // ── Tenant award import ───────────────────────────────────────────
 const tenantImportAwards  = ref([]);
@@ -627,6 +651,12 @@ const tenantAwardsLoading = ref(false);
 const tenantAwardsLoaded  = ref(false);
 const importMessage       = ref('');
 const importOk            = ref(false);
+
+const summitStatsSelectPlaceholder = computed(() => {
+  if (tenantAwardsLoading.value) return 'Loading Summit Stats Library…';
+  if (tenantAwardsLoaded.value && !tenantImportAwards.value.length) return 'No awards in Summit Stats Library';
+  return 'Add one from Summit Stats Library…';
+});
 
 async function ensureTenantAwardsLoaded() {
   if (tenantAwardsLoaded.value || !props.clubId) return;
@@ -643,13 +673,27 @@ async function ensureTenantAwardsLoaded() {
   }
 }
 
+function summitStatsAwardOptionLabel(ta) {
+  if (!ta) return '';
+  const ic = ta.icon;
+  if (typeof ic === 'string' && ic.startsWith('icon:')) return ta.label || 'Award';
+  return `${ic || '🏆'} ${ta.label || ''}`.trim();
+}
+
+function addOneSummitStatsAward() {
+  const ta = tenantImportAwards.value.find((a) => String(a.id) === String(selectedSummitStatsAwardId.value));
+  if (!ta) return;
+  addAwardFromLibrary(ta);
+  selectedSummitStatsAwardId.value = '';
+}
+
 function importAllTenantAwards() {
   if (!tenantAwardsLoaded.value) {
     ensureTenantAwardsLoaded().then(() => importAllTenantAwards());
     return;
   }
   if (!tenantImportAwards.value.length) {
-    importMessage.value = 'No tenant awards found.';
+    importMessage.value = 'No awards found in Summit Stats Library.';
     importOk.value = false;
     return;
   }
@@ -658,7 +702,7 @@ function importAllTenantAwards() {
     addAwardFromLibrary(ta);
     added++;
   }
-  importMessage.value = `Added ${added} award${added === 1 ? '' : 's'} from tenant library.`;
+  importMessage.value = `Added ${added} award${added === 1 ? '' : 's'} from Summit Stats Library.`;
   importOk.value = true;
   setTimeout(() => { importMessage.value = ''; }, 4000);
 }
