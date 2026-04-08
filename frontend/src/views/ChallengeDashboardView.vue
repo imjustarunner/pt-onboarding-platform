@@ -39,12 +39,12 @@
       <div
         v-if="challenge.banner_image_path"
         class="season-hero-banner"
-        :style="{ backgroundImage: `url(${resolveSeasonAssetUrl(challenge.banner_image_path)})`, backgroundPosition: `${challenge.banner_focal_x ?? 50}% ${challenge.banner_focal_y ?? 50}%` }"
+        :style="{ backgroundImage: `url(${resolveSeasonAssetUrl(challenge.banner_image_path, 'banner')})`, backgroundPosition: `${challenge.banner_focal_x ?? 50}% ${challenge.banner_focal_y ?? 50}%` }"
       >
         <div class="season-hero-overlay">
           <img
             v-if="challenge.logo_image_path"
-            :src="resolveSeasonAssetUrl(challenge.logo_image_path)"
+            :src="resolveSeasonAssetUrl(challenge.logo_image_path, 'logo')"
             class="season-hero-logo"
             :alt="challenge.class_name || 'Season logo'"
           />
@@ -61,7 +61,7 @@
           <router-link :to="backRoute" class="back-link">← Back to My Dashboard</router-link>
           <router-link
             v-if="isChallengeManager && organizationSlug"
-            :to="`/${organizationSlug}/club/seasons?manageSeason=${challenge.id}`"
+            :to="`/${isSummitPlatformRouteSlug(organizationSlug) ? organizationSlug : NATIVE_APP_ORG_SLUG}/club/seasons?manageSeason=${challenge.id}`"
             class="btn btn-secondary btn-sm manage-season-btn"
           >⚙ Manage Season</router-link>
         </div>
@@ -69,7 +69,7 @@
           <div v-if="!challenge.banner_image_path" style="display:flex; align-items:center; gap:10px;">
             <img
               v-if="challenge.logo_image_path"
-              :src="resolveSeasonAssetUrl(challenge.logo_image_path)"
+              :src="resolveSeasonAssetUrl(challenge.logo_image_path, 'logo')"
               class="season-inline-logo"
               :alt="challenge.class_name || 'Season logo'"
             />
@@ -840,6 +840,7 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useBrandingStore } from '../store/branding';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
+import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../utils/summitPlatformSlugs.js';
 import { useAffiliationClubAnnouncements } from '../composables/useAffiliationClubAnnouncements.js';
 import { toUploadsUrl } from '../utils/uploadsUrl.js';
 import { getWeekDeadline, timeUntil, formatInTimezone, countdownUrgency } from '../utils/timezones.js';
@@ -1232,9 +1233,15 @@ const splitRunProgress = (task) => {
   return { logged: tagged.length, required: c.splitRuns.count };
 };
 
-const resolveSeasonAssetUrl = (path) => {
+const resolveSeasonAssetUrl = (path, type = 'banner') => {
   if (!path) return '';
   if (path.startsWith('http')) return path;
+  // Use the dedicated serve endpoint (reads from GCS via DB path — no URL-encoding issues)
+  const id = challenge.value?.id;
+  if (id) {
+    const apiBase = String(import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+    return `${apiBase}/learning-program-classes/${id}/${type}`;
+  }
   return `/uploads/${path.replace(/^\/+/, '')}`;
 };
 

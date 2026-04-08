@@ -29,7 +29,9 @@ import {
   updateSeasonBannerFocal,
   deleteSeasonBanner,
   uploadSeasonLogo,
-  deleteSeasonLogo
+  deleteSeasonLogo,
+  serveSeasonBanner,
+  serveSeasonLogo
 } from '../controllers/learningProgramClasses.controller.js';
 import {
   listTeams,
@@ -146,9 +148,11 @@ router.post('/:classId/participation-agreement/accept', acceptLearningProgramPar
 router.get('/:classId/participant-profiles', listParticipantProfiles);
 router.put('/:classId/participant-profiles/:providerUserId', upsertParticipantProfile);
 router.get('/:classId/profile-completeness', getSeasonProfileCompleteness);
+router.get('/:classId/banner', serveSeasonBanner);
 router.post('/:classId/banner', seasonImageUpload.single('file'), uploadSeasonBanner);
 router.patch('/:classId/banner/focal', updateSeasonBannerFocal);
 router.delete('/:classId/banner', deleteSeasonBanner);
+router.get('/:classId/logo', serveSeasonLogo);
 router.post('/:classId/logo', seasonImageUpload.single('file'), uploadSeasonLogo);
 router.delete('/:classId/logo', deleteSeasonLogo);
 router.get('/:classId/resources', listClassResources);

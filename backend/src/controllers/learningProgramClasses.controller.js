@@ -1540,3 +1540,55 @@ export const deleteSeasonLogo = async (req, res, next) => {
     return res.json({ ok: true });
   } catch (e) { next(e); }
 };
+
+/** Stream the season banner image directly from GCS (bypasses the generic /uploads route). */
+export const serveSeasonBanner = async (req, res, next) => {
+  try {
+    const classId = Number(req.params.classId);
+    if (!classId) return res.status(404).end();
+    const [[row]] = await pool.execute(
+      `SELECT banner_image_path FROM learning_program_classes WHERE id = ?`, [classId]
+    );
+    const imgPath = row?.banner_image_path;
+    if (!imgPath) return res.status(404).end();
+
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const gcsKey = imgPath.startsWith('uploads/') ? imgPath : `uploads/${imgPath}`;
+    const bucket = await StorageService.getGCSBucket();
+    const file = bucket.file(gcsKey);
+    const [exists] = await file.exists();
+    if (!exists) return res.status(404).end();
+
+    const [buffer] = await file.download();
+    const [meta] = await file.getMetadata();
+    res.setHeader('Content-Type', meta.contentType || 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(buffer);
+  } catch (e) { next(e); }
+};
+
+/** Stream the season logo image directly from GCS (bypasses the generic /uploads route). */
+export const serveSeasonLogo = async (req, res, next) => {
+  try {
+    const classId = Number(req.params.classId);
+    if (!classId) return res.status(404).end();
+    const [[row]] = await pool.execute(
+      `SELECT logo_image_path FROM learning_program_classes WHERE id = ?`, [classId]
+    );
+    const imgPath = row?.logo_image_path;
+    if (!imgPath) return res.status(404).end();
+
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const gcsKey = imgPath.startsWith('uploads/') ? imgPath : `uploads/${imgPath}`;
+    const bucket = await StorageService.getGCSBucket();
+    const file = bucket.file(gcsKey);
+    const [exists] = await file.exists();
+    if (!exists) return res.status(404).end();
+
+    const [buffer] = await file.download();
+    const [meta] = await file.getMetadata();
+    res.setHeader('Content-Type', meta.contentType || 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(buffer);
+  } catch (e) { next(e); }
+};

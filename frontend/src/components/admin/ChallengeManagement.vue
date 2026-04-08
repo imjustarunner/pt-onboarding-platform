@@ -625,7 +625,7 @@
                   title="Click to set focal point"
                 >
                   <img
-                    :src="editBannerPreview || resolveUploadUrl(editingChallenge?.banner_image_path)"
+                    :src="editBannerPreview || resolveUploadUrl(editingChallenge?.banner_image_path, { classId: editingChallenge?.id, type: 'banner' })"
                     class="banner-preview-img"
                     :style="{ objectPosition: `${editBannerFocalX}% ${editBannerFocalY}%` }"
                     draggable="false"
@@ -656,7 +656,7 @@
                 <p class="branding-hint">Recommended: 256 × 256 px square, PNG with transparency.</p>
                 <div v-if="editLogoPreview || editingChallenge?.logo_image_path" class="logo-preview-wrap">
                   <img
-                    :src="editLogoPreview || resolveUploadUrl(editingChallenge?.logo_image_path)"
+                    :src="editLogoPreview || resolveUploadUrl(editingChallenge?.logo_image_path, { classId: editingChallenge?.id, type: 'logo' })"
                     class="logo-preview-img"
                   />
                 </div>
@@ -973,7 +973,7 @@
                 title="Click to reposition focal point"
               >
                 <img
-                  :src="manageBannerPreview || resolveUploadUrl(managingChallenge?.banner_image_path)"
+                  :src="manageBannerPreview || resolveUploadUrl(managingChallenge?.banner_image_path, { classId: managingChallenge?.id, type: 'banner' })"
                   class="banner-preview-img"
                   :style="{ objectPosition: `${manageBannerFocalX}% ${manageBannerFocalY}%` }"
                   draggable="false"
@@ -1013,7 +1013,7 @@
               <p class="hint">Shown beside the season name. Recommended: 256 × 256 px square PNG.</p>
               <div v-if="manageLogoPreview || managingChallenge?.logo_image_path" class="logo-preview-wrap">
                 <img
-                  :src="manageLogoPreview || resolveUploadUrl(managingChallenge?.logo_image_path)"
+                  :src="manageLogoPreview || resolveUploadUrl(managingChallenge?.logo_image_path, { classId: managingChallenge?.id, type: 'logo' })"
                   class="logo-preview-img"
                 />
               </div>
@@ -2316,9 +2316,14 @@ const editFromManageModal = () => {
 
 // ── Branding helpers ─────────────────────────────────────────────────────────
 
-const resolveUploadUrl = (path) => {
+const resolveUploadUrl = (path, { classId, type } = {}) => {
   if (!path) return '';
   if (path.startsWith('http')) return path;
+  // If classId + type are provided, use the dedicated serve endpoint (no GCS path issues)
+  if (classId && type) {
+    const apiBase = String(import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+    return `${apiBase}/learning-program-classes/${classId}/${type}`;
+  }
   return `/uploads/${path.replace(/^\/+/, '')}`;
 };
 
