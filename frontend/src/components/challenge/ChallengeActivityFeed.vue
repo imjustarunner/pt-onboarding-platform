@@ -333,7 +333,7 @@
         </div>
         <div class="activity-time hint">Logged {{ formatTime(w.completed_at || w.created_at) }}</div>
       </div>
-      <div v-if="!displayedWorkouts.length" class="feed-empty-state">
+      <div v-if="!filteredWorkouts.length" class="feed-empty-state">
         <div class="feed-empty-icon">🏃</div>
         <p class="feed-empty-title">
           <template v-if="feedScope === 'team' && myTeamId">No team workouts yet — get moving!</template>
