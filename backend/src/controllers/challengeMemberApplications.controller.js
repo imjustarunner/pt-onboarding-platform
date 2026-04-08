@@ -3413,7 +3413,41 @@ export const putMyAccountSnapshot = async (req, res, next) => {
        LIMIT 1`,
       [userId, userId]
     );
-    const appId = idRows?.[0]?.id;
+    let appId = idRows?.[0]?.id;
+
+    // If no application row exists but the user wants to save profile fields (gender, DOB, etc.),
+    // create a minimal approved application row so the data has a home.
+    if (!appId && hasAppOnlyField) {
+      try {
+        const [userRow] = await pool.execute(
+          `SELECT first_name, last_name, email FROM users WHERE id = ? LIMIT 1`, [userId]
+        );
+        const u = userRow?.[0];
+        if (u?.email) {
+          // Find a club the user belongs to (prefer managed clubs)
+          const [agencyRow] = await pool.execute(
+            `SELECT a.id FROM agencies a
+             INNER JOIN user_agencies ua ON ua.agency_id = a.id
+             WHERE ua.user_id = ?
+               AND LOWER(COALESCE(a.organization_type,'')) = 'affiliation'
+             ORDER BY ua.id ASC LIMIT 1`,
+            [userId]
+          );
+          const clubId = agencyRow?.[0]?.id;
+          if (clubId) {
+            const [insertResult] = await pool.execute(
+              `INSERT INTO challenge_member_applications
+               (agency_id, user_id, first_name, last_name, email, status)
+               VALUES (?, ?, ?, ?, ?, 'approved')`,
+              [clubId, userId, u.first_name || '', u.last_name || '', u.email]
+            );
+            appId = insertResult?.insertId || null;
+          }
+        }
+      } catch {
+        // Non-fatal: skip app-only fields if insert fails
+      }
+    }
 
     let accountAllowCustomPronouns = false;
     try {
