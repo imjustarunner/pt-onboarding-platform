@@ -61,9 +61,9 @@
         </div>
       </div>
 
-      <!-- Quick-action bar: always visible, scrolls to full form -->
+      <!-- Quick-action bar -->
       <div v-if="canParticipateInSeason" class="season-action-bar">
-        <button type="button" class="season-action-btn season-action-btn--primary" @click="scrollToLogWorkout">
+        <button type="button" class="season-action-btn season-action-btn--primary" @click="showLogWorkoutModal = true">
           <span class="season-action-icon">+</span> Log Workout
         </button>
         <button v-if="stravaImportAvailable" type="button" class="season-action-btn season-action-btn--strava" @click="openStravaImportModal">
@@ -72,26 +72,26 @@
       </div>
 
       <div class="challenge-sections">
-        <!-- Activity feed + chat at the TOP — the main interaction surface -->
-        <div class="challenge-feed-row">
-          <div class="challenge-feed-activity">
-            <ChallengeActivityFeed
-              :workouts="activity"
-              :loading="activityLoading"
-              :challenge-id="challengeId"
-              :my-user-id="authStore.user?.id"
-              :my-team-id="myTeamId"
-              :is-manager="isChallengeManager"
-              @media-uploaded="refreshAfterActivityAction"
-            />
-          </div>
-          <div class="challenge-feed-chat">
-            <ChallengeMessageFeed
-              :challenge-id="challengeId"
-              :my-user-id="authStore.user?.id"
-              :is-manager="isChallengeManager"
-            />
-          </div>
+        <!-- Activity feed — full-width, dominant, the main interaction surface -->
+        <div class="challenge-feed-full">
+          <ChallengeActivityFeed
+            :workouts="activity"
+            :loading="activityLoading"
+            :challenge-id="challengeId"
+            :my-user-id="authStore.user?.id"
+            :my-team-id="myTeamId"
+            :is-manager="isChallengeManager"
+            @media-uploaded="refreshAfterActivityAction"
+          />
+        </div>
+
+        <!-- Season / Team chat — full-width below the feed -->
+        <div class="challenge-chat-full">
+          <ChallengeMessageFeed
+            :challenge-id="challengeId"
+            :my-user-id="authStore.user?.id"
+            :is-manager="isChallengeManager"
+          />
         </div>
 
         <div class="challenge-two-col">
@@ -467,9 +467,34 @@
           </div>
         </section>
 
-        <section id="log-workout-section" class="challenge-section">
-          <h2>Log Workout</h2>
-          <div v-if="canParticipateInSeason" class="workout-actions">
+        <!-- Join / agreement prompt (shown in-page only when not a participant) -->
+        <section v-if="!canParticipateInSeason" id="log-workout-section" class="challenge-section">
+          <p v-if="requiresParticipationAcceptance" class="hint">
+            Accept this season's participation agreement to start logging workouts and posting in the season.
+          </p>
+          <div v-else class="join-season-panel">
+            <p class="join-season-msg">
+              You are not yet enrolled in this season.
+            </p>
+            <button
+              type="button"
+              class="btn btn-primary join-season-btn"
+              :disabled="joinSeasonBusy"
+              @click="joinSeason"
+            >
+              {{ joinSeasonBusy ? 'Joining…' : 'Join this season' }}
+            </button>
+            <p v-if="joinSeasonError" class="error-inline" style="margin-top:8px;">{{ joinSeasonError }}</p>
+          </div>
+        </section>
+
+        <!-- Log Workout Modal -->
+        <div v-if="showLogWorkoutModal" class="modal-overlay" @click.self="showLogWorkoutModal = false">
+          <div class="modal-content modal-wide log-workout-modal" @click.stop>
+            <div class="log-workout-modal-header">
+              <h2>Log Workout</h2>
+              <button type="button" class="modal-close-btn" @click="showLogWorkoutModal = false">✕</button>
+            </div>
             <form class="workout-form" @submit.prevent="submitWorkout">
               <div class="form-row">
                 <label>Activity type</label>
@@ -579,8 +604,9 @@
 
               <div class="form-row">
                 <label>Notes</label>
-                <textarea v-model="workoutForm.workoutNotes" rows="2" placeholder="Optional" />
+                <textarea v-model="workoutForm.workoutNotes" rows="3" placeholder="Optional" />
               </div>
+              <div v-if="workoutError" class="error-inline" style="margin-bottom:8px;">{{ workoutError }}</div>
               <div class="form-buttons">
                 <button type="submit" class="btn btn-primary" :disabled="workoutSubmitting">
                   {{ workoutSubmitting ? 'Submitting…' : 'Log Workout' }}
@@ -589,18 +615,15 @@
                   v-if="stravaImportAvailable"
                   type="button"
                   class="btn btn-secondary"
-                  @click="openStravaImportModal"
+                  @click="showLogWorkoutModal = false; openStravaImportModal()"
                 >
                   Import from Strava
                 </button>
+                <button type="button" class="btn btn-ghost" @click="showLogWorkoutModal = false">Cancel</button>
               </div>
             </form>
           </div>
-          <p v-else-if="requiresParticipationAcceptance" class="hint">
-            Accept this season's participation agreement to start logging workouts and posting in the season.
-          </p>
-          <p v-else class="hint">You must be a season participant to log workouts. Contact your Program Manager to join.</p>
-        </section>
+        </div>
 
         <!-- Strava Import Modal -->
         <div v-if="showStravaImportModal" class="modal-overlay" @click.self="closeStravaImportModal">
@@ -776,6 +799,8 @@ const defaultWorkoutForm = () => ({
 });
 const workoutForm = ref(defaultWorkoutForm());
 const workoutSubmitting = ref(false);
+const workoutError = ref('');
+const showLogWorkoutModal = ref(false);
 
 // Vision OCR state
 const screenshotInputRef = ref(null);
@@ -1388,6 +1413,7 @@ const submitWorkout = async () => {
   const id = challengeId.value;
   if (!id || !workoutForm.value.activityType) return;
   workoutSubmitting.value = true;
+  workoutError.value = '';
   try {
     // If a screenshot was picked but not yet scanned/uploaded, upload it now
     if (workoutForm.value.screenshotFile && !workoutForm.value.screenshotFilePath) {
@@ -1416,12 +1442,13 @@ const submitWorkout = async () => {
     workoutForm.value = defaultWorkoutForm();
     visionExtracted.value = false;
     visionError.value = null;
+    showLogWorkoutModal.value = false;
     await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
   } catch (e) {
     if (Number(e?.response?.status || 0) === 428) {
       await loadChallenge();
     }
-    alert(e?.response?.data?.error?.message || 'Failed to submit workout');
+    workoutError.value = e?.response?.data?.error?.message || 'Failed to submit workout';
   } finally {
     workoutSubmitting.value = false;
   }
@@ -1469,9 +1496,24 @@ const loadStravaStatus = async () => {
   }
 };
 
-const scrollToLogWorkout = () => {
-  const el = document.getElementById('log-workout-section');
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+const joinSeasonBusy = ref(false);
+const joinSeasonError = ref('');
+const joinSeason = async () => {
+  if (joinSeasonBusy.value) return;
+  joinSeasonBusy.value = true;
+  joinSeasonError.value = '';
+  try {
+    await api.post(`/learning-program-classes/${challengeId.value}/join`, {}, { skipGlobalLoading: true });
+    // Refresh provider members so canParticipateInSeason recalculates to true.
+    const r = await api.get(`/learning-program-classes/${challengeId.value}`, { skipGlobalLoading: true });
+    providerMembers.value = Array.isArray(r.data?.providerMembers) ? r.data.providerMembers : providerMembers.value;
+    participationAgreementStatus.value = r.data?.participationAgreementStatus || participationAgreementStatus.value;
+  } catch (e) {
+    joinSeasonError.value = e.response?.data?.error?.message || 'Could not join — try again.';
+  } finally {
+    joinSeasonBusy.value = false;
+  }
 };
 
 const openStravaImportModal = async () => {
@@ -1552,7 +1594,7 @@ watch(challengeId, () => {
 
 <style scoped>
 .challenge-dashboard {
-  max-width: 900px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 24px;
 }
@@ -1644,6 +1686,26 @@ watch(challengeId, () => {
 .club-store-link:hover {
   text-decoration: underline;
 }
+.join-season-panel {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 20px;
+  background: #f8faff;
+  border: 2px dashed #c8102e;
+  border-radius: 10px;
+}
+.join-season-msg {
+  margin: 0;
+  font-size: 1rem;
+  color: #444;
+}
+.join-season-btn {
+  white-space: nowrap;
+  font-weight: 700;
+  padding: 10px 24px;
+}
 .season-action-bar {
   display: flex;
   align-items: center;
@@ -1687,36 +1749,19 @@ watch(challengeId, () => {
   font-style: italic;
   font-size: 1.1rem;
 }
-.challenge-feed-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
+.challenge-feed-full {
+  /* Activity feed takes full width — no artificial height cap */
+  width: 100%;
 }
-.challenge-feed-activity {
-  max-height: 72vh;
-  overflow-y: auto;
+.challenge-chat-full {
+  /* Chat also full width, sits below the activity feed */
+  width: 100%;
   border: 1px solid var(--border-color, #ddd);
   border-radius: 8px;
-  padding: 16px;
   background: #fff;
-}
-.challenge-feed-chat {
-  max-height: 72vh;
-  overflow-y: auto;
-  border: 1px solid var(--border-color, #ddd);
-  border-radius: 8px;
-  padding: 16px;
-  background: #fff;
+  overflow: hidden;
 }
 @media (max-width: 740px) {
-  .challenge-feed-row {
-    grid-template-columns: 1fr;
-  }
-  .challenge-feed-activity,
-  .challenge-feed-chat {
-    max-height: 60vh;
-  }
   .season-action-bar { flex-direction: column; align-items: stretch; }
   .season-action-btn { justify-content: center; }
 }
@@ -1940,6 +1985,33 @@ watch(challengeId, () => {
 }
 .modal-content.modal-wide {
   min-width: 480px;
+}
+.log-workout-modal {
+  width: min(560px, 96vw);
+}
+.log-workout-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.log-workout-modal-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+.modal-close-btn {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: #666;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.modal-close-btn:hover {
+  background: #f0f0f0;
+  color: #333;
 }
 .strava-activity-list {
   max-height: 320px;
