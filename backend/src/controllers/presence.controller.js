@@ -248,6 +248,16 @@ export const listAgencyPresence = async (req, res, next) => {
 
     await assertAgencyAccess(req.user, agencyId);
 
+    // Determine whether this is a platform agency so we can also include
+    // affiliated-club members (who live in user_agencies under the club id,
+    // not the platform agency id).
+    const [agencyTypeRows] = await pool.execute(
+      `SELECT LOWER(COALESCE(organization_type, 'agency')) AS org_type FROM agencies WHERE id = ? LIMIT 1`,
+      [agencyId]
+    );
+    const orgType = agencyTypeRows?.[0]?.org_type || 'agency';
+    const isPlatformAgency = orgType === 'agency';
+
     // Users in the agency + their presence (if any).
     // IMPORTANT: presence is global per-user; if a user belongs to multiple agencies,
     // they should appear online for each agency when their heartbeat is fresh.
@@ -268,6 +278,38 @@ export const listAgencyPresence = async (req, res, next) => {
        ORDER BY u.first_name ASC, u.last_name ASC`,
       [agencyId]
     );
+
+    // For platform agencies, also include users from affiliated clubs so that
+    // club members appear in the "Start a chat" recipient search.
+    let clubUsers = [];
+    if (isPlatformAgency) {
+      try {
+        const [cu] = await pool.execute(
+          `SELECT DISTINCT u.id,
+                  u.first_name,
+                  u.last_name,
+                  u.email,
+                  u.role,
+                  up.last_heartbeat_at,
+                  up.last_activity_at,
+                  up.availability_level
+           FROM users u
+           INNER JOIN user_agencies ua ON ua.user_id = u.id
+           INNER JOIN agencies a ON a.id = ua.agency_id
+             AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'
+           INNER JOIN organization_affiliations oa ON oa.organization_id = ua.agency_id
+             AND oa.agency_id = ?
+             AND oa.is_active = 1
+           LEFT JOIN user_presence up ON up.user_id = u.id
+           WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+           ORDER BY u.first_name ASC, u.last_name ASC`,
+          [agencyId]
+        );
+        clubUsers = cu || [];
+      } catch {
+        // Non-fatal — if organization_affiliations is missing or misconfigured just skip.
+      }
+    }
 
     // Allow admins to see superadmins who have opted into being reachable.
     let superAdmins = [];
@@ -291,7 +333,7 @@ export const listAgencyPresence = async (req, res, next) => {
     }
 
     const dedup = new Map();
-    for (const r of [...(agencyUsers || []), ...(superAdmins || [])]) {
+    for (const r of [...(agencyUsers || []), ...(clubUsers || []), ...(superAdmins || [])]) {
       if (!dedup.has(r.id)) dedup.set(r.id, r);
     }
     const rows = Array.from(dedup.values());

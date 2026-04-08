@@ -250,6 +250,8 @@ const normalizeSeasonSettings = (input = {}) => {
       allowCaptainNicknameSuffixWhenLocked: asBool(teams.allowCaptainNicknameSuffixWhenLocked, false)
     },
     participation: {
+      weeklyGoalMembersPerTeam: Math.max(1, numOr(participation.weeklyGoalMembersPerTeam, 10)),
+      weeklyGoalMetric: ['miles', 'points', 'minutes', 'activities'].includes(String(participation.weeklyGoalMetric || '')) ? participation.weeklyGoalMetric : 'miles',
       individualMinPointsPerWeek: Math.max(0, numOr(participation.individualMinPointsPerWeek, numOr(scoring.weeklyMinimumPointsPerAthlete, 0))),
       teamMinPointsPerWeek: Math.max(0, numOr(participation.teamMinPointsPerWeek, numOr(scoring.teamWeeklyTargetPoints, 0))),
       runRuckStartMilesPerPerson: Math.max(0, floatOr(participation.runRuckStartMilesPerPerson, 0)),
@@ -624,6 +626,18 @@ export const createLearningProgramClass = async (req, res, next) => {
       cashEligible: asBool(req.body.cashEligible ?? req.body.cash_eligible, false),
       createdByUserId: req.user.id
     });
+    // Auto-enroll the creating club manager as an active season participant so they
+    // can immediately log workouts without a separate join step.
+    try {
+      await LearningProgramClass.addProviderMember({
+        classId: klass.id,
+        providerUserId: req.user.id,
+        membershipStatus: 'active',
+        actorUserId: req.user.id
+      });
+    } catch {
+      // Non-fatal: if already a member (ON DUPLICATE KEY) this is harmless.
+    }
     return res.status(201).json({ class: withSeasonSettingsDefaults(klass) });
   } catch (e) {
     next(e);

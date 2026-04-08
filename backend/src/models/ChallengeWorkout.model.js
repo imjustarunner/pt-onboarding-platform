@@ -394,6 +394,59 @@ class ChallengeWorkout {
     // Metric expression — varies by aggregation mode
     // best_day uses a nested subquery (built below), so metricExpr is only
     // used for the other aggregation modes.
+    // Kudos-received metric: uses challenge_workout_kudos, not challenge_workouts.
+    // Handled by a dedicated branch below.
+    if (metric === 'kudos_received') {
+      const params = [classId];
+      let dateFilter = '';
+      if (period === 'weekly') {
+        dateFilter = ' AND k.week_start_date = ?';
+        params.push(weekStart);
+      } else if (period !== 'season') {
+        // monthly — approximate via given_at
+        const d = new Date(weekStart);
+        const y = d.getFullYear();
+        const mo = d.getMonth();
+        const monthStart = new Date(y, mo, 1).toISOString().slice(0, 10);
+        const monthEnd = new Date(y, mo + 1, 1).toISOString().slice(0, 10);
+        dateFilter = ' AND DATE(k.given_at) >= ? AND DATE(k.given_at) < ?';
+        params.push(monthStart, monthEnd);
+      }
+      const [rows] = await pool.execute(
+        `SELECT k.receiver_user_id AS user_id,
+                u.first_name, u.last_name, u.profile_photo_path,
+                t.team_name,
+                COUNT(*) AS metric_value
+         FROM challenge_workout_kudos k
+         INNER JOIN users u ON u.id = k.receiver_user_id
+         LEFT JOIN challenge_team_members tm ON tm.provider_user_id = k.receiver_user_id
+         LEFT JOIN challenge_teams t ON t.id = tm.team_id AND t.learning_class_id = k.learning_class_id
+         WHERE k.learning_class_id = ?${dateFilter}
+         GROUP BY k.receiver_user_id, u.first_name, u.last_name, u.profile_photo_path, t.team_name
+         ORDER BY metric_value DESC
+         LIMIT 1`,
+        params
+      );
+      const row = rows?.[0] || null;
+      return [{
+        categoryId: cat.id,
+        label: cat.label,
+        icon: cat.icon || null,
+        period,
+        metric,
+        aggregation: 'most',
+        referenceTarget: null,
+        winner: row ? {
+          user_id: row.user_id,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          profile_photo_path: row.profile_photo_path || null,
+          team_name: row.team_name,
+          value: Number(row.metric_value)
+        } : null
+      }];
+    }
+
     const metricColMap = {
       points:           'w.points',
       distance_miles:   'w.distance_value',

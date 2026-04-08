@@ -288,22 +288,23 @@
           </div>
           <div class="rcb-award-field">
             <label class="rcb-field-label">Metric</label>
-            <select v-model="aw.metric" class="rcb-select" @change="emit_">
+            <select v-model="aw.metric" class="rcb-select" @change="() => { if (aw.metric === 'kudos_received') aw.aggregation = 'most'; emit_(); }">
               <option value="points">Points</option>
               <option value="distance_miles">Miles</option>
               <option value="duration_minutes">Duration (min)</option>
               <option value="activities_count">Activity count</option>
+              <option value="kudos_received">Kudos received</option>
             </select>
           </div>
           <div class="rcb-award-field">
             <label class="rcb-field-label">Winner by</label>
-            <select v-model="aw.aggregation" class="rcb-select" @change="emit_">
+            <select v-model="aw.aggregation" class="rcb-select" @change="emit_" :disabled="aw.metric === 'kudos_received'">
               <option value="most">Most (total)</option>
-              <option value="least">Least (total)</option>
-              <option value="average">Average per entry</option>
-              <option value="best_single">Best single workout</option>
-              <option value="best_day">Best single day</option>
-              <option value="milestone">Milestone (everyone who reaches target)</option>
+              <option v-if="aw.metric !== 'kudos_received'" value="least">Least (total)</option>
+              <option v-if="aw.metric !== 'kudos_received'" value="average">Average per entry</option>
+              <option v-if="aw.metric !== 'kudos_received'" value="best_single">Best single workout</option>
+              <option v-if="aw.metric !== 'kudos_received'" value="best_day">Best single day</option>
+              <option v-if="aw.metric !== 'kudos_received'" value="milestone">Milestone (everyone who reaches target)</option>
             </select>
           </div>
         </div>

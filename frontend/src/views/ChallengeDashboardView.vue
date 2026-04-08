@@ -61,7 +61,39 @@
         </div>
       </div>
 
+      <!-- Quick-action bar: always visible, scrolls to full form -->
+      <div v-if="canParticipateInSeason" class="season-action-bar">
+        <button type="button" class="season-action-btn season-action-btn--primary" @click="scrollToLogWorkout">
+          <span class="season-action-icon">+</span> Log Workout
+        </button>
+        <button v-if="stravaImportAvailable" type="button" class="season-action-btn season-action-btn--strava" @click="openStravaImportModal">
+          <span class="strava-logo-s">S</span> Import from Strava
+        </button>
+      </div>
+
       <div class="challenge-sections">
+        <!-- Activity feed + chat at the TOP — the main interaction surface -->
+        <div class="challenge-feed-row">
+          <div class="challenge-feed-activity">
+            <ChallengeActivityFeed
+              :workouts="activity"
+              :loading="activityLoading"
+              :challenge-id="challengeId"
+              :my-user-id="authStore.user?.id"
+              :my-team-id="myTeamId"
+              :is-manager="isChallengeManager"
+              @media-uploaded="refreshAfterActivityAction"
+            />
+          </div>
+          <div class="challenge-feed-chat">
+            <ChallengeMessageFeed
+              :challenge-id="challengeId"
+              :my-user-id="authStore.user?.id"
+              :is-manager="isChallengeManager"
+            />
+          </div>
+        </div>
+
         <div class="challenge-two-col">
           <div class="challenge-col-left">
             <div class="challenge-section">
@@ -333,25 +365,6 @@
               <p v-else class="hint">No kudos given this week yet. Be the first!</p>
             </div>
           </div>
-          <div class="challenge-col-right">
-            <div class="challenge-section">
-              <ChallengeActivityFeed
-                :workouts="activity"
-                :loading="activityLoading"
-                :challenge-id="challengeId"
-                :my-user-id="authStore.user?.id"
-                :my-team-id="myTeamId"
-                :is-manager="isChallengeManager"
-                @media-uploaded="refreshAfterActivityAction"
-              />
-            </div>
-            <div class="challenge-section">
-              <ChallengeMessageFeed
-                :challenge-id="challengeId"
-                :my-user-id="authStore.user?.id"
-                :is-manager="isChallengeManager"
-              />
-            </div>
           </div>
         </div>
 
@@ -455,7 +468,7 @@
           </div>
         </section>
 
-        <section class="challenge-section">
+        <section id="log-workout-section" class="challenge-section">
           <h2>Log Workout</h2>
           <div v-if="canParticipateInSeason" class="workout-actions">
             <form class="workout-form" @submit.prevent="submitWorkout">
@@ -1457,6 +1470,11 @@ const loadStravaStatus = async () => {
   }
 };
 
+const scrollToLogWorkout = () => {
+  const el = document.getElementById('log-workout-section');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
 const openStravaImportModal = async () => {
   if (stravaStatus.value?.stravaRolloutEnabled === false || !stravaStatus.value?.connected) return;
   showStravaImportModal.value = true;
@@ -1626,6 +1644,82 @@ watch(challengeId, () => {
 }
 .club-store-link:hover {
   text-decoration: underline;
+}
+.season-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 2px solid #c8102e;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(200,16,46,0.08);
+  flex-wrap: wrap;
+}
+.season-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  border: none;
+  transition: filter 0.15s;
+}
+.season-action-btn:hover { filter: brightness(0.92); }
+.season-action-btn--primary {
+  background: #c8102e;
+  color: #fff;
+}
+.season-action-btn--strava {
+  background: #fc4c02;
+  color: #fff;
+}
+.season-action-icon {
+  font-size: 1.2rem;
+  font-weight: 900;
+  line-height: 1;
+}
+.strava-logo-s {
+  font-weight: 900;
+  font-style: italic;
+  font-size: 1.1rem;
+}
+.challenge-feed-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.challenge-feed-activity {
+  max-height: 72vh;
+  overflow-y: auto;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 8px;
+  padding: 16px;
+  background: #fff;
+}
+.challenge-feed-chat {
+  max-height: 72vh;
+  overflow-y: auto;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 8px;
+  padding: 16px;
+  background: #fff;
+}
+@media (max-width: 740px) {
+  .challenge-feed-row {
+    grid-template-columns: 1fr;
+  }
+  .challenge-feed-activity,
+  .challenge-feed-chat {
+    max-height: 60vh;
+  }
+  .season-action-bar { flex-direction: column; align-items: stretch; }
+  .season-action-btn { justify-content: center; }
 }
 .challenge-sections {
   display: flex;
