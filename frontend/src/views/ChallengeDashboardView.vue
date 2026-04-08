@@ -365,7 +365,6 @@
               <p v-else class="hint">No kudos given this week yet. Be the first!</p>
             </div>
           </div>
-          </div>
         </div>
 
         <div class="challenge-section">
