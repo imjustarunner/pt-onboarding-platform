@@ -731,21 +731,25 @@ export const submitWorkout = async (req, res, next) => {
         }
       }
     }
+    // screenshotFilePath = workout watch/app screenshot used for Vision OCR AND stored as the main proof image.
+    // treadmillProofFilePath = separate treadmill-display photo required for treadmill entries.
+    // mapImageFilePath = optional map photo attached to the workout.
+    const screenshotFilePath = req.body.screenshotFilePath ? String(req.body.screenshotFilePath).trim() : null;
+    const treadmillProofFilePath = req.body.treadmillProofFilePath ? String(req.body.treadmillProofFilePath).trim() : null;
+    const mapImageFilePath = req.body.mapImageFilePath ? String(req.body.mapImageFilePath).trim() : null;
+    const hasProofImage = !!(screenshotFilePath || treadmillProofFilePath);
     let proofStatus = (moderationMode === 'all' || (moderationMode === 'treadmill_only' && isTreadmill))
       ? 'pending'
       : 'not_required';
-    const hasTreadmillProof = !!String(req.body.screenshotFilePath || '').trim();
     const taskProofPolicy = String(weeklyTask?.proof_policy || 'none').toLowerCase();
-    if (taskProofPolicy === 'photo_required' && !hasTreadmillProof) {
+    if (taskProofPolicy === 'photo_required' && !hasProofImage) {
       return res.status(400).json({ error: { message: 'This weekly challenge requires photo proof upload.' } });
     }
     if (taskProofPolicy === 'gps_required_no_treadmill' && isTreadmill) {
       return res.status(400).json({ error: { message: 'This weekly challenge does not allow treadmill workouts.' } });
     }
-    if (isTreadmill) {
-      if (!hasTreadmillProof) {
-        return res.status(400).json({ error: { message: 'Treadmill entries require a treadmill photo upload.' } });
-      }
+    if (isTreadmill && !treadmillProofFilePath) {
+      return res.status(400).json({ error: { message: 'Treadmill entries require a treadmill screen photo upload.' } });
     }
     // ── Criteria validation (non-blocking by default unless manager enforces strict mode) ──
     let criteriaViolation = null;
@@ -843,12 +847,25 @@ export const submitWorkout = async (req, res, next) => {
       caloriesBurned,
       points,
       workoutNotes: req.body.workoutNotes ? String(req.body.workoutNotes).trim() : null,
-      screenshotFilePath: req.body.screenshotFilePath ? String(req.body.screenshotFilePath).trim() : null,
+      screenshotFilePath,
       completedAt: completedAt.toISOString().slice(0, 19).replace('T', ' '),
       weeklyTaskId,
       proofStatus
     });
     if (workout?.id) {
+      // Save treadmill proof and map image as separate media records
+      if (treadmillProofFilePath) {
+        ChallengeWorkoutMedia.create({
+          workoutId: workout.id, learningClassId: classId, userId: req.user.id,
+          mediaType: 'treadmill_proof', filePath: treadmillProofFilePath
+        }).catch(() => {});
+      }
+      if (mapImageFilePath) {
+        ChallengeWorkoutMedia.create({
+          workoutId: workout.id, learningClassId: classId, userId: req.user.id,
+          mediaType: 'map', filePath: mapImageFilePath
+        }).catch(() => {});
+      }
       try {
         await queueClubRecordBreakCandidates({
           learningClassId: classId,

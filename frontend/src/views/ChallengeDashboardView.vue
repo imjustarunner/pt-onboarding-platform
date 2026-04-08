@@ -496,6 +496,50 @@
               <button type="button" class="modal-close-btn" @click="showLogWorkoutModal = false">✕</button>
             </div>
             <form class="workout-form" @submit.prevent="submitWorkout">
+
+              <!-- ① Workout screenshot — primary data source via Vision OCR -->
+              <div class="workout-upload-section">
+                <div class="workout-upload-label">
+                  <span class="upload-step-badge">1</span>
+                  <span>Upload workout screenshot <span class="optional-tag">auto-fills fields</span></span>
+                </div>
+                <p class="upload-hint">Upload a screenshot from Garmin, Apple Watch, Strava, etc. AI will read your distance, time, and activity type. You can edit anything it gets wrong.</p>
+                <input
+                  ref="screenshotInputRef"
+                  type="file"
+                  accept="image/*"
+                  style="display:none"
+                  @change="onScreenshotSelected"
+                />
+                <div v-if="!workoutForm.screenshotFile" class="vision-file-area vision-file-area--primary" @click="screenshotInputRef?.click()">
+                  <span class="vision-drop-icon">📸</span>
+                  <span>Tap to attach your workout screenshot</span>
+                </div>
+                <div v-else class="vision-preview-row">
+                  <img :src="workoutForm.screenshotPreviewUrl" class="screenshot-thumbnail screenshot-thumbnail--lg" alt="Workout screenshot" />
+                  <div class="vision-preview-actions">
+                    <div v-if="visionScanning" class="vision-scanning-badge">🔍 Analyzing…</div>
+                    <div v-else-if="visionExtracted" class="vision-extracted-banner">
+                      ✅ Fields auto-filled — edit anything below as needed.
+                      <span v-if="visionConfidence > 0" class="confidence-badge">{{ visionConfidence }}% confidence</span>
+                    </div>
+                    <div v-if="visionError" class="vision-error-banner">{{ visionError }}</div>
+                    <div class="vision-controls">
+                      <button type="button" class="btn btn-sm btn-secondary" :disabled="visionScanning" @click="analyzeScreenshot">
+                        {{ visionScanning ? '🔍 Re-analyzing…' : '🔍 Re-analyze' }}
+                      </button>
+                      <button type="button" class="btn btn-sm btn-ghost" @click="clearScreenshot">✕ Remove</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ② Workout data fields (auto-filled by Vision, manually editable) -->
+              <div class="workout-upload-label" style="margin-top:16px;">
+                <span class="upload-step-badge">2</span>
+                <span>Review &amp; complete workout details</span>
+              </div>
+
               <div class="form-row">
                 <label>Activity type</label>
                 <select v-model="workoutForm.activityType" required>
@@ -503,26 +547,23 @@
                   <option v-for="opt in activityTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
               </div>
-              <div class="form-row">
-                <label>Distance (miles)</label>
-                <input v-model.number="workoutForm.distanceValue" type="number" step="0.01" min="0" placeholder="Optional" />
-              </div>
-              <div class="form-row">
-                <label>Duration (minutes)</label>
-                <input v-model.number="workoutForm.durationMinutes" type="number" min="0" placeholder="Optional" />
-              </div>
-              <div class="form-row" v-if="eventCategory === 'fitness'">
-                <label>Calories burned</label>
-                <input v-model.number="workoutForm.caloriesBurned" type="number" min="0" placeholder="Optional" />
-              </div>
-              <div class="form-row">
-                <label>Points</label>
-                <input v-model.number="workoutForm.points" type="number" min="0" required />
-                <small class="hint">
-                  {{ eventCategory === 'fitness'
-                    ? 'Points can be auto-derived from calories based on season settings.'
-                    : 'For run/ruck entries, points can be auto-derived from mileage settings.' }}
-                </small>
+              <div class="form-row-group">
+                <div class="form-row">
+                  <label>Distance (miles)</label>
+                  <input v-model.number="workoutForm.distanceValue" type="number" step="0.01" min="0" placeholder="Optional" />
+                </div>
+                <div class="form-row">
+                  <label>Duration (min)</label>
+                  <input v-model.number="workoutForm.durationMinutes" type="number" min="0" placeholder="Optional" />
+                </div>
+                <div class="form-row" v-if="eventCategory === 'fitness'">
+                  <label>Calories</label>
+                  <input v-model.number="workoutForm.caloriesBurned" type="number" min="0" placeholder="Optional" />
+                </div>
+                <div class="form-row">
+                  <label>Points</label>
+                  <input v-model.number="workoutForm.points" type="number" min="0" required />
+                </div>
               </div>
               <div class="form-row">
                 <label>Terrain</label>
@@ -540,83 +581,64 @@
                 <label>Weekly challenge tag</label>
                 <select v-model="workoutForm.weeklyTaskId">
                   <option :value="null">None</option>
-                  <option v-for="t in weeklyTaskOptions" :key="`weekly-task-option-${t.id}`" :value="t.id">
-                    {{ t.name }}
-                  </option>
+                  <option v-for="t in weeklyTaskOptions" :key="`weekly-task-option-${t.id}`" :value="t.id">{{ t.name }}</option>
                 </select>
-                <small class="hint" v-if="selectedTaskProofPolicyLabel">
-                  Proof policy: {{ selectedTaskProofPolicyLabel }}
-                </small>
+                <small class="hint" v-if="selectedTaskProofPolicyLabel">Proof policy: {{ selectedTaskProofPolicyLabel }}</small>
               </div>
               <div class="form-row">
-                <label>
-                  <input v-model="workoutForm.isTreadmill" type="checkbox" />
-                  This was completed on a treadmill
-                </label>
+                <label><input v-model="workoutForm.isTreadmill" type="checkbox" /> Completed on a treadmill</label>
+              </div>
+              <div class="form-row">
+                <label>Notes</label>
+                <textarea v-model="workoutForm.workoutNotes" rows="2" placeholder="Optional" />
               </div>
 
-              <!-- Screenshot upload with optional Vision OCR -->
-              <div class="form-row vision-upload-row">
-                <label>Workout screenshot <span class="optional-tag">optional</span></label>
-                <div class="vision-upload-box">
-                  <input
-                    ref="screenshotInputRef"
-                    type="file"
-                    accept="image/*"
-                    style="display:none"
-                    @change="onScreenshotSelected"
-                  />
-                  <div class="vision-file-area" @click="screenshotInputRef?.click()">
-                    <span v-if="!workoutForm.screenshotPreviewUrl">
-                      📸 Click to attach a screenshot
-                    </span>
-                    <img
-                      v-else
-                      :src="workoutForm.screenshotPreviewUrl"
-                      class="screenshot-thumbnail"
-                      alt="Screenshot preview"
-                    />
+              <!-- ③ Treadmill proof photo (required when treadmill is checked) -->
+              <div v-if="workoutForm.isTreadmill" class="workout-upload-section workout-upload-section--required">
+                <div class="workout-upload-label">
+                  <span class="upload-step-badge upload-step-badge--required">!</span>
+                  <span>Treadmill screen photo <span class="required-tag">required</span></span>
+                </div>
+                <p class="upload-hint">Photo of the treadmill display showing distance and time. This is separate from your watch screenshot above.</p>
+                <input ref="treadmillProofInputRef" type="file" accept="image/*" style="display:none" @change="onTreadmillProofSelected" />
+                <div v-if="!workoutForm.treadmillProofFile" class="vision-file-area" @click="treadmillProofInputRef?.click()">
+                  <span class="vision-drop-icon">🏃</span>
+                  <span>Tap to attach treadmill screen photo</span>
+                </div>
+                <div v-else class="vision-preview-row">
+                  <img :src="workoutForm.treadmillProofPreviewUrl" class="screenshot-thumbnail screenshot-thumbnail--lg" alt="Treadmill proof" />
+                  <div class="vision-preview-actions">
+                    <button type="button" class="btn btn-sm btn-ghost" @click="clearTreadmillProof">✕ Remove</button>
                   </div>
-                  <div class="vision-controls" v-if="workoutForm.screenshotFile">
-                    <button
-                      type="button"
-                      class="btn btn-sm btn-secondary"
-                      :disabled="visionScanning"
-                      @click="analyzeScreenshot"
-                    >
-                      {{ visionScanning ? '🔍 Analyzing…' : '🔍 Analyze with AI' }}
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-sm btn-ghost"
-                      @click="clearScreenshot"
-                    >
-                      ✕ Remove
-                    </button>
-                  </div>
-                  <div v-if="visionExtracted" class="vision-extracted-banner">
-                    ✅ AI extracted fields — review and adjust as needed.
-                    <span class="confidence-badge">{{ visionConfidence }}% confidence</span>
-                  </div>
-                  <div v-if="visionError" class="vision-error-banner">{{ visionError }}</div>
                 </div>
               </div>
 
-              <div class="form-row">
-                <label>Notes</label>
-                <textarea v-model="workoutForm.workoutNotes" rows="3" placeholder="Optional" />
+              <!-- ④ Map image (optional) -->
+              <div class="workout-upload-section workout-upload-section--optional">
+                <div class="workout-upload-label">
+                  <span class="upload-step-badge upload-step-badge--optional">+</span>
+                  <span>Route map <span class="optional-tag">optional</span></span>
+                </div>
+                <p class="upload-hint">Attach a map screenshot if your challenge requires it or if you want to share your route.</p>
+                <input ref="mapImageInputRef" type="file" accept="image/*" style="display:none" @change="onMapImageSelected" />
+                <div v-if="!workoutForm.mapImageFile" class="vision-file-area vision-file-area--compact" @click="mapImageInputRef?.click()">
+                  <span class="vision-drop-icon">🗺️</span>
+                  <span>Tap to attach a map image</span>
+                </div>
+                <div v-else class="vision-preview-row">
+                  <img :src="workoutForm.mapImagePreviewUrl" class="screenshot-thumbnail screenshot-thumbnail--lg" alt="Route map" />
+                  <div class="vision-preview-actions">
+                    <button type="button" class="btn btn-sm btn-ghost" @click="clearMapImage">✕ Remove</button>
+                  </div>
+                </div>
               </div>
-              <div v-if="workoutError" class="error-inline" style="margin-bottom:8px;">{{ workoutError }}</div>
+
+              <div v-if="workoutError" class="error-inline" style="margin:8px 0;">{{ workoutError }}</div>
               <div class="form-buttons">
                 <button type="submit" class="btn btn-primary" :disabled="workoutSubmitting">
                   {{ workoutSubmitting ? 'Submitting…' : 'Log Workout' }}
                 </button>
-                <button
-                  v-if="stravaImportAvailable"
-                  type="button"
-                  class="btn btn-secondary"
-                  @click="showLogWorkoutModal = false; openStravaImportModal()"
-                >
+                <button v-if="stravaImportAvailable" type="button" class="btn btn-secondary" @click="showLogWorkoutModal = false; openStravaImportModal()">
                   Import from Strava
                 </button>
                 <button type="button" class="btn btn-ghost" @click="showLogWorkoutModal = false">Cancel</button>
@@ -792,10 +814,18 @@ const defaultWorkoutForm = () => ({
   weeklyTaskId: null,
   isTreadmill: false,
   terrain: '',
-  // Vision / screenshot fields
+  // Primary workout screenshot → Vision OCR source + stored as proof
   screenshotFile: null,
   screenshotPreviewUrl: null,
-  screenshotFilePath: null
+  screenshotFilePath: null,
+  // Treadmill screen photo (required when isTreadmill = true)
+  treadmillProofFile: null,
+  treadmillProofPreviewUrl: null,
+  treadmillProofFilePath: null,
+  // Optional map image
+  mapImageFile: null,
+  mapImagePreviewUrl: null,
+  mapImageFilePath: null
 });
 const workoutForm = ref(defaultWorkoutForm());
 const workoutSubmitting = ref(false);
@@ -804,6 +834,8 @@ const showLogWorkoutModal = ref(false);
 
 // Vision OCR state
 const screenshotInputRef = ref(null);
+const treadmillProofInputRef = ref(null);
+const mapImageInputRef = ref(null);
 const visionScanning = ref(false);
 const visionExtracted = ref(false);
 const visionError = ref(null);
@@ -1367,6 +1399,8 @@ const onScreenshotSelected = (e) => {
   workoutForm.value.screenshotFilePath = null;
   visionExtracted.value = false;
   visionError.value = null;
+  // Auto-analyze immediately when file is selected
+  analyzeScreenshot();
 };
 
 const clearScreenshot = () => {
@@ -1377,6 +1411,40 @@ const clearScreenshot = () => {
   visionExtracted.value = false;
   visionError.value = null;
   if (screenshotInputRef.value) screenshotInputRef.value.value = '';
+};
+
+// Treadmill proof image handlers
+const onTreadmillProofSelected = (e) => {
+  const file = e.target?.files?.[0];
+  if (!file) return;
+  if (workoutForm.value.treadmillProofPreviewUrl) URL.revokeObjectURL(workoutForm.value.treadmillProofPreviewUrl);
+  workoutForm.value.treadmillProofFile = file;
+  workoutForm.value.treadmillProofPreviewUrl = URL.createObjectURL(file);
+  workoutForm.value.treadmillProofFilePath = null;
+};
+const clearTreadmillProof = () => {
+  if (workoutForm.value.treadmillProofPreviewUrl) URL.revokeObjectURL(workoutForm.value.treadmillProofPreviewUrl);
+  workoutForm.value.treadmillProofFile = null;
+  workoutForm.value.treadmillProofPreviewUrl = null;
+  workoutForm.value.treadmillProofFilePath = null;
+  if (treadmillProofInputRef.value) treadmillProofInputRef.value.value = '';
+};
+
+// Map image handlers
+const onMapImageSelected = (e) => {
+  const file = e.target?.files?.[0];
+  if (!file) return;
+  if (workoutForm.value.mapImagePreviewUrl) URL.revokeObjectURL(workoutForm.value.mapImagePreviewUrl);
+  workoutForm.value.mapImageFile = file;
+  workoutForm.value.mapImagePreviewUrl = URL.createObjectURL(file);
+  workoutForm.value.mapImageFilePath = null;
+};
+const clearMapImage = () => {
+  if (workoutForm.value.mapImagePreviewUrl) URL.revokeObjectURL(workoutForm.value.mapImagePreviewUrl);
+  workoutForm.value.mapImageFile = null;
+  workoutForm.value.mapImagePreviewUrl = null;
+  workoutForm.value.mapImageFilePath = null;
+  if (mapImageInputRef.value) mapImageInputRef.value.value = '';
 };
 
 const analyzeScreenshot = async () => {
@@ -1415,16 +1483,28 @@ const submitWorkout = async () => {
   workoutSubmitting.value = true;
   workoutError.value = '';
   try {
-    // If a screenshot was picked but not yet scanned/uploaded, upload it now
+    const uploadFile = async (file) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      const { data } = await api.post(`/learning-program-classes/${id}/workouts/scan-screenshot`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      return data.filePath || null;
+    };
+    // Upload workout screenshot (Vision OCR source) if not already uploaded
     if (workoutForm.value.screenshotFile && !workoutForm.value.screenshotFilePath) {
-      try {
-        const formData = new FormData();
-        formData.append('file', workoutForm.value.screenshotFile);
-        const { data } = await api.post(`/learning-program-classes/${id}/workouts/scan-screenshot`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-        workoutForm.value.screenshotFilePath = data.filePath || null;
-      } catch { /* non-blocking — workout can still submit without screenshot */ }
+      try { workoutForm.value.screenshotFilePath = await uploadFile(workoutForm.value.screenshotFile); }
+      catch { /* non-blocking */ }
+    }
+    // Upload treadmill proof if not yet uploaded
+    if (workoutForm.value.treadmillProofFile && !workoutForm.value.treadmillProofFilePath) {
+      try { workoutForm.value.treadmillProofFilePath = await uploadFile(workoutForm.value.treadmillProofFile); }
+      catch { /* non-blocking */ }
+    }
+    // Upload map image if not yet uploaded
+    if (workoutForm.value.mapImageFile && !workoutForm.value.mapImageFilePath) {
+      try { workoutForm.value.mapImageFilePath = await uploadFile(workoutForm.value.mapImageFile); }
+      catch { /* non-blocking */ }
     }
     await api.post(`/learning-program-classes/${id}/workouts`, {
       activityType: workoutForm.value.activityType,
@@ -1436,9 +1516,14 @@ const submitWorkout = async () => {
       weeklyTaskId: workoutForm.value.weeklyTaskId || null,
       isTreadmill: workoutForm.value.isTreadmill === true,
       terrain: workoutForm.value.terrain || null,
-      screenshotFilePath: workoutForm.value.screenshotFilePath || null
+      screenshotFilePath: workoutForm.value.screenshotFilePath || null,
+      treadmillProofFilePath: workoutForm.value.treadmillProofFilePath || null,
+      mapImageFilePath: workoutForm.value.mapImageFilePath || null
     });
+    // Revoke object URLs
     if (workoutForm.value.screenshotPreviewUrl) URL.revokeObjectURL(workoutForm.value.screenshotPreviewUrl);
+    if (workoutForm.value.treadmillProofPreviewUrl) URL.revokeObjectURL(workoutForm.value.treadmillProofPreviewUrl);
+    if (workoutForm.value.mapImagePreviewUrl) URL.revokeObjectURL(workoutForm.value.mapImagePreviewUrl);
     workoutForm.value = defaultWorkoutForm();
     visionExtracted.value = false;
     visionError.value = null;
@@ -2251,40 +2336,119 @@ watch(challengeId, () => {
   color: #15803d !important;
 }
 
-/* ── Vision screenshot upload ────────────────────────────────────────────── */
-.vision-upload-row { margin-top: 4px; }
+/* ── Workout upload sections ─────────────────────────────────────────────── */
 .optional-tag {
   font-size: 0.75em;
   font-weight: 400;
-  color: #999;
-  margin-left: 4px;
+  color: #94a3b8;
+  margin-left: 5px;
 }
-.vision-upload-box {
+.required-tag {
+  font-size: 0.75em;
+  font-weight: 600;
+  color: #dc2626;
+  margin-left: 5px;
+}
+.workout-upload-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  background: #f8fafc;
+}
+.workout-upload-section--required {
+  border-color: #fca5a5;
+  background: #fff8f8;
+}
+.workout-upload-section--optional {
+  border-color: #e2e8f0;
+  background: #fafafa;
+}
+.workout-upload-label {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 8px;
+  font-weight: 600;
+  font-size: 0.92em;
+  color: #334155;
+  margin-bottom: 6px;
+}
+.upload-step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #1d4ed8;
+  color: #fff;
+  font-size: 0.78em;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.upload-step-badge--required { background: #dc2626; }
+.upload-step-badge--optional { background: #94a3b8; }
+.upload-hint {
+  font-size: 0.8em;
+  color: #64748b;
+  margin: 0 0 10px 0;
+  line-height: 1.4;
 }
 .vision-file-area {
   border: 2px dashed #cbd5e1;
   border-radius: 8px;
-  padding: 16px;
+  padding: 18px;
   text-align: center;
   cursor: pointer;
   color: #64748b;
   font-size: 0.9em;
-  transition: border-color 0.2s;
-  background: #f8fafc;
+  transition: border-color 0.2s, background 0.2s;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
+.vision-file-area--primary { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+.vision-file-area--primary:hover { border-color: #3b82f6; background: #dbeafe; }
+.vision-file-area--compact { padding: 12px; }
 .vision-file-area:hover { border-color: #94a3b8; background: #f1f5f9; }
+.vision-drop-icon { font-size: 1.5em; }
+.vision-preview-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.vision-preview-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+.vision-scanning-badge {
+  font-size: 0.84em;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
 .screenshot-thumbnail {
   max-width: 100%;
-  max-height: 160px;
+  max-height: 120px;
   border-radius: 6px;
   object-fit: contain;
+  border: 1px solid #e2e8f0;
+}
+.screenshot-thumbnail--lg {
+  max-height: 180px;
+  min-width: 80px;
+  max-width: 160px;
 }
 .vision-controls {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .btn-sm {
   font-size: 0.82em;
@@ -2305,10 +2469,11 @@ watch(challengeId, () => {
   color: #065f46;
   border-radius: 6px;
   padding: 8px 12px;
-  font-size: 0.85em;
+  font-size: 0.82em;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .confidence-badge {
   margin-left: auto;
@@ -2316,7 +2481,8 @@ watch(challengeId, () => {
   color: #fff;
   border-radius: 12px;
   padding: 2px 8px;
-  font-size: 0.8em;
+  font-size: 0.78em;
+  white-space: nowrap;
 }
 .vision-error-banner {
   background: #fee2e2;
@@ -2324,8 +2490,15 @@ watch(challengeId, () => {
   color: #7f1d1d;
   border-radius: 6px;
   padding: 8px 12px;
-  font-size: 0.85em;
+  font-size: 0.82em;
 }
+.form-row-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.form-row-group .form-row { margin-bottom: 0; }
 
 .team-captain-msg-row {
   margin-top: 12px;

@@ -26,7 +26,9 @@ class ChallengeWorkoutMedia {
     const uid = toInt(userId);
     const path = String(filePath || '').trim();
     if (!wid || !classId || !uid || !path) return null;
-    const mType = String(mediaType || '').toLowerCase() === 'gif' ? 'gif' : 'image';
+    const allowed = new Set(['image', 'gif', 'treadmill_proof', 'map']);
+    const raw = String(mediaType || '').toLowerCase();
+    const mType = allowed.has(raw) ? raw : 'image';
     const [result] = await pool.execute(
       `INSERT INTO challenge_workout_media
        (workout_id, learning_class_id, user_id, media_type, file_path)

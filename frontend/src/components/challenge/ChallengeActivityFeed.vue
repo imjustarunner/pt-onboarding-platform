@@ -284,9 +284,13 @@
         </div>
         <div class="activity-time hint">Logged {{ formatTime(w.completed_at || w.created_at) }}</div>
       </div>
-      <div v-if="!displayedWorkouts.length" class="empty-hint">
-        <template v-if="feedScope === 'team' && myTeamId">No workouts from your team in this feed yet.</template>
-        <template v-else>No activity yet. Be the first to log a workout!</template>
+      <div v-if="!displayedWorkouts.length" class="feed-empty-state">
+        <div class="feed-empty-icon">🏃</div>
+        <p class="feed-empty-title">
+          <template v-if="feedScope === 'team' && myTeamId">No team workouts yet — get moving!</template>
+          <template v-else>No activity yet — be the first to log a workout!</template>
+        </p>
+        <p class="feed-empty-sub">Workouts, kudos, emoji reactions, comments and photos will show here once members start logging.</p>
       </div>
     </div>
   </section>
@@ -714,18 +718,28 @@ const reviewProof = async (workoutId, status) => {
 </script>
 
 <style scoped>
+.challenge-activity-feed {
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 10px;
+  padding: 20px;
+  background: #fff;
+}
 .activity-feed-header {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 10px 16px;
-  margin-bottom: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #f1f5f9;
 }
 
 .challenge-activity-feed h2 {
   margin: 0;
-  font-size: 1.1em;
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
 .feed-scope-tabs {
@@ -758,20 +772,25 @@ const reviewProof = async (workoutId, status) => {
 .activity-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 .activity-card {
-  padding: 12px;
-  border: 1px solid #eee;
-  border-left: 4px solid #90a4ae;
-  border-radius: 6px;
-  background: #fafafa;
+  padding: 18px 20px;
+  border: 1px solid #e8edf3;
+  border-left: 5px solid #90a4ae;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  transition: box-shadow 0.15s;
+}
+.activity-card:hover {
+  box-shadow: 0 3px 10px rgba(0,0,0,0.09);
 }
 .activity-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
 }
 .activity-user-info {
   display: flex;
@@ -849,10 +868,10 @@ const reviewProof = async (workoutId, status) => {
   gap: 8px;
 }
 .screenshot-thumb {
-  width: 72px;
-  height: 72px;
+  width: 120px;
+  height: 120px;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid #e2e8f0;
   cursor: pointer;
   transition: opacity 0.2s;
@@ -902,18 +921,21 @@ const reviewProof = async (workoutId, status) => {
   font-size: 0.85em;
 }
 .activity-media {
-  margin-top: 8px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
 }
 .media-item {
-  width: 88px;
-  height: 88px;
+  width: 100%;
+  aspect-ratio: 4/3;
   object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid #ddd;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+  transition: opacity 0.15s;
 }
+.media-item:hover { opacity: 0.88; }
 .activity-comment-actions {
   margin-top: 8px;
   display: flex;
@@ -1024,6 +1046,30 @@ const reviewProof = async (workoutId, status) => {
 .loading-inline {
   padding: 12px;
   color: var(--text-muted, #666);
+}
+.feed-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 48px 24px;
+  gap: 10px;
+}
+.feed-empty-icon {
+  font-size: 3rem;
+  line-height: 1;
+}
+.feed-empty-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+.feed-empty-sub {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #64748b;
+  max-width: 380px;
 }
 
 /* ── Kudos + Emoji Reactions ─────────────────────────────────────────────── */
