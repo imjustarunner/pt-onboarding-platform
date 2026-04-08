@@ -627,6 +627,7 @@
           <button type="button" :class="['tab-btn', { active: manageTab === 'members' }]" @click="manageTab = 'members'">Participants</button>
           <button type="button" :class="['tab-btn', { active: manageTab === 'profiles' }]" @click="manageTab = 'profiles'; loadParticipantProfiles()">Profiles (Gender/DOB)</button>
           <button type="button" :class="['tab-btn', { active: manageTab === 'weekly' }]" @click="manageTab = 'weekly'; loadWeeklyTasks(); loadTemplateLibrary()">Weekly challenges</button>
+          <button type="button" class="tab-btn tab-btn--edit" @click="editFromManageModal">✏ Edit Season</button>
         </div>
 
         <div v-show="manageTab === 'teams'" class="manage-panel">
@@ -2092,6 +2093,13 @@ const saveChallenge = async () => {
   }
 };
 
+const editFromManageModal = () => {
+  const c = managingChallenge.value;
+  if (!c) return;
+  showManageModal.value = false;
+  openEditModal(c);
+};
+
 const openManageModal = async (c) => {
   managingChallenge.value = c;
   manageTab.value = 'teams';
@@ -2824,6 +2832,16 @@ onMounted(async () => {
   background: var(--primary, #0066cc);
   color: #fff;
   border-color: var(--primary, #0066cc);
+}
+.tab-btn--edit {
+  margin-left: auto;
+  background: #fff8f0;
+  border-color: #f59e0b;
+  color: #92400e;
+  font-weight: 600;
+}
+.tab-btn--edit:hover {
+  background: #fef3c7;
 }
 .manage-panel {
   padding: 12px 0;

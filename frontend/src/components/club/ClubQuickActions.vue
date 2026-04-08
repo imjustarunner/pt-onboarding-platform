@@ -16,7 +16,7 @@
       </button>
 
       <!-- Season Management -->
-      <router-link :to="seasonManagementTo" class="action-card action-card-link">
+      <div class="action-card action-card--split">
         <div class="action-icon-wrap">
           <img v-if="addSeasonIconUrl" :src="addSeasonIconUrl" alt="" class="action-icon-img" />
           <span v-else class="action-icon-placeholder">🏁</span>
@@ -25,7 +25,35 @@
           <h3>Season Management</h3>
           <p>Create your first season, edit existing ones, and manage season rules from one place.</p>
         </div>
-      </router-link>
+
+        <!-- Active season preview -->
+        <div class="season-preview" v-if="activeSeason">
+          <div class="season-preview-row">
+            <span class="season-preview-name">{{ activeSeason.class_name || activeSeason.className }}</span>
+            <span class="season-status-pill" :class="activeSeason.status === 'active' ? 'pill--active' : 'pill--draft'">
+              {{ activeSeason.status === 'active' ? 'Active' : activeSeason.status }}
+            </span>
+          </div>
+          <div v-if="activeSeason.starts_at" class="season-preview-dates hint">
+            {{ formatSeasonDate(activeSeason.starts_at) }} – {{ formatSeasonDate(activeSeason.ends_at) }}
+          </div>
+        </div>
+        <div class="season-preview season-preview--empty" v-else-if="!seasonsLoading">
+          <span class="hint">No active season yet.</span>
+        </div>
+
+        <div class="action-split-btns">
+          <router-link
+            v-if="activeSeason"
+            :to="`/${orgSlug}/season/${activeSeason.id}`"
+            class="split-btn split-btn--primary"
+          >Open Season</router-link>
+          <router-link
+            :to="seasonManagementTo"
+            class="split-btn split-btn--ghost"
+          >{{ activeSeason ? 'Manage Season' : 'Create Season' }}</router-link>
+        </div>
+      </div>
 
       <!-- Public Club Page -->
       <div class="action-card action-card--split" ref="publicCardRef">
@@ -92,7 +120,9 @@ const props = defineProps({
 defineEmits(['add-member']);
 
 const brandingStore = useBrandingStore();
-const publicSlug = ref('');
+const publicSlug   = ref('');
+const activeSeason = ref(null);
+const seasonsLoading = ref(false);
 
 // ── Icons ──────────────────────────────────────────────────────────
 const addMemberIconUrl = computed(() => brandingStore.getClubQuickActionIconUrl('add_member', props.agency));
@@ -155,26 +185,49 @@ const copyToClipboard = async (text, flagRef) => {
 const copyPublicLink = () => copyToClipboard(publicPageUrl.value, copiedPublic);
 const copyInviteLink = () => copyToClipboard(invitePageUrl.value, copiedInvite);
 
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const formatSeasonDate = (d) => {
+  if (!d) return '';
+  const dt = new Date(d);
+  return `${MONTHS_SHORT[dt.getMonth()]} ${dt.getDate()}, ${dt.getFullYear()}`;
+};
+
 const loadPublicSlug = async () => {
   const clubId = Number(props.agency?.id || 0);
-  if (!clubId) {
-    publicSlug.value = '';
-    return;
-  }
+  if (!clubId) { publicSlug.value = ''; return; }
   try {
     const { data } = await api.get(`/summit-stats/clubs/${clubId}/public-page-config`, { skipGlobalLoading: true });
     publicSlug.value = String(data?.config?.publicSlug || '').trim().toLowerCase();
-  } catch {
-    publicSlug.value = '';
-  }
+  } catch { publicSlug.value = ''; }
+};
+
+const loadActiveSeason = async () => {
+  const clubId = Number(props.agency?.id || 0);
+  if (!clubId) { activeSeason.value = null; return; }
+  seasonsLoading.value = true;
+  try {
+    const { data } = await api.get('/learning-program-classes', {
+      params: { organizationId: clubId },
+      skipGlobalLoading: true
+    });
+    const classes = Array.isArray(data?.classes) ? data.classes : [];
+    // Prefer an active season; fall back to the most recent draft
+    const active = classes.find((c) => c.status === 'active') ||
+                   classes.find((c) => c.status === 'draft' || c.status === 'upcoming') ||
+                   classes[0] || null;
+    activeSeason.value = active;
+  } catch { activeSeason.value = null; }
+  finally { seasonsLoading.value = false; }
 };
 
 onMounted(() => {
   void loadPublicSlug();
+  void loadActiveSeason();
 });
 
 watch(() => props.agency?.id, () => {
   void loadPublicSlug();
+  void loadActiveSeason();
 });
 </script>
 
@@ -357,6 +410,52 @@ watch(() => props.agency?.id, () => {
 .club-quick-actions--compact .action-content p {
   font-size: 12px;
   line-height: 1.3;
+}
+
+/* ── Season preview strip ────────────────────────────────────── */
+.season-preview {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--bg-alt, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.season-preview--empty {
+  color: var(--text-secondary, #64748b);
+  font-style: italic;
+}
+.season-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.season-preview-name {
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  font-size: 13px;
+}
+.season-preview-dates {
+  margin-top: 2px;
+  font-size: 12px;
+}
+.season-status-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.pill--active {
+  background: #dcfce7;
+  color: #16a34a;
+}
+.pill--draft {
+  background: #fef9c3;
+  color: #a16207;
 }
 
 /* ── Responsive ──────────────────────────────────────────────── */
