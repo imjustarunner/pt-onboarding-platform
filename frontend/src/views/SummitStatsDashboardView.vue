@@ -72,11 +72,11 @@
             </button>
             <template v-if="isManagedClub(season.clubId)">
               <router-link
-                :to="`/${orgSlug}/club/seasons?manageSeason=${season.classId}`"
+                :to="`/${navSlug}/club/seasons?manageSeason=${season.classId}`"
                 class="btn btn-secondary btn-sm"
               >Manage Season</router-link>
               <router-link
-                :to="`/${orgSlug}/club/seasons?editSeason=${season.classId}`"
+                :to="`/${navSlug}/club/seasons?editSeason=${season.classId}`"
                 class="btn btn-secondary btn-sm"
               >Edit Season</router-link>
             </template>
@@ -600,6 +600,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
+import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../utils/summitPlatformSlugs.js';
 import {
   AVERAGE_MILES_PER_WEEK_OPTIONS,
   PHYSICAL_ACTIVITY_HOURS_OPTIONS
@@ -615,6 +616,8 @@ const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 
 const orgSlug = computed(() => String(route.params?.organizationSlug || 'ssc').toLowerCase());
+// Always use the platform slug for season/dashboard navigation so the long club slug never leaks
+const navSlug = computed(() => isSummitPlatformRouteSlug(orgSlug.value) ? orgSlug.value : NATIVE_APP_ORG_SLUG);
 
 const loading = ref(false);
 const dashboardError = ref('');
@@ -1022,23 +1025,23 @@ const switchToClubContext = async (clubId, target = 'dashboard') => {
     agencyStore.setCurrentAgency(match);
   }
   if (target === 'settings') {
-    await router.push(`/${orgSlug.value}/club/settings`);
+    await router.push(`/${navSlug.value}/club/settings`);
     return;
   }
   if (target === 'seasons') {
-    await router.push(`/${orgSlug.value}/club/seasons`);
+    await router.push(`/${navSlug.value}/club/seasons`);
     return;
   }
   if (target === 'club_manager_dashboard') {
-    await router.push(`/${orgSlug.value}/club_manager_dashboard`);
+    await router.push(`/${navSlug.value}/club_manager_dashboard`);
     return;
   }
-  await router.push(`/${orgSlug.value}/my_club_dashboard`);
+  await router.push(`/${navSlug.value}/my_club_dashboard`);
 };
 
 const openSeason = async (season) => {
   if (!season?.classId) return;
-  await router.push(`/${orgSlug.value}/season/${season.classId}`);
+  await router.push(`/${navSlug.value}/season/${season.classId}`);
 };
 
 const joinAndOpenSeason = async (season) => {
@@ -1046,7 +1049,7 @@ const joinAndOpenSeason = async (season) => {
   joiningSeasonId.value = season.classId;
   try {
     await api.post(`/learning-program-classes/${season.classId}/join`);
-    await router.push(`/${orgSlug.value}/season/${season.classId}`);
+    await router.push(`/${navSlug.value}/season/${season.classId}`);
   } catch (err) {
     alert(err?.response?.data?.error?.message || 'Could not join season. Please try again.');
     joiningSeasonId.value = null;
