@@ -634,9 +634,11 @@
           <div class="panel-actions">
             <button class="btn btn-primary btn-sm" @click="openAddTeamModal" :disabled="!managingChallenge">Add Team</button>
             <button class="btn btn-secondary btn-sm" :disabled="!managingChallenge" @click="loadSnakeDraftBoard">Snake Draft Board</button>
+            <button v-if="teams.length > 1" class="btn btn-secondary btn-sm" @click="randomizeSnakeDraftBoard">🔀 Randomize Order</button>
           </div>
           <div v-if="snakeDraftPicks.length" class="mini-list">
             <h4>Snake Draft Picks</h4>
+            <p class="hint" style="margin: 0 0 8px;">{{ snakeDraftRandomized ? '🔀 Randomized order — click again for a new shuffle.' : 'Alphabetical order — click Randomize Order to shuffle.' }}</p>
             <div v-for="pick in snakeDraftPicks" :key="`pick-${pick.pickNumber}`" class="mini-row">
               <span>Round {{ pick.round }} · Pick {{ pick.pickNumber }} · {{ pick.teamName }}</span>
             </div>
@@ -1587,6 +1589,7 @@ const weeklyAssignments = ref([]);
 const weeklyTasksWithIds = ref([]);
 const teamMembersCache = ref({});
 const snakeDraftPicks = ref([]);
+const snakeDraftRandomized = ref(false);
 const noShowAlerts = ref([]);
 
 function getThisWeekSunday() {
@@ -2292,12 +2295,38 @@ const loadWeeklyTasks = async () => {
 
 const loadSnakeDraftBoard = async () => {
   if (!managingChallenge.value?.id) return;
+  snakeDraftRandomized.value = false;
   try {
     const r = await api.get(`/learning-program-classes/${managingChallenge.value.id}/snake-draft-board`, { params: { rounds: 3 } });
     snakeDraftPicks.value = Array.isArray(r.data?.picks) ? r.data.picks : [];
   } catch {
     snakeDraftPicks.value = [];
   }
+};
+
+const randomizeSnakeDraftBoard = () => {
+  if (!teams.value.length) return;
+  // Fisher-Yates shuffle of the current teams list
+  const shuffled = [...teams.value];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  const rounds = 3;
+  const picks = [];
+  for (let r = 1; r <= rounds; r++) {
+    const row = r % 2 === 1 ? shuffled : [...shuffled].reverse();
+    row.forEach((team, idx) => {
+      picks.push({
+        round: r,
+        pickNumber: (r - 1) * shuffled.length + idx + 1,
+        teamId: Number(team.id),
+        teamName: team.team_name
+      });
+    });
+  }
+  snakeDraftPicks.value = picks;
+  snakeDraftRandomized.value = true;
 };
 
 const loadNoShowAlerts = async () => {
