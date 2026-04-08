@@ -1998,8 +1998,8 @@ export const getClubFeedPublic = async (req, res, next) => {
        LEFT JOIN user_agencies ua ON ua.user_id = cfp.user_id AND ua.agency_id = ?
        WHERE cfp.agency_id = ? AND cfp.visibility = 'public'
        ORDER BY cfp.created_at DESC
-       LIMIT ?`,
-      [clubId, clubId, limit]
+       LIMIT ${limit}`,
+      [clubId, clubId]
     );
     const feedItems = mapClubFeedPostRows(postRows, { defaultRead: true });
     return res.json({ items: feedItems });
@@ -2188,6 +2188,7 @@ export const getClubFeed = async (req, res, next) => {
       if (!clsRows?.[0]) return res.status(404).json({ error: { message: 'Season not found' } });
       const seasonMap = new Map([[Number(clsRows[0].id), clsRows[0].class_name || 'Season']]);
 
+      const workoutLim = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
       const [workoutRows] = await pool.execute(
         `SELECT
            w.id, w.user_id, w.learning_class_id, w.activity_type,
@@ -2199,8 +2200,8 @@ export const getClubFeed = async (req, res, next) => {
          WHERE w.learning_class_id = ?
            AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
          ORDER BY w.completed_at DESC
-         LIMIT ?`,
-        [seasonId, limit]
+         LIMIT ${workoutLim}`,
+        [seasonId]
       );
 
       const [msgRows] = await pool.execute(
@@ -2262,6 +2263,7 @@ export const getClubFeed = async (req, res, next) => {
     const placeholders = visibleSeasonIds.map(() => '?').join(', ');
     const seasonMap = new Map((seasonRows || []).map((s) => [s.id, s.class_name]));
 
+    const dashWorkoutLim = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
     const [workoutRows] = await pool.execute(
       `SELECT
          w.id, w.user_id, w.learning_class_id, w.activity_type,
@@ -2273,8 +2275,8 @@ export const getClubFeed = async (req, res, next) => {
        WHERE w.learning_class_id IN (${placeholders})
          AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
        ORDER BY w.completed_at DESC
-       LIMIT ?`,
-      [...visibleSeasonIds, limit]
+       LIMIT ${dashWorkoutLim}`,
+      [...visibleSeasonIds]
     );
 
     const [msgRows] = await pool.execute(

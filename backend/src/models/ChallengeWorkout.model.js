@@ -47,6 +47,9 @@ class ChallengeWorkout {
   static async listByChallenge(learningClassId, { limit = 50, offset = 0 } = {}) {
     const classId = toInt(learningClassId);
     if (!classId) return [];
+    // Inline LIMIT/OFFSET: mysql2 prepared statements reject numeric ? for LIMIT/OFFSET (ER_WRONG_ARGUMENTS)
+    const lim = Math.min(Math.max(toInt(limit) || 50, 1), 500);
+    const off = Math.max(toInt(offset) || 0, 0);
     const [rows] = await pool.execute(
       `SELECT w.*, u.first_name, u.last_name, u.profile_photo_path, t.team_name, wt.name AS weekly_task_name
        FROM challenge_workouts w
@@ -55,8 +58,8 @@ class ChallengeWorkout {
        LEFT JOIN challenge_weekly_tasks wt ON wt.id = w.weekly_task_id
        WHERE w.learning_class_id = ?
        ORDER BY w.completed_at DESC, w.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [classId, limit, offset]
+       LIMIT ${lim} OFFSET ${off}`,
+      [classId]
     );
     return rows || [];
   }
@@ -179,6 +182,7 @@ class ChallengeWorkout {
   static async getLeaderboardIndividual(learningClassId, { limit = 50 } = {}) {
     const classId = toInt(learningClassId);
     if (!classId) return [];
+    const lim = Math.min(Math.max(toInt(limit) || 50, 1), 500);
     const [rows] = await pool.execute(
       `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, SUM(w.points) AS total_points
        FROM challenge_workouts w
@@ -186,8 +190,8 @@ class ChallengeWorkout {
        WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')}
        GROUP BY w.user_id, u.first_name, u.last_name, u.profile_photo_path
        ORDER BY total_points DESC
-       LIMIT ?`,
-      [classId, limit]
+       LIMIT ${lim}`,
+      [classId]
     );
     return rows || [];
   }
@@ -195,6 +199,7 @@ class ChallengeWorkout {
   static async getLeaderboardTeam(learningClassId, { limit = 50 } = {}) {
     const classId = toInt(learningClassId);
     if (!classId) return [];
+    const lim = Math.min(Math.max(toInt(limit) || 50, 1), 500);
     const [rows] = await pool.execute(
       `SELECT w.team_id, t.team_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
@@ -202,8 +207,8 @@ class ChallengeWorkout {
        WHERE w.learning_class_id = ? AND w.team_id IS NOT NULL AND ${this._qualifiedClause('w')}
        GROUP BY w.team_id, t.team_name
        ORDER BY total_points DESC
-       LIMIT ?`,
-      [classId, limit]
+       LIMIT ${lim}`,
+      [classId]
     );
     return rows || [];
   }
@@ -213,6 +218,7 @@ class ChallengeWorkout {
     if (!classId) return [];
     const range = this._weeklyRange(weekStart, weekCutoffTime, weekTimeZone);
     if (!range) return [];
+    const lim = Math.min(Math.max(toInt(limit) || 50, 1), 500);
     const [rows] = await pool.execute(
       `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
@@ -222,8 +228,8 @@ class ChallengeWorkout {
          AND w.completed_at >= ? AND w.completed_at < ?
        GROUP BY w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name
        ORDER BY total_points DESC
-       LIMIT ?`,
-      [classId, range.start, range.end, limit]
+       LIMIT ${lim}`,
+      [classId, range.start, range.end]
     );
     return rows || [];
   }
@@ -233,6 +239,7 @@ class ChallengeWorkout {
     if (!classId) return [];
     const range = this._weeklyRange(weekStart, weekCutoffTime, weekTimeZone);
     if (!range) return [];
+    const lim = Math.min(Math.max(toInt(limit) || 50, 1), 500);
     const [rows] = await pool.execute(
       `SELECT w.team_id, t.team_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
@@ -241,8 +248,8 @@ class ChallengeWorkout {
          AND w.completed_at >= ? AND w.completed_at < ?
        GROUP BY w.team_id, t.team_name
        ORDER BY total_points DESC
-       LIMIT ?`,
-      [classId, range.start, range.end, limit]
+       LIMIT ${lim}`,
+      [classId, range.start, range.end]
     );
     return rows || [];
   }

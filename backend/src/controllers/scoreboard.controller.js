@@ -975,6 +975,7 @@ export const getSeasonSummary = async (req, res, next) => {
       [classId]
     );
     const mastersThreshold = Number.parseInt(access.class?.masters_age_threshold, 10) || 53;
+    const mastersLim = Math.min(Math.max(asInt(limits.seasonTopMasters) || 3, 1), 100);
     const [mastersRows] = await pool.execute(
       `SELECT w.user_id, u.first_name, u.last_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
@@ -987,9 +988,10 @@ export const getSeasonSummary = async (req, res, next) => {
          AND TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) >= ?
        GROUP BY w.user_id, u.first_name, u.last_name
        ORDER BY total_points DESC
-       LIMIT ?`,
-      [classId, mastersThreshold, limits.seasonTopMasters]
+       LIMIT ${mastersLim}`,
+      [classId, mastersThreshold]
     );
+    const ladiesLim = Math.min(Math.max(asInt(limits.seasonTopLadies) || 3, 1), 100);
     const [ladiesRows] = await pool.execute(
       `SELECT w.user_id, u.first_name, u.last_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
@@ -1001,8 +1003,8 @@ export const getSeasonSummary = async (req, res, next) => {
          AND p.gender = 'female'
        GROUP BY w.user_id, u.first_name, u.last_name
        ORDER BY total_points DESC
-       LIMIT ?`,
-      [classId, limits.seasonTopLadies]
+       LIMIT ${ladiesLim}`,
+      [classId]
     );
     const weekPhase = getSeasonWeekPhase({ klass: access.class, weekStartDate: weekStart, cutoffTime: weekCutoffTime, timeZone: weekTimeZone });
     return res.json({

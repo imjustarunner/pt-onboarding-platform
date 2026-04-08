@@ -19,7 +19,9 @@ class ChallengeMessage {
       whereSql += ' AND m.team_id IS NULL';
     }
     whereSql += ' AND m.deleted_at IS NULL';
-    params.push(toInt(limit) || 50, toInt(offset) || 0);
+    // Inline LIMIT/OFFSET: mysql2 prepared statements reject numeric ? for LIMIT/OFFSET (ER_WRONG_ARGUMENTS)
+    const lim = Math.min(Math.max(toInt(limit) || 50, 1), 500);
+    const off = Math.max(toInt(offset) || 0, 0);
     const [rows] = await pool.execute(
       `SELECT m.*, u.first_name, u.last_name, t.team_name
        FROM challenge_messages m
@@ -27,7 +29,7 @@ class ChallengeMessage {
        LEFT JOIN challenge_teams t ON t.id = m.team_id
        WHERE ${whereSql}
        ORDER BY m.is_pinned DESC, m.pinned_at DESC, m.created_at DESC, m.id DESC
-       LIMIT ? OFFSET ?`,
+       LIMIT ${lim} OFFSET ${off}`,
       params
     );
     return rows || [];
