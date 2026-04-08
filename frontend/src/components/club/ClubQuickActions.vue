@@ -136,8 +136,10 @@ const settingsTo = computed(() => {
 });
 
 const seasonManagementTo = computed(() => {
-  const slug = props.orgSlug;
-  return slug ? `/${slug}/club/seasons` : `/${String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase()}/my_club_dashboard`;
+  const slug = props.orgSlug || String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase();
+  const base = `/${slug}/club/seasons`;
+  // When an active season exists, auto-open its manage modal via query param
+  return activeSeason.value?.id ? `${base}?manageSeason=${activeSeason.value.id}` : base;
 });
 
 // Public page URL: /:orgSlug/clubs/:clubId

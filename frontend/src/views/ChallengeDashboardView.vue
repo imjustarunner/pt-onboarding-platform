@@ -61,7 +61,7 @@
           <router-link :to="backRoute" class="back-link">← Back to My Dashboard</router-link>
           <router-link
             v-if="isChallengeManager && organizationSlug"
-            :to="`/${organizationSlug}/admin/settings?category=workflow&item=challenge-management&manageSeason=${challenge.id}`"
+            :to="`/${organizationSlug}/club/seasons?manageSeason=${challenge.id}`"
             class="btn btn-secondary btn-sm manage-season-btn"
           >⚙ Manage Season</router-link>
         </div>

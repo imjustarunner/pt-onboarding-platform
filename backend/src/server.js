@@ -792,6 +792,31 @@ if (!isBootstrap) {
   });
 }
 
+  // Run pending schema migrations on startup (safe/idempotent column additions)
+  (async () => {
+    try {
+      const { default: pool } = await import('./config/database.js');
+      // Migration 691 – season banner/logo columns
+      const [cols] = await pool.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'learning_program_classes'
+           AND COLUMN_NAME = 'banner_image_path'`
+      );
+      if (!cols.length) {
+        await pool.execute(
+          `ALTER TABLE learning_program_classes
+             ADD COLUMN banner_image_path VARCHAR(512) NULL DEFAULT NULL AFTER season_announcement_text,
+             ADD COLUMN banner_focal_x    DECIMAL(5,2) NOT NULL DEFAULT 50.00,
+             ADD COLUMN banner_focal_y    DECIMAL(5,2) NOT NULL DEFAULT 50.00,
+             ADD COLUMN logo_image_path   VARCHAR(512) NULL DEFAULT NULL`
+        );
+        console.log('[startup] Migration 691 applied: season banner/logo columns added');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 691 check skipped:', err.message);
+    }
+  })();
+
   // Set up periodic processing of terminated and completed users
   // Run every hour to check for users that need to be marked inactive or archived
   setInterval(async () => {

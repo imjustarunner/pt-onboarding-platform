@@ -72,11 +72,11 @@
             </button>
             <template v-if="isManagedClub(season.clubId)">
               <router-link
-                :to="`/${orgSlug}/admin/settings?category=workflow&item=challenge-management&manageSeason=${season.classId}`"
+                :to="`/${orgSlug}/club/seasons?manageSeason=${season.classId}`"
                 class="btn btn-secondary btn-sm"
               >Manage Season</router-link>
               <router-link
-                :to="`/${orgSlug}/admin/settings?category=workflow&item=challenge-management&editSeason=${season.classId}`"
+                :to="`/${orgSlug}/club/seasons?editSeason=${season.classId}`"
                 class="btn btn-secondary btn-sm"
               >Edit Season</router-link>
             </template>
