@@ -567,7 +567,7 @@ export const getLearningProgramClass = async (req, res, next) => {
       klass,
       providerUserId: req.user.id
     });
-    const canManage = await canUserManageChallengeClass(req.user, classId);
+    const canManage = await canUserManageChallengeClass({ user: req.user, learningClassId: classId });
     return res.json({ class: { ...klass, can_manage: canManage }, intakeLinks, resources, clientMembers, providerMembers, participationAgreementStatus });
   } catch (e) {
     next(e);
@@ -1437,7 +1437,7 @@ export const uploadSeasonBanner = async (req, res, next) => {
     const cls = await LearningProgramClass.findById(classId);
     if (!cls) return res.status(404).json({ error: 'Season not found' });
 
-    const canManage = await canUserManageChallengeClass(req.user, classId);
+    const canManage = await canUserManageChallengeClass({ user: req.user, learningClassId: classId });
     if (!canManage) return res.status(403).json({ error: 'Access denied' });
 
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -1463,7 +1463,7 @@ export const updateSeasonBannerFocal = async (req, res, next) => {
     const classId = Number(req.params.classId);
     if (!classId) return res.status(400).json({ error: 'Invalid season ID' });
 
-    const canManage = await canUserManageChallengeClass(req.user, classId);
+    const canManage = await canUserManageChallengeClass({ user: req.user, learningClassId: classId });
     if (!canManage) return res.status(403).json({ error: 'Access denied' });
 
     const focalX = Math.min(100, Math.max(0, parseFloat(req.body.focalX ?? 50)));
@@ -1483,7 +1483,7 @@ export const deleteSeasonBanner = async (req, res, next) => {
     const classId = Number(req.params.classId);
     if (!classId) return res.status(400).json({ error: 'Invalid season ID' });
 
-    const canManage = await canUserManageChallengeClass(req.user, classId);
+    const canManage = await canUserManageChallengeClass({ user: req.user, learningClassId: classId });
     if (!canManage) return res.status(403).json({ error: 'Access denied' });
 
     await pool.execute(
@@ -1503,7 +1503,7 @@ export const uploadSeasonLogo = async (req, res, next) => {
     const cls = await LearningProgramClass.findById(classId);
     if (!cls) return res.status(404).json({ error: 'Season not found' });
 
-    const canManage = await canUserManageChallengeClass(req.user, classId);
+    const canManage = await canUserManageChallengeClass({ user: req.user, learningClassId: classId });
     if (!canManage) return res.status(403).json({ error: 'Access denied' });
 
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -1529,7 +1529,7 @@ export const deleteSeasonLogo = async (req, res, next) => {
     const classId = Number(req.params.classId);
     if (!classId) return res.status(400).json({ error: 'Invalid season ID' });
 
-    const canManage = await canUserManageChallengeClass(req.user, classId);
+    const canManage = await canUserManageChallengeClass({ user: req.user, learningClassId: classId });
     if (!canManage) return res.status(403).json({ error: 'Access denied' });
 
     await pool.execute(
