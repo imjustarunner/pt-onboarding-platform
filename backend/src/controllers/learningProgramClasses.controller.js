@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import StorageService from '../services/storage.service.js';
 import IntakeLink from '../models/IntakeLink.model.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -1423,4 +1424,118 @@ export const listMyLearningClasses = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+// ── Season banner & logo upload ──────────────────────────────────────────────
+
+export const uploadSeasonBanner = async (req, res, next) => {
+  try {
+    const classId = Number(req.params.classId);
+    if (!classId) return res.status(400).json({ error: 'Invalid season ID' });
+
+    const cls = await LearningProgramClass.findById(classId);
+    if (!cls) return res.status(404).json({ error: 'Season not found' });
+
+    const canManage = await canUserManageChallengeClass(req.user, classId);
+    if (!canManage) return res.status(403).json({ error: 'Access denied' });
+
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    const result = await StorageService.saveSeasonBanner({
+      classId,
+      fileBuffer: req.file.buffer,
+      filename: req.file.originalname,
+      contentType: req.file.mimetype
+    });
+
+    await pool.execute(
+      `UPDATE learning_program_classes SET banner_image_path = ? WHERE id = ?`,
+      [result.relativePath, classId]
+    );
+
+    return res.json({ bannerPath: result.relativePath });
+  } catch (e) { next(e); }
+};
+
+export const updateSeasonBannerFocal = async (req, res, next) => {
+  try {
+    const classId = Number(req.params.classId);
+    if (!classId) return res.status(400).json({ error: 'Invalid season ID' });
+
+    const canManage = await canUserManageChallengeClass(req.user, classId);
+    if (!canManage) return res.status(403).json({ error: 'Access denied' });
+
+    const focalX = Math.min(100, Math.max(0, parseFloat(req.body.focalX ?? 50)));
+    const focalY = Math.min(100, Math.max(0, parseFloat(req.body.focalY ?? 50)));
+
+    await pool.execute(
+      `UPDATE learning_program_classes SET banner_focal_x = ?, banner_focal_y = ? WHERE id = ?`,
+      [focalX, focalY, classId]
+    );
+
+    return res.json({ focalX, focalY });
+  } catch (e) { next(e); }
+};
+
+export const deleteSeasonBanner = async (req, res, next) => {
+  try {
+    const classId = Number(req.params.classId);
+    if (!classId) return res.status(400).json({ error: 'Invalid season ID' });
+
+    const canManage = await canUserManageChallengeClass(req.user, classId);
+    if (!canManage) return res.status(403).json({ error: 'Access denied' });
+
+    await pool.execute(
+      `UPDATE learning_program_classes SET banner_image_path = NULL, banner_focal_x = 50, banner_focal_y = 50 WHERE id = ?`,
+      [classId]
+    );
+
+    return res.json({ ok: true });
+  } catch (e) { next(e); }
+};
+
+export const uploadSeasonLogo = async (req, res, next) => {
+  try {
+    const classId = Number(req.params.classId);
+    if (!classId) return res.status(400).json({ error: 'Invalid season ID' });
+
+    const cls = await LearningProgramClass.findById(classId);
+    if (!cls) return res.status(404).json({ error: 'Season not found' });
+
+    const canManage = await canUserManageChallengeClass(req.user, classId);
+    if (!canManage) return res.status(403).json({ error: 'Access denied' });
+
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    const result = await StorageService.saveSeasonLogo({
+      classId,
+      fileBuffer: req.file.buffer,
+      filename: req.file.originalname,
+      contentType: req.file.mimetype
+    });
+
+    await pool.execute(
+      `UPDATE learning_program_classes SET logo_image_path = ? WHERE id = ?`,
+      [result.relativePath, classId]
+    );
+
+    return res.json({ logoPath: result.relativePath });
+  } catch (e) { next(e); }
+};
+
+export const deleteSeasonLogo = async (req, res, next) => {
+  try {
+    const classId = Number(req.params.classId);
+    if (!classId) return res.status(400).json({ error: 'Invalid season ID' });
+
+    const canManage = await canUserManageChallengeClass(req.user, classId);
+    if (!canManage) return res.status(403).json({ error: 'Access denied' });
+
+    await pool.execute(
+      `UPDATE learning_program_classes SET logo_image_path = NULL WHERE id = ?`,
+      [classId]
+    );
+
+    return res.json({ ok: true });
+  } catch (e) { next(e); }
 };

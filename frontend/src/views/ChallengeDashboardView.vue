@@ -35,6 +35,26 @@
         <button class="season-announcement-close" type="button" @click="seasonBannerDismissed = true" aria-label="Dismiss">✕</button>
       </div>
 
+      <!-- Season Hero Banner -->
+      <div
+        v-if="challenge.banner_image_path"
+        class="season-hero-banner"
+        :style="{ backgroundImage: `url(${resolveSeasonAssetUrl(challenge.banner_image_path)})`, backgroundPosition: `${challenge.banner_focal_x ?? 50}% ${challenge.banner_focal_y ?? 50}%` }"
+      >
+        <div class="season-hero-overlay">
+          <img
+            v-if="challenge.logo_image_path"
+            :src="resolveSeasonAssetUrl(challenge.logo_image_path)"
+            class="season-hero-logo"
+            :alt="challenge.class_name || 'Season logo'"
+          />
+          <div class="season-hero-info">
+            <h1 class="season-hero-title">{{ challenge.class_name || challenge.className }}</h1>
+            <span class="challenge-status-badge" :class="statusClass(challenge)">{{ formatStatus(challenge) }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Challenge Overview -->
       <div class="challenge-overview">
         <div class="challenge-overview-top">
@@ -45,8 +65,17 @@
             class="btn btn-secondary btn-sm manage-season-btn"
           >⚙ Manage Season</router-link>
         </div>
-        <div class="challenge-title-row">
-          <h1>{{ challenge.class_name || challenge.className }}</h1>
+        <div class="challenge-title-row" :class="{ 'challenge-title-row--has-banner': !!challenge.banner_image_path }">
+          <div v-if="!challenge.banner_image_path" style="display:flex; align-items:center; gap:10px;">
+            <img
+              v-if="challenge.logo_image_path"
+              :src="resolveSeasonAssetUrl(challenge.logo_image_path)"
+              class="season-inline-logo"
+              :alt="challenge.class_name || 'Season logo'"
+            />
+            <h1>{{ challenge.class_name || challenge.className }}</h1>
+          </div>
+          <h1 v-else style="display:none" aria-hidden="true">{{ challenge.class_name || challenge.className }}</h1>
           <span class="challenge-status-badge" :class="statusClass(challenge)">{{ formatStatus(challenge) }}</span>
         </div>
         <p v-if="challenge.description" class="challenge-description">{{ challenge.description }}</p>
@@ -1210,6 +1239,12 @@ const splitRunProgress = (task) => {
   return { logged: tagged.length, required: c.splitRuns.count };
 };
 
+const resolveSeasonAssetUrl = (path) => {
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
+  return `/uploads/${path.replace(/^\/+/, '')}`;
+};
+
 const formatStatus = (c) => {
   const s = String(c?.status || '').toLowerCase();
   if (s === 'active') return 'Active';
@@ -1744,6 +1779,60 @@ watch(challengeId, () => {
   padding: 24px;
 }
 /* ── Season announcement banner ── */
+/* ── Season Hero Banner ── */
+.season-hero-banner {
+  width: 100%;
+  height: 220px;
+  background-size: cover;
+  background-repeat: no-repeat;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 0;
+}
+.season-hero-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.0) 55%);
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  padding: 18px 20px;
+}
+.season-hero-logo {
+  width: 60px;
+  height: 60px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: rgba(255,255,255,0.15);
+  backdrop-filter: blur(2px);
+  flex-shrink: 0;
+  border: 2px solid rgba(255,255,255,0.4);
+}
+.season-hero-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.season-hero-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  margin: 0;
+  line-height: 1.2;
+}
+.season-inline-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.challenge-title-row--has-banner h1 {
+  display: none;
+}
+
 .season-announcement-banner {
   display: flex;
   align-items: center;

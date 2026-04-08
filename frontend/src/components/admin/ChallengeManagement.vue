@@ -610,6 +610,71 @@
             </div>
             <small>Select the records you want shown in season and all-time boards.</small>
           </div>
+          <!-- Season Branding: Banner + Logo -->
+          <div class="form-section season-branding-section">
+            <h4 class="form-section-title">Season Branding</h4>
+            <div class="branding-row">
+              <!-- Banner -->
+              <div class="branding-field branding-field--banner">
+                <label class="branding-label">Banner Image</label>
+                <p class="branding-hint">Recommended: 1200 × 400 px. After uploading, drag the crosshair to set the focal point.</p>
+                <div
+                  v-if="editBannerPreview || editingChallenge?.banner_image_path"
+                  class="banner-preview-wrap"
+                  @click="onBannerFocalClick"
+                  title="Click to set focal point"
+                >
+                  <img
+                    :src="editBannerPreview || resolveUploadUrl(editingChallenge?.banner_image_path)"
+                    class="banner-preview-img"
+                    :style="{ objectPosition: `${editBannerFocalX}% ${editBannerFocalY}%` }"
+                    draggable="false"
+                    ref="bannerPreviewImgRef"
+                  />
+                  <div
+                    class="banner-focal-dot"
+                    :style="{ left: editBannerFocalX + '%', top: editBannerFocalY + '%' }"
+                  />
+                  <span class="banner-focal-hint">Click to move focal point</span>
+                </div>
+                <div class="branding-upload-row">
+                  <label class="btn btn-secondary btn-sm branding-upload-btn">
+                    {{ editBannerPreview || editingChallenge?.banner_image_path ? 'Replace Banner' : 'Upload Banner' }}
+                    <input type="file" accept="image/png,image/jpeg,image/webp" style="display:none" @change="onEditBannerChange" />
+                  </label>
+                  <button
+                    v-if="editBannerPreview || editingChallenge?.banner_image_path"
+                    type="button"
+                    class="btn btn-danger btn-sm"
+                    @click="removeEditBanner"
+                  >Remove</button>
+                </div>
+              </div>
+              <!-- Logo/Icon -->
+              <div class="branding-field branding-field--logo">
+                <label class="branding-label">Season Logo / Icon</label>
+                <p class="branding-hint">Recommended: 256 × 256 px square, PNG with transparency.</p>
+                <div v-if="editLogoPreview || editingChallenge?.logo_image_path" class="logo-preview-wrap">
+                  <img
+                    :src="editLogoPreview || resolveUploadUrl(editingChallenge?.logo_image_path)"
+                    class="logo-preview-img"
+                  />
+                </div>
+                <div class="branding-upload-row">
+                  <label class="btn btn-secondary btn-sm branding-upload-btn">
+                    {{ editLogoPreview || editingChallenge?.logo_image_path ? 'Replace Logo' : 'Upload Logo' }}
+                    <input type="file" accept="image/png,image/jpeg,image/webp" style="display:none" @change="onEditLogoChange" />
+                  </label>
+                  <button
+                    v-if="editLogoPreview || editingChallenge?.logo_image_path"
+                    type="button"
+                    class="btn btn-danger btn-sm"
+                    @click="removeEditLogo"
+                  >Remove</button>
+                </div>
+              </div>
+            </div>
+          </div>
           <div class="form-actions">
                 <button type="button" class="btn btn-secondary" @click="closeChallengeModal()">Cancel</button>
             <button type="submit" class="btn btn-primary" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
@@ -628,6 +693,7 @@
           <button type="button" :class="['tab-btn', { active: manageTab === 'members' }]" @click="manageTab = 'members'">Participants</button>
           <button type="button" :class="['tab-btn', { active: manageTab === 'profiles' }]" @click="manageTab = 'profiles'; loadParticipantProfiles()">Profiles (Gender/DOB)</button>
           <button type="button" :class="['tab-btn', { active: manageTab === 'weekly' }]" @click="manageTab = 'weekly'; loadWeeklyTasks(); loadTemplateLibrary()">Weekly challenges</button>
+          <button type="button" :class="['tab-btn', { active: manageTab === 'branding' }]" @click="manageTab = 'branding'; initManageBranding()">Branding</button>
           <button type="button" class="tab-btn tab-btn--edit" @click="editFromManageModal">✏ Edit Season</button>
         </div>
 
@@ -888,6 +954,81 @@
                 >
                   {{ getAssignmentFor(t.id, team.id)?.is_completed ? 'Mark Incomplete' : 'Mark Complete' }}
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Branding tab -->
+        <div v-show="manageTab === 'branding'" class="manage-panel branding-manage-panel">
+          <div class="branding-manage-row">
+            <!-- Banner -->
+            <div class="branding-manage-col">
+              <h4>Season Banner</h4>
+              <p class="hint">Displayed at the top of the season dashboard. Recommended: 1200 × 400 px.</p>
+              <div
+                v-if="manageBannerPreview || managingChallenge?.banner_image_path"
+                class="banner-preview-wrap"
+                @click="onManageBannerFocalClick"
+                title="Click to reposition focal point"
+              >
+                <img
+                  :src="manageBannerPreview || resolveUploadUrl(managingChallenge?.banner_image_path)"
+                  class="banner-preview-img"
+                  :style="{ objectPosition: `${manageBannerFocalX}% ${manageBannerFocalY}%` }"
+                  draggable="false"
+                  ref="manageBannerImgRef"
+                />
+                <div
+                  class="banner-focal-dot"
+                  :style="{ left: manageBannerFocalX + '%', top: manageBannerFocalY + '%' }"
+                />
+                <span class="banner-focal-hint">Click to move focal point</span>
+              </div>
+              <div v-else class="banner-empty-state">No banner uploaded</div>
+              <div class="branding-upload-row" style="margin-top:10px;">
+                <label class="btn btn-secondary btn-sm branding-upload-btn">
+                  {{ manageBannerPreview || managingChallenge?.banner_image_path ? 'Replace Banner' : 'Upload Banner' }}
+                  <input type="file" accept="image/png,image/jpeg,image/webp" style="display:none" @change="onManageBannerChange" />
+                </label>
+                <button
+                  v-if="manageBannerFocalChanged"
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  :disabled="manageBrandingSaving"
+                  @click="saveManageBannerFocal"
+                >{{ manageBrandingSaving ? 'Saving…' : 'Save focal point' }}</button>
+                <button
+                  v-if="managingChallenge?.banner_image_path || manageBannerPreview"
+                  type="button"
+                  class="btn btn-danger btn-sm"
+                  @click="removeManageBanner"
+                >Remove</button>
+              </div>
+              <p v-if="manageBrandingMsg" class="branding-save-msg">{{ manageBrandingMsg }}</p>
+            </div>
+            <!-- Logo -->
+            <div class="branding-manage-col">
+              <h4>Season Logo / Icon</h4>
+              <p class="hint">Shown beside the season name. Recommended: 256 × 256 px square PNG.</p>
+              <div v-if="manageLogoPreview || managingChallenge?.logo_image_path" class="logo-preview-wrap">
+                <img
+                  :src="manageLogoPreview || resolveUploadUrl(managingChallenge?.logo_image_path)"
+                  class="logo-preview-img"
+                />
+              </div>
+              <div v-else class="logo-empty-state">No logo uploaded</div>
+              <div class="branding-upload-row" style="margin-top:10px;">
+                <label class="btn btn-secondary btn-sm branding-upload-btn">
+                  {{ manageLogoPreview || managingChallenge?.logo_image_path ? 'Replace Logo' : 'Upload Logo' }}
+                  <input type="file" accept="image/png,image/jpeg,image/webp" style="display:none" @change="onManageLogoChange" />
+                </label>
+                <button
+                  v-if="managingChallenge?.logo_image_path || manageLogoPreview"
+                  type="button"
+                  class="btn btn-danger btn-sm"
+                  @click="removeManageLogo"
+                >Remove</button>
               </div>
             </div>
           </div>
@@ -1624,6 +1765,27 @@ const teams = ref([]);
 const providerMembers = ref([]);
 const orgUsers = ref([]);
 
+// Branding – edit form state
+const editBannerFile = ref(null);
+const editBannerPreview = ref(null);
+const editBannerFocalX = ref(50);
+const editBannerFocalY = ref(50);
+const editLogoFile = ref(null);
+const editLogoPreview = ref(null);
+const bannerPreviewImgRef = ref(null);
+
+// Branding – manage modal state
+const manageBannerPreview = ref(null);
+const manageBannerFile = ref(null);
+const manageBannerFocalX = ref(50);
+const manageBannerFocalY = ref(50);
+const manageBannerFocalChanged = ref(false);
+const manageLogoPreview = ref(null);
+const manageLogoFile = ref(null);
+const manageBrandingSaving = ref(false);
+const manageBrandingMsg = ref('');
+const manageBannerImgRef = ref(null);
+
 const showTeamModal = ref(false);
 const editingTeam = ref(null);
 const teamForm = ref({ teamName: '', teamManagerUserId: '' });
@@ -1825,6 +1987,13 @@ const openCreateModal = () => {
 
 const openEditModal = (c) => {
   editingChallenge.value = c;
+  // Reset branding state
+  editBannerFile.value = null;
+  editBannerPreview.value = null;
+  editBannerFocalX.value = Number(c?.banner_focal_x ?? 50);
+  editBannerFocalY.value = Number(c?.banner_focal_y ?? 50);
+  editLogoFile.value = null;
+  editLogoPreview.value = null;
   const at = c?.activity_types_json;
   let activityTypesText = '';
   if (Array.isArray(at)) activityTypesText = at.join(', ');
@@ -2098,10 +2267,34 @@ const saveChallenge = async () => {
         }
       }
     };
+    let savedId = editingChallenge.value?.id;
     if (editingChallenge.value) {
-      await api.put(`/learning-program-classes/${editingChallenge.value.id}`, payload);
+      await api.put(`/learning-program-classes/${savedId}`, payload);
     } else {
-      await api.post('/learning-program-classes', { organizationId: organizationId.value, ...payload });
+      const r = await api.post('/learning-program-classes', { organizationId: organizationId.value, ...payload });
+      savedId = r.data?.class?.id || r.data?.id;
+    }
+    // Upload pending banner/logo if any
+    if (savedId) {
+      if (editBannerFile.value) {
+        const fd = new FormData();
+        fd.append('file', editBannerFile.value);
+        await api.post(`/learning-program-classes/${savedId}/banner`, fd);
+        // Save focal point
+        await api.patch(`/learning-program-classes/${savedId}/banner/focal`, {
+          focalX: editBannerFocalX.value,
+          focalY: editBannerFocalY.value
+        });
+        editBannerFile.value = null;
+        editBannerPreview.value = null;
+      }
+      if (editLogoFile.value) {
+        const fd = new FormData();
+        fd.append('file', editLogoFile.value);
+        await api.post(`/learning-program-classes/${savedId}/logo`, fd);
+        editLogoFile.value = null;
+        editLogoPreview.value = null;
+      }
     }
     closeChallengeModal(true);
     await loadChallenges();
@@ -2117,6 +2310,167 @@ const editFromManageModal = () => {
   if (!c) return;
   showManageModal.value = false;
   openEditModal(c);
+};
+
+// ── Branding helpers ─────────────────────────────────────────────────────────
+
+const resolveUploadUrl = (path) => {
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
+  return `/uploads/${path.replace(/^\/+/, '')}`;
+};
+
+// Edit-form branding
+const onEditBannerChange = (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  editBannerFile.value = file;
+  editBannerPreview.value = URL.createObjectURL(file);
+};
+const removeEditBanner = async () => {
+  editBannerPreview.value = null;
+  editBannerFile.value = null;
+  if (editingChallenge.value?.id && editingChallenge.value?.banner_image_path) {
+    await api.delete(`/learning-program-classes/${editingChallenge.value.id}/banner`).catch(() => {});
+    if (editingChallenge.value) editingChallenge.value.banner_image_path = null;
+  }
+};
+const onEditLogoChange = (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  editLogoFile.value = file;
+  editLogoPreview.value = URL.createObjectURL(file);
+};
+const removeEditLogo = async () => {
+  editLogoPreview.value = null;
+  editLogoFile.value = null;
+  if (editingChallenge.value?.id && editingChallenge.value?.logo_image_path) {
+    await api.delete(`/learning-program-classes/${editingChallenge.value.id}/logo`).catch(() => {});
+    if (editingChallenge.value) editingChallenge.value.logo_image_path = null;
+  }
+};
+const onBannerFocalClick = (e) => {
+  const img = e.currentTarget;
+  const rect = img.getBoundingClientRect();
+  editBannerFocalX.value = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+  editBannerFocalY.value = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+};
+
+// Manage-modal branding
+const initManageBranding = () => {
+  const c = managingChallenge.value;
+  if (!c) return;
+  manageBannerPreview.value = null;
+  manageBannerFile.value = null;
+  manageBannerFocalX.value = Number(c.banner_focal_x ?? 50);
+  manageBannerFocalY.value = Number(c.banner_focal_y ?? 50);
+  manageBannerFocalChanged.value = false;
+  manageLogoPreview.value = null;
+  manageLogoFile.value = null;
+  manageBrandingMsg.value = '';
+};
+const onManageBannerChange = async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  manageBannerFile.value = file;
+  manageBannerPreview.value = URL.createObjectURL(file);
+  manageBrandingSaving.value = true;
+  manageBrandingMsg.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await api.post(`/learning-program-classes/${managingChallenge.value.id}/banner`, fd);
+    if (managingChallenge.value) managingChallenge.value.banner_image_path = r.data.bannerPath;
+    await api.patch(`/learning-program-classes/${managingChallenge.value.id}/banner/focal`, {
+      focalX: manageBannerFocalX.value,
+      focalY: manageBannerFocalY.value
+    });
+    manageBrandingMsg.value = 'Banner saved!';
+    await loadChallenges();
+  } catch {
+    manageBrandingMsg.value = 'Failed to upload banner.';
+  } finally {
+    manageBrandingSaving.value = false;
+  }
+};
+const onManageBannerFocalClick = (e) => {
+  const img = e.currentTarget;
+  const rect = img.getBoundingClientRect();
+  manageBannerFocalX.value = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+  manageBannerFocalY.value = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+  manageBannerFocalChanged.value = true;
+};
+const saveManageBannerFocal = async () => {
+  manageBrandingSaving.value = true;
+  manageBrandingMsg.value = '';
+  try {
+    await api.patch(`/learning-program-classes/${managingChallenge.value.id}/banner/focal`, {
+      focalX: manageBannerFocalX.value,
+      focalY: manageBannerFocalY.value
+    });
+    if (managingChallenge.value) {
+      managingChallenge.value.banner_focal_x = manageBannerFocalX.value;
+      managingChallenge.value.banner_focal_y = manageBannerFocalY.value;
+    }
+    manageBannerFocalChanged.value = false;
+    manageBrandingMsg.value = 'Focal point saved!';
+  } catch {
+    manageBrandingMsg.value = 'Failed to save focal point.';
+  } finally {
+    manageBrandingSaving.value = false;
+  }
+};
+const removeManageBanner = async () => {
+  manageBannerPreview.value = null;
+  manageBannerFile.value = null;
+  manageBrandingMsg.value = '';
+  manageBrandingSaving.value = true;
+  try {
+    await api.delete(`/learning-program-classes/${managingChallenge.value.id}/banner`);
+    if (managingChallenge.value) managingChallenge.value.banner_image_path = null;
+    manageBrandingMsg.value = 'Banner removed.';
+    await loadChallenges();
+  } catch {
+    manageBrandingMsg.value = 'Failed to remove banner.';
+  } finally {
+    manageBrandingSaving.value = false;
+  }
+};
+const onManageLogoChange = async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  manageLogoFile.value = file;
+  manageLogoPreview.value = URL.createObjectURL(file);
+  manageBrandingSaving.value = true;
+  manageBrandingMsg.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await api.post(`/learning-program-classes/${managingChallenge.value.id}/logo`, fd);
+    if (managingChallenge.value) managingChallenge.value.logo_image_path = r.data.logoPath;
+    manageBrandingMsg.value = 'Logo saved!';
+    await loadChallenges();
+  } catch {
+    manageBrandingMsg.value = 'Failed to upload logo.';
+  } finally {
+    manageBrandingSaving.value = false;
+  }
+};
+const removeManageLogo = async () => {
+  manageLogoPreview.value = null;
+  manageLogoFile.value = null;
+  manageBrandingSaving.value = true;
+  manageBrandingMsg.value = '';
+  try {
+    await api.delete(`/learning-program-classes/${managingChallenge.value.id}/logo`);
+    if (managingChallenge.value) managingChallenge.value.logo_image_path = null;
+    manageBrandingMsg.value = 'Logo removed.';
+    await loadChallenges();
+  } catch {
+    manageBrandingMsg.value = 'Failed to remove logo.';
+  } finally {
+    manageBrandingSaving.value = false;
+  }
 };
 
 const openManageModal = async (c) => {
@@ -3383,5 +3737,136 @@ onMounted(async () => {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+/* ── Season Branding ── */
+.season-branding-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+}
+.form-section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 14px;
+  color: var(--text-primary, #0f172a);
+}
+.branding-row {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.branding-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.branding-field--banner { flex: 2; min-width: 280px; }
+.branding-field--logo   { flex: 1; min-width: 160px; }
+.branding-label {
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+.branding-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted, #6b7280);
+  margin: 0;
+}
+.banner-preview-wrap {
+  position: relative;
+  width: 100%;
+  height: 140px;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: crosshair;
+  border: 1.5px solid #d1d5db;
+  background: #f0f0f0;
+}
+.banner-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+.banner-focal-dot {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.9);
+  border: 2px solid #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.3);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.banner-focal-hint {
+  position: absolute;
+  bottom: 6px;
+  right: 8px;
+  font-size: 10px;
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+.logo-preview-wrap {
+  width: 80px;
+  height: 80px;
+  border-radius: 10px;
+  border: 1.5px solid #d1d5db;
+  overflow: hidden;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.logo-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.branding-upload-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.branding-upload-btn {
+  cursor: pointer;
+}
+.banner-empty-state,
+.logo-empty-state {
+  font-size: 0.82rem;
+  color: #9ca3af;
+  padding: 8px 0;
+  font-style: italic;
+}
+
+/* Manage modal branding panel */
+.branding-manage-panel { padding: 16px 0; }
+.branding-manage-row {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+.branding-manage-col {
+  flex: 1;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.branding-manage-col h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary, #0f172a);
+}
+.branding-save-msg {
+  font-size: 0.82rem;
+  color: #16a34a;
+  margin: 4px 0 0;
 }
 </style>

@@ -24,7 +24,12 @@ import {
   acceptLearningProgramParticipationAgreement,
   listParticipantProfiles,
   upsertParticipantProfile,
-  getSeasonProfileCompleteness
+  getSeasonProfileCompleteness,
+  uploadSeasonBanner,
+  updateSeasonBannerFocal,
+  deleteSeasonBanner,
+  uploadSeasonLogo,
+  deleteSeasonLogo
 } from '../controllers/learningProgramClasses.controller.js';
 import {
   listTeams,
@@ -109,6 +114,18 @@ const workoutMediaUpload = multer({
     cb(null, true);
   }
 });
+const seasonImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!allowed.includes(String(file.mimetype || '').toLowerCase())) {
+      cb(new Error('Only png/jpg/webp files are allowed'));
+      return;
+    }
+    cb(null, true);
+  }
+});
 
 router.use(authenticate);
 
@@ -129,6 +146,11 @@ router.post('/:classId/participation-agreement/accept', acceptLearningProgramPar
 router.get('/:classId/participant-profiles', listParticipantProfiles);
 router.put('/:classId/participant-profiles/:providerUserId', upsertParticipantProfile);
 router.get('/:classId/profile-completeness', getSeasonProfileCompleteness);
+router.post('/:classId/banner', seasonImageUpload.single('file'), uploadSeasonBanner);
+router.patch('/:classId/banner/focal', updateSeasonBannerFocal);
+router.delete('/:classId/banner', deleteSeasonBanner);
+router.post('/:classId/logo', seasonImageUpload.single('file'), uploadSeasonLogo);
+router.delete('/:classId/logo', deleteSeasonLogo);
 router.get('/:classId/resources', listClassResources);
 router.post('/:classId/resources', createClassResource);
 router.put('/:classId/resources/:resourceId', updateClassResource);
