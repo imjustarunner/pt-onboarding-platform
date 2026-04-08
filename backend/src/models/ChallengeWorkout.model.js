@@ -106,7 +106,9 @@ class ChallengeWorkout {
     proofStatus = 'not_required',
     proofReviewNote = null,
     proofReviewedByUserId = null,
-    proofReviewedAt = null
+    proofReviewedAt = null,
+    maxHeartrate = null,
+    splitsJson = null
   }) {
     const classId = toInt(learningClassId);
     const uId = toInt(userId);
@@ -115,8 +117,8 @@ class ChallengeWorkout {
     const durSec = durationSeconds != null ? Math.min(59, Math.max(0, toInt(durationSeconds) || 0)) : null;
     const [result] = await pool.execute(
       `INSERT INTO challenge_workouts
-       (learning_class_id, team_id, user_id, activity_type, is_treadmill, is_race, terrain, distance_value, reported_distance_value, verified_distance_value, duration_minutes, duration_seconds, calories_burned, elevation_gain_meters, average_heartrate, points, workout_notes, screenshot_file_path, map_summary_polyline, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (learning_class_id, team_id, user_id, activity_type, is_treadmill, is_race, terrain, distance_value, reported_distance_value, verified_distance_value, duration_minutes, duration_seconds, calories_burned, elevation_gain_meters, average_heartrate, max_heartrate, splits_json, points, workout_notes, screenshot_file_path, map_summary_polyline, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         classId,
         teamId ? toInt(teamId) : null,
@@ -133,6 +135,8 @@ class ChallengeWorkout {
         caloriesBurned != null ? toInt(caloriesBurned) : null,
         elevationGainMeters != null ? Number(elevationGainMeters) : null,
         averageHeartrate != null ? Number(averageHeartrate) : null,
+        maxHeartrate != null ? Math.round(Number(maxHeartrate)) : null,
+        splitsJson ? JSON.stringify(splitsJson) : null,
         Math.round((Number(points) || 0) * 100) / 100,
         workoutNotes ? String(workoutNotes).trim() : null,
         screenshotFilePath ? String(screenshotFilePath).trim() : null,

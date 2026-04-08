@@ -817,6 +817,28 @@ if (!isBootstrap) {
     }
   })();
 
+  // Migration 692 – max_heartrate + splits_json on challenge_workouts
+  (async () => {
+    try {
+      const { default: pool } = await import('./config/database.js');
+      const [cols] = await pool.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'challenge_workouts'
+           AND COLUMN_NAME = 'splits_json'`
+      );
+      if (!cols.length) {
+        await pool.execute(
+          `ALTER TABLE challenge_workouts
+             ADD COLUMN max_heartrate SMALLINT UNSIGNED NULL DEFAULT NULL AFTER average_heartrate,
+             ADD COLUMN splits_json   JSON NULL DEFAULT NULL AFTER max_heartrate`
+        );
+        console.log('[startup] Migration 692 applied: max_heartrate + splits_json added to challenge_workouts');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 692 check skipped:', err.message);
+    }
+  })();
+
   // Set up periodic processing of terminated and completed users
   // Run every hour to check for users that need to be marked inactive or archived
   setInterval(async () => {

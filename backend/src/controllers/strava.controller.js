@@ -336,6 +336,22 @@ export const stravaImport = async (req, res, next) => {
       const caloriesBurned = activity.calories ? Math.round(Number(activity.calories)) : null;
       const elevationGainMeters = activity.total_elevation_gain != null ? Number(activity.total_elevation_gain) : null;
       const averageHeartrate = activity.average_heartrate != null ? Number(activity.average_heartrate) : null;
+      const maxHeartrate = activity.max_heartrate != null ? Number(activity.max_heartrate) : null;
+      // Mile splits: use splits_standard (imperial). Each item has distance_m, elapsed_time_s, moving_time_s,
+      // elevation_diff_m, average_speed_ms, average_heartrate, split number.
+      const splitsJson = (() => {
+        const raw = activity.splits_standard;
+        if (!Array.isArray(raw) || !raw.length) return null;
+        return raw.map((s) => ({
+          split: s.split,
+          distanceMeters: s.distance != null ? Number(s.distance) : null,
+          elapsedTimeSec: s.elapsed_time != null ? Number(s.elapsed_time) : null,
+          movingTimeSec: s.moving_time != null ? Number(s.moving_time) : null,
+          elevationDiffMeters: s.elevation_difference != null ? Number(s.elevation_difference) : null,
+          averageSpeedMs: s.average_speed != null ? Number(s.average_speed) : null,
+          averageHeartrate: s.average_heartrate != null ? Number(s.average_heartrate) : null
+        }));
+      })();
       // Combine Strava name + description for workout notes
       const noteParts = [
         activity.name ? String(activity.name).trim() : null,
@@ -388,6 +404,8 @@ export const stravaImport = async (req, res, next) => {
         caloriesBurned,
         elevationGainMeters,
         averageHeartrate,
+        maxHeartrate,
+        splitsJson,
         mapSummaryPolyline,
         points,
         workoutNotes,

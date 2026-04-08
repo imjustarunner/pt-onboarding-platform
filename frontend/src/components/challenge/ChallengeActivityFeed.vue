@@ -68,10 +68,35 @@
         </div>
         <div v-if="w.workout_notes" class="activity-notes" style="white-space: pre-line;">{{ w.workout_notes }}</div>
         <!-- Strava extra metrics row -->
-        <div v-if="w.strava_activity_id && (w.elevation_gain_meters > 0 || w.calories_burned > 0 || w.average_heartrate > 0)" class="strava-metrics-row">
+        <div v-if="w.strava_activity_id && (w.elevation_gain_meters > 0 || w.calories_burned > 0 || w.average_heartrate > 0 || w.max_heartrate > 0)" class="strava-metrics-row">
           <span v-if="w.elevation_gain_meters > 0" class="strava-metric" title="Elevation gain">⛰ {{ Math.round(w.elevation_gain_meters * 3.28084) }} ft gain</span>
           <span v-if="w.calories_burned > 0" class="strava-metric" title="Calories burned">🔥 {{ w.calories_burned }} cal</span>
-          <span v-if="w.average_heartrate > 0" class="strava-metric" title="Avg heart rate">❤️ {{ Math.round(w.average_heartrate) }} bpm</span>
+          <span v-if="w.average_heartrate > 0" class="strava-metric" title="Avg heart rate">❤️ avg {{ Math.round(w.average_heartrate) }} bpm</span>
+          <span v-if="w.max_heartrate > 0" class="strava-metric" title="Max heart rate">❤️‍🔥 max {{ Math.round(w.max_heartrate) }} bpm</span>
+        </div>
+        <!-- Mile splits (collapsible) -->
+        <div v-if="parsedSplits(w).length" class="splits-section">
+          <button class="splits-toggle" @click="toggleSplits(w.id)">
+            {{ splitsOpen[w.id] ? '▲ Hide' : '▼ Mile splits' }} ({{ parsedSplits(w).length }} mi)
+          </button>
+          <table v-if="splitsOpen[w.id]" class="splits-table">
+            <thead>
+              <tr>
+                <th>Mi</th>
+                <th>Pace</th>
+                <th>Elev</th>
+                <th v-if="parsedSplits(w).some(s => s.averageHeartrate)">HR</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="s in parsedSplits(w)" :key="s.split">
+                <td>{{ s.split }}</td>
+                <td>{{ formatSplitPace(s) }}</td>
+                <td>{{ s.elevationDiffMeters != null ? (s.elevationDiffMeters >= 0 ? '+' : '') + Math.round(s.elevationDiffMeters * 3.28084) + ' ft' : '—' }}</td>
+                <td v-if="parsedSplits(w).some(s2 => s2.averageHeartrate)">{{ s.averageHeartrate ? Math.round(s.averageHeartrate) + ' bpm' : '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
         <div v-if="Number(w.is_disqualified) === 1" class="disqualified-banner">
           Disqualified workout{{ w.disqualification_reason ? `: ${w.disqualification_reason}` : '' }}
@@ -812,6 +837,29 @@ onUnmounted(() => {
   document.removeEventListener('click', onDocumentClick);
 });
 
+// ── Mile splits ─────────────────────────────────────────────────────────────
+const splitsOpen = ref({});
+const toggleSplits = (id) => { splitsOpen.value = { ...splitsOpen.value, [id]: !splitsOpen.value[id] }; };
+
+const parsedSplits = (w) => {
+  if (!w?.splits_json) return [];
+  try {
+    const arr = typeof w.splits_json === 'string' ? JSON.parse(w.splits_json) : w.splits_json;
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+};
+
+const formatSplitPace = (s) => {
+  const sec = s.movingTimeSec || s.elapsedTimeSec;
+  const dist = s.distanceMeters;
+  if (!sec || !dist) return '—';
+  const miles = dist / 1609.34;
+  const paceSecPerMile = sec / miles;
+  const m = Math.floor(paceSecPerMile / 60);
+  const ss = Math.round(paceSecPerMile % 60);
+  return `${m}:${String(ss).padStart(2, '0')}/mi`;
+};
+
 const reviewProof = async (workoutId, status) => {
   const workout = (props.workouts || []).find((w) => Number(w.id) === Number(workoutId));
   ensureProofDraft(workoutId, workout);
@@ -1046,6 +1094,30 @@ const reviewProof = async (workoutId, status) => {
   font-size: 0.9em;
   line-height: 1.5;
 }
+.splits-section { margin-top: 8px; }
+.splits-toggle {
+  background: none;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 0.78rem;
+  color: #555;
+  cursor: pointer;
+}
+.splits-toggle:hover { background: #f5f5f5; }
+.splits-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+.splits-table th, .splits-table td {
+  text-align: left;
+  padding: 3px 8px;
+  border-bottom: 1px solid #eee;
+}
+.splits-table th { color: #888; font-weight: 600; }
+.splits-table tr:last-child td { border-bottom: none; }
 .strava-metrics-row {
   display: flex;
   gap: 10px;
