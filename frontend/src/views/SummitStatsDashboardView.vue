@@ -66,9 +66,21 @@
           <div class="season-totals">
             {{ formatWhole(season.totalPoints) }} pts • {{ formatDecimal(season.totalMiles) }} mi • {{ formatWhole(season.workoutCount) }} workouts
           </div>
-          <button type="button" class="btn btn-primary btn-sm" @click="openSeason(season)">
-            Open Season
-          </button>
+          <div class="season-card-actions">
+            <button type="button" class="btn btn-primary btn-sm" @click="openSeason(season)">
+              Open Season
+            </button>
+            <template v-if="isManagedClub(season.clubId)">
+              <router-link
+                :to="`/${orgSlug}/admin/settings?category=workflow&item=challenge-management&manageSeason=${season.classId}`"
+                class="btn btn-secondary btn-sm"
+              >Manage Season</router-link>
+              <router-link
+                :to="`/${orgSlug}/admin/settings?category=workflow&item=challenge-management&editSeason=${season.classId}`"
+                class="btn btn-secondary btn-sm"
+              >Edit Season</router-link>
+            </template>
+          </div>
         </div>
       </div>
       <div v-else class="empty-state">
@@ -1386,6 +1398,12 @@ watch(() => route.params.organizationSlug, () => {
 .season-card--available {
   border-color: #bfdbfe;
   background: #eff6ff;
+}
+.season-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .available-seasons-divider {

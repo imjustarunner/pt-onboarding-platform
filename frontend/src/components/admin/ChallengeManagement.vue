@@ -2681,6 +2681,31 @@ onMounted(async () => {
   } finally {
     seasonsContextLoading.value = false;
   }
+
+  // Auto-open manage or edit modal when arriving from dashboard deep-link
+  const manageId = Number(route.query.manageSeason || 0);
+  const editId   = Number(route.query.editSeason   || 0);
+  if (manageId || editId) {
+    const targetId = manageId || editId;
+    // Wait for challenges to load then open the matching season
+    const attempt = async (tries = 0) => {
+      if (challenges.value.length) {
+        const c = challenges.value.find((ch) => Number(ch.id) === targetId);
+        if (c) {
+          if (manageId) openManageModal(c);
+          else openEditModal(c);
+          // Clean up query so back/refresh doesn't re-open
+          const q = { ...route.query };
+          delete q.manageSeason;
+          delete q.editSeason;
+          await router.replace({ path: route.path, query: q, hash: route.hash });
+        }
+      } else if (tries < 10) {
+        setTimeout(() => attempt(tries + 1), 300);
+      }
+    };
+    setTimeout(() => attempt(), 400);
+  }
 });
 </script>
 
