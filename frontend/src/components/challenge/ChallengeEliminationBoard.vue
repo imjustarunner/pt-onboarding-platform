@@ -27,8 +27,10 @@
     </div>
     <div class="elimination-week-selector">
       <label>Week</label>
-      <input v-model="weekStart" type="date" @change="load" />
-      <button type="button" class="btn btn-secondary btn-sm" @click="weekStart = null">All</button>
+      <select v-model="selectedWeekIdx" class="week-select">
+        <option :value="-1">All weeks</option>
+        <option v-for="(w, i) in seasonWeeks" :key="w.date" :value="i">{{ w.label }}</option>
+      </select>
     </div>
     <div v-if="loading" class="loading-inline">Loading…</div>
     <div v-else class="elimination-list">
@@ -47,15 +49,22 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch, computed, onMounted } from 'vue';
 import api from '../../services/api';
+import { useSeasonWeeks } from '../../composables/useSeasonWeeks.js';
 
 const props = defineProps({
   challengeId: { type: [String, Number], required: true },
-  isManager: { type: Boolean, default: false }
+  isManager: { type: Boolean, default: false },
+  seasonStartsAt: { type: [String, Date], default: null }
 });
 
-const weekStart = ref(null);
+const { seasonWeeks, selectedWeekIdx, weekStartDate } = useSeasonWeeks(
+  computed(() => props.seasonStartsAt),
+  { defaultToLatest: false }
+);
+// -1 means "All weeks"
+const weekStart = computed(() => selectedWeekIdx.value === -1 ? null : weekStartDate.value);
 const loading = ref(false);
 const eliminations = ref([]);
 const participants = ref([]);
@@ -126,6 +135,7 @@ const submitManualElimination = async () => {
 
 watch(() => props.challengeId, load, { immediate: true });
 watch(weekStart, load);
+watch(selectedWeekIdx, load);
 watch(() => props.challengeId, loadParticipants, { immediate: true });
 onMounted(loadParticipants);
 
@@ -156,7 +166,7 @@ defineExpose({ load });
   border-radius: 6px;
 }
 .elimination-week-selector { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
-.elimination-week-selector input { padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; }
+.week-select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 10px; font-size: 0.88em; background: #fff; cursor: pointer; }
 .elimination-list { display: flex; flex-direction: column; gap: 8px; }
 .elimination-row { padding: 12px; border: 1px solid #eee; border-radius: 6px; }
 .elimination-row .name { font-weight: 600; }

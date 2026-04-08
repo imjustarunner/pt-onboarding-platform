@@ -51,7 +51,7 @@
             </div>
             <div class="challenge-actions">
               <button v-if="(c.status || '').toLowerCase() === 'draft'" class="btn btn-primary btn-sm" @click="launchChallenge(c)" :disabled="launching">Launch</button>
-              <router-link :to="challengeDashboardLink(c)" class="btn btn-secondary btn-sm">View Stats</router-link>
+              <router-link :to="challengeDashboardLink(c)" class="btn btn-secondary btn-sm">Open Season</router-link>
               <button class="btn btn-secondary btn-sm" @click="openEditModal(c)">Edit</button>
               <button class="btn btn-secondary btn-sm" @click="openManageModal(c)">Manage</button>
               <button
@@ -1806,8 +1806,10 @@ const organizationSlug = computed(() => agencyStore.currentAgency?.slug || agenc
 
 const challengeDashboardLink = (c) => {
   const id = c.id;
-  if (organizationSlug.value) return `/${organizationSlug.value}/season/${id}`;
-  return `/${String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase()}/season/${id}`;
+  // Always use the season's own org slug so the manager view is recognised correctly
+  const slug = c.organization_slug || organizationSlug.value
+    || String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase();
+  return `/${slug}/season/${id}`;
 };
 
 const formatStatus = (c) => {

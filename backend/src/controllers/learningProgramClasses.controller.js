@@ -567,7 +567,8 @@ export const getLearningProgramClass = async (req, res, next) => {
       klass,
       providerUserId: req.user.id
     });
-    return res.json({ class: klass, intakeLinks, resources, clientMembers, providerMembers, participationAgreementStatus });
+    const canManage = await canUserManageChallengeClass(req.user, classId);
+    return res.json({ class: { ...klass, can_manage: canManage }, intakeLinks, resources, clientMembers, providerMembers, participationAgreementStatus });
   } catch (e) {
     next(e);
   }

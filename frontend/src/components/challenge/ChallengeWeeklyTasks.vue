@@ -3,8 +3,11 @@
     <div class="tasks-header">
       <h2>Weekly Challenges</h2>
       <div class="tasks-week-selector">
-        <label>Week of</label>
-        <input v-model="weekStart" type="date" @change="load" />
+        <label>Week</label>
+        <select v-model="selectedWeekIdx" class="week-select">
+          <option v-for="(w, i) in seasonWeeks" :key="w.date" :value="i">{{ w.label }}</option>
+          <option v-if="!seasonWeeks.length" :value="0" disabled>No weeks available</option>
+        </select>
         <button
           v-if="byeWeekAllowed"
           type="button"
@@ -155,14 +158,19 @@
 import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
 import ChallengeTaskDetailModal from './ChallengeTaskDetailModal.vue';
+import { useSeasonWeeks } from '../../composables/useSeasonWeeks.js';
 
 const props = defineProps({
   challengeId: { type: [String, Number], required: true },
   myUserId: { type: [String, Number], default: null },
-  isCaptain: { type: Boolean, default: false }
+  isCaptain: { type: Boolean, default: false },
+  seasonStartsAt: { type: [String, Date], default: null }
 });
 
-const weekStart = ref(getThisWeekSunday());
+const { seasonWeeks, selectedWeekIdx, weekStartDate: weekStart } = useSeasonWeeks(
+  computed(() => props.seasonStartsAt),
+  { defaultToLatest: false }
+);
 const loading = ref(false);
 const tasks = ref([]);
 const assignments = ref([]);
@@ -187,13 +195,6 @@ const hasByeDeclaredForWeek = computed(() =>
 );
 
 const isOnMyTeam = computed(() => !!myTeam.value);
-
-function getThisWeekSunday() {
-  const d = new Date();
-  const sun = new Date(d);
-  sun.setDate(d.getDate() - d.getDay());
-  return sun.toISOString().slice(0, 10);
-}
 
 function modeLabel(mode) {
   if (mode === 'full_team') return 'Full Team';
@@ -398,7 +399,7 @@ defineExpose({ load });
 .tasks-header h2 { margin: 0; font-size: 1.1em; }
 
 .tasks-week-selector { display: flex; align-items: center; gap: 8px; }
-.tasks-week-selector input { padding: 6px 10px; border: 1px solid var(--border, #ccc); border-radius: 4px; }
+.week-select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 10px; font-size: 0.88em; background: #fff; cursor: pointer; }
 
 .tasks-list { display: flex; flex-direction: column; gap: 14px; }
 

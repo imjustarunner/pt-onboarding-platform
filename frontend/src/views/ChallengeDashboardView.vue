@@ -146,7 +146,7 @@
               <ChallengeLeaderboard :leaderboard="leaderboard" :loading="leaderboardLoading" />
             </div>
             <div class="challenge-section">
-              <ChallengeScoreboard :challenge-id="challengeId" />
+              <ChallengeScoreboard :challenge-id="challengeId" :season-starts-at="challenge?.starts_at || challenge?.startsAt" />
             </div>
             <div class="challenge-section">
               <ChallengeTeamWeeklyProgress :challenge-id="challengeId" :season-starts-at="challenge?.starts_at || challenge?.startsAt" />
@@ -419,7 +419,7 @@
           <ChallengeTeamList :teams="teams" :loading="teamsLoading" />
         </div>
         <div class="challenge-section">
-          <ChallengeEliminationBoard :challenge-id="challengeId" :is-manager="isChallengeManager" />
+          <ChallengeEliminationBoard :challenge-id="challengeId" :is-manager="isChallengeManager" :season-starts-at="challenge?.starts_at || challenge?.startsAt" />
         </div>
         <div v-if="isChallengeManager || isTeamCaptain" class="challenge-section">
           <ChallengeDraftReport :challenge-id="challengeId" :can-edit="isChallengeManager" />
@@ -434,7 +434,7 @@
           </div>
         </div>
         <div class="challenge-section">
-          <ChallengeWeeklyTasks :challenge-id="challengeId" :my-user-id="authStore.user?.id" :is-captain="isTeamCaptain" />
+          <ChallengeWeeklyTasks :challenge-id="challengeId" :my-user-id="authStore.user?.id" :is-captain="isTeamCaptain" :season-starts-at="challenge?.starts_at || challenge?.startsAt" />
         </div>
 
         <section class="challenge-section">
@@ -1057,20 +1057,11 @@ const tickCountdown = () => {
 // ─────────────────────────────────────────────────────────────────
 
 const isChallengeManager = computed(() => {
+  // Server-side authoritative flag set in getLearningProgramClass response
+  if (challenge.value?.can_manage === true) return true;
+  // Fallback for admin/staff roles when can_manage isn't available yet
   const role = String(authStore.user?.role || '').toLowerCase();
   if (['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role)) return true;
-  if (role === 'club_manager') {
-    // Prefer slug-based match (most reliable — present in every season load)
-    if (challenge.value?.organization_slug && organizationSlug.value) {
-      return String(challenge.value.organization_slug).toLowerCase() ===
-             String(organizationSlug.value).toLowerCase();
-    }
-    // Fall back to agency store ID comparison
-    if (challenge.value?.organization_id) {
-      const agStore = useAgencyStore();
-      return Number(agStore.currentAgency?.id || 0) === Number(challenge.value.organization_id);
-    }
-  }
   return false;
 });
 

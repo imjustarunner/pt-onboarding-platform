@@ -2,8 +2,11 @@
   <section class="challenge-scoreboard">
     <h2>Weekly Scoreboard</h2>
     <div class="scoreboard-week-selector">
-      <label>Week of</label>
-      <input v-model="weekStart" type="date" @change="load" />
+      <label>Week</label>
+      <select v-model="selectedWeekIdx" class="week-select">
+        <option v-for="(w, i) in seasonWeeks" :key="w.date" :value="i">{{ w.label }}</option>
+        <option v-if="!seasonWeeks.length" :value="0" disabled>No weeks available</option>
+      </select>
     </div>
     <div v-if="loading" class="loading-inline">Loading…</div>
     <div v-else class="scoreboard-content">
@@ -83,11 +86,13 @@
 import { ref, watch, computed } from 'vue';
 import api from '../../services/api';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import { useSeasonWeeks } from '../../composables/useSeasonWeeks.js';
 
 const formatPts = (v) => parseFloat(Number(v || 0).toFixed(2));
 
 const props = defineProps({
-  challengeId: { type: [String, Number], required: true }
+  challengeId: { type: [String, Number], required: true },
+  seasonStartsAt: { type: [String, Date], default: null }
 });
 
 const emit = defineEmits(['load']);
@@ -130,25 +135,20 @@ function resolveScoreboardIconUrl(iconRef) {
   return null;
 }
 
-const weekStart = ref(getThisWeekSunday());
+const { seasonWeeks, selectedWeekIdx, weekStartDate } = useSeasonWeeks(
+  computed(() => props.seasonStartsAt),
+  { defaultToLatest: false }
+);
+
 const loading = ref(false);
 const data = ref(null);
 
-function getThisWeekSunday() {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = d.getDate() - day;
-  const sun = new Date(d);
-  sun.setDate(diff);
-  return sun.toISOString().slice(0, 10);
-}
-
 const load = async () => {
-  if (!props.challengeId) return;
+  if (!props.challengeId || !weekStartDate.value) return;
   loading.value = true;
   try {
     const r = await api.get(`/learning-program-classes/${props.challengeId}/scoreboard`, {
-      params: { week: weekStart.value },
+      params: { week: weekStartDate.value },
       skipGlobalLoading: true
     });
     data.value = r.data || null;
@@ -160,7 +160,7 @@ const load = async () => {
 };
 
 watch(() => props.challengeId, load, { immediate: true });
-watch(weekStart, load);
+watch(weekStartDate, load);
 
 defineExpose({ load });
 </script>
@@ -168,7 +168,7 @@ defineExpose({ load });
 <style scoped>
 .challenge-scoreboard h2 { margin: 0 0 12px 0; font-size: 1.1em; }
 .scoreboard-week-selector { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
-.scoreboard-week-selector input { padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; }
+.week-select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 10px; font-size: 0.88em; background: #fff; cursor: pointer; }
 .scoreboard-content { display: flex; flex-direction: column; gap: 20px; }
 .scoreboard-block h3 { margin: 0 0 8px 0; font-size: 1em; font-weight: 600; color: var(--text-muted, #666); }
 .scoreboard-list { display: flex; flex-direction: column; gap: 6px; }
