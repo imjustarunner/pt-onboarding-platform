@@ -231,7 +231,8 @@ const stravaTypeToActivity = (type, sportType) => {
 
 /**
  * Compute points from Strava activity using season scoring settings.
- * Uses Math.floor (1 pt per full mile/unit) consistent with manual submit.
+ * Distance-based sports count to 2 decimal places (e.g. 3.89 mi = 3.89 pts).
+ * Time-based fallback (no GPS distance) stays whole-number per 15 min.
  */
 const computePointsFromStrava = (activity, activityType, scoring = {}) => {
   const distMeters = Number(activity?.distance) || 0;
@@ -243,7 +244,7 @@ const computePointsFromStrava = (activity, activityType, scoring = {}) => {
     const milesPerPoint = aLower.includes('ruck')
       ? Math.max(0.01, Number(scoring.ruckMilesPerPoint || 1))
       : Math.max(0.01, Number(scoring.runMilesPerPoint  || 1));
-    return Math.max(0, Math.floor(miles / milesPerPoint));
+    return Math.max(0, Math.round((miles / milesPerPoint) * 100) / 100);
   }
   if (minutes > 0) return Math.max(0, Math.floor(minutes / 15));
   return 0;
@@ -332,6 +333,15 @@ export const stravaImport = async (req, res, next) => {
       const durationMinutes = rawSec > 0 ? Math.floor(rawSec / 60) : null;
       const durationSeconds = rawSec > 0 ? (rawSec % 60) : null;
       const mapSummaryPolyline = activity.map?.summary_polyline || null;
+      const caloriesBurned = activity.calories ? Math.round(Number(activity.calories)) : null;
+      const elevationGainMeters = activity.total_elevation_gain != null ? Number(activity.total_elevation_gain) : null;
+      const averageHeartrate = activity.average_heartrate != null ? Number(activity.average_heartrate) : null;
+      // Combine Strava name + description for workout notes
+      const noteParts = [
+        activity.name ? String(activity.name).trim() : null,
+        activity.description ? String(activity.description).trim() : null
+      ].filter(Boolean);
+      const workoutNotes = noteParts.length ? noteParts.join('\n') : null;
       const points = computePointsFromStrava(activity, activityType, stravaScoring);
       const completedAt = activity.start_date ? new Date(activity.start_date).toISOString().slice(0, 19).replace('T', ' ') : null;
       const treadmill = isTreadmillActivity(activity);
@@ -375,9 +385,12 @@ export const stravaImport = async (req, res, next) => {
         reportedDistanceValue: distanceMiles,
         durationMinutes,
         durationSeconds,
+        caloriesBurned,
+        elevationGainMeters,
+        averageHeartrate,
         mapSummaryPolyline,
         points,
-        workoutNotes: activity.name ? String(activity.name).trim() : null,
+        workoutNotes,
         completedAt,
         stravaActivityId: stravaId,
         proofStatus

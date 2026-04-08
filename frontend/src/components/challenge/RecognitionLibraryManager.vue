@@ -97,14 +97,15 @@
           </div>
           <div class="rlm-field-row">
             <div class="rlm-field">
-              <label class="rlm-label">Period</label>
+              <label class="rlm-label">Period / Type</label>
               <select v-model="tenantAwardForm.period" class="rlm-select">
                 <option value="weekly">Weekly</option>
                 <option value="monthly">Monthly</option>
                 <option value="season">Full Season</option>
+                <option value="challenge">Challenge</option>
               </select>
             </div>
-            <div class="rlm-field">
+            <div v-if="tenantAwardForm.period !== 'challenge'" class="rlm-field">
               <label class="rlm-label">Metric</label>
               <select v-model="tenantAwardForm.metric" class="rlm-select">
                 <option value="distance_miles">Miles</option>
@@ -113,7 +114,7 @@
                 <option value="activities_count">Activity count</option>
               </select>
             </div>
-            <div class="rlm-field">
+            <div v-if="tenantAwardForm.period !== 'challenge'" class="rlm-field">
               <label class="rlm-label">Winner by</label>
               <select v-model="tenantAwardForm.aggregation" class="rlm-select">
                 <option value="most">Most (total) — one winner</option>
@@ -122,7 +123,10 @@
               </select>
             </div>
           </div>
-          <div v-if="tenantAwardForm.aggregation === 'milestone'" class="rlm-field">
+          <div v-if="tenantAwardForm.period === 'challenge'" class="rlm-field rlm-field--challenge-note">
+            <span class="rlm-field-hint">This award is earned by completing the assigned challenge. Add details below so the AI generator can suggest appropriate workouts and challenges based on the title and description.</span>
+          </div>
+          <div v-else-if="tenantAwardForm.aggregation === 'milestone'" class="rlm-field">
             <label class="rlm-label">Target total *</label>
             <input
               v-model.number="tenantAwardForm.milestoneThreshold"
@@ -156,6 +160,16 @@
               <option value="fitness">Fitness / Strength</option>
             </select>
             <span class="rlm-field-hint">Award only counts workouts of this type. Leave as "Any" to include all activity types.</span>
+          </div>
+          <div class="rlm-field">
+            <label class="rlm-label">Details / Notes <span class="rlm-label-hint">(used for AI challenge &amp; workout generation)</span></label>
+            <textarea
+              v-model="tenantAwardForm.details"
+              class="rlm-textarea"
+              rows="3"
+              maxlength="2000"
+              placeholder="Describe what this award is for, requirements, or notes for AI generation…"
+            ></textarea>
           </div>
         </div>
         <div class="rlm-modal-footer">
@@ -380,11 +394,12 @@
 
           <div class="rlm-field-row">
             <div class="rlm-field">
-              <label class="rlm-label">Period</label>
+              <label class="rlm-label">Period / Type</label>
               <select v-model="awardForm.period" class="rlm-select">
                 <option value="weekly">Weekly</option>
                 <option value="monthly">Monthly</option>
                 <option value="season">Full Season</option>
+                <option value="challenge">Challenge</option>
               </select>
             </div>
             <div v-if="awardForm.period === 'monthly'" class="rlm-field">
@@ -394,7 +409,7 @@
                 <option v-for="d in 28" :key="d" :value="d">Day {{ d }}</option>
               </select>
             </div>
-            <div class="rlm-field">
+            <div v-if="awardForm.period !== 'challenge'" class="rlm-field">
               <label class="rlm-label">Metric</label>
               <select v-model="awardForm.metric" class="rlm-select">
                 <option value="distance_miles">Miles</option>
@@ -403,7 +418,7 @@
                 <option value="activities_count">Activity count</option>
               </select>
             </div>
-            <div class="rlm-field">
+            <div v-if="awardForm.period !== 'challenge'" class="rlm-field">
               <label class="rlm-label">Winner by</label>
               <select v-model="awardForm.aggregation" class="rlm-select">
                 <option value="most">Most (total)</option>
@@ -416,7 +431,10 @@
             </div>
           </div>
 
-          <div v-if="awardForm.aggregation === 'milestone'" class="rlm-field">
+          <div v-if="awardForm.period === 'challenge'" class="rlm-field rlm-field--challenge-note">
+            <span class="rlm-field-hint">This award is earned by completing the assigned challenge. Add details below so the AI generator can suggest appropriate workouts and challenges.</span>
+          </div>
+          <div v-else-if="awardForm.aggregation === 'milestone'" class="rlm-field">
             <label class="rlm-label">Target total *</label>
             <input
               v-model.number="awardForm.milestoneThreshold"
@@ -467,6 +485,16 @@
                 </option>
               </select>
             </div>
+          </div>
+          <div class="rlm-field">
+            <label class="rlm-label">Details / Notes <span class="rlm-label-hint">(used for AI challenge &amp; workout generation)</span></label>
+            <textarea
+              v-model="awardForm.details"
+              class="rlm-textarea"
+              rows="3"
+              maxlength="2000"
+              placeholder="Describe what this award is for, requirements, or notes for AI generation…"
+            ></textarea>
           </div>
         </div>
 
@@ -617,7 +645,7 @@ const deleteConfirm  = ref(null);  // { type: 'group'|'award', id, label }
 const deleteLoading  = ref(false);
 
 function defaultTenantAwardForm() {
-  return { label: '', icon: '🏆', period: 'weekly', metric: 'distance_miles', aggregation: 'most', activityType: '', milestoneThreshold: null, referenceTarget: null };
+  return { label: '', icon: '🏆', period: 'weekly', metric: 'distance_miles', aggregation: 'most', activityType: '', details: '', milestoneThreshold: null, referenceTarget: null };
 }
 
 // ── Load ──────────────────────────────────────────────────────────
@@ -711,13 +739,13 @@ async function saveGroup() {
 
 // ── Award modal ───────────────────────────────────────────────────
 function defaultAwardForm() {
-  return { label: '', icon: '🏆', period: 'weekly', monthEndDay: 'last', metric: 'distance_miles', aggregation: 'most', activityType: '', groupFilter: '', milestoneThreshold: null, referenceTarget: null };
+  return { label: '', icon: '🏆', period: 'weekly', monthEndDay: 'last', metric: 'distance_miles', aggregation: 'most', activityType: '', groupFilter: '', details: '', milestoneThreshold: null, referenceTarget: null };
 }
 function openAwardModal(a = null) {
   editingAward.value = a;
   const icon = a?.icon || '🏆';
   awardForm.value = a
-    ? { label: a.label, icon, period: a.period, monthEndDay: a.monthEndDay || 'last', metric: a.metric, aggregation: a.aggregation, activityType: a.activityType || '', groupFilter: a.groupFilter || '', milestoneThreshold: a.milestoneThreshold != null ? Number(a.milestoneThreshold) : null, referenceTarget: a.referenceTarget != null ? Number(a.referenceTarget) : null }
+    ? { label: a.label, icon, period: a.period, monthEndDay: a.monthEndDay || 'last', metric: a.metric, aggregation: a.aggregation, activityType: a.activityType || '', groupFilter: a.groupFilter || '', details: a.details || '', milestoneThreshold: a.milestoneThreshold != null ? Number(a.milestoneThreshold) : null, referenceTarget: a.referenceTarget != null ? Number(a.referenceTarget) : null }
     : defaultAwardForm();
   awardSaveError.value = '';
   showIconPicker.value = false;
@@ -762,7 +790,8 @@ async function saveAward() {
         return Number.isFinite(n) && n >= 0 ? n : undefined;
       })(),
       activityType: awardForm.value.activityType.trim(),
-      groupFilter: awardForm.value.groupFilter
+      groupFilter: awardForm.value.groupFilter,
+      details: awardForm.value.details?.trim() || ''
     };
     if (editingAward.value) {
       const { data } = await api.put(`/summit-stats/clubs/${props.clubId}/recognition-awards/${editingAward.value.id}`, payload);
@@ -786,7 +815,7 @@ function openTenantAwardModal(a = null) {
   editingTenantAward.value = a;
   const icon = a?.icon || '🏆';
   tenantAwardForm.value = a
-    ? { label: a.label, icon, period: a.period, metric: a.metric, aggregation: a.aggregation, activityType: a.activityType || '', milestoneThreshold: a.milestoneThreshold != null ? Number(a.milestoneThreshold) : null, referenceTarget: a.referenceTarget != null ? Number(a.referenceTarget) : null }
+    ? { label: a.label, icon, period: a.period, metric: a.metric, aggregation: a.aggregation, activityType: a.activityType || '', details: a.details || '', milestoneThreshold: a.milestoneThreshold != null ? Number(a.milestoneThreshold) : null, referenceTarget: a.referenceTarget != null ? Number(a.referenceTarget) : null }
     : defaultTenantAwardForm();
   tenantAwardSaveError.value = '';
   showTenantIconPicker.value = false;
@@ -833,7 +862,8 @@ async function saveTenantAward() {
         const n = Number(tenantAwardForm.value.referenceTarget);
         return Number.isFinite(n) && n >= 0 ? n : undefined;
       })(),
-      activityType: tenantAwardForm.value.activityType.trim()
+      activityType: tenantAwardForm.value.activityType.trim(),
+      details: tenantAwardForm.value.details?.trim() || ''
     };
     if (editingTenantAward.value) {
       const { data } = await api.put(`/summit-stats/clubs/${props.clubId}/tenant-awards/${editingTenantAward.value.id}`, payload);
@@ -898,7 +928,7 @@ async function executeDelete() {
 }
 
 // ── Display helpers ────────────────────────────────────────────────
-function periodLabel(p) { return { weekly: 'Weekly', monthly: 'Monthly', season: 'Full Season' }[p] || p; }
+function periodLabel(p) { return { weekly: 'Weekly', monthly: 'Monthly', season: 'Full Season', challenge: 'Challenge' }[p] || p; }
 function metricLabel(m) { return { distance_miles: 'Miles', points: 'Points', duration_minutes: 'Duration', activities_count: 'Activity count' }[m] || m; }
 function aggregationLabel(a) { return { most: 'Most total', least: 'Least total', average: 'Avg/entry', best_single: 'Best workout', best_day: 'Best day', milestone: 'Milestone' }[a] || a; }
 function groupFilterLabel(gf) {
@@ -1252,6 +1282,30 @@ function formatCriteria(criteria) {
   border-radius: 6px;
   font-size: 12px;
   width: 120px;
+}
+
+.rlm-textarea {
+  padding: 8px 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary, #0f172a);
+  background: #fff;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.rlm-field--challenge-note {
+  background: var(--primary-light, #eff6ff);
+  border: 1px solid var(--primary, #bfdbfe);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.rlm-field--challenge-note .rlm-field-hint {
+  color: var(--primary, #2563eb);
 }
 
 .rlm-error {

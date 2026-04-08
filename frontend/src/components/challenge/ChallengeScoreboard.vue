@@ -15,7 +15,7 @@
             <UserAvatar :photo-path="r.profile_photo_path" :first-name="r.first_name" :last-name="r.last_name" size="sm" />
             <span class="name">{{ r.first_name }} {{ r.last_name }}</span>
             <span v-if="r.team_name" class="team">{{ r.team_name }}</span>
-            <span class="points">{{ r.total_points }} pts</span>
+            <span class="points">{{ formatPts(r.total_points) }} pts</span>
           </div>
           <div v-if="!data?.top5Athletes?.length" class="empty-hint">No workouts this week yet.</div>
         </div>
@@ -26,7 +26,7 @@
           <div v-for="(r, idx) in (data?.top5Teams || [])" :key="`t-${r.team_id}`" class="scoreboard-row">
             <span class="rank">#{{ idx + 1 }}</span>
             <span class="name">{{ r.team_name }}</span>
-            <span class="points">{{ r.total_points }} pts</span>
+            <span class="points">{{ formatPts(r.total_points) }} pts</span>
           </div>
           <div v-if="!data?.top5Teams?.length" class="empty-hint">No team workouts this week yet.</div>
         </div>
@@ -38,7 +38,7 @@
             <UserAvatar :photo-path="r.profile_photo_path" :first-name="r.first_name" :last-name="r.last_name" size="sm" />
             <span class="name">{{ r.first_name }} {{ r.last_name }}</span>
             <span class="team">{{ r.team_name }}</span>
-            <span class="points">{{ r.total_points }} pts</span>
+            <span class="points">{{ formatPts(r.total_points) }} pts</span>
           </div>
           <div v-if="!data?.topPerTeam?.length" class="empty-hint">No data yet.</div>
         </div>
@@ -83,6 +83,8 @@
 import { ref, watch, computed } from 'vue';
 import api from '../../services/api';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+
+const formatPts = (v) => parseFloat(Number(v || 0).toFixed(2));
 
 const props = defineProps({
   challengeId: { type: [String, Number], required: true }

@@ -94,6 +94,8 @@ class ChallengeWorkout {
     durationMinutes = null,
     durationSeconds = null,
     caloriesBurned = null,
+    elevationGainMeters = null,
+    averageHeartrate = null,
     points = 0,
     workoutNotes = null,
     screenshotFilePath = null,
@@ -113,8 +115,8 @@ class ChallengeWorkout {
     const durSec = durationSeconds != null ? Math.min(59, Math.max(0, toInt(durationSeconds) || 0)) : null;
     const [result] = await pool.execute(
       `INSERT INTO challenge_workouts
-       (learning_class_id, team_id, user_id, activity_type, is_treadmill, is_race, terrain, distance_value, reported_distance_value, verified_distance_value, duration_minutes, duration_seconds, calories_burned, points, workout_notes, screenshot_file_path, map_summary_polyline, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (learning_class_id, team_id, user_id, activity_type, is_treadmill, is_race, terrain, distance_value, reported_distance_value, verified_distance_value, duration_minutes, duration_seconds, calories_burned, elevation_gain_meters, average_heartrate, points, workout_notes, screenshot_file_path, map_summary_polyline, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         classId,
         teamId ? toInt(teamId) : null,
@@ -129,7 +131,9 @@ class ChallengeWorkout {
         durationMinutes != null ? toInt(durationMinutes) : null,
         durSec,
         caloriesBurned != null ? toInt(caloriesBurned) : null,
-        toInt(points) || 0,
+        elevationGainMeters != null ? Number(elevationGainMeters) : null,
+        averageHeartrate != null ? Number(averageHeartrate) : null,
+        Math.round((Number(points) || 0) * 100) / 100,
         workoutNotes ? String(workoutNotes).trim() : null,
         screenshotFilePath ? String(screenshotFilePath).trim() : null,
         mapSummaryPolyline ? String(mapSummaryPolyline) : null,

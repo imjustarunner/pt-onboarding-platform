@@ -245,6 +245,7 @@
               <option value="weekly">Weekly</option>
               <option value="monthly">Monthly</option>
               <option value="season">Full Season</option>
+              <option value="challenge">Challenge</option>
             </select>
           </div>
           <!-- Monthly end day (only shown for monthly period) -->

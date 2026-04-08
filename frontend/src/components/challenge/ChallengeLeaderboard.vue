@@ -39,7 +39,7 @@
             <span class="rank">#{{ idx + 1 }}</span>
             <UserAvatar :photo-path="row.profile_photo_path" :first-name="row.first_name" :last-name="row.last_name" size="sm" />
             <span class="name">{{ row.first_name }} {{ row.last_name }}</span>
-            <span class="points">{{ row.total_points }} pts</span>
+            <span class="points">{{ formatPts(row.total_points) }} pts</span>
           </div>
         </div>
       </div>
@@ -53,7 +53,7 @@
           >
             <span class="rank">#{{ idx + 1 }}</span>
             <span class="name">{{ row.team_name }}</span>
-            <span class="points">{{ row.total_points }} pts</span>
+            <span class="points">{{ formatPts(row.total_points) }} pts</span>
           </div>
         </div>
       </div>
@@ -70,7 +70,7 @@
         <span class="rank">#{{ idx + 1 }}</span>
         <UserAvatar :photo-path="row.profile_photo_path" :first-name="row.first_name" :last-name="row.last_name" size="sm" />
         <span class="name">{{ row.first_name }} {{ row.last_name }}</span>
-        <span class="points">{{ row.total_points }} pts</span>
+        <span class="points">{{ formatPts(row.total_points) }} pts</span>
       </div>
       <div v-if="!loading && (!leaderboard?.individual || !leaderboard.individual.length)" class="empty-hint">
         No workouts yet. Log your first workout to climb the ranks.
@@ -84,7 +84,7 @@
       >
         <span class="rank">#{{ idx + 1 }}</span>
         <span class="name">{{ row.team_name }}</span>
-        <span class="points">{{ row.total_points }} pts</span>
+        <span class="points">{{ formatPts(row.total_points) }} pts</span>
       </div>
       <div v-if="!loading && (!leaderboard?.team || !leaderboard.team.length)" class="empty-hint">
         No team workouts yet.
@@ -97,6 +97,8 @@
 <script setup>
 import { ref } from 'vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+
+const formatPts = (v) => parseFloat(Number(v || 0).toFixed(2));
 
 const props = defineProps({
   leaderboard: { type: Object, default: null },

@@ -679,12 +679,12 @@ export const submitWorkout = async (req, res, next) => {
       computedPoints = Math.max(0, Math.floor(caloriesBurned / caloriesPerPoint));
     } else if (eventCategory === 'run_ruck' && distanceValue != null && Number.isFinite(distanceValue)) {
       if (activityLower.includes('ruck')) {
-        computedPoints = Math.max(0, Math.floor(distanceValue / ruckMilesPerPoint));
+        computedPoints = Math.max(0, Math.round((distanceValue / ruckMilesPerPoint) * 100) / 100);
       } else if (activityLower.includes('run')) {
-        computedPoints = Math.max(0, Math.floor(distanceValue / runMilesPerPoint));
+        computedPoints = Math.max(0, Math.round((distanceValue / runMilesPerPoint) * 100) / 100);
       }
     }
-    const points = computedPoints != null ? computedPoints : (asInt(req.body.points) || 0);
+    const points = computedPoints != null ? computedPoints : (Math.round((Number(req.body.points) || 0) * 100) / 100);
     const completedAt = req.body.completedAt ? new Date(req.body.completedAt) : new Date();
     const completedWeekStart = getWeekStartDate(completedAt, weekCutoffTime, weekTimeZone);
     if (eventCategory === 'run_ruck' && activityLower.includes('ruck')) {

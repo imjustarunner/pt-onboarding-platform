@@ -205,28 +205,41 @@ export function timeUntil(deadline) {
  * @param {string} weekTimeZone    IANA timezone e.g. 'America/New_York'
  * @returns {Date|null}
  */
-export function getWeekDeadline(weekStartsOn = 'monday', weekEndsSundayAt = '23:59', weekTimeZone = 'UTC') {
-  const [endHour, endMin] = (weekEndsSundayAt || '23:59').split(':').map(Number);
-  if (isNaN(endHour) || isNaN(endMin)) return null;
+export function getWeekDeadline(weekStartsOn = 'sunday', weekEndsSundayAt = '23:59', weekTimeZone = 'UTC') {
+  const [cutoffHour, cutoffMin] = (weekEndsSundayAt || '23:59').split(':').map(Number);
+  if (isNaN(cutoffHour) || isNaN(cutoffMin)) return null;
+
+  // Deadline = one minute before the next week starts.
+  // e.g. week starts Sunday 16:00 → deadline is Sunday 15:59 (same day).
+  //      week starts Monday 00:00 → deadline is Sunday 23:59 (previous day).
+  let endHour = cutoffHour;
+  let endMin  = cutoffMin - 1;
+  let dayShift = 0; // 0 = same day as weekStart, -1 = previous calendar day
+
+  if (endMin < 0) {
+    endMin = 59;
+    endHour -= 1;
+    if (endHour < 0) {
+      endHour = 23;
+      dayShift = -1; // midnight start: deadline rolls back to previous day
+    }
+  }
 
   const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const startIdx   = DAY_NAMES.indexOf((weekStartsOn || 'monday').toLowerCase());
-  const endDayIdx  = (startIdx + 6) % 7; // day before the start day
+  const startIdx  = DAY_NAMES.indexOf((weekStartsOn || 'sunday').toLowerCase());
+  const endDayIdx = ((startIdx < 0 ? 0 : startIdx) + dayShift + 7) % 7;
 
   const now = new Date();
-  // Check today and next 7 days in the season timezone
   for (let offset = 0; offset <= 7; offset++) {
     const probe = new Date(now.getTime() + offset * 86400000);
 
-    // Weekday of probe in the season timezone
     const dayStr = new Intl.DateTimeFormat('en-US', {
       timeZone: weekTimeZone,
       weekday: 'short'
     }).format(probe);
     if (SHORT_DAYS.indexOf(dayStr) !== endDayIdx) continue;
 
-    // Get current clock time in the season timezone
     const timeParts = new Intl.DateTimeFormat('en-US', {
       timeZone: weekTimeZone,
       hour: '2-digit',
@@ -237,12 +250,10 @@ export function getWeekDeadline(weekStartsOn = 'monday', weekEndsSundayAt = '23:
     const curH = get('hour');
     const curM = get('minute');
 
-    // Minutes from probe to the end-time on the same timezone-day
     const deltaMin = (endHour * 60 + endMin) - (curH * 60 + curM);
     const deadline = new Date(probe.getTime() + deltaMin * 60000);
 
     if (deadline > now) return deadline;
-    // Already passed on this occurrence — keep scanning (next iteration will try next week)
   }
   return null;
 }

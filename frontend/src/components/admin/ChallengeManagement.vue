@@ -394,8 +394,9 @@
                 <input v-model.number="challengeForm.publishLeadHours" type="number" min="0" />
               </div>
               <div class="form-group">
-                <label>Week ends {{ weekEndDayName }} at</label>
+                <label>Week ends {{ weekEndDayName }} at {{ weekDeadlineTimeDisplay }} <span class="hint-inline">(one minute before next week starts)</span></label>
                 <input v-model="challengeForm.weekEndsSundayAt" type="time" />
+                <span class="field-hint">Set the time the new week begins each {{ weekEndDayName }}. The deadline to log workouts is one minute before.</span>
               </div>
               <div class="form-group">
                 <label>Week timezone</label>
@@ -1393,10 +1394,25 @@ const weeklyTasksWeek = ref(getThisWeekSunday());
 const weekEndDayName = computed(() => {
   const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const startIdx = DAY_NAMES.map((d) => d.toLowerCase()).indexOf(
-    String(challengeForm.value.weekStartsOn || 'monday').toLowerCase()
+    String(challengeForm.value.weekStartsOn || 'sunday').toLowerCase()
   );
-  const endIdx = (startIdx < 0 ? 1 : startIdx + 6) % 7;
+  const si = startIdx < 0 ? 0 : startIdx;
+  // Deadline is one minute before the next week starts.
+  // If cutoff is midnight (00:00), the minute roll-back shifts to the previous day.
+  const [h, m] = (challengeForm.value.weekEndsSundayAt || '23:59').split(':').map(Number);
+  const isMidnightStart = (h === 0 && m === 0);
+  const endIdx = isMidnightStart ? (si + 6) % 7 : si;
   return DAY_NAMES[endIdx];
+});
+
+const weekDeadlineTimeDisplay = computed(() => {
+  const [h, m] = (challengeForm.value.weekEndsSundayAt || '23:59').split(':').map(Number);
+  let dh = h, dm = m - 1;
+  if (dm < 0) { dm = 59; dh -= 1; }
+  if (dh < 0) { dh = 23; }
+  const period = dh >= 12 ? 'PM' : 'AM';
+  const h12 = dh % 12 || 12;
+  return `${h12}:${String(dm).padStart(2, '0')} ${period}`;
 });
 
 // Compute fixed week options from season start → end dates (7-day increments)

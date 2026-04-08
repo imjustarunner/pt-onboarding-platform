@@ -51,7 +51,7 @@
           <span v-if="w.distance_value">{{ Number(w.distance_value).toFixed(2) }} mi</span>
           <span v-if="w.duration_minutes">{{ formatDuration(w) }}</span>
           <span v-if="avgPace(w)" class="activity-pace">{{ avgPace(w) }} /mi</span>
-          <span class="activity-points">{{ w.points }} pts</span>
+          <span class="activity-points">{{ formatPts(w.points) }} pts</span>
         </div>
         <div v-if="w.weekly_task_name" class="hint" style="margin-top: 4px;">
           Tagged challenge: <strong>{{ w.weekly_task_name }}</strong>
@@ -66,12 +66,18 @@
           />
           <span class="screenshot-label">Screenshot attached</span>
         </div>
-        <div v-if="w.workout_notes" class="activity-notes">{{ w.workout_notes }}</div>
+        <div v-if="w.workout_notes" class="activity-notes" style="white-space: pre-line;">{{ w.workout_notes }}</div>
+        <!-- Strava extra metrics row -->
+        <div v-if="w.strava_activity_id && (w.elevation_gain_meters > 0 || w.calories_burned > 0 || w.average_heartrate > 0)" class="strava-metrics-row">
+          <span v-if="w.elevation_gain_meters > 0" class="strava-metric" title="Elevation gain">⛰ {{ Math.round(w.elevation_gain_meters * 3.28084) }} ft gain</span>
+          <span v-if="w.calories_burned > 0" class="strava-metric" title="Calories burned">🔥 {{ w.calories_burned }} cal</span>
+          <span v-if="w.average_heartrate > 0" class="strava-metric" title="Avg heart rate">❤️ {{ Math.round(w.average_heartrate) }} bpm</span>
+        </div>
         <div v-if="Number(w.is_disqualified) === 1" class="disqualified-banner">
           Disqualified workout{{ w.disqualification_reason ? `: ${w.disqualification_reason}` : '' }}
         </div>
-        <div v-if="w.strava_activity_id" class="hint" style="margin-top: 4px;">
-          Source: Strava import (ID {{ w.strava_activity_id }})
+        <div v-if="w.strava_activity_id" class="hint strava-source-hint">
+          <span class="strava-logo-s-sm">S</span> Imported from Strava
         </div>
         <div v-if="Number(w.is_treadmill) === 1" class="hint" style="margin-top: 4px;">
           Treadmill entry
@@ -423,6 +429,8 @@ const loadReactionIcons = async () => {
     })).filter((ic) => ic.url);
   } catch { reactionIcons.value = []; }
 };
+
+const formatPts = (v) => parseFloat(Number(v || 0).toFixed(2));
 
 const formatActivityType = (t) => {
   if (!t) return '';
@@ -1027,6 +1035,45 @@ const reviewProof = async (workoutId, status) => {
 .activity-notes {
   margin-top: 6px;
   font-size: 0.9em;
+  line-height: 1.5;
+}
+.strava-metrics-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.strava-metric {
+  font-size: 11px;
+  font-weight: 500;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.strava-source-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+.strava-logo-s-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  background: #fc4c02;
+  color: #fff;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
 }
 .activity-time {
   margin-top: 4px;

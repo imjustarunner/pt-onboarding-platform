@@ -285,6 +285,7 @@ const awardToApi = (row) => ({
   milestoneThreshold: row.milestone_threshold != null ? Number(row.milestone_threshold) : null,
   referenceTarget: row.reference_target != null ? Number(row.reference_target) : null,
   groupFilter: row.group_filter || '',
+  details: row.details || '',
   genderVariants: parseJson(row.gender_variants),
   isTenantTemplate: !!row.is_tenant_template,
   isActive: !!row.is_active,
@@ -343,7 +344,7 @@ export const createRecognitionAward = async (req, res, next) => {
     const label = String(req.body?.label || '').trim();
     if (!label) return res.status(400).json({ error: { message: 'label is required' } });
     const icon          = String(req.body?.icon || '🏆').slice(0, 64);
-    const period        = ['weekly', 'monthly', 'season'].includes(req.body?.period) ? req.body.period : 'weekly';
+    const period        = ['weekly', 'monthly', 'season', 'challenge'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
     const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
     const resolvedAgg   = resolveAwardAggregation(req.body);
@@ -351,11 +352,12 @@ export const createRecognitionAward = async (req, res, next) => {
     const { aggregation, milestoneThreshold } = resolvedAgg;
     const referenceTarget = parseOptionalReferenceTarget(req.body, aggregation);
     const groupFilter   = String(req.body?.groupFilter || '').trim().slice(0, 128);
+    const details       = req.body?.details != null ? String(req.body.details).trim().slice(0, 2000) : null;
     const genderVariants = Array.isArray(req.body?.genderVariants) ? req.body.genderVariants : [];
     const [result] = await pool.execute(
-      `INSERT INTO challenge_recognition_awards (agency_id, label, icon, period, activity_type, metric, aggregation, milestone_threshold, reference_target, group_filter, gender_variants, is_tenant_template)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-      [clubId, label, icon, period, activityType || null, metric, aggregation, milestoneThreshold, referenceTarget, groupFilter || null, JSON.stringify(genderVariants)]
+      `INSERT INTO challenge_recognition_awards (agency_id, label, icon, period, activity_type, metric, aggregation, milestone_threshold, reference_target, group_filter, details, gender_variants, is_tenant_template)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [clubId, label, icon, period, activityType || null, metric, aggregation, milestoneThreshold, referenceTarget, groupFilter || null, details || null, JSON.stringify(genderVariants)]
     );
     const [rows] = await pool.execute(`SELECT * FROM challenge_recognition_awards WHERE id = ?`, [result.insertId]);
     return res.status(201).json({ award: awardToApi(rows[0]) });
@@ -373,7 +375,7 @@ export const updateRecognitionAward = async (req, res, next) => {
     if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
     const label         = String(req.body?.label || '').trim() || 'Unnamed Award';
     const icon          = String(req.body?.icon || '🏆').slice(0, 64);
-    const period        = ['weekly', 'monthly', 'season'].includes(req.body?.period) ? req.body.period : 'weekly';
+    const period        = ['weekly', 'monthly', 'season', 'challenge'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
     const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
     const resolvedAgg   = resolveAwardAggregation(req.body);
@@ -381,12 +383,13 @@ export const updateRecognitionAward = async (req, res, next) => {
     const { aggregation, milestoneThreshold } = resolvedAgg;
     const referenceTarget = parseOptionalReferenceTarget(req.body, aggregation);
     const groupFilter   = String(req.body?.groupFilter || '').trim().slice(0, 128);
+    const details       = req.body?.details != null ? String(req.body.details).trim().slice(0, 2000) : null;
     const genderVariants = Array.isArray(req.body?.genderVariants) ? req.body.genderVariants : [];
     await pool.execute(
       `UPDATE challenge_recognition_awards
-       SET label = ?, icon = ?, period = ?, activity_type = ?, metric = ?, aggregation = ?, milestone_threshold = ?, reference_target = ?, group_filter = ?, gender_variants = ?
+       SET label = ?, icon = ?, period = ?, activity_type = ?, metric = ?, aggregation = ?, milestone_threshold = ?, reference_target = ?, group_filter = ?, details = ?, gender_variants = ?
        WHERE id = ? AND agency_id = ?`,
-      [label, icon, period, activityType || null, metric, aggregation, milestoneThreshold, referenceTarget, groupFilter || null, JSON.stringify(genderVariants), awardId, clubId]
+      [label, icon, period, activityType || null, metric, aggregation, milestoneThreshold, referenceTarget, groupFilter || null, details || null, JSON.stringify(genderVariants), awardId, clubId]
     );
     const [rows] = await pool.execute(`SELECT * FROM challenge_recognition_awards WHERE id = ?`, [awardId]);
     if (!rows?.length) return res.status(404).json({ error: { message: 'Award not found' } });
@@ -532,7 +535,7 @@ export const createTenantAward = async (req, res, next) => {
     const label         = String(req.body?.label || '').trim();
     if (!label) return res.status(400).json({ error: { message: 'label is required' } });
     const icon          = String(req.body?.icon || '🏆').slice(0, 64);
-    const period        = ['weekly', 'monthly', 'season'].includes(req.body?.period) ? req.body.period : 'weekly';
+    const period        = ['weekly', 'monthly', 'season', 'challenge'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
     const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
     const resolvedAgg   = resolveAwardAggregation(req.body);
@@ -540,12 +543,13 @@ export const createTenantAward = async (req, res, next) => {
     const { aggregation, milestoneThreshold } = resolvedAgg;
     const referenceTarget = parseOptionalReferenceTarget(req.body, aggregation);
     const groupFilter   = String(req.body?.groupFilter || '').trim().slice(0, 128);
+    const details       = req.body?.details != null ? String(req.body.details).trim().slice(0, 2000) : null;
     const genderVariants = Array.isArray(req.body?.genderVariants) ? req.body.genderVariants : [];
 
     const [result] = await pool.execute(
-      `INSERT INTO challenge_recognition_awards (agency_id, is_tenant_template, label, icon, period, activity_type, metric, aggregation, milestone_threshold, reference_target, group_filter, gender_variants)
-       VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [tenantAgencyId, label, icon, period, activityType || null, metric, aggregation, milestoneThreshold, referenceTarget, groupFilter || null, JSON.stringify(genderVariants)]
+      `INSERT INTO challenge_recognition_awards (agency_id, is_tenant_template, label, icon, period, activity_type, metric, aggregation, milestone_threshold, reference_target, group_filter, details, gender_variants)
+       VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [tenantAgencyId, label, icon, period, activityType || null, metric, aggregation, milestoneThreshold, referenceTarget, groupFilter || null, details || null, JSON.stringify(genderVariants)]
     );
     const [rows] = await pool.execute(`SELECT * FROM challenge_recognition_awards WHERE id = ?`, [result.insertId]);
     return res.status(201).json({ award: awardToApi(rows[0]) });
@@ -571,7 +575,7 @@ export const updateTenantAward = async (req, res, next) => {
 
     const label         = String(req.body?.label || '').trim() || 'Unnamed Award';
     const icon          = String(req.body?.icon || '🏆').slice(0, 64);
-    const period        = ['weekly', 'monthly', 'season'].includes(req.body?.period) ? req.body.period : 'weekly';
+    const period        = ['weekly', 'monthly', 'season', 'challenge'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
     const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
     const resolvedAgg   = resolveAwardAggregation(req.body);
@@ -579,13 +583,14 @@ export const updateTenantAward = async (req, res, next) => {
     const { aggregation, milestoneThreshold } = resolvedAgg;
     const referenceTarget = parseOptionalReferenceTarget(req.body, aggregation);
     const groupFilter   = String(req.body?.groupFilter || '').trim().slice(0, 128);
+    const details       = req.body?.details != null ? String(req.body.details).trim().slice(0, 2000) : null;
     const genderVariants = Array.isArray(req.body?.genderVariants) ? req.body.genderVariants : [];
 
     await pool.execute(
       `UPDATE challenge_recognition_awards
-       SET label = ?, icon = ?, period = ?, activity_type = ?, metric = ?, aggregation = ?, milestone_threshold = ?, reference_target = ?, group_filter = ?, gender_variants = ?
+       SET label = ?, icon = ?, period = ?, activity_type = ?, metric = ?, aggregation = ?, milestone_threshold = ?, reference_target = ?, group_filter = ?, details = ?, gender_variants = ?
        WHERE id = ? AND agency_id = ? AND is_tenant_template = 1`,
-      [label, icon, period, activityType || null, metric, aggregation, milestoneThreshold, referenceTarget, groupFilter || null, JSON.stringify(genderVariants), awardId, tenantAgencyId]
+      [label, icon, period, activityType || null, metric, aggregation, milestoneThreshold, referenceTarget, groupFilter || null, details || null, JSON.stringify(genderVariants), awardId, tenantAgencyId]
     );
     const [rows] = await pool.execute(`SELECT * FROM challenge_recognition_awards WHERE id = ?`, [awardId]);
     if (!rows?.length) return res.status(404).json({ error: { message: 'Award not found' } });

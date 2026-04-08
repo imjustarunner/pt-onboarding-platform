@@ -131,7 +131,7 @@
                   <h4>Top Athletes (Week)</h4>
                   <ol>
                     <li v-for="r in seasonSummary.weeklySummary?.topAthletes || []" :key="`wa-${r.user_id}`">
-                      {{ r.first_name }} {{ r.last_name }} — {{ r.total_points }} pts
+                      {{ r.first_name }} {{ r.last_name }} — {{ formatPts(r.total_points) }} pts
                     </li>
                   </ol>
                 </div>
@@ -139,32 +139,32 @@
                   <h4>Top Teams (Week)</h4>
                   <ol>
                     <li v-for="r in seasonSummary.weeklySummary?.topTeams || []" :key="`wt-${r.team_id}`">
-                      {{ r.team_name }} — {{ r.total_points }} pts
+                      {{ r.team_name }} — {{ formatPts(r.total_points) }} pts
                     </li>
                   </ol>
                 </div>
                 <div class="summary-card">
                   <h4>Season Standings</h4>
                   <div class="hint" style="margin-bottom: 6px;">
-                    Club totals: {{ seasonSummary.weeklySummary?.seasonPointsTotal || 0 }} pts ·
-                    {{ Number(seasonSummary.weeklySummary?.seasonMilesTotal || 0).toFixed(1) }} miles
+                    Club totals: {{ formatPts(seasonSummary.weeklySummary?.seasonPointsTotal) }} pts ·
+                    {{ Number(seasonSummary.weeklySummary?.seasonMilesTotal || 0).toFixed(2) }} miles
                   </div>
                   <div><strong>Top Individuals</strong></div>
                   <ol>
                     <li v-for="r in seasonSummary.seasonStandings?.topIndividuals || []" :key="`si-${r.user_id}`">
-                      {{ r.first_name }} {{ r.last_name }} — {{ r.total_points }} pts
+                      {{ r.first_name }} {{ r.last_name }} — {{ formatPts(r.total_points) }} pts
                     </li>
                   </ol>
                   <div><strong>Top Masters</strong></div>
                   <ol>
                     <li v-for="r in seasonSummary.seasonStandings?.topMasters || []" :key="`sm-${r.user_id}`">
-                      {{ r.first_name }} {{ r.last_name }} — {{ r.total_points }} pts
+                      {{ r.first_name }} {{ r.last_name }} — {{ formatPts(r.total_points) }} pts
                     </li>
                   </ol>
                   <div><strong>Top Ladies</strong></div>
                   <ol>
                     <li v-for="r in seasonSummary.seasonStandings?.topLadies || []" :key="`sl-${r.user_id}`">
-                      {{ r.first_name }} {{ r.last_name }} — {{ r.total_points }} pts
+                      {{ r.first_name }} {{ r.last_name }} — {{ formatPts(r.total_points) }} pts
                     </li>
                   </ol>
                 </div>
@@ -671,18 +671,32 @@
         <div v-if="showStravaImportModal" class="modal-overlay" @click.self="closeStravaImportModal">
           <div class="modal-content modal-wide">
             <h2>Import from Strava</h2>
-            <p class="hint">Select which activities to import into this season. Points are calculated from distance or duration.</p>
+            <p class="hint">Select activities to import. Points are calculated from distance or duration. Descriptions, elevation, and route maps are imported automatically.</p>
             <div v-if="stravaActivitiesLoading" class="loading-inline">Loading your Strava activities…</div>
             <div v-else-if="stravaActivitiesError" class="error-inline">{{ stravaActivitiesError }}</div>
             <div v-else class="strava-activity-list">
-              <label v-for="a in stravaActivities" :key="a.id" class="strava-activity-item">
-                <input type="checkbox" :value="a.id" v-model="selectedStravaIds" />
-                <span class="activity-name">{{ a.name || 'Untitled' }}</span>
-                <span class="activity-meta">
-                  {{ a.type || a.sport_type }} · {{ formatStravaDistance(a.distance) }} · {{ formatStravaDuration(a.moving_time || a.elapsed_time) }} · {{ formatStravaDate(a.start_date) }}
-                </span>
+              <label v-for="a in stravaActivities" :key="a.id" class="strava-activity-item" :class="{ selected: selectedStravaIds.includes(a.id) }">
+                <input type="checkbox" :value="a.id" v-model="selectedStravaIds" class="strava-activity-check" />
+                <div class="strava-activity-body">
+                  <div class="strava-activity-top">
+                    <span class="activity-name">{{ a.name || 'Untitled' }}</span>
+                    <span class="strava-activity-badges">
+                      <span v-if="a.map?.summary_polyline" class="strava-badge strava-badge--map" title="Route map available">📍 Map</span>
+                      <span v-if="a.average_heartrate" class="strava-badge strava-badge--hr" title="Heart rate data available">❤️ HR</span>
+                      <span v-if="a.total_elevation_gain > 5" class="strava-badge strava-badge--elev" title="Elevation gain">⛰ {{ Math.round(a.total_elevation_gain * 3.28084) }}ft</span>
+                      <span v-if="a.calories" class="strava-badge strava-badge--cal" title="Calories">🔥 {{ Math.round(a.calories) }} cal</span>
+                    </span>
+                  </div>
+                  <div class="strava-activity-meta">
+                    <span class="strava-meta-pill">{{ a.sport_type || a.type }}</span>
+                    <span>{{ formatStravaDistance(a.distance) }}</span>
+                    <span>{{ formatStravaDuration(a.moving_time || a.elapsed_time) }}</span>
+                    <span v-if="a.average_heartrate">{{ Math.round(a.average_heartrate) }} bpm avg</span>
+                    <span class="strava-meta-date">{{ formatStravaDate(a.start_date) }}</span>
+                  </div>
+                </div>
               </label>
-              <div v-if="!stravaActivities.length" class="empty-hint">No activities in the last 30 days. Try a different date range.</div>
+              <div v-if="!stravaActivities.length" class="empty-hint">No activities in the last 30 days.</div>
             </div>
             <div class="form-actions">
               <button type="button" class="btn btn-secondary" @click="closeStravaImportModal">Cancel</button>
@@ -1499,14 +1513,20 @@ const analyzeScreenshot = async () => {
     });
     workoutForm.value.screenshotFilePath = data.filePath || null;
     const ex = data.extracted || {};
+    const anyExtracted = ex.distanceMiles != null || ex.durationMinutes != null || ex.caloriesBurned != null;
     if (ex.distanceMiles   != null && !workoutForm.value.distanceValue)   workoutForm.value.distanceValue   = ex.distanceMiles;
     if (ex.durationMinutes != null && !workoutForm.value.durationMinutes) workoutForm.value.durationMinutes = ex.durationMinutes;
     if (ex.caloriesBurned  != null && !workoutForm.value.caloriesBurned)  workoutForm.value.caloriesBurned  = ex.caloriesBurned;
     if (ex.terrain         && !workoutForm.value.terrain)                  workoutForm.value.terrain         = ex.terrain;
     if (ex.activityTypeHint && !workoutForm.value.activityType)            workoutForm.value.activityType    = ex.activityTypeHint;
     visionConfidence.value = data.confidence || 0;
-    visionExtracted.value = true;
-    if (!data.visionEnabled) visionError.value = 'Vision OCR is not enabled on this server. File was uploaded for manual review.';
+    // Only show "auto-filled" banner when OCR actually ran and found something
+    visionExtracted.value = data.visionEnabled && anyExtracted;
+    if (!data.visionEnabled) {
+      visionError.value = 'Vision OCR is not enabled on this server. File was uploaded for manual review.';
+    } else if (!anyExtracted) {
+      visionError.value = 'Could not extract workout data from this image. Please fill in the fields manually.';
+    }
   } catch (e) {
     visionError.value = e?.response?.data?.error?.message || 'Screenshot analysis failed. File will be attached on submit.';
   } finally {
@@ -1593,6 +1613,8 @@ const formatDates = (c) => {
   if (start) return `Starts ${fmt(start)}`;
   return `Ends ${fmt(end)}`;
 };
+
+const formatPts = (v) => parseFloat(Number(v || 0).toFixed(2));
 
 const formatStravaDistance = (meters) => {
   if (!meters) return '—';
@@ -2174,31 +2196,92 @@ watch(challengeId, () => {
   color: #333;
 }
 .strava-activity-list {
-  max-height: 320px;
+  max-height: 400px;
   overflow-y: auto;
   margin: 16px 0;
   border: 1px solid var(--border-color, #ddd);
-  border-radius: 6px;
-  padding: 8px;
+  border-radius: 8px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .strava-activity-item {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  padding: 10px 8px;
-  border-bottom: 1px solid #eee;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
   cursor: pointer;
+  transition: background 0.12s;
 }
-.strava-activity-item:last-child {
-  border-bottom: none;
+.strava-activity-item:hover {
+  background: #f8fafc;
 }
-.strava-activity-item input {
+.strava-activity-item.selected {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.strava-activity-check {
   flex-shrink: 0;
+  margin-top: 3px;
+}
+.strava-activity-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.strava-activity-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .activity-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary, #0f172a);
+}
+.strava-activity-badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.strava-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
   font-weight: 500;
-  min-width: 120px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+.strava-badge--map { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+.strava-badge--hr  { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+.strava-badge--elev { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
+.strava-badge--cal  { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+.strava-activity-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+}
+.strava-meta-pill {
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-weight: 500;
+  font-size: 11px;
+  color: #334155;
+}
+.strava-meta-date {
+  margin-left: auto;
 }
 .activity-meta {
   font-size: 0.9em;
