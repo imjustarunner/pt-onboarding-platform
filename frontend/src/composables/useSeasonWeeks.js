@@ -34,7 +34,7 @@ export function useSeasonWeeks(seasonStartsAtRef, { defaultToLatest = true } = {
     while (cur <= today) {
       const iso = cur.toISOString().slice(0, 10);
       const endDate = new Date(cur);
-      endDate.setDate(endDate.getDate() + 6);
+      endDate.setDate(endDate.getDate() + 7); // Sunday → Sunday (same end-of-week day, one week later)
       const label = `Week ${weekNum} (${fmtDate(cur)} – ${fmtDate(endDate)})`;
       weeks.push({ date: iso, label, weekNum });
       cur = new Date(cur);
