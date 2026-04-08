@@ -405,6 +405,9 @@ const VALID_EMOJI = new Set([
   '😂','🥇','🎉','💎','⭐','🌟','💫','🏅','🥳','😎'
 ]);
 
+/** Returns true if the value is a valid icon reference like "icon:42" */
+const isIconRef = (v) => /^icon:\d+$/.test(String(v || ''));
+
 export const toggleReaction = async (req, res, next) => {
   try {
     const classId   = asInt(req.params.classId);
@@ -424,8 +427,11 @@ export const toggleReaction = async (req, res, next) => {
     const emoji = String(req.body?.emoji || '').trim();
     if (!emoji) return res.status(400).json({ error: { message: 'emoji is required' } });
 
-    // Allow any valid Unicode emoji (max 16 chars) but validate against allowlist for safety
-    if (emoji.length > 16) return res.status(400).json({ error: { message: 'Invalid emoji' } });
+    // Accept valid emoji from allowlist OR icon references like "icon:42"
+    if (!VALID_EMOJI.has(emoji) && !isIconRef(emoji)) {
+      if (emoji.length > 64) return res.status(400).json({ error: { message: 'Invalid reaction' } });
+    }
+    if (emoji.length > 64) return res.status(400).json({ error: { message: 'Invalid reaction' } });
 
     // Check if already reacted with this emoji (toggle off)
     const [existing] = await pool.execute(
@@ -465,23 +471,27 @@ export const listReactions = async (req, res, next) => {
     if (!access) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const [rows] = await pool.execute(
-      `SELECT r.emoji, r.user_id, r.reacted_at, u.first_name, u.last_name
+      `SELECT r.emoji, r.user_id, r.reacted_at, u.first_name, u.last_name,
+              ic.file_path AS icon_file_path
        FROM challenge_workout_reactions r
        JOIN users u ON u.id = r.user_id
+       LEFT JOIN icons ic ON ic.id = CASE WHEN r.emoji REGEXP '^icon:[0-9]+$' THEN CAST(SUBSTRING(r.emoji, 6) AS UNSIGNED) ELSE NULL END
        WHERE r.workout_id = ? AND r.learning_class_id = ?
        ORDER BY r.reacted_at ASC`,
       [workoutId, classId]
     );
 
+    const baseUrl = process.env.BACKEND_URL || '';
     // Group by emoji
     const byEmoji = {};
     for (const r of rows || []) {
-      if (!byEmoji[r.emoji]) byEmoji[r.emoji] = [];
-      byEmoji[r.emoji].push({ userId: Number(r.user_id), firstName: r.first_name, lastName: r.last_name });
+      if (!byEmoji[r.emoji]) byEmoji[r.emoji] = { iconUrl: r.icon_file_path ? `${baseUrl}/uploads/${r.icon_file_path}` : null, users: [] };
+      byEmoji[r.emoji].users.push({ userId: Number(r.user_id), firstName: r.first_name, lastName: r.last_name });
     }
 
-    const grouped = Object.entries(byEmoji).map(([emoji, users]) => ({
+    const grouped = Object.entries(byEmoji).map(([emoji, { iconUrl, users }]) => ({
       emoji,
+      iconUrl: iconUrl || null,
       count: users.length,
       users,
       iMine: users.some((u) => Number(u.userId) === Number(req.user.id))

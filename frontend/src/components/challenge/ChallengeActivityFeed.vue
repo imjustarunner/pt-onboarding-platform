@@ -49,7 +49,7 @@
         </div>
         <div class="activity-meta">
           <span v-if="w.distance_value">{{ Number(w.distance_value).toFixed(2) }} mi</span>
-          <span v-if="w.duration_minutes">{{ w.duration_minutes }} min</span>
+          <span v-if="w.duration_minutes">{{ formatDuration(w) }}</span>
           <span v-if="avgPace(w)" class="activity-pace">{{ avgPace(w) }} /mi</span>
           <span class="activity-points">{{ w.points }} pts</span>
         </div>
@@ -179,13 +179,26 @@
         </div>
         <div v-if="w.media?.length" class="activity-media">
           <img
-            v-for="m in w.media"
+            v-for="m in w.media.filter(m => m.media_type !== 'map')"
             :key="`media-${w.id}-${m.id}`"
             :src="toUploadsUrl(m.file_path)"
             :alt="`Workout media ${m.id}`"
             class="media-item"
           />
+          <!-- Map image attachment (manual upload) overrides polyline map -->
+          <img
+            v-for="m in w.media.filter(m => m.media_type === 'map')"
+            :key="`map-${w.id}-${m.id}`"
+            :src="toUploadsUrl(m.file_path)"
+            class="media-item media-item--map"
+            alt="Route map"
+          />
         </div>
+        <!-- Route map rendered from Strava polyline (only if no manual map attachment) -->
+        <WorkoutRouteMap
+          v-if="w.map_summary_polyline && !w.media?.some(m => m.media_type === 'map')"
+          :polyline="w.map_summary_polyline"
+        />
         <!-- ── Kudos + Emoji Reactions row ──────────────────────────────── -->
         <div class="workout-engagement-row">
           <!-- Kudos button -->
@@ -211,7 +224,10 @@
               :key="`rpill-${w.id}-${ri}`"
               class="reaction-pill"
               :style="{ zIndex: 10 - ri }"
-            >{{ r.emoji }}</span>
+            >
+              <img v-if="r.iconUrl" :src="r.iconUrl" class="reaction-icon-img" :alt="r.emoji" />
+              <template v-else>{{ r.emoji }}</template>
+            </span>
             <span class="reaction-total-count">{{ totalReactionCount(w.id) }}</span>
           </div>
 
@@ -236,6 +252,17 @@
               :class="{ 'emoji-mine': isMyReaction(w.id, emoji) }"
               @click="onReact(w.id, emoji)"
             >{{ emoji }}</button>
+            <!-- Custom icon reactions -->
+            <button
+              v-for="ic in reactionIcons"
+              :key="`ep-icon-${w.id}-${ic.id}`"
+              class="emoji-option emoji-option--icon"
+              :class="{ 'emoji-mine': isMyReaction(w.id, ic.ref) }"
+              :title="ic.name"
+              @click="onReact(w.id, ic.ref)"
+            >
+              <img :src="ic.url" class="reaction-picker-icon" :alt="ic.name" />
+            </button>
           </div>
         </div>
 
@@ -246,7 +273,10 @@
             <button class="btn-link" @click="reactionDetailOpen[w.id] = false">✕</button>
           </div>
           <div v-for="group in (reactionsFor(w.id) || [])" :key="`rg-${w.id}-${group.emoji}`" class="reaction-group">
-            <span class="reaction-group-emoji">{{ group.emoji }}</span>
+            <span class="reaction-group-emoji">
+              <img v-if="group.iconUrl" :src="group.iconUrl" class="reaction-icon-img" :alt="group.emoji" />
+              <template v-else>{{ group.emoji }}</template>
+            </span>
             <span class="reaction-group-count">{{ group.count }}</span>
             <span class="reaction-group-names">{{ group.users.map((u) => `${u.firstName} ${u.lastName}`).join(', ') }}</span>
           </div>
@@ -264,17 +294,36 @@
         <div v-if="commentsOpen[w.id]" class="comments-box">
           <div v-if="commentsLoading[w.id]" class="hint">Loading comments…</div>
           <div v-else class="comments-list">
-            <div v-for="c in commentsByWorkout[w.id] || []" :key="`comment-${c.id}`" class="comment-item">
-              <strong>{{ c.first_name }} {{ c.last_name }}</strong>
-              <span>{{ c.comment_text }}</span>
-              <button
-                v-if="Number(c.user_id) === Number(myUserId)"
-                class="btn-link"
-                @click="deleteComment(w.id, c.id)"
-              >
-                Delete
-              </button>
-            </div>
+            <template v-for="c in topLevelComments(w.id)" :key="`comment-${c.id}`">
+              <div class="comment-item">
+                <div class="comment-body">
+                  <strong>{{ c.first_name }} {{ c.last_name }}</strong>
+                  <span>{{ c.comment_text }}</span>
+                </div>
+                <div class="comment-actions">
+                  <button class="btn-link" @click="startReply(w.id, c)">Reply</button>
+                  <button v-if="Number(c.user_id) === Number(myUserId)" class="btn-link comment-delete" @click="deleteComment(w.id, c.id)">Delete</button>
+                </div>
+                <!-- Inline reply composer for this comment -->
+                <form v-if="replyTarget[w.id] === c.id" class="comment-form reply-form" @submit.prevent="submitReply(w.id, c.id)">
+                  <input v-model="replyDraftByWorkout[w.id]" type="text" maxlength="300" :placeholder="`Reply to ${c.first_name}…`" autofocus />
+                  <button class="btn btn-primary btn-small" type="submit">Reply</button>
+                  <button type="button" class="btn btn-ghost btn-small" @click="cancelReply(w.id)">Cancel</button>
+                </form>
+                <!-- Nested replies -->
+                <div v-if="repliesFor(w.id, c.id).length" class="replies-list">
+                  <div v-for="r in repliesFor(w.id, c.id)" :key="`reply-${r.id}`" class="comment-item comment-item--reply">
+                    <div class="comment-body">
+                      <strong>{{ r.first_name }} {{ r.last_name }}</strong>
+                      <span>{{ r.comment_text }}</span>
+                    </div>
+                    <div class="comment-actions">
+                      <button v-if="Number(r.user_id) === Number(myUserId)" class="btn-link comment-delete" @click="deleteComment(w.id, r.id)">Delete</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
             <div v-if="!(commentsByWorkout[w.id] || []).length" class="hint">No comments yet.</div>
           </div>
           <form class="comment-form" @submit.prevent="submitComment(w.id)">
@@ -308,6 +357,7 @@
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
 import api from '../../services/api';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import WorkoutRouteMap from './WorkoutRouteMap.vue';
 
 const props = defineProps({
   workouts: { type: Array, default: () => [] },
@@ -330,7 +380,9 @@ const displayedWorkouts = computed(() => {
   return list;
 });
 
-const commentsOpen = ref({});
+const commentsOpen    = ref({});
+const replyTarget     = ref({});  // workoutId -> parentCommentId being replied to
+const replyDraftByWorkout = ref({});
 const commentsLoading = ref({});
 const commentsByWorkout = ref({});
 const commentDraftByWorkout = ref({});
@@ -351,12 +403,26 @@ const kudosSubmitting = ref({});
 const reactionsByWorkout = ref({});  // workoutId -> grouped array
 const emojiPickerOpen    = ref({});
 const reactionDetailOpen = ref({});
+const reactionIcons      = ref([]);  // custom uploaded icons with category=Reactions
 
 const emojiOptions = [
   '👏','🔥','💪','🏆','⚡','🙌','😤','🎯','🥊','💥',
   '🚀','👟','🏃','❤️','🤙','🫡','💯','🤩','😍','👍',
   '😂','🥇','🎉','💎','⭐','🌟','💫','🏅','🥳','😎'
 ];
+
+const loadReactionIcons = async () => {
+  try {
+    const r = await api.get('/icons', { params: { subCategory: 'Reactions', limit: 50 }, skipGlobalLoading: true });
+    const backendUrl = import.meta.env.VITE_API_BASE_URL?.replace('/api', '') || '';
+    reactionIcons.value = (r.data?.icons || r.data || []).map((ic) => ({
+      id: ic.id,
+      ref: `icon:${ic.id}`,
+      url: ic.file_path ? `${backendUrl}/uploads/${ic.file_path}` : null,
+      name: ic.name || ''
+    })).filter((ic) => ic.url);
+  } catch { reactionIcons.value = []; }
+};
 
 const formatActivityType = (t) => {
   if (!t) return '';
@@ -380,11 +446,19 @@ const avgPace = (w) => {
   const dist = Number(w.distance_value);
   const dur  = Number(w.duration_minutes);
   if (!dist || !dur || dist < 0.1) return null;
-  const totalSec = dur * 60;
+  const totalSec = dur * 60 + Number(w.duration_seconds || 0);
   const secPerMile = Math.round(totalSec / dist);
   const mins = Math.floor(secPerMile / 60);
   const secs = String(secPerMile % 60).padStart(2, '0');
   return `${mins}:${secs}`;
+};
+
+const formatDuration = (w) => {
+  const mins = Number(w.duration_minutes);
+  if (!mins && mins !== 0) return null;
+  const secs = Number(w.duration_seconds || 0);
+  if (secs > 0) return `${mins}m ${String(secs).padStart(2, '0')}s`;
+  return `${mins} min`;
 };
 
 // Screenshot lightbox
@@ -560,6 +634,30 @@ const toggleComments = async (workoutId) => {
   if (!open) await loadComments(workoutId);
 };
 
+const topLevelComments = (workoutId) =>
+  (commentsByWorkout.value[workoutId] || []).filter((c) => !c.parent_comment_id);
+
+const repliesFor = (workoutId, parentId) =>
+  (commentsByWorkout.value[workoutId] || []).filter((c) => Number(c.parent_comment_id) === Number(parentId));
+
+const startReply = (workoutId, comment) => {
+  replyTarget.value = { ...replyTarget.value, [workoutId]: comment.id };
+  replyDraftByWorkout.value = { ...replyDraftByWorkout.value, [workoutId]: `@${comment.first_name} ` };
+};
+const cancelReply = (workoutId) => {
+  replyTarget.value = { ...replyTarget.value, [workoutId]: null };
+  replyDraftByWorkout.value = { ...replyDraftByWorkout.value, [workoutId]: '' };
+};
+const submitReply = async (workoutId, parentCommentId) => {
+  const text = String(replyDraftByWorkout.value[workoutId] || '').trim();
+  if (!text) return;
+  await api.post(`/learning-program-classes/${props.challengeId}/workouts/${workoutId}/comments`, {
+    commentText: text,
+    parentCommentId
+  });
+  cancelReply(workoutId);
+  await loadComments(workoutId);
+};
 const submitComment = async (workoutId) => {
   const text = String(commentDraftByWorkout.value[workoutId] || '').trim();
   if (!text) return;
@@ -689,7 +787,7 @@ watch(
 );
 
 onMounted(async () => {
-  await loadKudosBudget();
+  await Promise.all([loadKudosBudget(), loadReactionIcons()]);
   document.addEventListener('click', onDocumentClick);
 });
 
@@ -1018,15 +1116,29 @@ const reviewProof = async (workoutId, status) => {
   gap: 6px;
 }
 .comment-item {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 6px;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f1f5f9;
 }
+.comment-item:last-child { border-bottom: none; }
+.comment-body { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.comment-actions { display: flex; gap: 10px; }
+.comment-item--reply {
+  margin-left: 20px;
+  padding: 4px 8px;
+  background: #f8fafc;
+  border-left: 2px solid #cbd5e1;
+  border-radius: 0 4px 4px 0;
+}
+.replies-list { display: flex; flex-direction: column; gap: 0; margin-top: 4px; }
+.reply-form { margin-top: 4px; }
 .comment-form {
   margin-top: 8px;
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .comment-form input {
   flex: 1;
@@ -1038,10 +1150,11 @@ const reviewProof = async (workoutId, status) => {
 .btn-link {
   background: none;
   border: none;
-  color: #c62828;
+  color: #6d5efc;
   cursor: pointer;
   font-size: 0.8rem;
 }
+.comment-delete { color: #c62828; }
 .empty-hint,
 .loading-inline {
   padding: 12px;
@@ -1196,6 +1309,21 @@ const reviewProof = async (workoutId, status) => {
   background: #dbeafe;
   border-radius: 8px;
   box-shadow: inset 0 0 0 1.5px #93c5fd;
+}
+.emoji-option--icon { padding: 2px; }
+.reaction-picker-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  display: block;
+  border-radius: 4px;
+}
+.reaction-icon-img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  vertical-align: middle;
+  border-radius: 3px;
 }
 
 /* Reaction detail popover */

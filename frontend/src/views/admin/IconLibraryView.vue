@@ -151,6 +151,7 @@
               <option value="">— None —</option>
               <option value="Challenge">Challenge</option>
               <option value="Award">Award</option>
+              <option value="Reactions">Reactions</option>
             </select>
           </div>
           <div class="form-group">
@@ -277,6 +278,7 @@
                   <option value="">— None —</option>
                   <option value="Challenge">Challenge</option>
                   <option value="Award">Award</option>
+                  <option value="Reactions">Reactions</option>
                 </select>
                 <small class="form-help">Matches single-icon upload. Applies to rows that still follow defaults.</small>
               </div>
@@ -369,6 +371,7 @@
                     <option value="">— None —</option>
                     <option value="Challenge">Challenge</option>
                     <option value="Award">Award</option>
+                    <option value="Reactions">Reactions</option>
                   </select>
                   <small
                     v-if="!iconData.hasCustomSubCategory && defaultSubCategory"

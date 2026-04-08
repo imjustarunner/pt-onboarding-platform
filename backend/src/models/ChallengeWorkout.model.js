@@ -92,10 +92,12 @@ class ChallengeWorkout {
     reportedDistanceValue = null,
     verifiedDistanceValue = null,
     durationMinutes = null,
+    durationSeconds = null,
     caloriesBurned = null,
     points = 0,
     workoutNotes = null,
     screenshotFilePath = null,
+    mapSummaryPolyline = null,
     completedAt = null,
     stravaActivityId = null,
     weeklyTaskId = null,
@@ -108,10 +110,11 @@ class ChallengeWorkout {
     const uId = toInt(userId);
     const activity = String(activityType || '').trim();
     if (!classId || !uId || !activity) return null;
+    const durSec = durationSeconds != null ? Math.min(59, Math.max(0, toInt(durationSeconds) || 0)) : null;
     const [result] = await pool.execute(
       `INSERT INTO challenge_workouts
-       (learning_class_id, team_id, user_id, activity_type, is_treadmill, is_race, terrain, distance_value, reported_distance_value, verified_distance_value, duration_minutes, calories_burned, points, workout_notes, screenshot_file_path, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (learning_class_id, team_id, user_id, activity_type, is_treadmill, is_race, terrain, distance_value, reported_distance_value, verified_distance_value, duration_minutes, duration_seconds, calories_burned, points, workout_notes, screenshot_file_path, map_summary_polyline, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         classId,
         teamId ? toInt(teamId) : null,
@@ -124,10 +127,12 @@ class ChallengeWorkout {
         reportedDistanceValue != null ? Number(reportedDistanceValue) : null,
         verifiedDistanceValue != null ? Number(verifiedDistanceValue) : null,
         durationMinutes != null ? toInt(durationMinutes) : null,
+        durSec,
         caloriesBurned != null ? toInt(caloriesBurned) : null,
         toInt(points) || 0,
         workoutNotes ? String(workoutNotes).trim() : null,
         screenshotFilePath ? String(screenshotFilePath).trim() : null,
+        mapSummaryPolyline ? String(mapSummaryPolyline) : null,
         completedAt || null,
         stravaActivityId ? toInt(stravaActivityId) : null,
         weeklyTaskId ? toInt(weeklyTaskId) : null,

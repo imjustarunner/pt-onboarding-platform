@@ -2,10 +2,14 @@
   <section class="team-weekly-progress">
     <h2>Team Weekly Progress</h2>
     <div class="week-row">
-      <label>Week of</label>
-      <input v-model="weekStart" type="date" @change="load" />
-      <span v-if="individualMinimum != null" class="hint">Member minimum: {{ individualMinimum }} {{ metricUnit }}</span>
-      <span v-if="teamMinimum != null" class="hint">Team minimum: {{ teamMinimum }} {{ metricUnit }}</span>
+      <label>Week</label>
+      <select v-model="selectedWeekIdx" class="week-select" @change="load">
+        <option v-for="(w, i) in seasonWeeks" :key="`sw-${i}`" :value="i">
+          Week {{ i + 1 }} ({{ w.label }})
+        </option>
+      </select>
+      <span v-if="individualMinimum != null" class="hint">Member min: {{ individualMinimum }} {{ metricUnit }}</span>
+      <span v-if="teamMinimum != null" class="hint">Team min: {{ teamMinimum }} {{ metricUnit }}</span>
     </div>
     <div v-if="loading" class="loading-inline">Loading…</div>
     <div v-else class="teams-stack">
@@ -33,46 +37,76 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
-  challengeId: { type: [String, Number], required: true }
+  challengeId: { type: [String, Number], required: true },
+  seasonStartsAt: { type: [String, Date], default: null }
 });
 
-const weekStart = ref(getThisWeekSunday());
-const loading = ref(false);
-const teams = ref([]);
-const individualMinimum = ref(null);
-const teamMinimum = ref(null);
-const metricUnit = ref('pts');
+const loading            = ref(false);
+const teams              = ref([]);
+const individualMinimum  = ref(null);
+const teamMinimum        = ref(null);
+const metricUnit         = ref('pts');
+const selectedWeekIdx    = ref(0);
 
-function getThisWeekSunday() {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = d.getDate() - day;
-  const sun = new Date(d);
-  sun.setDate(diff);
-  return sun.toISOString().slice(0, 10);
-}
+/** Build the list of weekly Sunday-start dates from seasonStartsAt up to today. */
+const seasonWeeks = computed(() => {
+  // Find the first Sunday on or before seasonStartsAt (or use today if not set)
+  const raw = props.seasonStartsAt;
+  const anchor = raw ? new Date(raw) : new Date();
+  // Walk back to Sunday
+  const day = anchor.getDay(); // 0=Sun
+  anchor.setDate(anchor.getDate() - day);
+  anchor.setHours(0, 0, 0, 0);
+
+  const weeks = [];
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  let cur = new Date(anchor);
+  while (cur <= today) {
+    const iso = cur.toISOString().slice(0, 10);
+    const nextSun = new Date(cur);
+    nextSun.setDate(nextSun.getDate() + 6);
+    const label = `${fmtDate(cur)} – ${fmtDate(nextSun)}`;
+    weeks.push({ date: iso, label });
+    cur = new Date(cur);
+    cur.setDate(cur.getDate() + 7);
+  }
+  return weeks;
+});
+
+const fmtDate = (d) => {
+  const dt = typeof d === 'string' ? new Date(d + 'T00:00:00') : d;
+  return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
+
+// Default to the latest (most recent) week
+watch(seasonWeeks, (weeks) => {
+  if (weeks.length) selectedWeekIdx.value = weeks.length - 1;
+}, { immediate: true });
+
+const weekStart = computed(() => seasonWeeks.value[selectedWeekIdx.value]?.date || null);
 
 const load = async () => {
-  if (!props.challengeId) return;
+  if (!props.challengeId || !weekStart.value) return;
   loading.value = true;
   try {
     const r = await api.get(`/learning-program-classes/${props.challengeId}/team-weekly-progress`, {
       params: { weekStart: weekStart.value },
       skipGlobalLoading: true
     });
-    teams.value = Array.isArray(r.data?.teams) ? r.data.teams : [];
+    teams.value          = Array.isArray(r.data?.teams) ? r.data.teams : [];
     individualMinimum.value = r.data?.individualMinimum ?? null;
-    teamMinimum.value = r.data?.teamMinimum ?? null;
-    metricUnit.value = String(r.data?.metricUnit || 'pts');
+    teamMinimum.value       = r.data?.teamMinimum ?? null;
+    metricUnit.value        = String(r.data?.metricUnit || 'pts');
   } catch {
     teams.value = [];
     individualMinimum.value = null;
-    teamMinimum.value = null;
-    metricUnit.value = 'pts';
+    teamMinimum.value       = null;
+    metricUnit.value        = 'pts';
   } finally {
     loading.value = false;
   }
@@ -83,7 +117,11 @@ watch(weekStart, load);
 </script>
 
 <style scoped>
-.week-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.week-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.week-select {
+  border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 10px;
+  font-size: 0.88em; background: #fff; cursor: pointer;
+}
 .teams-stack { display: flex; flex-direction: column; gap: 10px; }
 .team-card { border: 1px solid #eee; border-radius: 8px; padding: 10px; }
 .team-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }

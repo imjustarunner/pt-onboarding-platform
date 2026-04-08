@@ -14,23 +14,24 @@ class ChallengeWorkoutComment {
        FROM challenge_workout_comments c
        INNER JOIN users u ON u.id = c.user_id
        WHERE c.workout_id = ?
-       ORDER BY c.created_at ASC, c.id ASC`,
+       ORDER BY COALESCE(c.parent_comment_id, c.id) ASC, c.id ASC`,
       [wid]
     );
     return rows || [];
   }
 
-  static async create({ workoutId, learningClassId, userId, commentText }) {
+  static async create({ workoutId, learningClassId, userId, commentText, parentCommentId = null }) {
     const wid = toInt(workoutId);
     const classId = toInt(learningClassId);
     const uid = toInt(userId);
     const text = String(commentText || '').trim();
+    const parentId = parentCommentId ? toInt(parentCommentId) : null;
     if (!wid || !classId || !uid || !text) return null;
     const [result] = await pool.execute(
       `INSERT INTO challenge_workout_comments
-       (workout_id, learning_class_id, user_id, comment_text)
-       VALUES (?, ?, ?, ?)`,
-      [wid, classId, uid, text]
+       (workout_id, learning_class_id, user_id, comment_text, parent_comment_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      [wid, classId, uid, text, parentId]
     );
     const [rows] = await pool.execute(
       `SELECT c.*, u.first_name, u.last_name

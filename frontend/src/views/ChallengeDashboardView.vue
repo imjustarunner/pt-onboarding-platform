@@ -104,7 +104,7 @@
               <ChallengeScoreboard :challenge-id="challengeId" />
             </div>
             <div class="challenge-section">
-              <ChallengeTeamWeeklyProgress :challenge-id="challengeId" />
+              <ChallengeTeamWeeklyProgress :challenge-id="challengeId" :season-starts-at="challenge?.starts_at || challenge?.startsAt" />
             </div>
             <div class="challenge-section">
               <h2>Weekly + Season Summary</h2>
@@ -553,8 +553,12 @@
                   <input v-model.number="workoutForm.distanceValue" type="number" step="0.01" min="0" placeholder="Optional" />
                 </div>
                 <div class="form-row">
-                  <label>Duration (min)</label>
-                  <input v-model.number="workoutForm.durationMinutes" type="number" min="0" placeholder="Optional" />
+                  <label>Duration</label>
+                  <div style="display:flex;gap:4px;align-items:center;">
+                    <input v-model.number="workoutForm.durationMinutes" type="number" min="0" placeholder="min" style="width:64px;" />
+                    <span style="font-size:0.85em;color:#64748b;">:</span>
+                    <input v-model.number="workoutForm.durationSeconds" type="number" min="0" max="59" placeholder="sec" style="width:56px;" />
+                  </div>
                 </div>
                 <div class="form-row" v-if="eventCategory === 'fitness'">
                   <label>Calories</label>
@@ -808,6 +812,7 @@ const defaultWorkoutForm = () => ({
   activityType: '',
   distanceValue: null,
   durationMinutes: null,
+  durationSeconds: null,
   caloriesBurned: null,
   points: 0,
   workoutNotes: '',
@@ -1510,6 +1515,7 @@ const submitWorkout = async () => {
       activityType: workoutForm.value.activityType,
       distanceValue: workoutForm.value.distanceValue || null,
       durationMinutes: workoutForm.value.durationMinutes || null,
+      durationSeconds: workoutForm.value.durationSeconds != null ? workoutForm.value.durationSeconds : null,
       caloriesBurned: workoutForm.value.caloriesBurned || null,
       points: workoutForm.value.points || 0,
       workoutNotes: workoutForm.value.workoutNotes || null,

@@ -50,16 +50,17 @@ class ChallengeMessage {
     return rows?.[0] || null;
   }
 
-  static async create({ learningClassId, userId, teamId = null, messageText }) {
+  static async create({ learningClassId, userId, teamId = null, messageText, attachmentsJson = null }) {
     const classId = toInt(learningClassId);
     const uid = toInt(userId);
     const text = String(messageText || '').trim();
     if (!classId || !uid || !text) return null;
+    const attJson = attachmentsJson ? String(attachmentsJson) : null;
     const [result] = await pool.execute(
       `INSERT INTO challenge_messages
-       (learning_class_id, team_id, user_id, message_text)
-       VALUES (?, ?, ?, ?)`,
-      [classId, teamId ? toInt(teamId) : null, uid, text]
+       (learning_class_id, team_id, user_id, message_text, attachments_json)
+       VALUES (?, ?, ?, ?, ?)`,
+      [classId, teamId ? toInt(teamId) : null, uid, text, attJson]
     );
     const [rows] = await pool.execute(
       `SELECT m.*, u.first_name, u.last_name, t.team_name

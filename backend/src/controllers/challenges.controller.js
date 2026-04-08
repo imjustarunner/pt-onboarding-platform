@@ -266,11 +266,12 @@ export const buildRecordMetricMap = async ({ classId, organizationId, selectedMe
       key: 'fastest_mile',
       label: 'Best Mile Pace (Run)',
       where: `LOWER(w.activity_type) LIKE '%run%' AND COALESCE(w.distance_value, 0) >= 1 AND COALESCE(w.duration_minutes, 0) > 0`,
-      order: '(w.duration_minutes / NULLIF(w.distance_value, 0)) ASC, w.completed_at ASC',
+      order: '((w.duration_minutes * 60 + COALESCE(w.duration_seconds, 0)) / NULLIF(w.distance_value, 0)) ASC, w.completed_at ASC',
       valueText: (r) => {
-        const pace = Number(r.duration_minutes || 0) / Number(r.distance_value || 1);
-        const min = Math.floor(pace);
-        const sec = Math.round((pace - min) * 60);
+        const totalSec = Number(r.duration_minutes || 0) * 60 + Number(r.duration_seconds || 0);
+        const secPerMile = totalSec / Number(r.distance_value || 1);
+        const min = Math.floor(secPerMile / 60);
+        const sec = Math.round(secPerMile % 60);
         return `${String(min)}:${String(sec).padStart(2, '0')} /mi`;
       }
     },
@@ -299,12 +300,13 @@ export const buildRecordMetricMap = async ({ classId, organizationId, selectedMe
       key: 'fastest_5k',
       label: 'Fastest 5K (Est.)',
       where: `LOWER(w.activity_type) LIKE '%run%' AND COALESCE(w.distance_value, 0) >= 3.1 AND COALESCE(w.duration_minutes, 0) > 0`,
-      order: '(w.duration_minutes / NULLIF(w.distance_value, 0)) ASC, w.completed_at ASC',
+      order: '((w.duration_minutes * 60 + COALESCE(w.duration_seconds, 0)) / NULLIF(w.distance_value, 0)) ASC, w.completed_at ASC',
       valueText: (r) => {
-        const pace = Number(r.duration_minutes || 0) / Number(r.distance_value || 1);
-        const estimate = pace * 3.10686;
-        const min = Math.floor(estimate);
-        const sec = Math.round((estimate - min) * 60);
+        const totalSec = Number(r.duration_minutes || 0) * 60 + Number(r.duration_seconds || 0);
+        const secPerMile = totalSec / Number(r.distance_value || 1);
+        const estimate5kSec = secPerMile * 3.10686;
+        const min = Math.floor(estimate5kSec / 60);
+        const sec = Math.round(estimate5kSec % 60);
         return `${String(min)}:${String(sec).padStart(2, '0')} (est.)`;
       }
     },
@@ -844,6 +846,7 @@ export const submitWorkout = async (req, res, next) => {
       distanceValue,
       reportedDistanceValue: distanceValue,
       durationMinutes: req.body.durationMinutes != null ? asInt(req.body.durationMinutes) : null,
+      durationSeconds: req.body.durationSeconds != null ? Math.min(59, Math.max(0, asInt(req.body.durationSeconds) || 0)) : null,
       caloriesBurned,
       points,
       workoutNotes: req.body.workoutNotes ? String(req.body.workoutNotes).trim() : null,
@@ -1418,11 +1421,18 @@ export const postChallengeMessage = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Join a team before posting in team chat' } });
       }
     }
+    // attachmentPaths: array of previously-uploaded file paths (from /messages/attachment endpoint)
+    let attachmentsJson = null;
+    if (Array.isArray(req.body?.attachmentPaths) && req.body.attachmentPaths.length) {
+      const paths = req.body.attachmentPaths.map((p) => String(p).trim()).filter(Boolean).slice(0, 8);
+      if (paths.length) attachmentsJson = JSON.stringify(paths);
+    }
     const message = await ChallengeMessage.create({
       learningClassId: classId,
       userId: req.user.id,
       teamId,
-      messageText
+      messageText,
+      attachmentsJson
     });
     try {
       await challengeMessageBridge.postMessageToChannel({
@@ -1439,6 +1449,19 @@ export const postChallengeMessage = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+export const uploadChallengeMessageAttachment = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!req.file) return res.status(400).json({ error: { message: 'file is required' } });
+    const filePath = `challenge_workouts/${req.file.filename}`;
+    const baseUrl = process.env.BACKEND_URL || '';
+    return res.json({ filePath, fileUrl: `${baseUrl}/uploads/${filePath}` });
+  } catch (e) { next(e); }
 };
 
 export const getChallengeMessageUnreadCounts = async (req, res, next) => {
@@ -1538,11 +1561,13 @@ export const postWorkoutComment = async (req, res, next) => {
     if (!participationAcceptance.ok) {
       return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
     }
+    const parentCommentId = req.body?.parentCommentId ? asInt(req.body.parentCommentId) : null;
     const comment = await ChallengeWorkoutComment.create({
       workoutId,
       learningClassId: classId,
       userId: req.user.id,
-      commentText
+      commentText,
+      parentCommentId
     });
     return res.status(201).json({ comment });
   } catch (e) {

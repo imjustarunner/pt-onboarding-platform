@@ -229,15 +229,24 @@ const stravaTypeToActivity = (type, sportType) => {
   return 'workout_session';
 };
 
-/** Compute default points from Strava activity (distance in meters, moving_time in seconds) */
-const computePointsFromStrava = (activity) => {
+/**
+ * Compute points from Strava activity using season scoring settings.
+ * Uses Math.floor (1 pt per full mile/unit) consistent with manual submit.
+ */
+const computePointsFromStrava = (activity, activityType, scoring = {}) => {
   const distMeters = Number(activity?.distance) || 0;
-  const movingSec = Number(activity?.moving_time) || Number(activity?.elapsed_time) || 0;
-  const miles = distMeters / 1609.34;
-  const minutes = movingSec / 60;
-  if (miles > 0) return Math.max(1, Math.round(miles));
-  if (minutes > 0) return Math.max(1, Math.round(minutes / 15));
-  return 1;
+  const movingSec  = Number(activity?.moving_time) || Number(activity?.elapsed_time) || 0;
+  const miles      = distMeters / 1609.34;
+  const minutes    = movingSec / 60;
+  const aLower     = String(activityType || '').toLowerCase();
+  if (miles > 0) {
+    const milesPerPoint = aLower.includes('ruck')
+      ? Math.max(0.01, Number(scoring.ruckMilesPerPoint || 1))
+      : Math.max(0.01, Number(scoring.runMilesPerPoint  || 1));
+    return Math.max(0, Math.floor(miles / milesPerPoint));
+  }
+  if (minutes > 0) return Math.max(0, Math.floor(minutes / 15));
+  return 0;
 };
 
 export const stravaActivities = async (req, res, next) => {
@@ -290,6 +299,7 @@ export const stravaImport = async (req, res, next) => {
       [learningClassId]
     );
     const seasonSettings = parseJsonObject(classRows?.[0]?.season_settings_json || {});
+    const stravaScoring = parseJsonObject(seasonSettings?.scoring || {});
     const moderationMode = getWorkoutModerationMode(seasonSettings);
     const weekCutoffTime = String(seasonSettings?.schedule?.weekEndsSundayAt || classRows?.[0]?.week_start_time || '00:00');
     const weekTimeZone = String(seasonSettings?.schedule?.weekTimeZone || 'UTC');
@@ -318,8 +328,11 @@ export const stravaImport = async (req, res, next) => {
       }
       const activityType = stravaTypeToActivity(activity.type, activity.sport_type);
       const distanceMiles = activity.distance ? Number(activity.distance) / 1609.34 : null;
-      const durationMinutes = activity.moving_time ? Math.round(Number(activity.moving_time) / 60) : null;
-      const points = computePointsFromStrava(activity);
+      const rawSec = Number(activity.moving_time) || Number(activity.elapsed_time) || 0;
+      const durationMinutes = rawSec > 0 ? Math.floor(rawSec / 60) : null;
+      const durationSeconds = rawSec > 0 ? (rawSec % 60) : null;
+      const mapSummaryPolyline = activity.map?.summary_polyline || null;
+      const points = computePointsFromStrava(activity, activityType, stravaScoring);
       const completedAt = activity.start_date ? new Date(activity.start_date).toISOString().slice(0, 19).replace('T', ' ') : null;
       const treadmill = isTreadmillActivity(activity);
       const isRuck = String(activityType || '').toLowerCase().includes('ruck');
@@ -361,6 +374,8 @@ export const stravaImport = async (req, res, next) => {
         distanceValue: distanceMiles,
         reportedDistanceValue: distanceMiles,
         durationMinutes,
+        durationSeconds,
+        mapSummaryPolyline,
         points,
         workoutNotes: activity.name ? String(activity.name).trim() : null,
         completedAt,
