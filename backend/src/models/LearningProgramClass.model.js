@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { toMysqlDateTimeOrNull } from '../utils/mysqlDateTime.utils.js';
 
 const toInt = (v) => {
   const n = Number.parseInt(v, 10);
@@ -127,10 +128,10 @@ class LearningProgramClass {
         bookCoverUrl ? String(bookCoverUrl).trim() : null,
         bookMonthLabel ? String(bookMonthLabel).trim() : null,
         timezone,
-        startsAt,
-        endsAt,
-        enrollmentOpensAt,
-        enrollmentClosesAt,
+        toMysqlDateTimeOrNull(startsAt),
+        toMysqlDateTimeOrNull(endsAt),
+        toMysqlDateTimeOrNull(enrollmentOpensAt),
+        toMysqlDateTimeOrNull(enrollmentClosesAt),
         status,
         isActive ? 1 : 0,
         allowLateJoin ? 1 : 0,
@@ -232,6 +233,11 @@ class LearningProgramClass {
       if (k === 'recognitionCategoriesJson') {
         setParts.push(`${col} = ?`);
         values.push(patch[k] ? JSON.stringify(patch[k]) : null);
+        continue;
+      }
+      if (k === 'startsAt' || k === 'endsAt' || k === 'enrollmentOpensAt' || k === 'enrollmentClosesAt') {
+        setParts.push(`${col} = ?`);
+        values.push(toMysqlDateTimeOrNull(patch[k]));
         continue;
       }
       setParts.push(`${col} = ?`);
