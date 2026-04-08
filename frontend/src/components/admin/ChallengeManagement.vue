@@ -362,7 +362,7 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>Default weekly task style</label>
+                <label>Default weekly challenge style</label>
                 <select v-model="challengeForm.challengeAssignmentMode">
                   <option value="volunteer_or_elect">Volunteer or Elect</option>
                   <option value="captain_assigns">Captain Assigns</option>
@@ -386,7 +386,7 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>Weekly tasks count</label>
+                <label>Weekly challenges count</label>
                 <input v-model.number="challengeForm.tasksPerWeek" type="number" min="1" max="7" />
               </div>
               <div class="form-group">
@@ -394,7 +394,7 @@
                 <input v-model.number="challengeForm.publishLeadHours" type="number" min="0" />
               </div>
               <div class="form-group">
-                <label>Week ends Sunday at</label>
+                <label>Week ends {{ weekEndDayName }} at</label>
                 <input v-model="challengeForm.weekEndsSundayAt" type="time" />
               </div>
               <div class="form-group">
@@ -705,29 +705,41 @@
 
         <div v-show="manageTab === 'weekly'" class="manage-panel">
           <!-- Library picker -->
-          <div v-if="templateLibrary.length" class="library-picker-bar">
+          <div v-if="templateLibrary.length || globalTemplateLibrary.length" class="library-picker-bar">
             <label class="library-picker-label">📚 Add from library</label>
             <select v-model="libraryPickerSelected" class="library-picker-select">
-              <option value="">— pick a template —</option>
-              <option v-for="tpl in templateLibrary" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
+              <option value="">— pick a challenge —</option>
+              <optgroup v-if="globalTemplateLibrary.length" label="SSTC Library">
+                <option v-for="tpl in globalTemplateLibrary" :key="`g-${tpl.id}`" :value="tpl.id">
+                  {{ tpl.name }}{{ templateUsedLabel(tpl) ? ' ' + templateUsedLabel(tpl) : '' }}
+                </option>
+              </optgroup>
+              <optgroup v-if="templateLibrary.length" label="Club Library">
+                <option v-for="tpl in templateLibrary" :key="`c-${tpl.id}`" :value="tpl.id">
+                  {{ tpl.name }}{{ templateUsedLabel(tpl) ? ' ' + templateUsedLabel(tpl) : '' }}
+                </option>
+              </optgroup>
             </select>
             <select v-if="libraryPickerSelected" v-model="libraryPickerSlot" class="library-picker-select">
               <option value="">— slot —</option>
-              <option value="0">Weekly task 1</option>
-              <option value="1">Weekly task 2</option>
-              <option value="2">Weekly task 3</option>
+              <option value="0">Weekly challenge 1</option>
+              <option value="1">Weekly challenge 2</option>
+              <option value="2">Weekly challenge 3</option>
             </select>
             <button class="btn btn-secondary btn-sm" @click="applyLibraryTemplate" :disabled="!libraryPickerSelected || libraryPickerSlot === ''">Apply</button>
           </div>
 
           <div class="panel-actions">
-            <label>Week of</label>
-            <input v-model="weeklyTasksWeek" type="date" />
+            <label>Week</label>
+            <select v-if="seasonWeekOptions.length" v-model="weeklyTasksWeek" class="week-select" @change="loadWeeklyTasks">
+              <option v-for="w in seasonWeekOptions" :key="w.value" :value="w.value">{{ w.label }}</option>
+            </select>
+            <input v-else v-model="weeklyTasksWeek" type="date" />
             <button class="btn btn-secondary btn-sm" @click="generateWeeklyAiDraft" :disabled="!managingChallenge || weeklyAiDraftLoading">
               {{ weeklyAiDraftLoading ? 'Generating…' : 'Generate AI Draft' }}
             </button>
             <button class="btn btn-primary btn-sm" @click="saveWeeklyTasks" :disabled="!managingChallenge || weeklyTasksSaving">
-              {{ weeklyTasksSaving ? 'Saving…' : 'Save weekly tasks (3)' }}
+              {{ weeklyTasksSaving ? 'Saving…' : 'Save weekly challenges (3)' }}
             </button>
             <button class="btn btn-primary btn-sm" @click="publishWeeklyDraft" :disabled="!managingChallenge || weeklyPublishSaving">
               {{ weeklyPublishSaving ? 'Publishing…' : 'Publish Week' }}
@@ -745,7 +757,7 @@
           <div class="weekly-tasks-form">
             <div v-for="(t, i) in weeklyTasksForm" :key="i" class="weekly-task-card">
               <div class="weekly-task-card-header">
-                <strong class="task-num">Weekly task {{ i + 1 }}</strong>
+                <strong class="task-num">Weekly challenge {{ i + 1 }}</strong>
                 <div class="task-header-actions">
                   <label class="season-long-toggle">
                     <input type="checkbox" v-model="t.isSeasonLong" />
@@ -777,7 +789,7 @@
 
               <!-- Criteria Builder (expandable) -->
               <div v-if="showCriteriaFor[i]" class="criteria-builder">
-                <div class="criteria-section-title">Rich criteria — validates workouts tagged to this weekly task</div>
+                <div class="criteria-section-title">Rich criteria — validates workouts tagged to this weekly challenge</div>
 
                 <div class="criteria-row">
                   <label>Task type</label>
@@ -855,7 +867,7 @@
           </div>
           <div v-if="weeklyTasksWithIds.length && teams.length" class="weekly-assignments">
             <h4>Assignments</h4>
-            <p class="hint">Assign one person per task per team. Captains can also assign from the season dashboard.</p>
+            <p class="hint">Assign one person per challenge per team. Captains can also assign from the season dashboard.</p>
             <div v-for="t in weeklyTasksWithIds" :key="t.id" class="assignment-group">
               <strong>{{ t.name }}</strong>
               <div v-for="team in teams" :key="team.id" class="assignment-row">
@@ -1374,6 +1386,57 @@ const challengeForm = ref({
 
 const weeklyTasksWeek = ref(getThisWeekSunday());
 
+// Compute the end day name based on weekStartsOn (end day is 6 days after start)
+const weekEndDayName = computed(() => {
+  const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const startIdx = DAY_NAMES.map((d) => d.toLowerCase()).indexOf(
+    String(challengeForm.value.weekStartsOn || 'monday').toLowerCase()
+  );
+  const endIdx = (startIdx < 0 ? 1 : startIdx + 6) % 7;
+  return DAY_NAMES[endIdx];
+});
+
+// Compute fixed week options from season start → end dates (7-day increments)
+const seasonWeekOptions = computed(() => {
+  const c = managingChallenge.value;
+  const rawStart = c?.starts_at || c?.startsAt;
+  const rawEnd   = c?.ends_at   || c?.endsAt;
+  if (!rawStart) return [];
+
+  const start = new Date(rawStart);
+  start.setHours(0, 0, 0, 0);
+  const endBound = rawEnd ? new Date(rawEnd) : null;
+
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const fmt = (d) => `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+
+  const weeks = [];
+  let cursor = new Date(start);
+  let weekNum = 1;
+
+  while (true) {
+    const weekStart = new Date(cursor);
+    const weekEnd   = new Date(cursor);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+
+    // Stop if week start is past the season end (allow current partial week)
+    if (endBound && weekStart > endBound) break;
+
+    const value = weekStart.toISOString().slice(0, 10);
+    weeks.push({
+      value,
+      label: `Week ${weekNum} (${fmt(weekStart)} – ${fmt(weekEnd)})`
+    });
+
+    cursor.setDate(cursor.getDate() + 7);
+    weekNum++;
+    if (weekNum > 52) break; // safety cap
+  }
+
+  return weeks;
+});
+
 const defaultCriteria = () => ({
   challengeType: '',
   activityTypes: [],
@@ -1404,21 +1467,63 @@ const activityTypeOptions = ['Run', 'Trail Run', 'Ruck', 'Walk', 'Bike', 'Swim',
 const terrainOptions = ['Road', 'Trail', 'Track', 'Treadmill', 'Race', 'Other'];
 
 // Template library state
-const templateLibrary = ref([]);
+const templateLibrary = ref([]);         // club-specific templates
+const globalTemplateLibrary = ref([]);   // SSTC global templates
+const taskHistory = ref([]);             // { week_start_date, name } for all weeks used
 const libraryPickerSelected = ref('');
 const libraryPickerSlot = ref('');
 
+// Map: templateName (lowercased) → array of week labels where it was used
+const usedTemplateWeeks = computed(() => {
+  const map = {};
+  for (const h of taskHistory.value) {
+    const key = String(h.name || '').toLowerCase().trim();
+    if (!key) continue;
+    const weekDate = h.week_start_date ? String(h.week_start_date).slice(0, 10) : '';
+    // Find the week label from seasonWeekOptions
+    const weekOpt = seasonWeekOptions.value.find((w) => w.value === weekDate);
+    const weekLabel = weekOpt ? weekOpt.label.split(' (')[0] : weekDate;
+    if (!map[key]) map[key] = [];
+    if (!map[key].includes(weekLabel)) map[key].push(weekLabel);
+  }
+  return map;
+});
+
+const templateUsedLabel = (tpl) => {
+  const key = String(tpl.name || '').toLowerCase().trim();
+  const weeks = usedTemplateWeeks.value[key];
+  return weeks?.length ? `(used: ${weeks.join(', ')})` : '';
+};
+
 const loadTemplateLibrary = async () => {
   const clubId = managingChallenge.value?.organization_id;
+  const classId = managingChallenge.value?.id;
   if (!clubId) return;
   try {
-    const r = await api.get(`/summit-stats/clubs/${clubId}/challenge-templates`);
-    templateLibrary.value = Array.isArray(r.data?.templates) ? r.data.templates : [];
-  } catch { templateLibrary.value = []; }
+    const [clubRes, globalRes, historyRes] = await Promise.allSettled([
+      api.get(`/summit-stats/clubs/${clubId}/challenge-templates`),
+      api.get(`/summit-stats/challenge-templates/global`),
+      classId ? api.get(`/learning-program-classes/${classId}/weekly-tasks`, { params: { allWeeks: 'true' } }) : Promise.resolve(null)
+    ]);
+    templateLibrary.value = clubRes.status === 'fulfilled'
+      ? (Array.isArray(clubRes.value?.data?.templates) ? clubRes.value.data.templates : [])
+      : [];
+    globalTemplateLibrary.value = globalRes.status === 'fulfilled'
+      ? (Array.isArray(globalRes.value?.data?.templates) ? globalRes.value.data.templates : [])
+      : [];
+    taskHistory.value = historyRes.status === 'fulfilled' && historyRes.value
+      ? (Array.isArray(historyRes.value?.data?.allTaskHistory) ? historyRes.value.data.allTaskHistory : [])
+      : [];
+  } catch {
+    templateLibrary.value = [];
+    globalTemplateLibrary.value = [];
+    taskHistory.value = [];
+  }
 };
 
 const applyLibraryTemplate = () => {
-  const tpl = templateLibrary.value.find((t) => String(t.id) === String(libraryPickerSelected.value));
+  const allLibrary = [...templateLibrary.value, ...globalTemplateLibrary.value];
+  const tpl = allLibrary.find((t) => String(t.id) === String(libraryPickerSelected.value));
   const slot = parseInt(libraryPickerSlot.value, 10);
   if (!tpl || isNaN(slot)) return;
   const crit = tpl.criteriaJson || defaultCriteria();
@@ -1443,7 +1548,7 @@ const applyLibraryTemplate = () => {
 
 const saveTaskToLibrary = async (t) => {
   const clubId = managingChallenge.value?.organization_id;
-  if (!clubId || !t.name?.trim()) return alert('Weekly task needs a name before saving to library.');
+  if (!clubId || !t.name?.trim()) return alert('Weekly challenge needs a name before saving to library.');
   const payload = {
     name: t.name.trim(),
     description: t.description || null,
@@ -1991,6 +2096,11 @@ const openManageModal = async (c) => {
   managingChallenge.value = c;
   manageTab.value = 'teams';
   showManageModal.value = true;
+  // Auto-select the current week in the weekly challenges tab
+  const today = new Date().toISOString().slice(0, 10);
+  const opts = seasonWeekOptions.value;
+  const currentWeekOpt = opts.findLast((w) => w.value <= today) || opts[0];
+  if (currentWeekOpt) weeklyTasksWeek.value = currentWeekOpt.value;
   await Promise.all([loadTeams(c.id), loadProviderMembers(c.id), loadOrgUsers()]);
   await loadSnakeDraftBoard();
 };
@@ -2031,10 +2141,15 @@ const loadParticipantProfiles = async () => {
     participantProfiles.value = Array.isArray(r.data?.profiles) ? r.data.profiles : [];
     const map = {};
     for (const p of participantProfiles.value) {
-      map[p.provider_user_id] = { gender: p.gender || '', dateOfBirth: p.date_of_birth ? String(p.date_of_birth).slice(0, 10) : '' };
-    }
-    for (const m of providerMembers.value || []) {
-      if (!map[m.provider_user_id]) map[m.provider_user_id] = { gender: '', dateOfBirth: '' };
+      // Season-specific values take priority; fall back to global profile data
+      map[p.provider_user_id] = {
+        gender: p.gender || p.global_sex || '',
+        dateOfBirth: p.date_of_birth
+          ? String(p.date_of_birth).slice(0, 10)
+          : p.global_date_of_birth
+            ? String(p.global_date_of_birth).slice(0, 10)
+            : ''
+      };
     }
     profileEdits.value = map;
     await loadProfileCompleteness();
@@ -2239,7 +2354,7 @@ const saveWeeklyTasks = async () => {
     await loadWeeklyTasks();
     await loadNoShowAlerts();
   } catch (e) {
-    alert(e?.response?.data?.error?.message || 'Failed to save weekly tasks');
+    alert(e?.response?.data?.error?.message || 'Failed to save weekly challenges');
   } finally {
     weeklyTasksSaving.value = false;
   }

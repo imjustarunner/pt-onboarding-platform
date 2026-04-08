@@ -470,7 +470,15 @@ onBeforeUnmount(() => {
 .message-form { margin-bottom: 14px; }
 
 /* Messages list */
-.messages-list { display: flex; flex-direction: column; gap: 4px; }
+.messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scroll-behavior: smooth;
+}
 .message-card {
   border-radius: 10px; padding: 10px 12px;
   background: #ffffff;

@@ -54,7 +54,9 @@ import {
   listTaskTemplates,
   createTaskTemplate,
   updateTaskTemplate,
-  deleteTaskTemplate
+  deleteTaskTemplate,
+  listGlobalTemplates,
+  createGlobalTemplate
 } from '../controllers/challengeTaskTemplates.controller.js';
 import {
   getPublicClubStats,
@@ -223,6 +225,10 @@ router.get('/clubs/:id/challenge-templates', listTaskTemplates);
 router.post('/clubs/:id/challenge-templates', createTaskTemplate);
 router.put('/clubs/:id/challenge-templates/:tId', updateTaskTemplate);
 router.delete('/clubs/:id/challenge-templates/:tId', deleteTaskTemplate);
+
+// Global SSTC challenge template library
+router.get('/challenge-templates/global', listGlobalTemplates);
+router.post('/challenge-templates/global', createGlobalTemplate);
 
 // Billing status
 router.get('/clubs/:id/billing-status', authenticate, getClubBillingStatus);

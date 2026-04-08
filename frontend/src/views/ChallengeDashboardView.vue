@@ -1016,10 +1016,17 @@ const tickCountdown = () => {
 const isChallengeManager = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   if (['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role)) return true;
-  // Club managers are season managers when the season belongs to their current club
-  if (role === 'club_manager' && challenge.value?.organization_id) {
-    const agStore = useAgencyStore();
-    return Number(agStore.currentAgency?.id || 0) === Number(challenge.value.organization_id);
+  if (role === 'club_manager') {
+    // Prefer slug-based match (most reliable — present in every season load)
+    if (challenge.value?.organization_slug && organizationSlug.value) {
+      return String(challenge.value.organization_slug).toLowerCase() ===
+             String(organizationSlug.value).toLowerCase();
+    }
+    // Fall back to agency store ID comparison
+    if (challenge.value?.organization_id) {
+      const agStore = useAgencyStore();
+      return Number(agStore.currentAgency?.id || 0) === Number(challenge.value.organization_id);
+    }
   }
   return false;
 });

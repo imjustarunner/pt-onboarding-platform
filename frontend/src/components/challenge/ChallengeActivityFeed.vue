@@ -28,7 +28,7 @@
     <div v-if="loading" class="loading-inline">Loading…</div>
     <div v-else class="activity-list">
       <div
-        v-for="w in displayedWorkouts"
+        v-for="w in filteredWorkouts"
         :key="w.id"
         class="activity-card"
         :style="{ borderLeftColor: activityColor(w.activity_type), boxShadow: `inset 3px 0 0 ${activityColor(w.activity_type)}` }"
@@ -341,16 +341,6 @@
         </p>
         <p class="feed-empty-sub">Workouts, kudos, emoji reactions, comments and photos will show here once members start logging.</p>
       </div>
-      <div v-if="hasMoreWorkouts" class="feed-show-more">
-        <button type="button" class="btn btn-outline btn-sm" @click="showAllFeed = true">
-          Show {{ filteredWorkouts.length - feedDisplayLimit }} more workouts
-        </button>
-      </div>
-      <div v-if="showAllFeed && filteredWorkouts.length > feedDisplayLimit" class="feed-show-more">
-        <button type="button" class="btn btn-outline btn-sm" @click="showAllFeed = false">
-          Show less
-        </button>
-      </div>
     </div>
   </section>
 
@@ -382,9 +372,6 @@ const emit = defineEmits(['media-uploaded']);
 /** Whole season vs workouts from the viewer's team only (same idea as Season / Team chat). */
 const feedScope = ref('all');
 
-const feedDisplayLimit = ref(5);
-const showAllFeed = ref(false);
-
 const filteredWorkouts = computed(() => {
   const list = props.workouts || [];
   if (feedScope.value === 'team' && props.myTeamId) {
@@ -392,13 +379,6 @@ const filteredWorkouts = computed(() => {
   }
   return list;
 });
-
-const displayedWorkouts = computed(() => {
-  if (showAllFeed.value) return filteredWorkouts.value;
-  return filteredWorkouts.value.slice(0, feedDisplayLimit.value);
-});
-
-const hasMoreWorkouts = computed(() => filteredWorkouts.value.length > feedDisplayLimit.value && !showAllFeed.value);
 
 const commentsOpen    = ref({});
 const replyTarget     = ref({});  // workoutId -> parentCommentId being replied to
@@ -891,10 +871,10 @@ const reviewProof = async (workoutId, status) => {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-.feed-show-more {
-  text-align: center;
-  padding: 12px 0 4px;
+  max-height: 640px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scroll-behavior: smooth;
 }
 .btn-outline {
   border: 1px solid #cbd5e1;

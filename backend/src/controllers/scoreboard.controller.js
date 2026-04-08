@@ -273,6 +273,16 @@ export const listWeeklyTasks = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const weekCutoffTime = getWeekCutoffTime(access.class);
     const weekTimeZone = getWeekTimeZone(access.class);
+
+    // When allWeeks=true, return a compact list of all task names used across all weeks
+    if (req.query.allWeeks === 'true') {
+      const [allRows] = await pool.execute(
+        `SELECT week_start_date, name FROM challenge_weekly_tasks WHERE learning_class_id = ? ORDER BY week_start_date ASC`,
+        [classId]
+      );
+      return res.json({ allTaskHistory: allRows || [] });
+    }
+
     const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
     const tasks = await ChallengeWeeklyTask.listByWeek(classId, weekStart);
     const weekPhase = getSeasonWeekPhase({ klass: access.class, weekStartDate: weekStart, cutoffTime: weekCutoffTime, timeZone: weekTimeZone });

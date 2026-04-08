@@ -1215,7 +1215,54 @@ export const listParticipantProfiles = async (req, res, next) => {
     if (!klass) return res.status(404).json({ error: { message: 'Class not found' } });
     const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId: klass.organization_id });
     if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
-    const profiles = await ChallengeParticipantProfile.listByClass(classId);
+
+    // Fetch all enrolled participants with season-specific AND global profile data
+    const [rows] = await pool.execute(
+      `SELECT
+         u.id            AS provider_user_id,
+         u.first_name,
+         u.last_name,
+         cpp.gender,
+         cpp.date_of_birth,
+         cpp.weight_lbs,
+         cpp.height_inches,
+         MAX(CASE
+           WHEN uifd.field_key IN ('date_of_birth','provider_birthdate') AND uiv.value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+             THEN uiv.value
+           ELSE NULL
+         END) AS global_date_of_birth,
+         MAX(CASE
+           WHEN uifd.field_key IN ('sex','gender','provider_gender') AND uiv.value IS NOT NULL AND uiv.value <> ''
+             THEN LOWER(TRIM(uiv.value))
+           ELSE NULL
+         END) AS global_sex
+       FROM learning_class_provider_memberships pm
+       INNER JOIN users u ON u.id = pm.provider_user_id
+       LEFT JOIN challenge_participant_profiles cpp
+         ON cpp.provider_user_id = u.id AND cpp.learning_class_id = ?
+       LEFT JOIN user_info_values uiv ON uiv.user_id = u.id
+       LEFT JOIN user_info_field_definitions uifd
+         ON uifd.id = uiv.field_definition_id
+         AND (uifd.agency_id IS NULL OR uifd.agency_id = ?)
+       WHERE pm.learning_class_id = ?
+         AND pm.membership_status IN ('active','completed')
+       GROUP BY u.id, u.first_name, u.last_name, cpp.gender, cpp.date_of_birth, cpp.weight_lbs, cpp.height_inches
+       ORDER BY u.last_name ASC, u.first_name ASC`,
+      [classId, klass.organization_id, classId]
+    );
+
+    const profiles = (rows || []).map((r) => ({
+      provider_user_id: r.provider_user_id,
+      first_name: r.first_name,
+      last_name: r.last_name,
+      gender: r.gender || null,
+      date_of_birth: r.date_of_birth || null,
+      weight_lbs: r.weight_lbs || null,
+      height_inches: r.height_inches || null,
+      global_sex: r.global_sex || null,
+      global_date_of_birth: r.global_date_of_birth || null,
+    }));
+
     return res.json({ profiles });
   } catch (e) {
     next(e);
