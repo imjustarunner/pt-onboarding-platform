@@ -78,6 +78,35 @@
           or wait for the next season launch.
         </p>
       </div>
+
+      <!-- Seasons open to join -->
+      <template v-if="availableSeasons.length">
+        <div class="available-seasons-divider">
+          <span>Open to join</span>
+        </div>
+        <div class="season-list">
+          <div v-for="season in availableSeasons" :key="`avail-${season.classId}`" class="season-card season-card--available">
+            <div class="season-card-top">
+              <div>
+                <strong>{{ season.className }}</strong>
+                <div class="muted">{{ season.clubName }}</div>
+              </div>
+              <span class="pill pill--open">Active</span>
+            </div>
+            <div class="season-meta">
+              <span>{{ formatSeasonDates(season) }}</span>
+            </div>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="joiningSeasonId === season.classId"
+              @click="joinAndOpenSeason(season)"
+            >
+              {{ joiningSeasonId === season.classId ? 'Joining…' : 'Join Season' }}
+            </button>
+          </div>
+        </div>
+      </template>
     </section>
 
     <section class="card my-stats-compact dash-section dash-section--my-stats">
@@ -649,6 +678,8 @@ const {
 const memberships = computed(() => Array.isArray(summary.value?.memberships) ? summary.value.memberships : []);
 const currentSeasons = computed(() => Array.isArray(summary.value?.seasons?.current) ? summary.value.seasons.current : []);
 const pastSeasons = computed(() => Array.isArray(summary.value?.seasons?.past) ? summary.value.seasons.past : []);
+const availableSeasons = computed(() => Array.isArray(summary.value?.seasons?.available) ? summary.value.seasons.available : []);
+const joiningSeasonId = ref(null);
 const pendingApplications = computed(() =>
   (applications.value || []).filter((app) => String(app.status || '').toLowerCase() === 'pending')
 );
@@ -985,6 +1016,18 @@ const switchToClubContext = async (clubId, target = 'dashboard') => {
 const openSeason = async (season) => {
   if (!season?.classId) return;
   await router.push(`/${orgSlug.value}/season/${season.classId}`);
+};
+
+const joinAndOpenSeason = async (season) => {
+  if (!season?.classId || joiningSeasonId.value) return;
+  joiningSeasonId.value = season.classId;
+  try {
+    await api.post(`/learning-program-classes/${season.classId}/join`);
+    await router.push(`/${orgSlug.value}/season/${season.classId}`);
+  } catch (err) {
+    alert(err?.response?.data?.error?.message || 'Could not join season. Please try again.');
+    joiningSeasonId.value = null;
+  }
 };
 
 const openClub = async (clubId) => {
@@ -1327,6 +1370,35 @@ watch(() => route.params.organizationSlug, () => {
   border-radius: 18px;
   padding: 16px;
   background: #fbfdff;
+}
+
+.season-card--available {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.available-seasons-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0 12px;
+  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.available-seasons-divider::before,
+.available-seasons-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.pill--open {
+  background: #dcfce7;
+  color: #166534;
 }
 
 .membership-top,

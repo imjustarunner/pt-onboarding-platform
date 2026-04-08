@@ -3250,6 +3250,40 @@ export const getMyDashboardSummary = async (req, res, next) => {
       accountAllowCustomPronouns = accountConfig.allowCustomPronouns === true;
     }
 
+    // Fetch active seasons in clubs the user is a member of but hasn't joined yet.
+    const enrolledClassIds = new Set(mergedSeasonRows.map((r) => Number(r.class_id)));
+    const memberClubIds = clubs.map((c) => c.id).filter((id) => Number.isFinite(id) && id > 0);
+    let availableSeasons = [];
+    if (memberClubIds.length) {
+      const ph = memberClubIds.map(() => '?').join(',');
+      const [availRows] = await pool.execute(
+        `SELECT c.id AS class_id, c.class_name, c.status AS class_status,
+                c.starts_at, c.ends_at, c.allow_late_join,
+                c.organization_id AS club_id, a.name AS club_name, a.slug AS club_slug
+         FROM learning_program_classes c
+         INNER JOIN agencies a ON a.id = c.organization_id
+         WHERE c.organization_id IN (${ph})
+           AND c.status = 'active'
+           AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'
+           AND LOWER(COALESCE(c.program_kind, 'season')) <> 'monthly_book'
+         ORDER BY COALESCE(c.starts_at, c.created_at) DESC, c.id DESC`,
+        memberClubIds
+      );
+      availableSeasons = (availRows || [])
+        .filter((r) => !enrolledClassIds.has(Number(r.class_id)))
+        .map((r) => ({
+          classId: Number(r.class_id),
+          className: r.class_name || `Season ${r.class_id}`,
+          classStatus: r.class_status || null,
+          startsAt: r.starts_at || null,
+          endsAt: r.ends_at || null,
+          allowLateJoin: !!r.allow_late_join,
+          clubId: Number(r.club_id),
+          clubName: r.club_name || '',
+          clubSlug: r.club_slug || ''
+        }));
+    }
+
     return res.json({
       member: {
         userId,
@@ -3283,7 +3317,8 @@ export const getMyDashboardSummary = async (req, res, next) => {
       },
       seasons: {
         current: seasons.filter((season) => season.bucket === 'current' || season.bucket === 'upcoming'),
-        past: seasons.filter((season) => season.bucket === 'past')
+        past: seasons.filter((season) => season.bucket === 'past'),
+        available: availableSeasons
       },
       account: {
         billingPlan: 'Free account',
