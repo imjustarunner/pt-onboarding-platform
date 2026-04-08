@@ -1060,11 +1060,11 @@ const tickCountdown = () => {
 // ─────────────────────────────────────────────────────────────────
 
 const isChallengeManager = computed(() => {
-  // Server-side authoritative flag set in getLearningProgramClass response
+  // Server-side authoritative flag — covers club_manager, assistant_manager, admin, staff
   if (challenge.value?.can_manage === true) return true;
-  // Fallback for admin/staff roles when can_manage isn't available yet
+  // Fallback for known privileged global roles (in case can_manage hasn't loaded yet)
   const role = String(authStore.user?.role || '').toLowerCase();
-  if (['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role)) return true;
+  if (['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus', 'club_manager'].includes(role)) return true;
   return false;
 });
 

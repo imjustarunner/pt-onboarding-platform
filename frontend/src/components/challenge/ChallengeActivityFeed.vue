@@ -67,6 +67,16 @@
           <span class="screenshot-label">Screenshot attached</span>
         </div>
         <div v-if="w.workout_notes" class="activity-notes" style="white-space: pre-line;">{{ w.workout_notes }}</div>
+        <!-- Proof status badge – visible to everyone -->
+        <div v-if="w.proof_status && w.proof_status !== 'not_required'" class="proof-status-badge-row">
+          <span v-if="w.proof_status === 'approved'" class="proof-badge proof-badge--approved">✓ Approved</span>
+          <span v-else-if="w.proof_status === 'pending'" class="proof-badge proof-badge--pending">⏳ Pending review</span>
+          <span v-else-if="w.proof_status === 'rejected'" class="proof-badge proof-badge--rejected">✗ Proof rejected</span>
+        </div>
+        <!-- Disqualified badge – visible to everyone -->
+        <div v-if="Number(w.is_disqualified) === 1" class="proof-badge-row">
+          <span class="proof-badge proof-badge--rejected">✗ Disqualified</span>
+        </div>
         <!-- Strava extra metrics row -->
         <div v-if="w.strava_activity_id && (w.elevation_gain_meters > 0 || w.calories_burned > 0 || w.average_heartrate > 0 || w.max_heartrate > 0)" class="strava-metrics-row">
           <span v-if="w.elevation_gain_meters > 0" class="strava-metric" title="Elevation gain">⛰ {{ Math.round(w.elevation_gain_meters * 3.28084) }} ft gain</span>
@@ -98,8 +108,9 @@
             </tbody>
           </table>
         </div>
-        <div v-if="Number(w.is_disqualified) === 1" class="disqualified-banner">
-          Disqualified workout{{ w.disqualification_reason ? `: ${w.disqualification_reason}` : '' }}
+        <!-- Disqualified reason detail (manager only) -->
+        <div v-if="props.isManager && Number(w.is_disqualified) === 1 && w.disqualification_reason" class="disqualified-banner">
+          Reason: {{ w.disqualification_reason }}
         </div>
         <div v-if="w.strava_activity_id" class="hint strava-source-hint">
           <span class="strava-logo-s-sm">S</span> Imported from Strava
@@ -1094,6 +1105,17 @@ const reviewProof = async (workoutId, status) => {
   font-size: 0.9em;
   line-height: 1.5;
 }
+.proof-status-badge-row, .proof-badge-row { margin-top: 6px; }
+.proof-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+.proof-badge--approved { background: #e8f5e9; color: #2e7d32; }
+.proof-badge--pending  { background: #fff8e1; color: #7c5f00; }
+.proof-badge--rejected { background: #ffebee; color: #c62828; }
 .splits-section { margin-top: 8px; }
 .splits-toggle {
   background: none;
