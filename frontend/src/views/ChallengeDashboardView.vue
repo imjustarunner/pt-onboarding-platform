@@ -838,6 +838,7 @@ import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
+import { useBrandingStore } from '../store/branding';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import { useAffiliationClubAnnouncements } from '../composables/useAffiliationClubAnnouncements.js';
 import { toUploadsUrl } from '../utils/uploadsUrl.js';
@@ -856,6 +857,7 @@ import ChallengeParticipationAgreementModal from '../components/challenge/Challe
 
 const route = useRoute();
 const authStore = useAuthStore();
+const brandingStore = useBrandingStore();
 const challenge = ref(null);
 const providerMembers = ref([]);
 const seasonBannerDismissed = ref(false);
@@ -1267,6 +1269,16 @@ const loadChallenge = async () => {
     providerMembers.value = Array.isArray(r.data?.providerMembers) ? r.data.providerMembers : [];
     participationAgreementStatus.value = r.data?.participationAgreementStatus || null;
     participationAcceptanceError.value = '';
+    // Apply the season's club branding regardless of the URL slug so colors/fonts
+    // always match the club (e.g. ssc/season/3 shows Your Superhero's Superheros branding).
+    const clubSlug = challenge.value?.organization_slug;
+    if (clubSlug && clubSlug !== organizationSlug.value) {
+      // Temporarily override the active route slug so _resolveActivePalette picks
+      // up the club's cached palette for computed colors.
+      brandingStore.setActiveRouteSlug(clubSlug);
+      // Fetch-and-apply the club's theme (cached after first load so re-renders are instant).
+      brandingStore.fetchAgencyTheme(clubSlug, { pageContext: 'season' }).catch(() => {});
+    }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load challenge';
     challenge.value = null;
@@ -1752,6 +1764,9 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (countdownTimer) clearInterval(countdownTimer);
+  // Restore the URL-based route slug so the branding reverts to the host org after leaving.
+  const urlSlug = String(route.params.organizationSlug || '').trim().toLowerCase();
+  if (urlSlug) brandingStore.setActiveRouteSlug(urlSlug);
 });
 
 watch(challengeId, () => {
