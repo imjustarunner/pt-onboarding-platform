@@ -72,11 +72,11 @@
             </button>
             <template v-if="isManagedClub(season.clubId)">
               <router-link
-                :to="`/${seasonSlug(season)}/admin/settings?category=workflow&item=challenge-management&manageSeason=${season.classId}`"
+                :to="`/${orgSlug}/admin/settings?category=workflow&item=challenge-management&manageSeason=${season.classId}`"
                 class="btn btn-secondary btn-sm"
               >Manage Season</router-link>
               <router-link
-                :to="`/${seasonSlug(season)}/admin/settings?category=workflow&item=challenge-management&editSeason=${season.classId}`"
+                :to="`/${orgSlug}/admin/settings?category=workflow&item=challenge-management&editSeason=${season.classId}`"
                 class="btn btn-secondary btn-sm"
               >Edit Season</router-link>
             </template>
@@ -1036,11 +1036,9 @@ const switchToClubContext = async (clubId, target = 'dashboard') => {
   await router.push(`/${orgSlug.value}/my_club_dashboard`);
 };
 
-const seasonSlug = (season) => season?.clubSlug || orgSlug.value;
-
 const openSeason = async (season) => {
   if (!season?.classId) return;
-  await router.push(`/${seasonSlug(season)}/season/${season.classId}`);
+  await router.push(`/${orgSlug.value}/season/${season.classId}`);
 };
 
 const joinAndOpenSeason = async (season) => {
@@ -1048,7 +1046,7 @@ const joinAndOpenSeason = async (season) => {
   joiningSeasonId.value = season.classId;
   try {
     await api.post(`/learning-program-classes/${season.classId}/join`);
-    await router.push(`/${seasonSlug(season)}/season/${season.classId}`);
+    await router.push(`/${orgSlug.value}/season/${season.classId}`);
   } catch (err) {
     alert(err?.response?.data?.error?.message || 'Could not join season. Please try again.');
     joiningSeasonId.value = null;

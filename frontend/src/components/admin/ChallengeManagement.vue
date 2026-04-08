@@ -1806,10 +1806,10 @@ const organizationSlug = computed(() => agencyStore.currentAgency?.slug || agenc
 
 const challengeDashboardLink = (c) => {
   const id = c.id;
-  // Always use the season's own org slug so the manager view is recognised correctly
-  const slug = c.organization_slug || organizationSlug.value
-    || String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase();
-  return `/${slug}/season/${id}`;
+  // Use the current route slug to stay on the same domain. Manager detection
+  // is now server-side (can_manage flag) so the URL slug no longer needs to match.
+  if (organizationSlug.value) return `/${organizationSlug.value}/season/${id}`;
+  return `/${String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase()}/season/${id}`;
 };
 
 const formatStatus = (c) => {
