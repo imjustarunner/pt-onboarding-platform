@@ -305,6 +305,10 @@
                   <dt>Gender</dt>
                   <dd>{{ formatText(summary?.account?.gender) }}</dd>
                 </div>
+                <div>
+                  <dt>Date of birth</dt>
+                  <dd>{{ summary?.account?.dateOfBirth ? new Date(summary.account.dateOfBirth + 'T12:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }) : 'Not set' }}</dd>
+                </div>
                 <div v-if="allowCustomPronouns">
                   <dt>Pronouns</dt>
                   <dd>{{ formatText(summary?.account?.pronouns) }}</dd>
@@ -410,6 +414,10 @@
                     <option value="">Not set</option>
                     <option v-for="g in genderSelectChoices" :key="g" :value="g">{{ formatGenderOptionLabel(g) }}</option>
                   </select>
+                </label>
+                <label class="account-field">
+                  Date of birth
+                  <input v-model="accountForm.dateOfBirth" type="date" autocomplete="bday" />
                 </label>
                 <label v-if="allowCustomPronouns" class="account-field">
                   Pronouns
@@ -619,6 +627,7 @@ const accountForm = reactive({
   homePostalCode: '',
   genderSelect: '',
   pronouns: '',
+  dateOfBirth: '',
   averageMilesPerWeek: '',
   averageHoursPerWeek: '',
   heardAboutClub: '',
@@ -835,6 +844,7 @@ const fillAccountFormFromSummary = () => {
     }
   }
   accountForm.pronouns = allowCustomPronouns.value ? String(a?.pronouns || '').trim() : '';
+  accountForm.dateOfBirth = a?.dateOfBirth ? String(a.dateOfBirth).slice(0, 10) : '';
 
   accountForm.averageMilesPerWeek =
     a?.averageMilesPerWeek != null && Number.isFinite(Number(a.averageMilesPerWeek))
@@ -885,6 +895,7 @@ const saveAccountEdit = async () => {
       homePostalCode: accountForm.homePostalCode.trim() || null,
       gender: genderPayload,
       pronouns: allowCustomPronouns.value ? (accountForm.pronouns.trim() || null) : undefined,
+      dateOfBirth: accountForm.dateOfBirth?.trim() || null,
       averageMilesPerWeek: parseOptionalDecimal(accountForm.averageMilesPerWeek),
       averageHoursPerWeek: parseOptionalDecimal(accountForm.averageHoursPerWeek),
       heardAboutClub: accountForm.heardAboutClub.trim() || null,

@@ -3376,6 +3376,7 @@ export const putMyAccountSnapshot = async (req, res, next) => {
     const hasAppOnlyField =
       body.gender !== undefined ||
       body.pronouns !== undefined ||
+      body.dateOfBirth !== undefined ||
       body.averageMilesPerWeek !== undefined ||
       body.averageHoursPerWeek !== undefined ||
       body.heardAboutClub !== undefined ||
@@ -3445,6 +3446,10 @@ export const putMyAccountSnapshot = async (req, res, next) => {
       };
       if (body.phone !== undefined) pushCol('phone', String(body.phone || '').trim() || null);
       if (body.gender !== undefined) pushCol('gender', String(body.gender || '').trim() || null);
+      if (body.dateOfBirth !== undefined) {
+        const dob = body.dateOfBirth ? String(body.dateOfBirth).trim().slice(0, 10) : null;
+        pushCol('date_of_birth', dob && /^\d{4}-\d{2}-\d{2}$/.test(dob) ? dob : null);
+      }
       if (body.pronouns !== undefined && accountAllowCustomPronouns) {
         pushCol('pronouns', normalizeShortText(body.pronouns, 64));
       }
