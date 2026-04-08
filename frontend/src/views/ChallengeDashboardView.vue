@@ -26,9 +26,25 @@
           </div>
         </div>
       </div>
+      <!-- Season announcement banner (collapsible, manager-editable) -->
+      <div
+        v-if="challenge.season_announcement_text && !seasonBannerDismissed"
+        class="season-announcement-banner"
+      >
+        <span class="season-announcement-text">📢 {{ challenge.season_announcement_text }}</span>
+        <button class="season-announcement-close" type="button" @click="seasonBannerDismissed = true" aria-label="Dismiss">✕</button>
+      </div>
+
       <!-- Challenge Overview -->
       <div class="challenge-overview">
-        <router-link :to="backRoute" class="back-link">← Back to My Dashboard</router-link>
+        <div class="challenge-overview-top">
+          <router-link :to="backRoute" class="back-link">← Back to My Dashboard</router-link>
+          <router-link
+            v-if="isChallengeManager && organizationSlug"
+            :to="`/${organizationSlug}/admin/settings?category=workflow&item=challenge-management`"
+            class="btn btn-secondary btn-sm manage-season-btn"
+          >⚙ Manage Season</router-link>
+        </div>
         <div class="challenge-title-row">
           <h1>{{ challenge.class_name || challenge.className }}</h1>
           <span class="challenge-status-badge" :class="statusClass(challenge)">{{ formatStatus(challenge) }}</span>
@@ -769,6 +785,7 @@
       :error="participationAcceptanceError"
       @submit="acceptParticipationAgreement"
     />
+
   </div>
 </template>
 
@@ -777,6 +794,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
+import { useAgencyStore } from '../store/agency';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import { useAffiliationClubAnnouncements } from '../composables/useAffiliationClubAnnouncements.js';
 import { toUploadsUrl } from '../utils/uploadsUrl.js';
@@ -797,6 +815,7 @@ const route = useRoute();
 const authStore = useAuthStore();
 const challenge = ref(null);
 const providerMembers = ref([]);
+const seasonBannerDismissed = ref(false);
 const loading = ref(true);
 const error = ref(null);
 const leaderboard = ref(null);
@@ -996,7 +1015,13 @@ const tickCountdown = () => {
 
 const isChallengeManager = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
+  if (['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role)) return true;
+  // Club managers are season managers when the season belongs to their current club
+  if (role === 'club_manager' && challenge.value?.organization_id) {
+    const agStore = useAgencyStore();
+    return Number(agStore.currentAgency?.id || 0) === Number(challenge.value.organization_id);
+  }
+  return false;
 });
 
 const isTeamCaptain = computed(() => {
@@ -1689,6 +1714,44 @@ watch(challengeId, () => {
   margin: 0 auto;
   padding: 24px;
 }
+/* ── Season announcement banner ── */
+.season-announcement-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: linear-gradient(90deg, #fff3cd 0%, #ffe9a0 100%);
+  border-left: 4px solid #f0ad4e;
+  padding: 10px 16px;
+  border-radius: 6px;
+  margin-bottom: 14px;
+  font-size: 0.93em;
+  font-weight: 500;
+  color: #7a5c00;
+}
+.season-announcement-text { flex: 1; }
+.season-announcement-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1em;
+  color: #7a5c00;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+.season-announcement-close:hover { opacity: 1; }
+
+/* ── Challenge overview header ── */
+.challenge-overview-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.manage-season-btn { white-space: nowrap; }
+
 .challenge-overview {
   margin-bottom: 24px;
   padding-bottom: 24px;
@@ -1696,7 +1759,6 @@ watch(challengeId, () => {
 }
 .back-link {
   display: inline-block;
-  margin-bottom: 12px;
   color: var(--link-color, #0066cc);
   text-decoration: none;
 }

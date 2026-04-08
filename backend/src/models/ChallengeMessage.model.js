@@ -23,12 +23,15 @@ class ChallengeMessage {
     const lim = Math.min(Math.max(toInt(limit) || 50, 1), 500);
     const off = Math.max(toInt(offset) || 0, 0);
     const [rows] = await pool.execute(
-      `SELECT m.*, u.first_name, u.last_name, t.team_name
+      `SELECT m.*, u.first_name, u.last_name, u.profile_photo_path, t.team_name,
+              pm.message_text AS parent_message_text, pu.first_name AS parent_first_name
        FROM challenge_messages m
        INNER JOIN users u ON u.id = m.user_id
        LEFT JOIN challenge_teams t ON t.id = m.team_id
+       LEFT JOIN challenge_messages pm ON pm.id = m.parent_message_id
+       LEFT JOIN users pu ON pu.id = pm.user_id
        WHERE ${whereSql}
-       ORDER BY m.is_pinned DESC, m.pinned_at DESC, m.created_at DESC, m.id DESC
+       ORDER BY m.is_pinned DESC, m.pinned_at DESC, m.created_at ASC, m.id ASC
        LIMIT ${lim} OFFSET ${off}`,
       params
     );
@@ -39,7 +42,7 @@ class ChallengeMessage {
     const messageId = toInt(id);
     if (!messageId) return null;
     const [rows] = await pool.execute(
-      `SELECT m.*, u.first_name, u.last_name, t.team_name
+      `SELECT m.*, u.first_name, u.last_name, u.profile_photo_path, t.team_name
        FROM challenge_messages m
        INNER JOIN users u ON u.id = m.user_id
        LEFT JOIN challenge_teams t ON t.id = m.team_id
@@ -50,20 +53,21 @@ class ChallengeMessage {
     return rows?.[0] || null;
   }
 
-  static async create({ learningClassId, userId, teamId = null, messageText, attachmentsJson = null }) {
+  static async create({ learningClassId, userId, teamId = null, messageText, attachmentsJson = null, parentMessageId = null }) {
     const classId = toInt(learningClassId);
     const uid = toInt(userId);
     const text = String(messageText || '').trim();
     if (!classId || !uid || !text) return null;
     const attJson = attachmentsJson ? String(attachmentsJson) : null;
+    const parentId = toInt(parentMessageId) || null;
     const [result] = await pool.execute(
       `INSERT INTO challenge_messages
-       (learning_class_id, team_id, user_id, message_text, attachments_json)
-       VALUES (?, ?, ?, ?, ?)`,
-      [classId, teamId ? toInt(teamId) : null, uid, text, attJson]
+       (learning_class_id, team_id, user_id, message_text, attachments_json, parent_message_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [classId, teamId ? toInt(teamId) : null, uid, text, attJson, parentId]
     );
     const [rows] = await pool.execute(
-      `SELECT m.*, u.first_name, u.last_name, t.team_name
+      `SELECT m.*, u.first_name, u.last_name, u.profile_photo_path, t.team_name
        FROM challenge_messages m
        INNER JOIN users u ON u.id = m.user_id
        LEFT JOIN challenge_teams t ON t.id = m.team_id

@@ -341,6 +341,16 @@
         </p>
         <p class="feed-empty-sub">Workouts, kudos, emoji reactions, comments and photos will show here once members start logging.</p>
       </div>
+      <div v-if="hasMoreWorkouts" class="feed-show-more">
+        <button type="button" class="btn btn-outline btn-sm" @click="showAllFeed = true">
+          Show {{ filteredWorkouts.length - feedDisplayLimit }} more workouts
+        </button>
+      </div>
+      <div v-if="showAllFeed && filteredWorkouts.length > feedDisplayLimit" class="feed-show-more">
+        <button type="button" class="btn btn-outline btn-sm" @click="showAllFeed = false">
+          Show less
+        </button>
+      </div>
     </div>
   </section>
 
@@ -372,13 +382,23 @@ const emit = defineEmits(['media-uploaded']);
 /** Whole season vs workouts from the viewer's team only (same idea as Season / Team chat). */
 const feedScope = ref('all');
 
-const displayedWorkouts = computed(() => {
+const feedDisplayLimit = ref(5);
+const showAllFeed = ref(false);
+
+const filteredWorkouts = computed(() => {
   const list = props.workouts || [];
   if (feedScope.value === 'team' && props.myTeamId) {
     return list.filter((w) => w.team_id != null && Number(w.team_id) === Number(props.myTeamId));
   }
   return list;
 });
+
+const displayedWorkouts = computed(() => {
+  if (showAllFeed.value) return filteredWorkouts.value;
+  return filteredWorkouts.value.slice(0, feedDisplayLimit.value);
+});
+
+const hasMoreWorkouts = computed(() => filteredWorkouts.value.length > feedDisplayLimit.value && !showAllFeed.value);
 
 const commentsOpen    = ref({});
 const replyTarget     = ref({});  // workoutId -> parentCommentId being replied to
@@ -872,6 +892,20 @@ const reviewProof = async (workoutId, status) => {
   flex-direction: column;
   gap: 16px;
 }
+.feed-show-more {
+  text-align: center;
+  padding: 12px 0 4px;
+}
+.btn-outline {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+  border-radius: 8px;
+  padding: 6px 16px;
+  cursor: pointer;
+  font-size: 0.85em;
+}
+.btn-outline:hover { background: #f1f5f9; border-color: #94a3b8; }
 .activity-card {
   padding: 18px 20px;
   border: 1px solid #e8edf3;

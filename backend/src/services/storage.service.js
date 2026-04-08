@@ -1425,6 +1425,47 @@ class StorageService {
    * @param {number} expirationMinutes - URL expiration time in minutes (default: 60)
    * @returns {Promise<string>}
    */
+  /**
+   * Save a challenge workout media file (screenshots, GIFs, map images, treadmill proof)
+   * to GCS under uploads/challenge_workouts/.
+   * Returns relative path (without 'uploads/' prefix) for storage in DB.
+   */
+  static async saveWorkoutMedia({ userId, fileBuffer, filename, contentType = 'image/jpeg' }) {
+    const sanitizedFilename = this.sanitizeFilename(filename || `workout-${Date.now()}.jpg`);
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    const key = `uploads/challenge_workouts/${unique}-${sanitizedFilename}`;
+
+    // Local-dev fallback: if GCS bucket is not configured, write to backend/uploads/
+    if (!process.env.PTONBOARDFILES) {
+      const { default: fsSync } = await import('fs');
+      const { default: pathMod } = await import('path');
+      const { fileURLToPath } = await import('url');
+      const __dirname = pathMod.dirname(fileURLToPath(import.meta.url));
+      const localDir = pathMod.resolve(__dirname, '../../uploads/challenge_workouts');
+      if (!fsSync.existsSync(localDir)) fsSync.mkdirSync(localDir, { recursive: true });
+      const localPath = pathMod.join(localDir, `${unique}-${sanitizedFilename}`);
+      fsSync.writeFileSync(localPath, fileBuffer);
+      const relativePath = `challenge_workouts/${unique}-${sanitizedFilename}`;
+      return { path: relativePath, key: `uploads/${relativePath}`, filename: sanitizedFilename, relativePath };
+    }
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType,
+      metadata: {
+        userId: String(userId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    // Strip 'uploads/' prefix so DB stores 'challenge_workouts/...' and the frontend
+    // reconstructs '/uploads/challenge_workouts/...' correctly.
+    const relativePath = key.replace(/^uploads\//, '');
+    return { path: relativePath, key, filename: sanitizedFilename, relativePath };
+  }
+
   static async getSignedUrl(key, expirationMinutes = 60) {
     const bucket = await this.getGCSBucket();
     const file = bucket.file(key);

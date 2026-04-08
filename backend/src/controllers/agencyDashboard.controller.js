@@ -3,6 +3,8 @@ import User from '../models/User.model.js';
 import UserTrack from '../models/UserTrack.model.js';
 import ProgressCalculationService from '../services/progressCalculation.service.js';
 import { validationResult } from 'express-validator';
+import config from '../config/config.js';
+import EmailService from '../services/email.service.js';
 
 export const getAgencyUsers = async (req, res, next) => {
   try {
@@ -101,6 +103,53 @@ export const getAgencyUsers = async (req, res, next) => {
     );
 
     res.json(usersWithProgress);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const sendPasswordResetToUser = async (req, res, next) => {
+  try {
+    const { agencyId, userId } = req.params;
+    const agencyIdInt = parseInt(agencyId);
+    const targetUserId = parseInt(userId);
+
+    // Verify caller has access to this agency
+    if (req.user.role !== 'super_admin') {
+      const callerAgencies = await User.getAgencies(req.user.id);
+      const hasAccess = callerAgencies.some((a) => a.id === agencyIdInt);
+      if (!hasAccess) {
+        return res.status(403).json({ error: { message: 'You do not have access to this agency' } });
+      }
+    }
+
+    // Fetch the target user and verify they belong to this agency
+    const targetUser = await User.findById(targetUserId);
+    if (!targetUser?.id) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+    const targetAgencies = await User.getAgencies(targetUserId);
+    if (!targetAgencies.some((a) => a.id === agencyIdInt)) {
+      return res.status(404).json({ error: { message: 'User not found in this agency' } });
+    }
+
+    // Generate 48-hour reset token
+    const expiresInHours = 48;
+    const tokenResult = await User.generatePasswordlessToken(targetUser.id, expiresInHours, 'reset');
+
+    const frontendBase = String(config.frontendUrl || '').replace(/\/$/, '');
+    const resetLink = `${frontendBase}/reset-password/${tokenResult.token}`;
+
+    const subject = 'Reset your password';
+    const body = `Hello ${targetUser.first_name || targetUser.email},\n\nYour club manager has sent you a password reset link.\n\nReset your password using this link (expires in ${expiresInHours} hours):\n${resetLink}\n\nIf you did not expect this email, you can safely ignore it.`;
+
+    await EmailService.sendEmail({
+      to: targetUser.email,
+      subject,
+      body
+    });
+
+    return res.json({ ok: true, message: `Password reset email sent to ${targetUser.email}` });
   } catch (error) {
     next(error);
   }

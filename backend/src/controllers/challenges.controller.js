@@ -1427,12 +1427,14 @@ export const postChallengeMessage = async (req, res, next) => {
       const paths = req.body.attachmentPaths.map((p) => String(p).trim()).filter(Boolean).slice(0, 8);
       if (paths.length) attachmentsJson = JSON.stringify(paths);
     }
+    const parentMessageId = req.body?.parentMessageId ? asInt(req.body.parentMessageId) : null;
     const message = await ChallengeMessage.create({
       learningClassId: classId,
       userId: req.user.id,
       teamId,
       messageText,
-      attachmentsJson
+      attachmentsJson,
+      parentMessageId
     });
     try {
       await challengeMessageBridge.postMessageToChannel({
@@ -1451,6 +1453,54 @@ export const postChallengeMessage = async (req, res, next) => {
   }
 };
 
+export const listMessageReactions = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const messageId = asInt(req.params.messageId);
+    if (!classId || !messageId) return res.status(400).json({ error: { message: 'Invalid params' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    const [rows] = await pool.execute(
+      `SELECT emoji, COUNT(*) AS count,
+              MAX(CASE WHEN user_id = ? THEN 1 ELSE 0 END) AS mine
+       FROM challenge_message_reactions
+       WHERE message_id = ?
+       GROUP BY emoji
+       ORDER BY count DESC`,
+      [req.user.id, messageId]
+    );
+    return res.json({ reactions: (rows || []).map((r) => ({ emoji: r.emoji, count: Number(r.count), mine: Number(r.mine) === 1 })) });
+  } catch (e) { next(e); }
+};
+
+export const toggleMessageReaction = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const messageId = asInt(req.params.messageId);
+    if (!classId || !messageId) return res.status(400).json({ error: { message: 'Invalid params' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    const emoji = String(req.body?.emoji || '').trim().slice(0, 64);
+    if (!emoji) return res.status(400).json({ error: { message: 'emoji is required' } });
+    // Toggle: insert or delete
+    const [existing] = await pool.execute(
+      `SELECT id FROM challenge_message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ? LIMIT 1`,
+      [messageId, req.user.id, emoji]
+    );
+    if ((existing || []).length) {
+      await pool.execute(`DELETE FROM challenge_message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?`, [messageId, req.user.id, emoji]);
+    } else {
+      await pool.execute(`INSERT IGNORE INTO challenge_message_reactions (message_id, user_id, emoji) VALUES (?, ?, ?)`, [messageId, req.user.id, emoji]);
+    }
+    const [rows] = await pool.execute(
+      `SELECT emoji, COUNT(*) AS count, MAX(CASE WHEN user_id = ? THEN 1 ELSE 0 END) AS mine
+       FROM challenge_message_reactions WHERE message_id = ? GROUP BY emoji ORDER BY count DESC`,
+      [req.user.id, messageId]
+    );
+    return res.json({ reactions: (rows || []).map((r) => ({ emoji: r.emoji, count: Number(r.count), mine: Number(r.mine) === 1 })) });
+  } catch (e) { next(e); }
+};
+
 export const uploadChallengeMessageAttachment = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);
@@ -1458,7 +1508,14 @@ export const uploadChallengeMessageAttachment = async (req, res, next) => {
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: 'Access denied' } });
     if (!req.file) return res.status(400).json({ error: { message: 'file is required' } });
-    const filePath = `challenge_workouts/${req.file.filename}`;
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const saved = await StorageService.saveWorkoutMedia({
+      userId: req.user.id,
+      fileBuffer: req.file.buffer,
+      filename: req.file.originalname || `attachment-${Date.now()}.jpg`,
+      contentType: req.file.mimetype
+    });
+    const filePath = saved.relativePath;
     const baseUrl = process.env.BACKEND_URL || '';
     return res.json({ filePath, fileUrl: `${baseUrl}/uploads/${filePath}` });
   } catch (e) { next(e); }
@@ -1609,9 +1666,17 @@ export const scanWorkoutScreenshot = async (req, res, next) => {
     if (!access.ok) return res.status(403).json({ error: { message: 'Access denied' } });
     if (!req.file) return res.status(400).json({ error: { message: 'No image file uploaded' } });
 
-    // Store the file path so it can be referenced after the user submits the workout
-    const filePath = `challenge_workouts/${req.file.filename}`;
     const baseUrl = process.env.BACKEND_URL || '';
+
+    // Save to GCS (or local fallback in dev)
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const saved = await StorageService.saveWorkoutMedia({
+      userId: req.user.id,
+      fileBuffer: req.file.buffer,
+      filename: req.file.originalname || `screenshot-${Date.now()}.jpg`,
+      contentType: req.file.mimetype
+    });
+    const filePath = saved.relativePath;
 
     // Attempt Vision scan — gracefully degrade if not configured
     let extracted = {};
@@ -1621,15 +1686,12 @@ export const scanWorkoutScreenshot = async (req, res, next) => {
 
     if (visionEnabled) {
       try {
-        const fs = await import('fs');
-        const fileBuffer = fs.readFileSync(req.file.path);
         const { scanWorkoutScreenshot: visionScan } = await import('../services/challengeWorkoutVision.service.js');
-        const result = await visionScan({ fileBuffer, mimeType: req.file.mimetype });
+        const result = await visionScan({ fileBuffer: req.file.buffer, mimeType: req.file.mimetype });
         extracted = result.extracted;
         rawText = result.rawText;
         confidence = result.confidence;
       } catch (visionErr) {
-        // Vision failed but we still return the uploaded file path
         rawText = null;
         confidence = 0;
       }
@@ -1667,7 +1729,14 @@ export const uploadWorkoutMedia = async (req, res, next) => {
     if (!participationAcceptance.ok) {
       return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
     }
-    const filePath = `challenge_workouts/${req.file.filename}`;
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const saved = await StorageService.saveWorkoutMedia({
+      userId: req.user.id,
+      fileBuffer: req.file.buffer,
+      filename: req.file.originalname || `media-${Date.now()}.jpg`,
+      contentType: req.file.mimetype
+    });
+    const filePath = saved.relativePath;
     const mime = String(req.file.mimetype || '').toLowerCase();
     const mediaType = mime.includes('gif') ? 'gif' : 'image';
     const media = await ChallengeWorkoutMedia.create({

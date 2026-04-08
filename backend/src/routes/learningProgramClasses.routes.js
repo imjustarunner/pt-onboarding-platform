@@ -59,7 +59,9 @@ import {
   uploadWorkoutMedia,
   reviewWorkoutProof,
   disqualifyWorkout,
-  editOwnImportedTreadmillWorkout
+  editOwnImportedTreadmillWorkout,
+  listMessageReactions,
+  toggleMessageReaction
 } from '../controllers/challenges.controller.js';
 import {
   getScoreboard,
@@ -95,16 +97,8 @@ import {
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const uploadsDir = path.resolve(__dirname, '../../uploads/challenge_workouts');
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 const workoutMediaUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, uploadsDir),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname || '').toLowerCase();
-      cb(null, `workout-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext || '.bin'}`);
-    }
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowed = ['image/gif', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
@@ -167,6 +161,8 @@ router.post('/:classId/messages/attachment', workoutMediaUpload.single('file'), 
 router.get('/:classId/messages/unread-counts', getChallengeMessageUnreadCounts);
 router.delete('/:classId/messages/:messageId', deleteChallengeMessage);
 router.put('/:classId/messages/:messageId/pin', pinChallengeMessage);
+router.get('/:classId/messages/:messageId/reactions', listMessageReactions);
+router.post('/:classId/messages/:messageId/reactions', toggleMessageReaction);
 router.get('/:classId/draft-report', getDraftReport);
 router.put('/:classId/draft-report/:providerUserId/note', upsertDraftNote);
 router.get('/:classId/workouts/:workoutId/comments', listWorkoutComments);

@@ -660,6 +660,12 @@
             <li v-for="m in providerMembers" :key="m.provider_user_id" class="member-item">
               <span>{{ memberDisplayName(m) }}</span>
               <span class="member-status">{{ m.membership_status }}</span>
+              <button
+                class="btn btn-outline btn-sm"
+                :disabled="sendingResetFor === m.provider_user_id"
+                :title="`Send password reset email to ${memberDisplayName(m)}`"
+                @click="sendPasswordReset(m)"
+              >{{ sendingResetFor === m.provider_user_id ? 'Sending…' : 'Send Reset Link' }}</button>
               <button class="btn btn-secondary btn-sm" @click="removeMember(m)">Remove</button>
             </li>
           </ul>
@@ -678,14 +684,20 @@
           <div v-else class="profiles-list">
             <div v-for="m in providerMembers" :key="m.provider_user_id" class="profile-row">
               <span>{{ memberDisplayName(m) }}</span>
-              <select v-model="profileEdits[m.provider_user_id].gender" @change="saveProfile(m)">
-                <option value="">—</option>
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-                <option value="non_binary">Non-binary</option>
-                <option value="prefer_not_to_say">Prefer not to say</option>
-              </select>
-              <input v-model="profileEdits[m.provider_user_id].dateOfBirth" type="date" @change="saveProfile(m)" placeholder="DOB" />
+              <template v-if="profileEdits[m.provider_user_id]">
+                <select v-model="profileEdits[m.provider_user_id].gender" @change="saveProfile(m)">
+                  <option value="">—</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="non_binary">Non-binary</option>
+                  <option value="prefer_not_to_say">Prefer not to say</option>
+                </select>
+                <input v-model="profileEdits[m.provider_user_id].dateOfBirth" type="date" @change="saveProfile(m)" placeholder="DOB" />
+              </template>
+              <template v-else>
+                <select disabled><option>—</option></select>
+                <input type="date" disabled placeholder="DOB" />
+              </template>
             </div>
             <div v-if="!providerMembers.length" class="empty-hint">No participants yet. Add participants first, then set their profiles.</div>
           </div>
@@ -2410,6 +2422,20 @@ const removeMember = async (m) => {
   }
 };
 
+const sendingResetFor = ref(null);
+const sendPasswordReset = async (m) => {
+  if (!organizationId.value || !m?.provider_user_id || sendingResetFor.value) return;
+  sendingResetFor.value = m.provider_user_id;
+  try {
+    await api.post(`/agencies/${organizationId.value}/users/${m.provider_user_id}/send-password-reset`);
+    alert(`Password reset email sent to ${memberDisplayName(m)}.`);
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to send password reset email.');
+  } finally {
+    sendingResetFor.value = null;
+  }
+};
+
 const loadCustomFields = async () => {
   if (!organizationId.value) return;
   try {
@@ -2507,6 +2533,17 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.btn-outline {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 0.83em;
+}
+.btn-outline:hover { background: #f1f5f9; }
+.btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
 .tenant-write-toggle-bar {
   display: flex;
   flex-direction: column;
