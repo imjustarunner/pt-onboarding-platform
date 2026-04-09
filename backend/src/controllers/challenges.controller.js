@@ -1793,7 +1793,10 @@ export const postWorkoutComment = async (req, res, next) => {
     const classId = asInt(req.params.classId);
     const workoutId = asInt(req.params.workoutId);
     const commentText = String(req.body?.commentText || '').trim();
-    if (!classId || !workoutId || !commentText) return res.status(400).json({ error: { message: 'classId, workoutId, and commentText required' } });
+    const attachmentPath = req.body?.attachmentPath ? String(req.body.attachmentPath).trim() : null;
+    const iconId = req.body?.iconId ? asInt(req.body.iconId) : null;
+    if (!classId || !workoutId) return res.status(400).json({ error: { message: 'classId and workoutId required' } });
+    if (!commentText && !attachmentPath && !iconId) return res.status(400).json({ error: { message: 'commentText, attachmentPath, or iconId required' } });
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
     const workout = await ChallengeWorkout.findById(workoutId);
@@ -1813,12 +1816,34 @@ export const postWorkoutComment = async (req, res, next) => {
       learningClassId: classId,
       userId: req.user.id,
       commentText,
-      parentCommentId
+      parentCommentId,
+      attachmentPath,
+      iconId
     });
     return res.status(201).json({ comment });
   } catch (e) {
     next(e);
   }
+};
+
+export const uploadCommentAttachment = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!req.file) return res.status(400).json({ error: { message: 'file is required' } });
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const saved = await StorageService.saveWorkoutMedia({
+      userId: req.user.id,
+      fileBuffer: req.file.buffer,
+      filename: req.file.originalname || `comment-${Date.now()}.jpg`,
+      contentType: req.file.mimetype
+    });
+    const filePath = saved.relativePath;
+    const baseUrl = process.env.BACKEND_URL || '';
+    return res.json({ filePath, fileUrl: `${baseUrl}/uploads/${filePath}` });
+  } catch (e) { next(e); }
 };
 
 export const deleteWorkoutComment = async (req, res, next) => {

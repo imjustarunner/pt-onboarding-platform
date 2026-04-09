@@ -839,6 +839,28 @@ if (!isBootstrap) {
     }
   })();
 
+  // Migration 694 – comment attachment + icon on challenge_workout_comments
+  (async () => {
+    try {
+      const { default: pool } = await import('./config/database.js');
+      const [cols] = await pool.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'challenge_workout_comments'
+           AND COLUMN_NAME = 'attachment_path'`
+      );
+      if (!cols.length) {
+        await pool.execute(
+          `ALTER TABLE challenge_workout_comments
+             ADD COLUMN attachment_path VARCHAR(512) NULL DEFAULT NULL AFTER comment_text,
+             ADD COLUMN icon_id         INT          NULL DEFAULT NULL AFTER attachment_path`
+        );
+        console.log('[startup] Migration 694 applied: attachment_path + icon_id added to challenge_workout_comments');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 694 check skipped:', err.message);
+    }
+  })();
+
   // Migration 693 – user profile fields on users table (gender, DOB, fitness background, etc.)
   // Storing these directly on users guarantees they persist regardless of challenge_member_applications.
   (async () => {

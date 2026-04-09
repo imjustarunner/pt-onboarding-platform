@@ -63,6 +63,7 @@ import {
   listWorkoutComments,
   postWorkoutComment,
   deleteWorkoutComment,
+  uploadCommentAttachment,
   uploadWorkoutMedia,
   reviewWorkoutProof,
   disqualifyWorkout,
@@ -197,6 +198,7 @@ router.get('/:classId/draft-report', getDraftReport);
 router.put('/:classId/draft-report/:providerUserId/note', upsertDraftNote);
 router.get('/:classId/workouts/:workoutId/comments', listWorkoutComments);
 router.post('/:classId/workouts/:workoutId/comments', postWorkoutComment);
+router.post('/:classId/workouts/:workoutId/comment-attachment', workoutMediaUpload.single('file'), uploadCommentAttachment);
 router.delete('/:classId/workout-comments/:commentId', deleteWorkoutComment);
 router.post('/:classId/workouts/:workoutId/media', workoutMediaUpload.single('file'), uploadWorkoutMedia);
 

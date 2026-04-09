@@ -403,8 +403,10 @@
               <div class="comment-item">
                 <div class="comment-body">
                   <strong>{{ c.first_name }} {{ c.last_name }}</strong>
-                  <span>{{ c.comment_text }}</span>
+                  <span v-if="c.comment_text">{{ c.comment_text }}</span>
+                  <img v-if="c.icon_url" :src="c.icon_url" class="comment-icon-img" :alt="'icon'" />
                 </div>
+                <img v-if="c.attachment_url" :src="c.attachment_url" class="comment-attachment-img" @click="openLightbox(c.attachment_url)" />
                 <div class="comment-actions">
                   <button class="btn-link" @click="startReply(w.id, c)">Reply</button>
                   <button v-if="Number(c.user_id) === Number(myUserId)" class="btn-link comment-delete" @click="deleteComment(w.id, c.id)">Delete</button>
@@ -418,8 +420,10 @@
                   <div v-for="r in repliesFor(w.id, c.id)" :key="`reply-${r.id}`" class="comment-item comment-item--reply">
                     <div class="comment-body">
                       <strong>{{ r.first_name }} {{ r.last_name }}</strong>
-                      <span>{{ r.comment_text }}</span>
+                      <span v-if="r.comment_text">{{ r.comment_text }}</span>
+                      <img v-if="r.icon_url" :src="r.icon_url" class="comment-icon-img" :alt="'icon'" />
                     </div>
+                    <img v-if="r.attachment_url" :src="r.attachment_url" class="comment-attachment-img" @click="openLightbox(r.attachment_url)" />
                     <div class="comment-actions">
                       <button v-if="Number(r.user_id) === Number(myUserId)" class="btn-link comment-delete" @click="deleteComment(w.id, r.id)">Delete</button>
                     </div>
@@ -429,10 +433,53 @@
             </template>
             <div v-if="!(commentsByWorkout[w.id] || []).length" class="hint">No comments yet.</div>
           </div>
-          <form class="comment-form" @submit.prevent="submitComment(w.id)">
-            <input v-model="commentDraftByWorkout[w.id]" type="text" maxlength="300" placeholder="Add a comment…" />
-            <button class="btn btn-primary btn-small" type="submit">Post</button>
-          </form>
+
+          <!-- Rich comment composer -->
+          <div class="comment-composer-wrap">
+            <!-- Pending attachment / icon previews -->
+            <div v-if="commentAttachByWorkout[w.id] || commentIconByWorkout[w.id]" class="comment-preview-row">
+              <div v-if="commentAttachByWorkout[w.id]" class="comment-preview-item">
+                <img :src="commentAttachByWorkout[w.id].fileUrl" class="comment-preview-thumb" />
+                <button class="comment-preview-remove" @click="commentAttachByWorkout[w.id] = null">✕</button>
+              </div>
+              <div v-if="commentIconByWorkout[w.id]" class="comment-preview-item">
+                <img :src="commentIconByWorkout[w.id].url" class="comment-preview-icon" />
+                <button class="comment-preview-remove" @click="commentIconByWorkout[w.id] = null">✕</button>
+              </div>
+            </div>
+            <!-- Inline icon picker -->
+            <div v-if="commentIconPickerOpen[w.id]" class="comment-icon-picker" @click.stop>
+              <div class="icon-picker-tabs">
+                <button type="button" :class="['icon-tab', { active: (commentIconTab[w.id] || 'tenant') === 'tenant' }]" @click="commentIconTab[w.id] = 'tenant'; loadCommentIcons(w.id)">Club Platform</button>
+                <button type="button" :class="['icon-tab', { active: commentIconTab[w.id] === 'club' }]" @click="commentIconTab[w.id] = 'club'; loadCommentIcons(w.id)">Club Only</button>
+              </div>
+              <div v-if="commentIconsLoading[w.id]" class="icon-picker-loading">Loading…</div>
+              <div v-else-if="(commentIconsList[w.id] || []).length === 0" class="icon-picker-empty">No comment icons yet. Ask your manager to add some in Icon Library → Comment Icon.</div>
+              <div v-else class="icon-picker-grid">
+                <button
+                  v-for="icon in (commentIconsList[w.id] || [])"
+                  :key="`ci-${icon.id}`"
+                  type="button"
+                  class="icon-pick-btn"
+                  :title="icon.name"
+                  @click="selectCommentIcon(w.id, icon)"
+                >
+                  <img :src="icon.url" :alt="icon.name" class="icon-pick-img" />
+                </button>
+              </div>
+            </div>
+            <form class="comment-form" @submit.prevent="submitComment(w.id)">
+              <input v-model="commentDraftByWorkout[w.id]" type="text" maxlength="300" placeholder="Add a comment…" class="comment-input" />
+              <div class="comment-composer-actions">
+                <label class="comment-action-btn" title="Attach image or GIF">
+                  🖼️
+                  <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" @change="onCommentAttachFile($event, w.id)" />
+                </label>
+                <button type="button" class="comment-action-btn" title="Add comment icon" @click.stop="toggleCommentIconPicker(w.id)">🏷️</button>
+                <button class="btn btn-primary btn-small" type="submit" :disabled="!commentDraftByWorkout[w.id]?.trim() && !commentAttachByWorkout[w.id] && !commentIconByWorkout[w.id]">Post</button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
       <div v-if="!filteredWorkouts.length" class="feed-empty-state">
@@ -510,6 +557,14 @@ const commentsLoading = ref({});
 const commentsByWorkout = ref({});
 const commentDraftByWorkout = ref({});
 const proofReviewDraftByWorkout = ref({});
+
+// Comment rich media state
+const commentAttachByWorkout    = ref({});  // workoutId -> { filePath, fileUrl }
+const commentIconByWorkout      = ref({});  // workoutId -> { id, url, name }
+const commentIconPickerOpen     = ref({});  // workoutId -> bool
+const commentIconTab            = ref({});  // workoutId -> 'tenant' | 'club'
+const commentIconsList          = ref({});  // workoutId -> icon[]
+const commentIconsLoading       = ref({});
 const proofSubmitting = ref({});
 const editOpenByWorkout = ref({});
 const editDraftByWorkout = ref({});
@@ -722,6 +777,7 @@ const onReact = async (workoutId, emoji) => {
 // Close emoji pickers on click outside
 const onDocumentClick = () => {
   emojiPickerOpen.value = {};
+  commentIconPickerOpen.value = {};
 };
 
 const activityColor = (type) => {
@@ -785,10 +841,85 @@ const submitReply = async (workoutId, parentCommentId) => {
 };
 const submitComment = async (workoutId) => {
   const text = String(commentDraftByWorkout.value[workoutId] || '').trim();
-  if (!text) return;
-  await api.post(`/learning-program-classes/${props.challengeId}/workouts/${workoutId}/comments`, { commentText: text });
-  commentDraftByWorkout.value = { ...commentDraftByWorkout.value, [workoutId]: '' };
+  const attach = commentAttachByWorkout.value[workoutId] || null;
+  const icon   = commentIconByWorkout.value[workoutId]   || null;
+  if (!text && !attach && !icon) return;
+  await api.post(`/learning-program-classes/${props.challengeId}/workouts/${workoutId}/comments`, {
+    commentText: text || '',
+    attachmentPath: attach?.filePath || null,
+    iconId: icon?.id || null
+  });
+  commentDraftByWorkout.value     = { ...commentDraftByWorkout.value, [workoutId]: '' };
+  commentAttachByWorkout.value    = { ...commentAttachByWorkout.value, [workoutId]: null };
+  commentIconByWorkout.value      = { ...commentIconByWorkout.value, [workoutId]: null };
+  commentIconPickerOpen.value     = { ...commentIconPickerOpen.value, [workoutId]: false };
   await loadComments(workoutId);
+};
+
+// Comment image/GIF upload
+const onCommentAttachFile = async (e, workoutId) => {
+  const file = e.target?.files?.[0];
+  if (!file) return;
+  e.target.value = '';
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const { data } = await api.post(
+      `/learning-program-classes/${props.challengeId}/workouts/${workoutId}/comment-attachment`,
+      fd,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    if (data.filePath) {
+      commentAttachByWorkout.value = { ...commentAttachByWorkout.value, [workoutId]: { filePath: data.filePath, fileUrl: data.fileUrl } };
+    }
+  } catch { /* silent */ }
+};
+
+// Comment icon picker
+const toggleCommentIconPicker = (workoutId) => {
+  const isOpen = commentIconPickerOpen.value[workoutId];
+  commentIconPickerOpen.value = { ...commentIconPickerOpen.value, [workoutId]: !isOpen };
+  if (!isOpen) loadCommentIcons(workoutId);
+};
+
+const loadCommentIcons = async (workoutId) => {
+  commentIconsLoading.value = { ...commentIconsLoading.value, [workoutId]: true };
+  try {
+    const tab = commentIconTab.value[workoutId] || 'tenant';
+    let icons = [];
+    if (tab === 'club' && props.challengeId) {
+      // Fetch club-specific icons via the club icons endpoint
+      const r = await api.get(`/summit-stats/clubs/${props.challengeId}/icons`, {
+        params: { subCategory: 'commenticon', limit: 60 },
+        skipGlobalLoading: true
+      });
+      icons = Array.isArray(r.data?.icons) ? r.data.icons : [];
+    } else {
+      const r = await api.get('/icons', {
+        params: { subCategory: 'commenticon', limit: 60 },
+        skipGlobalLoading: true
+      });
+      icons = Array.isArray(r.data?.icons) ? r.data.icons : [];
+    }
+    const baseUrl = icons[0]?.url ? '' : (window.__BACKEND_URL__ || '');
+    commentIconsList.value = {
+      ...commentIconsList.value,
+      [workoutId]: icons.map((ic) => ({
+        id: ic.id,
+        name: ic.name || '',
+        url: ic.url || (ic.file_path ? `${baseUrl}/uploads/${String(ic.file_path).replace(/^uploads\//, '')}` : '')
+      }))
+    };
+  } catch {
+    commentIconsList.value = { ...commentIconsList.value, [workoutId]: [] };
+  } finally {
+    commentIconsLoading.value = { ...commentIconsLoading.value, [workoutId]: false };
+  }
+};
+
+const selectCommentIcon = (workoutId, icon) => {
+  commentIconByWorkout.value   = { ...commentIconByWorkout.value, [workoutId]: icon };
+  commentIconPickerOpen.value  = { ...commentIconPickerOpen.value, [workoutId]: false };
 };
 
 const deleteComment = async (workoutId, commentId) => {
@@ -1622,25 +1753,89 @@ const reviewProof = async (workoutId, status) => {
 }
 .replies-list { display: flex; flex-direction: column; gap: 0; margin-top: 4px; }
 .reply-form { margin-top: 4px; }
+/* Rich comment composer */
+.comment-composer-wrap { margin-top: 10px; position: relative; }
+
+.comment-preview-row {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.comment-preview-item { position: relative; display: inline-block; }
+.comment-preview-thumb {
+  width: 72px; height: 72px; object-fit: cover;
+  border-radius: 8px; border: 1px solid #e2e8f0; display: block;
+}
+.comment-preview-icon {
+  width: 48px; height: 48px; object-fit: contain;
+  border-radius: 8px; border: 1px solid #e2e8f0; display: block; background: #f8fafc;
+}
+.comment-preview-remove {
+  position: absolute; top: -6px; right: -6px;
+  background: #ef4444; color: #fff; border: none; border-radius: 50%;
+  width: 18px; height: 18px; font-size: 0.65em; cursor: pointer; line-height: 18px; text-align: center;
+}
+
 .comment-form {
-  margin-top: 8px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  display: flex; gap: 6px; align-items: center;
+  border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 4px 6px;
+  background: #fff;
 }
-.comment-form input {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
+.comment-input {
+  flex: 1; min-width: 0; border: none; outline: none;
+  font-size: 0.88em; padding: 4px 4px; background: transparent;
 }
+.comment-composer-actions { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+.comment-action-btn {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 1.1em; padding: 2px 4px; border-radius: 6px; color: #64748b; line-height: 1;
+}
+.comment-action-btn:hover { background: #f1f5f9; }
+
+/* Inline icon picker */
+.comment-icon-picker {
+  position: absolute; bottom: calc(100% + 6px); left: 0; right: 0;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 200; overflow: hidden;
+}
+.icon-picker-tabs {
+  display: flex; border-bottom: 1px solid #f1f5f9;
+}
+.icon-tab {
+  flex: 1; padding: 8px; font-size: 0.8em; font-weight: 600;
+  border: none; background: transparent; cursor: pointer; color: #64748b;
+  border-bottom: 2px solid transparent; transition: all 0.15s;
+}
+.icon-tab.active { color: #e63946; border-bottom-color: #e63946; background: #fff9f9; }
+.icon-picker-loading, .icon-picker-empty {
+  padding: 16px; color: #94a3b8; font-size: 0.85em; text-align: center;
+}
+.icon-picker-grid {
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 10px;
+  max-height: 180px; overflow-y: auto;
+}
+.icon-pick-btn {
+  border: 1.5px solid #f1f5f9; background: #f8fafc; border-radius: 8px;
+  padding: 4px; cursor: pointer; transition: all 0.12s;
+}
+.icon-pick-btn:hover { border-color: #e63946; background: #fff9f9; transform: scale(1.08); }
+.icon-pick-img { width: 36px; height: 36px; object-fit: contain; display: block; }
+
+/* Comment display: attached image and icon */
+.comment-icon-img {
+  width: 32px; height: 32px; object-fit: contain; vertical-align: middle;
+  border-radius: 4px; margin-left: 4px;
+}
+.comment-attachment-img {
+  max-width: 200px; max-height: 160px; object-fit: cover;
+  border-radius: 8px; border: 1px solid #e2e8f0; cursor: pointer;
+  display: block; margin-top: 4px;
+}
+
+.reply-form { margin-top: 4px; border: none; background: transparent; border-radius: 0; padding: 0; }
+.reply-form .comment-input { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
+
 .btn-link {
-  background: none;
-  border: none;
-  color: #6d5efc;
-  cursor: pointer;
-  font-size: 0.8rem;
+  background: none; border: none;
+  color: #6d5efc; cursor: pointer; font-size: 0.8rem;
 }
 .comment-delete { color: #c62828; }
 .empty-hint,
