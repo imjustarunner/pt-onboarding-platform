@@ -11,9 +11,18 @@
         <div class="action-content">
           <div class="action-content-top">
             <h3>Add Members</h3>
-            <span v-if="props.memberCount !== null" class="member-count-badge">
-              {{ props.memberCount }} member{{ props.memberCount === 1 ? '' : 's' }}
-            </span>
+            <router-link
+              v-if="props.activeMemberCount !== null"
+              :to="membersTo"
+              class="member-count-badge member-count-badge--active"
+              title="View active members"
+            >{{ props.activeMemberCount }} Active</router-link>
+            <router-link
+              v-if="props.dormantMemberCount !== null"
+              :to="dormantMembersTo"
+              class="member-count-badge member-count-badge--dormant"
+              title="View dormant members (no login in 30+ days)"
+            >{{ props.dormantMemberCount }} Dormant</router-link>
           </div>
           <p>Add someone directly by email, or share your invite link for anyone to apply.</p>
         </div>
@@ -151,10 +160,11 @@ import NotificationCategoryModal from '../admin/NotificationCategoryModal.vue';
 import api from '../../services/api';
 
 const props = defineProps({
-  orgSlug:     { type: String, default: '' },
-  agency:      { type: Object, default: null },
-  compact:     { type: Boolean, default: false },
-  memberCount: { type: Number, default: null }
+  orgSlug:            { type: String, default: '' },
+  agency:             { type: Object, default: null },
+  compact:            { type: Boolean, default: false },
+  activeMemberCount:  { type: Number, default: null },
+  dormantMemberCount: { type: Number, default: null }
 });
 
 defineEmits(['add-member']);
@@ -202,6 +212,12 @@ const settingsTo = computed(() => {
   const slug = props.orgSlug;
   return slug ? `/${slug}/club/settings` : '/admin/settings';
 });
+
+const membersTo = computed(() => {
+  const slug = isSummitPlatformRouteSlug(props.orgSlug) ? props.orgSlug : NATIVE_APP_ORG_SLUG;
+  return `/${slug}/admin/users`;
+});
+const dormantMembersTo = computed(() => `${membersTo.value}?filter=dormant`);
 
 const seasonManagementTo = computed(() => {
   const slug = isSummitPlatformRouteSlug(props.orgSlug) ? props.orgSlug : NATIVE_APP_ORG_SLUG;
@@ -461,11 +477,20 @@ watch(() => props.agency?.id, () => {
   display: inline-block;
   padding: 2px 10px;
   border-radius: 20px;
-  background: #e0f2fe;
-  color: #0369a1;
   font-size: 0.78rem;
   font-weight: 700;
   white-space: nowrap;
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+.member-count-badge:hover { opacity: 0.8; }
+.member-count-badge--active {
+  background: #dcfce7;
+  color: #166534;
+}
+.member-count-badge--dormant {
+  background: #fef9c3;
+  color: #78350f;
 }
 
 .action-content h3 {

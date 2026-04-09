@@ -76,14 +76,23 @@ async function getAgencyMeta(agencyId) {
 }
 
 async function canManageSurveysForAgency(req, agencyId) {
-  if (String(req.user?.role || '').trim().toLowerCase() === 'super_admin') return true;
+  const role = String(req.user?.role || '').trim().toLowerCase();
+  if (role === 'super_admin') return true;
   const agencyMeta = await getAgencyMeta(agencyId);
   if (!agencyMeta) return false;
   if (String(agencyMeta?.organization_type || '').trim().toLowerCase() === 'affiliation') {
+    // Direct club check for club managers
+    if (role === 'club_manager' || role === 'assistant_manager') {
+      const ok = await canUserManageClub({ user: req.user, clubId: agencyId });
+      if (ok) return true;
+    }
     return canUserManageClub({ user: req.user, clubId: agencyId });
   }
-  // Non-club agencies keep the existing backoffice behavior.
-  const role = String(req.user?.role || '').trim().toLowerCase();
+  // Non-club agencies: backoffice roles, OR club managers who have this agency in their scope
+  if (role === 'club_manager' || role === 'assistant_manager') {
+    const userAgencyIds = await getUserAgencyIds(req.user?.id);
+    return userAgencyIds.includes(Number(agencyId));
+  }
   return role === 'admin' || role === 'support' || role === 'staff';
 }
 

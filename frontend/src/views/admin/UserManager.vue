@@ -1,5 +1,9 @@
 <template>
   <div class="container">
+    <div v-if="dormantFilterActive" class="dormant-filter-banner">
+      Showing dormant members — those who have not logged in within the last 30 days.
+      <button class="dormant-filter-clear" @click="dormantFilterActive = false">✕ Clear filter</button>
+    </div>
     <div class="page-header" data-tour="users-header">
       <h1 data-tour="users-title">{{ isSscSstcTenant ? 'Member Management' : 'User Management' }}</h1>
       <div class="header-actions" data-tour="users-header-actions">
@@ -1655,6 +1659,7 @@ const roleSort = ref('');
 const userSearch = ref('');
 const userTypeFilter = ref('');
 const organizationSearch = ref('');
+const dormantFilterActive = ref(false);
 
 const tableSortKey = ref('name');
 const tableSortDir = ref('asc'); // 'asc' | 'desc'
@@ -3645,6 +3650,16 @@ const sortedUsers = computed(() => {
     return dir * nameLastFirst(a).localeCompare(nameLastFirst(b));
   });
 
+  // Dormant filter: members with no recent login (last_login_at > 30 days ago or null)
+  if (dormantFilterActive.value) {
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    return sorted.filter((u) => {
+      const ll = u.last_login_at || u.lastLoginAt || null;
+      if (!ll) return true; // never logged in → dormant
+      return new Date(ll).getTime() < thirtyDaysAgo;
+    });
+  }
+
   return sorted;
 });
 
@@ -3869,6 +3884,13 @@ watch(selectedClubId, (newId, oldId) => {
 
 onMounted(async () => {
   loadUserFilters();
+  // Pre-filter from query params (e.g. ?filter=dormant from dashboard badges)
+  if (route.query.filter === 'dormant') {
+    userSearch.value = '';
+    statusSort.value = '';
+    // Flag so the list can show a dormant-specific notice
+    dormantFilterActive.value = true;
+  }
   loadQuickAnnouncementCollapsed();
   // Ensure the current brand/agency selection is hydrated (used for default filters).
   // Always run for non-super-admins — skipping when authStore.user is transiently null
@@ -3893,6 +3915,29 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.dormant-filter-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fef9c3;
+  border: 1px solid #fde68a;
+  color: #78350f;
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+}
+.dormant-filter-clear {
+  margin-left: auto;
+  background: none;
+  border: 1px solid #78350f;
+  color: #78350f;
+  border-radius: 4px;
+  padding: 2px 10px;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.dormant-filter-clear:hover { background: #fde68a; }
 .user-name-link {
   color: var(--primary-color);
   text-decoration: none;

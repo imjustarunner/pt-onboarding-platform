@@ -164,7 +164,8 @@
         :key="`club-qa-${currentAgency?.id || 0}`"
         :org-slug="orgSlug"
         :agency="agencyData || currentAgency"
-        :member-count="stats.activeUsers"
+        :active-member-count="clubMemberStats.active"
+        :dormant-member-count="clubMemberStats.dormant"
         compact
         @add-member="showAddMemberModal = true"
         @add-season="showAddSeasonModal = true"
@@ -298,6 +299,7 @@ const stats = ref({
   trainingFocusTemplates: 0,
   activeUsers: 0
 });
+const clubMemberStats = ref({ active: null, dormant: null });
 const myAgencies = ref([]);
 const branding = computed(() => brandingStore.platformBranding);
 
@@ -631,6 +633,16 @@ const fetchStats = async () => {
       trainingFocusTemplates: totalTrainingFocuses,
       activeUsers: (usersRes.data || []).filter((u) => String(u?.status || '').toUpperCase() === 'ACTIVE_EMPLOYEE').length
     };
+
+    // For SSC club context: fetch active/dormant member counts
+    if (isClub && currentAgency.value?.id) {
+      try {
+        const msRes = await api.get(`/summit-stats/clubs/${currentAgency.value.id}/member-stats`);
+        clubMemberStats.value = { active: msRes.data.active ?? null, dormant: msRes.data.dormant ?? null };
+      } catch {
+        // non-critical — leave nulls so badge just hides
+      }
+    }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load statistics';
   } finally {

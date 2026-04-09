@@ -13,7 +13,8 @@ import {
   getClubRecords,
   upsertClubRecords,
   listClubRecordVerifications,
-  reviewClubRecordVerification
+  reviewClubRecordVerification,
+  getClubMemberStats
 } from '../controllers/summitStats.controller.js';
 import {
   listCustomFields,
@@ -200,6 +201,7 @@ router.post('/clubs/:id/feed/read-all', postClubFeedMarkAllRead);
 router.post('/clubs/:id/feed/read/:postId', postClubFeedMarkRead);
 router.post('/clubs/:id/feed/posts', postClubFeedPost);
 router.post('/clubs/:id/feed/from-workout', postWorkoutToClubFeed);
+router.get('/clubs/:clubId/member-stats', getClubMemberStats);
 router.post('/clubs/:id/feed/attachments', clubFeedImageUpload.single('file'), postClubFeedAttachment);
 router.get('/clubs/:id/feed/season-options', getClubFeedSeasonOptions);
 router.get('/clubs/:id/feed', getClubFeed);

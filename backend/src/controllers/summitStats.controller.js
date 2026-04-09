@@ -1078,3 +1078,45 @@ export const queueClubRecordBreakCandidates = async ({ learningClassId, workoutI
     );
   }
 };
+
+export const getClubMemberStats = async (req, res, next) => {
+  try {
+    const { default: pool } = await import('../config/database.js');
+    const { canUserManageClub } = await import('../utils/sscClubAccess.js');
+    const clubId = Number(req.params.clubId || 0);
+    if (!clubId) return res.status(400).json({ error: { message: 'clubId required' } });
+    const ok = await canUserManageClub({ user: req.user, clubId });
+    if (!ok) return res.status(403).json({ error: { message: 'Manager access required' } });
+
+    // Total active club members
+    const [totalRows] = await pool.execute(
+      `SELECT COUNT(DISTINCT ua.user_id) AS total
+       FROM user_agencies ua
+       WHERE ua.agency_id = ? AND (ua.is_active IS NULL OR ua.is_active = 1)`,
+      [clubId]
+    );
+    const total = Number(totalRows?.[0]?.total || 0);
+
+    // Dormant: members who have NOT logged in within the last 30 days
+    // Uses user_activity_logs action_type='login'; falls back to created_at if no log entry.
+    const [dormantRows] = await pool.execute(
+      `SELECT COUNT(DISTINCT ua.user_id) AS dormant
+       FROM user_agencies ua
+       WHERE ua.agency_id = ?
+         AND (ua.is_active IS NULL OR ua.is_active = 1)
+         AND ua.user_id NOT IN (
+           SELECT DISTINCT user_id
+           FROM user_activity_logs
+           WHERE action_type = 'login'
+             AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+         )`,
+      [clubId]
+    );
+    const dormant = Number(dormantRows?.[0]?.dormant || 0);
+    const active = Math.max(0, total - dormant);
+
+    return res.json({ total, active, dormant });
+  } catch (e) {
+    next(e);
+  }
+};
