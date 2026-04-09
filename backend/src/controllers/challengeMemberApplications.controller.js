@@ -3424,8 +3424,8 @@ export const putMyAccountSnapshot = async (req, res, next) => {
         );
         const u = userRow?.[0];
         if (u?.email) {
-          // Find a club the user belongs to (prefer managed clubs)
-          const [agencyRow] = await pool.execute(
+          // Strategy 1: affiliation-type agency via user_agencies (standard member path)
+          let [agencyRow] = await pool.execute(
             `SELECT a.id FROM agencies a
              INNER JOIN user_agencies ua ON ua.agency_id = a.id
              WHERE ua.user_id = ?
@@ -3433,6 +3433,29 @@ export const putMyAccountSnapshot = async (req, res, next) => {
              ORDER BY ua.id ASC LIMIT 1`,
             [userId]
           );
+          // Strategy 2: club via season enrollment (club_manager enrolled in own season)
+          if (!agencyRow?.length) {
+            [agencyRow] = await pool.execute(
+              `SELECT DISTINCT c.organization_id AS id
+               FROM learning_class_provider_memberships pm
+               INNER JOIN learning_program_classes c ON c.id = pm.learning_class_id
+               INNER JOIN agencies a ON a.id = c.organization_id
+               WHERE pm.provider_user_id = ?
+                 AND LOWER(COALESCE(a.organization_type,'')) = 'affiliation'
+               LIMIT 1`,
+              [userId]
+            );
+          }
+          // Strategy 3: any agency the user belongs to (handles top-level SSC-only managers)
+          if (!agencyRow?.length) {
+            [agencyRow] = await pool.execute(
+              `SELECT a.id FROM agencies a
+               INNER JOIN user_agencies ua ON ua.agency_id = a.id
+               WHERE ua.user_id = ?
+               ORDER BY ua.id ASC LIMIT 1`,
+              [userId]
+            );
+          }
           const clubId = agencyRow?.[0]?.id;
           if (clubId) {
             const [insertResult] = await pool.execute(
