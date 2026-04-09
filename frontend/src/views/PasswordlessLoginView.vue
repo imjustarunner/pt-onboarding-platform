@@ -74,7 +74,7 @@ const handlePasswordlessLogin = async () => {
     }
 
     // Set auth user (token is in HttpOnly cookie, set by backend)
-    authStore.setAuth(null, response.data.user);
+    authStore.setAuth(response.data.token || null, response.data.user);
     
     // Redirect to on-demand training library
     router.push('/on-demand-training');

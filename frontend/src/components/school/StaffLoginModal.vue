@@ -121,7 +121,7 @@ const handleLogin = async () => {
 
     // Token is in HttpOnly cookie; store user in auth store for UI state.
     if (response?.data?.user) {
-      authStore.setAuth(null, response.data.user, response.data.sessionId || null);
+      authStore.setAuth(response.data.token || null, response.data.user, response.data.sessionId || null);
     }
 
     // Fetch user's org memberships (source of truth for slug access + routing)

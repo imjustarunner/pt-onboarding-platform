@@ -24,8 +24,16 @@ api.interceptors.request.use(
       // ignore
     }
 
-    // Token is now in HttpOnly cookie, so we don't need to set Authorization header
-    // Cookies are sent automatically with withCredentials: true
+    // Prefer a stored JWT token (needed for Capacitor/iOS where WKWebView cannot reliably
+    // send cross-origin HttpOnly cookies). Falls back to cookie-only auth on web browsers.
+    try {
+      const storedToken = localStorage.getItem('authToken');
+      if (storedToken) {
+        config.headers['Authorization'] = `Bearer ${storedToken}`;
+      }
+    } catch {
+      // ignore — cookie auth still works in web browsers
+    }
 
     // Attach the active agency context so the backend can resolve the correct effectiveRole
     // (club context vs work context). currentAgency is persisted to localStorage by agencyStore.

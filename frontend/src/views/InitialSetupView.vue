@@ -165,7 +165,7 @@ const handleSetup = async () => {
       password: password.value
     });
 
-    authStore.setAuth(null, response.data.user, response.data.sessionId);
+    authStore.setAuth(response.data.token || null, response.data.user, response.data.sessionId);
     sessionStorage.setItem('justLoggedIn', 'true');
 
     if (authStore.user.role !== 'super_admin' && authStore.user.type !== 'approved_employee') {

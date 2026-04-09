@@ -1763,7 +1763,7 @@ const switchDemoView = async (nextRole) => {
     });
     const payload = response?.data || {};
     if (payload.user) {
-      authStore.setAuth(null, payload.user, payload.sessionId || null);
+      authStore.setAuth(payload.token || null, payload.user, payload.sessionId || null);
     }
     if (payload.selectedAgency) {
       agencyStore.setCurrentAgency(payload.selectedAgency);

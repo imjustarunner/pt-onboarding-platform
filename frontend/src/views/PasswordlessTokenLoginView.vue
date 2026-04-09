@@ -86,7 +86,7 @@ const attemptLogin = async (lastNameValue = null) => {
     });
     
     // Set auth user (token is in HttpOnly cookie, set by backend)
-    authStore.setAuth(null, response.data.user, response.data.sessionId);
+    authStore.setAuth(response.data.token || null, response.data.user, response.data.sessionId);
     
     // Mark that we just logged in to help with cookie timing issues
     sessionStorage.setItem('justLoggedIn', 'true');

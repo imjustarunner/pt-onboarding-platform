@@ -19,9 +19,12 @@ export const useAuthStore = defineStore('auth', () => {
   });
 
   const setAuth = (newToken, newUser, sessionId = null) => {
-    // Token is now in HttpOnly cookie (set by backend), so we don't store it
-    // newToken can be null since it's in the cookie
-    token.value = null; // Not used anymore, but keep for compatibility
+    // Store JWT for Capacitor/iOS (WKWebView can't reliably forward HttpOnly cookies cross-origin).
+    // On web browsers the cookie is the primary auth mechanism; on native the header takes over.
+    if (newToken) {
+      try { localStorage.setItem('authToken', newToken); } catch { /* ignore */ }
+    }
+    token.value = newToken || null;
     const prevId = user.value?.id != null ? Number(user.value.id) : null;
     user.value = newUser;
     // Store user in localStorage (not sensitive, used for UI state)
@@ -33,7 +36,6 @@ export const useAuthStore = defineStore('auth', () => {
     if (sessionId) {
       localStorage.setItem('sessionId', sessionId);
     }
-    // Don't set Authorization header - cookies are sent automatically with withCredentials: true
 
     const nextId = newUser?.id != null ? Number(newUser.id) : null;
     if (nextId != null && Number.isFinite(nextId) && (prevId == null || prevId !== nextId)) {
@@ -51,6 +53,7 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null;
     localStorage.removeItem('user');
     try {
+      localStorage.removeItem('authToken');
       localStorage.removeItem('pt.pendingScheduleWeekReset');
     } catch {
       /* ignore */
@@ -134,8 +137,8 @@ export const useAuthStore = defineStore('auth', () => {
         response.data.user.agencyIds = response.data.agencies;
       }
       
-      // Token is in HttpOnly cookie (set by backend), so pass null
-      setAuth(null, response.data.user, response.data.sessionId);
+      // Pass token explicitly so it can be stored in localStorage for Capacitor/iOS
+      setAuth(response.data.token || null, response.data.user, response.data.sessionId);
       
       // Mark that we just logged in to help with cookie timing issues
       sessionStorage.setItem('justLoggedIn', 'true');
@@ -161,8 +164,7 @@ export const useAuthStore = defineStore('auth', () => {
   const passwordlessLogin = async (email) => {
     try {
       const response = await api.post('/auth/passwordless-login', { email });
-      // Token is in HttpOnly cookie (set by backend), so pass null
-      setAuth(null, response.data.user, response.data.sessionId);
+      setAuth(response.data.token || null, response.data.user, response.data.sessionId);
       return { success: true };
     } catch (error) {
       return {

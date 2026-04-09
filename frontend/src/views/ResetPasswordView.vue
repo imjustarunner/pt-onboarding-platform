@@ -172,7 +172,7 @@ const handleReset = async () => {
       password: password.value
     });
 
-    authStore.setAuth(null, resp.data.user, resp.data.sessionId);
+    authStore.setAuth(resp.data.token || null, resp.data.user, resp.data.sessionId);
     sessionStorage.setItem('justLoggedIn', 'true');
 
     if (authStore.user.role !== 'super_admin' && authStore.user.type !== 'approved_employee') {
