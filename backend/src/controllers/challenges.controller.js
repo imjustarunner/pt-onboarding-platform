@@ -21,6 +21,7 @@ import { enqueueWorkoutVision } from '../services/challengeWorkoutVision.service
 import { challengeMessageBridge } from '../services/challengeMessageBridge.service.js';
 import { canUserManageChallengeClass } from '../utils/sscClubAccess.js';
 import { sanitizeCalories, estimateCalories } from '../utils/calorieUtils.js';
+import { normalizeActivityType } from '../utils/activityTypeUtils.js';
 
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
@@ -646,7 +647,7 @@ export const getMyParticipationSummary = async (req, res, next) => {
 export const submitWorkout = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);
-    const activityType = String(req.body.activityType || '').trim();
+    const activityType = normalizeActivityType(String(req.body.activityType || '').trim());
     if (!classId || !activityType) return res.status(400).json({ error: { message: 'classId and activityType required' } });
     const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
@@ -1321,7 +1322,7 @@ export const editOwnWorkoutFields = async (req, res, next) => {
     const updates = [];
     const params = [];
 
-    const activityType = req.body?.activityType != null ? String(req.body.activityType).trim() : undefined;
+    const activityType = req.body?.activityType != null ? normalizeActivityType(String(req.body.activityType).trim()) : undefined;
     if (activityType !== undefined && activityType.length > 0) {
       updates.push('activity_type = ?');
       params.push(activityType);

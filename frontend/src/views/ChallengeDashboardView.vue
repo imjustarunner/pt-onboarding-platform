@@ -1072,8 +1072,10 @@ const activityTypeOptions = computed(() => {
   if (Array.isArray(raw) && raw.length) return raw.map((t) => ({ value: t, label: toLabel(t) }));
   if (typeof raw === 'object' && raw && Object.keys(raw).length) return Object.keys(raw).map((k) => ({ value: k, label: toLabel(k) }));
   return [
-    { value: 'running', label: 'Running' },
+    { value: 'run', label: 'Run' },
+    { value: 'ruck', label: 'Ruck' },
     { value: 'cycling', label: 'Cycling' },
+    { value: 'walk', label: 'Walk' },
     { value: 'workout_session', label: 'Workout Session' },
     { value: 'steps', label: 'Steps' }
   ];

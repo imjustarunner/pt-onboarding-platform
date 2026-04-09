@@ -751,12 +751,13 @@ export const getClubSpecs = async (req, res, next) => {
 
         // ── Per-activity distance tally ────────────────────────────
         if (dist <= 0) continue;
-        if (at.includes('ruck'))                                        am.ruck    += dist;
+        // Use includes() so both canonical ("run") and legacy ("running") match
+        if (at.includes('ruck'))                                         am.ruck    += dist;
         else if (at.includes('run') || at.includes('jog') || at.includes('sprint')) am.run  += dist;
-        else if (at.includes('walk') || at.includes('hike'))           am.walk    += dist;
+        else if (at.includes('walk') || at.includes('hike'))            am.walk    += dist;
         else if (at.includes('cycl') || at.includes('bike') || at.includes('spin')) am.cycling += dist;
-        else if (at.includes('step') || at.includes('stair'))          am.steps   += dist;
-        else                                                            am.other   += dist;
+        else if (at.includes('step') || at.includes('stair'))           am.steps   += dist;
+        else                                                             am.other   += dist;
       }
       result.estimatedCalories = Math.round(totalCal);
       // Round to 2 decimals and drop zero buckets (frontend decides what to show)

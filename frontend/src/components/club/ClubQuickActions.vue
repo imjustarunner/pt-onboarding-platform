@@ -138,6 +138,56 @@
       </div>
 
     </div>
+
+    <!-- ── Inline Member Applications ─────────────────────────────── -->
+    <div class="member-apps-pane" v-if="props.agency?.id">
+      <div class="member-apps-header">
+        <div class="member-apps-header-left">
+          <h3 class="member-apps-title">Member Applications</h3>
+          <span v-if="pendingApps.length" class="member-apps-badge">{{ pendingApps.length }} pending</span>
+        </div>
+        <div class="member-apps-header-right">
+          <select v-model="appsStatusFilter" class="member-apps-select" @change="loadInlineApps">
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="denied">Denied</option>
+            <option value="all">All</option>
+          </select>
+          <router-link :to="membersTo" class="btn-manage-members">Member Management →</router-link>
+        </div>
+      </div>
+
+      <div v-if="appsLoading" class="member-apps-hint">Loading…</div>
+      <div v-else-if="appsError" class="member-apps-error">{{ appsError }}</div>
+      <div v-else-if="!allApps.length" class="member-apps-empty">
+        No {{ appsStatusFilter === 'all' ? '' : appsStatusFilter }} applications.
+      </div>
+      <div v-else class="member-apps-list">
+        <div v-for="app in allApps" :key="app.id" class="member-app-row">
+          <div class="member-app-avatar">
+            {{ initials(app) }}
+          </div>
+          <div class="member-app-info">
+            <span class="member-app-name">{{ app.first_name }} {{ app.last_name }}</span>
+            <span class="member-app-email">{{ app.email }}</span>
+          </div>
+          <div class="member-app-meta">
+            <span class="member-app-date">{{ formatAppDate(app.created_at) }}</span>
+            <span v-if="app.status === 'pending'" class="member-app-status member-app-status--pending">Pending</span>
+            <span v-else-if="app.status === 'approved'" class="member-app-status member-app-status--approved">Approved</span>
+            <span v-else-if="app.status === 'denied'" class="member-app-status member-app-status--denied">Denied</span>
+          </div>
+          <div v-if="app.status === 'pending'" class="member-app-actions">
+            <button class="btn-app-approve" :disabled="reviewingApp === app.id" @click="reviewApp(app.id, 'approved')">
+              {{ reviewingApp === app.id ? '…' : 'Approve' }}
+            </button>
+            <button class="btn-app-deny" :disabled="reviewingApp === app.id" @click="reviewApp(app.id, 'denied')">
+              Deny
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Notification category modal (reuse existing component) -->
@@ -306,9 +356,60 @@ const loadActiveSeason = async () => {
   finally { seasonsLoading.value = false; }
 };
 
+// ── Inline member applications ────────────────────────────────────
+const appsStatusFilter = ref('pending');
+const allApps = ref([]);
+const pendingApps = computed(() => allApps.value.filter((a) => a.status === 'pending'));
+const appsLoading = ref(false);
+const appsError = ref('');
+const reviewingApp = ref(null);
+
+const initials = (app) => {
+  const f = String(app?.first_name || '').charAt(0).toUpperCase();
+  const l = String(app?.last_name || '').charAt(0).toUpperCase();
+  return f + l || '?';
+};
+
+const MONTHS_APP = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const formatAppDate = (d) => {
+  if (!d) return '';
+  const dt = new Date(d);
+  return `${MONTHS_APP[dt.getMonth()]} ${dt.getDate()}`;
+};
+
+const loadInlineApps = async () => {
+  const clubId = Number(props.agency?.id || 0);
+  if (!clubId) return;
+  appsLoading.value = true;
+  appsError.value = '';
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${clubId}/applications`, {
+      params: { status: appsStatusFilter.value },
+      skipGlobalLoading: true
+    });
+    allApps.value = Array.isArray(data) ? data : (data?.applications || []);
+  } catch (e) {
+    appsError.value = e?.response?.data?.error?.message || 'Failed to load applications';
+  } finally {
+    appsLoading.value = false;
+  }
+};
+
+const reviewApp = async (appId, status) => {
+  const clubId = Number(props.agency?.id || 0);
+  if (!clubId || reviewingApp.value) return;
+  reviewingApp.value = appId;
+  try {
+    await api.put(`/summit-stats/clubs/${clubId}/applications/${appId}`, { status }, { skipGlobalLoading: true });
+    await loadInlineApps();
+  } catch { /* silent */ }
+  finally { reviewingApp.value = null; }
+};
+
 onMounted(() => {
   void loadPublicSlug();
   void loadActiveSeason();
+  void loadInlineApps();
   // Ensure notification counts are fresh (non-blocking)
   void notificationStore.fetchCounts().catch(() => {});
 });
@@ -316,6 +417,7 @@ onMounted(() => {
 watch(() => props.agency?.id, () => {
   void loadPublicSlug();
   void loadActiveSeason();
+  void loadInlineApps();
 });
 </script>
 
@@ -690,4 +792,182 @@ watch(() => props.agency?.id, () => {
     padding: 6px 10px;
   }
 }
+
+/* ── Member applications pane ────────────────────────────────────── */
+.member-apps-pane {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  margin-top: 20px;
+  padding: 20px 24px 16px;
+}
+.club-quick-actions--compact .member-apps-pane {
+  margin-top: 12px;
+  padding: 14px 16px 12px;
+}
+.member-apps-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.member-apps-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.member-apps-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+.member-apps-badge {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  border-radius: 20px;
+  padding: 1px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.member-apps-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.member-apps-select {
+  font-size: 0.82rem;
+  padding: 4px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: white;
+  color: #334155;
+}
+.btn-manage-members {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--primary-color, #2563eb);
+  text-decoration: none;
+  padding: 4px 12px;
+  border: 1px solid var(--primary-color, #2563eb);
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-manage-members:hover {
+  background: var(--primary-color, #2563eb);
+  color: white;
+}
+.member-apps-hint,
+.member-apps-empty {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 12px 0;
+}
+.member-apps-error {
+  color: #dc2626;
+  font-size: 0.85rem;
+  padding: 8px 0;
+}
+.member-apps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.member-app-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.member-app-row:last-child { border-bottom: none; }
+.member-app-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 0.78rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.member-app-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.member-app-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.member-app-email {
+  font-size: 0.78rem;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.member-app-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.member-app-date {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+.member-app-status {
+  font-size: 0.7rem;
+  font-weight: 700;
+  border-radius: 12px;
+  padding: 1px 8px;
+}
+.member-app-status--pending  { background: #fef9c3; color: #78350f; }
+.member-app-status--approved { background: #dcfce7; color: #166534; }
+.member-app-status--denied   { background: #fee2e2; color: #991b1b; }
+.member-app-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.btn-app-approve,
+.btn-app-deny {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.btn-app-approve:disabled,
+.btn-app-deny:disabled { opacity: 0.5; cursor: default; }
+.btn-app-approve {
+  background: #16a34a;
+  color: white;
+}
+.btn-app-approve:hover:not(:disabled) { background: #15803d; }
+.btn-app-deny {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+.btn-app-deny:hover:not(:disabled) { background: #fee2e2; color: #991b1b; }
 </style>

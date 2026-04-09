@@ -193,16 +193,6 @@
         @created="() => { showAddSeasonModal = false; }"
       />
 
-      <!-- ── Member Applications Panel (SSC only) ───────────── -->
-      <ClubApplicationsPanel
-        v-if="!previewMode && isSummitStatsContext && currentAgency?.id"
-        :key="`club-apps-${currentAgency.id}`"
-        :club-id="currentAgency.id"
-        :org-slug="orgSlug"
-        compact
-        @approved="fetchStats"
-      />
-
       <ClubSpecsPanel
         v-if="!previewMode && isSummitStatsContext && currentAgency?.id"
         :key="`club-specs-${currentAgency.id}`"
@@ -233,7 +223,6 @@ import NotificationCards from '../../components/admin/NotificationCards.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
 import ClubQuickActions from '../../components/club/ClubQuickActions.vue';
 import ClubAddMemberModal from '../../components/club/ClubAddMemberModal.vue';
-import ClubApplicationsPanel from '../../components/club/ClubApplicationsPanel.vue';
 import ClubAddSeasonModal from '../../components/club/ClubAddSeasonModal.vue';
 import AgencySpecsPanel from '../../components/admin/AgencySpecsPanel.vue';
 import ClubSpecsPanel from '../../components/club/ClubSpecsPanel.vue';

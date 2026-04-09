@@ -679,11 +679,11 @@ const otherTeams = computed(() =>
 /** Unique activity types in the current workout list. */
 // Canonical aliases: various spellings → one canonical key
 const ACTIVITY_ALIAS = {
-  running: 'run', run: 'run',
-  rucking: 'ruck', ruck: 'ruck',
-  walking: 'walk', walk: 'walk',
-  cycling: 'cycling', biking: 'cycling',
-  steps: 'steps',
+  run: 'run', running: 'run', jog: 'run', jogging: 'run', virtualrun: 'run', treadmill: 'run',
+  ruck: 'ruck', rucking: 'ruck',
+  walk: 'walk', walking: 'walk', hike: 'walk', hiking: 'walk',
+  cycling: 'cycling', cycle: 'cycling', biking: 'cycling', ride: 'cycling', virtualride: 'cycling',
+  steps: 'steps', stair: 'steps', stairclimber: 'steps',
   workout_session: 'workout_session', workout: 'workout_session'
 };
 const canonicalActivity = (raw) => {

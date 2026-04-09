@@ -10,6 +10,7 @@ import ChallengeWorkout from '../models/ChallengeWorkout.model.js';
 import { isStravaRolloutEnabledForEmail } from '../utils/stravaRollout.js';
 import { queueClubRecordBreakCandidates } from './summitStats.controller.js';
 import { sanitizeCalories, estimateCalories } from '../utils/calorieUtils.js';
+import { normalizeActivityType } from '../utils/activityTypeUtils.js';
 import { getWeekStartDate, getWeekDateTimeRange } from '../utils/challengeWeekUtils.js';
 import {
   createSignedState,
@@ -221,12 +222,14 @@ export const stravaStatus = async (req, res, next) => {
   }
 };
 
-/** Map Strava type/sport_type to challenge activity_type */
+/** Map Strava type/sport_type to canonical challenge activity_type */
 const stravaTypeToActivity = (type, sportType) => {
   const t = String(type || sportType || '').toLowerCase();
-  if (t.includes('run')) return 'running';
+  if (t.includes('run') || t === 'running') return 'run';
+  if (t.includes('ruck')) return 'ruck';
   if (t.includes('ride') || t.includes('cycle') || t.includes('bike')) return 'cycling';
-  if (t.includes('walk') || t.includes('hike')) return 'steps';
+  if (t.includes('walk') || t.includes('hike')) return 'walk';
+  if (t.includes('step') || t.includes('stair')) return 'steps';
   return 'workout_session';
 };
 
@@ -588,11 +591,12 @@ export const stravaWebhookEvent = async (req, res, next) => {
       if (!activityLocalDate || activityLocalDate !== todayInTz) return;
     }
 
-    // Determine activity type
+    // Determine activity type (canonical forms)
     const activityType = (() => {
       const s = sportType;
-      if (s.includes('run') || s.includes('jog')) return 'running';
-      if (s.includes('ruck') || s.includes('hike') || s.includes('walk')) return 'rucking';
+      if (s.includes('run') || s.includes('jog')) return 'run';
+      if (s.includes('ruck')) return 'ruck';
+      if (s.includes('hike') || s.includes('walk')) return 'walk';
       if (s.includes('ride') || s.includes('cycl') || s.includes('bike')) return 'cycling';
       if (s.includes('swim')) return 'swimming';
       if (s.includes('row')) return 'rowing';
