@@ -7734,7 +7734,7 @@ export const changePassword = async (req, res, next) => {
       if (passwordHash) {
         isValidPassword = await bcrypt.compare(currentPassword, passwordHash);
       }
-      
+
       if (!isValidPassword) {
         // Also check temporary password
         if (temporaryPasswordHash) {

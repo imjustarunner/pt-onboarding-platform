@@ -228,19 +228,19 @@
           </div>
         </div>
 
-        <div class="card compact-card" :class="{ 'security-sso-locked': accountInfo.ssoRequired }" style="margin-top: 16px;">
+        <div class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">Security</h3>
             <button
+              v-if="!accountInfo.ssoRequired"
               class="btn btn-secondary btn-compact"
-              :disabled="accountInfo.ssoRequired"
               @click="router.push('/change-password')"
             >
               Change Password
             </button>
           </div>
           <div v-if="accountInfo.ssoRequired" class="hint security-sso-note" style="margin-top: 6px;">
-            Password changes are disabled. This account must use Workspace login based on agency and role policy.
+            Your account uses Google Workspace login. Password changes are managed through your organization's Google account.
           </div>
           <div v-else class="hint" style="margin-top: 6px;">
             You can change your password at any time.

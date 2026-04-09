@@ -13,21 +13,21 @@
         </div>
 
         <div v-else class="reset-form">
-          <h2>Set your password</h2>
+          <h2>Change Password</h2>
           <p class="subtitle">
-            Enter your temporary password (from your welcome email), then choose a new password.
+            Enter your current password, then choose a new one.
           </p>
 
           <form @submit.prevent="handleChange" autocomplete="on">
             <!-- Current / temporary password -->
             <div class="form-group">
-              <label for="currentPassword">Temporary / Current Password</label>
+              <label for="currentPassword">Current Password</label>
               <div class="input-wrap">
                 <input
                   id="currentPassword"
                   v-model="currentPassword"
                   :type="showCurrent ? 'text' : 'password'"
-                  placeholder="Enter your temporary password"
+                  placeholder="Enter your current password"
                   required
                   class="form-input"
                   :disabled="saving"
@@ -93,7 +93,7 @@
               class="btn btn-primary"
               :disabled="saving || !!passwordMismatch || !currentPassword || !newPassword || !confirmPassword"
             >
-              {{ saving ? 'Saving…' : 'Set Password' }}
+              {{ saving ? 'Saving…' : 'Change Password' }}
             </button>
           </form>
         </div>

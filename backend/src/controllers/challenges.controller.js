@@ -713,17 +713,19 @@ export const submitWorkout = async (req, res, next) => {
     const weekTimeZone = String(schedule?.weekTimeZone || 'UTC');
     let computedPoints = null;
     const isRunLike = activityLower.includes('run') || activityLower.includes('walk') || activityLower.includes('ruck') || activityLower.includes('step');
-    if (caloriesBurned != null && caloriesPerPoint > 0 && isRunLike) {
-      // Calorie-based points for endurance activities across all season types
-      computedPoints = Math.max(0, Math.floor(caloriesBurned / caloriesPerPoint));
-    } else if (eventCategory === 'fitness' && caloriesBurned != null && caloriesPerPoint > 0) {
-      computedPoints = Math.max(0, Math.floor(caloriesBurned / caloriesPerPoint));
-    } else if (eventCategory === 'run_ruck' && distanceValue != null && Number.isFinite(distanceValue)) {
+    if (eventCategory === 'run_ruck' && distanceValue != null && Number.isFinite(distanceValue) && isRunLike) {
+      // Distance-based scoring takes priority for run/ruck seasons
       if (activityLower.includes('ruck')) {
         computedPoints = Math.max(0, Math.round((distanceValue / ruckMilesPerPoint) * 100) / 100);
-      } else if (activityLower.includes('run')) {
+      } else {
         computedPoints = Math.max(0, Math.round((distanceValue / runMilesPerPoint) * 100) / 100);
       }
+    } else if (caloriesBurned != null && caloriesPerPoint > 0) {
+      // Calorie-based scoring for fitness seasons or non-run-like activities
+      computedPoints = Math.max(0, Math.floor(caloriesBurned / caloriesPerPoint));
+    } else if (eventCategory === 'run_ruck' && distanceValue != null && Number.isFinite(distanceValue)) {
+      // Fallback: distance for non-isRunLike activities in run_ruck season (e.g. walk, step)
+      computedPoints = Math.max(0, Math.round((distanceValue / runMilesPerPoint) * 100) / 100);
     }
     const points = computedPoints != null ? computedPoints : (Math.round((Number(req.body.points) || 0) * 100) / 100);
     const completedAt = req.body.completedAt ? new Date(req.body.completedAt) : new Date();

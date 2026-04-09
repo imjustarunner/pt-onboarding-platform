@@ -85,9 +85,9 @@
           <p>Your club's public landing page with stats, records, and a join button.</p>
         </div>
         <div class="action-split-btns">
-          <a :href="publicPageUrl" target="_blank" rel="noopener" class="split-btn split-btn--primary">
+          <button type="button" class="split-btn split-btn--primary" @click.stop="goToSite">
             Go to Site
-          </a>
+          </button>
           <button type="button" class="split-btn split-btn--ghost" @click.stop="copyPublicLink">
             {{ copiedPublic ? '✓ Copied!' : 'Copy Link' }}
           </button>
@@ -205,6 +205,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useBrandingStore } from '../../store/branding';
 import { useNotificationStore } from '../../store/notifications';
 import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../../utils/summitPlatformSlugs.js';
+import { isNativePlatform } from '../../utils/biometricAuth.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import NotificationCategoryModal from '../admin/NotificationCategoryModal.vue';
 import api from '../../services/api';
@@ -321,6 +322,18 @@ const copyToClipboard = async (text, flagRef) => {
 const copyPublicLink = () => copyToClipboard(publicPageUrl.value, copiedPublic);
 const copyInviteLink = () => copyToClipboard(invitePageUrl.value, copiedInvite);
 
+const goToSite = () => {
+  const slug = props.orgSlug;
+  const id = props.agency?.id;
+  const ref = String(publicSlug.value || '').trim() || String(id || '').trim();
+  if (!slug || !ref) return;
+  if (isNativePlatform()) {
+    router.push(`/${slug}/clubs/${ref}`);
+  } else {
+    window.open(publicPageUrl.value, '_blank', 'noopener,noreferrer');
+  }
+};
+
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const formatSeasonDate = (d) => {
   if (!d) return '';
@@ -400,7 +413,7 @@ const reviewApp = async (appId, status) => {
   if (!clubId || reviewingApp.value) return;
   reviewingApp.value = appId;
   try {
-    await api.put(`/summit-stats/clubs/${clubId}/applications/${appId}`, { status }, { skipGlobalLoading: true });
+    await api.put(`/summit-stats/clubs/${clubId}/applications/${appId}`, { action: status === 'approved' ? 'approve' : 'deny' }, { skipGlobalLoading: true });
     await loadInlineApps();
   } catch { /* silent */ }
   finally { reviewingApp.value = null; }

@@ -1147,6 +1147,7 @@ watch(() => route.params.organizationSlug, () => {
   max-width: 1180px;
   margin: 0 auto;
   padding: 24px;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -1744,11 +1745,14 @@ watch(() => route.params.organizationSlug, () => {
   padding: 8px 0;
   margin-bottom: 0;
   overflow: hidden;
+  max-width: 100%;
+  contain: paint;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 .ssc-announcement-inner {
   overflow: hidden;
   width: 100%;
+  max-width: 100%;
 }
 .ssc-announcement-track {
   display: inline-flex;

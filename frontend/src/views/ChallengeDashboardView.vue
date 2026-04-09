@@ -117,6 +117,12 @@
         </div>
       </div>
 
+      <!-- Strava duplicate import notice -->
+      <div v-if="stravaDuplicateMessage && !showStravaImportModal" class="strava-duplicate-notice" style="margin-bottom: 12px;">
+        {{ stravaDuplicateMessage }}
+        <button type="button" class="btn btn-ghost btn-sm" style="margin-left: 8px;" @click="stravaDuplicateMessage = ''">✕</button>
+      </div>
+
       <!-- Quick-action bar -->
       <div v-if="canParticipateInSeason" class="season-action-bar">
         <button type="button" class="season-action-btn season-action-btn--primary" @click="showLogWorkoutModal = true">
@@ -785,6 +791,9 @@
               </label>
               <div v-if="!stravaActivities.length" class="empty-hint">No activities from today found. Only workouts completed today can be imported.</div>
             </div>
+            <div v-if="stravaDuplicateMessage" class="strava-duplicate-notice">
+              {{ stravaDuplicateMessage }}
+            </div>
             <div class="form-actions">
               <button type="button" class="btn btn-secondary" @click="closeStravaImportModal">Cancel</button>
               <button
@@ -794,6 +803,11 @@
                 @click="importSelectedStrava"
               >
                 {{ stravaImporting ? 'Importing…' : `Import ${selectedStravaIds.length} selected` }}
+              </button>
+            </div>
+            <div style="text-align: center; margin-top: 12px;">
+              <button type="button" class="btn btn-ghost btn-sm" @click="closeStravaImportModal(); showLogWorkoutModal = true;">
+                Manual Upload
               </button>
             </div>
           </div>
@@ -981,6 +995,7 @@ const stravaActivitiesLoading = ref(false);
 const stravaActivitiesError = ref(null);
 const selectedStravaIds = ref([]);
 const stravaImporting = ref(false);
+const stravaDuplicateMessage = ref('');
 const captainApplications = ref([]);
 const captainAppsLoading = ref(false);
 const captainAppsError = ref('');
@@ -1859,19 +1874,30 @@ const openStravaImportModal = async () => {
 
 const closeStravaImportModal = () => {
   showStravaImportModal.value = false;
+  stravaDuplicateMessage.value = '';
 };
 
 const importSelectedStrava = async () => {
   const id = challengeId.value;
   if (!id || !selectedStravaIds.value.length) return;
   stravaImporting.value = true;
+  stravaDuplicateMessage.value = '';
   try {
-    await api.post('/strava/import', {
+    const { data } = await api.post('/strava/import', {
       learningClassId: id,
       activityIds: selectedStravaIds.value
     });
+    const imported = data?.imported ?? 0;
+    const skipped = data?.skipped ?? 0;
+    if (imported === 0 && skipped > 0) {
+      stravaDuplicateMessage.value = `${skipped === 1 ? 'This activity has' : `${skipped} activities have`} already been uploaded and ${skipped === 1 ? 'was' : 'were'} not imported again.`;
+      return;
+    }
     closeStravaImportModal();
     await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
+    if (skipped > 0) {
+      stravaDuplicateMessage.value = `${skipped === 1 ? '1 activity was' : `${skipped} activities were`} already uploaded and not imported again.`;
+    }
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to import activities');
   } finally {
@@ -1941,6 +1967,7 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   max-width: 1100px;
   margin: 0 auto;
   padding: 24px;
+  overflow-x: hidden;
 }
 /* ── Season announcement banner ── */
 /* ── Season Hero Banner ── */
@@ -2583,6 +2610,15 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   background: #f0f0f0;
   color: #333;
 }
+.strava-duplicate-notice {
+  background: #fff8e1;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 12px 0 4px;
+  font-size: 14px;
+  color: #92400e;
+}
 .strava-activity-list {
   max-height: min(400px, 45dvh);
   overflow-y: auto;
@@ -3083,11 +3119,14 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   padding: 8px 0;
   margin-bottom: 18px;
   overflow: hidden;
+  max-width: 100%;
+  contain: paint;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 .ssc-announcement-inner {
   overflow: hidden;
   width: 100%;
+  max-width: 100%;
 }
 .ssc-announcement-track {
   display: inline-flex;
