@@ -337,6 +337,42 @@
             Reason: {{ w.disqualification_reason }}
           </div>
 
+          <!-- Edit own workout fields (activity type, terrain, notes) -->
+          <div v-if="canEditOwnFields(w)" class="proof-review-card">
+            <div class="proof-review-header">
+              <strong>Edit workout</strong>
+              <button class="btn btn-secondary btn-small" @click="toggleOwnEdit(w)">{{ ownEditOpenByWorkout[w.id] ? 'Close' : 'Edit' }}</button>
+            </div>
+            <div v-if="ownEditOpenByWorkout[w.id] && ownEditDraftByWorkout[w.id]" class="proof-review-body">
+              <label class="proof-field">
+                <span>Activity type</span>
+                <select v-model="ownEditDraftByWorkout[w.id].activityType">
+                  <option value="">— Keep current ({{ w.activity_type }}) —</option>
+                  <option v-for="opt in (props.activityTypeOptions.length ? props.activityTypeOptions : [{value:'running',label:'Running'},{value:'ruck',label:'Ruck'},{value:'walking',label:'Walking'},{value:'cycling',label:'Cycling'},{value:'steps',label:'Steps'},{value:'workout_session',label:'Workout Session'}])" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                </select>
+              </label>
+              <label class="proof-field">
+                <span>Surface / terrain</span>
+                <select v-model="ownEditDraftByWorkout[w.id].terrain">
+                  <option value="">— None —</option>
+                  <option v-for="t in TERRAIN_OPTIONS" :key="t" :value="t">{{ t }}</option>
+                </select>
+              </label>
+              <!-- Treadmill proof required when switching to Treadmill without existing proof -->
+              <label v-if="ownEditDraftByWorkout[w.id].terrain === 'Treadmill' && !w.screenshot_file_path" class="proof-field">
+                <span>Treadmill proof photo <span class="required-star">*</span></span>
+                <input type="file" accept="image/*" @change="onOwnEditProofFile($event, w.id)" />
+              </label>
+              <label class="proof-field">
+                <span>Notes</span>
+                <textarea v-model="ownEditDraftByWorkout[w.id].workoutNotes" rows="2" maxlength="500" />
+              </label>
+              <div class="proof-actions">
+                <button class="btn btn-primary btn-small" :disabled="!!ownEditSubmitting[w.id]" @click="saveOwnEditFields(w.id)">Save</button>
+              </div>
+            </div>
+          </div>
+
           <!-- Upload GIF/Image -->
           <div class="more-info-upload-row">
             <label class="upload-btn">
@@ -420,8 +456,11 @@ const props = defineProps({
   challengeId: { type: [String, Number], required: true },
   myUserId: { type: [String, Number], default: null },
   isManager: { type: Boolean, default: false },
-  myTeamId: { type: [String, Number], default: null }
+  myTeamId: { type: [String, Number], default: null },
+  activityTypeOptions: { type: Array, default: () => [] }
 });
+
+const TERRAIN_OPTIONS = ['Road', 'Trail', 'Track', 'Beach', 'Treadmill', 'Race', 'Other'];
 const emit = defineEmits(['media-uploaded']);
 
 /** Whole season vs workouts from the viewer's team only (same idea as Season / Team chat). */
@@ -827,6 +866,66 @@ const saveStravaEdit = async (workoutId) => {
     alert(e?.response?.data?.error?.message || 'Failed to save Strava workout details');
   } finally {
     stravaEditSubmitting.value = { ...stravaEditSubmitting.value, [workoutId]: false };
+  }
+};
+
+// ── Own workout field edit (activity type, terrain, notes) ──────────────────
+const ownEditOpenByWorkout = ref({});
+const ownEditDraftByWorkout = ref({});
+const ownEditSubmitting = ref({});
+
+const canEditOwnFields = (workout) =>
+  Number(workout?.user_id) === Number(props.myUserId);
+
+const ensureOwnEditDraft = (workoutId, workout) => {
+  if (ownEditDraftByWorkout.value[workoutId]) return;
+  ownEditDraftByWorkout.value = {
+    ...ownEditDraftByWorkout.value,
+    [workoutId]: {
+      activityType: workout?.activity_type || '',
+      terrain: workout?.terrain || '',
+      workoutNotes: workout?.workout_notes || '',
+      proofFile: null
+    }
+  };
+};
+
+const toggleOwnEdit = (workout) => {
+  const workoutId = Number(workout?.id);
+  if (!workoutId) return;
+  ensureOwnEditDraft(workoutId, workout);
+  ownEditOpenByWorkout.value = { ...ownEditOpenByWorkout.value, [workoutId]: !ownEditOpenByWorkout.value[workoutId] };
+};
+
+const onOwnEditProofFile = (event, workoutId) => {
+  const file = event.target.files?.[0] || null;
+  ownEditDraftByWorkout.value = {
+    ...ownEditDraftByWorkout.value,
+    [workoutId]: { ...ownEditDraftByWorkout.value[workoutId], proofFile: file }
+  };
+};
+
+const saveOwnEditFields = async (workoutId) => {
+  const draft = ownEditDraftByWorkout.value[workoutId];
+  if (!draft) return;
+  ownEditSubmitting.value = { ...ownEditSubmitting.value, [workoutId]: true };
+  try {
+    const formData = new FormData();
+    if (draft.activityType) formData.append('activityType', draft.activityType);
+    formData.append('terrain', draft.terrain || '');
+    formData.append('workoutNotes', draft.workoutNotes || '');
+    if (draft.proofFile) formData.append('treadmillProof', draft.proofFile);
+    await api.patch(
+      `/learning-program-classes/${props.challengeId}/workouts/${workoutId}/own-fields`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    ownEditOpenByWorkout.value = { ...ownEditOpenByWorkout.value, [workoutId]: false };
+    emit('media-uploaded');
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to save edits');
+  } finally {
+    ownEditSubmitting.value = { ...ownEditSubmitting.value, [workoutId]: false };
   }
 };
 
@@ -1404,6 +1503,7 @@ const reviewProof = async (workoutId, status) => {
   align-items: center;
   gap: 6px;
 }
+.required-star { color: #e53935; }
 .proof-field--inline input[type="checkbox"] { width: auto; }
 .proof-field input, .proof-field select {
   padding: 6px 8px;

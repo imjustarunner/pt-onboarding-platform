@@ -126,6 +126,7 @@
             :my-user-id="authStore.user?.id"
             :my-team-id="myTeamId"
             :is-manager="isChallengeManager"
+            :activity-type-options="activityTypeOptions"
             @media-uploaded="refreshAfterActivityAction"
           />
         </div>
@@ -621,6 +622,7 @@
                   <option value="Road">Road</option>
                   <option value="Trail">Trail</option>
                   <option value="Track">Track</option>
+                  <option value="Beach">Beach</option>
                   <option value="Treadmill">Treadmill</option>
                   <option value="Race">Race</option>
                   <option value="Other">Other</option>
@@ -700,7 +702,7 @@
         <div v-if="showStravaImportModal" class="modal-overlay" @click.self="closeStravaImportModal">
           <div class="modal-content modal-wide">
             <h2>Import from Strava</h2>
-            <p class="hint">Select activities to import. Points are calculated from distance or duration. Descriptions, elevation, and route maps are imported automatically.</p>
+            <p class="hint">Only <strong>today's</strong> activities can be imported. Points are calculated from distance or duration. Descriptions, elevation, and route maps are included automatically.</p>
             <div v-if="stravaActivitiesLoading" class="loading-inline">Loading your Strava activities…</div>
             <div v-else-if="stravaActivitiesError" class="error-inline">{{ stravaActivitiesError }}</div>
             <div v-else class="strava-activity-list">
@@ -725,7 +727,7 @@
                   </div>
                 </div>
               </label>
-              <div v-if="!stravaActivities.length" class="empty-hint">No activities in the last 30 days.</div>
+              <div v-if="!stravaActivities.length" class="empty-hint">No activities from today found. Only workouts completed today can be imported.</div>
             </div>
             <div class="form-actions">
               <button type="button" class="btn btn-secondary" @click="closeStravaImportModal">Cancel</button>
@@ -1714,9 +1716,17 @@ const openStravaImportModal = async () => {
   stravaActivitiesError.value = null;
   stravaActivitiesLoading.value = true;
   try {
-    const after = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
+    // Fetch only today's activities: after = start of today (local midnight as UTC seconds)
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const after = Math.floor(todayStart.getTime() / 1000);
     const r = await api.get('/strava/activities', { params: { after, per_page: 50 }, skipGlobalLoading: true });
-    stravaActivities.value = Array.isArray(r.data?.activities) ? r.data.activities : [];
+    // Extra client-side filter to today's date (handles timezone edge cases)
+    const todayDateStr = new Date().toISOString().slice(0, 10);
+    const all = Array.isArray(r.data?.activities) ? r.data.activities : [];
+    stravaActivities.value = all.filter((a) => {
+      const d = (a.start_date_local || a.start_date || '').slice(0, 10);
+      return d === todayDateStr;
+    });
   } catch (e) {
     stravaActivitiesError.value = e?.response?.data?.error?.message || 'Failed to load Strava activities';
   } finally {
@@ -1782,6 +1792,15 @@ watch(challengeId, () => {
       Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions()]);
     }
   });
+});
+
+// Auto-set isTreadmill when terrain = Treadmill is selected in workout form
+watch(() => workoutForm.value.terrain, (terrain) => {
+  if (terrain === 'Treadmill') {
+    workoutForm.value.isTreadmill = true;
+  } else if (workoutForm.value.isTreadmill && terrain && terrain !== 'Treadmill') {
+    workoutForm.value.isTreadmill = false;
+  }
 });
 </script>
 

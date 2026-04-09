@@ -359,6 +359,15 @@ export const stravaImport = async (req, res, next) => {
       ].filter(Boolean);
       const workoutNotes = noteParts.length ? noteParts.join('\n') : null;
       const points = computePointsFromStrava(activity, activityType, stravaScoring);
+      // start_date_local is the activity's local clock time — use it for same-day comparison
+      const activityLocalDate = activity.start_date_local
+        ? String(activity.start_date_local).slice(0, 10)
+        : (activity.start_date ? new Date(activity.start_date).toISOString().slice(0, 10) : null);
+      const todayUTC = new Date().toISOString().slice(0, 10);
+      if (!activityLocalDate || activityLocalDate !== todayUTC) {
+        skipped.push({ stravaId, reason: 'not_today', date: activityLocalDate });
+        continue;
+      }
       const completedAt = activity.start_date ? new Date(activity.start_date).toISOString().slice(0, 19).replace('T', ' ') : null;
       const treadmill = isTreadmillActivity(activity);
       const isRuck = String(activityType || '').toLowerCase().includes('ruck');

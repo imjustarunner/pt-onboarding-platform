@@ -686,6 +686,12 @@ export const submitWorkout = async (req, res, next) => {
     }
     const points = computedPoints != null ? computedPoints : (Math.round((Number(req.body.points) || 0) * 100) / 100);
     const completedAt = req.body.completedAt ? new Date(req.body.completedAt) : new Date();
+    // Same-day rule: workouts can only be logged on the day they were completed
+    const todayUTC = new Date().toISOString().slice(0, 10);
+    const completedUTC = completedAt.toISOString().slice(0, 10);
+    if (completedUTC !== todayUTC) {
+      return res.status(400).json({ error: { message: 'Workouts can only be logged on the day they were completed. You cannot backdate or future-date a workout.' } });
+    }
     const completedWeekStart = getWeekStartDate(completedAt, weekCutoffTime, weekTimeZone);
     if (eventCategory === 'run_ruck' && activityLower.includes('ruck')) {
       const participation = parseJsonObject(settings?.participation || {});
@@ -1223,6 +1229,91 @@ export const patchStravaWorkoutDetails = async (req, res, next) => {
         updates.push('proof_status = ?');
         params.push('pending');
       }
+    }
+
+    if (!updates.length) return res.json({ workout });
+    params.push(workoutId, classId, req.user.id);
+    await pool.execute(
+      `UPDATE challenge_workouts SET ${updates.join(', ')} WHERE id = ? AND learning_class_id = ? AND user_id = ?`,
+      params
+    );
+    const updated = await ChallengeWorkout.findById(workoutId);
+    return res.json({ workout: updated });
+  } catch (e) {
+    next(e);
+  }
+};
+
+const ALLOWED_TERRAINS = new Set(['Road', 'Trail', 'Track', 'Treadmill', 'Beach', 'Race', 'Other']);
+
+/**
+ * PATCH /learning-program-classes/:classId/workouts/:workoutId/own-fields
+ * Allow the workout owner to update activity type, terrain, and notes on any own workout.
+ * Accepts multipart/form-data with optional file field "treadmillProof".
+ */
+export const editOwnWorkoutFields = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const workoutId = asInt(req.params.workoutId);
+    if (!classId || !workoutId) return res.status(400).json({ error: { message: 'Invalid classId/workoutId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    const workout = await ChallengeWorkout.findById(workoutId);
+    if (!workout || Number(workout.learning_class_id) !== Number(classId)) {
+      return res.status(404).json({ error: { message: 'Workout not found' } });
+    }
+    if (Number(workout.user_id) !== Number(req.user.id)) {
+      return res.status(403).json({ error: { message: 'You can only edit your own workouts' } });
+    }
+
+    const updates = [];
+    const params = [];
+
+    const activityType = req.body?.activityType != null ? String(req.body.activityType).trim() : undefined;
+    if (activityType !== undefined && activityType.length > 0) {
+      updates.push('activity_type = ?');
+      params.push(activityType);
+    }
+
+    const terrain = req.body?.terrain != null ? String(req.body.terrain).trim() : undefined;
+    if (terrain !== undefined) {
+      if (terrain && !ALLOWED_TERRAINS.has(terrain)) {
+        return res.status(400).json({ error: { message: `Invalid terrain. Allowed: ${[...ALLOWED_TERRAINS].join(', ')}` } });
+      }
+      updates.push('terrain = ?');
+      params.push(terrain || null);
+      // Auto-set treadmill flag from terrain
+      const isTreadmill = terrain === 'Treadmill';
+      updates.push('is_treadmill = ?');
+      params.push(isTreadmill ? 1 : 0);
+    }
+
+    const workoutNotes = req.body?.workoutNotes != null ? String(req.body.workoutNotes).trim() : undefined;
+    if (workoutNotes !== undefined) {
+      updates.push('workout_notes = ?');
+      params.push(workoutNotes || null);
+    }
+
+    // If switching to treadmill, require proof photo (existing or newly uploaded)
+    const becomingTreadmill = terrain === 'Treadmill';
+    const alreadyHasProof = !!(workout.screenshot_file_path || workout.treadmill_proof_file_path);
+
+    if (req.file?.buffer) {
+      const { default: StorageService } = await import('../services/storage.service.js');
+      const saved = await StorageService.saveWorkoutMedia({
+        userId: req.user.id,
+        fileBuffer: req.file.buffer,
+        filename: req.file.originalname || `proof-${Date.now()}.jpg`,
+        contentType: req.file.mimetype || 'image/jpeg'
+      });
+      updates.push('screenshot_file_path = ?');
+      params.push(saved.relativePath);
+      if (workout.proof_status !== 'approved') {
+        updates.push('proof_status = ?');
+        params.push('pending');
+      }
+    } else if (becomingTreadmill && !alreadyHasProof) {
+      return res.status(400).json({ error: { message: 'Treadmill workouts require a treadmill proof photo. Please upload one.' } });
     }
 
     if (!updates.length) return res.json({ workout });
