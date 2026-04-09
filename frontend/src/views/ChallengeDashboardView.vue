@@ -486,35 +486,80 @@
           <ChallengeWeeklyTasks :challenge-id="challengeId" :my-user-id="authStore.user?.id" :is-captain="isTeamCaptain" :season-starts-at="challenge?.starts_at || challenge?.startsAt" :season-ends-at="challenge?.ends_at || challenge?.endsAt" />
         </div>
 
-        <section class="challenge-section">
+        <!-- Captain Applications — manager view + member apply UI -->
+        <section
+          v-if="isChallengeManager || (canParticipateInSeason && captainApplicationOpen && !isTeamCaptain)"
+          class="challenge-section"
+        >
           <h2>Captain Applications</h2>
-          <div v-if="captainAppsLoading" class="loading-inline">Loading applications…</div>
-          <div v-else-if="captainAppsError" class="error-inline">{{ captainAppsError }}</div>
-          <div v-else class="captain-apps-list">
-            <div v-if="!captainApplications.length" class="empty-hint">No captain applications yet.</div>
-            <article
-              v-for="app in captainApplications"
-              :key="`captain-app-${app.id}`"
-              class="captain-app-card"
-            >
-              <div class="captain-app-header">
-                <strong>{{ app.first_name }} {{ app.last_name }}</strong>
-                <span class="captain-app-status" :class="`status-${String(app.status || '').toLowerCase()}`">{{ app.status }}</span>
+
+          <!-- ── Member: show own application status or apply form ── -->
+          <template v-if="!isChallengeManager">
+            <!-- Already applied -->
+            <template v-if="myOwnCaptainApp">
+              <div class="captain-app-card captain-app-card--mine">
+                <div class="captain-app-header">
+                  <span>Your application</span>
+                  <span class="captain-app-status" :class="`status-${String(myOwnCaptainApp.status || '').toLowerCase()}`">
+                    {{ myOwnCaptainApp.status }}
+                  </span>
+                </div>
+                <p v-if="myOwnCaptainApp.application_text" class="hint">{{ myOwnCaptainApp.application_text }}</p>
+                <p v-if="myOwnCaptainApp.manager_notes" class="hint" style="color:#c8102e;">Manager note: {{ myOwnCaptainApp.manager_notes }}</p>
               </div>
-              <p v-if="app.application_text" class="hint">{{ app.application_text }}</p>
-              <p v-if="app.manager_notes" class="hint">Manager note: {{ app.manager_notes }}</p>
-              <div v-if="isChallengeManager && String(app.status || '').toLowerCase() === 'pending'" class="captain-app-actions">
-                <button class="btn btn-primary btn-small" @click="reviewCaptain(app.id, 'approved')">Approve</button>
-                <button class="btn btn-secondary btn-small" @click="reviewCaptain(app.id, 'rejected')">Reject</button>
-              </div>
-            </article>
-          </div>
-          <div v-if="isChallengeManager" class="captain-finalize">
-            <button class="btn btn-secondary" :disabled="captainsFinalizeSubmitting" @click="finalizeCaptainsForSeason">
-              {{ captainsFinalizeSubmitting ? 'Finalizing…' : 'Finalize Captains' }}
-            </button>
-            <span class="hint">This closes captain applications for the season.</span>
-          </div>
+            </template>
+            <!-- Not yet applied -->
+            <template v-else>
+              <p class="hint" style="margin-bottom:12px;">Interested in leading a team? Submit your captain application below — the season manager will review it.</p>
+              <form class="captain-apply-form" @submit.prevent="submitCaptainApplication">
+                <textarea
+                  v-model="captainApplyText"
+                  class="captain-apply-textarea"
+                  placeholder="Tell the manager why you'd be a great team captain (optional)…"
+                  rows="3"
+                  maxlength="1000"
+                  :disabled="captainApplySubmitting"
+                />
+                <div class="captain-apply-actions">
+                  <button type="submit" class="btn btn-primary" :disabled="captainApplySubmitting">
+                    {{ captainApplySubmitting ? 'Submitting…' : 'Apply for Captain' }}
+                  </button>
+                  <span v-if="captainApplyError" class="error-inline">{{ captainApplyError }}</span>
+                </div>
+              </form>
+            </template>
+          </template>
+
+          <!-- ── Manager: full applications list + controls ── -->
+          <template v-else>
+            <div v-if="captainAppsLoading" class="loading-inline">Loading applications…</div>
+            <div v-else-if="captainAppsError" class="error-inline">{{ captainAppsError }}</div>
+            <div v-else class="captain-apps-list">
+              <div v-if="!captainApplications.length" class="empty-hint">No captain applications yet.</div>
+              <article
+                v-for="app in captainApplications"
+                :key="`captain-app-${app.id}`"
+                class="captain-app-card"
+              >
+                <div class="captain-app-header">
+                  <strong>{{ app.first_name }} {{ app.last_name }}</strong>
+                  <span class="captain-app-status" :class="`status-${String(app.status || '').toLowerCase()}`">{{ app.status }}</span>
+                </div>
+                <p v-if="app.application_text" class="hint">{{ app.application_text }}</p>
+                <p v-if="app.manager_notes" class="hint">Manager note: {{ app.manager_notes }}</p>
+                <div v-if="String(app.status || '').toLowerCase() === 'pending'" class="captain-app-actions">
+                  <button class="btn btn-primary btn-small" @click="reviewCaptain(app.id, 'approved')">Approve</button>
+                  <button class="btn btn-secondary btn-small" @click="reviewCaptain(app.id, 'rejected')">Reject</button>
+                </div>
+              </article>
+            </div>
+            <div class="captain-finalize">
+              <button class="btn btn-secondary" :disabled="captainsFinalizeSubmitting" @click="finalizeCaptainsForSeason">
+                {{ captainsFinalizeSubmitting ? 'Finalizing…' : 'Finalize Captains' }}
+              </button>
+              <span class="hint">This closes captain applications for the season.</span>
+            </div>
+          </template>
         </section>
 
         <!-- Weekly Challenges Display -->
@@ -1001,6 +1046,9 @@ const captainApplications = ref([]);
 const captainAppsLoading = ref(false);
 const captainAppsError = ref('');
 const captainsFinalizeSubmitting = ref(false);
+const captainApplyText = ref('');
+const captainApplySubmitting = ref(false);
+const captainApplyError = ref('');
 const weeklyTaskOptions = ref([]);
 const treadmillpocalypseWeek = ref(null);
 const treadmillpocalypseIconUrl = ref(null);
@@ -1194,6 +1242,16 @@ const isChallengeManager = computed(() => {
 const isTeamCaptain = computed(() => {
   const myId = Number(authStore.user?.id || 0);
   return (teams.value || []).some((t) => Number(t.team_manager_user_id) === myId);
+});
+
+const captainApplicationOpen = computed(() =>
+  !!(challenge.value?.captain_application_open) && !(challenge.value?.captains_finalized)
+);
+
+// For non-managers the backend only returns their own record (or empty).
+const myOwnCaptainApp = computed(() => {
+  if (isChallengeManager.value) return null;
+  return captainApplications.value[0] ?? null;
 });
 
 const myTeamId = computed(() => {
@@ -1606,6 +1664,24 @@ const finalizeCaptainsForSeason = async () => {
     alert(e?.response?.data?.error?.message || 'Failed to finalize captains');
   } finally {
     captainsFinalizeSubmitting.value = false;
+  }
+};
+
+const submitCaptainApplication = async () => {
+  const id = challengeId.value;
+  if (!id) return;
+  captainApplySubmitting.value = true;
+  captainApplyError.value = '';
+  try {
+    await api.post(`/learning-program-classes/${id}/captain-applications`, {
+      applicationText: captainApplyText.value.trim() || null
+    }, { skipGlobalLoading: true });
+    captainApplyText.value = '';
+    await loadCaptainApplications();
+  } catch (e) {
+    captainApplyError.value = e?.response?.data?.error?.message || 'Failed to submit application';
+  } finally {
+    captainApplySubmitting.value = false;
   }
 };
 
@@ -2796,6 +2872,36 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+}
+.captain-app-card--mine {
+  border-color: #c8102e;
+  background: #fff8f8;
+}
+.captain-apply-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.captain-apply-textarea {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.captain-apply-textarea:focus {
+  outline: none;
+  border-color: #c8102e;
+  box-shadow: 0 0 0 2px rgba(200, 16, 46, 0.12);
+}
+.captain-apply-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   flex-wrap: wrap;
 }
 @media (max-width: 980px) {
