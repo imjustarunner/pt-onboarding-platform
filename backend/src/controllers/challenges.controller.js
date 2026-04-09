@@ -1617,7 +1617,7 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
          AND w.completed_at < ?
        WHERE t.learning_class_id = ?
        GROUP BY t.id, t.team_name, u.id, u.first_name, u.last_name
-       ORDER BY t.team_name ASC, weekly_points DESC, u.last_name ASC, u.first_name ASC`,
+       ORDER BY t.team_name ASC, ${metricField} DESC, u.last_name ASC, u.first_name ASC`,
       [startStr, endStr, classId]
     );
 

@@ -23,7 +23,10 @@
             <span class="rank-badge">{{ rankMedal(idx) }}</span>
             <UserAvatar :photo-path="row.profile_photo_path" :first-name="row.first_name" :last-name="row.last_name" size="sm" />
             <span class="name">{{ row.first_name }} {{ row.last_name }}</span>
-            <span class="pts-chip">{{ formatPts(row.total_points) }} pts</span>
+            <span class="pts-chip">
+              {{ formatPts(row.total_points) }} pts
+              <template v-if="row.total_miles > 0"> · {{ Number(row.total_miles).toFixed(2) }} mi</template>
+            </span>
           </div>
         </div>
       </div>
@@ -57,7 +60,10 @@
         <span class="rank-badge">{{ rankMedal(idx) }}</span>
         <UserAvatar :photo-path="row.profile_photo_path" :first-name="row.first_name" :last-name="row.last_name" size="sm" />
         <span class="name">{{ row.first_name }} {{ row.last_name }}</span>
-        <span class="pts-chip">{{ formatPts(row.total_points) }} pts</span>
+        <span class="pts-chip">
+          {{ formatPts(row.total_points) }} pts
+          <template v-if="row.total_miles > 0"> · {{ Number(row.total_miles).toFixed(2) }} mi</template>
+        </span>
       </div>
       <div v-if="!loading && (!leaderboard?.individual?.length)" class="empty-hint">No workouts yet — log your first! 🚀</div>
     </div>

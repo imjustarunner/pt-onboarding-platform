@@ -967,7 +967,7 @@ export const getSeasonSummary = async (req, res, next) => {
     const weeklyTopTeams = (await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: limits.weeklyTopTeams, weekCutoffTime, weekTimeZone }))
       .map((r) => ({ team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points || 0) }));
     const seasonTopIndividuals = (await ChallengeWorkout.getLeaderboardIndividual(classId, { limit: limits.seasonTopIndividuals }))
-      .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, profile_photo_path: r.profile_photo_path || null, total_points: Number(r.total_points || 0) }));
+      .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, profile_photo_path: r.profile_photo_path || null, total_points: Number(r.total_points || 0), total_miles: Number(r.total_miles || 0) }));
     const [teamSeasonRows] = await pool.execute(
       `SELECT t.id AS team_id, t.team_name, COALESCE(SUM(w.points), 0) AS total_points
        FROM challenge_teams t

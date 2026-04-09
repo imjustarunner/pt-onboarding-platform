@@ -98,9 +98,15 @@ const fmtDate = (d) => {
   return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
-// Default to the latest (most recent) week
+// Default to the week that contains today; fall back to last week if season has ended
 watch(seasonWeeks, (weeks) => {
-  if (weeks.length) selectedWeekIdx.value = weeks.length - 1;
+  if (!weeks.length) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const idx = weeks.findIndex((w, i) => {
+    const nextStart = weeks[i + 1]?.date;
+    return today >= w.date && (!nextStart || today < nextStart);
+  });
+  selectedWeekIdx.value = idx >= 0 ? idx : weeks.length - 1;
 }, { immediate: true });
 
 const weekStart = computed(() => seasonWeeks.value[selectedWeekIdx.value]?.date || null);

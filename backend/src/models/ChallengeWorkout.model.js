@@ -205,13 +205,19 @@ class ChallengeWorkout {
     const classId = toInt(learningClassId);
     if (!classId) return [];
     const lim = Math.min(Math.max(toInt(limit) || 50, 1), 500);
+    // Include all non-disqualified athletes so anyone who has logged distance appears,
+    // even if their workouts are still pending proof review.
+    // total_points = only counts approved/not-required proof; total_miles = all non-disqualified.
     const [rows] = await pool.execute(
-      `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, SUM(w.points) AS total_points
+      `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path,
+              COALESCE(SUM(CASE WHEN (w.proof_status IS NULL OR w.proof_status IN ('not_required', 'approved'))
+                               THEN w.points ELSE 0 END), 0) AS total_points,
+              COALESCE(SUM(w.distance_value), 0) AS total_miles
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
-       WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')}
+       WHERE w.learning_class_id = ? AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
        GROUP BY w.user_id, u.first_name, u.last_name, u.profile_photo_path
-       ORDER BY total_points DESC
+       ORDER BY total_points DESC, total_miles DESC
        LIMIT ${lim}`,
       [classId]
     );

@@ -212,7 +212,7 @@
                   <div><strong>Top Individuals</strong></div>
                   <ol>
                     <li v-for="r in seasonSummary.seasonStandings?.topIndividuals || []" :key="`si-${r.user_id}`">
-                      {{ r.first_name }} {{ r.last_name }} — {{ formatPts(r.total_points) }} pts
+                      {{ r.first_name }} {{ r.last_name }} — {{ formatPts(r.total_points) }} pts<template v-if="r.total_miles > 0"> · {{ Number(r.total_miles).toFixed(2) }} mi</template>
                     </li>
                   </ol>
                   <div><strong>Top Masters</strong></div>
