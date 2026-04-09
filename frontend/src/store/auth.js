@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
 import { storeUserAgencies } from '../utils/loginRedirect';
+import { saveBiometricToken, clearBiometricToken } from '../utils/biometricAuth';
 
 export const useAuthStore = defineStore('auth', () => {
   // Token is now stored in HttpOnly cookie, not localStorage
@@ -139,6 +140,9 @@ export const useAuthStore = defineStore('auth', () => {
       
       // Pass token explicitly so it can be stored in localStorage for Capacitor/iOS
       setAuth(response.data.token || null, response.data.user, response.data.sessionId);
+
+      // Persist token in secure Preferences so biometrics can unlock it on next open
+      saveBiometricToken(response.data.token, response.data.user).catch(() => {});
       
       // Mark that we just logged in to help with cookie timing issues
       sessionStorage.setItem('justLoggedIn', 'true');
@@ -227,6 +231,7 @@ export const useAuthStore = defineStore('auth', () => {
       // Always clear auth even if logging fails
       localStorage.removeItem('sessionId');
       clearAuth();
+      clearBiometricToken().catch(() => {});
       
       // Redirect to branded login when possible.
       // Prefer the current route slug so users stay in the same portal context on logout.

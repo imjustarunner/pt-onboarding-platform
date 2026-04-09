@@ -712,7 +712,11 @@ export const submitWorkout = async (req, res, next) => {
     const weekCutoffTime = String(schedule?.weekEndsSundayAt || access.class?.week_start_time || '00:00');
     const weekTimeZone = String(schedule?.weekTimeZone || 'UTC');
     let computedPoints = null;
-    if (eventCategory === 'fitness' && caloriesBurned != null && caloriesPerPoint > 0) {
+    const isRunLike = activityLower.includes('run') || activityLower.includes('walk') || activityLower.includes('ruck') || activityLower.includes('step');
+    if (caloriesBurned != null && caloriesPerPoint > 0 && isRunLike) {
+      // Calorie-based points for endurance activities across all season types
+      computedPoints = Math.max(0, Math.floor(caloriesBurned / caloriesPerPoint));
+    } else if (eventCategory === 'fitness' && caloriesBurned != null && caloriesPerPoint > 0) {
       computedPoints = Math.max(0, Math.floor(caloriesBurned / caloriesPerPoint));
     } else if (eventCategory === 'run_ruck' && distanceValue != null && Number.isFinite(distanceValue)) {
       if (activityLower.includes('ruck')) {

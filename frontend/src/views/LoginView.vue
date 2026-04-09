@@ -239,6 +239,27 @@
           </span>
         </button>
 
+        <!-- Biometric login button (native only, when token is saved) -->
+        <div v-if="showBiometricButton" class="biometric-login-wrap">
+          <button
+            type="button"
+            class="btn biometric-btn"
+            :disabled="biometricLoading"
+            @click="tryBiometricLogin"
+          >
+            <span v-if="biometricLoading">Authenticating…</span>
+            <span v-else-if="String(biometricType || '').toLowerCase().includes('face')">
+              Face ID
+            </span>
+            <span v-else-if="String(biometricType || '').toLowerCase().includes('touch') || String(biometricType || '').toLowerCase().includes('fingerprint')">
+              Touch ID
+            </span>
+            <span v-else>Sign in with Biometrics</span>
+          </button>
+          <p v-if="biometricError" class="biometric-error">{{ biometricError }}</p>
+          <div class="biometric-divider"><span>or use password</span></div>
+        </div>
+
         <div :class="{ 'app-auth-panel': isAppLike, 'ipad-auth-panel': isIpadPreviewMode }">
           <form @submit.prevent="handleSubmit" class="login-form">
             <div
@@ -454,6 +475,12 @@ import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
+import {
+  isNativePlatform,
+  checkBiometricAvailability,
+  hasSavedToken,
+  authenticateWithBiometrics
+} from '../utils/biometricAuth';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 import api from '../services/api';
@@ -480,6 +507,29 @@ const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const APP_PREVIEW_STORAGE_KEY = '__pt_local_app_preview__';
 const showAppPreviewToggle = import.meta.env.DEV;
+
+// ── Biometric authentication ─────────────────────────────────────────────────
+const biometricAvailable = ref(false);
+const biometricType = ref(null);       // 'touchId' | 'faceId' | 'biometric' | null
+const biometricLoading = ref(false);
+const biometricError = ref('');
+const showBiometricButton = computed(() => isNativePlatform() && biometricAvailable.value);
+
+const tryBiometricLogin = async () => {
+  biometricLoading.value = true;
+  biometricError.value = '';
+  const result = await authenticateWithBiometrics('Sign in to Summit Stats');
+  if (result.success && result.token) {
+    authStore.setAuth(result.token, result.user);
+    const dest = getDashboardRoute(result.user, loginSlug.value || 'ssc');
+    await router.replace(dest);
+  } else {
+    biometricError.value = result.error && !result.error.includes('cancel')
+      ? 'Biometric login failed. Use your password below.'
+      : '';
+  }
+  biometricLoading.value = false;
+};
 const APP_PREVIEW_MODES = new Set(['off', 'phone', 'ipad']);
 const appPreviewMode = ref('off');
 const showAppMoreLinks = ref(false);
@@ -763,6 +813,18 @@ const fetchLoginTheme = async (portalUrl) => {
 
 // Ensure branding is loaded before rendering
 onMounted(async () => {
+  // Check biometric availability on native platforms
+  if (isNativePlatform()) {
+    const [{ available, biometryType }, hasToken] = await Promise.all([
+      checkBiometricAvailability(),
+      hasSavedToken()
+    ]);
+    if (available && hasToken) {
+      biometricAvailable.value = true;
+      biometricType.value = biometryType;
+    }
+  }
+
   if (showAppPreviewToggle) {
     try {
       const raw = String(localStorage.getItem(APP_PREVIEW_STORAGE_KEY) || '').trim().toLowerCase();
@@ -2649,5 +2711,48 @@ const handleLogoError = (event) => {
 .debug-note {
   margin: 8px 0 0 0;
   color: #6b7280;
+}
+
+/* ── Biometric login ─────────────────────────────────────────────── */
+.biometric-login-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.biometric-btn {
+  width: 100%;
+  padding: 14px 20px;
+  font-size: 1rem;
+  font-weight: 700;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+  color: #fff;
+  border: 2px solid rgba(255,255,255,0.15);
+  letter-spacing: 0.02em;
+  transition: opacity 0.2s;
+}
+.biometric-btn:disabled { opacity: 0.65; }
+.biometric-btn:not(:disabled):hover { opacity: 0.9; }
+.biometric-error {
+  color: #ef4444;
+  font-size: 0.82em;
+  text-align: center;
+}
+.biometric-divider {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255,255,255,0.45);
+  font-size: 0.78em;
+}
+.biometric-divider::before,
+.biometric-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255,255,255,0.2);
 }
 </style>

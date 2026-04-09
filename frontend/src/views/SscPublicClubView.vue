@@ -83,6 +83,12 @@
             class="pub-act pub-act--season"
             @click="goSeason"
           >{{ seasonButtonLabel }}</button>
+          <button
+            v-if="isSignedIn && primarySeasonButton"
+            type="button"
+            class="pub-act pub-act--upload"
+            @click="goQuickUpload"
+          >⬆ Log Workout</button>
         </div>
       </div>
 
@@ -515,6 +521,13 @@ const goSeason = () => {
   const id = cur?.id || up?.id;
   if (!id) return;
   router.push(`/${orgSlug.value}/season/${id}`);
+};
+
+const goQuickUpload = () => {
+  const cur = clubData.value?.currentSeason;
+  const id = cur?.id;
+  if (!id) return;
+  router.push({ path: `/${orgSlug.value}/season/${id}`, query: { openUpload: '1' } });
 };
 
 const joinUpcomingSeason = async () => {
@@ -969,6 +982,7 @@ onBeforeUnmount(() => {
 .pub-act--members { background: linear-gradient(135deg, #0e7490, #14b8a6); }
 .pub-act--events { background: linear-gradient(135deg, #c2410c, #f97316); }
 .pub-act--season { background: linear-gradient(135deg, #b45309, #eab308); }
+.pub-act--upload { background: linear-gradient(135deg, #dc2626, #ef4444); font-weight: 700; }
 .pub-act--dashboard {
   background: linear-gradient(135deg, #334155, #64748b);
   text-decoration: none;

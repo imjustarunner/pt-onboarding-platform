@@ -58,7 +58,11 @@ export const parseVisionText = (rawText) => {
     const secs = parseInt(dur2[2]);
     durationMinutes = mins + secs / 60;
   }
-  if (durationMinutes != null) durationMinutes = Math.round(durationMinutes);
+  let durationSeconds = null;
+  if (durationMinutes != null) {
+    durationSeconds = Math.round((durationMinutes - Math.floor(durationMinutes)) * 60);
+    durationMinutes = Math.floor(durationMinutes);
+  }
 
   // ── Pace ──────────────────────────────────────────────────────────────────
   // Matches: "8'32"/mi", "8:32 /mi", "8:32 min/mi", "5:10 /km"
@@ -106,25 +110,33 @@ export const parseVisionText = (rawText) => {
   }
 
   // ── Terrain detection ─────────────────────────────────────────────────────
-  // Look for keyword clues in the text
+  // Look for keyword clues in the text (Race removed — use the "This was a race" toggle instead)
   let terrain = null;
   const textLow = text.toLowerCase();
-  if (/treadmill|tread mill/.test(textLow))       terrain = 'Treadmill';
-  else if (/track/.test(textLow))                 terrain = 'Track';
+  if (/treadmill|tread mill/.test(textLow))            terrain = 'Treadmill';
+  else if (/track/.test(textLow))                      terrain = 'Track';
   else if (/trail|dirt|offroad|off-road/.test(textLow)) terrain = 'Trail';
-  else if (/race|5k|10k|half marathon|marathon/.test(textLow)) terrain = 'Race';
 
   // ── Activity type hint ────────────────────────────────────────────────────
+  // Scan the first ~80 chars first (likely the workout title) so a name like
+  // "Afternoon Run" or "Morning Ruck" takes priority over body keywords.
+  const titleChunk = textLow.slice(0, 80);
   let activityTypeHint = null;
-  if (/ruck(?:ing)?/.test(textLow))               activityTypeHint = 'Ruck';
-  else if (/trail\s+run/.test(textLow))           activityTypeHint = 'Trail Run';
-  else if (/walk(?:ing)?/.test(textLow))          activityTypeHint = 'Walk';
-  else if (/run(?:ning)?|jog(?:ging)?/.test(textLow)) activityTypeHint = 'Run';
-  else if (/bike|cycling|ride/.test(textLow))     activityTypeHint = 'Bike';
+  if (/ruck(?:ing)?/.test(titleChunk))                  activityTypeHint = 'ruck';
+  else if (/walk(?:ing)?|hike|hiking/.test(titleChunk)) activityTypeHint = 'walk';
+  else if (/run(?:ning)?|jog(?:ging)?/.test(titleChunk)) activityTypeHint = 'run';
+  else if (/bike|cycling|ride/.test(titleChunk))        activityTypeHint = 'cycling';
+  // fallback: full-text scan
+  else if (/ruck(?:ing)?/.test(textLow))               activityTypeHint = 'ruck';
+  else if (/walk(?:ing)?|hike|hiking/.test(textLow))   activityTypeHint = 'walk';
+  else if (/run(?:ning)?|jog(?:ging)?/.test(textLow))  activityTypeHint = 'run';
+  else if (/bike|cycling|ride/.test(textLow))          activityTypeHint = 'cycling';
+  else if (/step|stairs/.test(textLow))                activityTypeHint = 'steps';
 
   return {
     distanceMiles:      distanceMiles,
     durationMinutes:    durationMinutes,
+    durationSeconds:    durationSeconds,
     caloriesBurned:     caloriesBurned,
     paceSecondsPerMile: paceSecondsPerMile,
     completedAt:        completedAt,
@@ -154,7 +166,7 @@ export const scanWorkoutScreenshot = async ({ fileBuffer, mimeType = 'image/jpeg
   // Compute a simple confidence score based on how many key fields were found
   let fieldsFound = 0;
   if (extracted.distanceMiles   != null) fieldsFound++;
-  if (extracted.durationMinutes != null) fieldsFound++;
+  if (extracted.durationMinutes != null || extracted.durationSeconds != null) fieldsFound++;
   if (extracted.caloriesBurned  != null) fieldsFound++;
   if (extracted.completedAt     != null) fieldsFound++;
   if (extracted.paceSecondsPerMile != null) fieldsFound++;
@@ -198,5 +210,5 @@ export const enqueueWorkoutVision = async ({
       errorMessage
     ]
   );
-  return { queued: enabled };
+  return { queued: true };
 };

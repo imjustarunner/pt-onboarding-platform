@@ -632,11 +632,15 @@
                     <input v-model.number="workoutForm.durationSeconds" type="number" min="0" max="59" placeholder="sec" style="width:56px;" />
                   </div>
                 </div>
-                <div class="form-row" v-if="eventCategory === 'fitness'">
-                  <label>Calories</label>
+                <div class="form-row">
+                  <label>Calories <span class="hint-inline">(optional — used for points)</span></label>
                   <input v-model.number="workoutForm.caloriesBurned" type="number" min="0" placeholder="Optional" />
                 </div>
-                <div class="form-row">
+                <div class="form-row" v-if="pointsPreview != null">
+                  <label>Points</label>
+                  <span class="points-preview">≈ {{ pointsPreview }} pts <em>(auto from calories)</em></span>
+                </div>
+                <div class="form-row" v-else>
                   <label>Points</label>
                   <input v-model.number="workoutForm.points" type="number" min="0" required />
                 </div>
@@ -650,7 +654,6 @@
                   <option value="Track">Track</option>
                   <option value="Beach">Beach</option>
                   <option value="Treadmill">Treadmill</option>
-                  <option value="Race">Race</option>
                   <option value="Other">Other</option>
                 </select>
               </div>
@@ -1085,6 +1088,20 @@ const eventCategory = computed(() => {
   const settings = challenge.value?.season_settings_json;
   const category = settings && typeof settings === 'object' ? settings?.event?.category : null;
   return String(category || 'run_ruck').toLowerCase() === 'fitness' ? 'fitness' : 'run_ruck';
+});
+
+const caloriesPerPoint = computed(() => {
+  const scoring = challenge.value?.season_settings_json?.scoring || {};
+  return Number(scoring.caloriesPerPoint || 100) || 100;
+});
+
+const pointsPreview = computed(() => {
+  const cal = workoutForm.value?.caloriesBurned;
+  if (!cal || cal <= 0) return null;
+  const activityLow = String(workoutForm.value?.activityType || '').toLowerCase();
+  const isEndurance = ['run', 'ruck', 'walk', 'steps'].some(t => activityLow.includes(t));
+  if (!isEndurance && eventCategory.value !== 'fitness') return null;
+  return Math.floor(cal / caloriesPerPoint.value);
 });
 
 // ── Week deadline countdown ──────────────────────────────────────
@@ -1651,9 +1668,15 @@ const analyzeScreenshot = async () => {
     const anyExtracted = ex.distanceMiles != null || ex.durationMinutes != null || ex.caloriesBurned != null;
     if (ex.distanceMiles   != null && !workoutForm.value.distanceValue)   workoutForm.value.distanceValue   = ex.distanceMiles;
     if (ex.durationMinutes != null && !workoutForm.value.durationMinutes) workoutForm.value.durationMinutes = ex.durationMinutes;
+    if (ex.durationSeconds != null && !workoutForm.value.durationSeconds) workoutForm.value.durationSeconds = ex.durationSeconds;
     if (ex.caloriesBurned  != null && !workoutForm.value.caloriesBurned)  workoutForm.value.caloriesBurned  = ex.caloriesBurned;
     if (ex.terrain         && !workoutForm.value.terrain)                  workoutForm.value.terrain         = ex.terrain;
-    if (ex.activityTypeHint && !workoutForm.value.activityType)            workoutForm.value.activityType    = ex.activityTypeHint;
+    if (ex.activityTypeHint && !workoutForm.value.activityType) {
+      // Normalize hint to canonical lowercase form used by the activity type options
+      const hintMap = { run: 'run', ruck: 'ruck', walk: 'walk', cycling: 'cycling', steps: 'steps',
+        'trail run': 'run', jog: 'run', bike: 'cycling', ride: 'cycling' };
+      workoutForm.value.activityType = hintMap[ex.activityTypeHint.toLowerCase()] || ex.activityTypeHint.toLowerCase();
+    }
     visionConfidence.value = data.confidence || 0;
     // Only show "auto-filled" banner when OCR actually ran and found something
     visionExtracted.value = data.visionEnabled && anyExtracted;
@@ -1876,6 +1899,15 @@ onMounted(async () => {
   countdownTimer = setInterval(tickCountdown, 30000); // refresh every 30 s
   if (route.query?.strava === 'import' && stravaImportAvailable.value) {
     await openStravaImportModal();
+  } else if (route.query?.openUpload === '1') {
+    // Quick-upload shortcut: prefer Strava import if connected, else open manual form
+    if (stravaImportAvailable.value) {
+      await openStravaImportModal();
+    } else {
+      showLogWorkoutModal.value = true;
+    }
+  } else if (route.query?.openManual === '1') {
+    showLogWorkoutModal.value = true;
   }
 });
 
@@ -2426,6 +2458,19 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   border: 1px solid #ccc;
   border-radius: 4px;
 }
+.hint-inline {
+  font-size: 0.8em;
+  color: var(--text-muted, #888);
+  font-weight: 400;
+}
+.points-preview {
+  font-size: 0.95em;
+  color: var(--primary, #2563eb);
+  padding: 6px 8px;
+  background: rgba(37,99,235,0.07);
+  border-radius: 6px;
+}
+.points-preview em { font-size: 0.85em; color: var(--text-muted, #888); }
 .race-toggle-row { margin-top: 4px; }
 .race-toggle-label {
   display: flex;

@@ -2159,6 +2159,18 @@ router.beforeEach(async (to, from, next) => {
     const isSummitStatsAlias =
       rawPath === '/summit-stats' || rawPath.startsWith('/summit-stats/');
 
+    // Hard block: if the path contains an org slug that is NOT the native SSC slug,
+    // redirect to the SSC dashboard. This prevents native users from accidentally or
+    // intentionally navigating to other organizations' portals.
+    if (!isAlreadyScoped && !isSummitStatsAlias) {
+      const orgSlugInPath = rawPath.match(/^\/([^/]+)\//)?.[1] || rawPath.match(/^\/([^/]+)$/)?.[1];
+      if (orgSlugInPath && orgSlugInPath !== NATIVE_APP_ORG_SLUG && orgSlugInPath !== 'login') {
+        const dest = rawPath.startsWith('/') ? `/${NATIVE_APP_ORG_SLUG}` + rawPath.slice(1 + orgSlugInPath.length) : `/${NATIVE_APP_ORG_SLUG}/my_club_dashboard`;
+        next({ path: dest || `/${NATIVE_APP_ORG_SLUG}/my_club_dashboard`, query: to.query, hash: to.hash, replace: true });
+        return;
+      }
+    }
+
     if (isSummitStatsAlias) {
       const rest = rawPath === '/summit-stats' ? '' : rawPath.slice('/summit-stats'.length);
       next({ path: `/${NATIVE_APP_ORG_SLUG}${rest}`, query: to.query, hash: to.hash, replace: true });

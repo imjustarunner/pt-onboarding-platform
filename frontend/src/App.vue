@@ -4980,4 +4980,15 @@ main.main-no-global-chrome {
 .is-native .brand-caret {
   display: none;
 }
+
+/* ── Prevent horizontal scroll / rubber-band bounce on all platforms ── */
+html, body {
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+/* Native iOS: restrict touch gestures to vertical pan only */
+.is-native body {
+  touch-action: pan-y;
+  overscroll-behavior: none;
+}
 </style>

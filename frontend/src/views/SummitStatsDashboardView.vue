@@ -70,6 +70,12 @@
             <button type="button" class="btn btn-primary btn-sm" @click="openSeason(season)">
               Open Season
             </button>
+            <button
+              v-if="season.bucket !== 'upcoming'"
+              type="button"
+              class="btn btn-upload btn-sm"
+              @click="router.push({ path: `/${navSlug}/season/${season.classId}`, query: { openUpload: '1' } })"
+            >⬆ Log Workout</button>
             <template v-if="isManagedClub(season.clubId)">
               <router-link
                 :to="`/${navSlug}/club/seasons?manageSeason=${season.classId}`"
@@ -1949,4 +1955,11 @@ watch(() => route.params.organizationSlug, () => {
 }
 .integ-future-name { font-weight: 700; font-size: 0.82rem; }
 .integ-future-note { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+.btn-upload {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+}
+.btn-upload:hover { opacity: 0.88; }
 </style>
