@@ -350,11 +350,11 @@
                 </div>
                 <div>
                   <dt>Gender</dt>
-                  <dd>{{ formatText(summary?.account?.gender) }}</dd>
+                  <dd>{{ summary?.account?.gender ? formatGenderOptionLabel(summary.account.gender) : 'Not set' }}</dd>
                 </div>
                 <div>
                   <dt>Date of birth</dt>
-                  <dd>{{ summary?.account?.dateOfBirth ? new Date(summary.account.dateOfBirth + 'T12:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }) : 'Not set' }}</dd>
+                  <dd>{{ formatDOBDisplay(summary?.account?.dateOfBirth) }}</dd>
                 </div>
                 <div v-if="allowCustomPronouns">
                   <dt>Pronouns</dt>
@@ -515,6 +515,23 @@
           <router-link :to="`/${orgSlug}/clubs`" class="btn btn-secondary btn-sm">
             Apply to a Club
           </router-link>
+        </div>
+
+        <!-- Security card -->
+        <div v-if="!accountEditing" class="snapshot-security-card">
+          <div class="snapshot-security-header">
+            <strong>Security</strong>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="$router.push('/change-password')"
+            >
+              Change Password
+            </button>
+          </div>
+          <p class="snapshot-security-hint">
+            You can change your password at any time.
+          </p>
         </div>
       </article>
     </section>
@@ -1034,6 +1051,18 @@ const formatWhole = (value) => Number(value || 0).toLocaleString();
 const formatDecimal = (value) => Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 const formatText = (value) => String(value || '').trim() || 'Not set';
 const formatParagraph = (value) => String(value || '').trim() || 'Nothing added yet.';
+const formatDOBDisplay = (raw) => {
+  if (!raw) return 'Not set';
+  let iso = String(raw).trim();
+  // Convert MM/DD/YYYY → YYYY-MM-DD so Date parses it correctly
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(iso)) {
+    const [m, d, y] = iso.split('/');
+    iso = `${y}-${m}-${d}`;
+  }
+  const d = new Date(`${iso}T12:00:00`);
+  if (isNaN(d)) return 'Not set';
+  return d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+};
 const formatDate = (value) => {
   if (!value) return 'recently';
   return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1514,6 +1543,22 @@ watch(() => route.params.organizationSlug, () => {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 14px;
+}
+.snapshot-security-card {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+.snapshot-security-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.snapshot-security-hint {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #6b7280;
 }
 
 .pill {

@@ -2023,6 +2023,7 @@ const showEngagementMenu = computed(() => {
 const showAvailabilityHint = ref(false);
 const savingAvailability = ref(false);
 const showGlobalAvailabilityToggle = computed(() => {
+  if (isSummitStatsChallengeChrome.value) return false;
   const role = String(user.value?.role || '').toLowerCase();
   return role === 'provider' || role === 'supervisor';
 });
@@ -2561,8 +2562,12 @@ const myDashboardTo = computed(() => {
   return orgTo('/dashboard');
 });
 
-/** "My Account" = personal club member surface; "Manager Dashboard" = club_manager admin surface. */
+/** "My Account" = personal account/security page; "My Dashboard" = club home. */
 const myAccountNavTo = computed(() => {
+  if (isSscSstcTenant.value) {
+    // SSC: My Account navigates to the account info panel (security card, password change, etc.)
+    return { path: orgTo('/dashboard'), query: { tab: 'my', my: 'account' } };
+  }
   if (isSscClubManager.value) {
     return { path: orgTo('/my_club_dashboard'), query: { tab: 'my' } };
   }
