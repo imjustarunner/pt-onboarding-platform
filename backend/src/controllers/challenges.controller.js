@@ -686,10 +686,12 @@ export const submitWorkout = async (req, res, next) => {
     }
     const points = computedPoints != null ? computedPoints : (Math.round((Number(req.body.points) || 0) * 100) / 100);
     const completedAt = req.body.completedAt ? new Date(req.body.completedAt) : new Date();
-    // Same-day rule: workouts can only be logged on the day they were completed
-    const todayUTC = new Date().toISOString().slice(0, 10);
-    const completedUTC = completedAt.toISOString().slice(0, 10);
-    if (completedUTC !== todayUTC) {
+    // Same-day rule: workouts must be logged on the day they were completed,
+    // evaluated in the season/club timezone so members aren't cut off at UTC midnight.
+    const sameDayTz = weekTimeZone || 'UTC';
+    const todayInTz     = new Intl.DateTimeFormat('en-CA', { timeZone: sameDayTz }).format(new Date());
+    const completedInTz = new Intl.DateTimeFormat('en-CA', { timeZone: sameDayTz }).format(completedAt);
+    if (completedInTz !== todayInTz) {
       return res.status(400).json({ error: { message: 'Workouts can only be logged on the day they were completed. You cannot backdate or future-date a workout.' } });
     }
     const completedWeekStart = getWeekStartDate(completedAt, weekCutoffTime, weekTimeZone);

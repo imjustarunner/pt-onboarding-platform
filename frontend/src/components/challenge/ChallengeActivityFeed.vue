@@ -25,6 +25,17 @@
         </button>
       </div>
     </div>
+    <!-- Manager quick-review toolbar -->
+    <div v-if="props.isManager && pendingWorkouts.length" class="manager-review-bar">
+      <span class="pending-count-label">
+        <span class="pending-dot" />
+        {{ pendingWorkouts.length }} workout{{ pendingWorkouts.length === 1 ? '' : 's' }} pending review
+      </span>
+      <button type="button" class="btn-expand-pending" @click="expandAllPending">
+        Expand all pending ▼
+      </button>
+    </div>
+
     <div v-if="loading" class="loading-inline">Loading…</div>
     <div v-else class="activity-list">
       <div
@@ -473,6 +484,23 @@ const filteredWorkouts = computed(() => {
   }
   return list;
 });
+
+/** Workouts that a manager still needs to review (pending proof). */
+const pendingWorkouts = computed(() =>
+  filteredWorkouts.value.filter((w) =>
+    w.proof_status === 'pending' ||
+    (Number(w.is_treadmill) === 1 && w.proof_status !== 'approved' && w.proof_status !== 'rejected')
+  )
+);
+
+/** Open the "More info" panel for every pending workout so the manager can review them all at once. */
+const expandAllPending = () => {
+  const updated = { ...moreInfoOpen.value };
+  for (const w of pendingWorkouts.value) {
+    updated[w.id] = true;
+  }
+  moreInfoOpen.value = updated;
+};
 
 const commentsOpen    = ref({});
 const moreInfoOpen    = ref({});
@@ -1118,6 +1146,52 @@ const reviewProof = async (workoutId, status) => {
   color: #0f172a;
   box-shadow: inset 0 -2px 0 #2563eb;
 }
+/* Manager pending-review toolbar */
+.manager-review-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+}
+.pending-count-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88em;
+  font-weight: 600;
+  color: #92400e;
+}
+.pending-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  flex-shrink: 0;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.75); }
+}
+.btn-expand-pending {
+  border: 1px solid #f59e0b;
+  background: #fff;
+  color: #92400e;
+  border-radius: 8px;
+  padding: 5px 14px;
+  font-size: 0.82em;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.btn-expand-pending:hover { background: #fef3c7; }
+
 .activity-list {
   display: flex;
   flex-direction: column;

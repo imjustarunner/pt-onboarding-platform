@@ -1715,12 +1715,12 @@ const openStravaImportModal = async () => {
   stravaActivitiesError.value = null;
   stravaActivitiesLoading.value = true;
   try {
-    // Fetch only today's activities: after = start of today (local midnight as UTC seconds)
+    // Fetch only today's activities: after = start of today in local time (as UTC epoch seconds)
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const after = Math.floor(todayStart.getTime() / 1000);
     const r = await api.get('/strava/activities', { params: { after, per_page: 50 }, skipGlobalLoading: true });
-    // Extra client-side filter to today's date (handles timezone edge cases)
-    const todayDateStr = new Date().toISOString().slice(0, 10);
+    // Use the browser's local date (en-CA gives YYYY-MM-DD) to match start_date_local from Strava
+    const todayDateStr = new Date().toLocaleDateString('en-CA');
     const all = Array.isArray(r.data?.activities) ? r.data.activities : [];
     stravaActivities.value = all.filter((a) => {
       const d = (a.start_date_local || a.start_date || '').slice(0, 10);

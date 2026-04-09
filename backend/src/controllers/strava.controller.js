@@ -359,12 +359,13 @@ export const stravaImport = async (req, res, next) => {
       ].filter(Boolean);
       const workoutNotes = noteParts.length ? noteParts.join('\n') : null;
       const points = computePointsFromStrava(activity, activityType, stravaScoring);
-      // start_date_local is the activity's local clock time — use it for same-day comparison
+      // Same-day check: compare the activity's local date against today in the season/club timezone.
+      // start_date_local from Strava is already the athlete's local clock date (YYYY-MM-DD…).
       const activityLocalDate = activity.start_date_local
         ? String(activity.start_date_local).slice(0, 10)
-        : (activity.start_date ? new Date(activity.start_date).toISOString().slice(0, 10) : null);
-      const todayUTC = new Date().toISOString().slice(0, 10);
-      if (!activityLocalDate || activityLocalDate !== todayUTC) {
+        : (activity.start_date ? new Intl.DateTimeFormat('en-CA', { timeZone: weekTimeZone }).format(new Date(activity.start_date)) : null);
+      const todayInTz = new Intl.DateTimeFormat('en-CA', { timeZone: weekTimeZone }).format(new Date());
+      if (!activityLocalDate || activityLocalDate !== todayInTz) {
         skipped.push({ stravaId, reason: 'not_today', date: activityLocalDate });
         continue;
       }
