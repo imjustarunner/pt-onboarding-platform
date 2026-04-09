@@ -2731,7 +2731,12 @@ export const getClubMemberSeasonHistory = async (req, res, next) => {
       email: latestApplication?.email || member.email || '',
       phone: latestApplication?.phone || null,
       gender: latestApplication?.gender || latestParticipantProfile?.gender || null,
-      dateOfBirth: latestApplication?.date_of_birth || latestParticipantProfile?.date_of_birth || null,
+      dateOfBirth: (() => {
+        const raw = latestApplication?.date_of_birth || latestParticipantProfile?.date_of_birth || null;
+        if (!raw) return null;
+        if (raw instanceof Date) return raw.toISOString().slice(0, 10);
+        return String(raw).slice(0, 10);
+      })(),
       weightLbs: latestApplication?.weight_lbs != null ? Number(latestApplication.weight_lbs) : (latestParticipantProfile?.weight_lbs != null ? Number(latestParticipantProfile.weight_lbs) : null),
       heightInches: latestApplication?.height_inches != null ? Number(latestApplication.height_inches) : (latestParticipantProfile?.height_inches != null ? Number(latestParticipantProfile.height_inches) : null),
       timezone: latestApplication?.timezone || null,
@@ -3349,7 +3354,13 @@ export const getMyDashboardSummary = async (req, res, next) => {
         currentFitnessActivities: latestApplication?.current_fitness_activities || user.profile_current_fitness_activities || null,
         gender: latestApplication?.gender || user.profile_gender || null,
         pronouns: latestApplication?.pronouns || null,
-        dateOfBirth: latestApplication?.date_of_birth || user.profile_date_of_birth || null,
+        dateOfBirth: (() => {
+          const raw = latestApplication?.date_of_birth || user.profile_date_of_birth || null;
+          if (!raw) return null;
+          // MySQL DATE columns come back as JS Date objects; normalize to YYYY-MM-DD string.
+          if (raw instanceof Date) return raw.toISOString().slice(0, 10);
+          return String(raw).slice(0, 10);
+        })(),
         weightLbs: latestApplication?.weight_lbs != null ? Number(latestApplication.weight_lbs) : null,
         heightInches: latestApplication?.height_inches != null ? Number(latestApplication.height_inches) : null,
         phone: latestApplication?.phone || user.personal_phone || null,
