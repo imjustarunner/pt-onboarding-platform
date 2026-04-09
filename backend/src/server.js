@@ -839,6 +839,34 @@ if (!isBootstrap) {
     }
   })();
 
+  // Migration 693 – user profile fields on users table (gender, DOB, fitness background, etc.)
+  // Storing these directly on users guarantees they persist regardless of challenge_member_applications.
+  (async () => {
+    try {
+      const { default: pool } = await import('./config/database.js');
+      const [cols] = await pool.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+           AND COLUMN_NAME = 'profile_gender'`
+      );
+      if (!cols.length) {
+        await pool.execute(
+          `ALTER TABLE users
+             ADD COLUMN profile_gender                VARCHAR(100)     NULL DEFAULT NULL,
+             ADD COLUMN profile_date_of_birth         DATE             NULL DEFAULT NULL,
+             ADD COLUMN profile_average_miles_per_week DECIMAL(6,2)    NULL DEFAULT NULL,
+             ADD COLUMN profile_average_hours_per_week DECIMAL(6,2)    NULL DEFAULT NULL,
+             ADD COLUMN profile_heard_about_club       TEXT             NULL DEFAULT NULL,
+             ADD COLUMN profile_running_fitness_background TEXT         NULL DEFAULT NULL,
+             ADD COLUMN profile_current_fitness_activities TEXT         NULL DEFAULT NULL`
+        );
+        console.log('[startup] Migration 693 applied: user profile columns added to users table');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 693 check skipped:', err.message);
+    }
+  })();
+
   // Set up periodic processing of terminated and completed users
   // Run every hour to check for users that need to be marked inactive or archived
   setInterval(async () => {

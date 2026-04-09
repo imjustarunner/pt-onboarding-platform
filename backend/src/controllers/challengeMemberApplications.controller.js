@@ -3041,14 +3041,29 @@ export const getMyDashboardSummary = async (req, res, next) => {
     const userId = toInt(req.user?.id);
     if (!userId) return res.status(401).json({ error: { message: 'Sign in required' } });
 
-    const [userRows] = await pool.execute(
-      `SELECT id, email, first_name, last_name, role, status, timezone, created_at, profile_photo_path, personal_phone,
-              home_street_address, home_address_line2, home_city, home_state, home_postal_code
-       FROM users
-       WHERE id = ?
-       LIMIT 1`,
-      [userId]
-    );
+    let userRows;
+    try {
+      [userRows] = await pool.execute(
+        `SELECT id, email, first_name, last_name, role, status, timezone, created_at, profile_photo_path, personal_phone,
+                home_street_address, home_address_line2, home_city, home_state, home_postal_code,
+                profile_gender, profile_date_of_birth, profile_average_miles_per_week, profile_average_hours_per_week,
+                profile_heard_about_club, profile_running_fitness_background, profile_current_fitness_activities
+         FROM users
+         WHERE id = ?
+         LIMIT 1`,
+        [userId]
+      );
+    } catch {
+      // Migration 693 columns may not exist yet — fall back to base columns.
+      [userRows] = await pool.execute(
+        `SELECT id, email, first_name, last_name, role, status, timezone, created_at, profile_photo_path, personal_phone,
+                home_street_address, home_address_line2, home_city, home_state, home_postal_code
+         FROM users
+         WHERE id = ?
+         LIMIT 1`,
+        [userId]
+      );
+    }
     const user = userRows?.[0];
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
 
@@ -3323,14 +3338,18 @@ export const getMyDashboardSummary = async (req, res, next) => {
       account: {
         billingPlan: 'Free account',
         billingStatus: 'active',
-        heardAboutClub: latestApplication?.heard_about_club || null,
-        runningFitnessBackground: latestApplication?.running_fitness_background || null,
-        averageMilesPerWeek: latestApplication?.average_miles_per_week != null ? Number(latestApplication.average_miles_per_week) : null,
-        averageHoursPerWeek: latestApplication?.average_hours_per_week != null ? Number(latestApplication.average_hours_per_week) : null,
-        currentFitnessActivities: latestApplication?.current_fitness_activities || null,
-        gender: latestApplication?.gender || null,
+        heardAboutClub: latestApplication?.heard_about_club || user.profile_heard_about_club || null,
+        runningFitnessBackground: latestApplication?.running_fitness_background || user.profile_running_fitness_background || null,
+        averageMilesPerWeek: latestApplication?.average_miles_per_week != null
+          ? Number(latestApplication.average_miles_per_week)
+          : (user.profile_average_miles_per_week != null ? Number(user.profile_average_miles_per_week) : null),
+        averageHoursPerWeek: latestApplication?.average_hours_per_week != null
+          ? Number(latestApplication.average_hours_per_week)
+          : (user.profile_average_hours_per_week != null ? Number(user.profile_average_hours_per_week) : null),
+        currentFitnessActivities: latestApplication?.current_fitness_activities || user.profile_current_fitness_activities || null,
+        gender: latestApplication?.gender || user.profile_gender || null,
         pronouns: latestApplication?.pronouns || null,
-        dateOfBirth: latestApplication?.date_of_birth || null,
+        dateOfBirth: latestApplication?.date_of_birth || user.profile_date_of_birth || null,
         weightLbs: latestApplication?.weight_lbs != null ? Number(latestApplication.weight_lbs) : null,
         heightInches: latestApplication?.height_inches != null ? Number(latestApplication.height_inches) : null,
         phone: latestApplication?.phone || user.personal_phone || null,
@@ -3560,6 +3579,39 @@ export const putMyAccountSnapshot = async (req, res, next) => {
           }
         }
       }
+    }
+
+    // Always persist profile fields directly to users table (Migration 693 columns).
+    // This is the canonical store for managers who may never have a challenge_member_applications row.
+    try {
+      const userProfileUpdates = [];
+      const userProfileVals = [];
+      const pushUserProfile = (col, val) => { userProfileUpdates.push(`${col} = ?`); userProfileVals.push(val); };
+      if (body.gender !== undefined) pushUserProfile('profile_gender', String(body.gender || '').trim() || null);
+      if (body.dateOfBirth !== undefined) {
+        const dob = body.dateOfBirth ? String(body.dateOfBirth).trim().slice(0, 10) : null;
+        pushUserProfile('profile_date_of_birth', dob && /^\d{4}-\d{2}-\d{2}$/.test(dob) ? dob : null);
+      }
+      if (body.averageMilesPerWeek !== undefined) {
+        const v = body.averageMilesPerWeek;
+        const n = v === null || v === '' ? null : Number(v);
+        pushUserProfile('profile_average_miles_per_week', Number.isFinite(n) ? n : null);
+      }
+      if (body.averageHoursPerWeek !== undefined) {
+        const v = body.averageHoursPerWeek;
+        const n = v === null || v === '' ? null : Number(v);
+        pushUserProfile('profile_average_hours_per_week', Number.isFinite(n) ? n : null);
+      }
+      if (body.heardAboutClub !== undefined) pushUserProfile('profile_heard_about_club', String(body.heardAboutClub || '').trim() || null);
+      if (body.runningFitnessBackground !== undefined) pushUserProfile('profile_running_fitness_background', String(body.runningFitnessBackground || '').trim() || null);
+      if (body.currentFitnessActivities !== undefined) pushUserProfile('profile_current_fitness_activities', String(body.currentFitnessActivities || '').trim() || null);
+      if (userProfileUpdates.length) {
+        userProfileVals.push(userId);
+        await pool.execute(`UPDATE users SET ${userProfileUpdates.join(', ')} WHERE id = ?`, userProfileVals);
+      }
+    } catch (profileErr) {
+      // Migration 693 columns may not exist on this environment yet — non-fatal.
+      console.warn('[putMyAccountSnapshot] Could not save to users profile columns:', profileErr.message);
     }
 
     return res.json({ ok: true });
