@@ -921,6 +921,7 @@ export const submitWorkout = async (req, res, next) => {
       durationMinutes: req.body.durationMinutes != null ? asInt(req.body.durationMinutes) : null,
       durationSeconds: req.body.durationSeconds != null ? Math.min(59, Math.max(0, asInt(req.body.durationSeconds) || 0)) : null,
       caloriesBurned,
+      averageHeartrate: req.body.averageHeartrate != null ? Number(req.body.averageHeartrate) : null,
       points,
       workoutNotes: req.body.workoutNotes ? String(req.body.workoutNotes).trim() : null,
       screenshotFilePath,

@@ -685,14 +685,10 @@
                   </div>
                 </div>
                 <div class="form-row">
-                  <label>Calories <span class="hint-inline">(optional — used for points)</span></label>
-                  <input v-model.number="workoutForm.caloriesBurned" type="number" min="0" placeholder="Optional" />
+                  <label>Avg Heart Rate <span class="hint-inline">(bpm — optional)</span></label>
+                  <input v-model.number="workoutForm.averageHeartrate" type="number" min="30" max="250" placeholder="Auto-filled from screenshot" />
                 </div>
-                <div class="form-row" v-if="pointsPreview != null">
-                  <label>Points</label>
-                  <span class="points-preview">≈ {{ pointsPreview }} pts <em>(auto from calories)</em></span>
-                </div>
-                <div class="form-row" v-else>
+                <div class="form-row">
                   <label>Points</label>
                   <input v-model.number="workoutForm.points" type="number" min="0" required />
                 </div>
@@ -997,6 +993,7 @@ const defaultWorkoutForm = () => ({
   durationMinutes: null,
   durationSeconds: null,
   caloriesBurned: null,
+  averageHeartrate: null,
   points: 0,
   workoutNotes: '',
   weeklyTaskId: null,
@@ -1154,19 +1151,7 @@ const eventCategory = computed(() => {
   return String(category || 'run_ruck').toLowerCase() === 'fitness' ? 'fitness' : 'run_ruck';
 });
 
-const caloriesPerPoint = computed(() => {
-  const scoring = challenge.value?.season_settings_json?.scoring || {};
-  return Number(scoring.caloriesPerPoint || 100) || 100;
-});
 
-const pointsPreview = computed(() => {
-  const cal = workoutForm.value?.caloriesBurned;
-  if (!cal || cal <= 0) return null;
-  const activityLow = String(workoutForm.value?.activityType || '').toLowerCase();
-  const isEndurance = ['run', 'ruck', 'walk', 'steps'].some(t => activityLow.includes(t));
-  if (!isEndurance && eventCategory.value !== 'fitness') return null;
-  return Math.floor(cal / caloriesPerPoint.value);
-});
 
 // ── Week deadline countdown ──────────────────────────────────────
 const weekSchedule = computed(() => {
@@ -1757,11 +1742,12 @@ const analyzeScreenshot = async () => {
     });
     workoutForm.value.screenshotFilePath = data.filePath || null;
     const ex = data.extracted || {};
-    const anyExtracted = ex.distanceMiles != null || ex.durationMinutes != null || ex.caloriesBurned != null;
-    if (ex.distanceMiles   != null && !workoutForm.value.distanceValue)   workoutForm.value.distanceValue   = ex.distanceMiles;
-    if (ex.durationMinutes != null && !workoutForm.value.durationMinutes) workoutForm.value.durationMinutes = ex.durationMinutes;
-    if (ex.durationSeconds != null && !workoutForm.value.durationSeconds) workoutForm.value.durationSeconds = ex.durationSeconds;
-    if (ex.caloriesBurned  != null && !workoutForm.value.caloriesBurned)  workoutForm.value.caloriesBurned  = ex.caloriesBurned;
+    const anyExtracted = ex.distanceMiles != null || ex.durationMinutes != null || ex.caloriesBurned != null || ex.averageHeartrate != null;
+    if (ex.distanceMiles    != null && !workoutForm.value.distanceValue)    workoutForm.value.distanceValue    = ex.distanceMiles;
+    if (ex.durationMinutes  != null && !workoutForm.value.durationMinutes)  workoutForm.value.durationMinutes  = ex.durationMinutes;
+    if (ex.durationSeconds  != null && !workoutForm.value.durationSeconds)  workoutForm.value.durationSeconds  = ex.durationSeconds;
+    if (ex.caloriesBurned   != null && !workoutForm.value.caloriesBurned)   workoutForm.value.caloriesBurned   = ex.caloriesBurned;
+    if (ex.averageHeartrate != null && !workoutForm.value.averageHeartrate) workoutForm.value.averageHeartrate = ex.averageHeartrate;
     if (ex.terrain         && !workoutForm.value.terrain)                  workoutForm.value.terrain         = ex.terrain;
     if (ex.activityTypeHint && !workoutForm.value.activityType) {
       // Normalize hint to canonical lowercase form used by the activity type options
@@ -1822,6 +1808,7 @@ const submitWorkout = async () => {
       durationMinutes: workoutForm.value.durationMinutes || null,
       durationSeconds: workoutForm.value.durationSeconds != null ? workoutForm.value.durationSeconds : null,
       caloriesBurned: workoutForm.value.caloriesBurned || null,
+      averageHeartrate: workoutForm.value.averageHeartrate || null,
       points: workoutForm.value.points || 0,
       workoutNotes: workoutForm.value.workoutNotes || null,
       weeklyTaskId: workoutForm.value.weeklyTaskId || null,

@@ -87,6 +87,17 @@ export const parseVisionText = (rawText) => {
     || text.match(/calories?[:\s]+(\d{3,4})/i);
   if (calMatch) caloriesBurned = parseInt(calMatch[1]);
 
+  // ── Average Heart Rate ────────────────────────────────────────────────────
+  // Matches: "142 bpm", "Avg HR: 142", "Heart Rate 142", "Avg Heart Rate: 142"
+  let averageHeartrate = null;
+  const hrMatch = text.match(/avg\.?\s*h(?:eart\s*)?r(?:ate)?[:\s]*(\d{2,3})\s*b?pm/i)
+    || text.match(/heart\s*rate[:\s]+(\d{2,3})/i)
+    || text.match(/(\d{2,3})\s*bpm/i);
+  if (hrMatch) {
+    const bpm = parseInt(hrMatch[1]);
+    if (bpm >= 30 && bpm <= 250) averageHeartrate = bpm;
+  }
+
   // ── Timestamp / completedAt ───────────────────────────────────────────────
   // Matches ISO, "Apr 3, 2026 7:32 AM", "3/4/2026 07:32", common app formats
   let completedAt = null;
@@ -138,6 +149,7 @@ export const parseVisionText = (rawText) => {
     durationMinutes:    durationMinutes,
     durationSeconds:    durationSeconds,
     caloriesBurned:     caloriesBurned,
+    averageHeartrate:   averageHeartrate,
     paceSecondsPerMile: paceSecondsPerMile,
     completedAt:        completedAt,
     terrain:            terrain,
