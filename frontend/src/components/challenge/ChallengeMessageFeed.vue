@@ -407,6 +407,10 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.challenge-message-feed {
+  padding: 20px 20px 16px;
+}
+.challenge-message-feed > h2 { margin: 0 0 12px; font-size: 1.1em; }
 .chat-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
 .tab-btn {
   border: 1px solid #d8d8d8; background: #fff; border-radius: 999px;

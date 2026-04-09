@@ -1,8 +1,11 @@
 <template>
   <section class="challenge-scoreboard">
-    <h2>Weekly Scoreboard</h2>
+    <div class="sb-header">
+      <span class="sb-icon">📊</span>
+      <h2>Weekly Scoreboard</h2>
+    </div>
     <div class="scoreboard-week-selector">
-      <label>Week</label>
+      <label class="week-label">Week</label>
       <select v-model="selectedWeekIdx" class="week-select">
         <option v-for="(w, i) in seasonWeeks" :key="w.date" :value="i">{{ w.label }}</option>
         <option v-if="!seasonWeeks.length" :value="0" disabled>No weeks available</option>
@@ -11,43 +14,43 @@
     <div v-if="loading" class="loading-inline">Loading…</div>
     <div v-else class="scoreboard-content">
       <div class="scoreboard-block">
-        <h3>Top 5 Athletes</h3>
+        <p class="block-label">🏃 Top 5 Athletes</p>
         <div class="scoreboard-list">
-          <div v-for="(r, idx) in (data?.top5Athletes || [])" :key="`a-${r.user_id}`" class="scoreboard-row">
-            <span class="rank">#{{ idx + 1 }}</span>
+          <div v-for="(r, idx) in (data?.top5Athletes || [])" :key="`a-${r.user_id}`" class="scoreboard-row" :class="rankClass(idx)">
+            <span class="rank-badge">{{ rankMedal(idx) }}</span>
             <UserAvatar :photo-path="r.profile_photo_path" :first-name="r.first_name" :last-name="r.last_name" size="sm" />
             <span class="name">{{ r.first_name }} {{ r.last_name }}</span>
-            <span v-if="r.team_name" class="team">{{ r.team_name }}</span>
-            <span class="points">{{ formatPts(r.total_points) }} pts</span>
+            <span v-if="r.team_name" class="team-tag">{{ r.team_name }}</span>
+            <span class="pts-chip">{{ formatPts(r.total_points) }} pts</span>
           </div>
           <div v-if="!data?.top5Athletes?.length" class="empty-hint">No workouts this week yet.</div>
         </div>
       </div>
       <div class="scoreboard-block">
-        <h3>Top 5 Teams</h3>
+        <p class="block-label">👥 Top 5 Teams</p>
         <div class="scoreboard-list">
-          <div v-for="(r, idx) in (data?.top5Teams || [])" :key="`t-${r.team_id}`" class="scoreboard-row">
-            <span class="rank">#{{ idx + 1 }}</span>
+          <div v-for="(r, idx) in (data?.top5Teams || [])" :key="`t-${r.team_id}`" class="scoreboard-row" :class="rankClass(idx)">
+            <span class="rank-badge">{{ rankMedal(idx) }}</span>
             <span class="name">{{ r.team_name }}</span>
-            <span class="points">{{ formatPts(r.total_points) }} pts</span>
+            <span class="pts-chip">{{ formatPts(r.total_points) }} pts</span>
           </div>
           <div v-if="!data?.top5Teams?.length" class="empty-hint">No team workouts this week yet.</div>
         </div>
       </div>
       <div class="scoreboard-block">
-        <h3>Top Per Team</h3>
+        <p class="block-label">⭐ Top Per Team</p>
         <div class="scoreboard-list">
           <div v-for="r in (data?.topPerTeam || [])" :key="`p-${r.team_id}-${r.user_id}`" class="scoreboard-row">
             <UserAvatar :photo-path="r.profile_photo_path" :first-name="r.first_name" :last-name="r.last_name" size="sm" />
             <span class="name">{{ r.first_name }} {{ r.last_name }}</span>
-            <span class="team">{{ r.team_name }}</span>
-            <span class="points">{{ formatPts(r.total_points) }} pts</span>
+            <span class="team-tag">{{ r.team_name }}</span>
+            <span class="pts-chip">{{ formatPts(r.total_points) }} pts</span>
           </div>
           <div v-if="!data?.topPerTeam?.length" class="empty-hint">No data yet.</div>
         </div>
       </div>
       <div v-if="normalizedRecognition.length" class="scoreboard-block recognition-block">
-        <h3>Recognition of the Week</h3>
+        <p class="block-label">🎖️ Recognition of the Week</p>
         <div class="scoreboard-list">
           <div v-for="entry in normalizedRecognition" :key="entry.categoryId || entry.label" class="scoreboard-row">
             <span v-if="entry.icon && String(entry.icon).startsWith('icon:')" class="recognition-icon">
@@ -89,6 +92,8 @@ import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useSeasonWeeks } from '../../composables/useSeasonWeeks.js';
 
 const formatPts = (v) => parseFloat(Number(v || 0).toFixed(2));
+const rankMedal = (idx) => idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+const rankClass  = (idx) => idx === 0 ? 'rank-gold' : idx === 1 ? 'rank-silver' : idx === 2 ? 'rank-bronze' : '';
 
 const props = defineProps({
   challengeId: { type: [String, Number], required: true },
@@ -166,23 +171,42 @@ defineExpose({ load });
 </script>
 
 <style scoped>
-.challenge-scoreboard h2 { margin: 0 0 12px 0; font-size: 1.1em; }
+.sb-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.sb-icon { font-size: 1.3em; line-height: 1; }
+.sb-header h2 { margin: 0; font-size: 1.15em; font-weight: 700; }
+
 .scoreboard-week-selector { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
-.week-select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 10px; font-size: 0.88em; background: #fff; cursor: pointer; }
+.week-label { font-size: 0.82em; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+.week-select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 12px; font-size: 0.88em; background: #f8fafc; cursor: pointer; font-weight: 500; }
+
 .scoreboard-content { display: flex; flex-direction: column; gap: 20px; }
-.scoreboard-block h3 { margin: 0 0 8px 0; font-size: 1em; font-weight: 600; color: var(--text-muted, #666); }
-.scoreboard-list { display: flex; flex-direction: column; gap: 6px; }
-.scoreboard-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #eee; }
-.scoreboard-row .rank { font-weight: 700; min-width: 36px; color: var(--primary, #0066cc); }
-.scoreboard-row .name { flex: 1; }
-.scoreboard-row .team { font-size: 0.9em; color: var(--text-muted, #666); }
-.scoreboard-row .points { font-weight: 600; color: var(--text-muted, #666); }
-.empty-hint, .loading-inline { padding: 12px; color: var(--text-muted, #666); }
-.scoreboard-row .recognition-icon { font-size: 18px; flex-shrink: 0; display: flex; align-items: center; }
+
+.block-label { margin: 0 0 8px; font-size: 0.78em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; }
+
+.scoreboard-list { display: flex; flex-direction: column; gap: 5px; }
+.scoreboard-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 10px;
+  background: #f8fafc; transition: background 0.15s;
+}
+.scoreboard-row:hover { background: #f1f5f9; }
+.rank-gold   { background: linear-gradient(90deg, #fffbeb 0%, #fef3c7 100%); }
+.rank-silver { background: linear-gradient(90deg, #f8fafc 0%, #f1f5f9 100%); }
+.rank-bronze { background: linear-gradient(90deg, #fff7ed 0%, #ffedd5 100%); }
+
+.rank-badge { font-size: 1.1em; min-width: 28px; text-align: center; line-height: 1; }
+.name { flex: 1; font-size: 0.92em; font-weight: 500; }
+.team-tag { font-size: 0.78em; color: #94a3b8; background: #f1f5f9; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.pts-chip { font-size: 0.82em; font-weight: 700; color: #fff; background: #e63946; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+
+.empty-hint { color: #94a3b8; padding: 8px 0; font-size: 0.9em; }
+.loading-inline { color: #94a3b8; padding: 12px 0; }
+
+.recognition-icon { font-size: 18px; flex-shrink: 0; display: flex; align-items: center; }
 .scoreboard-icon-img { width: 24px; height: 24px; object-fit: contain; display: block; }
-.scoreboard-row .recognition-label { font-weight: 600; min-width: 140px; color: var(--text-primary); }
-.no-winner { color: var(--text-muted, #999); font-style: italic; }
-.recognition-ref { font-weight: 400; color: var(--text-muted, #888); font-size: 0.92em; }
+.recognition-label { font-weight: 600; min-width: 140px; color: var(--text-primary); }
+.no-winner { color: #94a3b8; font-style: italic; }
+.recognition-ref { font-weight: 400; color: #94a3b8; font-size: 0.92em; }
 .recognition-block .scoreboard-row { align-items: flex-start; }
 .recognition-winners { display: flex; flex-direction: column; gap: 8px; flex: 1; align-items: flex-start; min-width: 0; }
 .recognition-winner-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; }

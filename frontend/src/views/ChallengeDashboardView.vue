@@ -143,7 +143,6 @@
         <div class="challenge-two-col">
           <div class="challenge-col-left">
             <div class="challenge-section">
-              <h2>Season Stats</h2>
               <ChallengeLeaderboard :leaderboard="leaderboard" :loading="leaderboardLoading" />
             </div>
             <div class="challenge-section">
@@ -153,7 +152,7 @@
               <ChallengeTeamWeeklyProgress :challenge-id="challengeId" :season-starts-at="challenge?.starts_at || challenge?.startsAt" />
             </div>
             <div class="challenge-section">
-              <h2>Weekly + Season Summary</h2>
+              <h2>📈 Weekly + Season Summary</h2>
               <div v-if="seasonSummaryLoading" class="loading-inline">Loading summary…</div>
               <div v-else-if="!seasonSummary" class="hint">Summary data will appear after workouts are logged.</div>
               <div v-else class="summary-grid">
@@ -2085,9 +2084,11 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   gap: 16px;
 }
 .challenge-section {
-  padding: 16px;
-  border: 1px solid var(--border-color, #ddd);
-  border-radius: 8px;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
 }
 .treadmillpocalypse-banner {
   background: linear-gradient(135deg, #1e3a5f 0%, #c0392b 100%);
@@ -2122,25 +2123,44 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   opacity: 0.88;
 }
 .challenge-section h2 {
-  margin: 0 0 12px 0;
-  font-size: 1.1em;
+  margin: 0 0 16px 0;
+  font-size: 1.15em;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .summary-grid {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 .summary-card {
-  border: 1px solid #eee;
-  border-radius: 6px;
-  padding: 10px;
-  background: #fafafa;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: #f8fafc;
 }
 .summary-card h4 {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
+  font-size: 0.82em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #e63946;
 }
 .summary-card ol {
   margin: 0;
   padding-left: 18px;
+  font-size: 0.9em;
+  line-height: 1.7;
+  color: #334155;
+}
+.summary-card ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.9em;
+  line-height: 1.7;
+  color: #334155;
 }
 .section-hint {
   margin: -6px 0 12px;
