@@ -17,7 +17,9 @@ export function normalizeUploadsPath(path) {
   if (!path) return null;
   let cleaned = path;
   if (cleaned.startsWith('/')) cleaned = cleaned.slice(1);
-  if (cleaned.startsWith('uploads/')) cleaned = cleaned.substring('uploads/'.length);
+  // Strip any existing uploads prefix (with or without the api/ segment)
+  if (cleaned.startsWith('api/uploads/')) cleaned = cleaned.substring('api/uploads/'.length);
+  else if (cleaned.startsWith('uploads/')) cleaned = cleaned.substring('uploads/'.length);
   return cleaned;
 }
 

@@ -184,6 +184,7 @@
             <button class="btn-app-deny" :disabled="reviewingApp === app.id" @click="reviewApp(app.id, 'denied')">
               Deny
             </button>
+            <span v-if="reviewAppErrors[app.id]" class="member-app-error">{{ reviewAppErrors[app.id] }}</span>
           </div>
         </div>
       </div>
@@ -376,6 +377,7 @@ const pendingApps = computed(() => allApps.value.filter((a) => a.status === 'pen
 const appsLoading = ref(false);
 const appsError = ref('');
 const reviewingApp = ref(null);
+const reviewAppErrors = ref({});
 
 const initials = (app) => {
   const f = String(app?.first_name || '').charAt(0).toUpperCase();
@@ -412,11 +414,16 @@ const reviewApp = async (appId, status) => {
   const clubId = Number(props.agency?.id || 0);
   if (!clubId || reviewingApp.value) return;
   reviewingApp.value = appId;
+  delete reviewAppErrors.value[appId];
   try {
     await api.put(`/summit-stats/clubs/${clubId}/applications/${appId}`, { action: status === 'approved' ? 'approve' : 'deny' }, { skipGlobalLoading: true });
     await loadInlineApps();
-  } catch { /* silent */ }
-  finally { reviewingApp.value = null; }
+  } catch (e) {
+    const msg = e?.response?.data?.error?.message || 'Failed to update application';
+    reviewAppErrors.value = { ...reviewAppErrors.value, [appId]: msg };
+  } finally {
+    reviewingApp.value = null;
+  }
 };
 
 onMounted(() => {
@@ -957,8 +964,16 @@ watch(() => props.agency?.id, () => {
 .member-app-status--denied   { background: #fee2e2; color: #991b1b; }
 .member-app-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.member-app-error {
+  font-size: 0.72rem;
+  color: #dc2626;
+  width: 100%;
+  margin-top: 2px;
 }
 .btn-app-approve,
 .btn-app-deny {
