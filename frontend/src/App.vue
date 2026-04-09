@@ -1,7 +1,7 @@
 <template>
   <BrandingProvider>
     <div class="preview-root" :data-preview-viewport="effectivePreviewViewport">
-      <div id="app">
+      <div id="app" :class="{ 'is-native': isNative }">
       <div v-if="pageLoading" class="agency-loading-overlay" aria-label="Loading">
         <div class="agency-loading-card">
           <div class="agency-loading-logo">
@@ -1080,7 +1080,7 @@
       <AddToStickyContextMenu v-if="isAuthenticated && momentumListEnabled" />
       <RegistrationPromoToastRail v-if="isAuthenticated" />
       <HelperWidget v-if="isAuthenticated" />
-      <BetaFeedbackWidget v-if="isAuthenticated" />
+      <BetaFeedbackWidget v-if="isAuthenticated && !isNative" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />
       <TourManager v-if="isAuthenticated && !isSummitStatsChallengeChrome" />
       <PlatformChatDrawer v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" />
@@ -1248,6 +1248,8 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, unref, nextTick } from 'vue';
+import { Capacitor } from '@capacitor/core';
+const isNative = Capacitor.isNativePlatform();
 import { useAuthStore } from './store/auth';
 import { useBrandingStore } from './store/branding';
 import { useAgencyStore } from './store/agency';
@@ -3428,6 +3430,8 @@ onUnmounted(() => {
   background-color: var(--primary);
   color: white;
   padding: 20px 0;
+  /* Push content below the iOS Dynamic Island / notch / status bar */
+  padding-top: max(20px, env(safe-area-inset-top, 20px));
   box-shadow: var(--shadow-lg);
   border-bottom: 3px solid var(--accent);
   width: 100%;
@@ -3438,6 +3442,11 @@ onUnmounted(() => {
   overflow-x: clip;
   overflow-y: visible;
   box-sizing: border-box;
+}
+
+/* Native app: extra safety in case env() isn't supported */
+.is-native .navbar {
+  padding-top: max(44px, env(safe-area-inset-top, 44px));
 }
 
 .navbar .container {
@@ -4934,5 +4943,41 @@ main.main-no-global-chrome {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+}
+
+/* ── Native app (Capacitor) nav layout ───────────────────────────────
+   Logo moves to the far right; hamburger stays left; app label centered.
+   ------------------------------------------------------------------- */
+.is-native .nav-content {
+  justify-content: space-between;
+}
+/* Push brand-switcher (logo) to the right end */
+.is-native .nav-brand {
+  order: 3;
+  margin-left: auto;
+}
+/* Hide desktop nav links on native (sidebar handles navigation) */
+.is-native .nav-links-wrapper {
+  display: none !important;
+}
+/* Hide the nav-title text — we show summitTeamBrandLabel instead */
+.is-native .nav-title {
+  display: none;
+}
+/* Show the SSC brand label ("Summit Stats Team Challenge") prominently */
+.is-native .ssc-nav-brand-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(255,255,255,0.9);
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Hide brand dropdown caret on native (not needed) */
+.is-native .brand-caret {
+  display: none;
 }
 </style>

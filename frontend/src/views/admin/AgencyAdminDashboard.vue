@@ -1,22 +1,19 @@
 <template>
   <div class="container">
-    <div class="dashboard-header">
+    <div class="dashboard-header" :class="{ 'dashboard-header--compact': isSummitStatsContext }">
       <div class="header-content">
         <BrandingLogo 
-          v-if="currentAgency" 
+          v-if="currentAgency && !isSummitStatsContext" 
           size="large" 
           class="dashboard-logo" 
           :logo-url="dashboardLogoUrl"
         />
-        <div>
+        <div class="header-title-block">
           <h1>{{ dashboardTitle }}</h1>
           <span class="badge badge-info">{{ dashboardBadge }}</span>
-          <p v-if="isSscAdminRoute && user?.role === 'club_manager'" class="dashboard-route-hint">
-            The <code>{{ route.params.organizationSlug }}</code> segment is the Summit platform tenant (not your club slug). Your club is on the right{{ showClubSwitcher ? '; use the dropdown to switch or add <code>?club=&lt;id&gt;</code> to the URL' : '' }}.
-          </p>
         </div>
       </div>
-      <div v-if="currentAgency" class="header-right">
+      <div v-if="currentAgency && !isSummitStatsContext" class="header-right">
         <div v-if="showClubSwitcher" class="club-switcher">
           <label for="club-switcher-select" class="club-switcher-label">Managing club</label>
           <select
@@ -1223,6 +1220,12 @@ onMounted(loadMyOpenTickets);
   border-bottom: 2px solid var(--border);
 }
 
+/* Compact header for club managers — less vertical height */
+.dashboard-header--compact {
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+}
+
 .header-content {
   display: flex;
   align-items: center;
@@ -1233,9 +1236,27 @@ onMounted(loadMyOpenTickets);
   flex-shrink: 0;
 }
 
+.header-title-block {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+
 .dashboard-header h1 {
   margin: 0;
   color: var(--primary);
+  white-space: nowrap;
+  font-size: 1.5rem;
+}
+
+.dashboard-header--compact h1 {
+  font-size: 1.25rem;
+}
+
+.dashboard-header--compact .badge {
+  font-size: 0.7rem;
+  padding: 2px 8px;
 }
 
 .header-right {
@@ -1246,17 +1267,6 @@ onMounted(loadMyOpenTickets);
   gap: 12px;
 }
 
-.dashboard-route-hint {
-  margin: 8px 0 0;
-  font-size: 0.8125rem;
-  color: var(--text-muted, #64748b);
-  line-height: 1.4;
-  max-width: 42rem;
-}
-
-.dashboard-route-hint code {
-  font-size: 0.85em;
-}
 
 .club-switcher {
   display: flex;
