@@ -11,16 +11,18 @@
     <div v-else-if="error" class="error">{{ error }}</div>
 
     <div v-else class="grid">
+
+      <!-- ── Summary row ──────────────────────────────────────────── -->
       <div class="metric">
         <div class="k">Total Miles</div>
         <div class="v">{{ formatNum(stats?.totalMiles) }}</div>
-        <div class="hint">All activities (running, cycling, etc.)</div>
+        <div class="hint">All activity types combined</div>
       </div>
 
       <div class="metric">
-        <div class="k">Est. Calories Burned</div>
+        <div class="k">Calories Burned</div>
         <div class="v">{{ formatNum(stats?.estimatedCalories) }}</div>
-        <div class="hint">Approximate from distance & duration</div>
+        <div class="hint">Actual from Strava · Standardised est. for manual workouts</div>
       </div>
 
       <div class="metric">
@@ -35,6 +37,62 @@
         <div class="hint">Workouts logged</div>
       </div>
 
+      <!-- ── Per-activity mile breakdown (only shows non-zero buckets) ── -->
+      <template v-if="hasActivityBreakdown">
+        <div class="metric metric-wide metric-section-label">
+          <div class="k">Miles by Activity</div>
+        </div>
+
+        <div v-if="stats.activityMiles.run > 0" class="metric metric-activity">
+          <div class="activity-icon">🏃</div>
+          <div class="activity-body">
+            <div class="k">Run Miles</div>
+            <div class="v">{{ formatNum(stats.activityMiles.run) }}</div>
+          </div>
+        </div>
+
+        <div v-if="stats.activityMiles.ruck > 0" class="metric metric-activity">
+          <div class="activity-icon">🎒</div>
+          <div class="activity-body">
+            <div class="k">Ruck Miles</div>
+            <div class="v">{{ formatNum(stats.activityMiles.ruck) }}</div>
+          </div>
+        </div>
+
+        <div v-if="stats.activityMiles.walk > 0" class="metric metric-activity">
+          <div class="activity-icon">🚶</div>
+          <div class="activity-body">
+            <div class="k">Walk / Hike Miles</div>
+            <div class="v">{{ formatNum(stats.activityMiles.walk) }}</div>
+          </div>
+        </div>
+
+        <div v-if="stats.activityMiles.cycling > 0" class="metric metric-activity">
+          <div class="activity-icon">🚴</div>
+          <div class="activity-body">
+            <div class="k">Cycling Miles</div>
+            <div class="v">{{ formatNum(stats.activityMiles.cycling) }}</div>
+          </div>
+        </div>
+
+        <div v-if="stats.activityMiles.steps > 0" class="metric metric-activity">
+          <div class="activity-icon">👟</div>
+          <div class="activity-body">
+            <div class="k">Steps Miles</div>
+            <div class="v">{{ formatNum(stats.activityMiles.steps) }}</div>
+          </div>
+        </div>
+
+        <div v-if="stats.activityMiles.other > 0" class="metric metric-activity">
+          <div class="activity-icon">💪</div>
+          <div class="activity-body">
+            <div class="k">Other Miles</div>
+            <div class="v">{{ formatNum(stats.activityMiles.other) }}</div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ── Current season strip ─────────────────────────────────── -->
       <template v-if="stats?.currentSeason">
         <div class="metric metric-wide">
           <div class="k">Current Season</div>
@@ -60,7 +118,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { getCached, setCached } from '../../utils/adminApiCache';
@@ -76,6 +134,12 @@ const route = useRoute();
 const loading = ref(false);
 const error = ref('');
 const stats = ref(null);
+
+const hasActivityBreakdown = computed(() => {
+  const am = stats.value?.activityMiles;
+  if (!am) return false;
+  return Object.values(am).some((v) => Number(v) > 0);
+});
 
 const formatNum = (v) => {
   const n = Number(v || 0);
@@ -217,6 +281,55 @@ watch(
 
 .metric-wide {
   grid-column: 1 / -1;
+}
+
+/* ── Activity breakdown section label ──────────────────────── */
+.metric-section-label {
+  background: transparent;
+  border-color: transparent;
+  padding: 4px 0 0;
+}
+.metric-section-label .k {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+  font-weight: 800;
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 0;
+}
+
+/* ── Per-activity metric card ──────────────────────────────── */
+.metric-activity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+}
+.club-specs--compact .metric-activity {
+  padding: 8px 10px;
+  gap: 8px;
+}
+.activity-icon {
+  font-size: 26px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.club-specs--compact .activity-icon {
+  font-size: 20px;
+}
+.activity-body {
+  flex: 1;
+  min-width: 0;
+}
+.activity-body .k {
+  margin-bottom: 2px;
+}
+.activity-body .v {
+  font-size: 22px;
+}
+.club-specs--compact .activity-body .v {
+  font-size: 18px;
 }
 
 .k {

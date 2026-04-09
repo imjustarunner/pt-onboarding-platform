@@ -74,6 +74,7 @@ import {
   getClubFeed,
   getClubFeedPublic,
   postClubFeedPost,
+  postWorkoutToClubFeed,
   postClubFeedAttachment,
   postClubFeedMarkRead,
   postClubFeedMarkAllRead,
@@ -198,6 +199,7 @@ router.get('/clubs/:id/my-referral-link', getMyReferralLink);
 router.post('/clubs/:id/feed/read-all', postClubFeedMarkAllRead);
 router.post('/clubs/:id/feed/read/:postId', postClubFeedMarkRead);
 router.post('/clubs/:id/feed/posts', postClubFeedPost);
+router.post('/clubs/:id/feed/from-workout', postWorkoutToClubFeed);
 router.post('/clubs/:id/feed/attachments', clubFeedImageUpload.single('file'), postClubFeedAttachment);
 router.get('/clubs/:id/feed/season-options', getClubFeedSeasonOptions);
 router.get('/clubs/:id/feed', getClubFeed);

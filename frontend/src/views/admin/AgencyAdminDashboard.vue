@@ -145,7 +145,8 @@
         </button>
       </div>
       
-      <NotificationCards v-if="!previewMode" :compact="isSummitStatsContext" />
+      <!-- Club managers see notifications inline inside ClubQuickActions card grid -->
+      <NotificationCards v-if="!previewMode && !isSummitStatsContext" :compact="false" />
 
       <section v-if="showSupervisionModal" class="supervision-panel-wrap">
         <div class="section-header">

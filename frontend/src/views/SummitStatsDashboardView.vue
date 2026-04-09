@@ -144,37 +144,66 @@
       </div>
     </section>
 
-    <section
-      v-if="stravaRolloutActive || stravaRolloutDisabled"
-      class="card dash-section dash-section--strava"
-    >
+    <!-- ── Club Feed ──────────────────────────────────────────────── -->
+    <section v-if="primaryClubId" class="card dash-section dash-section--club-feed">
+      <ClubFeedPanel
+        :club-id="Number(primaryClubId)"
+        variant="member-home"
+      />
+    </section>
+
+    <section class="card dash-section dash-section--strava">
       <div class="section-header">
         <div>
           <h2>Fitness integrations</h2>
-          <p v-if="stravaRolloutActive" class="muted">
-            Connect Strava to import activities when you open a season — use “Import from Strava” next to Log workout.
-          </p>
-          <p v-else class="muted">
-            Strava is not enabled for your account yet. Only pilot accounts can connect during testing.
-          </p>
+          <p class="muted">Connect a fitness platform to import workouts into your season automatically or on demand.</p>
         </div>
       </div>
-      <div v-if="stravaRolloutActive" class="strava-dash-body">
-        <div v-if="stravaDisconnectError" class="inline-error strava-dash-error">{{ stravaDisconnectError }}</div>
-        <div v-if="stravaStatus?.connected">
-          <p class="strava-dash-line">
+
+      <!-- Strava row -->
+      <div class="integ-row" :class="{ 'integ-row--disabled': !stravaRolloutActive }">
+        <div class="integ-logo integ-logo--strava">S</div>
+        <div class="integ-body">
+          <div class="integ-name">Strava</div>
+          <div v-if="stravaStatus?.connected" class="integ-status integ-status--connected">
             Connected as <strong>{{ stravaStatus.username || 'Strava athlete' }}</strong>
-            <span v-if="stravaStatus.connectedAt" class="muted"> · Connected {{ formatStravaDate(stravaStatus.connectedAt) }}</span>
-          </p>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="stravaDisconnecting" @click="disconnectStrava">
-            {{ stravaDisconnecting ? 'Disconnecting…' : 'Disconnect Strava' }}
-          </button>
+            <span v-if="stravaStatus.connectedAt" class="muted"> &middot; {{ formatStravaDate(stravaStatus.connectedAt) }}</span>
+          </div>
+          <div v-else class="integ-status">Not connected &mdash; use &ldquo;Import from Strava&rdquo; on your season dashboard after connecting.</div>
         </div>
-        <div v-else>
-          <p v-if="stravaStatus && !stravaStatus.stravaConfigured" class="muted strava-dash-line">
-            Strava integration is not configured on the server. Contact your Program Manager.
-          </p>
-          <a v-else :href="stravaConnectUrl" class="btn btn-primary btn-sm">Connect Strava</a>
+        <div class="integ-action">
+          <template v-if="stravaRolloutActive">
+            <div v-if="stravaDisconnectError" class="inline-error" style="margin-bottom:6px;font-size:0.8em;">{{ stravaDisconnectError }}</div>
+            <button v-if="stravaStatus?.connected" type="button" class="btn btn-secondary btn-sm" :disabled="stravaDisconnecting" @click="disconnectStrava">
+              {{ stravaDisconnecting ? 'Disconnecting…' : 'Disconnect' }}
+            </button>
+            <span v-else-if="stravaStatus && !stravaStatus.stravaConfigured" class="integ-badge integ-badge--warn">Not configured</span>
+            <a v-else :href="stravaConnectUrl" class="btn btn-primary btn-sm">Connect</a>
+          </template>
+          <span v-else class="integ-badge integ-badge--soon">Pilot only</span>
+        </div>
+      </div>
+
+      <!-- Garmin row (coming soon) -->
+      <div class="integ-row integ-row--soon">
+        <div class="integ-logo integ-logo--garmin">G</div>
+        <div class="integ-body">
+          <div class="integ-name">Garmin Connect <span class="integ-badge integ-badge--soon">Coming soon</span></div>
+          <div class="integ-status">Full activity sync &mdash; same data as Strava (distance, HR, splits, calories).</div>
+        </div>
+        <div class="integ-action"><span class="integ-badge integ-badge--soon">Coming soon</span></div>
+      </div>
+
+      <!-- Future integrations -->
+      <div class="integ-future-wrap">
+        <button type="button" class="integ-future-toggle" @click="showFutureInteg = !showFutureInteg">
+          {{ showFutureInteg ? '\u25b2 Hide' : '\u25be View' }} future integrations ({{ FUTURE_INTEGRATIONS.length }})
+        </button>
+        <div v-if="showFutureInteg" class="integ-future-grid">
+          <div v-for="fi in FUTURE_INTEGRATIONS" :key="fi.name" class="integ-future-item">
+            <div class="integ-future-name">{{ fi.name }}</div>
+            <div class="integ-future-note">{{ fi.note }}</div>
+          </div>
         </div>
       </div>
     </section>
@@ -601,6 +630,7 @@ import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../utils/summitPlatformSlugs.js';
+import ClubFeedPanel from '../components/ssc/ClubFeedPanel.vue';
 import {
   AVERAGE_MILES_PER_WEEK_OPTIONS,
   PHYSICAL_ACTIVITY_HOURS_OPTIONS
@@ -652,6 +682,20 @@ const accountForm = reactive({
 const stravaStatus = ref(null);
 const stravaDisconnecting = ref(false);
 const stravaDisconnectError = ref('');
+const showFutureInteg = ref(false);
+
+const FUTURE_INTEGRATIONS = [
+  { name: 'Coros',         note: 'GPS running & multisport watches' },
+  { name: 'Nike Run Club', note: 'Running & training tracking' },
+  { name: 'Amazfit',       note: 'Zepp OS smartwatch platform' },
+  { name: 'Oura Ring',     note: 'Readiness, sleep & activity ring' },
+  { name: 'Samsung Health', note: 'Galaxy Watch & Health app' },
+  { name: 'Peloton',       note: 'Cycling, running & strength classes' },
+  { name: 'Suunto',        note: 'Sports & outdoor GPS watches' },
+  { name: 'Zwift',         note: 'Virtual cycling & running platform' },
+  { name: 'Polar',         note: 'Heart-rate & training load tracking' },
+  { name: 'Apple Watch',   note: 'Workouts via Apple Health export' },
+];
 const stravaConnectUrl = computed(() => {
   const base = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '') || window.location.origin;
   return `${base}/api/strava/connect`;
@@ -700,6 +744,9 @@ const {
 } = useAffiliationClubAnnouncements(announcementClubId, splashBrandLabelForAnnouncements);
 
 const memberships = computed(() => Array.isArray(summary.value?.memberships) ? summary.value.memberships : []);
+
+/** Primary club the user is affiliated with — used to render the ClubFeedPanel. */
+const primaryClubId = computed(() => memberships.value?.[0]?.clubId ?? null);
 const currentSeasons = computed(() => Array.isArray(summary.value?.seasons?.current) ? summary.value.seasons.current : []);
 const pastSeasons = computed(() => Array.isArray(summary.value?.seasons?.past) ? summary.value.seasons.past : []);
 const availableSeasons = computed(() => Array.isArray(summary.value?.seasons?.available) ? summary.value.seasons.available : []);
@@ -1831,4 +1878,75 @@ watch(() => route.params.organizationSlug, () => {
     align-items: flex-start;
   }
 }
+
+/* ── Fitness Integrations shared styles ─────────────────────────── */
+.integ-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.integ-row--soon    { opacity: 0.72; }
+.integ-row--disabled { opacity: 0.5; }
+.integ-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 900;
+  color: white;
+  flex-shrink: 0;
+}
+.integ-logo--strava  { background: #fc4c02; }
+.integ-logo--garmin  { background: #007cc2; }
+.integ-body { flex: 1; min-width: 0; }
+.integ-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.integ-status { font-size: 0.82rem; color: var(--text-secondary, #64748b); margin-top: 2px; }
+.integ-status--connected { color: #16a34a; font-weight: 600; }
+.integ-action { flex-shrink: 0; }
+.integ-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 2px 7px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.integ-badge--soon { background: #e0f2fe; color: #0369a1; }
+.integ-badge--warn { background: #fef9c3; color: #a16207; }
+.integ-future-wrap  { padding-top: 10px; }
+.integ-future-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #64748b;
+}
+.integ-future-toggle:hover { color: #0f172a; }
+.integ-future-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.integ-future-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.integ-future-name { font-weight: 700; font-size: 0.82rem; }
+.integ-future-note { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
 </style>

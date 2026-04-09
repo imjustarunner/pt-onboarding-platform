@@ -314,38 +314,95 @@
           </div>
         </div>
 
-        <div v-if="isSsc && stravaRolloutActive" class="card compact-card" style="margin-top: 16px;">
+        <!-- ── Fitness Integrations ───────────────────────────── -->
+        <div v-if="isSsc" class="card compact-card integ-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">Fitness Integrations</h3>
           </div>
-          <div class="hint" style="margin-top: 6px; margin-bottom: 10px;">
-            Connect Strava to import workouts into your season activity.
-          </div>
-          <div>
-            <div v-if="stravaStatus?.connected">
-              <div>Connected as <strong>{{ stravaStatus.username || 'Strava athlete' }}</strong></div>
-              <div v-if="stravaStatus.connectedAt" class="hint" style="margin-top: 4px; margin-bottom: 8px;">
-                Connected {{ formatStravaDate(stravaStatus.connectedAt) }}
-              </div>
-              <button type="button" class="btn btn-secondary btn-compact" :disabled="stravaDisconnecting" @click="disconnectStrava">
-                {{ stravaDisconnecting ? 'Disconnecting...' : 'Disconnect Strava' }}
-              </button>
-            </div>
-            <div v-else>
-              <div v-if="!stravaStatus?.stravaConfigured" class="hint" style="margin-bottom: 8px;">
-                Strava integration is not configured. Contact your Program Manager.
-              </div>
-              <a v-else :href="stravaConnectUrl" class="btn btn-primary btn-compact">Connect Strava</a>
-            </div>
-          </div>
-        </div>
-        <div v-else-if="isSsc && stravaRolloutDisabled" class="card compact-card" style="margin-top: 16px;">
-          <div class="section-header">
-            <h3 style="margin: 0;">Fitness Integrations</h3>
-          </div>
-          <p class="hint" style="margin-top: 6px; margin-bottom: 0;">
-            Strava is not enabled for your account yet. It will roll out to everyone soon; only pilot accounts can connect during testing.
+          <p class="hint" style="margin-top: 6px; margin-bottom: 14px;">
+            Connect a fitness platform to import workouts into your season automatically or on demand.
           </p>
+
+          <!-- Strava (live) -->
+          <div class="integ-row">
+            <div class="integ-logo integ-logo--strava">S</div>
+            <div class="integ-body">
+              <div class="integ-name">Strava</div>
+              <div v-if="stravaStatus?.connected" class="integ-status integ-status--connected">
+                Connected as <strong>{{ stravaStatus.username || 'Strava athlete' }}</strong>
+                <span v-if="stravaStatus.connectedAt" class="hint"> · {{ formatStravaDate(stravaStatus.connectedAt) }}</span>
+              </div>
+              <div v-else class="integ-status">Not connected</div>
+            </div>
+            <div class="integ-action">
+              <template v-if="stravaRolloutActive">
+                <button v-if="stravaStatus?.connected" type="button" class="btn btn-secondary btn-compact" :disabled="stravaDisconnecting" @click="disconnectStrava">
+                  {{ stravaDisconnecting ? 'Disconnecting…' : 'Disconnect' }}
+                </button>
+                <span v-else-if="!stravaStatus?.stravaConfigured" class="integ-badge integ-badge--warn">Not configured</span>
+                <a v-else :href="stravaConnectUrl" class="btn btn-primary btn-compact">Connect</a>
+              </template>
+              <span v-else class="integ-badge integ-badge--soon">Pilot only</span>
+            </div>
+          </div>
+
+          <!-- Garmin (coming soon) -->
+          <div class="integ-row integ-row--soon">
+            <div class="integ-logo integ-logo--garmin">G</div>
+            <div class="integ-body">
+              <div class="integ-name">Garmin Connect <span class="integ-badge integ-badge--soon">Coming soon</span></div>
+              <div class="integ-status">Full activity sync — same data as Strava (distance, HR, splits, calories).</div>
+            </div>
+            <div class="integ-action">
+              <span class="integ-badge integ-badge--soon">Coming soon</span>
+            </div>
+          </div>
+
+          <!-- Auto-import configuration (only when Strava connected + season allows it) -->
+          <div v-if="stravaStatus?.connected && autoImportSeasonEnabled" class="auto-import-panel">
+            <div class="auto-import-header">
+              <span class="auto-import-title">⚡ Auto-import</span>
+              <span class="hint">Workouts are automatically pushed into your active season without needing to click "Import from Strava".</span>
+            </div>
+            <div class="auto-import-form">
+              <label class="auto-import-toggle-row">
+                <input type="checkbox" v-model="autoImportForm.enabled" />
+                <span>Enable auto-import for my Strava workouts</span>
+              </label>
+              <template v-if="autoImportForm.enabled">
+                <div class="auto-import-types-label">Which activity types should auto-import? <span class="hint">(select at least one)</span></div>
+                <div class="auto-import-types-grid">
+                  <label v-for="at in AUTO_IMPORT_ACTIVITY_TYPES" :key="at.value" class="auto-import-type-chip">
+                    <input type="checkbox" :value="at.value" v-model="autoImportForm.allowedActivityTypes" />
+                    {{ at.label }}
+                  </label>
+                </div>
+                <p class="hint" style="margin-top:8px;">
+                  Treadmill runs always import as a <strong>draft</strong> — you must upload a photo of the treadmill display before the workout is submitted for review.
+                </p>
+              </template>
+              <div class="auto-import-save-row">
+                <button type="button" class="btn btn-primary btn-compact" :disabled="autoImportSaving" @click="saveAutoImport">
+                  {{ autoImportSaving ? 'Saving…' : 'Save auto-import settings' }}
+                </button>
+                <span v-if="autoImportSaved" class="hint" style="color:#16a34a;">✓ Saved</span>
+                <span v-if="autoImportError" class="hint" style="color:#dc2626;">{{ autoImportError }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Future integrations (collapsed) -->
+          <div class="integ-future-wrap">
+            <button type="button" class="integ-future-toggle" @click="showFutureInteg = !showFutureInteg">
+              {{ showFutureInteg ? '▲ Hide' : '▾ View' }} future integrations ({{ FUTURE_INTEGRATIONS.length }})
+            </button>
+            <div v-if="showFutureInteg" class="integ-future-grid">
+              <div v-for="fi in FUTURE_INTEGRATIONS" :key="fi.name" class="integ-future-item">
+                <div class="integ-future-name">{{ fi.name }}</div>
+                <div class="integ-future-note">{{ fi.note }}</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- ── Timezone preference (SSC members) ─────────────────────── -->
@@ -981,6 +1038,80 @@ const personalInfoError = ref('');
 const personalInfoForm = ref({ username: '', phoneNumber: '', preferredName: '', title: '' });
 const stravaStatus = ref(null);
 const stravaDisconnecting = ref(false);
+const showFutureInteg = ref(false);
+
+// Auto-import preferences
+const autoImportForm = ref({ enabled: false, platform: 'strava', allowedActivityTypes: [] });
+const autoImportSeasonEnabled = ref(false);
+const autoImportSaving = ref(false);
+const autoImportSaved  = ref(false);
+const autoImportError  = ref('');
+
+const AUTO_IMPORT_ACTIVITY_TYPES = [
+  { value: 'running',  label: '🏃 Running' },
+  { value: 'rucking',  label: '🎒 Rucking / Hiking' },
+  { value: 'cycling',  label: '🚴 Cycling' },
+  { value: 'walking',  label: '🚶 Walking' },
+  { value: 'swimming', label: '🏊 Swimming' },
+  { value: 'rowing',   label: '🚣 Rowing' },
+];
+
+const fetchAutoImportSettings = async () => {
+  try {
+    const { data } = await api.get('/strava/auto-import-settings');
+    autoImportForm.value = {
+      enabled: !!data.enabled,
+      platform: data.platform || 'strava',
+      allowedActivityTypes: Array.isArray(data.allowedActivityTypes) ? data.allowedActivityTypes : [],
+    };
+  } catch {
+    // non-fatal — keep defaults
+  }
+};
+
+const fetchAutoImportSeasonEnabled = async () => {
+  try {
+    const { data } = await api.get('/learning-program-classes', { params: { status: 'active', limit: 1 } });
+    const seasons = Array.isArray(data) ? data : (data?.classes || data?.data || []);
+    const season = seasons?.[0];
+    const settings = typeof season?.settings_json === 'object' ? season.settings_json : {};
+    autoImportSeasonEnabled.value = settings?.participation?.autoImportEnabled === true;
+  } catch {
+    autoImportSeasonEnabled.value = false;
+  }
+};
+
+const saveAutoImport = async () => {
+  autoImportError.value = '';
+  autoImportSaved.value = false;
+  if (autoImportForm.value.enabled && !autoImportForm.value.allowedActivityTypes.length) {
+    autoImportError.value = 'Select at least one activity type.';
+    return;
+  }
+  autoImportSaving.value = true;
+  try {
+    await api.put('/strava/auto-import-settings', autoImportForm.value);
+    autoImportSaved.value = true;
+    setTimeout(() => { autoImportSaved.value = false; }, 3000);
+  } catch (e) {
+    autoImportError.value = e?.response?.data?.error?.message || 'Failed to save settings.';
+  } finally {
+    autoImportSaving.value = false;
+  }
+};
+
+const FUTURE_INTEGRATIONS = [
+  { name: 'Coros',        note: 'GPS running & multisport watches' },
+  { name: 'Nike Run Club', note: 'Running & training tracking' },
+  { name: 'Amazfit',      note: 'Zepp OS smartwatch platform' },
+  { name: 'Oura Ring',    note: 'Readiness, sleep & activity ring' },
+  { name: 'Samsung Health', note: 'Galaxy Watch & Health app' },
+  { name: 'Peloton',      note: 'Cycling, running & strength classes' },
+  { name: 'Suunto',       note: 'Sports & outdoor GPS watches' },
+  { name: 'Zwift',        note: 'Virtual cycling & running platform' },
+  { name: 'Polar',        note: 'Heart-rate & training load tracking' },
+  { name: 'Apple Watch',  note: 'Workouts via Apple Health export' },
+];
 const stravaConnectUrl = computed(() => {
   const base = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '') || window.location.origin;
   return `${base}/api/strava/connect`;
@@ -1684,6 +1815,8 @@ onMounted(() => {
     fetchMyUserInfo();
     fetchAssignedOffices();
     fetchProviderPublicProfile();
+    fetchAutoImportSettings();
+    fetchAutoImportSeasonEnabled();
   }
 });
 </script>
@@ -2293,6 +2426,127 @@ onMounted(() => {
 
 .btn-danger:hover {
   background: #c1121f;
+}
+
+/* ── Fitness Integrations card ─────────────────────────────────── */
+.integ-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.integ-row--soon { opacity: 0.72; }
+.integ-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 900;
+  color: white;
+  flex-shrink: 0;
+}
+.integ-logo--strava  { background: #fc4c02; }
+.integ-logo--garmin  { background: #007cc2; }
+.integ-body { flex: 1; min-width: 0; }
+.integ-name  { font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 8px; }
+.integ-status { font-size: 0.82rem; color: var(--text-secondary, #64748b); margin-top: 2px; }
+.integ-status--connected { color: #16a34a; font-weight: 600; }
+.integ-action { flex-shrink: 0; }
+.integ-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 2px 7px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.integ-badge--soon { background: #e0f2fe; color: #0369a1; }
+.integ-badge--warn { background: #fef9c3; color: #a16207; }
+
+/* Future integrations toggle */
+.integ-future-wrap { padding-top: 10px; }
+.integ-future-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #64748b;
+}
+.integ-future-toggle:hover { color: #0f172a; }
+.integ-future-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.integ-future-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.integ-future-name { font-weight: 700; font-size: 0.82rem; }
+.integ-future-note { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+
+/* ── Auto-import panel ─────────────────────────────────────────── */
+.auto-import-panel {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+.auto-import-header { margin-bottom: 10px; }
+.auto-import-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  display: block;
+  margin-bottom: 3px;
+}
+.auto-import-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+.auto-import-types-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.auto-import-types-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.auto-import-type-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: #fff;
+  border: 1px solid #93c5fd;
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.auto-import-type-chip input[type="checkbox"] { accent-color: #2563eb; }
+.auto-import-save-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
 }
 </style>
 

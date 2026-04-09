@@ -2061,6 +2061,110 @@ export const postClubFeedPost = async (req, res, next) => {
 };
 
 /**
+ * POST /summit-stats/clubs/:clubId/feed/from-workout
+ * Manager-only: share a season workout to the club's public feed.
+ * Auto-formats the post text from workout data; optionally appends the top comments.
+ */
+export const postWorkoutToClubFeed = async (req, res, next) => {
+  try {
+    const clubId   = toInt(req.params.id);
+    const club     = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+
+    const workoutId      = toInt(req.body?.workoutId);
+    const includeComments = req.body?.includeComments === true || req.body?.includeComments === 'true';
+
+    if (!workoutId) return res.status(400).json({ error: { message: 'workoutId is required' } });
+
+    // Verify the workout belongs to this club's season
+    const [wRows] = await pool.execute(
+      `SELECT cw.id, cw.activity_type, cw.distance_value, cw.duration_minutes,
+              cw.workout_notes, cw.completed_at, cw.learning_class_id,
+              u.first_name, u.last_name,
+              lpc.class_name AS season_name
+         FROM challenge_workouts cw
+         JOIN users u ON u.id = cw.user_id
+         JOIN learning_program_classes lpc ON lpc.id = cw.learning_class_id
+         JOIN agencies ag ON ag.id = lpc.organization_id
+        WHERE cw.id = ? AND ag.id = ?
+        LIMIT 1`,
+      [workoutId, clubId]
+    );
+    const w = wRows?.[0];
+    if (!w) return res.status(404).json({ error: { message: 'Workout not found for this club' } });
+
+    // Check if already shared
+    const [existingRows] = await pool.execute(
+      `SELECT id FROM club_feed_posts WHERE source_workout_id = ? LIMIT 1`,
+      [workoutId]
+    );
+    if (existingRows?.length) {
+      return res.status(409).json({ error: { message: 'This workout has already been shared to the club feed.' }, postId: existingRows[0].id });
+    }
+
+    // Check public feed enabled
+    const [cfgRows] = await pool.execute(`SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`, [clubId]);
+    const pubCfg = buildPublicPageConfig(cfgRows?.[0]?.store_config_json);
+    if (!pubCfg.publicFeedEnabled) {
+      return res.status(403).json({ error: { message: 'Public feed is not enabled for this club. Turn it on under Public page settings.' } });
+    }
+
+    // Format the activity type nicely
+    const activityLabel = String(w.activity_type || 'workout')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+    const distLabel = w.distance_value ? `${(+w.distance_value).toFixed(2)} mi of ` : '';
+    const dateLabel = w.completed_at
+      ? new Date(w.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : '';
+    const firstName = String(w.first_name || '').trim();
+
+    let messageText = `🏃 ${firstName} completed ${distLabel}${activityLabel}${dateLabel ? ` on ${dateLabel}` : ''}`;
+    if (w.workout_notes) {
+      const noteSnippet = String(w.workout_notes).trim().slice(0, 200);
+      messageText += `\n\n"${noteSnippet}"`;
+    }
+    messageText += `\n\n— Season: ${w.season_name || 'Current Season'}`;
+
+    // Optionally append top comments
+    if (includeComments) {
+      const [commentRows] = await pool.execute(
+        `SELECT wc.comment_text, u.first_name AS commenter_name
+           FROM challenge_workout_comments wc
+           JOIN users u ON u.id = wc.user_id
+          WHERE wc.workout_id = ?
+          ORDER BY wc.created_at ASC
+          LIMIT 5`,
+        [workoutId]
+      );
+      if (commentRows?.length) {
+        messageText += '\n\nComments:';
+        for (const c of commentRows) {
+          messageText += `\n• ${c.commenter_name}: ${String(c.comment_text || '').trim().slice(0, 150)}`;
+        }
+      }
+    }
+
+    const [insertResult] = await pool.execute(
+      `INSERT INTO club_feed_posts (agency_id, user_id, message_text, visibility, source_workout_id, source_class_id)
+       VALUES (?, ?, ?, 'public', ?, ?)`,
+      [clubId, req.user.id, messageText.slice(0, 4000), workoutId, w.learning_class_id]
+    );
+    const postId = insertResult?.insertId;
+
+    // Auto-mark read for the poster
+    if (postId) {
+      await pool.execute(
+        `INSERT IGNORE INTO club_feed_post_reads (user_id, post_id) VALUES (?, ?)`,
+        [req.user.id, postId]
+      ).catch(() => {});
+    }
+
+    return res.status(201).json({ ok: true, postId });
+  } catch (e) { next(e); }
+};
+
+/**
  * POST /summit-stats/clubs/:id/feed/attachments
  * Upload one image for a club feed post; returns path for attachmentPaths on POST .../feed/posts.
  */

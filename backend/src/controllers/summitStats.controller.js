@@ -10,6 +10,7 @@ import {
   getPrimaryClubManager
 } from '../utils/sscClubAccess.js';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
+import { estimateCalories } from '../utils/calorieUtils.js';
 
 function slugify(name) {
   let s = String(name || '').trim();
@@ -689,7 +690,16 @@ export const getClubSpecs = async (req, res, next) => {
       estimatedCalories: 0,
       totalPoints: 0,
       totalWorkouts: 0,
-      currentSeason: null
+      currentSeason: null,
+      // Per-activity-type mile breakdowns (only populated when > 0)
+      activityMiles: {
+        run: 0,
+        ruck: 0,
+        walk: 0,
+        cycling: 0,
+        steps: 0,
+        other: 0,
+      },
     };
 
     try {
@@ -709,27 +719,46 @@ export const getClubSpecs = async (req, res, next) => {
       result.totalPoints = Number(r?.total_points || 0);
       result.totalMiles = Math.round(Number(r?.total_distance || 0) * 100) / 100;
 
+      // Use actual stored calories (from Strava/device imports) when available;
+      // fall back to standardised activity estimates only for rows without them.
+      // Also bucket distance by activity type for per-sport mile totals.
       const [byType] = await pool.execute(
-        `SELECT w.activity_type, w.distance_value, w.duration_minutes
+        `SELECT w.activity_type, w.distance_value, w.duration_minutes, w.calories_burned
          FROM challenge_workouts w
          INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
          WHERE c.organization_id = ?`,
         [agencyId]
       );
-      let estCal = 0;
+      let totalCal = 0;
+      const am = result.activityMiles;
       for (const row of byType || []) {
-        const at = String(row?.activity_type || '').toLowerCase();
+        const at  = String(row?.activity_type || '').toLowerCase();
         const dist = Number(row?.distance_value || 0);
-        const dur = Number(row?.duration_minutes || 0);
-        if (dist > 0) {
-          if (at === 'running') estCal += dist * 100;
-          else if (at === 'cycling') estCal += dist * 50;
-          else estCal += dist * 75;
-        } else if (dur > 0) {
-          estCal += dur * 8;
+        const dur  = Number(row?.duration_minutes || 0);
+
+        // ── Calorie tally ──────────────────────────────────────────
+        const stored = Number(row?.calories_burned || 0);
+        if (stored > 0) {
+          totalCal += stored;
+        } else {
+          const est = estimateCalories({ activityType: at, distanceMiles: dist, durationMinutes: dur });
+          totalCal += est ?? 0;
         }
+
+        // ── Per-activity distance tally ────────────────────────────
+        if (dist <= 0) continue;
+        if (at.includes('ruck'))                                        am.ruck    += dist;
+        else if (at.includes('run') || at.includes('jog') || at.includes('sprint')) am.run  += dist;
+        else if (at.includes('walk') || at.includes('hike'))           am.walk    += dist;
+        else if (at.includes('cycl') || at.includes('bike') || at.includes('spin')) am.cycling += dist;
+        else if (at.includes('step') || at.includes('stair'))          am.steps   += dist;
+        else                                                            am.other   += dist;
       }
-      result.estimatedCalories = Math.round(estCal);
+      result.estimatedCalories = Math.round(totalCal);
+      // Round to 2 decimals and drop zero buckets (frontend decides what to show)
+      for (const key of Object.keys(am)) {
+        am[key] = Math.round(am[key] * 100) / 100;
+      }
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
     }

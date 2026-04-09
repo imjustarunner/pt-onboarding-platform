@@ -147,6 +147,7 @@ import learningClassSessionsRoutes from './routes/learningClassSessions.routes.j
 import clubStoreRoutes from './routes/clubStore.routes.js';
 import summitStatsRoutes from './routes/summitStats.routes.js';
 import stravaRoutes from './routes/strava.routes.js';
+import garminRoutes from './routes/garmin.routes.js';
 import clinicalDataRoutes from './routes/clinicalData.routes.js';
 import betaFeedbackRoutes from './routes/betaFeedback.routes.js';
 import meRoutes from './routes/me.routes.js';
@@ -650,6 +651,7 @@ app.use('/api/learning-class-sessions', learningClassSessionsRoutes);
 app.use('/api/club-store', clubStoreRoutes);
 app.use('/api/summit-stats', summitStatsRoutes);
 app.use('/api/strava', stravaRoutes);
+app.use('/api/garmin', garminRoutes);
 app.use('/api/billing-policy', billingPolicyRoutes);
 app.use('/api/clinical-data', clinicalDataRoutes);
 app.use('/api/offices', officeSettingsRoutes);
@@ -886,6 +888,72 @@ if (!isBootstrap) {
       }
     } catch (err) {
       console.warn('[startup] Migration 693 check skipped:', err.message);
+    }
+  })();
+
+  // Migration 695 – auto-import preferences on user_preferences
+  (async () => {
+    try {
+      const { default: pool } = await import('./config/database.js');
+      const [cols] = await pool.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_preferences'
+           AND COLUMN_NAME = 'auto_import_settings'`
+      );
+      if (!cols.length) {
+        await pool.execute(
+          `ALTER TABLE user_preferences
+             ADD COLUMN auto_import_settings JSON NULL DEFAULT NULL COMMENT 'per-user auto-import config: {platform, allowedActivityTypes[], enabled}'`
+        );
+        console.log('[startup] Migration 695 applied: auto_import_settings added to user_preferences');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 695 check skipped:', err.message);
+    }
+  })();
+
+  // Migration 697 – source_workout_id + source_class_id on club_feed_posts
+  (async () => {
+    try {
+      const { default: pool } = await import('./config/database.js');
+      const [cols] = await pool.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'club_feed_posts'
+           AND COLUMN_NAME = 'source_workout_id'`
+      );
+      if (!cols.length) {
+        await pool.execute(
+          `ALTER TABLE club_feed_posts
+             ADD COLUMN source_workout_id INT NULL DEFAULT NULL COMMENT 'challenge_workouts.id if post was created from a season workout',
+             ADD COLUMN source_class_id   INT NULL DEFAULT NULL COMMENT 'learning_program_classes.id (season) the workout belongs to'`
+        );
+        console.log('[startup] Migration 697 applied: source_workout_id + source_class_id added to club_feed_posts');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 697 check skipped:', err.message);
+    }
+  })();
+
+  // Migration 698 – race result columns on challenge_workouts
+  (async () => {
+    try {
+      const { default: pool } = await import('./config/database.js');
+      const [cols] = await pool.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'challenge_workouts'
+           AND COLUMN_NAME = 'race_chip_time_seconds'`
+      );
+      if (!cols.length) {
+        await pool.execute(
+          `ALTER TABLE challenge_workouts
+             ADD COLUMN race_distance_miles   DECIMAL(6,2) NULL DEFAULT NULL AFTER is_race,
+             ADD COLUMN race_chip_time_seconds INT UNSIGNED NULL DEFAULT NULL AFTER race_distance_miles,
+             ADD COLUMN race_overall_place    INT UNSIGNED NULL DEFAULT NULL AFTER race_chip_time_seconds`
+        );
+        console.log('[startup] Migration 698 applied: race result columns added to challenge_workouts');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 698 check skipped:', err.message);
     }
   })();
 

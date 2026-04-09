@@ -116,9 +116,21 @@
         </button>
       </div>
 
+      <!-- Section scroll nav -->
+      <nav class="dash-section-nav" aria-label="Jump to section">
+        <button class="dash-nav-pill" type="button" @click="scrollToSection('section-activity')">Activity</button>
+        <button class="dash-nav-pill" type="button" @click="scrollToSection('section-chat')">Chat</button>
+        <button class="dash-nav-pill" type="button" @click="scrollToSection('section-leaderboard')">Leaderboard</button>
+        <button class="dash-nav-pill" type="button" @click="scrollToSection('section-scoreboard')">Scoreboard</button>
+        <button class="dash-nav-pill" type="button" @click="scrollToSection('section-team-progress')">Team Progress</button>
+        <button class="dash-nav-pill" type="button" @click="scrollToSection('section-summary')">Summary</button>
+        <button class="dash-nav-pill" type="button" @click="scrollToSection('section-weekly-challenges')">Weekly Challenges</button>
+        <button class="dash-nav-pill" type="button" @click="scrollToSection('section-rules')">Season Rules</button>
+      </nav>
+
       <div class="challenge-sections">
         <!-- Activity feed — full-width, dominant, the main interaction surface -->
-        <div class="challenge-feed-full">
+        <div id="section-activity" class="challenge-feed-full">
           <ChallengeActivityFeed
             :workouts="activity"
             :loading="activityLoading"
@@ -127,12 +139,14 @@
             :my-team-id="myTeamId"
             :is-manager="isChallengeManager"
             :activity-type-options="activityTypeOptions"
+            :club-id="challenge?.organization_id"
+            :weekly-task-options="weeklyTaskOptions"
             @media-uploaded="refreshAfterActivityAction"
           />
         </div>
 
         <!-- Season / Team chat — full-width below the feed -->
-        <div class="challenge-chat-full">
+        <div id="section-chat" class="challenge-chat-full">
           <ChallengeMessageFeed
             :challenge-id="challengeId"
             :my-user-id="authStore.user?.id"
@@ -142,16 +156,16 @@
 
         <div class="challenge-two-col">
           <div class="challenge-col-left">
-            <div class="challenge-section">
+            <div id="section-leaderboard" class="challenge-section">
               <ChallengeLeaderboard :leaderboard="leaderboard" :loading="leaderboardLoading" />
             </div>
-            <div class="challenge-section">
-              <ChallengeScoreboard :challenge-id="challengeId" :season-starts-at="challenge?.starts_at || challenge?.startsAt" />
+            <div id="section-scoreboard" class="challenge-section">
+              <ChallengeScoreboard :challenge-id="challengeId" :season-starts-at="challenge?.starts_at || challenge?.startsAt" :season-ends-at="challenge?.ends_at || challenge?.endsAt" />
             </div>
-            <div class="challenge-section">
-              <ChallengeTeamWeeklyProgress :challenge-id="challengeId" :season-starts-at="challenge?.starts_at || challenge?.startsAt" />
+            <div id="section-team-progress" class="challenge-section">
+              <ChallengeTeamWeeklyProgress :challenge-id="challengeId" :season-starts-at="challenge?.starts_at || challenge?.startsAt" :season-ends-at="challenge?.ends_at || challenge?.endsAt" />
             </div>
-            <div class="challenge-section">
+            <div id="section-summary" class="challenge-section">
               <h2>📈 Weekly + Season Summary</h2>
               <div v-if="seasonSummaryLoading" class="loading-inline">Loading summary…</div>
               <div v-else-if="!seasonSummary" class="hint">Summary data will appear after workouts are logged.</div>
@@ -413,9 +427,6 @@
         </div>
 
         <div class="challenge-section">
-          <ChallengeRules :challenge="challenge" />
-        </div>
-        <div class="challenge-section">
           <ChallengeTeamList :teams="teams" :loading="teamsLoading" />
         </div>
         <div class="challenge-section">
@@ -433,7 +444,7 @@
             </div>
           </div>
         </div>
-        <div class="challenge-section">
+        <div id="section-weekly-challenges" class="challenge-section">
           <ChallengeWeeklyTasks :challenge-id="challengeId" :my-user-id="authStore.user?.id" :is-captain="isTeamCaptain" :season-starts-at="challenge?.starts_at || challenge?.startsAt" :season-ends-at="challenge?.ends_at || challenge?.endsAt" />
         </div>
 
@@ -532,6 +543,11 @@
             <p v-if="joinSeasonError" class="error-inline" style="margin-top:8px;">{{ joinSeasonError }}</p>
           </div>
         </section>
+
+        <!-- Season Rules — pinned to the bottom, reachable via nav anchor -->
+        <div id="section-rules" class="challenge-section">
+          <ChallengeRules :challenge="challenge" />
+        </div>
 
         <!-- Log Workout Modal -->
         <div v-if="showLogWorkoutModal" class="modal-overlay" @click.self="showLogWorkoutModal = false">
@@ -634,6 +650,33 @@
                   <option v-for="t in weeklyTaskOptions" :key="`weekly-task-option-${t.id}`" :value="t.id">{{ t.name }}</option>
                 </select>
                 <small class="hint" v-if="selectedTaskProofPolicyLabel">Proof policy: {{ selectedTaskProofPolicyLabel }}</small>
+              </div>
+              <div class="form-row race-toggle-row">
+                <label class="race-toggle-label">
+                  <input v-model="workoutForm.isRace" type="checkbox" />
+                  🏅 This was a race
+                </label>
+              </div>
+              <div v-if="workoutForm.isRace" class="race-details-panel">
+                <div class="race-fields-row">
+                  <div class="form-col">
+                    <label>Race distance (mi)</label>
+                    <input v-model.number="workoutForm.raceDistanceMiles" type="number" min="0" step="0.01" placeholder="e.g. 13.1" />
+                  </div>
+                  <div class="form-col">
+                    <label>Chip time</label>
+                    <div class="time-input-row">
+                      <input v-model.number="workoutForm.raceChipMinutes" type="number" min="0" placeholder="min" style="width:64px" />
+                      <span>:</span>
+                      <input v-model.number="workoutForm.raceChipSeconds" type="number" min="0" max="59" placeholder="sec" style="width:64px" />
+                    </div>
+                  </div>
+                  <div class="form-col">
+                    <label>Overall place</label>
+                    <input v-model.number="workoutForm.raceOverallPlace" type="number" min="1" placeholder="e.g. 42" />
+                  </div>
+                </div>
+                <small class="hint">You can tag both a race <em>and</em> a weekly challenge above.</small>
               </div>
               <div class="form-row">
                 <label><input v-model="workoutForm.isTreadmill" type="checkbox" /> Completed on a treadmill</label>
@@ -885,6 +928,12 @@ const defaultWorkoutForm = () => ({
   weeklyTaskId: null,
   isTreadmill: false,
   terrain: '',
+  // Race fields
+  isRace: false,
+  raceDistanceMiles: null,
+  raceChipMinutes: null,
+  raceChipSeconds: null,
+  raceOverallPlace: null,
   // Primary workout screenshot → Vision OCR source + stored as proof
   screenshotFile: null,
   screenshotPreviewUrl: null,
@@ -1008,8 +1057,9 @@ const defaultParticipationSignatureName = computed(() => {
 
 const activityTypeOptions = computed(() => {
   const raw = challenge.value?.activity_types_json;
-  if (Array.isArray(raw) && raw.length) return raw.map((t) => ({ value: t, label: String(t).replace(/_/g, ' ') }));
-  if (typeof raw === 'object' && raw && Object.keys(raw).length) return Object.keys(raw).map((k) => ({ value: k, label: String(k).replace(/_/g, ' ') }));
+  const toLabel = (t) => String(t).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  if (Array.isArray(raw) && raw.length) return raw.map((t) => ({ value: t, label: toLabel(t) }));
+  if (typeof raw === 'object' && raw && Object.keys(raw).length) return Object.keys(raw).map((k) => ({ value: k, label: toLabel(k) }));
   return [
     { value: 'running', label: 'Running' },
     { value: 'cycling', label: 'Cycling' },
@@ -1609,6 +1659,9 @@ const submitWorkout = async () => {
       try { workoutForm.value.mapImageFilePath = await uploadFile(workoutForm.value.mapImageFile); }
       catch { /* non-blocking */ }
     }
+    const raceChipTimeSec = workoutForm.value.isRace
+      ? ((Number(workoutForm.value.raceChipMinutes) || 0) * 60 + (Number(workoutForm.value.raceChipSeconds) || 0)) || null
+      : null;
     await api.post(`/learning-program-classes/${id}/workouts`, {
       activityType: workoutForm.value.activityType,
       distanceValue: workoutForm.value.distanceValue || null,
@@ -1620,6 +1673,10 @@ const submitWorkout = async () => {
       weeklyTaskId: workoutForm.value.weeklyTaskId || null,
       isTreadmill: workoutForm.value.isTreadmill === true,
       terrain: workoutForm.value.terrain || null,
+      isRace: workoutForm.value.isRace === true,
+      raceDistanceMiles: workoutForm.value.isRace ? (workoutForm.value.raceDistanceMiles || null) : null,
+      raceChipTimeSeconds: raceChipTimeSec,
+      raceOverallPlace: workoutForm.value.isRace ? (workoutForm.value.raceOverallPlace || null) : null,
       screenshotFilePath: workoutForm.value.screenshotFilePath || null,
       treadmillProofFilePath: workoutForm.value.treadmillProofFilePath || null,
       mapImageFilePath: workoutForm.value.mapImageFilePath || null
@@ -1641,6 +1698,11 @@ const submitWorkout = async () => {
   } finally {
     workoutSubmitting.value = false;
   }
+};
+
+const scrollToSection = (id) => {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
 const refreshAfterActivityAction = async () => {
@@ -2008,6 +2070,36 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   font-weight: 700;
   padding: 10px 24px;
 }
+/* Scroll navigation bar */
+.dash-section-nav {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: #f8f8f8;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+}
+.dash-nav-pill {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #555;
+  background: #fff;
+  border: 1px solid #ddd;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  scroll-behavior: smooth;
+}
+.dash-nav-pill:hover {
+  background: #c8102e;
+  color: #fff;
+  border-color: #c8102e;
+}
+
 .season-action-bar {
   display: flex;
   align-items: center;
@@ -2283,6 +2375,45 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   padding: 8px;
   border: 1px solid #ccc;
   border-radius: 4px;
+}
+.race-toggle-row { margin-top: 4px; }
+.race-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 0.92em;
+  cursor: pointer;
+}
+.race-details-panel {
+  background: #fff8e1;
+  border: 1px solid #f0cc70;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 4px 0 8px;
+}
+.race-fields-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.form-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.86em;
+}
+.form-col label { font-weight: 600; color: #555; }
+.form-col input {
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+.time-input-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .form-buttons {
   display: flex;

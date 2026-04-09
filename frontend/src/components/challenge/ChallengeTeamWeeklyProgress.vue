@@ -53,7 +53,8 @@ import api from '../../services/api';
 
 const props = defineProps({
   challengeId: { type: [String, Number], required: true },
-  seasonStartsAt: { type: [String, Date], default: null }
+  seasonStartsAt: { type: [String, Date], default: null },
+  seasonEndsAt: { type: [String, Date], default: null }
 });
 
 const loading            = ref(false);
@@ -76,8 +77,11 @@ const seasonWeeks = computed(() => {
   const weeks = [];
   const today = new Date();
   today.setHours(23, 59, 59, 999);
+  const rawEnd = props.seasonEndsAt;
+  const upperBound = rawEnd ? new Date(rawEnd) : today;
+  upperBound.setHours(23, 59, 59, 999);
   let cur = new Date(anchor);
-  while (cur <= today) {
+  while (cur <= upperBound) {
     const iso = cur.toISOString().slice(0, 10);
     const nextSun = new Date(cur);
     nextSun.setDate(nextSun.getDate() + 6);

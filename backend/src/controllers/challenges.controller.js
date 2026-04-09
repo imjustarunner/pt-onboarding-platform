@@ -20,6 +20,7 @@ import { getWeekStartDate, getWeekDateTimeRange } from '../utils/challengeWeekUt
 import { enqueueWorkoutVision } from '../services/challengeWorkoutVision.service.js';
 import { challengeMessageBridge } from '../services/challengeMessageBridge.service.js';
 import { canUserManageChallengeClass } from '../utils/sscClubAccess.js';
+import { sanitizeCalories, estimateCalories } from '../utils/calorieUtils.js';
 
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
@@ -553,10 +554,23 @@ export const getActivityFeed = async (req, res, next) => {
       if (!mediaByWorkout.has(wid)) mediaByWorkout.set(wid, []);
       mediaByWorkout.get(wid).push(m);
     }
+    // Check which workouts have already been shared to the public club feed
+    const feedPostByWorkout = new Map();
+    if (workoutIds.length) {
+      const placeholders = workoutIds.map(() => '?').join(', ');
+      const [feedRows] = await pool.execute(
+        `SELECT source_workout_id, id AS post_id
+           FROM club_feed_posts
+          WHERE source_workout_id IN (${placeholders})`,
+        workoutIds
+      ).catch(() => [[]]);
+      for (const r of feedRows || []) feedPostByWorkout.set(Number(r.source_workout_id), Number(r.post_id));
+    }
     const enriched = (workouts || []).map((w) => ({
       ...w,
       comment_count: commentsByWorkout.get(Number(w.id)) || 0,
-      media: mediaByWorkout.get(Number(w.id)) || []
+      media: mediaByWorkout.get(Number(w.id)) || [],
+      club_feed_post_id: feedPostByWorkout.get(Number(w.id)) || null,
     }));
     return res.json({ workouts: enriched });
   } catch (e) {
@@ -668,7 +682,27 @@ export const submitWorkout = async (req, res, next) => {
     const activityLower = String(activityType || '').toLowerCase();
     const isTreadmill = asInt(req.body.isTreadmill) === 1 || req.body.isTreadmill === true;
     const distanceValue = req.body.distanceValue != null ? Number(req.body.distanceValue) : null;
-    const caloriesBurned = req.body.caloriesBurned != null ? asInt(req.body.caloriesBurned) : null;
+    const durationMinutesRaw = req.body.durationMinutes != null ? Number(req.body.durationMinutes) : null;
+    // Sanitize manually-entered calories against evidence-based ceilings.
+    // If the user didn't enter any, estimate from distance/duration using standardised
+    // coefficients (no body weight — prevents weight-inflation cheating).
+    const rawCalInput = req.body.caloriesBurned != null ? Number(req.body.caloriesBurned) : null;
+    const caloriesBurned = (() => {
+      if (rawCalInput != null && rawCalInput > 0) {
+        const { calories } = sanitizeCalories({
+          calories: rawCalInput,
+          activityType,
+          distanceMiles: distanceValue ?? 0,
+          durationMinutes: durationMinutesRaw ?? 0,
+        });
+        return calories;
+      }
+      return estimateCalories({
+        activityType,
+        distanceMiles: distanceValue ?? 0,
+        durationMinutes: durationMinutesRaw ?? 0,
+      });
+    })();
     const treadmillpocalypseEnabled = settings?.treadmillpocalypse?.enabled === true;
     const treadmillpocalypseStartsAtWeek = String(settings?.treadmillpocalypse?.startsAtWeek || '').slice(0, 10) || null;
     const moderationMode = getWorkoutModerationMode(settings);
@@ -686,13 +720,15 @@ export const submitWorkout = async (req, res, next) => {
     }
     const points = computedPoints != null ? computedPoints : (Math.round((Number(req.body.points) || 0) * 100) / 100);
     const completedAt = req.body.completedAt ? new Date(req.body.completedAt) : new Date();
-    // Same-day rule: workouts must be logged on the day they were completed,
-    // evaluated in the season/club timezone so members aren't cut off at UTC midnight.
-    const sameDayTz = weekTimeZone || 'UTC';
-    const todayInTz     = new Intl.DateTimeFormat('en-CA', { timeZone: sameDayTz }).format(new Date());
-    const completedInTz = new Intl.DateTimeFormat('en-CA', { timeZone: sameDayTz }).format(completedAt);
-    if (completedInTz !== todayInTz) {
-      return res.status(400).json({ error: { message: 'Workouts can only be logged on the day they were completed. You cannot backdate or future-date a workout.' } });
+    // Same-day rule (configurable per season; defaults to enabled).
+    const sameDayOnly = settings?.participation?.sameDayOnly !== false;
+    if (sameDayOnly) {
+      const sameDayTz     = weekTimeZone || 'UTC';
+      const todayInTz     = new Intl.DateTimeFormat('en-CA', { timeZone: sameDayTz }).format(new Date());
+      const completedInTz = new Intl.DateTimeFormat('en-CA', { timeZone: sameDayTz }).format(completedAt);
+      if (completedInTz !== todayInTz) {
+        return res.status(400).json({ error: { message: 'Workouts can only be logged on the day they were completed. You cannot backdate or future-date a workout.' } });
+      }
     }
     const completedWeekStart = getWeekStartDate(completedAt, weekCutoffTime, weekTimeZone);
     if (eventCategory === 'run_ruck' && activityLower.includes('ruck')) {
@@ -841,7 +877,13 @@ export const submitWorkout = async (req, res, next) => {
     }
 
     // Auto-flag as a race entry when a run meets or exceeds half-marathon distance
-    const isRace = activityLower.includes('run') && distanceValue != null && Number(distanceValue) >= 13.1;
+    // isRace: explicit flag from client, or auto-detect for long runs
+    const isRaceExplicit = req.body.isRace === true || req.body.isRace === 'true' || req.body.isRace === 1;
+    const isRaceAutoDetect = activityLower.includes('run') && distanceValue != null && Number(distanceValue) >= 13.1;
+    const isRace = isRaceExplicit || isRaceAutoDetect;
+    const raceDistanceMiles = isRace && req.body.raceDistanceMiles != null ? parseFloat(req.body.raceDistanceMiles) : null;
+    const raceChipTimeSeconds = isRace && req.body.raceChipTimeSeconds != null ? asInt(req.body.raceChipTimeSeconds) : null;
+    const raceOverallPlace = isRace && req.body.raceOverallPlace != null ? asInt(req.body.raceOverallPlace) : null;
     const terrain = req.body.terrain ? String(req.body.terrain).trim() : null;
     const workout = await ChallengeWorkout.create({
       learningClassId: classId,
@@ -850,6 +892,9 @@ export const submitWorkout = async (req, res, next) => {
       activityType,
       isTreadmill,
       isRace,
+      raceDistanceMiles,
+      raceChipTimeSeconds,
+      raceOverallPlace,
       terrain,
       distanceValue,
       reportedDistanceValue: distanceValue,
@@ -1319,6 +1364,54 @@ export const editOwnWorkoutFields = async (req, res, next) => {
     }
 
     if (!updates.length) return res.json({ workout });
+    params.push(workoutId, classId, req.user.id);
+    await pool.execute(
+      `UPDATE challenge_workouts SET ${updates.join(', ')} WHERE id = ? AND learning_class_id = ? AND user_id = ?`,
+      params
+    );
+    const updated = await ChallengeWorkout.findById(workoutId);
+    return res.json({ workout: updated });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const patchRaceInfo = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const workoutId = asInt(req.params.workoutId);
+    if (!classId || !workoutId) return res.status(400).json({ error: { message: 'Invalid classId/workoutId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    const workout = await ChallengeWorkout.findById(workoutId);
+    if (!workout || Number(workout.learning_class_id) !== Number(classId)) {
+      return res.status(404).json({ error: { message: 'Workout not found' } });
+    }
+    if (Number(workout.user_id) !== Number(req.user.id)) {
+      return res.status(403).json({ error: { message: 'You can only edit your own workouts' } });
+    }
+
+    const updates = [];
+    const params = [];
+
+    const isRace = req.body.isRace === true || req.body.isRace === 'true' || req.body.isRace === 1 || req.body.isRace === '1';
+    updates.push('is_race = ?');
+    params.push(isRace ? 1 : 0);
+
+    if (isRace) {
+      if (req.body.raceDistanceMiles != null) { updates.push('race_distance_miles = ?'); params.push(parseFloat(req.body.raceDistanceMiles) || null); }
+      if (req.body.raceChipTimeSeconds != null) { updates.push('race_chip_time_seconds = ?'); params.push(asInt(req.body.raceChipTimeSeconds) || null); }
+      if (req.body.raceOverallPlace != null) { updates.push('race_overall_place = ?'); params.push(asInt(req.body.raceOverallPlace) || null); }
+    } else {
+      updates.push('race_distance_miles = NULL', 'race_chip_time_seconds = NULL', 'race_overall_place = NULL');
+    }
+
+    if (req.body.weeklyTaskId !== undefined) {
+      const wt = req.body.weeklyTaskId ? asInt(req.body.weeklyTaskId) : null;
+      updates.push('weekly_task_id = ?');
+      params.push(wt);
+    }
+
     params.push(workoutId, classId, req.user.id);
     await pool.execute(
       `UPDATE challenge_workouts SET ${updates.join(', ')} WHERE id = ? AND learning_class_id = ? AND user_id = ?`,
@@ -1892,23 +1985,23 @@ export const scanWorkoutScreenshot = async (req, res, next) => {
     });
     const filePath = saved.relativePath;
 
-    // Attempt Vision scan — gracefully degrade if not configured
+    // Attempt Vision scan — always try; gracefully degrade if credentials unavailable.
+    // Uses Application Default Credentials on Cloud Run (same as PDF OCR path).
     let extracted = {};
     let rawText = null;
     let confidence = 0;
-    const visionEnabled = String(process.env.GOOGLE_VISION_ENABLED || '').trim() === '1';
+    let visionEnabled = false;
 
-    if (visionEnabled) {
-      try {
-        const { scanWorkoutScreenshot: visionScan } = await import('../services/challengeWorkoutVision.service.js');
-        const result = await visionScan({ fileBuffer: req.file.buffer, mimeType: req.file.mimetype });
-        extracted = result.extracted;
-        rawText = result.rawText;
-        confidence = result.confidence;
-      } catch (visionErr) {
-        rawText = null;
-        confidence = 0;
-      }
+    try {
+      const { scanWorkoutScreenshot: visionScan } = await import('../services/challengeWorkoutVision.service.js');
+      const result = await visionScan({ fileBuffer: req.file.buffer, mimeType: req.file.mimetype });
+      extracted = result.extracted;
+      rawText = result.rawText;
+      confidence = result.confidence;
+      visionEnabled = true;
+    } catch (visionErr) {
+      // Vision unavailable or credentials missing — return the file path without extracted fields
+      console.warn('[scanWorkoutScreenshot] Vision scan failed:', visionErr.message);
     }
 
     return res.json({

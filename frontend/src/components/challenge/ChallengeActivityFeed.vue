@@ -2,38 +2,77 @@
   <section class="challenge-activity-feed">
     <div class="activity-feed-header">
       <h2>Recent Activity</h2>
-      <div v-if="myTeamId" class="feed-scope-tabs" role="tablist" aria-label="Activity feed scope">
-        <button
-          type="button"
-          role="tab"
-          class="feed-scope-tab"
-          :class="{ active: feedScope === 'team' }"
-          :aria-selected="feedScope === 'team'"
-          @click="feedScope = 'team'"
-        >
-          My team
+
+      <!-- ── Date navigator ──────────────────────────────────────── -->
+      <div class="feed-date-nav">
+        <button type="button" class="date-nav-btn" title="Previous day" @click="shiftDate(-1)">‹</button>
+        <button type="button" class="date-nav-today" :class="{ 'date-nav-today--active': isToday }" @click="resetDate">
+          {{ isToday ? 'Today' : formattedDate }}
         </button>
-        <button
-          type="button"
-          role="tab"
-          class="feed-scope-tab"
-          :class="{ active: feedScope === 'all' }"
-          :aria-selected="feedScope === 'all'"
-          @click="feedScope = 'all'"
-        >
-          Whole season
-        </button>
+        <button type="button" class="date-nav-btn" title="Next day" :disabled="isToday" @click="shiftDate(1)">›</button>
       </div>
     </div>
+
+    <!-- ── Filter bar ──────────────────────────────────────────────── -->
+    <div class="feed-filter-bar">
+      <!-- Team scope pills -->
+      <div class="filter-group" v-if="myTeamId || teamList.length">
+        <button
+          type="button"
+          class="filter-pill"
+          :class="{ active: teamFilter === 'my' }"
+          @click="teamFilter = teamFilter === 'my' ? null : 'my'"
+        >My team</button>
+        <button
+          v-for="t in otherTeams"
+          :key="t.id"
+          type="button"
+          class="filter-pill"
+          :class="{ active: teamFilter === String(t.id) }"
+          @click="teamFilter = teamFilter === String(t.id) ? null : String(t.id)"
+        >{{ t.name }}</button>
+      </div>
+
+      <!-- Activity type pills -->
+      <div class="filter-group filter-group--types" v-if="activityTypeList.length > 1">
+        <button
+          v-for="at in activityTypeList"
+          :key="at"
+          type="button"
+          class="filter-pill filter-pill--type"
+          :class="{ active: activityTypeFilter === at }"
+          @click="activityTypeFilter = activityTypeFilter === at ? null : at"
+        >{{ formatActivityType(at) }}</button>
+      </div>
+
+      <!-- Clear filters -->
+      <button
+        v-if="hasActiveFilters"
+        type="button"
+        class="filter-clear-btn"
+        @click="clearFilters"
+      >✕ Clear filters</button>
+    </div>
     <!-- Manager quick-review toolbar -->
-    <div v-if="props.isManager && pendingWorkouts.length" class="manager-review-bar">
+    <div v-if="props.isManager" class="manager-review-bar" :class="{ 'manager-review-bar--idle': !pendingWorkouts.length }">
       <span class="pending-count-label">
-        <span class="pending-dot" />
-        {{ pendingWorkouts.length }} workout{{ pendingWorkouts.length === 1 ? '' : 's' }} pending review
+        <template v-if="pendingWorkouts.length">
+          <span class="pending-dot" />
+          {{ pendingWorkouts.length }} workout{{ pendingWorkouts.length === 1 ? '' : 's' }} pending review
+        </template>
+        <template v-else>
+          <span class="pending-dot pending-dot--ok" />
+          All caught up — no pending reviews
+        </template>
       </span>
-      <button type="button" class="btn-expand-pending" @click="expandAllPending">
-        Expand all pending ▼
-      </button>
+      <div class="manager-bar-actions">
+        <button v-if="pendingWorkouts.length" type="button" class="btn-expand-pending" @click="expandAllPending">
+          Expand all pending ▼
+        </button>
+        <button v-if="anyExpanded" type="button" class="btn-collapse-all" @click="collapseAll">
+          Collapse all ▲
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="loading-inline">Loading…</div>
@@ -67,8 +106,8 @@
         <!-- Challenge tag + proof/disqualified badges in a compact inline row -->
         <div class="activity-inline-tags">
           <span v-if="w.weekly_task_name" class="tag-chip tag-chip--challenge">{{ w.weekly_task_name }}</span>
-          <span v-if="w.proof_status === 'approved'" class="proof-badge proof-badge--approved">✓ Approved</span>
-          <span v-else-if="w.proof_status && w.proof_status !== 'not_required' && w.proof_status !== 'approved'" class="proof-badge proof-badge--pending">⏳ Pending review</span>
+          <span v-if="w.proof_status === 'approved' && Number(w.is_disqualified) !== 1" class="proof-badge proof-badge--approved">✓ Approved</span>
+          <span v-else-if="w.proof_status && w.proof_status !== 'not_required' && w.proof_status !== 'approved' && Number(w.is_disqualified) !== 1" class="proof-badge proof-badge--pending">⏳ Pending review</span>
           <span v-if="Number(w.is_disqualified) === 1" class="proof-badge proof-badge--rejected">✗ Disqualified</span>
         </div>
 
@@ -161,12 +200,17 @@
           <!-- Notes -->
           <div v-if="w.workout_notes" class="activity-notes">{{ w.workout_notes }}</div>
 
-          <!-- Strava metrics chips -->
+          <!-- Strava metrics chips (Strava-linked workouts) -->
           <div v-if="w.strava_activity_id && (w.elevation_gain_meters > 0 || w.calories_burned > 0 || w.average_heartrate > 0 || w.max_heartrate > 0)" class="strava-metrics-row">
             <span v-if="w.elevation_gain_meters > 0" class="strava-metric" title="Elevation gain">⛰ {{ Math.round(w.elevation_gain_meters * 3.28084) }} ft gain</span>
-            <span v-if="w.calories_burned > 0" class="strava-metric" title="Calories burned">🔥 {{ w.calories_burned }} cal</span>
+            <span v-if="w.calories_burned > 0" class="strava-metric" title="Calories verified and capped against evidence-based limits">🔥 {{ w.calories_burned }} cal <span class="cal-source-tag">Strava</span></span>
             <span v-if="w.average_heartrate > 0" class="strava-metric" title="Avg heart rate">❤️ avg {{ Math.round(w.average_heartrate) }} bpm</span>
             <span v-if="w.max_heartrate > 0" class="strava-metric" title="Max heart rate">❤️‍🔥 max {{ Math.round(w.max_heartrate) }} bpm</span>
+          </div>
+
+          <!-- Estimated calories for manual (non-Strava) workouts -->
+          <div v-else-if="!w.strava_activity_id && w.calories_burned > 0" class="strava-metrics-row">
+            <span class="strava-metric strava-metric--est" title="Standardised estimate based on activity type and distance/duration. Not weight-based.">🔥 ~{{ w.calories_burned }} cal <span class="cal-source-tag cal-source-tag--est">est.</span></span>
           </div>
 
           <!-- Mile splits -->
@@ -350,9 +394,14 @@
 
           <!-- Edit own workout fields (activity type, terrain, notes) -->
           <div v-if="canEditOwnFields(w)" class="proof-review-card">
-            <div class="proof-review-header">
+            <div class="proof-review-header own-edit-header-row">
               <strong>Edit workout</strong>
-              <button class="btn btn-secondary btn-small" @click="toggleOwnEdit(w)">{{ ownEditOpenByWorkout[w.id] ? 'Close' : 'Edit' }}</button>
+              <div class="own-edit-actions">
+                <button class="btn btn-secondary btn-small" @click="toggleOwnEdit(w)">{{ ownEditOpenByWorkout[w.id] ? 'Close' : 'Edit' }}</button>
+                <button class="btn btn-race btn-small" @click="toggleRacePanel(w)">
+                  {{ racePanelOpen[w.id] ? 'Close' : (Number(w.is_race) === 1 ? '🏅 Race/Challenge' : '🏁 Race/Challenge') }}
+                </button>
+              </div>
             </div>
             <div v-if="ownEditOpenByWorkout[w.id] && ownEditDraftByWorkout[w.id]" class="proof-review-body">
               <label class="proof-field">
@@ -382,6 +431,48 @@
                 <button class="btn btn-primary btn-small" :disabled="!!ownEditSubmitting[w.id]" @click="saveOwnEditFields(w.id)">Save</button>
               </div>
             </div>
+            <!-- Race / Challenge tagging panel -->
+            <div v-if="racePanelOpen[w.id]" class="race-info-panel">
+              <div class="race-info-body">
+                <label class="proof-field race-challenge-row">
+                  <span>Weekly challenge tag</span>
+                  <select v-model="raceDraft[w.id].weeklyTaskId">
+                    <option :value="null">None</option>
+                    <option v-for="t in props.weeklyTaskOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
+                  </select>
+                </label>
+                <label class="proof-field race-toggle-check">
+                  <input type="checkbox" v-model="raceDraft[w.id].isRace" />
+                  <span>🏅 This was a race</span>
+                </label>
+                <div v-if="raceDraft[w.id].isRace" class="race-result-fields">
+                  <label class="proof-field">
+                    <span>Race distance (mi)</span>
+                    <input type="number" min="0" step="0.01" v-model.number="raceDraft[w.id].raceDistanceMiles" placeholder="e.g. 13.1" />
+                  </label>
+                  <div class="race-two-col">
+                    <label class="proof-field">
+                      <span>Chip time (min : sec)</span>
+                      <div class="time-input-row-sm">
+                        <input type="number" min="0" v-model.number="raceDraft[w.id].raceChipMinutes" placeholder="min" style="width:58px" />
+                        <span>:</span>
+                        <input type="number" min="0" max="59" v-model.number="raceDraft[w.id].raceChipSeconds" placeholder="sec" style="width:58px" />
+                      </div>
+                    </label>
+                    <label class="proof-field">
+                      <span>Overall place</span>
+                      <input type="number" min="1" v-model.number="raceDraft[w.id].raceOverallPlace" placeholder="e.g. 42" style="width:80px" />
+                    </label>
+                  </div>
+                </div>
+                <div v-if="raceError[w.id]" class="error-inline" style="margin-top:4px;">{{ raceError[w.id] }}</div>
+                <div class="proof-actions">
+                  <button class="btn btn-primary btn-small" :disabled="!!raceSubmitting[w.id]" @click="saveRaceInfo(w)">
+                    {{ raceSubmitting[w.id] ? 'Saving…' : 'Save' }}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Upload GIF/Image -->
@@ -390,6 +481,25 @@
               📎 Attach photo / GIF
               <input type="file" accept=".gif,.png,.jpg,.jpeg,.webp,image/*" @change="onUploadMedia($event, w.id)" />
             </label>
+          </div>
+
+          <!-- Manager: Post to Public Club Feed -->
+          <div v-if="props.isManager && props.clubId" class="post-to-feed-row">
+            <template v-if="!feedPostedIds[w.id]">
+              <label class="post-feed-opt">
+                <input type="checkbox" v-model="feedIncludeComments[w.id]" />
+                Include top comments
+              </label>
+              <button
+                class="btn-post-to-feed"
+                :disabled="!!feedPosting[w.id]"
+                @click="postToPublicFeed(w)"
+              >
+                {{ feedPosting[w.id] ? 'Posting…' : '📢 Post to Public Feed' }}
+              </button>
+            </template>
+            <span v-else class="post-feed-done">✓ Shared to club feed</span>
+            <span v-if="feedPostError[w.id]" class="post-feed-error">{{ feedPostError[w.id] }}</span>
           </div>
 
           <div class="activity-time hint">Logged {{ formatTime(w.completed_at || w.created_at) }}</div>
@@ -485,10 +595,14 @@
       <div v-if="!filteredWorkouts.length" class="feed-empty-state">
         <div class="feed-empty-icon">🏃</div>
         <p class="feed-empty-title">
-          <template v-if="feedScope === 'team' && myTeamId">No team workouts yet — get moving!</template>
-          <template v-else>No activity yet — be the first to log a workout!</template>
+          <template v-if="hasActiveFilters">No workouts match your current filters.</template>
+          <template v-else-if="teamFilter === 'my' && myTeamId">No team workouts yet — get moving!</template>
+          <template v-else>No activity logged on {{ isToday ? 'today' : formattedDate }} yet.</template>
         </p>
-        <p class="feed-empty-sub">Workouts, kudos, emoji reactions, comments and photos will show here once members start logging.</p>
+        <p v-if="hasActiveFilters" class="feed-empty-sub">
+          <button class="btn-link" @click="clearFilters">Clear filters</button> to see all workouts.
+        </p>
+        <p v-else class="feed-empty-sub">Workouts, kudos, emoji reactions, comments and photos will show here once members start logging.</p>
       </div>
     </div>
   </section>
@@ -515,28 +629,102 @@ const props = defineProps({
   myUserId: { type: [String, Number], default: null },
   isManager: { type: Boolean, default: false },
   myTeamId: { type: [String, Number], default: null },
-  activityTypeOptions: { type: Array, default: () => [] }
+  activityTypeOptions: { type: Array, default: () => [] },
+  clubId: { type: [String, Number], default: null },
+  weeklyTaskOptions: { type: Array, default: () => [] },
 });
 
 const TERRAIN_OPTIONS = ['Road', 'Trail', 'Track', 'Beach', 'Treadmill', 'Race', 'Other'];
 const emit = defineEmits(['media-uploaded']);
 
-/** Whole season vs workouts from the viewer's team only (same idea as Season / Team chat). */
+/** Whole season vs workouts from the viewer's team only (kept for backwards compat). */
 const feedScope = ref('all');
 
-const filteredWorkouts = computed(() => {
-  const list = props.workouts || [];
-  if (feedScope.value === 'team' && props.myTeamId) {
-    return list.filter((w) => w.team_id != null && Number(w.team_id) === Number(props.myTeamId));
+// ── Date navigation ────────────────────────────────────────────────
+const todayStr = () => new Date().toLocaleDateString('en-CA');
+const selectedDate = ref(todayStr());
+const isToday = computed(() => selectedDate.value === todayStr());
+const formattedDate = computed(() => {
+  const d = new Date(selectedDate.value + 'T12:00:00');
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+});
+const shiftDate = (delta) => {
+  const d = new Date(selectedDate.value + 'T12:00:00');
+  d.setDate(d.getDate() + delta);
+  const next = d.toLocaleDateString('en-CA');
+  if (next <= todayStr()) selectedDate.value = next;
+};
+const resetDate = () => { selectedDate.value = todayStr(); };
+
+// ── Team + activity-type filters ───────────────────────────────────
+const teamFilter        = ref(null);   // null | 'my' | '<team_id>'
+const activityTypeFilter = ref(null);  // null | 'running' | 'rucking' | …
+
+/** Unique teams that appear in the current workouts list (for the filter bar). */
+const teamList = computed(() => {
+  const seen = new Map();
+  for (const w of (props.workouts || [])) {
+    if (w.team_id && w.team_name && !seen.has(String(w.team_id))) {
+      seen.set(String(w.team_id), { id: w.team_id, name: w.team_name });
+    }
   }
+  return Array.from(seen.values());
+});
+
+const otherTeams = computed(() =>
+  teamList.value.filter((t) => !props.myTeamId || Number(t.id) !== Number(props.myTeamId))
+);
+
+/** Unique activity types in the current workout list. */
+const activityTypeList = computed(() => {
+  const set = new Set();
+  for (const w of (props.workouts || [])) {
+    if (w.activity_type) set.add(w.activity_type);
+  }
+  return Array.from(set).sort();
+});
+
+const hasActiveFilters = computed(
+  () => teamFilter.value !== null || activityTypeFilter.value !== null || !isToday.value
+);
+const clearFilters = () => {
+  teamFilter.value = null;
+  activityTypeFilter.value = null;
+  selectedDate.value = todayStr();
+};
+
+const filteredWorkouts = computed(() => {
+  let list = props.workouts || [];
+
+  // Date filter — show workouts completed on selectedDate
+  list = list.filter((w) => {
+    if (!w.completed_at) return false;
+    const d = String(w.completed_at).slice(0, 10);
+    return d === selectedDate.value;
+  });
+
+  // Team filter
+  if (teamFilter.value === 'my' && props.myTeamId) {
+    list = list.filter((w) => w.team_id != null && Number(w.team_id) === Number(props.myTeamId));
+  } else if (teamFilter.value && teamFilter.value !== 'my') {
+    list = list.filter((w) => String(w.team_id) === teamFilter.value);
+  }
+
+  // Activity type filter
+  if (activityTypeFilter.value) {
+    list = list.filter((w) => w.activity_type === activityTypeFilter.value);
+  }
+
   return list;
 });
 
 /** Workouts that a manager still needs to review (pending proof). */
 const pendingWorkouts = computed(() =>
   filteredWorkouts.value.filter((w) =>
-    w.proof_status === 'pending' ||
-    (Number(w.is_treadmill) === 1 && w.proof_status !== 'approved' && w.proof_status !== 'rejected')
+    Number(w.is_disqualified) !== 1 && (
+      w.proof_status === 'pending' ||
+      (Number(w.is_treadmill) === 1 && w.proof_status !== 'approved' && w.proof_status !== 'rejected')
+    )
   )
 );
 
@@ -548,6 +736,12 @@ const expandAllPending = () => {
   }
   moreInfoOpen.value = updated;
 };
+
+/** True when at least one workout panel is expanded. */
+const anyExpanded = computed(() => Object.values(moreInfoOpen.value).some(Boolean));
+
+/** Close all expanded workout panels. */
+const collapseAll = () => { moreInfoOpen.value = {}; };
 
 const commentsOpen    = ref({});
 const moreInfoOpen    = ref({});
@@ -571,6 +765,43 @@ const editDraftByWorkout = ref({});
 const editSubmitting = ref({});
 const disqualifyDraftByWorkout = ref({});
 const disqualifySubmitting = ref({});
+
+// ── Post to Public Feed (manager) ──────────────────────────────────────────
+const feedPosting         = ref({});           // workoutId -> bool
+const feedIncludeComments = ref({});           // workoutId -> bool
+const feedPostError       = ref({});           // workoutId -> string
+const feedPostedIds       = ref({});           // workoutId -> true (if already shared)
+
+// Pre-populate feedPostedIds from the workout list whenever it changes
+watch(
+  () => props.workouts,
+  (list) => {
+    for (const w of list || []) {
+      if (w.club_feed_post_id) feedPostedIds.value[w.id] = true;
+    }
+  },
+  { immediate: true }
+);
+
+const postToPublicFeed = async (w) => {
+  if (!props.clubId || feedPosting.value[w.id]) return;
+  feedPosting.value  = { ...feedPosting.value,  [w.id]: true };
+  feedPostError.value = { ...feedPostError.value, [w.id]: '' };
+  try {
+    await api.post(`/summit-stats/clubs/${props.clubId}/feed/from-workout`, {
+      workoutId: w.id,
+      includeComments: feedIncludeComments.value[w.id] === true,
+    });
+    feedPostedIds.value = { ...feedPostedIds.value, [w.id]: true };
+  } catch (e) {
+    feedPostError.value = {
+      ...feedPostError.value,
+      [w.id]: e?.response?.data?.error?.message || 'Failed to post. Try again.',
+    };
+  } finally {
+    feedPosting.value = { ...feedPosting.value, [w.id]: false };
+  }
+};
 
 // ── Kudos state ────────────────────────────────────────────────────────────
 const kudosBudget = ref({ total: 2, used: 0, remaining: 2, intraUsed: 0, intraRemaining: 1, kudoedWorkoutIds: [] });
@@ -1088,6 +1319,63 @@ const saveOwnEditFields = async (workoutId) => {
   }
 };
 
+// ── Race / Challenge tagging panel ─────────────────────────────────
+const racePanelOpen = ref({});
+const raceDraft = ref({});
+const raceSubmitting = ref({});
+const raceError = ref({});
+
+const ensureRaceDraft = (workout) => {
+  const id = Number(workout?.id);
+  if (raceDraft.value[id]) return;
+  raceDraft.value = {
+    ...raceDraft.value,
+    [id]: {
+      isRace: Number(workout.is_race) === 1,
+      raceDistanceMiles: workout.race_distance_miles != null ? Number(workout.race_distance_miles) : null,
+      raceChipMinutes: workout.race_chip_time_seconds != null ? Math.floor(Number(workout.race_chip_time_seconds) / 60) : null,
+      raceChipSeconds: workout.race_chip_time_seconds != null ? Number(workout.race_chip_time_seconds) % 60 : null,
+      raceOverallPlace: workout.race_overall_place != null ? Number(workout.race_overall_place) : null,
+      weeklyTaskId: workout.weekly_task_id ? Number(workout.weekly_task_id) : null
+    }
+  };
+};
+
+const toggleRacePanel = (workout) => {
+  const id = Number(workout?.id);
+  ensureRaceDraft(workout);
+  racePanelOpen.value = { ...racePanelOpen.value, [id]: !racePanelOpen.value[id] };
+};
+
+const saveRaceInfo = async (workout) => {
+  const id = Number(workout?.id);
+  const draft = raceDraft.value[id];
+  if (!draft) return;
+  raceSubmitting.value = { ...raceSubmitting.value, [id]: true };
+  raceError.value = { ...raceError.value, [id]: null };
+  try {
+    const chipTimeSec = draft.isRace
+      ? ((Number(draft.raceChipMinutes) || 0) * 60 + (Number(draft.raceChipSeconds) || 0)) || null
+      : null;
+    await api.patch(
+      `/learning-program-classes/${props.challengeId}/workouts/${id}/race-info`,
+      {
+        isRace: draft.isRace,
+        raceDistanceMiles: draft.isRace ? (draft.raceDistanceMiles || null) : null,
+        raceChipTimeSeconds: chipTimeSec,
+        raceOverallPlace: draft.isRace ? (draft.raceOverallPlace || null) : null,
+        weeklyTaskId: draft.weeklyTaskId || null
+      }
+    );
+    racePanelOpen.value = { ...racePanelOpen.value, [id]: false };
+    emit('media-uploaded');
+  } catch (e) {
+    raceError.value = { ...raceError.value, [id]: e?.response?.data?.error?.message || 'Failed to save' };
+  } finally {
+    raceSubmitting.value = { ...raceSubmitting.value, [id]: false };
+  }
+};
+
 const ensureEditDraft = (workoutId, workout) => {
   if (editDraftByWorkout.value[workoutId]) return;
   editDraftByWorkout.value = {
@@ -1277,7 +1565,95 @@ const reviewProof = async (workoutId, status) => {
   color: #0f172a;
   box-shadow: inset 0 -2px 0 #2563eb;
 }
-/* Manager pending-review toolbar */
+/* ── Date navigator ────────────────────────────────────────────── */
+.feed-date-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.date-nav-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 6px;
+  font-size: 16px;
+  color: #475569;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  line-height: 1;
+}
+.date-nav-btn:hover:not(:disabled) { background: #f1f5f9; }
+.date-nav-btn:disabled { opacity: 0.35; cursor: default; }
+.date-nav-today {
+  padding: 4px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.date-nav-today--active {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+/* ── Filter bar ────────────────────────────────────────────────── */
+.feed-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.filter-pill {
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.filter-pill:hover { background: #f1f5f9; border-color: #94a3b8; }
+.filter-pill.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+.filter-pill--type.active {
+  background: #dc2626;
+  border-color: #dc2626;
+}
+.filter-clear-btn {
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: none;
+  background: transparent;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #94a3b8;
+  cursor: pointer;
+}
+.filter-clear-btn:hover { color: #475569; }
+
+/* ── Manager pending-review toolbar ────────────────────────────── */
 .manager-review-bar {
   display: flex;
   align-items: center;
@@ -1289,6 +1665,15 @@ const reviewProof = async (workoutId, status) => {
   padding: 10px 14px;
   margin-bottom: 14px;
 }
+.manager-review-bar--idle {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.manager-bar-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
 .pending-count-label {
   display: flex;
   align-items: center;
@@ -1297,6 +1682,7 @@ const reviewProof = async (workoutId, status) => {
   font-weight: 600;
   color: #92400e;
 }
+.manager-review-bar--idle .pending-count-label { color: #166534; }
 .pending-dot {
   width: 8px;
   height: 8px;
@@ -1305,11 +1691,16 @@ const reviewProof = async (workoutId, status) => {
   flex-shrink: 0;
   animation: pulse-dot 1.5s ease-in-out infinite;
 }
+.pending-dot--ok {
+  background: #22c55e;
+  animation: none;
+}
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.5; transform: scale(0.75); }
 }
-.btn-expand-pending {
+.btn-expand-pending,
+.btn-collapse-all {
   border: 1px solid #f59e0b;
   background: #fff;
   color: #92400e;
@@ -1321,7 +1712,12 @@ const reviewProof = async (workoutId, status) => {
   white-space: nowrap;
   transition: background 0.15s;
 }
+.btn-collapse-all {
+  border-color: #94a3b8;
+  color: #475569;
+}
 .btn-expand-pending:hover { background: #fef3c7; }
+.btn-collapse-all:hover { background: #f1f5f9; }
 
 .activity-list {
   display: flex;
@@ -1536,6 +1932,27 @@ const reviewProof = async (workoutId, status) => {
   padding: 2px 8px;
   white-space: nowrap;
 }
+.strava-metric--est {
+  color: #64748b;
+  font-style: italic;
+}
+.cal-source-tag {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: #fc4c02;
+  color: white;
+  border-radius: 3px;
+  padding: 0px 4px;
+  margin-left: 3px;
+  vertical-align: middle;
+  line-height: 1.6;
+}
+.cal-source-tag--est {
+  background: #94a3b8;
+}
 .strava-source-hint {
   display: flex;
   align-items: center;
@@ -1633,6 +2050,53 @@ const reviewProof = async (workoutId, status) => {
 .more-info-upload-row {
   margin-top: 4px;
 }
+
+/* ── Post to Public Feed ──────────────────────────────────────── */
+.post-to-feed-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+}
+.post-feed-opt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #0369a1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-post-to-feed {
+  padding: 5px 14px;
+  border-radius: 20px;
+  border: none;
+  background: linear-gradient(135deg, #0369a1, #0ea5e9);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+.btn-post-to-feed:disabled { opacity: 0.55; cursor: default; }
+.btn-post-to-feed:not(:disabled):hover { opacity: 0.88; }
+.post-feed-done {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #16a34a;
+}
+.post-feed-error {
+  font-size: 0.78rem;
+  color: #dc2626;
+  width: 100%;
+}
 .upload-btn {
   border: 1px dashed #bbb;
   border-radius: 999px;
@@ -1663,6 +2127,34 @@ const reviewProof = async (workoutId, status) => {
   align-items: center;
   gap: 8px;
 }
+.own-edit-header-row { flex-wrap: wrap; }
+.own-edit-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.btn-race {
+  background: #fff8e1;
+  border: 1px solid #f0cc70;
+  color: #7a5c00;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-race:hover { background: #fde68a; }
+.race-info-panel {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: #fff8e1;
+  border: 1px solid #f0cc70;
+  border-radius: 8px;
+}
+.race-info-body { display: flex; flex-direction: column; gap: 8px; }
+.race-challenge-row select { width: 100%; }
+.race-toggle-check { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; }
+.race-result-fields { display: flex; flex-direction: column; gap: 8px; }
+.race-two-col { display: flex; gap: 12px; flex-wrap: wrap; }
+.time-input-row-sm { display: flex; align-items: center; gap: 4px; }
+.time-input-row-sm input { padding: 5px 6px; border: 1px solid #ccc; border-radius: 4px; }
 .proof-status {
   font-size: 0.75rem;
   border-radius: 999px;

@@ -79,6 +79,12 @@
                   :to="myClubPublicNav.to"
                   @click="closeMobileMenu"
                 >{{ myClubPublicNav.label }}</router-link>
+                <router-link
+                  v-if="sscActiveSeasonNav"
+                  :to="sscActiveSeasonNav.to"
+                  class="nav-active-season-link"
+                  @click="closeMobileMenu"
+                >{{ sscActiveSeasonNav.label }}</router-link>
                 <div class="nav-dropdown" @click.stop>
                   <button
                     type="button"
@@ -115,6 +121,12 @@
                   :to="sscMemberMyClubNav.to"
                   @click="closeMobileMenu"
                 >{{ sscMemberMyClubNav.label }}</router-link>
+                <router-link
+                  v-if="sscActiveSeasonNav"
+                  :to="sscActiveSeasonNav.to"
+                  class="nav-active-season-link"
+                  @click="closeMobileMenu"
+                >{{ sscActiveSeasonNav.label }}</router-link>
                 <router-link
                   v-if="sscMemberShowClubEvents"
                   :to="orgTo('/admin/company-events')"
@@ -650,6 +662,12 @@
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >{{ myClubPublicNav.label }}</router-link>
+              <router-link
+                v-if="sscActiveSeasonNav"
+                :to="sscActiveSeasonNav.to"
+                class="mobile-nav-link mobile-nav-active-season-link"
+                @click="closeMobileMenu"
+              >{{ sscActiveSeasonNav.label }}</router-link>
               <div class="mobile-nav-group mobile-nav-group-collapsible">
                 <button
                   type="button"
@@ -686,6 +704,12 @@
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >{{ sscMemberMyClubNav.label }}</router-link>
+              <router-link
+                v-if="sscActiveSeasonNav"
+                :to="sscActiveSeasonNav.to"
+                class="mobile-nav-link mobile-nav-active-season-link"
+                @click="closeMobileMenu"
+              >{{ sscActiveSeasonNav.label }}</router-link>
               <router-link
                 v-if="sscMemberShowClubEvents"
                 :to="orgTo('/admin/company-events')"
@@ -1307,6 +1331,35 @@ watch(showPublicTranslateWidget, (show) => {
 });
 
 const mobileMenuOpen = ref(false);
+
+// Active season nav — fetched once when the SSC chrome is active so every user
+// can see a quick-access link to the current season directly in the nav bar.
+const activeNavSeason = ref(null);
+const activeNavSeasonLoading = ref(false);
+
+const loadNavActiveSeason = async () => {
+  if (!isSummitStatsChallengeChrome.value || !isAuthenticated.value) {
+    activeNavSeason.value = null;
+    return;
+  }
+  const agencies = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
+  const arr = Array.isArray(agencies) ? agencies : [];
+  const club = arr.find(
+    (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
+  );
+  const clubId = Number(club?.id || 0);
+  if (!clubId) { activeNavSeason.value = null; return; }
+  activeNavSeasonLoading.value = true;
+  try {
+    const { data } = await api.get('/learning-program-classes', {
+      params: { organizationId: clubId },
+      skipGlobalLoading: true,
+    });
+    const classes = Array.isArray(data?.classes) ? data.classes : [];
+    activeNavSeason.value = classes.find((c) => c.status === 'active') || null;
+  } catch { activeNavSeason.value = null; }
+  finally { activeNavSeasonLoading.value = false; }
+};
 
 // Global loading overlay (tracks API calls + navigation + icon preloads)
 const pageLoading = ref(true);
@@ -2314,8 +2367,8 @@ const scheduleIconUrl = computed(() => {
 const canShowAdminDashboardIcon = computed(() => {
   const u = authStore.user;
   if (!u) return false;
-  const role = String(u?.role || '').toLowerCase();
-  if (role === 'club_manager' && isSscSstcTenant.value) return true;
+  // Club managers have a dedicated "Manager Dashboard" nav link — no icon needed.
+  if (isSscClubManager.value) return false;
   return isTrueAdmin.value && !isSscSstcTenant.value;
 });
 
@@ -2444,6 +2497,15 @@ const sscMemberMyClubNav = computed(() => {
     return { label: 'My Club', to: orgTo(`/clubs/${id}`) };
   }
   return { label: 'My Clubs', to: orgTo('/my_club_dashboard') };
+});
+
+/** Active season nav link — shown for every SSC user when a season is currently live. */
+const sscActiveSeasonNav = computed(() => {
+  if (!isSummitStatsChallengeChrome.value || !isAuthenticated.value) return null;
+  const s = activeNavSeason.value;
+  if (!s?.id || s.status !== 'active') return null;
+  const name = s.class_name || s.className || 'Active Season';
+  return { label: name, to: orgTo(`/season/${s.id}`) };
 });
 
 /** Member has at least one active club affiliation — show Club Events in nav. */
@@ -2579,6 +2641,13 @@ function syncAuthenticatedSideEffects(authenticated) {
   }
 }
 watch(isAuthenticated, syncAuthenticatedSideEffects);
+
+// Reload the active season nav whenever the user logs in/out or their agency list changes.
+watch(
+  [isAuthenticated, () => agencyStore.userAgencies, isSummitStatsChallengeChrome],
+  () => { void loadNavActiveSeason(); },
+  { immediate: false }
+);
 
 function syncSchoolClientsPending([authenticated, showBadge, agencyId]) {
   if (schoolClientsPendingInterval) clearInterval(schoolClientsPendingInterval);
@@ -3075,6 +3144,7 @@ onMounted(async () => {
     syncNotificationsCounts(shouldFetchNotificationsCounts.value);
     syncJoinPrompts(isAuthenticated.value);
     syncCommunicationsCountsWithEngagementMenu(showEngagementMenu.value);
+    void loadNavActiveSeason();
     // Organization context from route
     const slug = route.params.organizationSlug;
     if (slug) {
@@ -3873,6 +3943,24 @@ onUnmounted(() => {
   background-color: rgba(255,255,255,0.1);
 }
 
+/* ── Active-season quick-access link ──────────────────────────── */
+.nav-active-season-link.nav-active-season-link {
+  color: #ff6b35 !important;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  position: relative;
+  animation: season-pulse 2.2s ease-in-out infinite;
+}
+.nav-active-season-link.nav-active-season-link:hover,
+.nav-active-season-link.nav-active-season-link.router-link-active {
+  background-color: rgba(255, 107, 53, 0.18) !important;
+  color: #ff8c5e !important;
+}
+@keyframes season-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
+}
+
 .nav-badge {
   display: inline-flex;
   align-items: center;
@@ -4652,6 +4740,19 @@ onUnmounted(() => {
 .mobile-nav-link.router-link-active {
   background-color: rgba(255, 255, 255, 0.1);
   border-left-color: white;
+}
+
+/* ── Active-season quick-access link (mobile sidebar) ─────────── */
+.mobile-nav-active-season-link.mobile-nav-active-season-link {
+  color: #ff6b35 !important;
+  font-weight: 700;
+  border-left-color: #ff6b35 !important;
+  animation: season-pulse 2.2s ease-in-out infinite;
+}
+.mobile-nav-active-season-link.mobile-nav-active-season-link:hover,
+.mobile-nav-active-season-link.mobile-nav-active-season-link.router-link-active {
+  background-color: rgba(255, 107, 53, 0.15) !important;
+  color: #ff8c5e !important;
 }
 
 .mobile-nav-group {

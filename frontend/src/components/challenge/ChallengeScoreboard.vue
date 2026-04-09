@@ -97,7 +97,8 @@ const rankClass  = (idx) => idx === 0 ? 'rank-gold' : idx === 1 ? 'rank-silver' 
 
 const props = defineProps({
   challengeId: { type: [String, Number], required: true },
-  seasonStartsAt: { type: [String, Date], default: null }
+  seasonStartsAt: { type: [String, Date], default: null },
+  seasonEndsAt: { type: [String, Date], default: null }
 });
 
 const emit = defineEmits(['load']);
@@ -142,7 +143,7 @@ function resolveScoreboardIconUrl(iconRef) {
 
 const { seasonWeeks, selectedWeekIdx, weekStartDate } = useSeasonWeeks(
   computed(() => props.seasonStartsAt),
-  { defaultToLatest: false }
+  { defaultToLatest: false, seasonEndsAtRef: computed(() => props.seasonEndsAt) }
 );
 
 const loading = ref(false);

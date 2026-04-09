@@ -569,6 +569,22 @@
                 </select>
               </div>
               <div class="form-group">
+                <label>Same-day workout rule</label>
+                <select v-model="challengeForm.sameDayOnly">
+                  <option :value="true">Same day only — workouts must be logged the day they're completed</option>
+                  <option :value="false">Allow any date — members can log workouts for any date</option>
+                </select>
+                <small>When enabled (recommended), members cannot backdate or future-date workouts. This applies to both manual entries and Strava imports.</small>
+              </div>
+              <div class="form-group">
+                <label>Allow auto-import</label>
+                <select v-model="challengeForm.autoImportEnabled">
+                  <option :value="false">Disabled — members import workouts manually</option>
+                  <option :value="true">Enabled — members can set up automatic workout import</option>
+                </select>
+                <small>When enabled, members can configure their Strava (or Garmin when available) account to automatically push workouts into the season. Members must select which activity types are auto-imported. Treadmill runs always import as a draft pending photo proof.</small>
+              </div>
+              <div class="form-group">
                 <label>Treadmill photo proof required</label>
                 <select v-model="challengeForm.treadmillPhotoRequired">
                   <option :value="true">Yes</option>
@@ -1525,6 +1541,8 @@ const challengeForm = ref({
   treadmillpocalypseStartsAtWeek: '',
   treadmillpocalypseIconId: null,
   workoutModerationMode: 'treadmill_only',
+  sameDayOnly: true,
+  autoImportEnabled: false,
   showInClubFeed: true,
   recordMetrics: []
 });
@@ -1980,6 +1998,8 @@ const openCreateModal = () => {
     treadmillpocalypseStartsAtWeek: '',
     treadmillpocalypseIconId: null,
     workoutModerationMode: 'treadmill_only',
+    sameDayOnly: true,
+    autoImportEnabled: false,
     showInClubFeed: true,
     recordMetrics: []
   };
@@ -2074,6 +2094,8 @@ const openEditModal = (c) => {
     runRuckStartMilesPerPerson: seasonSettings?.participation?.runRuckStartMilesPerPerson ?? 0,
     runRuckWeeklyIncreaseMilesPerPerson: seasonSettings?.participation?.runRuckWeeklyIncreaseMilesPerPerson ?? 2,
     maxRucksPerWeek: seasonSettings?.participation?.maxRucksPerWeek ?? 0,
+    sameDayOnly: seasonSettings?.participation?.sameDayOnly !== false,
+    autoImportEnabled: seasonSettings?.participation?.autoImportEnabled === true,
     treadmillPhotoRequired: treadmillSettings.photoProofRequired !== false,
     treadmillpocalypseEnabled: treadmillpocalypseSettings.enabled === true,
     treadmillpocalypseStartsAtWeek: treadmillpocalypseSettings.startsAtWeek || '',
@@ -2217,7 +2239,9 @@ const saveChallenge = async () => {
           teamMinPointsPerWeek: Number(challengeForm.value.teamMinPointsPerWeek ?? 0),
           runRuckStartMilesPerPerson: Number(challengeForm.value.runRuckStartMilesPerPerson ?? 0),
           runRuckWeeklyIncreaseMilesPerPerson: Number(challengeForm.value.runRuckWeeklyIncreaseMilesPerPerson ?? 0),
-          maxRucksPerWeek: Number(challengeForm.value.maxRucksPerWeek ?? 0)
+          maxRucksPerWeek: Number(challengeForm.value.maxRucksPerWeek ?? 0),
+          sameDayOnly: challengeForm.value.sameDayOnly !== false,
+          autoImportEnabled: challengeForm.value.autoImportEnabled === true
         },
         participationAgreement: buildParticipationAgreementPayload(challengeForm.value),
         byeWeek: {

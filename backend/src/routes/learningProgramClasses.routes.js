@@ -70,6 +70,7 @@ import {
   editOwnImportedTreadmillWorkout,
   patchStravaWorkoutDetails,
   editOwnWorkoutFields,
+  patchRaceInfo,
   listMessageReactions,
   toggleMessageReaction
 } from '../controllers/challenges.controller.js';
@@ -181,6 +182,7 @@ router.put('/:classId/workouts/:workoutId/disqualify', disqualifyWorkout);
 router.put('/:classId/workouts/:workoutId/import-edit', editOwnImportedTreadmillWorkout);
 router.patch('/:classId/workouts/:workoutId/strava-details', workoutMediaUpload.single('treadmillProof'), patchStravaWorkoutDetails);
 router.patch('/:classId/workouts/:workoutId/own-fields', workoutMediaUpload.single('treadmillProof'), editOwnWorkoutFields);
+router.patch('/:classId/workouts/:workoutId/race-info', patchRaceInfo);
 router.get('/:classId/captain-applications', listCaptainApplications);
 router.post('/:classId/captain-applications', applyForCaptain);
 router.put('/:classId/captain-applications/:applicationId', reviewCaptainApplication);

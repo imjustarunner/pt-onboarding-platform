@@ -88,6 +88,9 @@ class ChallengeWorkout {
     activityType,
     isTreadmill = false,
     isRace = false,
+    raceDistanceMiles = null,
+    raceChipTimeSeconds = null,
+    raceOverallPlace = null,
     terrain = null,
     distanceValue = null,
     reportedDistanceValue = null,
@@ -118,8 +121,8 @@ class ChallengeWorkout {
     const durSec = durationSeconds != null ? Math.min(59, Math.max(0, toInt(durationSeconds) || 0)) : null;
     const [result] = await pool.execute(
       `INSERT INTO challenge_workouts
-       (learning_class_id, team_id, user_id, activity_type, is_treadmill, is_race, terrain, distance_value, reported_distance_value, verified_distance_value, duration_minutes, duration_seconds, calories_burned, elevation_gain_meters, average_heartrate, max_heartrate, splits_json, points, workout_notes, screenshot_file_path, map_summary_polyline, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (learning_class_id, team_id, user_id, activity_type, is_treadmill, is_race, race_distance_miles, race_chip_time_seconds, race_overall_place, terrain, distance_value, reported_distance_value, verified_distance_value, duration_minutes, duration_seconds, calories_burned, elevation_gain_meters, average_heartrate, max_heartrate, splits_json, points, workout_notes, screenshot_file_path, map_summary_polyline, completed_at, strava_activity_id, weekly_task_id, proof_status, proof_review_note, proof_reviewed_by_user_id, proof_reviewed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         classId,
         teamId ? toInt(teamId) : null,
@@ -127,6 +130,9 @@ class ChallengeWorkout {
         activity,
         isTreadmill ? 1 : 0,
         isRace ? 1 : 0,
+        raceDistanceMiles != null ? Number(raceDistanceMiles) : null,
+        raceChipTimeSeconds != null ? toInt(raceChipTimeSeconds) : null,
+        raceOverallPlace != null ? toInt(raceOverallPlace) : null,
         terrain ? String(terrain).trim() : null,
         distanceValue != null ? Number(distanceValue) : null,
         reportedDistanceValue != null ? Number(reportedDistanceValue) : null,

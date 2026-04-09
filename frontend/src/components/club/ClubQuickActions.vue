@@ -1,21 +1,28 @@
 <template>
   <div class="club-quick-actions" :class="{ 'club-quick-actions--compact': props.compact }">
-    <h2>Quick Actions</h2>
     <div class="actions-grid">
 
-      <!-- Add Member -->
-      <button type="button" class="action-card" @click="$emit('add-member')">
+      <!-- ── Add Members (combined Add by Email + Invite Link) ─────── -->
+      <div class="action-card action-card--split">
         <div class="action-icon-wrap">
           <img v-if="addMemberIconUrl" :src="addMemberIconUrl" alt="" class="action-icon-img" />
-          <span v-else class="action-icon-placeholder">👤</span>
+          <span v-else class="action-icon-placeholder">👥</span>
         </div>
         <div class="action-content">
-          <h3>Add New Member</h3>
-          <p>Check if their email exists and add them to your club.</p>
+          <h3>Add Members</h3>
+          <p>Add someone directly by email, or share your invite link for anyone to apply.</p>
         </div>
-      </button>
+        <div class="action-split-btns">
+          <button type="button" class="split-btn split-btn--primary" @click="$emit('add-member')">
+            + Add by Email
+          </button>
+          <button type="button" class="split-btn split-btn--ghost" @click.stop="copyInviteLink">
+            {{ copiedInvite ? '✓ Copied!' : '🔗 Copy Invite Link' }}
+          </button>
+        </div>
+      </div>
 
-      <!-- Season Management -->
+      <!-- ── Season Management ──────────────────────────────────────── -->
       <div class="action-card action-card--split">
         <div class="action-icon-wrap">
           <img v-if="addSeasonIconUrl" :src="addSeasonIconUrl" alt="" class="action-icon-img" />
@@ -26,7 +33,6 @@
           <p>Create your first season, edit existing ones, and manage season rules from one place.</p>
         </div>
 
-        <!-- Active season preview -->
         <div class="season-preview" v-if="activeSeason">
           <div class="season-preview-row">
             <span class="season-preview-name">{{ activeSeason.class_name || activeSeason.className }}</span>
@@ -55,7 +61,7 @@
         </div>
       </div>
 
-      <!-- Public Club Page -->
+      <!-- ── Public Club Page ───────────────────────────────────────── -->
       <div class="action-card action-card--split" ref="publicCardRef">
         <div class="action-icon-wrap">
           <span class="action-icon-placeholder">🌐</span>
@@ -74,23 +80,7 @@
         </div>
       </div>
 
-      <!-- Invite New Member -->
-      <div class="action-card action-card--split">
-        <div class="action-icon-wrap">
-          <span class="action-icon-placeholder">📨</span>
-        </div>
-        <div class="action-content">
-          <h3>Invite New Member</h3>
-          <p>Share a direct sign-up link — anyone with it can apply to join your club.</p>
-        </div>
-        <div class="action-split-btns">
-          <button type="button" class="split-btn split-btn--primary" @click.stop="copyInviteLink">
-            {{ copiedInvite ? '✓ Copied!' : 'Copy Invite Link' }}
-          </button>
-        </div>
-      </div>
-
-      <!-- Club Settings -->
+      <!-- ── Club Settings ───────────────────────────────────────────── -->
       <router-link :to="settingsTo" class="action-card action-card-link">
         <div class="action-icon-wrap">
           <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="action-icon-img" />
@@ -102,14 +92,57 @@
         </div>
       </router-link>
 
+      <!-- ── Notifications ─────────────────────────────────────────── -->
+      <div
+        class="action-card action-card--notif"
+        :class="{ 'action-card--notif-active': clubNotifCount > 0 }"
+        @click="clubNotifCount > 0 ? openNotifModal() : goToNotifications()"
+      >
+        <div class="action-icon-wrap">
+          <div class="notif-icon-bubble" :class="{ 'notif-icon-bubble--active': clubNotifCount > 0 }">
+            <img
+              v-if="clubIconUrl"
+              :src="clubIconUrl"
+              alt=""
+              class="notif-club-img"
+            />
+            <span v-else class="notif-icon-emoji">🔔</span>
+          </div>
+          <div v-if="clubNotifCount > 0" class="notif-bubble-badge">{{ clubNotifCount }}</div>
+        </div>
+        <div class="action-content">
+          <h3>Notifications</h3>
+          <p v-if="clubNotifCount === 0" class="notif-empty-hint">All caught up — no new notifications.</p>
+          <p v-else>
+            <strong class="notif-count-text">{{ clubNotifCount }}</strong>
+            {{ clubNotifCount === 1 ? 'notification' : 'notifications' }} need your attention.
+          </p>
+        </div>
+        <svg class="action-chevron" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"/>
+        </svg>
+      </div>
+
     </div>
   </div>
+
+  <!-- Notification category modal (reuse existing component) -->
+  <NotificationCategoryModal
+    v-if="showNotifModal"
+    :agency-id="props.agency?.id"
+    :agency-name="props.agency?.name || 'Club'"
+    @close="showNotifModal = false"
+  />
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import { useBrandingStore } from '../../store/branding';
+import { useNotificationStore } from '../../store/notifications';
 import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../../utils/summitPlatformSlugs.js';
+import { toUploadsUrl } from '../../utils/uploadsUrl.js';
+import NotificationCategoryModal from '../admin/NotificationCategoryModal.vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -121,6 +154,34 @@ const props = defineProps({
 defineEmits(['add-member']);
 
 const brandingStore = useBrandingStore();
+const notificationStore = useNotificationStore();
+const router = useRouter();
+const route = useRoute();
+
+// ── Notifications ─────────────────────────────────────────────────
+const showNotifModal = ref(false);
+
+const clubNotifCount = computed(() => {
+  const id = props.agency?.id;
+  if (!id) return 0;
+  return Number(notificationStore.counts?.[id] || 0);
+});
+
+const clubIconUrl = computed(() => {
+  const a = props.agency;
+  if (!a) return null;
+  if (a.icon_file_path) return toUploadsUrl(a.icon_file_path);
+  if (a.logo_url) return a.logo_url.startsWith('http') ? a.logo_url : toUploadsUrl(a.logo_url);
+  return null;
+});
+
+const openNotifModal = () => { showNotifModal.value = true; };
+
+const goToNotifications = () => {
+  const slug = route.params.organizationSlug;
+  const base = slug ? `/${slug}/notifications` : '/notifications';
+  router.push(base);
+};
 const publicSlug   = ref('');
 const activeSeason = ref(null);
 const seasonsLoading = ref(false);
@@ -226,6 +287,8 @@ const loadActiveSeason = async () => {
 onMounted(() => {
   void loadPublicSlug();
   void loadActiveSeason();
+  // Ensure notification counts are fresh (non-blocking)
+  void notificationStore.fetchCounts().catch(() => {});
 });
 
 watch(() => props.agency?.id, () => {
@@ -235,16 +298,6 @@ watch(() => props.agency?.id, () => {
 </script>
 
 <style scoped>
-.club-quick-actions h2 {
-  margin: 0 0 24px 0;
-  font-size: 1.125rem;
-}
-
-.club-quick-actions--compact h2 {
-  margin-bottom: 12px;
-  font-size: 1rem;
-}
-
 .actions-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -461,13 +514,100 @@ watch(() => props.agency?.id, () => {
   color: #a16207;
 }
 
+/* ── Notification card ───────────────────────────────────────── */
+.action-card--notif {
+  cursor: pointer;
+  align-items: center;
+  border-left: 4px solid var(--border, #e2e8f0);
+  transition: all 0.2s;
+  position: relative;
+}
+.action-card--notif-active {
+  border-left-color: #dc3545;
+  background: linear-gradient(135deg, #fff5f5 0%, #fff 100%);
+}
+.action-card--notif:hover {
+  border-left-color: #dc3545;
+}
+
+/* Icon bubble with optional club photo */
+.notif-icon-bubble {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  border: 2px solid var(--border, #e2e8f0);
+  background: var(--bg-alt, #f8fafc);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.notif-icon-bubble--active {
+  border-color: #fca5a5;
+}
+.club-quick-actions--compact .notif-icon-bubble {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+}
+.notif-club-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 6px;
+}
+.notif-icon-emoji {
+  font-size: 26px;
+}
+.club-quick-actions--compact .notif-icon-emoji {
+  font-size: 18px;
+}
+
+/* Red count badge overlaid bottom-right of icon */
+.notif-bubble-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #dc3545;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  padding: 0 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(220, 53, 69, 0.4);
+  border: 2px solid white;
+}
+
+.notif-count-text {
+  color: #dc3545;
+  font-weight: 800;
+}
+.notif-empty-hint {
+  color: var(--text-secondary, #64748b);
+  font-style: italic;
+}
+
+/* Chevron arrow */
+.action-chevron {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  color: var(--text-secondary, #94a3b8);
+  margin-left: auto;
+}
+.action-card--notif-active .action-chevron {
+  color: #dc3545;
+}
+
 /* ── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .club-quick-actions h2 {
-    margin-bottom: 14px;
-    font-size: 1.05rem;
-  }
-
   .actions-grid {
     grid-template-columns: 1fr;
     gap: 12px;

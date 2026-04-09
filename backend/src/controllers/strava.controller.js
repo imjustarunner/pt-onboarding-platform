@@ -9,6 +9,7 @@ import ChallengeTeam from '../models/ChallengeTeam.model.js';
 import ChallengeWorkout from '../models/ChallengeWorkout.model.js';
 import { isStravaRolloutEnabledForEmail } from '../utils/stravaRollout.js';
 import { queueClubRecordBreakCandidates } from './summitStats.controller.js';
+import { sanitizeCalories, estimateCalories } from '../utils/calorieUtils.js';
 import { getWeekStartDate, getWeekDateTimeRange } from '../utils/challengeWeekUtils.js';
 import {
   createSignedState,
@@ -305,6 +306,7 @@ export const stravaImport = async (req, res, next) => {
     const weekCutoffTime = String(seasonSettings?.schedule?.weekEndsSundayAt || classRows?.[0]?.week_start_time || '00:00');
     const weekTimeZone = String(seasonSettings?.schedule?.weekTimeZone || 'UTC');
     const maxRucksPerWeek = Math.max(0, Number.parseInt(seasonSettings?.participation?.maxRucksPerWeek, 10) || 0);
+    const sameDayOnly = seasonSettings?.participation?.sameDayOnly !== false;
     const importedRucksByWeek = new Map();
     let teamId = req.body.teamId ? asInt(req.body.teamId) : null;
     if (!teamId) {
@@ -333,7 +335,15 @@ export const stravaImport = async (req, res, next) => {
       const durationMinutes = rawSec > 0 ? Math.floor(rawSec / 60) : null;
       const durationSeconds = rawSec > 0 ? (rawSec % 60) : null;
       const mapSummaryPolyline = activity.map?.summary_polyline || null;
-      const caloriesBurned = activity.calories ? Math.round(Number(activity.calories)) : null;
+      // Sanitize device-reported calories: cap against evidence-based per-mile/per-minute
+      // ceilings so inflated watch readings don't unfairly boost calorie totals.
+      // Fall back to standardised estimation when Strava reports nothing.
+      const rawCalories = activity.calories ? Number(activity.calories) : null;
+      const { calories: sanitized, capped: caloriesCapped } = rawCalories
+        ? sanitizeCalories({ calories: rawCalories, activityType, distanceMiles, durationMinutes: durationMinutes ?? 0 })
+        : { calories: null, capped: false };
+      const caloriesBurned = sanitized ??
+        estimateCalories({ activityType, distanceMiles, durationMinutes: durationMinutes ?? 0 });
       const elevationGainMeters = activity.total_elevation_gain != null ? Number(activity.total_elevation_gain) : null;
       const averageHeartrate = activity.average_heartrate != null ? Number(activity.average_heartrate) : null;
       const maxHeartrate = activity.max_heartrate != null ? Number(activity.max_heartrate) : null;
@@ -359,15 +369,16 @@ export const stravaImport = async (req, res, next) => {
       ].filter(Boolean);
       const workoutNotes = noteParts.length ? noteParts.join('\n') : null;
       const points = computePointsFromStrava(activity, activityType, stravaScoring);
-      // Same-day check: compare the activity's local date against today in the season/club timezone.
-      // start_date_local from Strava is already the athlete's local clock date (YYYY-MM-DD…).
+      // Same-day check (configurable per season; defaults to enabled).
       const activityLocalDate = activity.start_date_local
         ? String(activity.start_date_local).slice(0, 10)
         : (activity.start_date ? new Intl.DateTimeFormat('en-CA', { timeZone: weekTimeZone }).format(new Date(activity.start_date)) : null);
-      const todayInTz = new Intl.DateTimeFormat('en-CA', { timeZone: weekTimeZone }).format(new Date());
-      if (!activityLocalDate || activityLocalDate !== todayInTz) {
-        skipped.push({ stravaId, reason: 'not_today', date: activityLocalDate });
-        continue;
+      if (sameDayOnly) {
+        const todayInTz = new Intl.DateTimeFormat('en-CA', { timeZone: weekTimeZone }).format(new Date());
+        if (!activityLocalDate || activityLocalDate !== todayInTz) {
+          skipped.push({ stravaId, reason: 'not_today', date: activityLocalDate });
+          continue;
+        }
       }
       const completedAt = activity.start_date ? new Date(activity.start_date).toISOString().slice(0, 19).replace('T', ' ') : null;
       const treadmill = isTreadmillActivity(activity);
@@ -439,5 +450,183 @@ export const stravaImport = async (req, res, next) => {
     return res.status(201).json({ imported: imported.length, skipped: skipped.length, workouts: imported });
   } catch (e) {
     next(e);
+  }
+};
+
+// ─── Auto-import settings ───────────────────────────────────────────────────
+
+/**
+ * GET /api/strava/auto-import-settings
+ * Returns the current user's auto-import configuration stored in user_preferences.
+ */
+export const getAutoImportSettings = async (req, res, next) => {
+  try {
+    if (!req.user?.id) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    const [rows] = await pool.execute(
+      `SELECT auto_import_settings FROM user_preferences WHERE user_id = ?`,
+      [req.user.id]
+    );
+    const raw = rows?.[0]?.auto_import_settings;
+    const settings = parseJsonObject(raw, { enabled: false, platform: null, allowedActivityTypes: [] });
+    return res.json(settings);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * PUT /api/strava/auto-import-settings
+ * Saves the user's auto-import configuration.
+ * Body: { enabled: boolean, platform: 'strava'|'garmin'|null, allowedActivityTypes: string[] }
+ */
+export const putAutoImportSettings = async (req, res, next) => {
+  try {
+    if (!req.user?.id) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    const { enabled, platform, allowedActivityTypes } = req.body || {};
+    if (enabled && (!Array.isArray(allowedActivityTypes) || allowedActivityTypes.length === 0)) {
+      return res.status(422).json({ error: { message: 'You must select at least one activity type to auto-import.' } });
+    }
+    const settings = {
+      enabled: enabled === true,
+      platform: platform || null,
+      allowedActivityTypes: Array.isArray(allowedActivityTypes) ? allowedActivityTypes : [],
+    };
+    await pool.execute(
+      `INSERT INTO user_preferences (user_id, auto_import_settings, created_at, updated_at)
+         VALUES (?, ?, NOW(), NOW())
+       ON DUPLICATE KEY UPDATE auto_import_settings = ?, updated_at = NOW()`,
+      [req.user.id, JSON.stringify(settings), JSON.stringify(settings)]
+    );
+    return res.json(settings);
+  } catch (e) {
+    next(e);
+  }
+};
+
+// ─── Strava webhook (auto-import) ──────────────────────────────────────────
+
+/**
+ * GET /api/strava/webhook — Subscription verification (hub challenge).
+ * Strava calls this when you register or update a webhook subscription.
+ * https://developers.strava.com/docs/webhooks/
+ */
+export const stravaWebhookVerify = (req, res) => {
+  const VERIFY_TOKEN = process.env.STRAVA_WEBHOOK_VERIFY_TOKEN || 'summit-stats-webhook';
+  const mode      = req.query['hub.mode'];
+  const token     = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+    return res.json({ 'hub.challenge': challenge });
+  }
+  return res.status(403).json({ error: 'Forbidden' });
+};
+
+/**
+ * POST /api/strava/webhook — Strava push event handler.
+ * Fires when any connected athlete creates, updates, or deletes an activity.
+ * We only process 'create' events for connected users who have auto-import enabled.
+ */
+export const stravaWebhookEvent = async (req, res, next) => {
+  // Acknowledge immediately — Strava expects a 200 within 2 s
+  res.sendStatus(200);
+  try {
+    const { object_type, aspect_type, object_id, owner_id } = req.body || {};
+    if (object_type !== 'activity' || aspect_type !== 'create') return;
+
+    // Find the user by their Strava athlete ID
+    const [userRows] = await pool.execute(
+      `SELECT user_id FROM user_preferences WHERE strava_athlete_id = ?`,
+      [String(owner_id)]
+    );
+    const userId = userRows?.[0]?.user_id;
+    if (!userId) return; // athlete not connected via this platform
+
+    // Load user auto-import settings
+    const [prefRows] = await pool.execute(
+      `SELECT auto_import_settings FROM user_preferences WHERE user_id = ?`,
+      [userId]
+    );
+    const autoImport = parseJsonObject(prefRows?.[0]?.auto_import_settings, { enabled: false });
+    if (!autoImport.enabled || autoImport.platform !== 'strava') return;
+
+    // Fetch the activity from Strava
+    const token = await getValidAccessToken(userId);
+    if (!token) return;
+    const activity = await fetchActivityById(token, object_id);
+    if (!activity) return;
+
+    // Find the user's active season that has autoImportEnabled
+    const [seasonRows] = await pool.execute(
+      `SELECT lpc.id AS class_id, lpc.settings_json
+         FROM learning_program_classes lpc
+         JOIN challenge_member_applications cma ON cma.learning_class_id = lpc.id AND cma.user_id = ?
+        WHERE lpc.status = 'active'
+        LIMIT 1`,
+      [userId]
+    );
+    if (!seasonRows?.length) return;
+    const { class_id: classId, settings_json } = seasonRows[0];
+    const seasonSettings = parseJsonObject(settings_json);
+    const autoImportEnabledInSeason = seasonSettings?.participation?.autoImportEnabled === true;
+    if (!autoImportEnabledInSeason) return;
+
+    // Check activity type allowlist
+    const sportType = String(activity.sport_type || activity.type || '').toLowerCase();
+    const allowed = (autoImport.allowedActivityTypes || []).map((t) => t.toLowerCase());
+    if (allowed.length && !allowed.some((a) => sportType.includes(a))) return;
+
+    // Detect treadmill
+    const treadmill = isTreadmillActivity(activity);
+    const sameDayOnly = seasonSettings?.participation?.sameDayOnly !== false;
+
+    const timezone = 'America/New_York'; // fallback; TODO: user timezone from preferences
+    const activityLocalDate = activity.start_date_local
+      ? String(activity.start_date_local).slice(0, 10)
+      : null;
+    if (sameDayOnly) {
+      const todayInTz = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
+      if (!activityLocalDate || activityLocalDate !== todayInTz) return;
+    }
+
+    // Determine activity type
+    const activityType = (() => {
+      const s = sportType;
+      if (s.includes('run') || s.includes('jog')) return 'running';
+      if (s.includes('ruck') || s.includes('hike') || s.includes('walk')) return 'rucking';
+      if (s.includes('ride') || s.includes('cycl') || s.includes('bike')) return 'cycling';
+      if (s.includes('swim')) return 'swimming';
+      if (s.includes('row')) return 'rowing';
+      return 'other';
+    })();
+
+    const distanceMiles = activity.distance ? +(activity.distance / 1609.344).toFixed(2) : 0;
+    const durationMinutes = activity.moving_time ? Math.round(activity.moving_time / 60) : null;
+    const rawCalories = activity.calories ? Number(activity.calories) : null;
+    const { calories: sanitizedCal } = sanitizeCalories({ calories: rawCalories, activityType, distanceMiles, durationMinutes }) || {};
+    const caloriesBurned = sanitizedCal ?? estimateCalories({ activityType, distanceMiles, durationMinutes }) ?? null;
+
+    const modMode = getWorkoutModerationMode(seasonSettings);
+    const proofStatus = (treadmill || modMode === 'all') ? 'pending' : 'approved';
+    const isDraft = treadmill; // treadmill imports wait for photo proof
+
+    await ChallengeWorkout.create({
+      learningClassId: classId,
+      userId,
+      activityType,
+      distanceValue: distanceMiles,
+      durationMinutes,
+      caloriesBurned,
+      averageHeartrate: activity.average_heartrate || null,
+      maxHeartrate: activity.max_heartrate || null,
+      elevationGainMeters: activity.total_elevation_gain || null,
+      mapSummaryPolyline: activity.map?.summary_polyline || null,
+      workoutNotes: `Auto-imported from Strava: ${activity.name || ''}`.trim(),
+      completedAt: activity.start_date_local || new Date().toISOString(),
+      stravaActivityId: String(object_id),
+      proofStatus: isDraft ? 'draft' : proofStatus,
+      isTreadmill: treadmill ? 1 : 0,
+    });
+  } catch (e) {
+    console.error('[stravaWebhookEvent] error:', e.message);
   }
 };

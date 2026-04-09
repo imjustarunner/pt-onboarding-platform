@@ -138,13 +138,9 @@ export const parseVisionText = (rawText) => {
 /**
  * Call Google Vision DOCUMENT_TEXT_DETECTION on an image buffer.
  * Returns { extracted, rawText, confidence } or throws on error.
+ * Uses Application Default Credentials (Cloud Run service account) — no env flag required.
  */
 export const scanWorkoutScreenshot = async ({ fileBuffer, mimeType = 'image/jpeg' }) => {
-  const enabled = String(process.env.GOOGLE_VISION_ENABLED || '').trim() === '1';
-  if (!enabled) {
-    throw new Error('Google Vision is not enabled. Set GOOGLE_VISION_ENABLED=1 in your environment.');
-  }
-
   const client = await getVisionClient();
   const [result] = await client.documentTextDetection({
     image: { content: fileBuffer.toString('base64') },
@@ -177,13 +173,12 @@ export const enqueueWorkoutVision = async ({
   workoutNotes = null,
   responseJson = null
 }) => {
-  const enabled = String(process.env.GOOGLE_VISION_ENABLED || '').trim() === '1';
   const requestPayload = {
     screenshotFilePath: screenshotFilePath || null,
     workoutNotes: workoutNotes || null
   };
-  const status = responseJson ? 'completed' : (enabled ? 'queued' : 'skipped');
-  const errorMessage = !enabled && !responseJson ? 'GOOGLE_VISION_ENABLED is not set; job recorded as skipped' : null;
+  const status = responseJson ? 'completed' : 'queued';
+  const errorMessage = null;
 
   await pool.execute(
     `INSERT INTO challenge_workout_vision_jobs
