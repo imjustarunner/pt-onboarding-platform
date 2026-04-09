@@ -84,7 +84,7 @@
         :style="{ borderLeftColor: activityColor(w.activity_type), boxShadow: `inset 3px 0 0 ${activityColor(w.activity_type)}` }"
       >
         <div class="activity-header">
-          <UserAvatar :photo-path="w.profile_photo_path" :first-name="w.first_name" :last-name="w.last_name" size="sm" extra-class="activity-avatar" />
+          <UserAvatar :photo-path="w.profile_photo_url || w.profile_photo_path" :first-name="w.first_name" :last-name="w.last_name" size="sm" extra-class="activity-avatar" />
           <div class="activity-user-info">
             <span class="activity-user">{{ w.first_name }} {{ w.last_name }}</span>
             <span class="activity-timestamp">{{ formatTimestamp(w.completed_at || w.created_at) }}</span>

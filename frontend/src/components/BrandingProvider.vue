@@ -72,6 +72,31 @@ onMounted(async () => {
       try {
         await agencyStore.hydrateAgencyById(agencyStore.currentAgency.id);
         brandingStore.syncDocumentThemeFromSelectedAgency();
+        // syncDocumentThemeFromSelectedAgency bails when the club slug (e.g. "yss") doesn't match
+        // the platform route slug (e.g. "ssc"). For affiliation-type agencies (SSC clubs), apply
+        // the theme directly so colors and custom fonts load on the first visit — not just after
+        // visiting Club Settings.
+        const a = agencyStore.currentAgency;
+        const orgType = String(a?.organization_type || '').toLowerCase();
+        if (orgType === 'affiliation' && a?.id) {
+          try {
+            const cp = typeof a.color_palette === 'string'
+              ? JSON.parse(a.color_palette || '{}')
+              : (a.color_palette || {});
+            if (cp && (cp.fontFamily || cp.primary)) {
+              const parentTenantId = Number(a.affiliated_agency_id || 0) || null;
+              const fontBrandingAgencyId = parentTenantId || a.id;
+              brandingStore.applyTheme({
+                colorPalette: cp,
+                themeSettings: typeof a.theme_settings === 'string'
+                  ? JSON.parse(a.theme_settings || '{}')
+                  : (a.theme_settings || {}),
+                brandingAgencyId: fontBrandingAgencyId,
+                agencyId: a.id
+              });
+            }
+          } catch { /* ignore parse errors */ }
+        }
       } catch {
         // ignore
       }
@@ -101,6 +126,28 @@ watch(
     try {
       await agencyStore.hydrateAgencyById(newId);
       brandingStore.syncDocumentThemeFromSelectedAgency();
+      // Same affiliation-club direct-apply fallback as in onMounted.
+      const a = agencyStore.currentAgency;
+      const orgType = String(a?.organization_type || '').toLowerCase();
+      if (orgType === 'affiliation' && a?.id) {
+        try {
+          const cp = typeof a.color_palette === 'string'
+            ? JSON.parse(a.color_palette || '{}')
+            : (a.color_palette || {});
+          if (cp && (cp.fontFamily || cp.primary)) {
+            const parentTenantId = Number(a.affiliated_agency_id || 0) || null;
+            const fontBrandingAgencyId = parentTenantId || a.id;
+            brandingStore.applyTheme({
+              colorPalette: cp,
+              themeSettings: typeof a.theme_settings === 'string'
+                ? JSON.parse(a.theme_settings || '{}')
+                : (a.theme_settings || {}),
+              brandingAgencyId: fontBrandingAgencyId,
+              agencyId: a.id
+            });
+          }
+        } catch { /* ignore parse errors */ }
+      }
     } catch {
       // ignore
     }

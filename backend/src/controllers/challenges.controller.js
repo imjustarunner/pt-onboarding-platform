@@ -22,6 +22,7 @@ import { challengeMessageBridge } from '../services/challengeMessageBridge.servi
 import { canUserManageChallengeClass } from '../utils/sscClubAccess.js';
 import { sanitizeCalories, estimateCalories } from '../utils/calorieUtils.js';
 import { normalizeActivityType } from '../utils/activityTypeUtils.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
@@ -569,6 +570,7 @@ export const getActivityFeed = async (req, res, next) => {
     }
     const enriched = (workouts || []).map((w) => ({
       ...w,
+      profile_photo_url: publicUploadsUrlFromStoredPath(w.profile_photo_path) || null,
       comment_count: commentsByWorkout.get(Number(w.id)) || 0,
       media: mediaByWorkout.get(Number(w.id)) || [],
       club_feed_post_id: feedPostByWorkout.get(Number(w.id)) || null,
