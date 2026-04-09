@@ -234,6 +234,7 @@ const normalizeSeasonSettings = (input = {}) => {
     scoring: {
       weeklyMinimumPointsPerAthlete: Math.max(0, numOr(scoring.weeklyMinimumPointsPerAthlete, numOr(scoring.individualMinPointsPerWeek, 0))),
       teamWeeklyTargetPoints: Math.max(0, numOr(scoring.teamWeeklyTargetPoints, numOr(scoring.teamMinPointsPerWeek, 0))),
+      runRuckScoringMetric: ['distance', 'calories'].includes(scoring.runRuckScoringMetric) ? scoring.runRuckScoringMetric : 'distance',
       runMilesPerPoint: Math.max(0.1, floatOr(scoring.runMilesPerPoint, 1)),
       ruckMilesPerPoint: Math.max(0.1, floatOr(scoring.ruckMilesPerPoint, 1)),
       caloriesPerPoint: Math.max(1, numOr(scoring.caloriesPerPoint, 100)),

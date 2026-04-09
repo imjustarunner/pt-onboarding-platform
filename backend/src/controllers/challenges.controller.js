@@ -711,23 +711,31 @@ export const submitWorkout = async (req, res, next) => {
     const moderationMode = getWorkoutModerationMode(settings);
     const weekCutoffTime = String(schedule?.weekEndsSundayAt || access.class?.week_start_time || '00:00');
     const weekTimeZone = String(schedule?.weekTimeZone || 'UTC');
+    const runRuckScoringMetric = String(scoring.runRuckScoringMetric || 'distance').toLowerCase();
     let computedPoints = null;
     const isRunLike = activityLower.includes('run') || activityLower.includes('walk') || activityLower.includes('ruck') || activityLower.includes('step');
     if (eventCategory === 'run_ruck' && isRunLike) {
-      // run/ruck seasons: distance only — calories are never used for these activities
-      if (distanceValue != null && Number.isFinite(distanceValue)) {
-        if (activityLower.includes('ruck')) {
-          computedPoints = Math.max(0, Math.round((distanceValue / ruckMilesPerPoint) * 100) / 100);
-        } else {
-          computedPoints = Math.max(0, Math.round((distanceValue / runMilesPerPoint) * 100) / 100);
+      if (runRuckScoringMetric === 'calories') {
+        // season configured to score run/ruck by calories
+        if (caloriesBurned != null && caloriesPerPoint > 0) {
+          computedPoints = Math.max(0, Math.floor(caloriesBurned / caloriesPerPoint));
         }
+      } else {
+        // default: score by distance
+        if (distanceValue != null && Number.isFinite(distanceValue)) {
+          if (activityLower.includes('ruck')) {
+            computedPoints = Math.max(0, Math.round((distanceValue / ruckMilesPerPoint) * 100) / 100);
+          } else {
+            computedPoints = Math.max(0, Math.round((distanceValue / runMilesPerPoint) * 100) / 100);
+          }
+        }
+        // no distance → computedPoints stays null; falls back to req.body.points
       }
-      // no distance provided → computedPoints stays null; falls back to req.body.points
     } else if (eventCategory === 'run_ruck' && distanceValue != null && Number.isFinite(distanceValue)) {
       // non-run-like activity in a run_ruck season (e.g. swim, bike) — score by distance
       computedPoints = Math.max(0, Math.round((distanceValue / runMilesPerPoint) * 100) / 100);
     } else if (caloriesBurned != null && caloriesPerPoint > 0) {
-      // fitness season or no distance available — score by calories
+      // fitness season — score by calories
       computedPoints = Math.max(0, Math.floor(caloriesBurned / caloriesPerPoint));
     }
     const points = computedPoints != null ? computedPoints : (Math.round((Number(req.body.points) || 0) * 100) / 100);

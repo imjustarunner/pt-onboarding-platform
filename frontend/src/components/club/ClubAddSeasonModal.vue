@@ -160,17 +160,26 @@
               <input v-model="form.weekTimeZone" type="text" class="form-input" placeholder="e.g., America/New_York" />
             </div>
           </div>
-          <div class="form-row">
+          <div v-if="form.eventCategory === 'run_ruck'" class="form-row">
             <div class="form-group">
+              <label>Scoring metric</label>
+              <select v-model="form.runRuckScoringMetric" class="form-input">
+                <option value="distance">Distance (miles per point)</option>
+                <option value="calories">Calories (calories per point)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" v-if="form.eventCategory === 'run_ruck' && form.runRuckScoringMetric !== 'calories'">
               <label>Run miles per point</label>
               <input v-model.number="form.runMilesPerPoint" type="number" min="0.1" step="0.1" class="form-input" />
             </div>
-            <div class="form-group">
+            <div class="form-group" v-if="form.eventCategory === 'run_ruck' && form.runRuckScoringMetric !== 'calories'">
               <label>Ruck miles per point</label>
               <input v-model.number="form.ruckMilesPerPoint" type="number" min="0.1" step="0.1" class="form-input" />
             </div>
-            <div class="form-group">
-              <label>Calories per point (fitness)</label>
+            <div class="form-group" v-if="form.eventCategory === 'fitness' || form.runRuckScoringMetric === 'calories'">
+              <label>Calories per point</label>
               <input v-model.number="form.caloriesPerPoint" type="number" min="1" step="1" class="form-input" />
             </div>
           </div>
@@ -392,6 +401,7 @@ const defaultForm = () => ({
   challengeAssignmentMode: 'volunteer_or_elect',
   weekEndsSundayAt: '23:59',
   weekTimeZone: 'UTC',
+  runRuckScoringMetric: 'distance',
   runMilesPerPoint: 1,
   ruckMilesPerPoint: 1,
   caloriesPerPoint: 100,
@@ -548,6 +558,7 @@ const submit = async () => {
       scoring: {
         weeklyMinimumPointsPerAthlete: form.value.individualMinPointsPerWeek ?? 0,
         teamWeeklyTargetPoints: form.value.teamMinPointsPerWeek ?? 0,
+        runRuckScoringMetric: form.value.runRuckScoringMetric || 'distance',
         runMilesPerPoint: Number(form.value.runMilesPerPoint ?? 1),
         ruckMilesPerPoint: Number(form.value.ruckMilesPerPoint ?? 1),
         caloriesPerPoint: Number(form.value.caloriesPerPoint ?? 100)

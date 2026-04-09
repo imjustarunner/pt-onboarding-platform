@@ -431,17 +431,26 @@
           </div>
           <div class="form-group">
             <label>Distance / calories conversion</label>
-            <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
+            <div v-if="challengeForm.eventCategory === 'run_ruck'" class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;">
               <div class="form-group">
+                <label>Scoring metric</label>
+                <select v-model="challengeForm.runRuckScoringMetric">
+                  <option value="distance">Distance (miles per point)</option>
+                  <option value="calories">Calories (calories per point)</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <div class="form-group" v-if="challengeForm.eventCategory === 'run_ruck' && challengeForm.runRuckScoringMetric !== 'calories'">
                 <label>Run miles per point</label>
                 <input v-model.number="challengeForm.runMilesPerPoint" type="number" min="0.1" step="0.1" />
               </div>
-              <div class="form-group">
+              <div class="form-group" v-if="challengeForm.eventCategory === 'run_ruck' && challengeForm.runRuckScoringMetric !== 'calories'">
                 <label>Ruck miles per point</label>
                 <input v-model.number="challengeForm.ruckMilesPerPoint" type="number" min="0.1" step="0.1" />
               </div>
-              <div class="form-group">
-                <label>Calories per point (fitness)</label>
+              <div class="form-group" v-if="challengeForm.eventCategory === 'fitness' || challengeForm.runRuckScoringMetric === 'calories'">
+                <label>Calories per point</label>
                 <input v-model.number="challengeForm.caloriesPerPoint" type="number" min="1" step="1" />
               </div>
             </div>
@@ -2080,6 +2089,7 @@ const openEditModal = (c) => {
     additionalMetricsText: Array.isArray(recognitionSettings.additionalMetrics) ? recognitionSettings.additionalMetrics.join(', ') : '',
     eventCategory: eventSettings.category || 'run_ruck',
     challengeAssignmentMode: eventSettings.challengeAssignmentMode || 'volunteer_or_elect',
+    runRuckScoringMetric: scoringSettings.runRuckScoringMetric || 'distance',
     runMilesPerPoint: scoringSettings.runMilesPerPoint ?? 1,
     ruckMilesPerPoint: scoringSettings.ruckMilesPerPoint ?? 1,
     caloriesPerPoint: scoringSettings.caloriesPerPoint ?? 100,
@@ -2221,6 +2231,7 @@ const saveChallenge = async () => {
         scoring: {
           weeklyMinimumPointsPerAthlete: challengeForm.value.individualMinPointsPerWeek ?? 0,
           teamWeeklyTargetPoints: challengeForm.value.teamMinPointsPerWeek ?? 0,
+          runRuckScoringMetric: challengeForm.value.runRuckScoringMetric || 'distance',
           runMilesPerPoint: Number(challengeForm.value.runMilesPerPoint ?? 1),
           ruckMilesPerPoint: Number(challengeForm.value.ruckMilesPerPoint ?? 1),
           caloriesPerPoint: Number(challengeForm.value.caloriesPerPoint ?? 100),
