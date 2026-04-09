@@ -53,212 +53,20 @@
           <span v-if="avgPace(w)" class="activity-pace">{{ avgPace(w) }} /mi</span>
           <span class="activity-points">{{ formatPts(w.points) }} pts</span>
         </div>
-        <div v-if="w.weekly_task_name" class="hint" style="margin-top: 4px;">
-          Tagged challenge: <strong>{{ w.weekly_task_name }}</strong>
-        </div>
-        <!-- Screenshot proof thumbnail (before media gallery) -->
-        <div v-if="w.screenshot_file_path && !w.media?.length" class="screenshot-proof">
-          <img
-            :src="toUploadsUrl(w.screenshot_file_path)"
-            alt="Workout screenshot"
-            class="screenshot-thumb"
-            @click="openScreenshot(w.screenshot_file_path)"
-          />
-          <span class="screenshot-label">Screenshot attached</span>
-        </div>
-        <div v-if="w.workout_notes" class="activity-notes" style="white-space: pre-line;">{{ w.workout_notes }}</div>
-        <!-- Proof status badge – visible to everyone -->
-        <div v-if="w.proof_status && w.proof_status !== 'not_required'" class="proof-status-badge-row">
+        <!-- Challenge tag + proof/disqualified badges in a compact inline row -->
+        <div class="activity-inline-tags">
+          <span v-if="w.weekly_task_name" class="tag-chip tag-chip--challenge">{{ w.weekly_task_name }}</span>
           <span v-if="w.proof_status === 'approved'" class="proof-badge proof-badge--approved">✓ Approved</span>
-          <span v-else-if="w.proof_status === 'pending'" class="proof-badge proof-badge--pending">⏳ Pending review</span>
-          <span v-else-if="w.proof_status === 'rejected'" class="proof-badge proof-badge--rejected">✗ Proof rejected</span>
-        </div>
-        <!-- Disqualified badge – visible to everyone -->
-        <div v-if="Number(w.is_disqualified) === 1" class="proof-badge-row">
-          <span class="proof-badge proof-badge--rejected">✗ Disqualified</span>
-        </div>
-        <!-- Strava extra metrics row -->
-        <div v-if="w.strava_activity_id && (w.elevation_gain_meters > 0 || w.calories_burned > 0 || w.average_heartrate > 0 || w.max_heartrate > 0)" class="strava-metrics-row">
-          <span v-if="w.elevation_gain_meters > 0" class="strava-metric" title="Elevation gain">⛰ {{ Math.round(w.elevation_gain_meters * 3.28084) }} ft gain</span>
-          <span v-if="w.calories_burned > 0" class="strava-metric" title="Calories burned">🔥 {{ w.calories_burned }} cal</span>
-          <span v-if="w.average_heartrate > 0" class="strava-metric" title="Avg heart rate">❤️ avg {{ Math.round(w.average_heartrate) }} bpm</span>
-          <span v-if="w.max_heartrate > 0" class="strava-metric" title="Max heart rate">❤️‍🔥 max {{ Math.round(w.max_heartrate) }} bpm</span>
-        </div>
-        <!-- Mile splits (collapsible) -->
-        <div v-if="parsedSplits(w).length" class="splits-section">
-          <button class="splits-toggle" @click="toggleSplits(w.id)">
-            {{ splitsOpen[w.id] ? '▲ Hide' : '▼ Mile splits' }} ({{ parsedSplits(w).length }} mi)
-          </button>
-          <table v-if="splitsOpen[w.id]" class="splits-table">
-            <thead>
-              <tr>
-                <th>Mi</th>
-                <th>Pace</th>
-                <th>Elev</th>
-                <th v-if="parsedSplits(w).some(s => s.averageHeartrate)">HR</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="s in parsedSplits(w)" :key="s.split">
-                <td>{{ s.split }}</td>
-                <td>{{ formatSplitPace(s) }}</td>
-                <td>{{ s.elevationDiffMeters != null ? (s.elevationDiffMeters >= 0 ? '+' : '') + Math.round(s.elevationDiffMeters * 3.28084) + ' ft' : '—' }}</td>
-                <td v-if="parsedSplits(w).some(s2 => s2.averageHeartrate)">{{ s.averageHeartrate ? Math.round(s.averageHeartrate) + ' bpm' : '—' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <!-- Disqualified reason detail (manager only) -->
-        <div v-if="props.isManager && Number(w.is_disqualified) === 1 && w.disqualification_reason" class="disqualified-banner">
-          Reason: {{ w.disqualification_reason }}
-        </div>
-        <div v-if="w.strava_activity_id" class="hint strava-source-hint">
-          <span class="strava-logo-s-sm">S</span> Imported from Strava
-        </div>
-        <div v-if="Number(w.is_treadmill) === 1" class="hint" style="margin-top: 4px;">
-          Treadmill entry
-        </div>
-        <div v-if="canEditOwnImportedTreadmill(w)" class="proof-review-card" style="margin-top: 6px;">
-          <div class="proof-review-header">
-            <strong>Edit treadmill import</strong>
-            <button class="btn btn-secondary btn-small" @click="toggleEditImportedWorkout(w)">
-              {{ editOpenByWorkout[w.id] ? 'Hide' : 'Edit' }}
-            </button>
-          </div>
-          <div v-if="editOpenByWorkout[w.id]" class="proof-review-body">
-            <label class="proof-field">
-              <span>Corrected miles</span>
-              <input v-model.number="editDraftByWorkout[w.id].distanceValue" type="number" step="0.01" min="0" />
-            </label>
-            <label class="proof-field">
-              <span>Treadmill proof URL/path (optional now, can add later)</span>
-              <input v-model="editDraftByWorkout[w.id].screenshotFilePath" type="text" maxlength="255" />
-            </label>
-            <label class="proof-field">
-              <span>Notes</span>
-              <input v-model="editDraftByWorkout[w.id].workoutNotes" type="text" maxlength="500" />
-            </label>
-            <div class="proof-actions">
-              <button class="btn btn-primary btn-small" :disabled="!!editSubmitting[w.id]" @click="saveEditImportedWorkout(w.id)">
-                Save Edit
-              </button>
-            </div>
-          </div>
-        </div>
-        <!-- Unified manager review panel -->
-        <div
-          v-if="props.isManager && (w.proof_status || Number(w.is_treadmill) === 1 || Number(w.is_disqualified) === 1)"
-          class="proof-review-card"
-        >
-          <!-- Collapsed: already approved & not disqualified -->
-          <template v-if="w.proof_status === 'approved' && Number(w.is_disqualified) !== 1">
-            <div class="proof-review-header proof-review-header--approved">
-              <span>✓ Proof approved</span>
-              <button class="btn-link-sm" @click="reviewProof(w.id, 'pending')">Undo</button>
-            </div>
-          </template>
-
-          <!-- Expanded: needs review, pending, rejected, or disqualified -->
-          <template v-else>
-            <div class="proof-review-header">
-              <strong>Manager review</strong>
-              <span class="proof-status" :class="`proof-${String(w.proof_status || '').toLowerCase()}`">
-                {{ Number(w.is_disqualified) === 1 ? 'Disqualified' : String(w.proof_status || 'pending').replace(/_/g, ' ') }}
-              </span>
-            </div>
-            <div class="proof-review-body">
-              <label class="proof-field">
-                <span>Verified miles (optional)</span>
-                <input
-                  v-model.number="proofReviewDraftByWorkout[w.id].verifiedDistanceValue"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="Override if treadmill photo differs"
-                />
-              </label>
-              <label class="proof-field">
-                <span>Note (optional)</span>
-                <input
-                  v-model="proofReviewDraftByWorkout[w.id].proofReviewNote"
-                  type="text"
-                  maxlength="255"
-                  placeholder="Reason for rejection or notes"
-                />
-              </label>
-              <div class="proof-actions">
-                <button class="btn btn-primary btn-small" :disabled="!!proofSubmitting[w.id]" @click="reviewProof(w.id, 'approved')">
-                  Approve
-                </button>
-                <button
-                  v-if="Number(w.is_disqualified) !== 1"
-                  class="btn btn-secondary btn-small"
-                  :disabled="!!disqualifySubmitting[w.id] || !!proofSubmitting[w.id]"
-                  @click="setWorkoutDisqualification(w.id, true)"
-                >
-                  Reject / Disqualify
-                </button>
-                <button
-                  v-else
-                  class="btn btn-primary btn-small"
-                  :disabled="!!disqualifySubmitting[w.id]"
-                  @click="setWorkoutDisqualification(w.id, false)"
-                >
-                  Reinstate
-                </button>
-              </div>
-            </div>
-          </template>
+          <span v-else-if="w.proof_status && w.proof_status !== 'not_required' && w.proof_status !== 'approved'" class="proof-badge proof-badge--pending">⏳ Pending review</span>
+          <span v-if="Number(w.is_disqualified) === 1" class="proof-badge proof-badge--rejected">✗ Disqualified</span>
         </div>
 
-        <!-- Disqualify control even when no proof panel (any manager can disqualify any workout) -->
-        <div
-          v-else-if="props.isManager && Number(w.is_disqualified) === 1"
-          class="proof-review-card"
-        >
-          <div class="proof-review-header">
-            <strong>Manager review</strong>
-            <span class="proof-status proof-rejected">Disqualified</span>
-          </div>
-          <div class="proof-review-body">
-            <div class="proof-actions">
-              <button class="btn btn-primary btn-small" :disabled="!!disqualifySubmitting[w.id]" @click="setWorkoutDisqualification(w.id, false)">
-                Reinstate Workout
-              </button>
-            </div>
-          </div>
-        </div>
-        <div v-if="w.media?.length" class="activity-media">
-          <img
-            v-for="m in w.media.filter(m => m.media_type !== 'map')"
-            :key="`media-${w.id}-${m.id}`"
-            :src="toUploadsUrl(m.file_path)"
-            :alt="`Workout media ${m.id}`"
-            class="media-item"
-          />
-          <!-- Map image attachment (manual upload) overrides polyline map -->
-          <img
-            v-for="m in w.media.filter(m => m.media_type === 'map')"
-            :key="`map-${w.id}-${m.id}`"
-            :src="toUploadsUrl(m.file_path)"
-            class="media-item media-item--map"
-            alt="Route map"
-          />
-        </div>
-        <!-- Route map rendered from Strava polyline (only if no manual map attachment) -->
-        <WorkoutRouteMap
-          v-if="w.map_summary_polyline && !w.media?.some(m => m.media_type === 'map')"
-          :polyline="w.map_summary_polyline"
-        />
-        <!-- ── Kudos + Emoji Reactions row ──────────────────────────────── -->
+        <!-- ── Engagement row: kudos / reactions / action links ──────────── -->
         <div class="workout-engagement-row">
           <!-- Kudos button -->
           <button
             class="kudos-btn"
-            :class="{
-              'kudos-given':     hasGivenKudos(w.id),
-              'kudos-disabled':  !canGiveKudos(w)
-            }"
+            :class="{ 'kudos-given': hasGivenKudos(w.id), 'kudos-disabled': !canGiveKudos(w) }"
             :disabled="kudosSubmitting[w.id]"
             :title="kudosBtnTitle(w)"
             @click="toggleKudos(w)"
@@ -268,8 +76,8 @@
             <span class="kudos-label">{{ hasGivenKudos(w.id) ? 'Kudos given' : 'Give kudos' }}</span>
           </button>
 
-          <!-- Emoji reactions display (overlapping pills) -->
-          <div class="reactions-display" v-if="(reactionsFor(w.id) || []).length" @click="toggleReactionDetail(w.id)">
+          <!-- Emoji reactions display -->
+          <div v-if="(reactionsFor(w.id) || []).length" class="reactions-display" @click="toggleReactionDetail(w.id)">
             <span
               v-for="(r, ri) in (reactionsFor(w.id) || []).slice(0, 5)"
               :key="`rpill-${w.id}-${ri}`"
@@ -283,13 +91,18 @@
           </div>
 
           <!-- Emoji picker toggle -->
-          <button
-            class="emoji-btn"
-            :class="{ 'emoji-picker-open': emojiPickerOpen[w.id] }"
-            @click.stop="toggleEmojiPicker(w.id)"
-            title="Add emoji reaction"
-          >
+          <button class="emoji-btn" :class="{ 'emoji-picker-open': emojiPickerOpen[w.id] }" @click.stop="toggleEmojiPicker(w.id)" title="Add emoji reaction">
             <span>😄 +</span>
+          </button>
+
+          <div class="engagement-divider" />
+
+          <!-- More info / Comments action links -->
+          <button class="card-action-link" @click="moreInfoOpen[w.id] = !moreInfoOpen[w.id]">
+            {{ moreInfoOpen[w.id] ? 'Less ▲' : 'More info ▼' }}
+          </button>
+          <button class="card-action-link" @click="toggleComments(w.id)">
+            💬 {{ w.comment_count || 0 }}
           </button>
         </div>
 
@@ -303,7 +116,6 @@
               :class="{ 'emoji-mine': isMyReaction(w.id, emoji) }"
               @click="onReact(w.id, emoji)"
             >{{ emoji }}</button>
-            <!-- Custom icon reactions -->
             <button
               v-for="ic in reactionIcons"
               :key="`ep-icon-${w.id}-${ic.id}`"
@@ -317,7 +129,7 @@
           </div>
         </div>
 
-        <!-- Reaction detail popover (who reacted with what) -->
+        <!-- Reaction detail popover -->
         <div v-if="reactionDetailOpen[w.id]" class="reaction-detail-panel" @click.stop>
           <div class="reaction-detail-header">
             <span>Reactions</span>
@@ -333,15 +145,169 @@
           </div>
         </div>
 
-        <div class="activity-comment-actions">
-          <button class="btn btn-secondary btn-small" @click="toggleComments(w.id)">
-            {{ commentsOpen[w.id] ? 'Hide' : 'Show' }} Comments ({{ w.comment_count || 0 }})
-          </button>
-          <label class="upload-btn">
-            Upload GIF/Image
-            <input type="file" accept=".gif,.png,.jpg,.jpeg,.webp,image/*" @change="onUploadMedia($event, w.id)" />
-          </label>
+        <!-- ── Expandable "More info" section ──────────────────────────── -->
+        <div v-if="moreInfoOpen[w.id]" class="more-info-panel">
+          <!-- Notes -->
+          <div v-if="w.workout_notes" class="activity-notes">{{ w.workout_notes }}</div>
+
+          <!-- Strava metrics chips -->
+          <div v-if="w.strava_activity_id && (w.elevation_gain_meters > 0 || w.calories_burned > 0 || w.average_heartrate > 0 || w.max_heartrate > 0)" class="strava-metrics-row">
+            <span v-if="w.elevation_gain_meters > 0" class="strava-metric" title="Elevation gain">⛰ {{ Math.round(w.elevation_gain_meters * 3.28084) }} ft gain</span>
+            <span v-if="w.calories_burned > 0" class="strava-metric" title="Calories burned">🔥 {{ w.calories_burned }} cal</span>
+            <span v-if="w.average_heartrate > 0" class="strava-metric" title="Avg heart rate">❤️ avg {{ Math.round(w.average_heartrate) }} bpm</span>
+            <span v-if="w.max_heartrate > 0" class="strava-metric" title="Max heart rate">❤️‍🔥 max {{ Math.round(w.max_heartrate) }} bpm</span>
+          </div>
+
+          <!-- Mile splits -->
+          <div v-if="parsedSplits(w).length" class="splits-section">
+            <button class="splits-toggle" @click="toggleSplits(w.id)">
+              {{ splitsOpen[w.id] ? '▲ Hide splits' : '▼ Mile splits' }} ({{ parsedSplits(w).length }} mi)
+            </button>
+            <table v-if="splitsOpen[w.id]" class="splits-table">
+              <thead>
+                <tr>
+                  <th>Mi</th><th>Pace</th><th>Elev</th>
+                  <th v-if="parsedSplits(w).some(s => s.averageHeartrate)">HR</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="s in parsedSplits(w)" :key="s.split">
+                  <td>{{ s.split }}</td>
+                  <td>{{ formatSplitPace(s) }}</td>
+                  <td>{{ s.elevationDiffMeters != null ? (s.elevationDiffMeters >= 0 ? '+' : '') + Math.round(s.elevationDiffMeters * 3.28084) + ' ft' : '—' }}</td>
+                  <td v-if="parsedSplits(w).some(s2 => s2.averageHeartrate)">{{ s.averageHeartrate ? Math.round(s.averageHeartrate) + ' bpm' : '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Screenshot proof thumbnail -->
+          <div v-if="w.screenshot_file_path && !w.media?.length" class="screenshot-proof">
+            <img :src="toUploadsUrl(w.screenshot_file_path)" alt="Workout screenshot" class="screenshot-thumb" @click="openScreenshot(w.screenshot_file_path)" />
+            <span class="screenshot-label">Screenshot</span>
+          </div>
+
+          <!-- Media photos -->
+          <div v-if="w.media?.length" class="activity-media">
+            <img
+              v-for="m in w.media.filter(m => m.media_type !== 'map')"
+              :key="`media-${w.id}-${m.id}`"
+              :src="toUploadsUrl(m.file_path)"
+              :alt="`Workout media ${m.id}`"
+              class="media-item"
+            />
+            <img
+              v-for="m in w.media.filter(m => m.media_type === 'map')"
+              :key="`map-${w.id}-${m.id}`"
+              :src="toUploadsUrl(m.file_path)"
+              class="media-item media-item--map"
+              alt="Route map"
+            />
+          </div>
+
+          <!-- Strava route map -->
+          <WorkoutRouteMap
+            v-if="w.map_summary_polyline && !w.media?.some(m => m.media_type === 'map')"
+            :polyline="w.map_summary_polyline"
+          />
+
+          <!-- Treadmill note + edit -->
+          <div v-if="Number(w.is_treadmill) === 1" class="hint" style="margin-top: 4px;">Treadmill entry</div>
+          <div v-if="canEditOwnImportedTreadmill(w)" class="proof-review-card" style="margin-top: 6px;">
+            <div class="proof-review-header">
+              <strong>Edit treadmill import</strong>
+              <button class="btn btn-secondary btn-small" @click="toggleEditImportedWorkout(w)">{{ editOpenByWorkout[w.id] ? 'Hide' : 'Edit' }}</button>
+            </div>
+            <div v-if="editOpenByWorkout[w.id]" class="proof-review-body">
+              <label class="proof-field"><span>Corrected miles</span><input v-model.number="editDraftByWorkout[w.id].distanceValue" type="number" step="0.01" min="0" /></label>
+              <label class="proof-field"><span>Notes</span><input v-model="editDraftByWorkout[w.id].workoutNotes" type="text" maxlength="500" /></label>
+              <div class="proof-actions">
+                <button class="btn btn-primary btn-small" :disabled="!!editSubmitting[w.id]" @click="saveEditImportedWorkout(w.id)">Save Edit</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Strava source tag -->
+          <div v-if="w.strava_activity_id" class="hint strava-source-hint">
+            <span class="strava-logo-s-sm">S</span> Imported from Strava
+          </div>
+
+          <!-- Manager review panel -->
+          <div
+            v-if="props.isManager && (w.proof_status || Number(w.is_treadmill) === 1 || Number(w.is_disqualified) === 1)"
+            class="proof-review-card"
+          >
+            <template v-if="w.proof_status === 'approved' && Number(w.is_disqualified) !== 1">
+              <div class="proof-review-header proof-review-header--approved">
+                <span>✓ Proof approved</span>
+                <button class="btn-link-sm" @click="reviewProof(w.id, 'pending')">Undo</button>
+              </div>
+            </template>
+            <template v-else>
+              <div class="proof-review-header">
+                <strong>Manager review</strong>
+                <span class="proof-status" :class="`proof-${String(w.proof_status || '').toLowerCase()}`">
+                  {{ Number(w.is_disqualified) === 1 ? 'Disqualified' : String(w.proof_status || 'pending').replace(/_/g, ' ') }}
+                </span>
+              </div>
+              <div class="proof-review-body">
+                <label class="proof-field">
+                  <span>Verified miles (optional)</span>
+                  <input v-model.number="proofReviewDraftByWorkout[w.id].verifiedDistanceValue" type="number" step="0.01" min="0" placeholder="Override if treadmill photo differs" />
+                </label>
+                <label class="proof-field">
+                  <span>Note (optional)</span>
+                  <input v-model="proofReviewDraftByWorkout[w.id].proofReviewNote" type="text" maxlength="255" placeholder="Reason for rejection or notes" />
+                </label>
+                <div class="proof-actions">
+                  <button class="btn btn-primary btn-small" :disabled="!!proofSubmitting[w.id]" @click="reviewProof(w.id, 'approved')">Approve</button>
+                  <button
+                    v-if="Number(w.is_disqualified) !== 1"
+                    class="btn btn-secondary btn-small"
+                    :disabled="!!disqualifySubmitting[w.id] || !!proofSubmitting[w.id]"
+                    @click="setWorkoutDisqualification(w.id, true)"
+                  >Reject / Disqualify</button>
+                  <button
+                    v-else
+                    class="btn btn-primary btn-small"
+                    :disabled="!!disqualifySubmitting[w.id]"
+                    @click="setWorkoutDisqualification(w.id, false)"
+                  >Reinstate</button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Disqualify control for workouts without proof panel -->
+          <div v-else-if="props.isManager && Number(w.is_disqualified) === 1" class="proof-review-card">
+            <div class="proof-review-header">
+              <strong>Manager review</strong>
+              <span class="proof-status proof-rejected">Disqualified</span>
+            </div>
+            <div class="proof-review-body">
+              <div class="proof-actions">
+                <button class="btn btn-primary btn-small" :disabled="!!disqualifySubmitting[w.id]" @click="setWorkoutDisqualification(w.id, false)">Reinstate Workout</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Disqualified reason note (manager) -->
+          <div v-if="props.isManager && Number(w.is_disqualified) === 1 && w.disqualification_reason" class="disqualified-banner">
+            Reason: {{ w.disqualification_reason }}
+          </div>
+
+          <!-- Upload GIF/Image -->
+          <div class="more-info-upload-row">
+            <label class="upload-btn">
+              📎 Attach photo / GIF
+              <input type="file" accept=".gif,.png,.jpg,.jpeg,.webp,image/*" @change="onUploadMedia($event, w.id)" />
+            </label>
+          </div>
+
+          <div class="activity-time hint">Logged {{ formatTime(w.completed_at || w.created_at) }}</div>
         </div>
+
+        <!-- ── Comments section ──────────────────────────────────────────── -->
         <div v-if="commentsOpen[w.id]" class="comments-box">
           <div v-if="commentsLoading[w.id]" class="hint">Loading comments…</div>
           <div v-else class="comments-list">
@@ -355,13 +321,11 @@
                   <button class="btn-link" @click="startReply(w.id, c)">Reply</button>
                   <button v-if="Number(c.user_id) === Number(myUserId)" class="btn-link comment-delete" @click="deleteComment(w.id, c.id)">Delete</button>
                 </div>
-                <!-- Inline reply composer for this comment -->
                 <form v-if="replyTarget[w.id] === c.id" class="comment-form reply-form" @submit.prevent="submitReply(w.id, c.id)">
                   <input v-model="replyDraftByWorkout[w.id]" type="text" maxlength="300" :placeholder="`Reply to ${c.first_name}…`" autofocus />
                   <button class="btn btn-primary btn-small" type="submit">Reply</button>
                   <button type="button" class="btn btn-ghost btn-small" @click="cancelReply(w.id)">Cancel</button>
                 </form>
-                <!-- Nested replies -->
                 <div v-if="repliesFor(w.id, c.id).length" class="replies-list">
                   <div v-for="r in repliesFor(w.id, c.id)" :key="`reply-${r.id}`" class="comment-item comment-item--reply">
                     <div class="comment-body">
@@ -382,7 +346,6 @@
             <button class="btn btn-primary btn-small" type="submit">Post</button>
           </form>
         </div>
-        <div class="activity-time hint">Logged {{ formatTime(w.completed_at || w.created_at) }}</div>
       </div>
       <div v-if="!filteredWorkouts.length" class="feed-empty-state">
         <div class="feed-empty-icon">🏃</div>
@@ -432,6 +395,7 @@ const filteredWorkouts = computed(() => {
 });
 
 const commentsOpen    = ref({});
+const moreInfoOpen    = ref({});
 const replyTarget     = ref({});  // workoutId -> parentCommentId being replied to
 const replyDraftByWorkout = ref({});
 const commentsLoading = ref({});
@@ -963,7 +927,7 @@ const reviewProof = async (workoutId, status) => {
 }
 .btn-outline:hover { background: #f1f5f9; border-color: #94a3b8; }
 .activity-card {
-  padding: 18px 20px;
+  padding: 12px 16px;
   border: 1px solid #e8edf3;
   border-left: 5px solid #90a4ae;
   border-radius: 10px;
@@ -1032,7 +996,7 @@ const reviewProof = async (workoutId, status) => {
   padding: 2px 7px;
 }
 .activity-meta {
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 0.88em;
   display: flex;
   flex-wrap: wrap;
@@ -1198,12 +1162,60 @@ const reviewProof = async (workoutId, status) => {
   transition: opacity 0.15s;
 }
 .media-item:hover { opacity: 0.88; }
-.activity-comment-actions {
-  margin-top: 8px;
+/* ── Inline tags row (challenge + proof status) ────────────────── */
+.activity-inline-tags {
   display: flex;
-  gap: 8px;
-  align-items: center;
   flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+  min-height: 0;
+}
+.tag-chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.tag-chip--challenge {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+/* ── Engagement divider & action links ─────────────────────────── */
+.engagement-divider {
+  width: 1px;
+  height: 18px;
+  background: #e2e8f0;
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+.card-action-link {
+  background: none;
+  border: none;
+  color: #6366f1;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.card-action-link:hover { background: #f0f0ff; }
+
+/* ── More info expandable panel ────────────────────────────────── */
+.more-info-panel {
+  margin-top: 8px;
+  padding: 10px 10px 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.more-info-upload-row {
+  margin-top: 4px;
 }
 .upload-btn {
   border: 1px dashed #bbb;
