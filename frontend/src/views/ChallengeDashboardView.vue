@@ -83,13 +83,24 @@
           {{ formatDates(challenge) }}
         </div>
 
-        <!-- Week deadline countdown -->
-        <div v-if="weekCountdown" class="week-countdown" :class="`week-countdown--${weekCountdownClass}`">
-          <span class="week-countdown__icon">⏱</span>
-          <span class="week-countdown__text">
-            <strong>{{ weekCountdown }}</strong> left to log workouts this week
-            <span v-if="weekDeadlineLabel" class="week-countdown__deadline"> · Deadline {{ weekDeadlineLabel }}</span>
-          </span>
+        <!-- Countdown row: daily + weekly -->
+        <div class="countdown-row">
+          <!-- Daily workout submission countdown -->
+          <div v-if="dailyCountdown" class="week-countdown week-countdown--daily" :class="`week-countdown--${dailyCountdownClass}`">
+            <span class="week-countdown__icon">🕐</span>
+            <span class="week-countdown__text">
+              <strong>{{ dailyCountdown }}</strong> to submit today's workouts
+              <span v-if="dailyDeadlineLabel" class="week-countdown__deadline"> · Due {{ dailyDeadlineLabel }}</span>
+            </span>
+          </div>
+          <!-- Weekly challenge deadline countdown -->
+          <div v-if="weekCountdown" class="week-countdown" :class="`week-countdown--${weekCountdownClass}`">
+            <span class="week-countdown__icon">⏱</span>
+            <span class="week-countdown__text">
+              <strong>{{ weekCountdown }}</strong> left to submit challenges this week
+              <span v-if="weekDeadlineLabel" class="week-countdown__deadline"> · Deadline {{ weekDeadlineLabel }}</span>
+            </span>
+          </div>
         </div>
         <router-link
           v-if="challenge.organization_id"
@@ -887,7 +898,7 @@ import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBrandi
 import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../utils/summitPlatformSlugs.js';
 import { useAffiliationClubAnnouncements } from '../composables/useAffiliationClubAnnouncements.js';
 import { toUploadsUrl } from '../utils/uploadsUrl.js';
-import { getWeekDeadline, timeUntil, formatInTimezone, countdownUrgency } from '../utils/timezones.js';
+import { getWeekDeadline, getTodayDeadline, timeUntil, formatInTimezone, countdownUrgency } from '../utils/timezones.js';
 import ChallengeRules from '../components/challenge/ChallengeRules.vue';
 import ChallengeTeamList from '../components/challenge/ChallengeTeamList.vue';
 import ChallengeLeaderboard from '../components/challenge/ChallengeLeaderboard.vue';
@@ -1104,9 +1115,35 @@ const weekCountdownClass = computed(() => {
   return countdownUrgency(weekDeadline.value);
 });
 
+// ── Daily submission deadline countdown ──────────────────────────
+const dailyDeadlineTime = computed(() => {
+  const s = challenge.value?.season_settings_json;
+  return (s?.participation?.dailyDeadlineTime) || '23:59';
+});
+
+const dailyDeadline = computed(() => {
+  const s = weekSchedule.value;
+  const tz = s?.weekTimeZone || 'UTC';
+  return getTodayDeadline(tz, dailyDeadlineTime.value, weekDeadline.value || null);
+});
+
+const dailyCountdown      = ref('');
+const dailyDeadlineLabel  = computed(() => {
+  const d = dailyDeadline.value;
+  if (!d) return '';
+  const s = weekSchedule.value;
+  return formatInTimezone(d, s?.weekTimeZone || 'UTC', '12h');
+});
+const dailyCountdownClass = computed(() => {
+  if (!dailyDeadline.value) return '';
+  return countdownUrgency(dailyDeadline.value);
+});
+
 let countdownTimer = null;
 const tickCountdown = () => {
   weekCountdown.value = weekDeadline.value ? timeUntil(weekDeadline.value) : '';
+  const dd = dailyDeadline.value;
+  dailyCountdown.value = dd && dd > new Date() ? timeUntil(dd) : '';
 };
 // ─────────────────────────────────────────────────────────────────
 
@@ -2009,11 +2046,17 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 }
 
 /* ── Week countdown banner ── */
+.countdown-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.countdown-row .week-countdown { margin-top: 0; }
 .week-countdown {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-top: 12px;
   padding: 8px 14px;
   border-radius: 8px;
   font-size: 14px;
@@ -2021,6 +2064,11 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   background: #f0fdf4;
   border: 1px solid #bbf7d0;
   color: #166534;
+}
+.week-countdown--daily {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e3a8a;
 }
 .week-countdown--warning {
   background: #fefce8;

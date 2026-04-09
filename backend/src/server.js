@@ -957,6 +957,27 @@ if (!isBootstrap) {
     }
   })();
 
+  // Migration 699 – manager_edited flag on challenge_workouts
+  (async () => {
+    try {
+      const { default: pool } = await import('./config/database.js');
+      const [cols] = await pool.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'challenge_workouts'
+           AND COLUMN_NAME = 'manager_edited'`
+      );
+      if (!cols.length) {
+        await pool.execute(
+          `ALTER TABLE challenge_workouts
+             ADD COLUMN manager_edited TINYINT(1) NOT NULL DEFAULT 0 AFTER proof_reviewed_at`
+        );
+        console.log('[startup] Migration 699 applied: manager_edited added to challenge_workouts');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 699 check skipped:', err.message);
+    }
+  })();
+
   // Set up periodic processing of terminated and completed users
   // Run every hour to check for users that need to be marked inactive or archived
   setInterval(async () => {

@@ -37,12 +37,12 @@
       <div class="filter-group filter-group--types" v-if="activityTypeList.length > 1">
         <button
           v-for="at in activityTypeList"
-          :key="at"
+          :key="at.value"
           type="button"
           class="filter-pill filter-pill--type"
-          :class="{ active: activityTypeFilter === at }"
-          @click="activityTypeFilter = activityTypeFilter === at ? null : at"
-        >{{ formatActivityType(at) }}</button>
+          :class="{ active: activityTypeFilter === at.value }"
+          @click="activityTypeFilter = activityTypeFilter === at.value ? null : at.value"
+        >{{ at.label }}</button>
       </div>
 
       <!-- Clear filters -->
@@ -101,12 +101,13 @@
           <span v-if="w.distance_value">{{ Number(w.distance_value).toFixed(2) }} mi</span>
           <span v-if="w.duration_minutes">{{ formatDuration(w) }}</span>
           <span v-if="avgPace(w)" class="activity-pace">{{ avgPace(w) }} /mi</span>
-          <span class="activity-points">{{ formatPts(w.points) }} pts</span>
+          <span class="activity-points" :class="{ 'activity-points--edited': Number(w.manager_edited) === 1 }">{{ formatPts(w.points) }} pts</span>
         </div>
         <!-- Challenge tag + proof/disqualified badges in a compact inline row -->
         <div class="activity-inline-tags">
           <span v-if="w.weekly_task_name" class="tag-chip tag-chip--challenge">{{ w.weekly_task_name }}</span>
-          <span v-if="w.proof_status === 'approved' && Number(w.is_disqualified) !== 1" class="proof-badge proof-badge--approved">✓ Approved</span>
+          <span v-if="w.proof_status === 'approved' && Number(w.is_disqualified) !== 1 && Number(w.manager_edited) === 1" class="proof-badge proof-badge--approved-edit">✓ Approved with edits</span>
+          <span v-else-if="w.proof_status === 'approved' && Number(w.is_disqualified) !== 1" class="proof-badge proof-badge--approved">✓ Approved</span>
           <span v-else-if="w.proof_status && w.proof_status !== 'not_required' && w.proof_status !== 'approved' && Number(w.is_disqualified) !== 1" class="proof-badge proof-badge--pending">⏳ Pending review</span>
           <span v-if="Number(w.is_disqualified) === 1" class="proof-badge proof-badge--rejected">✗ Disqualified</span>
         </div>
@@ -676,12 +677,32 @@ const otherTeams = computed(() =>
 );
 
 /** Unique activity types in the current workout list. */
+// Canonical aliases: various spellings → one canonical key
+const ACTIVITY_ALIAS = {
+  running: 'run', run: 'run',
+  rucking: 'ruck', ruck: 'ruck',
+  walking: 'walk', walk: 'walk',
+  cycling: 'cycling', biking: 'cycling',
+  steps: 'steps',
+  workout_session: 'workout_session', workout: 'workout_session'
+};
+const canonicalActivity = (raw) => {
+  const k = String(raw || '').toLowerCase().replace(/\s+/g, '_');
+  return ACTIVITY_ALIAS[k] || k;
+};
+const activityLabel = (canonical) => {
+  const map = { run: 'Run', ruck: 'Ruck', walk: 'Walk', cycling: 'Cycling', steps: 'Steps', workout_session: 'Workout Session' };
+  return map[canonical] || canonical.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
 const activityTypeList = computed(() => {
-  const set = new Set();
+  const seen = new Map(); // canonical → display label
   for (const w of (props.workouts || [])) {
-    if (w.activity_type) set.add(w.activity_type);
+    if (!w.activity_type) continue;
+    const c = canonicalActivity(w.activity_type);
+    if (!seen.has(c)) seen.set(c, activityLabel(c));
   }
-  return Array.from(set).sort();
+  return Array.from(seen.entries()).map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
 });
 
 const hasActiveFilters = computed(
@@ -710,9 +731,9 @@ const filteredWorkouts = computed(() => {
     list = list.filter((w) => String(w.team_id) === teamFilter.value);
   }
 
-  // Activity type filter
+  // Activity type filter (canonical — matches run/running, ruck/rucking, etc.)
   if (activityTypeFilter.value) {
-    list = list.filter((w) => w.activity_type === activityTypeFilter.value);
+    list = list.filter((w) => canonicalActivity(w.activity_type) === activityTypeFilter.value);
   }
 
   return list;
@@ -1824,6 +1845,7 @@ const reviewProof = async (workoutId, status) => {
   font-weight: 600;
   color: #1d4ed8;
 }
+.activity-points--edited { color: #b45309; }
 /* Screenshot proof */
 .screenshot-proof {
   margin-top: 8px;
@@ -1889,9 +1911,10 @@ const reviewProof = async (workoutId, status) => {
   border-radius: 999px;
   padding: 2px 10px;
 }
-.proof-badge--approved { background: #e8f5e9; color: #2e7d32; }
-.proof-badge--pending  { background: #fff8e1; color: #7c5f00; }
-.proof-badge--rejected { background: #ffebee; color: #c62828; }
+.proof-badge--approved      { background: #e8f5e9; color: #2e7d32; }
+.proof-badge--approved-edit { background: #fef9c3; color: #78350f; border: 1px solid #fde68a; }
+.proof-badge--pending       { background: #fff8e1; color: #7c5f00; }
+.proof-badge--rejected      { background: #ffebee; color: #c62828; }
 .splits-section { margin-top: 8px; }
 .splits-toggle {
   background: none;

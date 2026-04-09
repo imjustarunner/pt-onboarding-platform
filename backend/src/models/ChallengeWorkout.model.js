@@ -172,6 +172,7 @@ class ChallengeWorkout {
     if (patch.proofReviewNote !== undefined) { parts.push('proof_review_note = ?'); values.push(patch.proofReviewNote ? String(patch.proofReviewNote).slice(0, 255) : null); }
     if (patch.proofReviewedByUserId !== undefined) { parts.push('proof_reviewed_by_user_id = ?'); values.push(patch.proofReviewedByUserId ? toInt(patch.proofReviewedByUserId) : null); }
     if (patch.proofReviewedAt !== undefined) { parts.push('proof_reviewed_at = ?'); values.push(patch.proofReviewedAt || null); }
+    if (patch.managerEdited !== undefined) { parts.push('manager_edited = ?'); values.push(patch.managerEdited ? 1 : 0); }
     if (!parts.length) return this.findById(id);
     values.push(id);
     await pool.execute(`UPDATE challenge_workouts SET ${parts.join(', ')} WHERE id = ?`, values);

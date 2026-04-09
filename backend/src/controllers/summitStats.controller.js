@@ -711,7 +711,9 @@ export const getClubSpecs = async (req, res, next) => {
            COALESCE(SUM(w.duration_minutes), 0) AS total_duration
          FROM challenge_workouts w
          INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
-         WHERE c.organization_id = ?`,
+         WHERE c.organization_id = ?
+           AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+           AND (w.proof_status IS NULL OR w.proof_status IN ('not_required','approved'))`,
         [agencyId]
       );
       const r = totals?.[0];
@@ -726,7 +728,9 @@ export const getClubSpecs = async (req, res, next) => {
         `SELECT w.activity_type, w.distance_value, w.duration_minutes, w.calories_burned
          FROM challenge_workouts w
          INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
-         WHERE c.organization_id = ?`,
+         WHERE c.organization_id = ?
+           AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+           AND (w.proof_status IS NULL OR w.proof_status IN ('not_required','approved'))`,
         [agencyId]
       );
       let totalCal = 0;

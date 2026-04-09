@@ -987,11 +987,16 @@ export const reviewWorkoutProof = async (req, res, next) => {
         nextPoints = parseFloat(Math.max(0, verifiedDistanceValue).toFixed(2));
       }
     }
+    const managerMadeEdit = status === 'approved' && (
+      (verifiedDistanceValue != null && Number.isFinite(verifiedDistanceValue)) ||
+      (overridePoints != null && Number.isFinite(overridePoints))
+    );
     const nextWorkout = await ChallengeWorkout.updateProofReview(workoutId, {
       proofStatus: status,
       verifiedDistanceValue: status === 'approved' ? verifiedDistanceValue : null,
       distanceValue: nextDistance,
       ...(nextPoints !== undefined ? { points: nextPoints } : {}),
+      managerEdited: managerMadeEdit ? 1 : 0,
       proofReviewNote: req.body?.proofReviewNote ? String(req.body.proofReviewNote) : null,
       proofReviewedByUserId: req.user.id,
       proofReviewedAt: new Date().toISOString().slice(0, 19).replace('T', ' ')

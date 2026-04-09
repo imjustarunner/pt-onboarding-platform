@@ -272,3 +272,59 @@ export function countdownUrgency(deadline) {
   if (diffMs <= 24 * 3600000)   return 'warning';
   return 'normal';
 }
+
+/**
+ * Returns a Date representing today's daily submission deadline (e.g. 23:59) in the given timezone.
+ * If weekDeadline is provided and falls on today, the earlier of the two is used
+ * (so the week-end cutoff takes precedence on reset day).
+ *
+ * @param {string} timezone      - IANA timezone string (e.g. "America/Denver")
+ * @param {string} dailyTime     - "HH:mm" string for the daily cutoff (default "23:59")
+ * @param {Date|null} weekDeadline - optional weekly deadline to compare against
+ */
+export function getTodayDeadline(timezone = 'UTC', dailyTime = '23:59', weekDeadline = null) {
+  const [hStr, mStr] = String(dailyTime || '23:59').split(':');
+  const h = parseInt(hStr, 10) || 23;
+  const m = parseInt(mStr, 10) || 59;
+
+  // Build "today HH:mm" in the given timezone using Intl
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(now);
+  const dateStr = parts.map(p => p.value).join(''); // "YYYY-MM-DD"
+  // Construct deadline as an ISO string in the target timezone, then parse it
+  const tzOffset = (() => {
+    // Calculate UTC offset by comparing a fixed date rendered in the timezone vs UTC
+    const d = new Date(`${dateStr}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`);
+    const utcStr = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', hour12: false, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(d);
+    const tzStr  = new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour12: false, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(d);
+    return 0; // offset calculation placeholder — use simpler approach below
+  })();
+
+  // Simpler: express today's date in the target TZ, build deadline Date in local time then adjust
+  const todayInTz = new Intl.DateTimeFormat('sv-SE', { timeZone: timezone }).format(now); // "YYYY-MM-DD"
+  // Parse as if local to get epoch; then apply getOffset trick
+  const naive = new Date(`${todayInTz}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`);
+  // Use Intl to get what the clock reads in the target TZ for this UTC instant, compare to target
+  const getClockInTz = (d) => {
+    const p = new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
+    const obj = {};
+    for (const x of p) obj[x.type] = x.value;
+    return new Date(`${obj.year}-${obj.month}-${obj.day}T${obj.hour === '24' ? '00' : obj.hour}:${obj.minute}:${obj.second}`);
+  };
+  // Find UTC epoch where the target timezone shows todayInTz HH:mm:00
+  const target = new Date(`${todayInTz}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`);
+  const diff = target.getTime() - getClockInTz(target).getTime();
+  const result = new Date(target.getTime() + diff);
+
+  // If weekDeadline is today in the timezone and is earlier than result, use weekDeadline
+  if (weekDeadline instanceof Date) {
+    const wdDateInTz = new Intl.DateTimeFormat('sv-SE', { timeZone: timezone }).format(weekDeadline);
+    if (wdDateInTz === todayInTz && weekDeadline < result) {
+      return weekDeadline;
+    }
+  }
+  return result;
+}

@@ -577,6 +577,11 @@
                 <small>When enabled (recommended), members cannot backdate or future-date workouts. This applies to both manual entries and Strava imports.</small>
               </div>
               <div class="form-group">
+                <label>Daily workout submission deadline</label>
+                <input type="time" v-model="challengeForm.dailyDeadlineTime" step="60" />
+                <small>Time of day by which workouts must be submitted (in the season's timezone). Default is 11:59 PM. On the week reset day, the weekly cutoff time applies instead.</small>
+              </div>
+              <div class="form-group">
                 <label>Allow auto-import</label>
                 <select v-model="challengeForm.autoImportEnabled">
                   <option :value="false">Disabled — members import workouts manually</option>
@@ -1543,6 +1548,7 @@ const challengeForm = ref({
   workoutModerationMode: 'treadmill_only',
   sameDayOnly: true,
   autoImportEnabled: false,
+  dailyDeadlineTime: '23:59',
   showInClubFeed: true,
   recordMetrics: []
 });
@@ -2000,6 +2006,7 @@ const openCreateModal = () => {
     workoutModerationMode: 'treadmill_only',
     sameDayOnly: true,
     autoImportEnabled: false,
+    dailyDeadlineTime: '23:59',
     showInClubFeed: true,
     recordMetrics: []
   };
@@ -2096,6 +2103,7 @@ const openEditModal = (c) => {
     maxRucksPerWeek: seasonSettings?.participation?.maxRucksPerWeek ?? 0,
     sameDayOnly: seasonSettings?.participation?.sameDayOnly !== false,
     autoImportEnabled: seasonSettings?.participation?.autoImportEnabled === true,
+    dailyDeadlineTime: seasonSettings?.participation?.dailyDeadlineTime || '23:59',
     treadmillPhotoRequired: treadmillSettings.photoProofRequired !== false,
     treadmillpocalypseEnabled: treadmillpocalypseSettings.enabled === true,
     treadmillpocalypseStartsAtWeek: treadmillpocalypseSettings.startsAtWeek || '',
@@ -2241,7 +2249,8 @@ const saveChallenge = async () => {
           runRuckWeeklyIncreaseMilesPerPerson: Number(challengeForm.value.runRuckWeeklyIncreaseMilesPerPerson ?? 0),
           maxRucksPerWeek: Number(challengeForm.value.maxRucksPerWeek ?? 0),
           sameDayOnly: challengeForm.value.sameDayOnly !== false,
-          autoImportEnabled: challengeForm.value.autoImportEnabled === true
+          autoImportEnabled: challengeForm.value.autoImportEnabled === true,
+          dailyDeadlineTime: challengeForm.value.dailyDeadlineTime || '23:59'
         },
         participationAgreement: buildParticipationAgreementPayload(challengeForm.value),
         byeWeek: {

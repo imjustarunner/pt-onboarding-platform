@@ -114,12 +114,13 @@
         </component>
         
         <component 
+          v-if="!isSummitStatsContext"
           :is="previewMode ? 'div' : 'router-link'"
           :to="previewMode ? null : orgTo('/admin/users')"
           class="stat-card"
           :class="{ 'preview-disabled': previewMode }"
         >
-          <h3>{{ isSummitStatsContext ? 'Members' : 'Active Users' }}</h3>
+          <h3>Active Users</h3>
           <p class="stat-value">{{ stats.activeUsers }}</p>
         </component>
 
@@ -163,6 +164,7 @@
         :key="`club-qa-${currentAgency?.id || 0}`"
         :org-slug="orgSlug"
         :agency="agencyData || currentAgency"
+        :member-count="stats.activeUsers"
         compact
         @add-member="showAddMemberModal = true"
         @add-season="showAddSeasonModal = true"

@@ -9,7 +9,12 @@
           <span v-else class="action-icon-placeholder">👥</span>
         </div>
         <div class="action-content">
-          <h3>Add Members</h3>
+          <div class="action-content-top">
+            <h3>Add Members</h3>
+            <span v-if="props.memberCount !== null" class="member-count-badge">
+              {{ props.memberCount }} member{{ props.memberCount === 1 ? '' : 's' }}
+            </span>
+          </div>
           <p>Add someone directly by email, or share your invite link for anyone to apply.</p>
         </div>
         <div class="action-split-btns">
@@ -146,9 +151,10 @@ import NotificationCategoryModal from '../admin/NotificationCategoryModal.vue';
 import api from '../../services/api';
 
 const props = defineProps({
-  orgSlug: { type: String, default: '' },
-  agency:  { type: Object, default: null },
-  compact: { type: Boolean, default: false }
+  orgSlug:     { type: String, default: '' },
+  agency:      { type: Object, default: null },
+  compact:     { type: Boolean, default: false },
+  memberCount: { type: Number, default: null }
 });
 
 defineEmits(['add-member']);
@@ -443,6 +449,23 @@ watch(() => props.agency?.id, () => {
 .action-content {
   flex: 1;
   min-width: 0;
+}
+.action-content-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.action-content-top h3 { margin: 0; }
+.member-count-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 20px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .action-content h3 {
