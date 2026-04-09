@@ -2565,11 +2565,8 @@ const myDashboardTo = computed(() => {
 /** "My Account" = personal account/security page; "My Dashboard" = club home. */
 const myAccountNavTo = computed(() => {
   if (isSscSstcTenant.value) {
-    // SSC: My Account navigates to the account info panel (security card, password change, etc.)
-    return { path: orgTo('/dashboard'), query: { tab: 'my', my: 'account' } };
-  }
-  if (isSscClubManager.value) {
-    return { path: orgTo('/my_club_dashboard'), query: { tab: 'my' } };
+    // SSC: My Account stays inside the Summit member dashboard instead of falling into the shared provider dashboard.
+    return { path: orgTo('/my_club_dashboard'), query: { view: 'account' } };
   }
   const t = myDashboardTo.value;
   const path = typeof t === 'string' ? t : (t?.path || '/dashboard');

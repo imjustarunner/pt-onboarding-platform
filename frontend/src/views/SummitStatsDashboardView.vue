@@ -9,6 +9,18 @@
           (the weekly tasks your team completes).
         </p>
       </div>
+      <label class="ssc-dark-mode-toggle" :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'">
+        <span class="ssc-dark-mode-text">Dark mode</span>
+        <span class="ssc-toggle-switch" :class="{ 'ssc-toggle-switch--on': isDarkMode }" aria-hidden="true">
+          <span class="ssc-toggle-thumb"></span>
+        </span>
+        <input
+          type="checkbox"
+          class="ssc-dark-mode-input"
+          :checked="isDarkMode"
+          @change="onDarkModeToggle"
+        />
+      </label>
     </section>
 
     <!-- Club-wide banner + splashes (same API as main org dashboard) -->
@@ -266,7 +278,7 @@
         </div>
       </article>
 
-      <article class="card account-snapshot-card">
+      <article ref="accountSnapshotCardRef" class="card account-snapshot-card">
         <div class="section-header section-header--account">
           <div>
             <h2>Account Snapshot</h2>
@@ -647,7 +659,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
@@ -660,6 +672,7 @@ import {
 } from '../constants/sscAccountFormOptions.js';
 import { TIMEZONE_GROUPS, ALL_TIMEZONES } from '../utils/timezones.js';
 import { toUploadsUrl } from '../utils/uploadsUrl';
+import { setDarkMode } from '../utils/darkMode.js';
 import api from '../services/api';
 import { useAffiliationClubAnnouncements } from '../composables/useAffiliationClubAnnouncements.js';
 
@@ -677,6 +690,7 @@ const dashboardError = ref('');
 const summary = ref(null);
 const applications = ref([]);
 const clubContext = ref(null);
+const accountSnapshotCardRef = ref(null);
 const accountEditing = ref(false);
 const accountSaving = ref(false);
 const accountSaveError = ref('');
@@ -706,6 +720,12 @@ const stravaStatus = ref(null);
 const stravaDisconnecting = ref(false);
 const stravaDisconnectError = ref('');
 const showFutureInteg = ref(false);
+const isDarkMode = ref(document.documentElement.getAttribute('data-theme') === 'dark');
+const darkModeObserver = typeof document !== 'undefined'
+  ? new MutationObserver(() => {
+      isDarkMode.value = document.documentElement.getAttribute('data-theme') === 'dark';
+    })
+  : null;
 
 const FUTURE_INTEGRATIONS = [
   { name: 'Coros',         note: 'GPS running & multisport watches' },
@@ -732,6 +752,13 @@ const stravaRolloutActive = computed(() => {
 const stravaRolloutDisabled = computed(
   () => stravaStatus.value && stravaStatus.value.stravaRolloutEnabled === false
 );
+
+const onDarkModeToggle = (event) => {
+  const enabled = !!event?.target?.checked;
+  const uid = authStore.user?.id;
+  if (uid) setDarkMode(uid, enabled);
+  isDarkMode.value = enabled;
+};
 
 const formatStravaDate = (d) =>
   d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
@@ -1157,17 +1184,42 @@ const isManagedClub = (clubId) => {
   );
 };
 
+const scrollToAccountSnapshot = async () => {
+  if (String(route.query?.view || '').trim().toLowerCase() !== 'account') return;
+  await nextTick();
+  const el = accountSnapshotCardRef.value;
+  if (!el || typeof el.scrollIntoView !== 'function') return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
 onMounted(async () => {
   if (!currentUserAgencies.value.length) {
     await agencyStore.fetchUserAgencies();
   }
+  if (darkModeObserver) {
+    darkModeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  }
   await loadDashboard();
   await fetchStravaStatus();
+  await scrollToAccountSnapshot();
+});
+
+onBeforeUnmount(() => {
+  if (darkModeObserver) darkModeObserver.disconnect();
 });
 
 watch(() => route.params.organizationSlug, () => {
   loadDashboard();
 });
+
+watch(
+  () => [route.query?.view, loading.value],
+  async ([view, isLoading]) => {
+    if (isLoading) return;
+    if (String(view || '').trim().toLowerCase() !== 'account') return;
+    await scrollToAccountSnapshot();
+  }
+);
 
 </script>
 
@@ -1196,6 +1248,61 @@ watch(() => route.params.organizationSlug, () => {
   gap: 24px;
   align-items: flex-start;
   background: linear-gradient(135deg, #fff8ef 0%, #f8fbff 100%);
+}
+
+.ssc-dark-mode-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: #0f172a;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.08);
+}
+
+.ssc-dark-mode-text {
+  white-space: nowrap;
+}
+
+.ssc-dark-mode-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ssc-toggle-switch {
+  width: 46px;
+  height: 26px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  padding: 3px;
+  transition: background 0.2s ease;
+}
+
+.ssc-toggle-switch--on {
+  background: linear-gradient(135deg, #2563eb 0%, #0f172a 100%);
+}
+
+.ssc-toggle-thumb {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.18);
+  transform: translateX(0);
+  transition: transform 0.2s ease;
+}
+
+.ssc-toggle-switch--on .ssc-toggle-thumb {
+  transform: translateX(20px);
 }
 
 .eyebrow {
@@ -1925,6 +2032,10 @@ watch(() => route.params.organizationSlug, () => {
 
   .dashboard-hero {
     display: grid;
+  }
+
+  .ssc-dark-mode-toggle {
+    justify-self: start;
   }
 
   .my-stats-row {

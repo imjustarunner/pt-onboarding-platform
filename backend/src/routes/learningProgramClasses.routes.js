@@ -133,6 +133,11 @@ const seasonImageUpload = multer({
   }
 });
 
+// Season banner and logo images are public assets (loaded by <img>/<background-image>
+// which cannot send auth headers), so they must be registered before authenticate.
+router.get('/:classId/banner', serveSeasonBanner);
+router.get('/:classId/logo', serveSeasonLogo);
+
 router.use(authenticate);
 
 router.get('/my/summary', getMyParticipationSummary);
@@ -152,11 +157,9 @@ router.post('/:classId/participation-agreement/accept', acceptLearningProgramPar
 router.get('/:classId/participant-profiles', listParticipantProfiles);
 router.put('/:classId/participant-profiles/:providerUserId', upsertParticipantProfile);
 router.get('/:classId/profile-completeness', getSeasonProfileCompleteness);
-router.get('/:classId/banner', serveSeasonBanner);
 router.post('/:classId/banner', seasonImageUpload.single('file'), uploadSeasonBanner);
 router.patch('/:classId/banner/focal', updateSeasonBannerFocal);
 router.delete('/:classId/banner', deleteSeasonBanner);
-router.get('/:classId/logo', serveSeasonLogo);
 router.post('/:classId/logo', seasonImageUpload.single('file'), uploadSeasonLogo);
 router.delete('/:classId/logo', deleteSeasonLogo);
 router.get('/:classId/resources', listClassResources);

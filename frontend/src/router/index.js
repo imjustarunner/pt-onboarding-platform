@@ -2498,14 +2498,13 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
-  // Summit Stats (SSC): default /:slug/dashboard is the club home (SummitStatsDashboardView), not the personal shell.
-  // Personal dashboard: /ssc/dashboard?tab=my&my=account (etc.). Staff roles keep the classic dashboard when no query.
+  // Summit Stats (SSC): members stay inside the club dashboard shell, not the shared provider dashboard.
+  // Preserve only backoffice/provider-plus roles on /:slug/dashboard when they intentionally use the work surfaces.
   if (
     authStore.isAuthenticated &&
     to.name === 'OrganizationDashboard' &&
     typeof to.params.organizationSlug === 'string' &&
-    isSstcTenantSlug(to.params.organizationSlug) &&
-    shouldRedirectSscDashboardToMyClub(to.query)
+    isSstcTenantSlug(to.params.organizationSlug)
   ) {
     const roleNorm = String(authStore.user?.role || '').toLowerCase();
     if (!SSC_ROLES_SKIP_MY_CLUB_DASH_REDIRECT.has(roleNorm)) {
@@ -2513,6 +2512,30 @@ router.beforeEach(async (to, from, next) => {
       next({
         path: `/${slug}/my_club_dashboard`,
         query: to.query,
+        hash: to.hash,
+        replace: true
+      });
+      return;
+    }
+  }
+
+  if (
+    authStore.isAuthenticated &&
+    typeof to.params.organizationSlug === 'string' &&
+    isSstcTenantSlug(to.params.organizationSlug)
+  ) {
+    const roleNorm = String(authStore.user?.role || '').toLowerCase();
+    const slug = String(to.params.organizationSlug).trim();
+    const pathNorm = String(to.path || '');
+    const summitPersonalAliases = new Set([
+      `/${slug}/preferences`,
+      `/${slug}/credentials`,
+      `/${slug}/account-info`
+    ]);
+    if (!SSC_ROLES_SKIP_MY_CLUB_DASH_REDIRECT.has(roleNorm) && summitPersonalAliases.has(pathNorm)) {
+      next({
+        path: `/${slug}/my_club_dashboard`,
+        query: { ...to.query, view: 'account' },
         hash: to.hash,
         replace: true
       });
