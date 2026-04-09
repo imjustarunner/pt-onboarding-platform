@@ -688,7 +688,11 @@
                   <label>Avg Heart Rate <span class="hint-inline">(bpm — optional)</span></label>
                   <input v-model.number="workoutForm.averageHeartrate" type="number" min="30" max="250" placeholder="Auto-filled from screenshot" />
                 </div>
-                <div class="form-row">
+                <div class="form-row" v-if="pointsAutoComputed != null">
+                  <label>Points <span class="hint-inline">(auto from miles)</span></label>
+                  <span class="points-preview">{{ pointsAutoComputed }} pts</span>
+                </div>
+                <div class="form-row" v-else>
                   <label>Points</label>
                   <input v-model.number="workoutForm.points" type="number" min="0" required />
                 </div>
@@ -1149,6 +1153,21 @@ const eventCategory = computed(() => {
   const settings = challenge.value?.season_settings_json;
   const category = settings && typeof settings === 'object' ? settings?.event?.category : null;
   return String(category || 'run_ruck').toLowerCase() === 'fitness' ? 'fitness' : 'run_ruck';
+});
+
+// Mirrors the backend scoring logic — computes points from distance for run_ruck seasons.
+// Returns a number when auto-computable, null when manual entry is needed.
+const pointsAutoComputed = computed(() => {
+  const scoring = challenge.value?.season_settings_json?.scoring || {};
+  const metric = String(scoring.runRuckScoringMetric || 'distance').toLowerCase();
+  if (eventCategory.value !== 'run_ruck' || metric === 'calories') return null;
+  const dist = Number(workoutForm.value?.distanceValue);
+  if (!dist || dist <= 0) return null;
+  const activityLow = String(workoutForm.value?.activityType || '').toLowerCase();
+  const milesPerPoint = activityLow.includes('ruck')
+    ? (Number(scoring.ruckMilesPerPoint || 1) || 1)
+    : (Number(scoring.runMilesPerPoint  || 1) || 1);
+  return Math.max(0, Math.round((dist / milesPerPoint) * 100) / 100);
 });
 
 
@@ -1809,7 +1828,7 @@ const submitWorkout = async () => {
       durationSeconds: workoutForm.value.durationSeconds != null ? workoutForm.value.durationSeconds : null,
       caloriesBurned: workoutForm.value.caloriesBurned || null,
       averageHeartrate: workoutForm.value.averageHeartrate || null,
-      points: workoutForm.value.points || 0,
+      points: pointsAutoComputed.value != null ? pointsAutoComputed.value : (workoutForm.value.points || 0),
       workoutNotes: workoutForm.value.workoutNotes || null,
       weeklyTaskId: workoutForm.value.weeklyTaskId || null,
       isTreadmill: workoutForm.value.isTreadmill === true,
