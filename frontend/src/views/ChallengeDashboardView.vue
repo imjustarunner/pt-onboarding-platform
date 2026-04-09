@@ -2493,6 +2493,27 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 .log-workout-modal {
   width: min(560px, 96vw);
 }
+
+/* ── Full-screen modals on mobile / Capacitor ─────────────────── */
+@media (max-width: 600px) {
+  .modal-overlay {
+    align-items: flex-end;
+  }
+  .modal-content,
+  .modal-content.modal-wide,
+  .log-workout-modal {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    max-height: 92dvh;
+    height: 92dvh;
+    border-radius: 16px 16px 0 0;
+    padding: 20px 16px;
+    padding-bottom: max(20px, env(safe-area-inset-bottom, 20px));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
 .log-workout-modal-header {
   display: flex;
   align-items: center;
@@ -2518,7 +2539,7 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   color: #333;
 }
 .strava-activity-list {
-  max-height: 400px;
+  max-height: min(400px, 45dvh);
   overflow-y: auto;
   margin: 16px 0;
   border: 1px solid var(--border-color, #ddd);
