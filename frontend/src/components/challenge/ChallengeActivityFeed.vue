@@ -227,9 +227,46 @@
             </div>
           </div>
 
-          <!-- Strava source tag -->
+          <!-- Strava source tag + "Add details" for owner -->
           <div v-if="w.strava_activity_id" class="hint strava-source-hint">
             <span class="strava-logo-s-sm">S</span> Imported from Strava
+            <button v-if="canEditStravaDetails(w)" class="btn-link-sm" style="margin-left:8px;" @click="toggleStravaEdit(w)">
+              {{ stravaEditOpenByWorkout[w.id] ? 'Close' : '+ Add details' }}
+            </button>
+          </div>
+
+          <!-- Strava "Add details" panel: challenge + treadmill proof -->
+          <div v-if="canEditStravaDetails(w) && stravaEditOpenByWorkout[w.id]" class="proof-review-card">
+            <div class="proof-review-header"><strong>Add details to Strava import</strong></div>
+            <div class="proof-review-body">
+              <!-- Challenge picker -->
+              <label class="proof-field">
+                <span>Link to a weekly challenge</span>
+                <select v-if="stravaEditDraftByWorkout[w.id]" v-model="stravaEditDraftByWorkout[w.id].weeklyTaskId">
+                  <option :value="null">— None —</option>
+                  <option v-for="t in (stravaWeeklyTasksCache[Number(challengeId)] || [])" :key="t.id" :value="t.id">{{ t.name }}</option>
+                </select>
+              </label>
+              <!-- Treadmill toggle -->
+              <label class="proof-field proof-field--inline" v-if="stravaEditDraftByWorkout[w.id]">
+                <input type="checkbox" v-model="stravaEditDraftByWorkout[w.id].isTreadmill" />
+                <span>This is a treadmill workout</span>
+              </label>
+              <!-- Corrected treadmill distance -->
+              <label v-if="stravaEditDraftByWorkout[w.id]?.isTreadmill" class="proof-field">
+                <span>Corrected treadmill distance (miles)</span>
+                <input v-model.number="stravaEditDraftByWorkout[w.id].distanceValue" type="number" step="0.01" min="0" placeholder="Actual treadmill distance" />
+              </label>
+              <!-- Treadmill proof photo upload -->
+              <label v-if="stravaEditDraftByWorkout[w.id]?.isTreadmill" class="proof-field">
+                <span>Upload treadmill proof photo</span>
+                <input type="file" accept="image/*" @change="onStravaProofFileChange($event, w.id)" />
+              </label>
+              <div class="proof-actions">
+                <button class="btn btn-primary btn-small" :disabled="!!stravaEditSubmitting[w.id]" @click="saveStravaEdit(w.id)">Save</button>
+                <button class="btn btn-secondary btn-small" @click="stravaEditOpenByWorkout[w.id] = false">Cancel</button>
+              </div>
+            </div>
           </div>
 
           <!-- Manager review panel -->
@@ -253,7 +290,11 @@
               <div class="proof-review-body">
                 <label class="proof-field">
                   <span>Verified miles (optional)</span>
-                  <input v-model.number="proofReviewDraftByWorkout[w.id].verifiedDistanceValue" type="number" step="0.01" min="0" placeholder="Override if treadmill photo differs" />
+                  <input v-model.number="proofReviewDraftByWorkout[w.id].verifiedDistanceValue" type="number" step="0.01" min="0" placeholder="Override distance" />
+                </label>
+                <label class="proof-field">
+                  <span>Override points (optional – leave blank to auto-calculate)</span>
+                  <input v-model.number="proofReviewDraftByWorkout[w.id].overridePoints" type="number" step="0.01" min="0" placeholder="e.g. 3.89" />
                 </label>
                 <label class="proof-field">
                   <span>Note (optional)</span>
@@ -708,6 +749,7 @@ const ensureProofDraft = (workoutId, workout) => {
       verifiedDistanceValue: workout?.verified_distance_value != null
         ? Number(workout.verified_distance_value)
         : (workout?.distance_value != null ? Number(workout.distance_value) : null),
+      overridePoints: null,
       proofReviewNote: workout?.proof_review_note || ''
     }
   };
@@ -717,6 +759,75 @@ const canEditOwnImportedTreadmill = (workout) => {
   return Number(workout?.user_id) === Number(props.myUserId)
     && Number(workout?.is_treadmill) === 1
     && !!workout?.strava_activity_id;
+};
+
+// Any Strava import by this user can have challenge + treadmill proof attached
+const canEditStravaDetails = (workout) =>
+  Number(workout?.user_id) === Number(props.myUserId) && !!workout?.strava_activity_id;
+
+const stravaEditOpenByWorkout = ref({});
+const stravaEditDraftByWorkout = ref({});
+const stravaEditSubmitting = ref({});
+const stravaWeeklyTasksCache = ref({});  // classId -> [{id,name}]
+
+const ensureStravaEditDraft = (workoutId, workout) => {
+  if (stravaEditDraftByWorkout.value[workoutId]) return;
+  stravaEditDraftByWorkout.value = {
+    ...stravaEditDraftByWorkout.value,
+    [workoutId]: {
+      weeklyTaskId: workout?.weekly_task_id || null,
+      isTreadmill: Number(workout?.is_treadmill) === 1,
+      distanceValue: workout?.distance_value != null ? Number(workout.distance_value) : null,
+      treadmillProofFile: null
+    }
+  };
+};
+
+const toggleStravaEdit = async (workout) => {
+  const workoutId = Number(workout?.id);
+  if (!workoutId) return;
+  ensureStravaEditDraft(workoutId, workout);
+  stravaEditOpenByWorkout.value = { ...stravaEditOpenByWorkout.value, [workoutId]: !stravaEditOpenByWorkout.value[workoutId] };
+  // Fetch weekly tasks for this season if not already cached
+  const cid = Number(props.challengeId);
+  if (!stravaWeeklyTasksCache.value[cid]) {
+    try {
+      const resp = await api.get(`/learning-program-classes/${cid}/weekly-tasks`);
+      stravaWeeklyTasksCache.value = { ...stravaWeeklyTasksCache.value, [cid]: resp.data?.tasks || [] };
+    } catch { /* silently ignore */ }
+  }
+};
+
+const onStravaProofFileChange = (event, workoutId) => {
+  const file = event.target.files?.[0] || null;
+  stravaEditDraftByWorkout.value = {
+    ...stravaEditDraftByWorkout.value,
+    [workoutId]: { ...stravaEditDraftByWorkout.value[workoutId], treadmillProofFile: file }
+  };
+};
+
+const saveStravaEdit = async (workoutId) => {
+  const draft = stravaEditDraftByWorkout.value[workoutId];
+  if (!draft) return;
+  stravaEditSubmitting.value = { ...stravaEditSubmitting.value, [workoutId]: true };
+  try {
+    const formData = new FormData();
+    if (draft.weeklyTaskId != null) formData.append('weeklyTaskId', String(draft.weeklyTaskId));
+    formData.append('isTreadmill', draft.isTreadmill ? 'true' : 'false');
+    if (draft.isTreadmill && draft.distanceValue != null) formData.append('distanceValue', String(draft.distanceValue));
+    if (draft.treadmillProofFile) formData.append('treadmillProof', draft.treadmillProofFile);
+    await api.patch(
+      `/learning-program-classes/${props.challengeId}/workouts/${workoutId}/strava-details`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    stravaEditOpenByWorkout.value = { ...stravaEditOpenByWorkout.value, [workoutId]: false };
+    emit('media-uploaded');
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to save Strava workout details');
+  } finally {
+    stravaEditSubmitting.value = { ...stravaEditSubmitting.value, [workoutId]: false };
+  }
 };
 
 const ensureEditDraft = (workoutId, workout) => {
@@ -844,6 +955,7 @@ const reviewProof = async (workoutId, status) => {
     await api.put(`/learning-program-classes/${props.challengeId}/workouts/${workoutId}/proof-review`, {
       proofStatus: status,
       verifiedDistanceValue: draft.verifiedDistanceValue != null ? Number(draft.verifiedDistanceValue) : null,
+      overridePoints: draft.overridePoints != null && String(draft.overridePoints) !== '' ? Number(draft.overridePoints) : null,
       proofReviewNote: draft.proofReviewNote ? String(draft.proofReviewNote).trim() : null
     });
     emit('media-uploaded');
@@ -1287,7 +1399,13 @@ const reviewProof = async (workoutId, status) => {
   gap: 4px;
   font-size: 0.82rem;
 }
-.proof-field input {
+.proof-field--inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.proof-field--inline input[type="checkbox"] { width: auto; }
+.proof-field input, .proof-field select {
   padding: 6px 8px;
   border: 1px solid #ccc;
   border-radius: 6px;

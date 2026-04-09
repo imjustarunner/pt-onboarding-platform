@@ -467,6 +467,7 @@ export const getNoShowRiskAlerts = async (req, res, next) => {
          ON w.learning_class_id = pm.learning_class_id
          AND w.user_id = pm.provider_user_id
          AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         AND (w.proof_status IS NULL OR w.proof_status IN ('not_required', 'approved'))
          AND w.completed_at >= ?
          AND w.completed_at < ?
        WHERE pm.learning_class_id = ?

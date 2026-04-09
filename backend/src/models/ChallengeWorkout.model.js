@@ -23,7 +23,8 @@ const parseJsonMaybe = (raw) => {
 
 class ChallengeWorkout {
   static _qualifiedClause(alias = 'w') {
-    return `(${alias}.is_disqualified IS NULL OR ${alias}.is_disqualified = 0)`;
+    return `(${alias}.is_disqualified IS NULL OR ${alias}.is_disqualified = 0)`
+      + ` AND (${alias}.proof_status IS NULL OR ${alias}.proof_status IN ('not_required', 'approved'))`;
   }
   static _weeklyRange(weekStart, weekCutoffTime = '00:00', weekTimeZone = null) {
     const week = String(weekStart || '').slice(0, 10);
@@ -161,6 +162,7 @@ class ChallengeWorkout {
     if (patch.proofStatus !== undefined) { parts.push('proof_status = ?'); values.push(String(patch.proofStatus)); }
     if (patch.verifiedDistanceValue !== undefined) { parts.push('verified_distance_value = ?'); values.push(patch.verifiedDistanceValue != null ? Number(patch.verifiedDistanceValue) : null); }
     if (patch.distanceValue !== undefined) { parts.push('distance_value = ?'); values.push(patch.distanceValue != null ? Number(patch.distanceValue) : null); }
+    if (patch.points !== undefined) { parts.push('points = ?'); values.push(patch.points != null ? Number(patch.points) : null); }
     if (patch.proofReviewNote !== undefined) { parts.push('proof_review_note = ?'); values.push(patch.proofReviewNote ? String(patch.proofReviewNote).slice(0, 255) : null); }
     if (patch.proofReviewedByUserId !== undefined) { parts.push('proof_reviewed_by_user_id = ?'); values.push(patch.proofReviewedByUserId ? toInt(patch.proofReviewedByUserId) : null); }
     if (patch.proofReviewedAt !== undefined) { parts.push('proof_reviewed_at = ?'); values.push(patch.proofReviewedAt || null); }

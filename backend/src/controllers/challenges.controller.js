@@ -921,13 +921,24 @@ export const reviewWorkoutProof = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'proofStatus must be approved, rejected, or pending' } });
     }
     const verifiedDistanceValue = req.body?.verifiedDistanceValue != null ? Number(req.body.verifiedDistanceValue) : null;
+    const overridePoints = req.body?.overridePoints != null ? Number(req.body.overridePoints) : null;
     const nextDistance = status === 'approved' && verifiedDistanceValue != null
       ? verifiedDistanceValue
       : (workout.reported_distance_value != null ? Number(workout.reported_distance_value) : Number(workout.distance_value || 0));
+    // Recalculate points on approval: explicit override wins, otherwise derive from verified distance
+    let nextPoints;
+    if (status === 'approved') {
+      if (overridePoints != null && Number.isFinite(overridePoints)) {
+        nextPoints = parseFloat(Math.max(0, overridePoints).toFixed(2));
+      } else if (verifiedDistanceValue != null && Number.isFinite(verifiedDistanceValue)) {
+        nextPoints = parseFloat(Math.max(0, verifiedDistanceValue).toFixed(2));
+      }
+    }
     const nextWorkout = await ChallengeWorkout.updateProofReview(workoutId, {
       proofStatus: status,
       verifiedDistanceValue: status === 'approved' ? verifiedDistanceValue : null,
       distanceValue: nextDistance,
+      ...(nextPoints !== undefined ? { points: nextPoints } : {}),
       proofReviewNote: req.body?.proofReviewNote ? String(req.body.proofReviewNote) : null,
       proofReviewedByUserId: req.user.id,
       proofReviewedAt: new Date().toISOString().slice(0, 19).replace('T', ' ')
@@ -1135,6 +1146,91 @@ export const editOwnImportedTreadmillWorkout = async (req, res, next) => {
       [distanceValue, distanceValue, note, screenshot || '', screenshot || '', workoutId, classId, req.user.id]
     );
     if (!Number(result?.affectedRows || 0)) return res.status(404).json({ error: { message: 'Workout not found' } });
+    const updated = await ChallengeWorkout.findById(workoutId);
+    return res.json({ workout: updated });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * PATCH /learning-program-classes/:classId/workouts/:workoutId/strava-details
+ * Allow the workout owner to attach a weekly challenge and/or treadmill proof to any Strava import.
+ * Accepts multipart/form-data with optional file field "treadmillProof".
+ */
+export const patchStravaWorkoutDetails = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const workoutId = asInt(req.params.workoutId);
+    if (!classId || !workoutId) return res.status(400).json({ error: { message: 'Invalid classId/workoutId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+    const workout = await ChallengeWorkout.findById(workoutId);
+    if (!workout || Number(workout.learning_class_id) !== Number(classId)) {
+      return res.status(404).json({ error: { message: 'Workout not found' } });
+    }
+    if (Number(workout.user_id) !== Number(req.user.id)) {
+      return res.status(403).json({ error: { message: 'You can only edit your own workouts' } });
+    }
+    if (!workout.strava_activity_id) {
+      return res.status(400).json({ error: { message: 'Only Strava-imported workouts can be edited here' } });
+    }
+
+    const updates = [];
+    const params = [];
+
+    // Attach a weekly challenge
+    const weeklyTaskId = req.body?.weeklyTaskId != null ? asInt(req.body.weeklyTaskId) : undefined;
+    if (weeklyTaskId !== undefined) {
+      updates.push('weekly_task_id = ?');
+      params.push(weeklyTaskId || null);
+    }
+
+    // Mark as treadmill (can toggle on for Strava treadmill imports that weren't flagged)
+    const isTreadmill = req.body?.isTreadmill != null
+      ? (req.body.isTreadmill === true || req.body.isTreadmill === 'true' || req.body.isTreadmill === '1')
+      : undefined;
+    if (isTreadmill !== undefined) {
+      updates.push('is_treadmill = ?');
+      params.push(isTreadmill ? 1 : 0);
+    }
+
+    // Corrected treadmill distance
+    const distanceValue = req.body?.distanceValue != null ? Number(req.body.distanceValue) : undefined;
+    if (distanceValue !== undefined && Number.isFinite(distanceValue) && distanceValue >= 0) {
+      updates.push('distance_value = ?');
+      params.push(distanceValue);
+      updates.push('reported_distance_value = ?');
+      params.push(distanceValue);
+      // Recalculate points from corrected distance
+      updates.push('points = ?');
+      params.push(parseFloat(Math.max(0, distanceValue).toFixed(2)));
+    }
+
+    // Treadmill proof file upload
+    if (req.file?.buffer) {
+      const { default: StorageService } = await import('../services/storage.service.js');
+      const saved = await StorageService.saveWorkoutMedia({
+        userId: req.user.id,
+        fileBuffer: req.file.buffer,
+        filename: req.file.originalname || `proof-${Date.now()}.jpg`,
+        contentType: req.file.mimetype || 'image/jpeg'
+      });
+      updates.push('screenshot_file_path = ?');
+      params.push(saved.relativePath);
+      // Trigger pending proof review if it wasn't already
+      if (workout.proof_status !== 'approved') {
+        updates.push('proof_status = ?');
+        params.push('pending');
+      }
+    }
+
+    if (!updates.length) return res.json({ workout });
+    params.push(workoutId, classId, req.user.id);
+    await pool.execute(
+      `UPDATE challenge_workouts SET ${updates.join(', ')} WHERE id = ? AND learning_class_id = ? AND user_id = ?`,
+      params
+    );
     const updated = await ChallengeWorkout.findById(workoutId);
     return res.json({ workout: updated });
   } catch (e) {

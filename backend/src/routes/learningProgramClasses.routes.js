@@ -67,6 +67,7 @@ import {
   reviewWorkoutProof,
   disqualifyWorkout,
   editOwnImportedTreadmillWorkout,
+  patchStravaWorkoutDetails,
   listMessageReactions,
   toggleMessageReaction
 } from '../controllers/challenges.controller.js';
@@ -176,6 +177,7 @@ router.post('/:classId/workouts', submitWorkout);
 router.put('/:classId/workouts/:workoutId/proof-review', reviewWorkoutProof);
 router.put('/:classId/workouts/:workoutId/disqualify', disqualifyWorkout);
 router.put('/:classId/workouts/:workoutId/import-edit', editOwnImportedTreadmillWorkout);
+router.patch('/:classId/workouts/:workoutId/strava-details', workoutMediaUpload.single('treadmillProof'), patchStravaWorkoutDetails);
 router.get('/:classId/captain-applications', listCaptainApplications);
 router.post('/:classId/captain-applications', applyForCaptain);
 router.put('/:classId/captain-applications/:applicationId', reviewCaptainApplication);
