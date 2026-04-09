@@ -1280,34 +1280,104 @@ export const getSeasonProfileCompleteness = async (req, res, next) => {
     const manageAllowed = await canManageAtOrganization({ user: req.user, organizationId: klass.organization_id });
     if (!manageAllowed) return res.status(403).json({ error: { message: 'Manage access required' } });
 
-    const [rows] = await pool.execute(
-      `SELECT
-         u.id AS user_id,
-         u.first_name,
-         u.last_name,
-         u.email,
-         MAX(CASE
-           WHEN uifd.field_key IN ('date_of_birth','provider_birthdate') AND uiv.value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-             THEN uiv.value
-           ELSE NULL
-         END) AS global_date_of_birth,
-         MAX(CASE
-           WHEN uifd.field_key IN ('sex','gender','provider_gender') AND uiv.value IS NOT NULL AND uiv.value <> ''
-             THEN LOWER(TRIM(uiv.value))
-           ELSE NULL
-         END) AS global_sex
-       FROM learning_class_provider_memberships pm
-       INNER JOIN users u ON u.id = pm.provider_user_id
-       LEFT JOIN user_info_values uiv ON uiv.user_id = u.id
-       LEFT JOIN user_info_field_definitions uifd
-         ON uifd.id = uiv.field_definition_id
-         AND (uifd.agency_id IS NULL OR uifd.agency_id = ?)
-       WHERE pm.learning_class_id = ?
-         AND pm.membership_status IN ('active','completed')
-       GROUP BY u.id, u.first_name, u.last_name, u.email
-       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
-      [klass.organization_id, classId]
-    );
+    // Try to include profile_* columns from users (Migration 693). Fall back if they don't exist yet.
+    let rows;
+    try {
+      [rows] = await pool.execute(
+        `SELECT
+           u.id AS user_id,
+           u.first_name,
+           u.last_name,
+           u.email,
+           COALESCE(
+             MAX(CASE
+               WHEN uifd.field_key IN ('date_of_birth','provider_birthdate') AND uiv.value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                 THEN uiv.value
+               ELSE NULL
+             END),
+             MAX(CASE
+               WHEN cma.date_of_birth IS NOT NULL
+                 THEN DATE_FORMAT(cma.date_of_birth, '%Y-%m-%d')
+               ELSE NULL
+             END),
+             DATE_FORMAT(u.profile_date_of_birth, '%Y-%m-%d')
+           ) AS global_date_of_birth,
+           COALESCE(
+             MAX(CASE
+               WHEN uifd.field_key IN ('sex','gender','provider_gender') AND uiv.value IS NOT NULL AND uiv.value <> ''
+                 THEN LOWER(TRIM(uiv.value))
+               ELSE NULL
+             END),
+             MAX(CASE
+               WHEN cma.gender IS NOT NULL AND cma.gender <> ''
+                 THEN LOWER(TRIM(cma.gender))
+               ELSE NULL
+             END),
+             NULLIF(LOWER(TRIM(COALESCE(u.profile_gender, ''))), '')
+           ) AS global_sex
+         FROM learning_class_provider_memberships pm
+         INNER JOIN users u ON u.id = pm.provider_user_id
+         LEFT JOIN user_info_values uiv ON uiv.user_id = u.id
+         LEFT JOIN user_info_field_definitions uifd
+           ON uifd.id = uiv.field_definition_id
+           AND (uifd.agency_id IS NULL OR uifd.agency_id = ?)
+         LEFT JOIN challenge_member_applications cma
+           ON cma.user_id = u.id
+           OR LOWER(COALESCE(cma.email,'')) = LOWER(u.email)
+         WHERE pm.learning_class_id = ?
+           AND pm.membership_status IN ('active','completed')
+         GROUP BY u.id, u.first_name, u.last_name, u.email, u.profile_date_of_birth, u.profile_gender
+         ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+        [klass.organization_id, classId]
+      );
+    } catch {
+      // Migration 693 columns not yet added — fall back to original query without profile_* columns.
+      [rows] = await pool.execute(
+        `SELECT
+           u.id AS user_id,
+           u.first_name,
+           u.last_name,
+           u.email,
+           COALESCE(
+             MAX(CASE
+               WHEN uifd.field_key IN ('date_of_birth','provider_birthdate') AND uiv.value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                 THEN uiv.value
+               ELSE NULL
+             END),
+             MAX(CASE
+               WHEN cma.date_of_birth IS NOT NULL
+                 THEN DATE_FORMAT(cma.date_of_birth, '%Y-%m-%d')
+               ELSE NULL
+             END)
+           ) AS global_date_of_birth,
+           COALESCE(
+             MAX(CASE
+               WHEN uifd.field_key IN ('sex','gender','provider_gender') AND uiv.value IS NOT NULL AND uiv.value <> ''
+                 THEN LOWER(TRIM(uiv.value))
+               ELSE NULL
+             END),
+             MAX(CASE
+               WHEN cma.gender IS NOT NULL AND cma.gender <> ''
+                 THEN LOWER(TRIM(cma.gender))
+               ELSE NULL
+             END)
+           ) AS global_sex
+         FROM learning_class_provider_memberships pm
+         INNER JOIN users u ON u.id = pm.provider_user_id
+         LEFT JOIN user_info_values uiv ON uiv.user_id = u.id
+         LEFT JOIN user_info_field_definitions uifd
+           ON uifd.id = uiv.field_definition_id
+           AND (uifd.agency_id IS NULL OR uifd.agency_id = ?)
+         LEFT JOIN challenge_member_applications cma
+           ON cma.user_id = u.id
+           OR LOWER(COALESCE(cma.email,'')) = LOWER(u.email)
+         WHERE pm.learning_class_id = ?
+           AND pm.membership_status IN ('active','completed')
+         GROUP BY u.id, u.first_name, u.last_name, u.email
+         ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+        [klass.organization_id, classId]
+      );
+    }
 
     const participants = (rows || []).map((r) => {
       const missing = [];
