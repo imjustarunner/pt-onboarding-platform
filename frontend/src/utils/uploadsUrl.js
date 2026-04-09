@@ -30,6 +30,8 @@ export function toUploadsUrl(pathOrUrl) {
 
   const cleaned = normalizeUploadsPath(pathOrUrl);
   const apiBase = getBackendBaseUrl();
-  return `${apiBase}/uploads/${cleaned}`;
+  // Encode each segment so filenames with spaces or special chars form a valid URL
+  const encodedPath = cleaned.split('/').map(seg => encodeURIComponent(seg)).join('/');
+  return `${apiBase}/uploads/${encodedPath}`;
 }
 

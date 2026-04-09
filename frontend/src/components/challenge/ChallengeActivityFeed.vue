@@ -345,8 +345,8 @@
               </div>
               <div class="proof-review-body">
                 <label class="proof-field">
-                  <span>Verified miles (optional)</span>
-                  <input v-model.number="proofReviewDraftByWorkout[w.id].verifiedDistanceValue" type="number" step="0.01" min="0" placeholder="Override distance" />
+                  <span>Verified miles (optional — only fill to override)</span>
+                  <input v-model.number="proofReviewDraftByWorkout[w.id].verifiedDistanceValue" type="number" step="0.01" min="0" :placeholder="w.distance_value != null ? `Reported: ${Number(w.distance_value).toFixed(2)} mi` : 'Leave blank to keep reported distance'" />
                 </label>
                 <label class="proof-field">
                   <span>Override points (optional – leave blank to auto-calculate)</span>
@@ -1196,9 +1196,9 @@ const ensureProofDraft = (workoutId, workout) => {
   proofReviewDraftByWorkout.value = {
     ...proofReviewDraftByWorkout.value,
     [workoutId]: {
-      verifiedDistanceValue: workout?.verified_distance_value != null
-        ? Number(workout.verified_distance_value)
-        : (workout?.distance_value != null ? Number(workout.distance_value) : null),
+      // Start null — only becomes non-null if the manager explicitly edits it.
+      // This prevents "Approved with edits" from firing when nothing changed.
+      verifiedDistanceValue: null,
       overridePoints: null,
       proofReviewNote: workout?.proof_review_note || ''
     }

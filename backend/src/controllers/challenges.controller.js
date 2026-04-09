@@ -804,7 +804,9 @@ export const submitWorkout = async (req, res, next) => {
     const treadmillProofFilePath = req.body.treadmillProofFilePath ? String(req.body.treadmillProofFilePath).trim() : null;
     const mapImageFilePath = req.body.mapImageFilePath ? String(req.body.mapImageFilePath).trim() : null;
     const hasProofImage = !!(screenshotFilePath || treadmillProofFilePath);
-    let proofStatus = (moderationMode === 'all' || (moderationMode === 'treadmill_only' && isTreadmill))
+    // Manual uploads that include a screenshot always go to pending review so a manager
+    // can verify the proof — regardless of the season's moderation mode setting.
+    let proofStatus = (moderationMode === 'all' || (moderationMode === 'treadmill_only' && isTreadmill) || screenshotFilePath)
       ? 'pending'
       : 'not_required';
     const taskProofPolicy = String(weeklyTask?.proof_policy || 'none').toLowerCase();
