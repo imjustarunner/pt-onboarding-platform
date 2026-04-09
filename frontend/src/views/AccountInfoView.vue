@@ -247,6 +247,35 @@
           </div>
         </div>
 
+        <!-- ── Biometric Login (native only) ────────────────────────────── -->
+        <div v-if="isNativePlatform() && biometricSupported" class="card compact-card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin: 0;">{{ biometricLabel }}</h3>
+            <span v-if="biometricTokenSaved" class="biometric-status-badge biometric-status-badge--on">Enabled</span>
+            <span v-else class="biometric-status-badge biometric-status-badge--off">Disabled</span>
+          </div>
+          <p class="hint" style="margin-top: 6px;">
+            Use {{ biometricLabel }} to sign in quickly without typing your password.
+            Your credentials are stored securely in the device keychain.
+          </p>
+          <div style="margin-top: 12px; display: flex; gap: 10px;">
+            <button
+              v-if="!biometricTokenSaved"
+              class="btn btn-primary btn-compact"
+              :disabled="biometricStatusLoading"
+              type="button"
+              @click="enableBiometric"
+            >{{ biometricStatusLoading ? 'Saving…' : `Enable ${biometricLabel}` }}</button>
+            <button
+              v-else
+              class="btn btn-secondary btn-compact"
+              :disabled="biometricStatusLoading"
+              type="button"
+              @click="disableBiometric"
+            >{{ biometricStatusLoading ? '…' : `Disable ${biometricLabel}` }}</button>
+          </div>
+        </div>
+
         <!-- ── SSC: Activity Profile (weight / height) ───────────────── -->
         <div v-if="isSsc" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
@@ -869,6 +898,13 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
+import {
+  isNativePlatform,
+  checkBiometricAvailability,
+  hasSavedToken,
+  saveBiometricToken,
+  clearBiometricToken
+} from '../utils/biometricAuth';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -1808,6 +1844,44 @@ const downloadCompletionPackage = async () => {
 };
 
 
+// ── Biometric login ────────────────────────────────────────────────────────
+const biometricSupported = ref(false);
+const biometricTokenSaved = ref(false);
+const biometricType = ref(null);
+const biometricStatusLoading = ref(false);
+
+const biometricLabel = computed(() => {
+  const t = String(biometricType.value || '').toLowerCase();
+  if (t.includes('face')) return 'Face ID';
+  if (t.includes('touch') || t.includes('fingerprint')) return 'Touch ID';
+  return 'Biometric Login';
+});
+
+const loadBiometricStatus = async () => {
+  if (!isNativePlatform()) return;
+  const [{ available, biometryType }, hasToken] = await Promise.all([
+    checkBiometricAvailability(),
+    hasSavedToken()
+  ]);
+  biometricSupported.value = available;
+  biometricTokenSaved.value = hasToken;
+  biometricType.value = biometryType;
+};
+
+const enableBiometric = async () => {
+  biometricStatusLoading.value = true;
+  await saveBiometricToken(authStore.token || localStorage.getItem('authToken'), authStore.user);
+  biometricTokenSaved.value = true;
+  biometricStatusLoading.value = false;
+};
+
+const disableBiometric = async () => {
+  biometricStatusLoading.value = true;
+  await clearBiometricToken();
+  biometricTokenSaved.value = false;
+  biometricStatusLoading.value = false;
+};
+
 onMounted(() => {
   if (userId.value) {
     fetchAccountInfo();
@@ -1818,6 +1892,7 @@ onMounted(() => {
     fetchAutoImportSettings();
     fetchAutoImportSeasonEnabled();
   }
+  loadBiometricStatus();
 });
 </script>
 
@@ -1927,6 +2002,17 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 700;
 }
+
+.biometric-status-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 3px 10px;
+}
+.biometric-status-badge--on  { background: #dcfce7; color: #166534; }
+.biometric-status-badge--off { background: #f1f5f9; color: #64748b; }
 
 .compact-card .fields-grid {
   gap: 12px;

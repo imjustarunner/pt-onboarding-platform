@@ -2120,6 +2120,7 @@ onMounted(async () => {
 }
 .stat-config-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
@@ -2128,6 +2129,7 @@ onMounted(async () => {
   border-radius: 10px;
   padding: 12px 14px;
   transition: opacity 0.15s;
+  overflow: hidden;
 }
 .stat-config-row.stat-disabled {
   opacity: 0.5;
@@ -2138,6 +2140,7 @@ onMounted(async () => {
   gap: 10px;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 .stat-toggle-btn {
   background: none;
@@ -2254,28 +2257,60 @@ onMounted(async () => {
 .order-btn.danger { color: #dc2626; }
 .order-btn.danger:hover { background: #fee2e2; }
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .stats-add-row {
     flex-direction: column;
     align-items: stretch;
   }
+  .stats-config-list {
+    /* Prevent any child from blowing past the screen edge */
+    overflow-x: hidden;
+    max-width: 100%;
+  }
   .stat-config-row {
     flex-direction: column;
     align-items: stretch;
-    gap: 14px;
+    gap: 10px;
+    max-width: 100%;
+    box-sizing: border-box;
   }
-  .stat-config-left,
+  .stat-config-left {
+    width: 100%;
+    max-width: 100%;
+    flex-wrap: wrap;
+    overflow: hidden;
+  }
+  .stat-config-info {
+    flex: 1;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .stat-icon-picker {
+    /* Prevent Select Icon button from overflowing */
+    max-width: calc(100% - 80px);
+    overflow: hidden;
+  }
   .stat-config-right {
     width: 100%;
+    max-width: 100%;
+    flex-direction: row;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
   }
-  .stat-config-right {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
+  .stat-seed-field {
+    flex: 1;
+    min-width: 0;
   }
-  .stat-label-input,
+  .stat-label-input {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
   .stat-seed-input {
-    width: 100%;
+    width: 80px;
+    max-width: 100%;
   }
   .stat-seed-row {
     align-items: center;
@@ -2283,10 +2318,15 @@ onMounted(async () => {
   .stat-order-btns {
     flex-direction: row;
     justify-content: flex-end;
+    flex-shrink: 0;
   }
   .order-btn {
-    min-width: 42px;
-    min-height: 38px;
+    min-width: 38px;
+    min-height: 36px;
+    font-size: 14px;
+  }
+  .stat-value-preview {
+    max-width: 100%;
   }
 }
 </style>

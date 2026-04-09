@@ -1844,8 +1844,13 @@ watch(() => route.params.organizationSlug, () => {
 
 @media (max-width: 760px) {
   .ssc-dashboard {
+    padding: 10px 12px;
+    gap: 12px;
+  }
+
+  .card {
     padding: 16px;
-    gap: 14px;
+    border-radius: 16px;
   }
 
   .dashboard-hero,
@@ -1882,6 +1887,28 @@ watch(() => route.params.organizationSlug, () => {
   .season-history-row {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  /* Season card: ensure everything fits within screen width */
+  .season-card {
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .season-totals {
+    font-size: 0.82rem;
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+  .season-card-actions {
+    gap: 6px;
+  }
+  .season-card-actions .btn {
+    font-size: 0.78rem;
+    padding: 5px 10px;
+  }
+  .season-meta {
+    font-size: 0.82rem;
+    word-break: break-word;
   }
 }
 
