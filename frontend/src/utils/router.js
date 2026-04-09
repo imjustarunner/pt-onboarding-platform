@@ -53,6 +53,36 @@ export function getDashboardRoute() {
     }
     return null;
   };
+  const isSummitScopedOrg = (org) => {
+    const slug = String(org?.slug || org?.portal_url || org?.portalUrl || '').trim().toLowerCase();
+    const parent = String(org?.parent_slug || org?.parentSlug || '').trim().toLowerCase();
+    const orgType = String(org?.organization_type || org?.organizationType || '').trim().toLowerCase();
+    return (
+      isSummitPlatformRouteSlug(slug) ||
+      isSummitPlatformRouteSlug(parent) ||
+      (orgType === 'affiliation' && isSummitPlatformRouteSlug(parent))
+    );
+  };
+  const summitSlug = resolveSummitStatsSlug();
+  const orgContext = organizationStore.organizationContext || null;
+  const orgContextSlug = String(orgContext?.slug || '').trim().toLowerCase();
+  const orgContextParent = String(orgContext?.parentSlug || orgContext?.parent_slug || '').trim().toLowerCase();
+  const currentAgency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
+  const currentAgencySlug = String(currentAgency?.slug || currentAgency?.portal_url || currentAgency?.portalUrl || '').trim().toLowerCase();
+  const currentAgencyParent = String(currentAgency?.parent_slug || currentAgency?.parentSlug || '').trim().toLowerCase();
+  const summitContextActive =
+    isSummitPlatformRouteSlug(orgContextSlug) ||
+    isSummitPlatformRouteSlug(orgContextParent) ||
+    isSummitPlatformRouteSlug(currentAgencySlug) ||
+    isSummitPlatformRouteSlug(currentAgencyParent);
+  const summitOnlyMemberships = orgs.length > 0 && orgs.every(isSummitScopedOrg);
+
+  if (summitSlug && (summitContextActive || summitOnlyMemberships)) {
+    if (userRole === 'club_manager') {
+      return `/${summitSlug}/club_manager_dashboard`;
+    }
+    return `/${summitSlug}/my_club_dashboard`;
+  }
 
   if (hasProviderMobileAccess(user) && isLikelyMobileViewport() && isStandalonePwa()) {
     const slug =

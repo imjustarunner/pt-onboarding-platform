@@ -231,6 +231,39 @@ export const useAgencyStore = defineStore('agency', () => {
         }
         return arr[0] || null;
       };
+
+      const syncCurrentAgencyForUser = (list) => {
+        const arr = Array.isArray(list) ? list : [];
+        if (roleNorm === 'super_admin' || platformMode.value) return;
+        if (!arr.length) {
+          currentAgency.value = null;
+          localStorage.setItem('currentAgency', JSON.stringify(null));
+          return;
+        }
+        const currentId = Number(currentAgency.value?.id || 0);
+        const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
+        const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
+        const isAffiliation = currentType === 'affiliation';
+        const hasAffiliation = arr.some((a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation');
+        const preferredPortal = inferPreferredPortalFromRuntime();
+        const currentPortal = pickPortalKey(currentAgency.value);
+        const hasPreferredMismatch = !!(preferredPortal && preferredPortal !== currentPortal);
+        const currentAgencyStillAccessible =
+          currentId > 0 && arr.some((a) => Number(a?.id || 0) === currentId);
+        // Only snap non-admin users with an affiliation back to the club — admins who are
+        // also club members should be able to stay on their work tenant without being overridden.
+        const snapToAffiliation = hasAffiliation && !isAffiliation && roleNorm === 'club_manager';
+        const shouldOverride =
+          !currentAgency.value ||
+          !currentAgencyStillAccessible ||
+          hasPreferredMismatch ||
+          (roleNorm === 'school_staff' && !isPortal) ||
+          snapToAffiliation;
+        if (shouldOverride) {
+          const def = pickDefaultAgencyForUser(arr);
+          if (def) setCurrentAgency(def);
+        }
+      };
       
       // For approved employees, use agencyIds from the user object
       if (authStore.user?.type === 'approved_employee' && authStore.user?.agencyIds) {
@@ -252,27 +285,7 @@ export const useAgencyStore = defineStore('agency', () => {
         // Store agencies in localStorage for login redirect after logout
         const { storeUserAgencies } = await import('../utils/loginRedirect');
         storeUserAgencies(agencyList);
-        
-        // School staff should default to a SCHOOL org (not the parent agency).
-        // Users with affiliation (SSC) access should default to the club, not the platform.
-        // Super-admins: never auto-override — they manage currentAgency explicitly via the brand menu.
-        if (userAgencies.value.length > 0 && roleNorm !== 'super_admin' && !platformMode.value) {
-          const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
-          const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
-          const isAffiliation = currentType === 'affiliation';
-          const hasAffiliation = userAgencies.value.some((a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation');
-          const preferredPortal = inferPreferredPortalFromRuntime();
-          const currentPortal = pickPortalKey(currentAgency.value);
-          const hasPreferredMismatch = !!(preferredPortal && preferredPortal !== currentPortal);
-          // Only snap non-admin users with an affiliation back to the club — admins who are
-          // also club members should be able to stay on their work tenant without being overridden.
-          const snapToAffiliation = hasAffiliation && !isAffiliation && roleNorm === 'club_manager';
-          const shouldOverride = !currentAgency.value || hasPreferredMismatch || (roleNorm === 'school_staff' && !isPortal) || snapToAffiliation;
-          if (shouldOverride) {
-            const def = pickDefaultAgencyForUser(userAgencies.value);
-            if (def) setCurrentAgency(def);
-          }
-        }
+        syncCurrentAgencyForUser(userAgencies.value);
         
         return agencyList;
       } else {
@@ -284,27 +297,7 @@ export const useAgencyStore = defineStore('agency', () => {
         // Store agencies in localStorage for login redirect after logout
         const { storeUserAgencies } = await import('../utils/loginRedirect');
         storeUserAgencies(response.data);
-        
-        // School staff should default to a SCHOOL org (not the parent agency).
-        // Users with affiliation (SSC) access should default to the club, not the platform.
-        // Super-admins: never auto-override — they manage currentAgency explicitly via the brand menu.
-        if (userAgencies.value.length > 0 && roleNorm !== 'super_admin' && !platformMode.value) {
-          const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
-          const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
-          const isAffiliation = currentType === 'affiliation';
-          const hasAffiliation = userAgencies.value.some((a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation');
-          const preferredPortal = inferPreferredPortalFromRuntime();
-          const currentPortal = pickPortalKey(currentAgency.value);
-          const hasPreferredMismatch = !!(preferredPortal && preferredPortal !== currentPortal);
-          // Only snap non-admin users with an affiliation back to the club — admins who are
-          // also club members should be able to stay on their work tenant without being overridden.
-          const snapToAffiliation = hasAffiliation && !isAffiliation && roleNorm === 'club_manager';
-          const shouldOverride = !currentAgency.value || hasPreferredMismatch || (roleNorm === 'school_staff' && !isPortal) || snapToAffiliation;
-          if (shouldOverride) {
-            const def = pickDefaultAgencyForUser(userAgencies.value);
-            if (def) setCurrentAgency(def);
-          }
-        }
+        syncCurrentAgencyForUser(userAgencies.value);
 
         // If a current agency is already persisted, ensure we hydrate it so downstream UI
         // (dashboard card icons, theme settings, etc.) gets the full shape.
@@ -388,4 +381,3 @@ export const useAgencyStore = defineStore('agency', () => {
     fetchSuperviseePortalSlugs
   };
 });
-

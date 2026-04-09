@@ -650,6 +650,13 @@ const buildInitials = (value, fallback = 'SS') => {
 const isSSCLogin = computed(() => {
   return isSummitTenantSlug(loginSlug.value);
 });
+const summitPostLoginDestination = (slug, role) => {
+  const normalizedSlug = String(slug || '').trim().toLowerCase();
+  if (!normalizedSlug || !isSummitTenantSlug(normalizedSlug)) return null;
+  return String(role || '').trim().toLowerCase() === 'club_manager'
+    ? `/${normalizedSlug}/club_manager_dashboard`
+    : `/${normalizedSlug}/my_club_dashboard`;
+};
 const isAppPreviewMode = computed(() => appPreviewMode.value !== 'off');
 const isIpadPreviewMode = computed(() => appPreviewMode.value === 'ipad');
 const isAppLike = computed(() => isAppPreviewMode.value || browserIsStandalone());
@@ -1392,6 +1399,13 @@ const handleLogin = async () => {
     const redirectPath = route.query?.redirect;
     if (redirectPath && typeof redirectPath === 'string' && redirectPath.startsWith('/')) {
       router.push(redirectPath);
+      loading.value = false;
+      return;
+    }
+
+    const summitDestination = summitPostLoginDestination(currentOrgSlug, authStore.user?.role);
+    if (summitDestination) {
+      router.push(summitDestination);
       loading.value = false;
       return;
     }
