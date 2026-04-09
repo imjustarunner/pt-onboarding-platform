@@ -45,7 +45,7 @@ async function getAccess(req, classId) {
 
 async function getWorkout(workoutId, classId) {
   const [rows] = await pool.execute(
-    `SELECT w.*, t.team_id as team_id_from_team
+    `SELECT w.*, t.id as team_id_from_team
      FROM challenge_workouts w
      LEFT JOIN challenge_teams t ON t.learning_class_id = w.learning_class_id
      LEFT JOIN challenge_team_members tm ON tm.team_id = t.id AND tm.provider_user_id = w.user_id
