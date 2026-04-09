@@ -117,6 +117,27 @@
         </div>
       </div>
 
+      <!-- Not-enrolled call-to-action — shown at the top so visitors immediately see it -->
+      <div v-if="!canParticipateInSeason && !requiresParticipationAcceptance" class="join-season-top-bar">
+        <div class="join-season-top-content">
+          <span class="join-season-top-msg">👀 You're viewing this season in read-only mode.</span>
+          <button
+            type="button"
+            class="btn btn-primary join-season-top-btn"
+            :disabled="joinSeasonBusy"
+            @click="joinSeason"
+          >
+            {{ joinSeasonBusy ? 'Joining…' : 'Join this season' }}
+          </button>
+        </div>
+        <p v-if="joinSeasonError" class="error-inline" style="margin-top:6px; text-align:center;">{{ joinSeasonError }}</p>
+      </div>
+      <div v-else-if="!canParticipateInSeason && requiresParticipationAcceptance" class="join-season-top-bar">
+        <div class="join-season-top-content">
+          <span class="join-season-top-msg">📋 Accept the participation agreement to start logging workouts.</span>
+        </div>
+      </div>
+
       <!-- Strava duplicate import notice -->
       <div v-if="stravaDuplicateMessage && !showStravaImportModal" class="strava-duplicate-notice" style="margin-bottom: 12px;">
         {{ stravaDuplicateMessage }}
@@ -540,26 +561,6 @@
           </div>
         </section>
 
-        <!-- Join / agreement prompt (shown in-page only when not a participant) -->
-        <section v-if="!canParticipateInSeason" id="log-workout-section" class="challenge-section">
-          <p v-if="requiresParticipationAcceptance" class="hint">
-            Accept this season's participation agreement to start logging workouts and posting in the season.
-          </p>
-          <div v-else class="join-season-panel">
-            <p class="join-season-msg">
-              You are not yet enrolled in this season.
-            </p>
-            <button
-              type="button"
-              class="btn btn-primary join-season-btn"
-              :disabled="joinSeasonBusy"
-              @click="joinSeason"
-            >
-              {{ joinSeasonBusy ? 'Joining…' : 'Join this season' }}
-            </button>
-            <p v-if="joinSeasonError" class="error-inline" style="margin-top:8px;">{{ joinSeasonError }}</p>
-          </div>
-        </section>
 
         <!-- Season Rules — pinned to the bottom, reachable via nav anchor -->
         <div id="section-rules" class="challenge-section">
@@ -2159,6 +2160,33 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 .club-store-link:hover {
   text-decoration: underline;
 }
+/* ── Top join bar (shown before all content for non-enrolled visitors) ── */
+.join-season-top-bar {
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  border-radius: 12px;
+  padding: 14px 20px;
+  margin-bottom: 16px;
+  border-left: 4px solid #c8102e;
+}
+.join-season-top-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.join-season-top-msg {
+  color: #e2e8f0;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+.join-season-top-btn {
+  white-space: nowrap;
+  font-weight: 700;
+  padding: 9px 22px;
+  flex-shrink: 0;
+}
+
 .join-season-panel {
   display: flex;
   align-items: center;
