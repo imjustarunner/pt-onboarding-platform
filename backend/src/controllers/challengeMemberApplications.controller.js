@@ -1311,9 +1311,7 @@ export const submitApplication = async (req, res, next) => {
       : await createUserForApplication({ firstName, lastName, email: normalizedEmail, phone, username, password });
 
     await ensureUserInPlatformTenantForClub(userId, clubId, existingUserAgencies);
-    const verification = isNew
-      ? await issueUserEmailVerification({ userId, email: normalizedEmail, firstName, portalSlug: portalSlug || 'ssc' })
-      : { required: false, verificationSent: false, verifyUrl: null };
+    const verification = { required: false, verificationSent: false, verifyUrl: null };
 
     // Resolve referrer
     let referrerUserId = null;
@@ -1446,9 +1444,7 @@ export const submitInviteApplication = async (req, res, next) => {
       : await createUserForApplication({ firstName, lastName, email: normalizedEmail, phone, username, password });
 
     await ensureUserInPlatformTenantForClub(userId, clubId, existingUserAgencies);
-    const verification = isNew
-      ? await issueUserEmailVerification({ userId, email: normalizedEmail, firstName, portalSlug: portalSlug || 'ssc' })
-      : { required: false, verificationSent: false, verifyUrl: null };
+    const verification = { required: false, verificationSent: false, verifyUrl: null };
 
     const appId = await createApplicationRow({
       clubId, inviteId: invite.id, userId,
@@ -1538,10 +1534,6 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
       );
       userId = insertResult.insertId;
     }
-  }
-
-  if (await isUserEmailVerificationPending(userId)) {
-    throw new Error('Applicant must verify their email before approval.');
   }
 
   // Assign to club (idempotent)
