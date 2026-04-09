@@ -8,8 +8,10 @@ import { computed, watch, ref } from 'vue';
  * @param {import('vue').Ref | import('vue').ComputedRef} seasonStartsAtRef - reactive ISO date/datetime string
  * @param {Object} opts
  * @param {boolean} opts.defaultToLatest - if true, default selection to most-recent week; if false, default to current week
+ * @param {import('vue').Ref | import('vue').ComputedRef | null} opts.seasonEndsAtRef - when provided, generate
+ *   weeks all the way to the season end date (includes future weeks). When null, cap at today.
  */
-export function useSeasonWeeks(seasonStartsAtRef, { defaultToLatest = true } = {}) {
+export function useSeasonWeeks(seasonStartsAtRef, { defaultToLatest = true, seasonEndsAtRef = null } = {}) {
   const selectedWeekIdx = ref(0);
 
   const fmtDate = (d) => {
@@ -26,15 +28,20 @@ export function useSeasonWeeks(seasonStartsAtRef, { defaultToLatest = true } = {
     anchor.setDate(anchor.getDate() - anchor.getDay());
     anchor.setHours(0, 0, 0, 0);
 
+    // Determine upper bound: season end date (for future-week planning) or today
+    const rawEnd = seasonEndsAtRef
+      ? (typeof seasonEndsAtRef === 'function' ? seasonEndsAtRef() : (seasonEndsAtRef?.value ?? null))
+      : null;
+    const upperBound = rawEnd ? new Date(rawEnd) : new Date();
+    upperBound.setHours(23, 59, 59, 999);
+
     const weeks = [];
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
     let cur = new Date(anchor);
     let weekNum = 1;
-    while (cur <= today) {
+    while (cur <= upperBound && weekNum <= 60) {
       const iso = cur.toISOString().slice(0, 10);
       const endDate = new Date(cur);
-      endDate.setDate(endDate.getDate() + 7); // Sunday → Sunday (same end-of-week day, one week later)
+      endDate.setDate(endDate.getDate() + 7);
       const label = `Week ${weekNum} (${fmtDate(cur)} – ${fmtDate(endDate)})`;
       weeks.push({ date: iso, label, weekNum });
       cur = new Date(cur);

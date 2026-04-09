@@ -434,7 +434,7 @@
           </div>
         </div>
         <div class="challenge-section">
-          <ChallengeWeeklyTasks :challenge-id="challengeId" :my-user-id="authStore.user?.id" :is-captain="isTeamCaptain" :season-starts-at="challenge?.starts_at || challenge?.startsAt" />
+          <ChallengeWeeklyTasks :challenge-id="challengeId" :my-user-id="authStore.user?.id" :is-captain="isTeamCaptain" :season-starts-at="challenge?.starts_at || challenge?.startsAt" :season-ends-at="challenge?.ends_at || challenge?.endsAt" />
         </div>
 
         <section class="challenge-section">

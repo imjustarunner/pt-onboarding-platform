@@ -164,12 +164,13 @@ const props = defineProps({
   challengeId: { type: [String, Number], required: true },
   myUserId: { type: [String, Number], default: null },
   isCaptain: { type: Boolean, default: false },
-  seasonStartsAt: { type: [String, Date], default: null }
+  seasonStartsAt: { type: [String, Date], default: null },
+  seasonEndsAt: { type: [String, Date], default: null }
 });
 
 const { seasonWeeks, selectedWeekIdx, weekStartDate: weekStart } = useSeasonWeeks(
   computed(() => props.seasonStartsAt),
-  { defaultToLatest: false }
+  { defaultToLatest: false, seasonEndsAtRef: computed(() => props.seasonEndsAt) }
 );
 const loading = ref(false);
 const tasks = ref([]);
