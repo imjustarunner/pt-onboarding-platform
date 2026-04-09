@@ -481,7 +481,7 @@ export const listReactions = async (req, res, next) => {
       [workoutId, classId]
     );
 
-    const baseUrl = process.env.BACKEND_URL || '';
+    const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
     // Group by emoji
     const byEmoji = {};
     for (const r of rows || []) {

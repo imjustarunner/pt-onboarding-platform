@@ -20,7 +20,7 @@
       <div class="pub-hero" :style="heroStyle">
         <div class="pub-hero-inner">
           <div class="pub-hero-brand">
-            <img v-if="clubData.club.logoUrl" :src="clubData.club.logoUrl" class="pub-logo" alt="Club logo" />
+            <img v-if="clubData.club.logoUrl" :src="toUploadsUrl(clubData.club.logoUrl) || clubData.club.logoUrl" class="pub-logo" alt="Club logo" />
             <div class="pub-hero-text">
               <h1 class="pub-club-name">{{ clubData.club.name }}</h1>
               <p v-if="bannerTitleLine" class="pub-hero-subtitle pub-hero-tagline">{{ bannerTitleLine }}</p>
@@ -290,7 +290,7 @@
           <div class="album-shell">
             <button class="album-nav" @click="prevSlide" aria-label="Previous">‹</button>
             <div class="album-frame">
-              <img :src="currentAlbumSlide.imageUrl" class="album-image" alt="Club photo" />
+              <img :src="toUploadsUrl(currentAlbumSlide.imageUrl) || currentAlbumSlide.imageUrl" class="album-image" alt="Club photo" />
               <div v-if="currentAlbumSlide.caption" class="album-caption">{{ currentAlbumSlide.caption }}</div>
             </div>
             <button class="album-nav" @click="nextSlide" aria-label="Next">›</button>
@@ -419,6 +419,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
+import { toUploadsUrl } from '../utils/uploadsUrl';
 import ClubFeedPanel from '../components/ssc/ClubFeedPanel.vue';
 
 const route  = useRoute();
@@ -637,8 +638,9 @@ const feedPostSeasonId = computed(() => {
   return cur || up || null;
 });
 const heroStyle = computed(() => {
-  const banner = String(publicPageConfig.value?.bannerImageUrl || '').trim();
-  if (!banner) return {};
+  const rawBanner = String(publicPageConfig.value?.bannerImageUrl || '').trim();
+  if (!rawBanner) return {};
+  const banner = toUploadsUrl(rawBanner) || rawBanner;
   return {
     backgroundImage: `linear-gradient(rgba(15,23,42,.65), rgba(15,23,42,.65)), url(${banner})`,
     backgroundSize: 'cover',
@@ -1521,15 +1523,53 @@ onBeforeUnmount(() => {
 .cta-note a { color: rgba(255,255,255,.8); text-underline-offset: 3px; }
 
 @media (max-width: 720px) {
+  /* ── Compact hero strip on mobile ─────────────────── */
+  .pub-hero {
+    padding: 16px 16px 20px;
+  }
+  .pub-hero-inner {
+    gap: 12px;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+  }
   .pub-hero-brand {
-    align-items: flex-start;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+  }
+  .pub-logo {
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+    padding: 4px;
+  }
+  .pub-club-name {
+    font-size: 1.05rem;
+    letter-spacing: -0.02em;
+  }
+  .pub-hero-subtitle {
+    margin: 2px 0 0;
+    font-size: 0.8rem;
+  }
+  .pub-hero-tagline {
+    font-size: 0.82rem;
+  }
+  .pub-member-count {
+    margin: 4px 0 0;
+    font-size: 11px;
+  }
+  .hero-member-note {
+    display: none;
   }
   .hero-actions {
     align-items: stretch;
-    width: 100%;
+    width: auto;
+    flex-shrink: 0;
   }
   .cta-inner {
-    padding: 36px 24px;
+    padding: 24px 16px;
   }
   .cta-text,
   .cta-actions {

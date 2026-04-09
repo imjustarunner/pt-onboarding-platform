@@ -1804,7 +1804,7 @@ export const uploadChallengeMessageAttachment = async (req, res, next) => {
       contentType: req.file.mimetype
     });
     const filePath = saved.relativePath;
-    const baseUrl = process.env.BACKEND_URL || '';
+    const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
     return res.json({ filePath, fileUrl: `${baseUrl}/uploads/${filePath}` });
   } catch (e) { next(e); }
 };
@@ -1940,7 +1940,7 @@ export const uploadCommentAttachment = async (req, res, next) => {
       contentType: req.file.mimetype
     });
     const filePath = saved.relativePath;
-    const baseUrl = process.env.BACKEND_URL || '';
+    const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
     return res.json({ filePath, fileUrl: `${baseUrl}/uploads/${filePath}` });
   } catch (e) { next(e); }
 };
@@ -1979,7 +1979,7 @@ export const scanWorkoutScreenshot = async (req, res, next) => {
     if (!access.ok) return res.status(403).json({ error: { message: 'Access denied' } });
     if (!req.file) return res.status(400).json({ error: { message: 'No image file uploaded' } });
 
-    const baseUrl = process.env.BACKEND_URL || '';
+    const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
 
     // Save to GCS (or local fallback in dev)
     const StorageService = (await import('../services/storage.service.js')).default;

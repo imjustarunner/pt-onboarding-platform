@@ -5,7 +5,7 @@ const toInt = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
-const BACKEND_URL = process.env.BACKEND_URL || '';
+const BACKEND_URL = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
 
 /** Resolve a stored file path to a public URL. */
 const resolveUrl = (filePath) =>

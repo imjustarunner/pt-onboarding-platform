@@ -156,7 +156,7 @@ export const listClubIcons = async (req, res, next) => {
 
     const [rows] = await pool.execute(sql, params);
 
-    const baseUrl = process.env.BACKEND_URL || '';
+    const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
     const scopeOrder = { club: 0, tenant: 1, platform: 2 };
 
     const icons = (rows || []).map((icon) => {

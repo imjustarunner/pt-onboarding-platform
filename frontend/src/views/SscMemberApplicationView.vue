@@ -439,6 +439,7 @@ import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { TIMEZONE_GROUPS, detectLocalTimezone } from '../utils/timezones.js';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
+import { toUploadsUrl } from '../utils/uploadsUrl';
 import PasswordStrengthMeter from '../components/PasswordStrengthMeter.vue';
 
 const route = useRoute();
@@ -617,7 +618,7 @@ onMounted(async () => {
   try {
     const themeRes = await api.get(`/agencies/portal/${orgSlug.value}/login-theme`, { skipAuthRedirect: true });
     const theme = themeRes?.data;
-    platformLogoUrl.value = theme?.agency?.logoUrl || theme?.platform?.logoUrl || '';
+    platformLogoUrl.value = toUploadsUrl(theme?.agency?.logoUrl || theme?.platform?.logoUrl || '') || '';
     platformName.value    = theme?.agency?.name || theme?.platform?.organizationName || '';
   } catch { /* non-fatal */ }
 
@@ -628,8 +629,8 @@ onMounted(async () => {
       customFields.value = data.customFields || [];
       recaptchaConfig.value = data.recaptcha || recaptchaConfig.value;
       clubInfo.value     = { name: data.invite.clubName, id: data.invite.clubId };
-      clubLogoUrl.value  = data.invite.logoUrl || '';
-      bannerImageUrl.value = data.invite.bannerImageUrl || '';
+      clubLogoUrl.value  = toUploadsUrl(data.invite.logoUrl || '') || '';
+      bannerImageUrl.value = toUploadsUrl(data.invite.bannerImageUrl || '') || '';
       if (data.invite.email) form.email = data.invite.email;
       if (Array.isArray(data.invite.genderOptions) && data.invite.genderOptions.length) {
         rawGenderOptions.value = data.invite.genderOptions;
@@ -639,8 +640,8 @@ onMounted(async () => {
       const { data } = await api.get(`/summit-stats/clubs/${clubIdParam.value}/public`, { skipAuthRedirect: true });
       clubInfo.value    = data.club;
       recaptchaConfig.value = data.recaptcha || recaptchaConfig.value;
-      clubLogoUrl.value = data.club?.logoUrl || '';
-      bannerImageUrl.value = data.club?.publicPageConfig?.bannerImageUrl || '';
+      clubLogoUrl.value = toUploadsUrl(data.club?.logoUrl || '') || '';
+      bannerImageUrl.value = toUploadsUrl(data.club?.publicPageConfig?.bannerImageUrl || '') || '';
       if (Array.isArray(data.club?.publicPageConfig?.genderOptions) && data.club.publicPageConfig.genderOptions.length) {
         rawGenderOptions.value = data.club.publicPageConfig.genderOptions;
       }

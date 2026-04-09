@@ -200,7 +200,7 @@ const toUploadsPublicUrl = (filePath) => {
   const p = String(filePath || '').trim();
   if (!p) return '';
   if (/^https?:\/\//i.test(p)) return p;
-  const baseUrl = String(process.env.BACKEND_URL || '').trim();
+  const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').trim().replace(/\/$/, '');
   const clean = p.replace(/^\/+/, '').replace(/^uploads\//, '');
   return baseUrl ? `${baseUrl}/uploads/${clean}` : `/uploads/${clean}`;
 };
@@ -598,7 +598,7 @@ export const getPublicClubStats = async (req, res, next) => {
     }
 
     // Logo URL
-    const baseUrl = process.env.BACKEND_URL || '';
+    const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
     let logoUrl = club.logo_url || null;
     if (club.logo_path) logoUrl = `${baseUrl}/uploads/${club.logo_path.replace(/^uploads\//, '')}`;
     const publicPageConfig = buildPublicPageConfig(clubRow?.[0]?.store_config_json);
@@ -1005,7 +1005,7 @@ export const resolveInviteToken = async (req, res, next) => {
     );
     const publicPageConfig = buildPublicPageConfig(clubConfigRows?.[0]?.store_config_json);
 
-    const baseUrl = process.env.BACKEND_URL || '';
+    const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
     let logoUrl = invite.logo_url || null;
     if (invite.logo_path) logoUrl = `${baseUrl}/uploads/${invite.logo_path.replace(/^uploads\//, '')}`;
 
@@ -3759,7 +3759,7 @@ export const getMyApplications = async (req, res, next) => {
       params
     );
 
-    const baseUrl = process.env.BACKEND_URL || '';
+    const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
     const applications = (rows || []).map((r) => {
       let logoUrl = r.logo_url || null;
       if (r.logo_path) logoUrl = `${baseUrl}/uploads/${String(r.logo_path).replace(/^uploads\//, '')}`;
