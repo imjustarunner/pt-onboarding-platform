@@ -259,6 +259,84 @@
           Add link
         </button>
         <div class="form-section-divider">
+          <h4>{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }} support page</h4>
+          <p class="section-description">
+            Public route: <code>/ssc/support</code>. This content is used for Strava/API compliance support links and member help.
+          </p>
+        </div>
+        <div class="form-group">
+          <label>Support title</label>
+          <input v-model="platformForm.supportPage.title" type="text" placeholder="Support" />
+        </div>
+        <div class="form-group">
+          <label>Support subtitle</label>
+          <input v-model="platformForm.supportPage.subtitle" type="text" placeholder="Need help with your SSC account?" />
+        </div>
+        <div class="form-group">
+          <label>Intro paragraph</label>
+          <textarea
+            v-model="platformForm.supportPage.intro"
+            rows="4"
+            placeholder="Describe when members should contact support and what to include."
+          />
+        </div>
+        <div class="form-group-inline-grid">
+          <div class="form-group">
+            <label>Contact email</label>
+            <input v-model="platformForm.supportPage.contactEmail" type="email" placeholder="support@plottwisthq.com" />
+          </div>
+          <div class="form-group">
+            <label>Contact phone</label>
+            <input v-model="platformForm.supportPage.contactPhone" type="text" placeholder="+1 (555) 123-4567" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Support hours / response SLA</label>
+          <input v-model="platformForm.supportPage.hours" type="text" placeholder="Mon-Fri, 9am-5pm ET. Typical response in 1 business day." />
+        </div>
+        <div class="form-group-inline-grid">
+          <div class="form-group">
+            <label>Help center URL</label>
+            <input v-model="platformForm.supportPage.helpCenterUrl" type="url" placeholder="https://..." />
+          </div>
+          <div class="form-group">
+            <label>Status page URL</label>
+            <input v-model="platformForm.supportPage.statusPageUrl" type="url" placeholder="https://..." />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Bug report URL</label>
+          <input v-model="platformForm.supportPage.bugReportUrl" type="url" placeholder="https://..." />
+        </div>
+        <div class="form-group">
+          <label>Support FAQ items</label>
+          <div
+            v-for="(row, idx) in platformForm.supportPage.faq"
+            :key="'support-faq-' + idx"
+            class="ssc-footer-link-row"
+          >
+            <div class="form-group">
+              <label>Question</label>
+              <input v-model="row.q" type="text" placeholder="How do I connect Strava?" />
+            </div>
+            <div class="form-group">
+              <label>Answer</label>
+              <textarea v-model="row.a" rows="3" placeholder="Go to My Account > Fitness Integrations..." />
+            </div>
+            <div class="ssc-footer-link-actions">
+              <button type="button" class="btn btn-sm btn-danger" @click="removeSupportFaqRow(idx)">Remove</button>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="(platformForm.supportPage.faq || []).length >= 12"
+            @click="addSupportFaqRow"
+          >
+            Add FAQ
+          </button>
+        </div>
+        <div class="form-section-divider">
           <h4>Fonts</h4>
           <p class="section-description">Configure default fonts for the platform.</p>
         </div>
@@ -2313,6 +2391,96 @@ function normalizedSummitStatsFooterLinksForSave() {
   return rows.length ? rows : null;
 }
 
+function parseSupportPageFromStore(raw) {
+  const defaults = {
+    title: 'Support',
+    subtitle: '',
+    intro: '',
+    contactEmail: '',
+    contactPhone: '',
+    hours: '',
+    helpCenterUrl: '',
+    statusPageUrl: '',
+    bugReportUrl: '',
+    faq: []
+  };
+  if (raw == null) return defaults;
+  let obj = raw;
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return defaults;
+    }
+  }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return defaults;
+  return {
+    ...defaults,
+    ...obj,
+    faq: Array.isArray(obj.faq)
+      ? obj.faq
+          .map((x) => ({
+            q: String(x?.q || '').trim(),
+            a: String(x?.a || '').trim()
+          }))
+          .filter((x) => x.q && x.a)
+          .slice(0, 12)
+      : []
+  };
+}
+
+function normalizedSupportPageForSave() {
+  const raw = platformForm.value.supportPage || {};
+  const clean = {
+    title: String(raw.title || '').trim(),
+    subtitle: String(raw.subtitle || '').trim(),
+    intro: String(raw.intro || '').trim(),
+    contactEmail: String(raw.contactEmail || '').trim(),
+    contactPhone: String(raw.contactPhone || '').trim(),
+    hours: String(raw.hours || '').trim(),
+    helpCenterUrl: String(raw.helpCenterUrl || '').trim(),
+    statusPageUrl: String(raw.statusPageUrl || '').trim(),
+    bugReportUrl: String(raw.bugReportUrl || '').trim(),
+    faq: Array.isArray(raw.faq)
+      ? raw.faq
+          .map((x) => ({
+            q: String(x?.q || '').trim(),
+            a: String(x?.a || '').trim()
+          }))
+          .filter((x) => x.q && x.a)
+          .slice(0, 12)
+      : []
+  };
+  const hasAnyValue =
+    clean.title ||
+    clean.subtitle ||
+    clean.intro ||
+    clean.contactEmail ||
+    clean.contactPhone ||
+    clean.hours ||
+    clean.helpCenterUrl ||
+    clean.statusPageUrl ||
+    clean.bugReportUrl ||
+    clean.faq.length;
+  return hasAnyValue ? clean : null;
+}
+
+const addSupportFaqRow = () => {
+  if (!platformForm.value.supportPage || typeof platformForm.value.supportPage !== 'object') {
+    platformForm.value.supportPage = parseSupportPageFromStore(null);
+  }
+  const faq = Array.isArray(platformForm.value.supportPage.faq) ? platformForm.value.supportPage.faq : [];
+  if (faq.length >= 12) return;
+  faq.push({ q: '', a: '' });
+  platformForm.value.supportPage.faq = faq;
+};
+
+const removeSupportFaqRow = (idx) => {
+  const faq = Array.isArray(platformForm.value.supportPage?.faq) ? platformForm.value.supportPage.faq : [];
+  faq.splice(idx, 1);
+  platformForm.value.supportPage.faq = faq;
+};
+
 const availableTemplates = ref([]);
 const selectedTemplateToApply = ref('');
 const currentlyAppliedTemplate = ref(null); // Track which template is currently applied
@@ -2381,6 +2549,7 @@ const platformForm = ref({
       termsUrl: null,
       platformHipaaUrl: null,
       summitStatsFooterLinks: [],
+      supportPage: parseSupportPageFromStore(null),
 
   // Settings sidebar navigation icon defaults (replaces emojis)
   companyProfileIconId: null,
@@ -3335,6 +3504,9 @@ const applySelectedTemplate = async (event) => {
           summitStatsFooterLinks: parseSummitStatsFooterLinksFromStore(
             brandingStore.platformBranding.summit_stats_footer_links_json
           ),
+          supportPage: parseSupportPageFromStore(
+            brandingStore.platformBranding.support_page_json
+          ),
 
           companyProfileIconId: brandingStore.platformBranding.company_profile_icon_id ?? null,
           teamRolesIconId: brandingStore.platformBranding.team_roles_icon_id ?? null,
@@ -3777,6 +3949,7 @@ const savePlatformBranding = async () => {
       termsUrl: platformForm.value.termsUrl?.trim() || null,
       platformHipaaUrl: platformForm.value.platformHipaaUrl?.trim() || null,
       summitStatsFooterLinks: normalizedSummitStatsFooterLinksForSave(),
+      supportPage: normalizedSupportPageForSave(),
 
       // Settings sidebar navigation icon defaults
       companyProfileIconId: platformForm.value.companyProfileIconId ?? null,
@@ -3960,6 +4133,9 @@ const savePlatformBranding = async () => {
       platformForm.value.summitStatsFooterLinks = parseSummitStatsFooterLinksFromStore(
         response.data.summit_stats_footer_links_json
       );
+      platformForm.value.supportPage = parseSupportPageFromStore(
+        response.data.support_page_json
+      );
 
       // Update other fields
       platformForm.value.tagline = response.data.tagline ?? platformForm.value.tagline;
@@ -4011,6 +4187,9 @@ const savePlatformBranding = async () => {
       platformForm.value.privacyPolicyUrl = brandingStore.platformBranding.privacy_policy_url ?? null;
       platformForm.value.termsUrl = brandingStore.platformBranding.terms_url ?? null;
       platformForm.value.platformHipaaUrl = brandingStore.platformBranding.platform_hipaa_url ?? null;
+      platformForm.value.supportPage = parseSupportPageFromStore(
+        brandingStore.platformBranding.support_page_json
+      );
     }
 
     console.log('Platform branding saved. Updated form icon IDs:', {
@@ -4102,6 +4281,9 @@ onMounted(async () => {
         summitStatsFooterLinks: parseSummitStatsFooterLinksFromStore(
           brandingStore.platformBranding.summit_stats_footer_links_json
         ),
+        supportPage: parseSupportPageFromStore(
+          brandingStore.platformBranding.support_page_json
+        ),
 
         companyProfileIconId: brandingStore.platformBranding.company_profile_icon_id ?? null,
         teamRolesIconId: brandingStore.platformBranding.team_roles_icon_id ?? null,
@@ -4145,6 +4327,9 @@ onActivated(async () => {
       platformForm.value.platformHipaaUrl = brandingStore.platformBranding.platform_hipaa_url ?? null;
       platformForm.value.summitStatsFooterLinks = parseSummitStatsFooterLinksFromStore(
         brandingStore.platformBranding.summit_stats_footer_links_json
+      );
+      platformForm.value.supportPage = parseSupportPageFromStore(
+        brandingStore.platformBranding.support_page_json
       );
 
       // Set logo input method based on what's available
@@ -4779,8 +4964,17 @@ onActivated(async () => {
   padding-bottom: 2px;
 }
 
+.form-group-inline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
 @media (max-width: 768px) {
   .ssc-footer-link-row {
+    grid-template-columns: 1fr;
+  }
+  .form-group-inline-grid {
     grid-template-columns: 1fr;
   }
 }

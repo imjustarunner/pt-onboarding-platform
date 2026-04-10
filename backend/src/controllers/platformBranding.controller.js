@@ -25,6 +25,41 @@ function normalizeSummitStatsFooterLinks(input) {
   return out.length ? out : null;
 }
 
+/** Normalize support page config object for public /support rendering. */
+function normalizeSupportPage(input) {
+  if (input === undefined) return undefined;
+  if (input === null) return null;
+  const raw = typeof input === 'string' ? (() => {
+    try {
+      return JSON.parse(input);
+    } catch {
+      return null;
+    }
+  })() : input;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const clean = {
+    title: String(raw.title || '').trim().slice(0, 120) || null,
+    subtitle: String(raw.subtitle || '').trim().slice(0, 220) || null,
+    intro: String(raw.intro || '').trim().slice(0, 4000) || null,
+    contactEmail: String(raw.contactEmail || '').trim().slice(0, 255) || null,
+    contactPhone: String(raw.contactPhone || '').trim().slice(0, 80) || null,
+    hours: String(raw.hours || '').trim().slice(0, 180) || null,
+    helpCenterUrl: String(raw.helpCenterUrl || '').trim().slice(0, 500) || null,
+    statusPageUrl: String(raw.statusPageUrl || '').trim().slice(0, 500) || null,
+    bugReportUrl: String(raw.bugReportUrl || '').trim().slice(0, 500) || null,
+    faq: Array.isArray(raw.faq)
+      ? raw.faq
+          .map((x) => ({
+            q: String(x?.q || '').trim().slice(0, 220),
+            a: String(x?.a || '').trim().slice(0, 2500)
+          }))
+          .filter((x) => x.q && x.a)
+          .slice(0, 12)
+      : []
+  };
+  return clean;
+}
+
 /** Map exported (GET) snake_case keys to update payload camelCase. */
 function exportedToUpdatePayload(data) {
   if (!data || typeof data !== 'object') return {};
@@ -118,7 +153,8 @@ function exportedToUpdatePayload(data) {
     school_portal_parent_sign_icon_id: 'schoolPortalParentSignIconId',
     school_portal_upload_packet_icon_id: 'schoolPortalUploadPacketIconId',
     available_agency_features_json: 'availableAgencyFeatures',
-    summit_stats_footer_links_json: 'summitStatsFooterLinks'
+    summit_stats_footer_links_json: 'summitStatsFooterLinks',
+    support_page_json: 'supportPage'
   };
   const out = {};
   for (const [snake, camel] of Object.entries(map)) {
@@ -254,7 +290,8 @@ export const updatePlatformBranding = async (req, res, next) => {
       maxInactivityTimeoutMinutes,
       betaFeedbackEnabled,
       availableAgencyFeatures,
-      summitStatsFooterLinks
+      summitStatsFooterLinks,
+      supportPage
     } = req.body;
 
     const branding = await PlatformBranding.update({
@@ -344,7 +381,8 @@ export const updatePlatformBranding = async (req, res, next) => {
       maxInactivityTimeoutMinutes: maxInactivityTimeoutMinutes !== undefined ? (maxInactivityTimeoutMinutes === null || maxInactivityTimeoutMinutes === '' ? null : Math.min(240, Math.max(1, parseInt(maxInactivityTimeoutMinutes, 10) || 30))) : undefined,
       betaFeedbackEnabled: betaFeedbackEnabled !== undefined ? !!betaFeedbackEnabled : undefined,
       availableAgencyFeatures: availableAgencyFeatures !== undefined && typeof availableAgencyFeatures === 'object' ? availableAgencyFeatures : undefined,
-      summitStatsFooterLinks: normalizeSummitStatsFooterLinks(summitStatsFooterLinks)
+      summitStatsFooterLinks: normalizeSummitStatsFooterLinks(summitStatsFooterLinks),
+      supportPage: normalizeSupportPage(supportPage)
     }, req.user.id);
 
     res.json(branding);
@@ -371,6 +409,9 @@ export const restorePlatformBranding = async (req, res, next) => {
     const payload = exportedToUpdatePayload(req.body);
     if (payload.summitStatsFooterLinks !== undefined) {
       payload.summitStatsFooterLinks = normalizeSummitStatsFooterLinks(payload.summitStatsFooterLinks);
+    }
+    if (payload.supportPage !== undefined) {
+      payload.supportPage = normalizeSupportPage(payload.supportPage);
     }
     if (Object.keys(payload).length === 0) {
       return res.status(400).json({ error: { message: 'No valid platform branding data to restore' } });

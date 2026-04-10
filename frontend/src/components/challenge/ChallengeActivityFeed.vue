@@ -285,7 +285,17 @@
 
           <!-- Strava source tag + "Add details" for owner -->
           <div v-if="w.strava_activity_id" class="hint strava-source-hint">
-            <span class="strava-logo-s-sm">S</span> Imported from Strava
+            <img src="/logos/strava/compatible-with-strava.svg" alt="Compatible with Strava" class="strava-compat-logo-sm" />
+            <span>Imported from Strava</span>
+            <a
+              class="strava-view-link"
+              :href="stravaActivityUrl(w.strava_activity_id)"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View on Strava
+            </a>
+            <span class="strava-compat-note">Compatible with Strava</span>
             <button v-if="canEditStravaDetails(w)" class="btn-link-sm" style="margin-left:8px;" @click="toggleStravaEdit(w)">
               {{ stravaEditOpenByWorkout[w.id] ? 'Close' : '+ Add details' }}
             </button>
@@ -872,6 +882,12 @@ const formatTimestamp = (d) => {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit'
   });
+};
+
+const stravaActivityUrl = (activityId) => {
+  const id = Number(activityId || 0);
+  if (!id) return 'https://www.strava.com';
+  return `https://www.strava.com/activities/${id}`;
 };
 
 const avgPace = (w) => {
@@ -1979,23 +1995,26 @@ const reviewProof = async (workoutId, status) => {
 .strava-source-hint {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  flex-wrap: wrap;
   font-size: 11px;
   color: #94a3b8;
   margin-top: 4px;
 }
-.strava-logo-s-sm {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  background: #fc4c02;
-  color: #fff;
-  border-radius: 3px;
-  font-size: 9px;
+.strava-view-link {
+  color: #fc5200;
   font-weight: 700;
-  line-height: 1;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.strava-compat-note {
+  color: #64748b;
+  font-size: 10px;
+}
+.strava-compat-logo-sm {
+  height: 14px;
+  width: auto;
+  display: inline-block;
   flex-shrink: 0;
 }
 .activity-time {

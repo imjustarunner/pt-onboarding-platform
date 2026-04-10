@@ -714,7 +714,8 @@ class PlatformBranding {
       maxInactivityTimeoutMinutes,
       betaFeedbackEnabled,
       availableAgencyFeatures,
-      summitStatsFooterLinks
+      summitStatsFooterLinks,
+      supportPage
     } = brandingData;
 
     // Check if branding exists
@@ -838,6 +839,24 @@ class PlatformBranding {
             ? JSON.stringify(summitStatsFooterLinks)
             : null;
         updates.push('summit_stats_footer_links_json = ?');
+        values.push(jsonVal);
+      }
+
+      let hasSupportPageJson = false;
+      try {
+        const [supportCols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'support_page_json'"
+        );
+        hasSupportPageJson = (supportCols || []).length > 0;
+      } catch (e) {
+        hasSupportPageJson = false;
+      }
+      if (hasSupportPageJson && supportPage !== undefined) {
+        const jsonVal =
+          supportPage && typeof supportPage === 'object'
+            ? JSON.stringify(supportPage)
+            : null;
+        updates.push('support_page_json = ?');
         values.push(jsonVal);
       }
 

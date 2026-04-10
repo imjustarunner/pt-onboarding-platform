@@ -296,6 +296,12 @@ const routes = [
     meta: { requiresGuest: false, legalDocType: 'platformhipaa' }
   },
   {
+    path: '/support',
+    name: 'PublicSupport',
+    component: () => import('../views/public/SupportView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
     path: '/:organizationSlug/terms',
     name: 'OrganizationLegalTerms',
     component: () => import('../views/public/LegalDocumentView.vue'),
@@ -318,6 +324,12 @@ const routes = [
     name: 'OrganizationLegalPlatformHipaa',
     component: () => import('../views/public/LegalDocumentView.vue'),
     meta: { requiresGuest: false, legalDocType: 'platformhipaa', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/support',
+    name: 'OrganizationPublicSupport',
+    component: () => import('../views/public/SupportView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
   },
   {
     path: '/communications',

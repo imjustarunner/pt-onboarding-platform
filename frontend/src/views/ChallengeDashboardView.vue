@@ -150,7 +150,7 @@
           <span class="season-action-icon">+</span> Log Workout
         </button>
         <button v-if="stravaImportAvailable" type="button" class="season-action-btn season-action-btn--strava" @click="openStravaImportModal">
-          <span class="strava-logo-s">S</span> Import from Strava
+          Import from Strava
         </button>
       </div>
 
@@ -810,7 +810,11 @@
         <div v-if="showStravaImportModal" class="modal-overlay" @click.self="closeStravaImportModal">
           <div class="modal-content modal-wide">
             <h2>Import from Strava</h2>
+            <img src="/logos/strava/compatible-with-strava.svg" alt="Compatible with Strava" class="strava-compatible-logo" />
             <p class="hint">Only <strong>today's</strong> activities can be imported. Points are calculated from distance or duration. Descriptions, elevation, and route maps are included automatically.</p>
+            <p class="hint">
+              Compatible with Strava. This application is independent and is not developed or sponsored by Strava.
+            </p>
             <div v-if="stravaActivitiesLoading" class="loading-inline">Loading your Strava activities…</div>
             <div v-else-if="stravaActivitiesError" class="error-inline">{{ stravaActivitiesError }}</div>
             <div v-else class="strava-activity-list">
@@ -832,6 +836,7 @@
                     <span>{{ formatStravaDuration(a.moving_time || a.elapsed_time) }}</span>
                     <span v-if="a.average_heartrate">{{ Math.round(a.average_heartrate) }} bpm avg</span>
                     <span class="strava-meta-date">{{ formatStravaDate(a.start_date) }}</span>
+                    <a class="strava-view-link" :href="stravaActivityUrl(a.id)" target="_blank" rel="noopener noreferrer">View on Strava</a>
                   </div>
                 </div>
               </label>
@@ -1895,6 +1900,11 @@ const formatStravaDuration = (sec) => {
   return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
 };
 const formatStravaDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—');
+const stravaActivityUrl = (activityId) => {
+  const id = Number(activityId || 0);
+  if (!id) return 'https://www.strava.com';
+  return `https://www.strava.com/activities/${id}`;
+};
 
 const stravaImportAvailable = computed(
   () => !!(stravaStatus.value?.connected && stravaStatus.value?.stravaRolloutEnabled !== false)
@@ -2357,11 +2367,6 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   font-weight: 900;
   line-height: 1;
 }
-.strava-logo-s {
-  font-weight: 900;
-  font-style: italic;
-  font-size: 1.1rem;
-}
 .challenge-feed-full {
   /* Activity feed takes full width — no artificial height cap */
   width: 100%;
@@ -2816,6 +2821,18 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 }
 .strava-meta-date {
   margin-left: auto;
+}
+.strava-view-link {
+  color: #fc5200;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.strava-compatible-logo {
+  height: 20px;
+  width: auto;
+  margin: 6px 0 4px;
+  display: block;
 }
 .activity-meta {
   font-size: 0.9em;

@@ -180,7 +180,7 @@
 
       <!-- Strava row -->
       <div class="integ-row" :class="{ 'integ-row--disabled': !stravaRolloutActive }">
-        <div class="integ-logo integ-logo--strava">S</div>
+        <img src="/logos/strava/compatible-with-strava.svg" class="integ-logo integ-logo--strava-mark" alt="Compatible with Strava" />
         <div class="integ-body">
           <div class="integ-name">Strava</div>
           <div v-if="stravaStatus?.connected" class="integ-status integ-status--connected">
@@ -196,11 +196,19 @@
               {{ stravaDisconnecting ? 'Disconnecting…' : 'Disconnect' }}
             </button>
             <span v-else-if="stravaStatus && !stravaStatus.stravaConfigured" class="integ-badge integ-badge--warn">Not configured</span>
-            <a v-else :href="stravaConnectUrl" class="btn btn-primary btn-sm">Connect</a>
+            <a v-else :href="stravaConnectUrl" class="btn-strava-connect-image-link" aria-label="Connect with Strava">
+              <img src="/logos/strava/connect-with-strava.svg" alt="Connect with Strava" class="btn-strava-connect-image" />
+            </a>
           </template>
           <span v-else class="integ-badge integ-badge--soon">Pilot only</span>
         </div>
       </div>
+      <p class="integ-attribution">
+        Compatible with Strava. This application is independent and is not developed or sponsored by Strava.
+      </p>
+      <p class="integ-attribution integ-attribution--muted">
+        Activity data sourced through Strava may include Garmin-origin data where applicable.
+      </p>
 
       <!-- Garmin row (coming soon) -->
       <div class="integ-row integ-row--soon">
@@ -2118,6 +2126,33 @@ watch(
 }
 .integ-badge--soon { background: #e0f2fe; color: #0369a1; }
 .integ-badge--warn { background: #fef9c3; color: #a16207; }
+.btn-strava-connect-image-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.btn-strava-connect-image {
+  height: 48px;
+  width: auto;
+  display: block;
+}
+.integ-logo--strava-mark {
+  width: 120px;
+  height: auto;
+  border-radius: 0;
+  background: transparent;
+  object-fit: contain;
+  padding: 0;
+}
+.integ-attribution {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #334155;
+}
+.integ-attribution--muted {
+  margin-top: 6px;
+  color: #64748b;
+}
 .integ-future-wrap  { padding-top: 10px; }
 .integ-future-toggle {
   background: none;
