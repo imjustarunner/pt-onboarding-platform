@@ -135,7 +135,7 @@
               <div class="title">Skill Builders availability (required)</div>
               <div class="muted">
                 Confirm <strong>every 2 weeks</strong> (current + next week). Your <strong>additional</strong> availability blocks plus time already booked on Skill Builders programs must add up to at least
-                <strong>6 hours/week</strong> combined.
+                <strong>{{ pending.skillBuilder?.requiredHoursPerWeek || 6 }} hours/week</strong> combined.
               </div>
             </div>
           </div>
@@ -425,8 +425,10 @@ const skillBuilderValidationError = computed(() => {
   if (!pending.skillBuilder?.eligible) return '';
   const programMins = Number(pending.skillBuilder?.programCreditMinutesPerWeek || 0);
   const blockMins = (skillBuilderForm.blocks || []).reduce((sum, b) => sum + minutesForSkillBlock(b), 0);
-  if (blockMins + programMins < 360) {
-    return 'Combined program time and availability blocks must be at least 6 hours/week. Add blocks or enroll in enough program sessions.';
+  const requiredHrs = Number(pending.skillBuilder?.requiredHoursPerWeek || 6);
+  const requiredMins = requiredHrs * 60;
+  if (blockMins + programMins < requiredMins) {
+    return `Combined program time and availability blocks must be at least ${requiredHrs} hours/week. Add blocks or enroll in enough program sessions.`;
   }
   if (blockMins > 0) {
     const missingDepartFrom = (skillBuilderForm.blocks || []).some((b) => !String(b?.departFrom || '').trim());

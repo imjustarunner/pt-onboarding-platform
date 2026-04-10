@@ -1,6 +1,6 @@
 <template>
   <div class="container">
-    <SkillBuildersAvailabilityPanel :show-title="true" />
+    <SkillBuildersAvailabilityPanel :show-title="true" :show-scope-filters="false" />
   </div>
 </template>
 

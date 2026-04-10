@@ -453,6 +453,37 @@ async function canAccessSkillBuilderAdmin(req) {
 }
 
 /**
+ * Load per-agency Skill Builder settings from `agency_skill_builder_settings`.
+ * Returns defaults when no row exists or the table hasn't been migrated yet.
+ */
+async function getAgencySkillBuilderSettings(agencyId) {
+  const defaults = { forceConfirmEnabled: true, requiredHoursPerWeek: 6 };
+  try {
+    const [rows] = await pool.execute(
+      `SELECT force_confirm_enabled, required_hours_per_week
+       FROM agency_skill_builder_settings
+       WHERE agency_id = ?
+       LIMIT 1`,
+      [agencyId]
+    );
+    const row = rows?.[0];
+    if (!row) return defaults;
+    return {
+      forceConfirmEnabled:
+        row.force_confirm_enabled === true ||
+        row.force_confirm_enabled === 1 ||
+        row.force_confirm_enabled === '1',
+      requiredHoursPerWeek: Number.isFinite(Number(row.required_hours_per_week))
+        ? Math.max(1, Number(row.required_hours_per_week))
+        : 6
+    };
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') return defaults;
+    throw e;
+  }
+}
+
+/**
  * Affiliated orgs under an agency (for Skill Builders scope), including branding fields
  * so dashboards can show per-program icons (master org icon, program overview icon, logos).
  */
@@ -718,9 +749,10 @@ export const getMyAvailabilityPending = async (req, res, next) => {
 
     // Skill Builder weekly availability (recurring blocks + weekly confirmation)
     const skillBuilderEligible = await getSkillBuilderEligibility(providerId);
+    const sbSettings = await getAgencySkillBuilderSettings(agencyId);
     let skillBuilder = {
       eligible: skillBuilderEligible,
-      requiredHoursPerWeek: 6,
+      requiredHoursPerWeek: sbSettings.requiredHoursPerWeek,
       totalHoursPerWeek: 0,
       confirmations: [], // [{ weekStartDate, confirmedAt }]
       needsConfirmation: false, // true when any of the next-two-weeks confirmations are missing
@@ -799,14 +831,14 @@ export const getMyAvailabilityPending = async (req, res, next) => {
         ];
         skillBuilder = {
           eligible: true,
-          requiredHoursPerWeek: 6,
+          requiredHoursPerWeek: sbSettings.requiredHoursPerWeek,
           blockHoursPerWeek: Math.round((blockMinutes / 60) * 100) / 100,
           programCreditHoursPerWeek: Math.round((programMinutes / 60) * 100) / 100,
           programCreditMinutesPerWeek: programMinutes,
           totalHoursPerWeek: Math.round((effectiveMinutes / 60) * 100) / 100,
           programCreditItems,
           confirmations,
-          needsConfirmation: confirmations.some((c) => !c.confirmedAt),
+          needsConfirmation: sbSettings.forceConfirmEnabled && confirmations.some((c) => !c.confirmedAt),
           blocks,
           schoolDayMap
         };
@@ -1294,27 +1326,31 @@ export const submitMySkillBuilderAvailability = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Skill Builder availability is not enabled for your account.' } });
     }
 
+    const sbSettings = await getAgencySkillBuilderSettings(agencyId);
+    const requiredMinutes = sbSettings.requiredHoursPerWeek * 60;
+    const reqHrsLabel = sbSettings.requiredHoursPerWeek;
+
     const blocks = Array.isArray(req.body?.blocks) ? req.body.blocks : [];
     const normalizedBlocks = normalizeSkillBuilderBlocks(blocks);
     const { totalMinutes: programMinutes } = await computeSkillBuilderProgramCreditMinutesPerWeek(pool, {
       agencyId,
       providerId
     });
-    if (normalizedBlocks.length === 0 && programMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
+    if (normalizedBlocks.length === 0 && programMinutes < requiredMinutes) {
       return res.status(400).json({
         error: {
           message:
-            'Add at least one availability block, or your Skill Builders program bookings must already total at least 6 hours per week.'
+            `Add at least one availability block, or your Skill Builders program bookings must already total at least ${reqHrsLabel} hours per week.`
         }
       });
     }
 
     const totalMinutes = totalMinutesForSkillBuilderBlocks(normalizedBlocks);
-    if (totalMinutes + programMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
+    if (totalMinutes + programMinutes < requiredMinutes) {
       return res.status(400).json({
         error: {
           message:
-            'Your availability blocks plus time booked on Skill Builders programs must total at least 6 hours per week.'
+            `Your availability blocks plus time booked on Skill Builders programs must total at least ${reqHrsLabel} hours per week.`
         }
       });
     }
@@ -1363,6 +1399,10 @@ export const confirmMySkillBuilderAvailability = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Skill Builder availability is not enabled for your account.' } });
     }
 
+    const sbSettings = await getAgencySkillBuilderSettings(agencyId);
+    const requiredMinutes = sbSettings.requiredHoursPerWeek * 60;
+    const reqHrsLabel = sbSettings.requiredHoursPerWeek;
+
     const rawBlocks = Array.isArray(req.body?.blocks) ? req.body.blocks : [];
     const normalizedFromRequest =
       rawBlocks.length > 0 ? normalizeSkillBuilderBlocks(rawBlocks) : null;
@@ -1384,11 +1424,11 @@ export const confirmMySkillBuilderAvailability = async (req, res, next) => {
 
     if (normalizedFromRequest && normalizedFromRequest.length > 0) {
       blockMinutes = totalMinutesForSkillBuilderBlocks(normalizedFromRequest);
-      if (blockMinutes + programMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
+      if (blockMinutes + programMinutes < requiredMinutes) {
         return res.status(400).json({
           error: {
             message:
-              'Your availability blocks plus time booked on Skill Builders programs must total at least 6 hours per week.'
+              `Your availability blocks plus time booked on Skill Builders programs must total at least ${reqHrsLabel} hours per week.`
           }
         });
       }
@@ -1417,11 +1457,11 @@ export const confirmMySkillBuilderAvailability = async (req, res, next) => {
         else blockMinutes += minutesBetween(String(b.start_time || ''), String(b.end_time || ''));
       }
 
-      if (blockMinutes + programMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
+      if (blockMinutes + programMinutes < requiredMinutes) {
         return res.status(400).json({
           error: {
             message:
-              'Your saved availability plus Skill Builders program time is under 6 hours/week. Save your blocks first, or use Confirm with your current form data.'
+              `Your saved availability plus Skill Builders program time is under ${reqHrsLabel} hours/week. Save your blocks first, or use Confirm with your current form data.`
           }
         });
       }
@@ -1531,6 +1571,8 @@ export const listSkillBuildersAvailability = async (req, res, next) => {
       };
     }
 
+    const sbSettings = await getAgencySkillBuilderSettings(agencyId);
+
     const providerSql = [
       `SELECT u.id, u.first_name, u.last_name, u.email,`,
       `       c.confirmed_at`,
@@ -1600,8 +1642,67 @@ export const listSkillBuildersAvailability = async (req, res, next) => {
       agencyId,
       weekStart,
       organization: organizationFilter,
-      providers
+      providers,
+      settings: sbSettings
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getSkillBuilderSettings = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    const allowed = await canAccessSkillBuilderAdmin(req);
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const settings = await getAgencySkillBuilderSettings(agencyId);
+    res.json({ ok: true, agencyId, settings });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const putSkillBuilderSettings = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    const allowed = await canAccessSkillBuilderAdmin(req);
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const rawForce = req.body?.forceConfirmEnabled;
+    const rawHours = req.body?.requiredHoursPerWeek;
+
+    if (rawForce === undefined && rawHours === undefined) {
+      return res.status(400).json({ error: { message: 'Provide forceConfirmEnabled and/or requiredHoursPerWeek' } });
+    }
+
+    const current = await getAgencySkillBuilderSettings(agencyId);
+    const forceConfirmEnabled =
+      rawForce === undefined ? current.forceConfirmEnabled : !!(rawForce === true || rawForce === 1 || rawForce === '1' || rawForce === 'true');
+    const requiredHoursPerWeek =
+      rawHours === undefined
+        ? current.requiredHoursPerWeek
+        : Math.max(1, Math.min(40, parseInt(rawHours, 10) || 6));
+
+    try {
+      await pool.execute(
+        `INSERT INTO agency_skill_builder_settings (agency_id, force_confirm_enabled, required_hours_per_week)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           force_confirm_enabled = VALUES(force_confirm_enabled),
+           required_hours_per_week = VALUES(required_hours_per_week)`,
+        [agencyId, forceConfirmEnabled ? 1 : 0, requiredHoursPerWeek]
+      );
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') {
+        return res.status(503).json({ error: { message: 'Settings table not yet migrated. Run migration 694.' } });
+      }
+      throw e;
+    }
+
+    res.json({ ok: true, agencyId, settings: { forceConfirmEnabled, requiredHoursPerWeek } });
   } catch (e) {
     next(e);
   }

@@ -3428,6 +3428,17 @@ const dashboardCards = computed(() => {
     // grants elevated affiliated-org tools.
     if (hasSkillBuilderCoordinatorToolsAccess.value) {
       const orgOverride = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
+      if (role === 'super_admin' || role === 'admin') {
+        cards.push({
+          id: 'skill_builders_availability',
+          label: 'Skill Builders',
+          kind: 'link',
+          to: '/admin/skill-builders-availability',
+          badgeCount: 0,
+          iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', orgOverride),
+          description: 'Manage Skill Builder provider availability and settings.'
+        });
+      }
       cards.push({
         id: 'sub_coordinator_school_overview',
         label: 'School Overview',

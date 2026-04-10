@@ -1,5 +1,56 @@
 <template>
   <div class="sbap-wrap">
+    <!-- Settings panel -->
+    <div class="settings-card">
+      <div class="settings-header">
+        <div>
+          <div class="settings-title">Availability Settings</div>
+          <div class="settings-sub">Controls the confirmation popup and required hours for all Skill Builder providers.</div>
+        </div>
+      </div>
+      <div class="settings-body">
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Force confirmation popup</div>
+            <div class="setting-desc">When ON, all Skill Builder eligible providers must confirm their availability on each biweekly cycle. Turn OFF to stop the popup for everyone.</div>
+          </div>
+          <label class="toggle-switch" :class="{ disabled: settingsSaving }">
+            <input
+              type="checkbox"
+              :checked="settingsForceConfirm"
+              :disabled="settingsSaving"
+              @change="onForceConfirmChange"
+            />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label" :class="settingsForceConfirm ? 'on' : 'off'">
+            {{ settingsForceConfirm ? 'On' : 'Off' }}
+          </span>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Required hours per week</div>
+            <div class="setting-desc">Minimum combined program + block hours each provider must submit. Currently: <strong>{{ settingsRequiredHours }} hrs</strong></div>
+          </div>
+          <div class="hours-input-wrap">
+            <input
+              type="number"
+              class="hours-input"
+              :value="settingsRequiredHours"
+              min="1"
+              max="40"
+              step="1"
+              :disabled="settingsSaving"
+              @change="onRequiredHoursChange"
+            />
+            <span class="hours-unit">hrs / week</span>
+          </div>
+        </div>
+        <div v-if="settingsError" class="settings-error">{{ settingsError }}</div>
+        <div v-if="settingsSaved" class="settings-saved">Settings saved.</div>
+      </div>
+    </div>
+
     <div v-if="showTitle" class="page-header">
       <div>
         <h1 style="margin: 0;">{{ pageHeading }}</h1>
@@ -163,6 +214,62 @@ const props = defineProps({
   pageHeading: { type: String, default: 'Event availability' }
 });
 
+// --- Settings state ---
+const settingsForceConfirm = ref(true);
+const settingsRequiredHours = ref(6);
+const settingsSaving = ref(false);
+const settingsError = ref('');
+const settingsSaved = ref(false);
+
+let settingsSavedTimer = null;
+
+const loadSettings = async () => {
+  try {
+    const agencyId = normalizeId(props.agencyId);
+    const params = agencyId ? { agencyId: Number(agencyId) } : {};
+    const res = await api.get('/availability/admin/skill-builder-settings', { params });
+    settingsForceConfirm.value = !!res.data?.settings?.forceConfirmEnabled;
+    settingsRequiredHours.value = Number(res.data?.settings?.requiredHoursPerWeek) || 6;
+  } catch {
+    // silently keep defaults
+  }
+};
+
+const saveSettings = async ({ forceConfirmEnabled, requiredHoursPerWeek }) => {
+  settingsSaving.value = true;
+  settingsError.value = '';
+  settingsSaved.value = false;
+  try {
+    const agencyId = normalizeId(props.agencyId);
+    const params = agencyId ? { agencyId: Number(agencyId) } : {};
+    const res = await api.put('/availability/admin/skill-builder-settings', {
+      forceConfirmEnabled,
+      requiredHoursPerWeek
+    }, { params });
+    settingsForceConfirm.value = !!res.data?.settings?.forceConfirmEnabled;
+    settingsRequiredHours.value = Number(res.data?.settings?.requiredHoursPerWeek) || 6;
+    settingsSaved.value = true;
+    clearTimeout(settingsSavedTimer);
+    settingsSavedTimer = setTimeout(() => { settingsSaved.value = false; }, 3000);
+  } catch (e) {
+    settingsError.value = e.response?.data?.error?.message || 'Failed to save settings';
+  } finally {
+    settingsSaving.value = false;
+  }
+};
+
+const onForceConfirmChange = (e) => {
+  const val = e.target.checked;
+  settingsForceConfirm.value = val;
+  saveSettings({ forceConfirmEnabled: val, requiredHoursPerWeek: settingsRequiredHours.value });
+};
+
+const onRequiredHoursChange = (e) => {
+  const val = Math.max(1, Math.min(40, parseInt(e.target.value, 10) || 6));
+  settingsRequiredHours.value = val;
+  saveSettings({ forceConfirmEnabled: settingsForceConfirm.value, requiredHoursPerWeek: val });
+};
+
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -267,7 +374,7 @@ const load = async () => {
 onMounted(async () => {
   selectedAgencyId.value = normalizeId(props.agencyId);
   selectedOrganizationId.value = normalizeId(props.organizationId);
-  await loadScopeOptions();
+  await Promise.all([loadScopeOptions(), loadSettings()]);
   await load();
 });
 
@@ -423,6 +530,110 @@ const calendarProviders = computed(() => {
 
 <style scoped>
 .sbap-wrap { width: 100%; }
+
+/* Settings card */
+.settings-card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+}
+.settings-title {
+  font-weight: 900;
+  font-size: 14px;
+}
+.settings-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.settings-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.setting-info {
+  flex: 1;
+  min-width: 200px;
+}
+.setting-label {
+  font-weight: 800;
+  font-size: 13px;
+}
+.setting-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  line-height: 1.5;
+}
+
+/* Toggle switch */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.toggle-switch.disabled { opacity: 0.5; cursor: not-allowed; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: #ccc;
+  border-radius: 999px;
+  transition: background 0.2s;
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--primary, #1e6a4b); }
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
+.toggle-label { font-size: 13px; font-weight: 800; min-width: 26px; }
+.toggle-label.on { color: var(--primary, #1e6a4b); }
+.toggle-label.off { color: var(--text-secondary); }
+
+/* Hours input */
+.hours-input-wrap { display: flex; align-items: center; gap: 8px; }
+.hours-input {
+  width: 72px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 800;
+  text-align: center;
+}
+.hours-unit { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+
+.settings-error { font-size: 12px; color: #c0392b; font-weight: 700; }
+.settings-saved { font-size: 12px; color: var(--primary, #1e6a4b); font-weight: 700; }
+
 .page-header {
   display: flex;
   align-items: end;

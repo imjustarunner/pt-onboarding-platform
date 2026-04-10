@@ -37,6 +37,8 @@ import {
   getAdminPendingCounts,
   listSkillBuildersScopeOptions,
   listSkillBuildersAvailability,
+  getSkillBuilderSettings,
+  putSkillBuilderSettings,
   listPublicAppointmentRequests,
   setPublicAppointmentRequestStatus,
   getPublicProviderLinkInfo,
@@ -77,6 +79,8 @@ router.get('/admin/intake-cards', listIntakeAvailabilityCards);
 router.get('/admin/pending-counts', getAdminPendingCounts);
 router.get('/admin/skill-builders/options', listSkillBuildersScopeOptions);
 router.get('/admin/skill-builders', listSkillBuildersAvailability);
+router.get('/admin/skill-builder-settings', getSkillBuilderSettings);
+router.put('/admin/skill-builder-settings', putSkillBuilderSettings);
 router.get('/admin/program-company-events', listProgramCompanyEventsForCoordinator);
 router.post('/admin/program-company-events', postProgramCompanyEventForCoordinator);
 router.post('/admin/backfill-skills-group-company-events', postBackfillSkillsGroupCompanyEvents);

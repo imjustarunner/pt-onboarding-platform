@@ -25,7 +25,7 @@
 
       <div class="sb-modal-body">
         <div class="hint">
-          Confirm <strong>every 2 weeks</strong> (current + next week). <strong>Program</strong> session time plus <strong>additional</strong> availability blocks must total at least <strong>6 hours/week</strong>.
+          Confirm <strong>every 2 weeks</strong> (current + next week). <strong>Program</strong> session time plus <strong>additional</strong> availability blocks must total at least <strong>{{ pending.skillBuilder?.requiredHoursPerWeek || 6 }} hours/week</strong>.
         </div>
 
         <div v-if="error" class="error-box">{{ error }}</div>
@@ -270,8 +270,10 @@ const skillBuilderValidationError = computed(() => {
   if (!pending.skillBuilder?.eligible) return '';
   const programMins = Number(pending.skillBuilder?.programCreditMinutesPerWeek || 0);
   const blockMins = (skillBuilderForm.blocks || []).reduce((sum, b) => sum + minutesForSkillBlock(b), 0);
-  if (blockMins + programMins < 360) {
-    return 'Combined program time and availability blocks must be at least 6 hours/week.';
+  const requiredHrs = Number(pending.skillBuilder?.requiredHoursPerWeek || 6);
+  const requiredMins = requiredHrs * 60;
+  if (blockMins + programMins < requiredMins) {
+    return `Combined program time and availability blocks must be at least ${requiredHrs} hours/week.`;
   }
   if (blockMins > 0) {
     const missingDepartFrom = (skillBuilderForm.blocks || []).some((b) => !String(b?.departFrom || '').trim());
