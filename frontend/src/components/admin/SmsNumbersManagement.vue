@@ -92,9 +92,7 @@
             <div v-if="settings.smsUnansweredAutoReplyMinutes > 0" class="sms-preview">
               <div class="preview-header">Message Preview (approximate)</div>
               <div class="phone-mockup">
-                <div class="bubble bubble--in">
-                  {{ (settings.smsUnansweredAutoReplyMessage || "Your provider has not responded in {{minutes}} minutes, respond YES if you'd like it to be forwarded to our support team.").replace('{{minutes}}', settings.smsUnansweredAutoReplyMinutes) }}
-                </div>
+                <div class="bubble bubble--in">{{ autoReplyPreviewMessage }}</div>
               </div>
             </div>
           </div>
@@ -508,6 +506,12 @@ const savingRules = ref(false);
 
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
 const activeAgencyNumbers = computed(() => (numbers.value || []).filter((n) => n?.is_active && n?.status === 'active'));
+
+const autoReplyPreviewMessage = computed(() => {
+  const fallback = "Your provider has not responded in {{minutes}} minutes, respond YES if you'd like it to be forwarded to our support team.";
+  const raw = settings.value.smsUnansweredAutoReplyMessage || fallback;
+  return raw.replace(/\{\{\s*minutes\s*\}\}/g, String(settings.value.smsUnansweredAutoReplyMinutes || 0));
+});
 
 const loadSettings = async () => {
   if (!agencyId.value) return;
