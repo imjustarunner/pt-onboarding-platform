@@ -131,7 +131,7 @@
             <input v-model.number="platformDraft.smsNotificationDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: SMS Outbound ($/msg)</div>
+            <div class="label">Vonage Cost: SMS Outbound ($/msg)</div>
             <input v-model.number="platformDraft.smsOutboundClientActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
@@ -139,7 +139,7 @@
             <input v-model.number="platformDraft.smsOutboundClientMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: SMS Inbound ($/msg)</div>
+            <div class="label">Vonage Cost: SMS Inbound ($/msg)</div>
             <input v-model.number="platformDraft.smsInboundClientActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
@@ -147,7 +147,7 @@
             <input v-model.number="platformDraft.smsInboundClientMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: Notification SMS ($/msg)</div>
+            <div class="label">Vonage Cost: Notification SMS ($/msg)</div>
             <input v-model.number="platformDraft.smsNotificationActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
@@ -155,7 +155,7 @@
             <input v-model.number="platformDraft.smsNotificationMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: Phone Number ($/month)</div>
+            <div class="label">Vonage Cost: Phone Number ($/month)</div>
             <input v-model.number="platformDraft.phoneNumberActualDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
@@ -163,7 +163,7 @@
             <input v-model.number="platformDraft.phoneNumberMarkupDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: Voice Outbound ($/minute)</div>
+            <div class="label">Provider Cost: Voice Outbound ($/minute)</div>
             <input v-model.number="platformDraft.voiceOutboundMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
@@ -171,7 +171,7 @@
             <input v-model.number="platformDraft.voiceOutboundMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: Voice Inbound ($/minute)</div>
+            <div class="label">Provider Cost: Voice Inbound ($/minute)</div>
             <input v-model.number="platformDraft.voiceInboundMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
@@ -179,7 +179,7 @@
             <input v-model.number="platformDraft.voiceInboundMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: Video ($/participant minute)</div>
+            <div class="label">Provider Cost: Video ($/participant minute)</div>
             <input v-model.number="platformDraft.videoParticipantMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
@@ -329,7 +329,7 @@
             <input v-model.number="agencyDraft.smsNotificationDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: SMS Outbound ($/msg)</div>
+            <div class="label">Vonage Cost: SMS Outbound ($/msg)</div>
             <input v-model.number="agencyDraft.smsOutboundClientActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
@@ -337,7 +337,7 @@
             <input v-model.number="agencyDraft.smsOutboundClientMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: SMS Inbound ($/msg)</div>
+            <div class="label">Vonage Cost: SMS Inbound ($/msg)</div>
             <input v-model.number="agencyDraft.smsInboundClientActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
@@ -345,7 +345,7 @@
             <input v-model.number="agencyDraft.smsInboundClientMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: Notification SMS ($/msg)</div>
+            <div class="label">Vonage Cost: Notification SMS ($/msg)</div>
             <input v-model.number="agencyDraft.smsNotificationActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
@@ -353,7 +353,7 @@
             <input v-model.number="agencyDraft.smsNotificationMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: Phone Number ($/month)</div>
+            <div class="label">Vonage Cost: Phone Number ($/month)</div>
             <input v-model.number="agencyDraft.phoneNumberActualDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
@@ -361,7 +361,7 @@
             <input v-model.number="agencyDraft.phoneNumberMarkupDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: Voice Outbound ($/minute)</div>
+            <div class="label">Provider Cost: Voice Outbound ($/minute)</div>
             <input v-model.number="agencyDraft.voiceOutboundMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
@@ -369,7 +369,7 @@
             <input v-model.number="agencyDraft.voiceOutboundMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: Voice Inbound ($/minute)</div>
+            <div class="label">Provider Cost: Voice Inbound ($/minute)</div>
             <input v-model.number="agencyDraft.voiceInboundMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
@@ -377,7 +377,7 @@
             <input v-model.number="agencyDraft.voiceInboundMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
-            <div class="label">Twilio Cost: Video ($/participant minute)</div>
+            <div class="label">Provider Cost: Video ($/participant minute)</div>
             <input v-model.number="agencyDraft.videoParticipantMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">

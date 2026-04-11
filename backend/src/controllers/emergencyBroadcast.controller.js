@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
-import TwilioService from '../services/twilio.service.js';
+import VonageService from '../services/vonage.service.js';
 import MessageLog from '../models/MessageLog.model.js';
 import Notification from '../models/Notification.model.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
@@ -116,9 +116,9 @@ export const createAndSendBroadcast = async (req, res, next) => {
     const batchSize = 50;
 
     if (channels?.sms) {
-      const from = process.env.TWILIO_BROADCAST_FROM || process.env.TWILIO_DEFAULT_FROM;
+      const from = process.env.VONAGE_FROM || process.env.VONAGE_DEFAULT_FROM;
       if (!from) {
-        return res.status(400).json({ error: { message: 'Missing TWILIO_BROADCAST_FROM (or TWILIO_DEFAULT_FROM) env var' } });
+        return res.status(400).json({ error: { message: 'Missing VONAGE_FROM (or VONAGE_DEFAULT_FROM) env var' } });
       }
 
       for (let i = 0; i < recipients.length; i += batchSize) {
@@ -126,7 +126,7 @@ export const createAndSendBroadcast = async (req, res, next) => {
         await Promise.all(batch.map(async (r) => {
           try {
             const to = MessageLog.normalizePhone(r.recipient) || r.recipient;
-            const msg = await TwilioService.sendSms({ to, from, body });
+            const msg = await VonageService.sendSms({ to, from, body });
             sent += 1;
             await pool.execute(
               `UPDATE emergency_broadcast_recipients

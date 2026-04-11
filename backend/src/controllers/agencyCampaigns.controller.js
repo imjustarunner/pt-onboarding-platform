@@ -5,7 +5,7 @@ import MessageLog from '../models/MessageLog.model.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import ContactCommunicationLog from '../models/ContactCommunicationLog.model.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
-import TwilioService from '../services/twilio.service.js';
+import VonageService from '../services/vonage.service.js';
 import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
 import { resolveContactsForAudience } from '../services/contactCampaignAudience.service.js';
 
@@ -393,7 +393,7 @@ export const sendAgencyCampaign = async (req, res, next) => {
           continue;
         }
         try {
-          const result = await TwilioService.sendSms({ to, from: fromNumber, body });
+          const result = await VonageService.sendSms({ to, from: fromNumber, body });
           await pool.execute(
             `UPDATE agency_campaign_contact_deliveries SET delivery_status = 'sent', status_reason = NULL WHERE campaign_id = ? AND contact_id = ?`,
             [campaignId, row.contact_id]
@@ -454,7 +454,7 @@ export const sendAgencyCampaign = async (req, res, next) => {
         metadata: { campaignId }
       });
       try {
-        const result = await TwilioService.sendSms({ to, from: fromNumber, body });
+        const result = await VonageService.sendSms({ to, from: fromNumber, body });
         await MessageLog.markSent(log.id, result?.sid || null);
         await pool.execute(
           `UPDATE agency_campaign_recipients

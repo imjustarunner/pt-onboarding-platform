@@ -475,12 +475,8 @@
                     </router-link>
                     <router-link
                       v-if="canUseEngagementFeed"
-                      :to="orgTo('/admin/communications/sms')"
-                    >SMS Inbox</router-link>
-                    <router-link
-                      v-if="canUseEngagementFeed"
-                      :to="{ path: orgTo('/admin/communications'), query: { tab: 'calls' } }"
-                    >Calls</router-link>
+                      :to="orgTo('/admin/communications')"
+                    >Messages</router-link>
                     <router-link
                       v-if="canUseChats"
                       :to="orgTo('/admin/communications/chats')"
@@ -971,19 +967,7 @@
                 v-if="canUseEngagementFeed && !isSscSstcTenant"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
-              >Communications Workspace</router-link>
-              <router-link
-                :to="orgTo('/admin/communications/sms')"
-                v-if="canUseEngagementFeed && !isSscSstcTenant"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >SMS Inbox</router-link>
-              <router-link
-                :to="{ path: orgTo('/admin/communications'), query: { tab: 'calls' } }"
-                v-if="canUseEngagementFeed && !isSscSstcTenant"
-                @click="closeMobileMenu"
-                class="mobile-nav-link"
-              >Calls</router-link>
+              >Messages</router-link>
               <router-link
                 :to="orgTo('/admin/communications/chats')"
                 v-if="canUseChats && !isSscSstcTenant"

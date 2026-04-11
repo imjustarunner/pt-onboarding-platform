@@ -2,7 +2,7 @@
   <div class="sms-numbers">
     <div class="section-header">
       <h2>Texting Numbers</h2>
-      <p class="muted">Manage Twilio numbers, assignments, and SMS compliance rules.</p>
+      <p class="muted">Manage phone numbers, assignments, and SMS compliance rules.</p>
     </div>
 
     <div v-if="!agencyStore.currentAgency" class="empty-state">
@@ -11,15 +11,14 @@
 
     <div v-else class="content">
       <div v-if="numbers.length === 0" class="card get-started-card">
-        <h3>Get started with Twilio</h3>
-        <p class="muted">You need Twilio numbers to use SMS and voice. Here's how to set up:</p>
+        <h3>Get started with Vonage</h3>
+        <p class="muted">You need Vonage numbers to use SMS. Here's how to set up:</p>
         <ol class="setup-steps">
-          <li><strong>Create a Twilio account</strong> at <a href="https://www.twilio.com/try-twilio" target="_blank" rel="noopener">twilio.com</a></li>
-          <li><strong>Get credentials</strong> from the Twilio Console (Account SID, Auth Token)</li>
-          <li><strong>Set backend env vars</strong>: <code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code>, <code>TWILIO_SMS_WEBHOOK_URL</code>, <code>TWILIO_VOICE_WEBHOOK_URL</code>, <code>TWILIO_VALIDATE_SIGNATURE=true</code></li>
-          <li><strong>Add a number</strong> below: search & buy via Twilio, or add a number you already own</li>
+          <li><strong>Create a Vonage account</strong> at <a href="https://www.vonage.com/communications-apis/" target="_blank" rel="noopener">vonage.com/communications-apis</a></li>
+          <li><strong>Get credentials</strong> from the Vonage Dashboard (API Key, API Secret)</li>
+          <li><strong>Set backend env vars</strong>: <code>VONAGE_API_KEY</code>, <code>VONAGE_API_SECRET</code>, <code>VONAGE_SMS_WEBHOOK_URL</code></li>
+          <li><strong>Add a number</strong> below: search &amp; buy via Vonage, or add a number you already own</li>
         </ol>
-        <p class="muted">See <code>TWILIO_SETUP.md</code> in the project root for full details.</p>
       </div>
 
       <div class="card">
@@ -112,7 +111,7 @@
                 {{ loadingWebhookStatus ? 'Checking…' : 'Check status' }}
               </button>
               <button class="btn btn-secondary" :disabled="syncingWebhooks" @click="syncWebhooks">
-                {{ syncingWebhooks ? 'Syncing…' : 'Sync Twilio webhooks' }}
+                {{ syncingWebhooks ? 'Syncing…' : 'Sync Vonage webhooks' }}
               </button>
             </div>
           </div>
@@ -188,7 +187,7 @@
           <div class="inline">
             <input v-model="searchAreaCode" class="input" placeholder="Area code" />
             <button class="btn btn-secondary" :disabled="searchingNumbers" @click="searchNumbers">
-              {{ searchingNumbers ? 'Searching…' : 'Search Twilio' }}
+              {{ searchingNumbers ? 'Searching…' : 'Search Vonage' }}
             </button>
           </div>
         </div>

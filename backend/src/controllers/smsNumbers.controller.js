@@ -6,7 +6,7 @@ import TwilioNumber from '../models/TwilioNumber.model.js';
 import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
 import TwilioNumberRule from '../models/TwilioNumberRule.model.js';
 import TwilioOptInState from '../models/TwilioOptInState.model.js';
-import TwilioService from '../services/twilio.service.js';
+import VonageService from '../services/vonage.service.js';
 import { resolveOutboundNumber, resolveReminderNumber } from '../services/twilioNumberRouting.service.js';
 import { getTwilioUsage, checkUsageThresholds } from '../services/twilioUsageMonitoring.service.js';
 
@@ -215,7 +215,7 @@ export const searchAvailableNumbers = async (req, res, next) => {
     const country = countryRaw ? String(countryRaw) : 'US';
     const limitRaw = req.body?.limit ?? req.query?.limit;
     const limit = limitRaw ? Math.min(parseInt(limitRaw, 10), 50) : 20;
-    const list = await TwilioService.searchAvailableLocalNumbers({ areaCode, country, limit });
+    const list = await VonageService.searchAvailableLocalNumbers({ areaCode, country, limit });
     res.json(list);
   } catch (e) {
     next(e);
@@ -229,13 +229,12 @@ export const purchaseNumber = async (req, res, next) => {
     const { phoneNumber, friendlyName } = req.body || {};
     if (!phoneNumber) return res.status(400).json({ error: { message: 'phoneNumber is required' } });
 
-    const smsUrl = process.env.TWILIO_SMS_WEBHOOK_URL || null;
-    const voiceUrl = process.env.TWILIO_VOICE_WEBHOOK_URL || null;
-    const purchased = await TwilioService.purchaseNumber({ phoneNumber, friendlyName, smsUrl, voiceUrl });
+    const smsUrl = process.env.VONAGE_SMS_WEBHOOK_URL || null;
+    const purchased = await VonageService.purchaseNumber({ phoneNumber, friendlyName, smsUrl });
     const record = await TwilioNumber.create({
       agencyId,
       phoneNumber: purchased.phoneNumber || phoneNumber,
-      twilioSid: purchased.sid || null,
+      twilioSid: purchased.sid || null, // stores Vonage msisdn for API reference
       friendlyName: purchased.friendlyName || friendlyName || null,
       capabilities: purchased.capabilities || null,
       status: 'active'
@@ -265,7 +264,7 @@ export const releaseNumber = async (req, res, next) => {
     if (!numberId) return res.status(400).json({ error: { message: 'Invalid numberId' } });
     const number = await assertNumberAccess(req, numberId, { requireAdmin: true });
     if (number.twilio_sid) {
-      await TwilioService.releaseNumber({ incomingPhoneNumberSid: number.twilio_sid });
+      await VonageService.releaseNumber({ incomingPhoneNumberSid: number.twilio_sid });
     }
     const updated = await TwilioNumber.markReleased(numberId);
     res.json(updated);
@@ -545,10 +544,8 @@ export const getAgencyWebhookStatus = async (req, res, next) => {
     const agencyId = parseInt(req.params.agencyId, 10);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
 
-    const expectedSmsUrl = normalizeUrl(process.env.TWILIO_SMS_WEBHOOK_URL);
-    const expectedVoiceUrl = normalizeUrl(process.env.TWILIO_VOICE_WEBHOOK_URL);
+    const expectedSmsUrl = normalizeUrl(process.env.VONAGE_SMS_WEBHOOK_URL);
     const expectedSmsConfigured = Boolean(expectedSmsUrl);
-    const expectedVoiceConfigured = Boolean(expectedVoiceUrl);
 
     const numbers = await TwilioNumber.listByAgency(agencyId, { includeInactive: true });
     const statuses = await Promise.all(
@@ -557,41 +554,34 @@ export const getAgencyWebhookStatus = async (req, res, next) => {
           return {
             numberId: n.id,
             phoneNumber: n.phone_number,
-            twilioSid: null,
+            providerRef: null,
             provider: 'manual',
             smsUrl: null,
-            voiceUrl: null,
             smsMatches: false,
-            voiceMatches: false,
             canSync: false
           };
         }
         try {
-          const fetched = await TwilioService.getIncomingNumber({ incomingPhoneNumberSid: n.twilio_sid });
-          const smsUrl = normalizeUrl(fetched?.smsUrl || fetched?.sms_url);
-          const voiceUrl = normalizeUrl(fetched?.voiceUrl || fetched?.voice_url);
+          const fetched = await VonageService.getIncomingNumber({ incomingPhoneNumberSid: n.twilio_sid });
+          const smsUrl = normalizeUrl(fetched?.smsUrl);
           return {
             numberId: n.id,
             phoneNumber: n.phone_number,
-            twilioSid: n.twilio_sid,
-            provider: 'twilio',
+            providerRef: n.twilio_sid,
+            provider: 'vonage',
             smsUrl,
-            voiceUrl,
             smsMatches: expectedSmsUrl ? smsUrl === expectedSmsUrl : false,
-            voiceMatches: expectedVoiceUrl ? voiceUrl === expectedVoiceUrl : false,
             canSync: true
           };
         } catch (e) {
           return {
             numberId: n.id,
             phoneNumber: n.phone_number,
-            twilioSid: n.twilio_sid,
-            provider: 'twilio',
-            error: e?.message || 'Failed to read Twilio number',
+            providerRef: n.twilio_sid,
+            provider: 'vonage',
+            error: e?.message || 'Failed to read Vonage number',
             smsUrl: null,
-            voiceUrl: null,
             smsMatches: false,
-            voiceMatches: false,
             canSync: true
           };
         }
@@ -602,9 +592,7 @@ export const getAgencyWebhookStatus = async (req, res, next) => {
       agencyId,
       expected: {
         smsUrl: expectedSmsUrl,
-        voiceUrl: expectedVoiceUrl,
-        smsConfigured: expectedSmsConfigured,
-        voiceConfigured: expectedVoiceConfigured
+        smsConfigured: expectedSmsConfigured
       },
       statuses
     });
@@ -618,10 +606,9 @@ export const syncAgencyWebhooks = async (req, res, next) => {
     const agencyId = parseInt(req.params.agencyId, 10);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
 
-    const smsUrl = normalizeUrl(process.env.TWILIO_SMS_WEBHOOK_URL);
-    const voiceUrl = normalizeUrl(process.env.TWILIO_VOICE_WEBHOOK_URL);
-    if (!smsUrl && !voiceUrl) {
-      return res.status(400).json({ error: { message: 'No webhook URLs configured. Set TWILIO_SMS_WEBHOOK_URL and/or TWILIO_VOICE_WEBHOOK_URL.' } });
+    const smsUrl = normalizeUrl(process.env.VONAGE_SMS_WEBHOOK_URL);
+    if (!smsUrl) {
+      return res.status(400).json({ error: { message: 'No webhook URL configured. Set VONAGE_SMS_WEBHOOK_URL.' } });
     }
 
     const numbers = await TwilioNumber.listByAgency(agencyId, { includeInactive: true });
@@ -631,31 +618,29 @@ export const syncAgencyWebhooks = async (req, res, next) => {
         results.push({
           numberId: n.id,
           phoneNumber: n.phone_number,
-          twilioSid: null,
+          providerRef: null,
           synced: false,
-          reason: 'manual_number_no_twilio_sid'
+          reason: 'manual_number_no_provider_ref'
         });
         continue;
       }
       try {
-        const updated = await TwilioService.updateIncomingNumberWebhooks({
+        const updated = await VonageService.updateIncomingNumberWebhooks({
           incomingPhoneNumberSid: n.twilio_sid,
-          smsUrl: smsUrl || undefined,
-          voiceUrl: voiceUrl || undefined
+          smsUrl: smsUrl || undefined
         });
         results.push({
           numberId: n.id,
           phoneNumber: n.phone_number,
-          twilioSid: n.twilio_sid,
+          providerRef: n.twilio_sid,
           synced: true,
-          smsUrl: normalizeUrl(updated?.smsUrl || updated?.sms_url),
-          voiceUrl: normalizeUrl(updated?.voiceUrl || updated?.voice_url)
+          smsUrl: normalizeUrl(updated?.smsUrl)
         });
       } catch (err) {
         results.push({
           numberId: n.id,
           phoneNumber: n.phone_number,
-          twilioSid: n.twilio_sid,
+          providerRef: n.twilio_sid,
           synced: false,
           error: err?.message || 'Failed to sync webhooks'
         });

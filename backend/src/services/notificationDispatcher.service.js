@@ -155,7 +155,7 @@ class NotificationDispatcherService {
       return { dispatched: false, reason: 'missing_phone' };
     }
 
-    const from = process.env.TWILIO_NOTIFICATIONS_FROM || process.env.TWILIO_DEFAULT_FROM;
+    const from = process.env.VONAGE_FROM || process.env.VONAGE_DEFAULT_FROM;
     if (!from) {
       await NotificationSmsLog.create({
         userId,
@@ -165,7 +165,7 @@ class NotificationDispatcherService {
         fromNumber: '',
         body: buildSmsBody({ title: notification.title, message: notification.message }),
         status: 'failed',
-        errorMessage: 'Missing TWILIO_NOTIFICATIONS_FROM (or TWILIO_DEFAULT_FROM)'
+        errorMessage: 'Missing VONAGE_FROM (or VONAGE_DEFAULT_FROM) env var'
       });
       return { dispatched: false, reason: 'missing_from_number' };
     }
@@ -192,7 +192,7 @@ class NotificationDispatcherService {
     });
 
     try {
-      const msg = await TwilioService.sendSms({
+      const msg = await VonageService.sendSms({
         to,
         from: User.normalizePhone(from) || from,
         body

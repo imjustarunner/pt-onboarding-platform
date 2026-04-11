@@ -65,7 +65,7 @@ class SmsSupportEscalationService {
       const body = `Support escalation: provider has not replied in ${thresholdHours}h. Client ${row.client_initials || '#'+row.client_id} sent: "${String(row.body || '').slice(0, 180)}"`;
       const from = MessageLog.normalizePhone(row.to_number) || row.to_number;
       try {
-        await TwilioService.sendSms({ to: supportPhone, from, body });
+        await VonageService.sendSms({ to: supportPhone, from, body });
         await SmsThreadEscalation.createOrKeep({
           agencyId: row.agency_id,
           userId: row.user_id,

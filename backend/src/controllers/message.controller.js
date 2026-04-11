@@ -9,7 +9,7 @@ import UserCallSettings from '../models/UserCallSettings.model.js';
 import TwilioOptInState from '../models/TwilioOptInState.model.js';
 import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
 import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
-import TwilioService from '../services/twilio.service.js';
+import VonageService from '../services/vonage.service.js';
 import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
 import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
@@ -53,6 +53,128 @@ async function assertClientAgencyAccess(reqUserId, client) {
   }
   return true;
 }
+
+/**
+ * GET /api/messages/threads
+ * Returns one thread per client (most recent message), with unread count.
+ * Unread = INBOUND messages received after the last OUTBOUND message in that thread.
+ */
+export const getThreads = async (req, res, next) => {
+  try {
+    const uid = parseIntOrNull(req.user?.id);
+    if (!uid) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const rawLimit = req.query.limit ? parseInt(req.query.limit, 10) : 100;
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 100;
+    const agencyId = req.query.agencyId ? parseIntOrNull(req.query.agencyId) : null;
+    const search = req.query.search ? String(req.query.search).trim() : '';
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const isProviderOrSchoolStaff = role === 'provider' || role === 'school_staff';
+
+    let userWhereClause = 'ml.user_id = ?';
+    let userParams = [uid, uid]; // second uid for agency EXISTS subquery
+
+    if (isProviderOrSchoolStaff) {
+      const assignments = await TwilioNumberAssignment.listByUserId(uid);
+      const assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
+      if (assignedNumberIds.length > 0) {
+        const placeholders = assignedNumberIds.map(() => '?').join(',');
+        userWhereClause = `(ml.user_id = ? OR ml.number_id IN (${placeholders}))`;
+        userParams = [uid, ...assignedNumberIds, uid];
+      }
+    }
+
+    const agencyFilter = agencyId ? 'AND ml.agency_id = ?' : '';
+    const agencyParam = agencyId ? [agencyId] : [];
+
+    const searchFilter = search
+      ? 'AND (COALESCE(c.full_name, c.initials) LIKE ? OR c.contact_phone LIKE ?)'
+      : '';
+    const searchWild = `%${search}%`;
+    const searchParams = search ? [searchWild, searchWild] : [];
+
+    // One thread per client: last message id + last outbound timestamp
+    const innerSql = `
+      SELECT
+        ml.client_id,
+        MAX(ml.created_at)                                          AS last_message_at,
+        MAX(ml.id)                                                  AS last_message_id,
+        MAX(CASE WHEN ml.direction = 'OUTBOUND' THEN ml.created_at END) AS last_outbound_at
+      FROM message_logs ml
+      LEFT JOIN clients c ON ml.client_id = c.id
+      WHERE ${userWhereClause}
+        AND ml.client_id IS NOT NULL
+        AND (ml.agency_id IS NULL OR EXISTS (
+          SELECT 1 FROM user_agencies ua WHERE ua.user_id = ? AND ua.agency_id = ml.agency_id
+        ))
+        ${agencyFilter}
+        ${searchFilter}
+      GROUP BY ml.client_id
+    `;
+
+    const innerParams = [...userParams, ...agencyParam, ...searchParams];
+
+    const sql = `
+      SELECT
+        t.client_id,
+        t.last_message_at,
+        t.last_message_id,
+        t.last_outbound_at,
+        (
+          SELECT COUNT(*) FROM message_logs m2
+          WHERE m2.client_id = t.client_id
+            AND m2.direction = 'INBOUND'
+            AND (t.last_outbound_at IS NULL OR m2.created_at > t.last_outbound_at)
+        ) AS unread_count,
+        ml.body        AS last_body,
+        ml.direction   AS last_direction,
+        ml.user_id     AS user_id,
+        ml.number_id   AS number_id,
+        ml.agency_id   AS agency_id,
+        c.initials     AS client_initials,
+        COALESCE(c.full_name, c.initials) AS client_name,
+        c.contact_phone AS client_phone,
+        u.first_name   AS user_first_name,
+        u.last_name    AS user_last_name
+      FROM (${innerSql}) t
+      LEFT JOIN message_logs ml ON ml.id = t.last_message_id
+      LEFT JOIN clients c       ON t.client_id = c.id
+      LEFT JOIN users u         ON ml.user_id = u.id
+      ORDER BY t.last_message_at DESC
+      LIMIT ?
+    `;
+
+    const [rows] = await pool.execute(sql, [...innerParams, limit]);
+    res.json(rows || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/messages/my-numbers
+ * Returns the phone numbers assigned to the authenticated user (for compose/send flows).
+ */
+export const getMyNumbers = async (req, res, next) => {
+  try {
+    const uid = parseIntOrNull(req.user?.id);
+    if (!uid) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const assignments = await TwilioNumberAssignment.listByUserId(uid);
+    const numbers = (assignments || []).map((a) => ({
+      id: a.number_id,
+      phone_number: a.phone_number,
+      label: a.label || null,
+      is_primary: !!a.is_primary,
+      sms_enabled: a.sms_enabled !== false && a.sms_enabled !== 0,
+      agency_id: a.agency_id
+    }));
+    res.json(numbers);
+  } catch (e) {
+    next(e);
+  }
+};
 
 export const getRecentMessages = async (req, res, next) => {
   try {
@@ -239,7 +361,7 @@ export const sendMessage = async (req, res, next) => {
       context: { severity: 'info' }
     });
 
-    const outboundMetadata = { provider: 'twilio', gatekeeper: decision, numberId };
+    const outboundMetadata = { provider: 'vonage', gatekeeper: decision, numberId };
     if (hasMedia) outboundMetadata.media_urls = mediaUrls;
 
     const outboundLog = await MessageLog.createOutbound({
@@ -257,13 +379,13 @@ export const sendMessage = async (req, res, next) => {
     });
 
     try {
-      const msg = await TwilioService.sendSms({
+      const msg = await VonageService.sendSms({
         to: MessageLog.normalizePhone(client.contact_phone) || client.contact_phone,
         from: MessageLog.normalizePhone(fromNumber) || fromNumber,
         body: body || '',
         mediaUrl: hasMedia ? mediaUrls : null
       });
-      const sentMetadata = { provider: 'twilio', status: msg.status, gatekeeper: decision };
+      const sentMetadata = { provider: 'vonage', status: msg.status, gatekeeper: decision };
       if (hasMedia) sentMetadata.media_urls = mediaUrls;
       const updated = await MessageLog.markSent(outboundLog.id, msg.sid, sentMetadata);
       try {
@@ -309,7 +431,7 @@ export const sendMessage = async (req, res, next) => {
           error: String(sendErr?.message || '').slice(0, 400)
         }
       });
-      return res.status(502).json({ error: { message: 'Failed to send SMS via Twilio', details: sendErr.message } });
+      return res.status(502).json({ error: { message: 'Failed to send SMS via Vonage', details: sendErr.message } });
     }
   } catch (e) {
     next(e);

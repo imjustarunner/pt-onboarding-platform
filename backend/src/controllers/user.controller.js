@@ -5911,9 +5911,9 @@ export const sendResetPasswordLinkSms = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'User does not have a valid phone number on file' } });
     }
 
-    const from = process.env.TWILIO_AUTH_FROM || process.env.TWILIO_DEFAULT_FROM;
+    const from = process.env.VONAGE_FROM || process.env.VONAGE_DEFAULT_FROM;
     if (!from) {
-      return res.status(400).json({ error: { message: 'Missing TWILIO_AUTH_FROM (or TWILIO_DEFAULT_FROM) env var' } });
+      return res.status(400).json({ error: { message: 'Missing VONAGE_FROM (or VONAGE_DEFAULT_FROM) env var' } });
     }
 
     // If the UI already generated a link, send that exact link; otherwise generate a fresh one (48h)
@@ -5929,10 +5929,10 @@ export const sendResetPasswordLinkSms = async (req, res, next) => {
         : `${frontendBase}/reset-password/${tokenResult.token}`;
     }
 
-    const TwilioService = (await import('../services/twilio.service.js')).default;
+    const VonageService = (await import('../services/vonage.service.js')).default;
     const body = `Reset your password using this link (expires in 48 hours): ${linkToSend}`;
 
-    const msg = await TwilioService.sendSms({ to, from, body });
+    const msg = await VonageService.sendSms({ to, from, body });
 
     res.json({
       message: 'Reset password link sent via SMS',

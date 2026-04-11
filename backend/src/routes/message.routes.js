@@ -1,10 +1,16 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { deleteMessageLog, deleteThread, getRecentMessages, getThread, sendMessage, uploadSmsMedia } from '../controllers/message.controller.js';
+import { deleteMessageLog, deleteThread, getMyNumbers, getRecentMessages, getThread, getThreads, sendMessage, uploadSmsMedia } from '../controllers/message.controller.js';
 
 const router = express.Router();
 
 router.use(authenticate);
+
+// Grouped conversation threads (one row per client, last message + unread count)
+router.get('/threads', getThreads);
+
+// Numbers assigned to the authenticated user (for compose picker)
+router.get('/my-numbers', getMyNumbers);
 
 // Recent texts (scoped to authenticated user)
 router.get('/recent', getRecentMessages);
@@ -12,10 +18,10 @@ router.get('/recent', getRecentMessages);
 // Thread for a specific (user, client)
 router.get('/thread/:userId/:clientId', getThread);
 
-// Upload MMS media (returns signed URL for Twilio)
+// Upload MMS media (returns a signed storage URL)
 router.post('/upload-media', uploadSmsMedia);
 
-// Send outbound message (masked) via Twilio
+// Send outbound message (masked) via Vonage
 router.post('/send', sendMessage);
 
 // Permanently delete an entire thread (all logs for this user+client)

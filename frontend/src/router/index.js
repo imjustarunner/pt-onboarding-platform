@@ -1008,8 +1008,8 @@ const routes = [
   },
   {
     path: '/:organizationSlug/admin/communications',
-    name: 'OrganizationCommunicationsFeed',
-    component: () => import('../views/admin/CommunicationsFeedView.vue'),
+    name: 'OrganizationCommunicationsHub',
+    component: () => import('../views/admin/CommunicationsHubView.vue'),
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'],
@@ -1018,13 +1018,7 @@ const routes = [
   },
   {
     path: '/:organizationSlug/admin/communications/sms',
-    name: 'OrganizationSmsInbox',
-    component: () => import('../views/admin/SmsInboxView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'],
-      organizationSlug: true
-    }
+    redirect: (to) => ({ path: `/${to.params.organizationSlug}/admin/communications` })
   },
   {
     path: '/:organizationSlug/admin/tools-aids',
@@ -1050,13 +1044,10 @@ const routes = [
   },
   {
     path: '/:organizationSlug/admin/communications/thread/:userId/:clientId',
-    name: 'OrganizationCommunicationThread',
-    component: () => import('../views/admin/CommunicationThreadView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'],
-      organizationSlug: true
-    }
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/admin/communications`,
+      query: { clientId: to.params.clientId }
+    })
   },
   {
     path: '/:organizationSlug/admin/contacts',
@@ -1705,18 +1696,13 @@ const routes = [
   },
   {
     path: '/admin/communications',
-    name: 'CommunicationsFeed',
-    component: () => import('../views/admin/CommunicationsFeedView.vue'),
+    name: 'CommunicationsHub',
+    component: () => import('../views/admin/CommunicationsHubView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'] }
   },
   {
     path: '/admin/communications/sms',
-    name: 'SmsInbox',
-    component: () => import('../views/admin/SmsInboxView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff']
-    }
+    redirect: '/admin/communications'
   },
   {
     path: '/admin/tools-aids',
@@ -1744,12 +1730,7 @@ const routes = [
   },
   {
     path: '/admin/communications/thread/:userId/:clientId',
-    name: 'CommunicationThread',
-    component: () => import('../views/admin/CommunicationThreadView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff']
-    }
+    redirect: (to) => ({ path: '/admin/communications', query: { clientId: to.params.clientId } })
   },
   {
     path: '/admin/schedule-approvals',

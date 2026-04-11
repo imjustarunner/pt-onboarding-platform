@@ -2,203 +2,91 @@ import express from 'express';
 import pool from '../config/database.js';
 import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
-import { isTwilioVideoConfigured, createAccessTokenAsync } from '../services/twilioVideo.service.js';
 
 const router = express.Router();
 
 /**
- * Twilio Video config check (for debugging production)
- * GET /api/health-check/twilio-video
- * Returns whether Twilio Video env vars are present (no secrets exposed)
+ * Video provider status
+ * GET /api/health-check/video
  */
-router.get('/twilio-video', (req, res) => {
-  const hasAccountSid = !!process.env.TWILIO_ACCOUNT_SID;
-  const hasAuthToken = !!process.env.TWILIO_AUTH_TOKEN;
-  const hasApiKeySid = !!process.env.TWILIO_API_KEY_SID;
-  const hasApiKeySecret = !!process.env.TWILIO_API_KEY_SECRET;
-  const hasFrontendUrl = !!(process.env.FRONTEND_URL || '').trim();
-  let configured = false;
-  try {
-    configured = isTwilioVideoConfigured();
-  } catch (e) {
-    return res.status(500).json({ error: String(e?.message || e), envVarsPresent: { hasAccountSid, hasAuthToken, hasApiKeySid, hasApiKeySecret } });
-  }
-  // Diagnostic: which TWILIO_* keys exist (names only, no values) – helps debug Cloud Run / env loading
-  const twilioKeys = Object.keys(process.env).filter((k) => k.startsWith('TWILIO_')).sort();
-  const twilioKeyLengths = Object.fromEntries(
-    twilioKeys.map((k) => [k, process.env[k] ? String(process.env[k]).length : 0])
-  );
-  const tokenFunctionUrl = (process.env.TWILIO_VIDEO_TOKEN_FUNCTION_URL || '').trim();
-  const tokenFunctionUrlSet = !!tokenFunctionUrl;
-
+router.get('/video', (req, res) => {
   res.json({
-    twilioVideoConfigured: configured,
-    tokenFunctionUrlSet,
-    tokenFunctionUrlPrefix: tokenFunctionUrl ? tokenFunctionUrl.slice(0, 40) + '…' : null,
-    envVarsPresent: { hasAccountSid, hasAuthToken, hasApiKeySid, hasApiKeySecret, hasFrontendUrl },
-    twilioKeysPresent: twilioKeys,
-    twilioKeyLengths,
-    requestHost: req.headers?.host || null,
-    nodeEnv: process.env.NODE_ENV || 'undefined',
-    hint: !configured
-      ? 'Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_API_KEY_SID, TWILIO_API_KEY_SECRET in production env'
-      : !hasFrontendUrl
-        ? 'FRONTEND_URL is missing – join links need it'
+    videoConfigured: false,
+    provider: null,
+    hint: 'Video provider not configured. Wire up Vonage Video (or another provider) in twilioVideo.service.js.'
+  });
+});
+
+/**
+ * SMS / Vonage status
+ * GET /api/health-check/vonage
+ */
+router.get('/vonage', (req, res) => {
+  const hasApiKey = !!process.env.VONAGE_API_KEY;
+  const hasApiSecret = !!process.env.VONAGE_API_SECRET;
+  const hasSmsWebhook = !!(process.env.VONAGE_SMS_WEBHOOK_URL || '').trim();
+  res.json({
+    vonageConfigured: hasApiKey && hasApiSecret,
+    envVarsPresent: { hasApiKey, hasApiSecret, hasSmsWebhook },
+    hint: !hasApiKey || !hasApiSecret
+      ? 'Set VONAGE_API_KEY and VONAGE_API_SECRET in your environment'
+      : !hasSmsWebhook
+        ? 'VONAGE_SMS_WEBHOOK_URL is not set — inbound SMS routing may not work'
         : null
   });
 });
 
 /**
- * Twilio Video token diagnostic (for "authorization with Token failed" debugging)
- * GET /api/health-check/twilio-video-token-test
- * Creates a test token and returns its decoded payload. Paste the token at jwt.io to verify.
- * Uses TWILIO_VIDEO_TOKEN_FUNCTION_URL when set (workaround for "Invalid Access Token issuer/subject").
- */
-router.get('/twilio-video-token-test', async (req, res) => {
-  if (!isTwilioVideoConfigured()) {
-    return res.status(503).json({ error: 'Twilio Video not configured' });
-  }
-  try {
-    const token = await createAccessTokenAsync({
-      identity: 'test-user-diagnostic',
-      roomName: 'test-room-diagnostic'
-    });
-    if (!token) {
-      return res.status(500).json({ error: 'createAccessToken returned null' });
-    }
-    const decoded = jwt.decode(token, { complete: true });
-    const payload = decoded?.payload || {};
-    res.json({
-      tokenGenerated: true,
-      tokenLength: token.length,
-      token,
-      decodedPayload: {
-        iss: payload.iss,
-        sub: payload.sub,
-        exp: payload.exp,
-        jti: payload.jti,
-        grants: payload.grants
-      },
-      hint: 'Paste token at jwt.io to verify structure. iss=API Key SID (must be US1), sub=Account SID. If "authorization failed" persists, try a fresh API Key from Twilio Console.',
-      credentialCheck: {
-        accountSidPrefix: (process.env.TWILIO_ACCOUNT_SID || '').slice(0, 6),
-        accountSidLength: (process.env.TWILIO_ACCOUNT_SID || '').length,
-        apiKeySidPrefix: (process.env.TWILIO_API_KEY_SID || '').slice(0, 6),
-        apiKeySidLength: (process.env.TWILIO_API_KEY_SID || '').length,
-        apiKeySecretLength: (process.env.TWILIO_API_KEY_SECRET || '').length,
-        apiKeySecretHasContent: !!(process.env.TWILIO_API_KEY_SECRET || '').trim()
-      }
-    });
-  } catch (e) {
-    res.status(500).json({ error: String(e?.message || e) });
-  }
-});
-
-/**
- * Database Audit Health Check Endpoint
+ * Database Audit Health Check
  * GET /api/health-check/db-audit
- * 
- * Returns diagnostic information about:
- * - Database tables (to verify migrations ran)
- * - Admin user existence
- * - JWT signing capability
  */
 router.get('/db-audit', async (req, res) => {
   const auditResult = {
-    database: {
-      connected: false,
-      tables: [],
-      tableCount: 0,
-      error: null
-    },
-    adminUser: {
-      found: false,
-      email: 'superadmin@plottwistco.com',
-      error: null
-    },
-    jwtSigning: {
-      success: false,
-      error: null
-    }
+    database: { connected: false, tables: [], tableCount: 0, error: null },
+    adminUser: { found: false, email: 'superadmin@plottwistco.com', error: null },
+    jwtSigning: { success: false, error: null }
   };
 
   try {
-    // 1. List all tables in the database
     try {
       const [tables] = await pool.query('SHOW TABLES');
-      
-      // Extract table names from results
-      // MySQL returns results with a dynamic column name like `Tables_in_database_name`
-      const tableNames = tables.map(row => {
-        // Get the first value (table name) from the row object
-        return Object.values(row)[0];
-      });
-      
+      const tableNames = tables.map(row => Object.values(row)[0]);
       auditResult.database.connected = true;
       auditResult.database.tables = tableNames;
       auditResult.database.tableCount = tableNames.length;
     } catch (dbError) {
-      auditResult.database.error = {
-        message: dbError.message,
-        code: dbError.code,
-        sqlState: dbError.sqlState
-      };
+      auditResult.database.error = { message: dbError.message, code: dbError.code, sqlState: dbError.sqlState };
     }
 
-    // 2. Check for admin user
     try {
       const [users] = await pool.query(
         'SELECT id, email, role FROM users WHERE email = ?',
         ['superadmin@plottwistco.com']
       );
-      
-      if (users && users.length > 0) {
-        auditResult.adminUser.found = true;
-      } else {
-        auditResult.adminUser.found = false;
-      }
+      auditResult.adminUser.found = !!(users && users.length > 0);
     } catch (userError) {
-      // Handle case where users table doesn't exist
-      if (userError.code === 'ER_NO_SUCH_TABLE') {
-        auditResult.adminUser.error = 'users table does not exist (migrations may not have run)';
-      } else {
-        auditResult.adminUser.error = {
-          message: userError.message,
-          code: userError.code,
-          sqlState: userError.sqlState
-        };
-      }
+      auditResult.adminUser.error = userError.code === 'ER_NO_SUCH_TABLE'
+        ? 'users table does not exist (migrations may not have run)'
+        : { message: userError.message, code: userError.code, sqlState: userError.sqlState };
     }
 
-    // 3. Test JWT signing
     try {
       const jwtSecret = process.env.JWT_SECRET || config.jwt.secret;
-      
       if (!jwtSecret || jwtSecret === 'your-super-secret-jwt-key-change-in-production') {
         auditResult.jwtSigning.error = 'JWT_SECRET is missing or using default value';
       } else {
-        // Attempt to sign a test token
-        const testPayload = { test: true, timestamp: Date.now() };
-        jwt.sign(testPayload, jwtSecret, { expiresIn: '1h' });
+        jwt.sign({ test: true, timestamp: Date.now() }, jwtSecret, { expiresIn: '1h' });
         auditResult.jwtSigning.success = true;
       }
     } catch (jwtError) {
-      auditResult.jwtSigning.error = {
-        message: jwtError.message,
-        type: jwtError.name
-      };
+      auditResult.jwtSigning.error = { message: jwtError.message, type: jwtError.name };
     }
 
-    // Return the audit results
     res.status(200).json(auditResult);
   } catch (error) {
-    // Catch any unexpected errors
     console.error('Error in db-audit endpoint:', error);
     res.status(500).json({
-      error: {
-        message: 'Unexpected error during database audit',
-        details: error.message
-      },
+      error: { message: 'Unexpected error during database audit', details: error.message },
       partialResults: auditResult
     });
   }

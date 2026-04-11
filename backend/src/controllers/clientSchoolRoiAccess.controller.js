@@ -15,7 +15,7 @@ import MessageLog from '../models/MessageLog.model.js';
 import Notification from '../models/Notification.model.js';
 import TwilioNumber from '../models/TwilioNumber.model.js';
 import TwilioOptInState from '../models/TwilioOptInState.model.js';
-import TwilioService from '../services/twilio.service.js';
+import VonageService from '../services/vonage.service.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import { resolvePreferredSenderIdentityForSchoolThenAgency } from '../services/emailSenderIdentityResolver.service.js';
@@ -877,20 +877,20 @@ export const sendClientSchoolRoiSigningText = async (req, res, next) => {
       toNumber: normalizedPhone,
       deliveryStatus: 'pending',
       metadata: {
-        provider: 'twilio',
+        provider: 'vonage',
         messageType: 'roi_signing_link',
         signingLinkId: issuedResult.issuedLink?.id || null
       }
     });
 
     try {
-      const msg = await TwilioService.sendSms({
+      const msg = await VonageService.sendSms({
         to: normalizedPhone,
         from: TwilioNumber.normalizePhone(fromNumber) || fromNumber,
         body
       });
       const updatedLog = await MessageLog.markSent(outboundLog.id, msg.sid, {
-        provider: 'twilio',
+        provider: 'vonage',
         status: msg.status,
         messageType: 'roi_signing_link',
         signingLinkId: issuedResult.issuedLink?.id || null

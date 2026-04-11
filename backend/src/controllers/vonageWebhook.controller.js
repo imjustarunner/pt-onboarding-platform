@@ -1,3 +1,17 @@
+/**
+ * Vonage inbound SMS webhook controller.
+ *
+ * Vonage webhook payload (JSON, POST):
+ *   msisdn   - sender phone number
+ *   to       - your Vonage virtual number
+ *   text     - message body
+ *   messageId (or message-id) - Vonage message ID
+ *   type     - "text" | "binary" | "unicode"
+ *   media    - array of media objects for MMS (Messages API)
+ *
+ * Vonage expects HTTP 200 in response (no TwiML XML needed).
+ */
+
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
@@ -19,12 +33,6 @@ import { logAuditEvent } from '../services/auditEvent.service.js';
 import AgencyContact from '../models/AgencyContact.model.js';
 import ContactCommunicationLog from '../models/ContactCommunicationLog.model.js';
 
-function twimlResponse(message) {
-  // Minimal TwiML response
-  const safe = String(message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${safe}</Message></Response>`;
-}
-
 async function getAgencyIdForUser(userId) {
   const agencies = await User.getAgencies(userId);
   return agencies?.[0]?.id || null;
@@ -33,19 +41,15 @@ async function getAgencyIdForUser(userId) {
 function parseFeatureFlags(raw) {
   if (!raw) return {};
   if (typeof raw === 'object') return raw || {};
-  try {
-    return JSON.parse(raw) || {};
-  } catch {
-    return {};
-  }
+  try { return JSON.parse(raw) || {}; } catch { return {}; }
 }
 
 function parseInboundKeyword(body) {
   const msg = String(body || '').trim().toUpperCase();
   if (!msg) return null;
-  if (msg === 'STOP' || msg === 'STOPALL' || msg === 'UNSUBSCRIBE' || msg === 'CANCEL' || msg === 'END') return 'STOP';
-  if (msg === 'START' || msg === 'UNSTOP' || msg === 'YES') return 'START';
-  if (msg === 'HELP' || msg === 'INFO') return 'HELP';
+  if (['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END'].includes(msg)) return 'STOP';
+  if (['START', 'UNSTOP', 'YES'].includes(msg)) return 'START';
+  if (['HELP', 'INFO'].includes(msg)) return 'HELP';
   return null;
 }
 
@@ -73,7 +77,7 @@ async function forwardEmergency({ numberId, agencyId, body, fromNumber }) {
         agencyId,
         relatedEntityType: 'message_log',
         relatedEntityId: null,
-        actorSource: 'Twilio'
+        actorSource: 'Vonage'
       },
       { context: { isUrgent: true } }
     );
@@ -86,7 +90,7 @@ async function forwardEmergency({ numberId, agencyId, body, fromNumber }) {
         body
       });
     } catch (e) {
-      console.warn('Emergency forward SMS failed:', e.message);
+      console.warn('[VonageWebhook] Emergency forward SMS failed:', e.message);
     }
   }
 }
@@ -105,9 +109,7 @@ async function forwardInboundToUser({ number, body, from, userId }) {
   const user = await User.findById(userId);
   if (!user) return;
   const prefs = await UserPreferences.findByUserId(userId);
-  if (prefs?.sms_forwarding_enabled === false || prefs?.sms_forwarding_enabled === 0) {
-    return;
-  }
+  if (prefs?.sms_forwarding_enabled === false || prefs?.sms_forwarding_enabled === 0) return;
   const toRaw = user?.personal_phone || user?.work_phone || user?.phone_number || null;
   if (!toRaw) return;
   const to = MessageLog.normalizePhone(toRaw) || toRaw;
@@ -137,81 +139,68 @@ async function listSupportStaffIdsForAgency(agencyId) {
 
 export const inboundSmsWebhook = async (req, res, next) => {
   try {
-    // Twilio sends x-www-form-urlencoded by default
-    const from = req.body?.From;
-    const to = req.body?.To;
-    const body = req.body?.Body || '';
-    const messageSid = req.body?.MessageSid || null;
+    // Vonage sends JSON on POST; on GET (dashboard "Webhook format: GET") params are in query.
+    const body_payload = { ...(req.query || {}), ...(req.body || {}) };
+    const from = body_payload.msisdn || body_payload.from || null;
+    const to = body_payload.to || null;
+    const body = body_payload.text || body_payload.body || '';
+    const messageId = body_payload.messageId || body_payload['message-id'] || null;
 
+    // Vonage expects 200 immediately; respond first if routing fails.
     if (!from || !to) {
-      return res.status(400).send('Missing From/To');
+      return res.status(200).json({ ok: true });
     }
 
-    const companyEventHandled = await handleCompanyEventInbound({ from, to, body });
+    // Normalize to E.164 format for consistency with existing routing logic.
+    const fromNorm = from.startsWith('+') ? from : `+${from}`;
+    const toNorm = to.startsWith('+') ? to : `+${to}`;
+
+    // Extract MMS media URLs (Vonage Messages API sends media array).
+    const mediaUrls = [];
+    if (Array.isArray(body_payload.media)) {
+      for (const m of body_payload.media) {
+        if (m?.url) mediaUrls.push(m.url);
+      }
+    }
+
+    const companyEventHandled = await handleCompanyEventInbound({ from: fromNorm, to: toNorm, body });
     if (companyEventHandled?.handled) {
-      return res.status(200).type('text/xml').send(twimlResponse(companyEventHandled.responseMessage || 'Thanks!'));
+      return res.status(200).json({ ok: true, message: companyEventHandled.responseMessage || 'Thanks!' });
     }
 
-    const campaignHandled = await handleAgencyCampaignInbound({ from, to, body });
+    const campaignHandled = await handleAgencyCampaignInbound({ from: fromNorm, to: toNorm, body });
     if (campaignHandled?.handled) {
-      return res.status(200).type('text/xml').send(twimlResponse(campaignHandled.responseMessage || 'Thanks!'));
+      return res.status(200).json({ ok: true, message: campaignHandled.responseMessage || 'Thanks!' });
     }
 
-    const route = await resolveInboundRoute({ toNumber: to, fromNumber: from });
+    const route = await resolveInboundRoute({ toNumber: toNorm, fromNumber: fromNorm });
     const ownerUser = route.ownerUser;
     const number = route.number;
     const numberId = number?.id || null;
     const ownerType = route.ownerType || null;
     const assignedUserId = route.assignment?.user_id || ownerUser?.id || null;
     const eligibleUserIds = route.eligibleUserIds || (ownerUser ? [ownerUser.id] : []);
+
     if (!ownerUser && !number) {
-      // Unknown number: acknowledge to prevent retries
-      return res.status(200).type('text/xml').send(twimlResponse('Thanks. We could not route your message.'));
+      return res.status(200).json({ ok: true });
     }
 
-    // Find client by contact phone (best-effort)
-    const client = route.client || (await Client.findByContactPhone(from));
+    const client = route.client || (await Client.findByContactPhone(fromNorm));
     const agencyId = route.agencyId || (ownerUser ? await getAgencyIdForUser(ownerUser.id) : null);
     const clientId = client?.id || null;
 
     const keyword = parseInboundKeyword(body);
     if (numberId && clientId && keyword === 'STOP') {
-      await TwilioOptInState.upsert({
-        agencyId,
-        clientId,
-        numberId,
-        status: 'opted_out',
-        source: 'client_stop'
-      });
+      await TwilioOptInState.upsert({ agencyId, clientId, numberId, status: 'opted_out', source: 'client_stop' });
     } else if (numberId && clientId && keyword === 'START') {
-      await TwilioOptInState.upsert({
-        agencyId,
-        clientId,
-        numberId,
-        status: 'opted_in',
-        source: 'client_start'
-      });
+      await TwilioOptInState.upsert({ agencyId, clientId, numberId, status: 'opted_in', source: 'client_start' });
     } else if (numberId && clientId) {
-      await TwilioOptInState.upsert({
-        agencyId,
-        clientId,
-        numberId,
-        status: 'opted_in',
-        source: 'inbound_message'
-      });
+      await TwilioOptInState.upsert({ agencyId, clientId, numberId, status: 'opted_in', source: 'inbound_message' });
     }
 
-    // Extract MMS media URLs (Twilio sends MediaUrl0, MediaUrl1, ...)
-    const mediaUrls = [];
-    for (let i = 0; ; i++) {
-      const url = req.body?.[`MediaUrl${i}`];
-      if (!url || typeof url !== 'string') break;
-      mediaUrls.push(url.trim());
-    }
-    const metadata = { provider: 'twilio', numberId };
+    const metadata = { provider: 'vonage', numberId };
     if (mediaUrls.length > 0) metadata.media_urls = mediaUrls;
 
-    // Log inbound message
     const inboundLog = await MessageLog.createInbound({
       agencyId,
       userId: ownerUser?.id || assignedUserId,
@@ -220,16 +209,15 @@ export const inboundSmsWebhook = async (req, res, next) => {
       ownerType,
       clientId,
       body: body || (mediaUrls.length > 0 ? '[MMS]' : ''),
-      fromNumber: from,
-      toNumber: to,
-      twilioMessageSid: messageSid,
+      fromNumber: fromNorm,
+      toNumber: toNorm,
+      twilioMessageSid: messageId,
       metadata
     });
 
-    // Log to contact_communication_logs if sender maps to an agency contact
-    if (agencyId && from && inboundLog?.id) {
+    if (agencyId && fromNorm && inboundLog?.id) {
       try {
-        const contact = await AgencyContact.findByPhone(from, agencyId);
+        const contact = await AgencyContact.findByPhone(fromNorm, agencyId);
         if (contact) {
           await ContactCommunicationLog.create({
             contactId: contact.id,
@@ -237,11 +225,11 @@ export const inboundSmsWebhook = async (req, res, next) => {
             direction: 'inbound',
             body: body || '',
             externalRefId: String(inboundLog.id),
-            metadata: { from_number: from, to_number: to, message_log_id: inboundLog.id }
+            metadata: { from_number: fromNorm, to_number: toNorm, message_log_id: inboundLog.id }
           });
         }
       } catch (e) {
-        console.warn('Contact comm log (inbound) failed:', e.message);
+        console.warn('[VonageWebhook] Contact comm log (inbound) failed:', e.message);
       }
     }
 
@@ -249,17 +237,11 @@ export const inboundSmsWebhook = async (req, res, next) => {
       actionType: 'sms_inbound_received',
       agencyId,
       userId: ownerUser?.id || assignedUserId || null,
-      metadata: {
-        clientId,
-        messageLogId: inboundLog?.id || null,
-        numberId,
-        ownerType,
-        hasKeyword: !!keyword
-      }
+      metadata: { clientId, messageLogId: inboundLog?.id || null, numberId, ownerType, hasKeyword: !!keyword }
     });
 
     const prefs = ownerUser ? await UserPreferences.findByUserId(ownerUser.id) : null;
-    // Provider-level immediate support mirror option.
+
     if (agencyId && ownerUser?.id) {
       const agency = await Agency.findById(agencyId);
       const flags = parseFeatureFlags(agency?.feature_flags);
@@ -285,55 +267,73 @@ export const inboundSmsWebhook = async (req, res, next) => {
             metadata: { mirrored: true }
           });
         } catch (e) {
-          console.warn('Support mirror SMS failed:', e.message);
+          console.warn('[VonageWebhook] Support mirror SMS failed:', e.message);
         }
       }
     }
 
     if (keyword === 'STOP' && numberId && clientId) {
       await logAuditEvent(req, {
-        actionType: 'sms_opt_out',
-        agencyId,
+        actionType: 'sms_opt_out', agencyId,
         userId: ownerUser?.id || assignedUserId || null,
         metadata: { clientId, numberId, messageLogId: inboundLog?.id || null }
       });
       const msg = await getRuleMessage(numberId, 'opt_out', 'You have been opted out. Reply START to rejoin.');
-      return res.status(200).type('text/xml').send(twimlResponse(msg));
+      // Vonage does not need TwiML; send reply programmatically if needed.
+      if (number?.phone_number && fromNorm) {
+        try {
+          await VonageService.sendSms({ to: fromNorm, from: toNorm, body: msg });
+        } catch (e) {
+          console.warn('[VonageWebhook] STOP reply failed:', e.message);
+        }
+      }
+      return res.status(200).json({ ok: true });
     }
     if (keyword === 'START' && numberId && clientId) {
       await logAuditEvent(req, {
-        actionType: 'sms_opt_in',
-        agencyId,
+        actionType: 'sms_opt_in', agencyId,
         userId: ownerUser?.id || assignedUserId || null,
         metadata: { clientId, numberId, messageLogId: inboundLog?.id || null }
       });
       const msg = await getRuleMessage(numberId, 'opt_in', 'You are opted in. Reply STOP to unsubscribe.');
-      return res.status(200).type('text/xml').send(twimlResponse(msg));
+      if (number?.phone_number && fromNorm) {
+        try {
+          await VonageService.sendSms({ to: fromNorm, from: toNorm, body: msg });
+        } catch (e) {
+          console.warn('[VonageWebhook] START reply failed:', e.message);
+        }
+      }
+      return res.status(200).json({ ok: true });
     }
     if (keyword === 'HELP' && numberId) {
       const msg = await getRuleMessage(numberId, 'help', 'Reply STOP to opt out. Reply START to opt in.');
-      return res.status(200).type('text/xml').send(twimlResponse(msg));
+      if (number?.phone_number && fromNorm) {
+        try {
+          await VonageService.sendSms({ to: fromNorm, from: toNorm, body: msg });
+        } catch (e) {
+          console.warn('[VonageWebhook] HELP reply failed:', e.message);
+        }
+      }
+      return res.status(200).json({ ok: true });
     }
 
     if (numberId && !keyword) {
       const forwardRule = await TwilioNumberRule.getActiveRule(numberId, 'forward_inbound');
       if (forwardRule && (forwardRule.forward_to_user_id || forwardRule.forward_to_phone)) {
-        const forwardBody = buildForwardBody(forwardRule.auto_reply_text, { body, from });
+        const forwardBody = buildForwardBody(forwardRule.auto_reply_text, { body, from: fromNorm });
         try {
           if (forwardRule.forward_to_user_id) {
-            await forwardInboundToUser({ number, body: forwardBody, from, userId: forwardRule.forward_to_user_id });
+            await forwardInboundToUser({ number, body: forwardBody, from: fromNorm, userId: forwardRule.forward_to_user_id });
           }
           if (forwardRule.forward_to_phone) {
-            await forwardInboundToPhone({ number, body: forwardBody, from, phone: forwardRule.forward_to_phone });
+            await forwardInboundToPhone({ number, body: forwardBody, from: fromNorm, phone: forwardRule.forward_to_phone });
           }
         } catch (e) {
-          console.warn('Inbound forward failed:', e.message);
+          console.warn('[VonageWebhook] Inbound forward failed:', e.message);
         }
       }
     }
 
-    // Notify all eligible users (multi-recipient SMS pool) or primary owner.
-    // Filter out users who have sms_inbound_enabled = false.
     let notifyUserIds = eligibleUserIds;
     if (eligibleUserIds.length > 0) {
       const withSmsInbound = [];
@@ -353,20 +353,17 @@ export const inboundSmsWebhook = async (req, res, next) => {
             type: 'inbound_client_message',
             severity: 'urgent',
             title: 'New inbound client message',
-            message: client?.initials
-              ? `New message from client ${client.initials}.`
-              : 'New inbound message received.',
+            message: client?.initials ? `New message from client ${client.initials}.` : 'New inbound message received.',
             userId,
             agencyId,
             relatedEntityType: 'message_log',
             relatedEntityId: inboundLog.id,
-            actorSource: 'Twilio'
+            actorSource: 'Vonage'
           },
           { context: { isUrgent: true } }
         );
       }
 
-      // Safety net: notify support staff who are NOT already in the eligible pool (and have sms_inbound enabled)
       const eligibleSet = new Set(notifyUserIds.map(Number));
       const supportIds = await listSupportStaffIdsForAgency(agencyId);
       for (const supportUserId of supportIds) {
@@ -385,16 +382,13 @@ export const inboundSmsWebhook = async (req, res, next) => {
             agencyId,
             relatedEntityType: 'message_log',
             relatedEntityId: inboundLog.id,
-            actorSource: 'Twilio'
+            actorSource: 'Vonage'
           },
           { context: { isUrgent: true } }
         );
       }
     }
 
-    // After-hours auto-responder (loop breaker: once per client every 4 hours)
-    // Only when user has it enabled AND we are outside quiet hours (gatekeeper says SMS is suppressed).
-    // Note: Auto reply sends to the client; this is independent of notification channel gating.
     const autoReplyEnabled = prefs?.auto_reply_enabled === true || prefs?.auto_reply_enabled === 1;
     const smsEnabled = prefs?.sms_enabled === true || prefs?.sms_enabled === 1;
     const ruleAutoReply = numberId ? await TwilioNumberRule.getActiveRule(numberId, 'after_hours') : null;
@@ -408,13 +402,12 @@ export const inboundSmsWebhook = async (req, res, next) => {
 
       const isOutsideQuietHours = decision.reasonCodes?.includes('quiet_hours_outside_window');
       if (isOutsideQuietHours) {
-        const last = await MessageAutoReplyThrottle.getLastSentAt(ownerUser.id, from);
+        const last = await MessageAutoReplyThrottle.getLastSentAt(ownerUser.id, fromNorm);
         const lastDate = last ? new Date(last) : null;
         const now = new Date();
         const hoursSince = lastDate ? (now.getTime() - lastDate.getTime()) / (1000 * 60 * 60) : Infinity;
 
         if (hoursSince >= 4) {
-          // Best effort send; if not configured, just skip sending but don't fail webhook.
           try {
             if (ownerUser?.system_phone_number || number?.phone_number) {
               const outboundLog = await MessageLog.createOutbound({
@@ -426,25 +419,24 @@ export const inboundSmsWebhook = async (req, res, next) => {
                 clientId,
                 body: autoReplyMessage,
                 fromNumber: number?.phone_number || ownerUser.system_phone_number,
-                toNumber: from,
+                toNumber: fromNorm,
                 deliveryStatus: 'pending',
-                metadata: { autoReply: true, provider: 'twilio', numberId }
+                metadata: { autoReply: true, provider: 'vonage', numberId }
               });
 
               const msg = await VonageService.sendSms({
-                to: MessageLog.normalizePhone(from) || from,
+                to: MessageLog.normalizePhone(fromNorm) || fromNorm,
                 from: MessageLog.normalizePhone(number?.phone_number || ownerUser.system_phone_number) || number?.phone_number || ownerUser.system_phone_number,
                 body: autoReplyMessage
               });
 
-              await MessageLog.markSent(outboundLog.id, msg.sid, { autoReply: true, provider: 'twilio', status: msg.status });
+              await MessageLog.markSent(outboundLog.id, msg.sid, { autoReply: true, provider: 'vonage', status: msg.status });
               if (ownerUser?.id) {
-                await MessageAutoReplyThrottle.upsertNow(ownerUser.id, from);
+                await MessageAutoReplyThrottle.upsertNow(ownerUser.id, fromNorm);
               }
             }
           } catch (sendErr) {
-            // Don't block inbound processing.
-            console.warn('Auto-reply send failed:', sendErr.message);
+            console.warn('[VonageWebhook] Auto-reply send failed:', sendErr.message);
           }
         }
       }
@@ -457,18 +449,42 @@ export const inboundSmsWebhook = async (req, res, next) => {
       if (complianceMode === 'opt_in_required' && numberId && clientId) {
         const optState = await TwilioOptInState.findByClientNumber({ clientId, numberId });
         if (optState?.status === 'opted_out') {
-          const msg = await getRuleMessage(numberId, 'opt_out', 'You have been opted out. Reply START to rejoin.');
-          return res.status(200).type('text/xml').send(twimlResponse(msg));
+          return res.status(200).json({ ok: true });
         }
       }
     }
 
-    await forwardEmergency({ numberId, agencyId, body, fromNumber: from });
+    await forwardEmergency({ numberId, agencyId, body, fromNumber: fromNorm });
 
-    // Twilio expects 200. We do NOT want to leak details.
-    res.status(200).type('text/xml').send(twimlResponse('Thanks. Your message was received.'));
+    res.status(200).json({ ok: true });
   } catch (e) {
     next(e);
   }
 };
 
+/**
+ * Vonage delivery status webhook.
+ * Vonage calls this URL (set as `statusUrl` on your account or numbers) with delivery receipts.
+ */
+export const deliveryStatusWebhook = async (req, res) => {
+  // Best-effort: log status updates to message_logs if we can match by messageId.
+  try {
+    const merged = { ...(req.query || {}), ...(req.body || {}) };
+    const messageId = merged.messageId || merged['message-id'] || merged.message_id;
+    const status = merged.status;
+    if (messageId && status) {
+      // Map Vonage status to a normalized value.
+      const normalizedStatus = String(status).toLowerCase();
+      await pool.execute(
+        `UPDATE message_logs
+         SET delivery_status = ?, updated_at = NOW()
+         WHERE JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.sid')) = ?
+            OR twilio_message_sid = ?`,
+        [normalizedStatus, messageId, messageId]
+      );
+    }
+  } catch (e) {
+    console.warn('[VonageWebhook] deliveryStatusWebhook error:', e.message);
+  }
+  res.status(200).json({ ok: true });
+};

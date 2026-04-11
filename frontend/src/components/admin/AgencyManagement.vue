@@ -1422,7 +1422,7 @@
           </div>
 
           <div v-if="activeTab === 'features' && isFeatureAvailable('workspaceProvisioningEnabled') && agencyForm.featureFlags.workspaceProvisioningEnabled" class="form-group">
-            <label>Auto-provision Twilio number on pre-hire complete</label>
+            <label>Auto-provision phone number on pre-hire complete</label>
             <ToggleSwitch v-model="agencyForm.featureFlags.smsAutoProvisionOnPrehire" compact />
             <small class="hint">Requires SMS numbers enabled in the Texting Numbers module.</small>
           </div>

@@ -42,7 +42,6 @@
     "qrcode": "^1.5.4",
     "serve": "^14.2.1",
     "signature_pad": "^4.0.9",
-    "twilio-video": "^2.34.0",
     "video.js": "^8.6.1",
     "vue": "^3.5.26",
     "vue-draggable-next": "^2.3.0",

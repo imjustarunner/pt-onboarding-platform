@@ -3,7 +3,7 @@
  */
 import User from '../models/User.model.js';
 import TwilioNumber from '../models/TwilioNumber.model.js';
-import TwilioService from '../services/twilio.service.js';
+import VonageService from '../services/vonage.service.js';
 import { resolveReminderNumber } from '../services/twilioNumberRouting.service.js';
 import NotificationSmsLog from '../models/NotificationSmsLog.model.js';
 import UserCommunication from '../models/UserCommunication.model.js';
@@ -85,7 +85,7 @@ export const sendReminderSms = async (req, res, next) => {
     }
 
     try {
-      const msg = await TwilioService.sendSms({ to, from, body: truncated });
+      const msg = await VonageService.sendSms({ to, from, body: truncated });
       await NotificationSmsLog.updateStatus(log.id, { status: 'sent', twilioSid: msg.sid });
       if (comm?.id) {
         await UserCommunication.updateDeliveryStatus(comm.id, 'sent', msg?.sid || null);

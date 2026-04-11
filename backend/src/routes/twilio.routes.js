@@ -1,5 +1,4 @@
 import express from 'express';
-import { inboundSmsWebhook } from '../controllers/twilioWebhook.controller.js';
 import {
   inboundVoiceWebhook,
   outboundBridgeWebhook,
@@ -13,49 +12,25 @@ import {
   voiceStatusWebhook
 } from '../controllers/twilioVoice.controller.js';
 import { videoRoomStatusWebhook, videoCompositionStatusWebhook } from '../controllers/twilioVideoWebhook.controller.js';
-import TwilioService from '../services/twilio.service.js';
 
 const router = express.Router();
 
-// Optional signature validation (recommended in production)
-// Enable by setting TWILIO_VALIDATE_SIGNATURE=true and providing TWILIO_AUTH_TOKEN.
-const withOptionalSignatureValidation = (handler) => (req, res, next) => {
-  try {
-    const shouldValidate = String(process.env.TWILIO_VALIDATE_SIGNATURE || '').toLowerCase() === 'true';
-    if (!shouldValidate) return handler(req, res, next);
-
-    const signature = req.header('x-twilio-signature');
-    if (!signature) {
-      return res.status(403).send('Missing Twilio signature');
-    }
-
-    const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
-    const ok = TwilioService.validateWebhook({ url, params: req.body || {}, signature });
-    if (!ok) {
-      return res.status(403).send('Invalid Twilio signature');
-    }
-
-    return handler(req, res, next);
-  } catch (e) {
-    next(e);
-  }
-};
-
-router.post('/webhook', withOptionalSignatureValidation(inboundSmsWebhook));
-router.post('/voice/inbound', withOptionalSignatureValidation(inboundVoiceWebhook));
-router.post('/voice/outbound-bridge', withOptionalSignatureValidation(outboundBridgeWebhook));
-router.post('/voice/status', withOptionalSignatureValidation(voiceStatusWebhook));
-router.post('/voice/dial-complete', withOptionalSignatureValidation(voiceDialCompleteWebhook));
-router.post('/voice/recording-status', withOptionalSignatureValidation(voiceRecordingStatusWebhook));
+// Voice — provider not configured; all webhooks respond with safe hangup
+router.post('/voice/inbound', inboundVoiceWebhook);
+router.post('/voice/outbound-bridge', outboundBridgeWebhook);
+router.post('/voice/status', voiceStatusWebhook);
+router.post('/voice/dial-complete', voiceDialCompleteWebhook);
+router.post('/voice/recording-status', voiceRecordingStatusWebhook);
 router.get('/voice/conference-join', voiceConferenceJoinWebhook);
 router.get('/voice/resume', voiceResumeWebhook);
 router.post('/voice/resume', voiceResumeWebhook);
 router.get('/voice/transfer-dial', voiceTransferDialWebhook);
 router.post('/voice/transfer-dial', voiceTransferDialWebhook);
-router.post('/voice/support-notice', withOptionalSignatureValidation(voiceSupportNoticeWebhook));
-router.post('/voice/voicemail-complete', withOptionalSignatureValidation(voiceVoicemailCompleteWebhook));
-router.post('/video/webhook', withOptionalSignatureValidation(videoRoomStatusWebhook));
-router.post('/video/composition-status', withOptionalSignatureValidation(videoCompositionStatusWebhook));
+router.post('/voice/support-notice', voiceSupportNoticeWebhook);
+router.post('/voice/voicemail-complete', voiceVoicemailCompleteWebhook);
+
+// Video — provider not configured; webhooks accept and discard
+router.post('/video/webhook', videoRoomStatusWebhook);
+router.post('/video/composition-status', videoCompositionStatusWebhook);
 
 export default router;
-

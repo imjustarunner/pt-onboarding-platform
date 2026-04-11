@@ -2631,11 +2631,6 @@ const load = async ({ forceRefresh = false } = {}) => {
     summary.value = cached;
     error.value = '';
     loading.value = false;
-    api.get('/health-check/twilio-video', { skipAuthRedirect: true }).then((r) => {
-      if (r?.data?.twilioVideoConfigured && summary.value) {
-        summary.value = { ...summary.value, twilioVideoConfigured: true };
-      }
-    }).catch(() => {});
     return;
   }
 
@@ -2643,32 +2638,23 @@ const load = async ({ forceRefresh = false } = {}) => {
     if (!cached) loading.value = true;
     error.value = '';
 
-    const twilioCheckPromise = api.get('/health-check/twilio-video', { skipAuthRedirect: true }).catch(() => ({ data: {} }));
-
     if (ids.length === 1) {
-      const [resp, twilioResp] = await Promise.all([
-        api.get(`/users/${props.userId}/schedule-summary`, {
-          params: {
-            weekStart: weekStart.value,
-            agencyId: ids[0],
-            includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
-            includeGoogleEvents: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleEvents.value ? 'true' : 'false'),
-            ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
-              ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
-              : {}))
-          }
-        }),
-        twilioCheckPromise
-      ]);
+      const resp = await api.get(`/users/${props.userId}/schedule-summary`, {
+        params: {
+          weekStart: weekStart.value,
+          agencyId: ids[0],
+          includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
+          includeGoogleEvents: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleEvents.value ? 'true' : 'false'),
+          ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
+            ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
+            : {}))
+        }
+      });
       const data = resp.data || null;
-      if (data && twilioResp?.data?.twilioVideoConfigured) {
-        data.twilioVideoConfigured = true;
-      }
       summary.value = data;
       setScheduleSummary(cacheKey, summary.value);
     } else {
-      const [results, twilioResp] = await Promise.all([
-        Promise.all(
+      const results = await Promise.all(
           ids.map((agencyId) =>
             api
               .get(`/users/${props.userId}/schedule-summary`, {
@@ -2689,9 +2675,7 @@ const load = async ({ forceRefresh = false } = {}) => {
                 error: e?.response?.data?.error?.message || e?.message || 'Failed to load schedule'
               }))
           )
-        ),
-        twilioCheckPromise
-      ]);
+      );
 
       const okOnes = results.filter((r) => r.ok && r.data);
       const first = okOnes[0]?.data || null;
@@ -2773,8 +2757,6 @@ const load = async ({ forceRefresh = false } = {}) => {
       merged.googleBusy = first.googleBusy || [];
       merged.googleBusyError = first.googleBusyError || null;
       merged.externalCalendars = first.externalCalendars || [];
-      merged.twilioVideoConfigured = okOnes.some((r) => !!r.data?.twilioVideoConfigured) || !!twilioResp?.data?.twilioVideoConfigured;
-
       summary.value = merged;
       setScheduleSummary(cacheKey, summary.value);
     }

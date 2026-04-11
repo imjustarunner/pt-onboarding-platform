@@ -45,14 +45,7 @@ function boolOrDefault(value, fallback) {
 }
 
 function getVoiceBaseUrl() {
-  const raw = String(process.env.TWILIO_VOICE_WEBHOOK_URL || '').trim();
-  if (!raw) return null;
-  try {
-    const u = new URL(raw);
-    return `${u.origin}/api/twilio/voice`;
-  } catch {
-    return null;
-  }
+  return null; // Voice provider not configured
 }
 
 function getProviderTargetPhone(user, settings) {
@@ -82,7 +75,7 @@ function parseFeatureFlags(raw) {
 }
 
 function getSigningSecret() {
-  return process.env.JWT_SECRET || process.env.SESSION_SECRET || process.env.TWILIO_AUTH_TOKEN || 'twilio-voice-secret';
+  return process.env.JWT_SECRET || process.env.SESSION_SECRET || 'voice-signing-secret';
 }
 
 function signPayload(payloadObj) {
@@ -162,7 +155,8 @@ export const updateCallSettings = async (req, res, next) => {
 };
 
 export const startOutboundCall = async (req, res, next) => {
-  try {
+  return res.status(503).json({ error: { message: 'Voice calling is not configured on this account.' } });
+  try { // eslint-disable-line no-unreachable
     const userId = parseIntOrNull(req.user?.id);
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
@@ -281,7 +275,8 @@ export const startOutboundCall = async (req, res, next) => {
 };
 
 export const startConferenceCall = async (req, res, next) => {
-  try {
+  return res.status(503).json({ error: { message: 'Voice calling is not configured on this account.' } });
+  try { // eslint-disable-line no-unreachable
     const userId = parseIntOrNull(req.user?.id);
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 

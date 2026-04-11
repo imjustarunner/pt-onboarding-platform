@@ -158,17 +158,17 @@ async function autoProvisionTwilioNumber({ user, agency }) {
   if (existingAssignment?.number_id) return { skipped: true, reason: 'already_assigned' };
 
   const areaCode = normalizeAreaCodeFromPhone(user.personal_phone || user.phone_number || user.work_phone);
-  let candidates = await TwilioService.searchAvailableLocalNumbers({ areaCode, country: 'US', limit: 5 });
+  let candidates = await VonageService.searchAvailableLocalNumbers({ areaCode, country: 'US', limit: 5 });
   if (!Array.isArray(candidates) || candidates.length === 0) {
-    candidates = await TwilioService.searchAvailableLocalNumbers({ country: 'US', limit: 5 });
+    candidates = await VonageService.searchAvailableLocalNumbers({ country: 'US', limit: 5 });
   }
   if (!Array.isArray(candidates) || candidates.length === 0) {
     throw new Error('No available Twilio numbers found.');
   }
 
   const picked = candidates[0];
-  const smsUrl = process.env.TWILIO_SMS_WEBHOOK_URL || null;
-  const purchased = await TwilioService.purchaseNumber({
+  const smsUrl = process.env.VONAGE_SMS_WEBHOOK_URL || null;
+  const purchased = await VonageService.purchaseNumber({
     phoneNumber: picked.phoneNumber,
     friendlyName: `${user.first_name || ''} ${user.last_name || ''}`.trim() || null,
     smsUrl

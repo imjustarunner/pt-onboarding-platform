@@ -91,7 +91,7 @@ async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessio
         : null;
       if (from) {
         const body = `${label} starting soon. Join: ${joinUrl}`.slice(0, 480);
-        await TwilioService.sendSms({ to: toPhoneNorm, from, body });
+        await VonageService.sendSms({ to: toPhoneNorm, from, body });
         smsSent = true;
       }
     } catch (e) {

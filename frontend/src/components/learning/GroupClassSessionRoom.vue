@@ -147,7 +147,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { connect, createLocalAudioTrack, createLocalVideoTrack } from 'twilio-video';
+// Video provider not configured — twilio-video removed
 import api from '../../services/api';
 
 const props = defineProps({
@@ -228,44 +228,11 @@ async function refreshAll() {
 }
 
 async function ensureConnected() {
-  if (room.value || !session.value || String(session.value.status || '').toLowerCase() !== 'live') return;
-  try {
-    const tokenRes = await api.get(`/learning-class-sessions/sessions/${props.sessionId}/video-token`, { skipGlobalLoading: true });
-    const token = tokenRes.data?.token;
-    if (!token) return;
-    const defaults = tokenRes.data?.participantDefaults || { cameraOn: false, micOn: false };
-    localAudioTrack.value = await createLocalAudioTrack({ name: 'microphone' });
-    localVideoTrack.value = await createLocalVideoTrack({ name: 'camera' });
-    if (!defaults.micOn) {
-      localAudioTrack.value.disable();
-      micOn.value = false;
-    } else {
-      micOn.value = true;
-    }
-    if (!defaults.cameraOn) {
-      localVideoTrack.value.disable();
-      cameraOn.value = false;
-    } else {
-      cameraOn.value = true;
-    }
-    room.value = await connect(token, {
-      name: tokenRes.data?.roomName,
-      tracks: [localAudioTrack.value, localVideoTrack.value]
-    });
-    room.value.on('participantConnected', bindParticipant);
-    room.value.participants.forEach(bindParticipant);
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Could not connect to live room';
-  }
+  // Video provider not configured — skipping connection
 }
 
-function bindParticipant(participant) {
-  participant.on('trackSubscribed', (track) => {
-    if (track.kind === 'video' && !presenterVideoTrack.value) {
-      presenterVideoTrack.value = track;
-      if (presenterVideoEl.value) track.attach(presenterVideoEl.value);
-    }
-  });
+function bindParticipant() {
+  // Video provider not configured
 }
 
 async function startSession() {
@@ -432,9 +399,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (pollTimer) window.clearInterval(pollTimer);
-  if (room.value) room.value.disconnect();
-  if (localAudioTrack.value) localAudioTrack.value.stop();
-  if (localVideoTrack.value) localVideoTrack.value.stop();
 });
 </script>
 

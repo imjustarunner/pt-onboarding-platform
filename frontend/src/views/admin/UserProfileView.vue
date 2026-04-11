@@ -360,7 +360,7 @@
                     <router-link v-if="canManageTexting" :to="textingSettingsLink" class="link-inline">Assign in settings</router-link>
                   </div>
                   <small class="form-help">
-                    Twilio number for client SMS and voice. Assigned in Settings → Texting Numbers.
+                    Phone number for client SMS and voice. Assigned in Settings → Texting Numbers.
                   </small>
                 </div>
 
