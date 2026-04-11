@@ -51,7 +51,8 @@ Each secret is only used if it exists (non-empty). Missing optional secrets = fe
 - `GOOGLE_OAUTH_ALLOWED_REDIRECT_HOSTS`
 - `GOOGLE_OAUTH_STATE_SECRET`
 
-### Twilio
+### Twilio (optional / legacy)
+SMS and voice/video are no longer on Twilio in app code; these may remain empty. Usage monitoring may still read `TWILIO_SMS_ALERT_THRESHOLD` / `TWILIO_CALL_MINUTES_ALERT_THRESHOLD`.
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_API_KEY_SID`
@@ -66,6 +67,16 @@ Each secret is only used if it exists (non-empty). Missing optional secrets = fe
 - `SMS_VOICE_RETENTION_DAYS`
 - `TWILIO_SMS_ALERT_THRESHOLD`
 - `TWILIO_CALL_MINUTES_ALERT_THRESHOLD`
+
+### Vonage (SMS — required for texting)
+Add these as GitHub Actions **repository secrets** so `deploy-backend.yml` can pass them to Cloud Run.
+- `VONAGE_API_KEY`
+- `VONAGE_API_SECRET`
+- `VONAGE_SMS_WEBHOOK_URL` — e.g. `https://<your-backend-host>/api/vonage/inbound`
+- `VONAGE_FROM` — default outbound sender (E.164), used with `VONAGE_DEFAULT_FROM` as fallback in code
+- `VONAGE_DEFAULT_FROM` — optional second fallback for system SMS
+- `VONAGE_VALIDATE_SIGNATURE` — optional, set to `true` to verify inbound webhooks
+- `VONAGE_SIGNATURE_SECRET` — from Vonage dashboard “Signed webhooks”, required if validation is enabled
 
 ### Chat encryption
 - `CLIENT_CHAT_ENCRYPTION_KEY_ID`
