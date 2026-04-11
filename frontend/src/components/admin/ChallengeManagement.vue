@@ -480,8 +480,7 @@
             <label>Preset/temporary team names (comma-separated)</label>
             <input v-model="challengeForm.presetTeamNamesText" type="text" placeholder="e.g., Team Alpha, Team Bravo, Team Charlie" />
             <p class="help-text" style="margin-top: 6px; font-size: 12px; color: #64748b; max-width: 42rem;">
-              These are saved as suggestions for captains (season settings only). They do not create scoreboard teams.
-              After saving the season, open <strong>Manage</strong> → <strong>Teams</strong> and use <strong>Add team</strong> for each real team.
+              Save the season, then open <strong>Manage → Teams</strong> and click <strong>"+ Create these teams"</strong> to instantly create all of them in one click. You can also add teams individually with Add Team.
             </p>
           </div>
           <div class="form-group">
@@ -767,7 +766,17 @@
               <span>Round {{ pick.round }} · Pick {{ pick.pickNumber }} · {{ pick.teamName }}</span>
             </div>
           </div>
-          <div v-if="teams.length === 0" class="empty-hint">No teams yet. Add teams for team-based competition.</div>
+          <!-- Create from preset names shortcut -->
+          <div v-if="managingChallenge?.season_settings_json?.teams?.presetTeamNames?.length" class="preset-teams-bar">
+            <span class="preset-teams-bar__label">
+              Preset names: <em>{{ Array.isArray(managingChallenge.season_settings_json.teams.presetTeamNames) ? managingChallenge.season_settings_json.teams.presetTeamNames.join(', ') : managingChallenge.season_settings_json.teams.presetTeamNames }}</em>
+            </span>
+            <button class="btn btn-secondary btn-sm" :disabled="creatingPresetTeams" @click="createPresetTeams">
+              {{ creatingPresetTeams ? 'Creating…' : '+ Create these teams' }}
+            </button>
+          </div>
+
+          <div v-if="teams.length === 0" class="empty-hint">No teams yet. Add a team or use preset names above.</div>
           <ul v-else class="team-list">
             <li v-for="t in teams" :key="t.id" class="team-item">
               <span>{{ t.team_name }}</span>
@@ -776,6 +785,73 @@
               <button class="btn btn-secondary btn-sm" @click="removeTeam(t)">Remove</button>
             </li>
           </ul>
+
+          <!-- Captain Applications management -->
+          <div class="captain-mgmt-section">
+            <div class="captain-mgmt-header">
+              <div class="captain-mgmt-title-row">
+                <span class="captain-mgmt-title">Captain Applications</span>
+                <span v-if="managingChallenge?.captains_finalized" class="cap-badge cap-badge--finalized">Finalized</span>
+                <span v-else-if="managingChallenge?.captain_application_open" class="cap-badge cap-badge--open">Open</span>
+                <span v-else class="cap-badge cap-badge--closed">Closed</span>
+              </div>
+              <div class="captain-mgmt-actions">
+                <button
+                  v-if="!managingChallenge?.captains_finalized && !managingChallenge?.captain_application_open"
+                  class="btn btn-primary btn-sm"
+                  :disabled="togglingCaptainApps"
+                  @click="toggleCaptainApplications(true)"
+                >
+                  {{ togglingCaptainApps ? '…' : 'Open Applications' }}
+                </button>
+                <button
+                  v-if="!managingChallenge?.captains_finalized && managingChallenge?.captain_application_open"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="togglingCaptainApps"
+                  @click="toggleCaptainApplications(false)"
+                >
+                  {{ togglingCaptainApps ? '…' : 'Close Applications' }}
+                </button>
+                <button
+                  v-if="!managingChallenge?.captains_finalized && captainApps.filter(a => a.status === 'approved').length"
+                  class="btn btn-primary btn-sm"
+                  :disabled="finalizingCaptains"
+                  @click="finalizeCaptainsAction"
+                >
+                  {{ finalizingCaptains ? 'Finalizing…' : 'Finalize Captains' }}
+                </button>
+              </div>
+            </div>
+            <p class="captain-mgmt-hint">
+              When open, members see an "Apply to be Captain" form on the season page.
+              Approve applicants here, then assign them as Team Leads via <strong>Edit Team</strong>.
+              Finalize when done to lock applications.
+            </p>
+            <div v-if="captainAppsLoading" class="loading-inline">Loading applications…</div>
+            <div v-else-if="captainAppsError" class="error-inline">{{ captainAppsError }}</div>
+            <div v-else-if="!captainApps.length" class="empty-hint" style="padding: 8px 0;">No applications yet.</div>
+            <ul v-else class="cap-app-list">
+              <li v-for="app in captainApps" :key="app.id" class="cap-app-item">
+                <div class="cap-app-info">
+                  <strong>{{ app.first_name }} {{ app.last_name }}</strong>
+                  <span v-if="app.application_text" class="cap-app-text">{{ app.application_text }}</span>
+                </div>
+                <div class="cap-app-actions">
+                  <span class="cap-status" :class="`cap-status--${app.status}`">{{ app.status }}</span>
+                  <button
+                    v-if="app.status !== 'approved' && !managingChallenge?.captains_finalized"
+                    class="btn btn-primary btn-sm"
+                    @click="reviewCaptainApp(app.id, 'approved')"
+                  >Approve</button>
+                  <button
+                    v-if="app.status !== 'rejected' && !managingChallenge?.captains_finalized"
+                    class="btn btn-secondary btn-sm"
+                    @click="reviewCaptainApp(app.id, 'rejected')"
+                  >Reject</button>
+                </div>
+              </li>
+            </ul>
+          </div>
         </div>
 
         <div v-show="manageTab === 'members'" class="manage-panel">
@@ -1825,6 +1901,14 @@ const teams = ref([]);
 const providerMembers = ref([]);
 const orgUsers = ref([]);
 
+// Captain application management
+const captainApps = ref([]);
+const captainAppsLoading = ref(false);
+const captainAppsError = ref('');
+const togglingCaptainApps = ref(false);
+const finalizingCaptains = ref(false);
+const creatingPresetTeams = ref(false);
+
 // Branding – edit form state
 const editBannerFile = ref(null);
 const editBannerPreview = ref(null);
@@ -2561,7 +2645,93 @@ const openManageModal = async (c) => {
   const currentWeekOpt = opts.findLast((w) => w.value <= today) || opts[0];
   if (currentWeekOpt) weeklyTasksWeek.value = currentWeekOpt.value;
   await Promise.all([loadTeams(c.id), loadProviderMembers(c.id), loadOrgUsers()]);
-  await Promise.all([loadSnakeDraftBoard(), loadDraftSessionStatus()]);
+  await Promise.all([loadSnakeDraftBoard(), loadDraftSessionStatus(), loadCaptainApps(c.id)]);
+};
+
+const loadCaptainApps = async (classId) => {
+  captainAppsLoading.value = true;
+  captainAppsError.value = '';
+  try {
+    const { data } = await api.get(`/learning-program-classes/${classId}/captain-applications`, { skipGlobalLoading: true });
+    captainApps.value = Array.isArray(data?.applications) ? data.applications : [];
+  } catch (e) {
+    captainAppsError.value = e?.response?.data?.error?.message || 'Failed to load captain applications';
+    captainApps.value = [];
+  } finally {
+    captainAppsLoading.value = false;
+  }
+};
+
+const toggleCaptainApplications = async (open) => {
+  if (!managingChallenge.value?.id) return;
+  togglingCaptainApps.value = true;
+  try {
+    const { data } = await api.put(
+      `/learning-program-classes/${managingChallenge.value.id}`,
+      { captainApplicationOpen: open },
+      { skipGlobalLoading: true }
+    );
+    if (managingChallenge.value) {
+      managingChallenge.value.captain_application_open = data?.class?.captain_application_open ?? open;
+    }
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to update captain applications');
+  } finally {
+    togglingCaptainApps.value = false;
+  }
+};
+
+const reviewCaptainApp = async (appId, status) => {
+  if (!managingChallenge.value?.id) return;
+  try {
+    await api.put(
+      `/learning-program-classes/${managingChallenge.value.id}/captain-applications/${appId}`,
+      { status },
+      { skipGlobalLoading: true }
+    );
+    await loadCaptainApps(managingChallenge.value.id);
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to update application');
+  }
+};
+
+const finalizeCaptainsAction = async () => {
+  if (!managingChallenge.value?.id) return;
+  if (!confirm('Finalize captains? This closes applications and locks the selection.')) return;
+  finalizingCaptains.value = true;
+  try {
+    await api.post(`/learning-program-classes/${managingChallenge.value.id}/captains/finalize`, {}, { skipGlobalLoading: true });
+    if (managingChallenge.value) {
+      managingChallenge.value.captains_finalized = true;
+      managingChallenge.value.captain_application_open = false;
+    }
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to finalize captains');
+  } finally {
+    finalizingCaptains.value = false;
+  }
+};
+
+const createPresetTeams = async () => {
+  if (!managingChallenge.value?.id) return;
+  const raw = managingChallenge.value?.season_settings_json?.teams?.presetTeamNames;
+  const names = (Array.isArray(raw) ? raw : String(raw || '').split(',')).map((n) => String(n).trim()).filter(Boolean);
+  if (!names.length) { alert('No preset team names found. Set them in season settings first.'); return; }
+  const existing = new Set(teams.value.map((t) => String(t.team_name || '').trim().toLowerCase()));
+  const toCreate = names.filter((n) => !existing.has(n.toLowerCase()));
+  if (!toCreate.length) { alert('All preset teams already exist.'); return; }
+  if (!confirm(`Create ${toCreate.length} team(s): ${toCreate.join(', ')}?`)) return;
+  creatingPresetTeams.value = true;
+  try {
+    for (const name of toCreate) {
+      await api.post(`/learning-program-classes/${managingChallenge.value.id}/teams`, { teamName: name }, { skipGlobalLoading: true });
+    }
+    await loadTeams(managingChallenge.value.id);
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to create some teams');
+  } finally {
+    creatingPresetTeams.value = false;
+  }
 };
 
 const launchChallenge = async (c) => {
@@ -3452,6 +3622,51 @@ onMounted(async () => {
 .drs-badge--pending { background: rgba(245,158,11,.15); color: #d97706; }
 .drs-badge--live { background: rgba(16,185,129,.15); color: #059669; }
 .drs-badge--done { background: rgba(99,102,241,.15); color: #6366f1; }
+/* Preset teams bar */
+.preset-teams-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px; border-radius: 8px;
+  background: #f8fafc; border: 1px solid #e2e8f0;
+  margin-bottom: 10px; font-size: 13px;
+}
+.preset-teams-bar__label { flex: 1; min-width: 0; color: #475569; }
+.preset-teams-bar__label em { color: #1e293b; font-style: normal; font-weight: 500; }
+/* Captain management section */
+.captain-mgmt-section {
+  margin-top: 20px; padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+.captain-mgmt-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; margin-bottom: 6px;
+}
+.captain-mgmt-title-row { display: flex; align-items: center; gap: 8px; }
+.captain-mgmt-title { font-weight: 700; font-size: 14px; }
+.captain-mgmt-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.captain-mgmt-hint { font-size: 12px; color: #64748b; margin: 0 0 10px; line-height: 1.5; }
+.cap-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+}
+.cap-badge--open { background: #dcfce7; color: #16a34a; }
+.cap-badge--closed { background: #f1f5f9; color: #64748b; }
+.cap-badge--finalized { background: #ede9fe; color: #7c3aed; }
+.cap-app-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cap-app-item {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 10px 12px; border-radius: 8px;
+  background: #f8fafc; border: 1px solid #e2e8f0; flex-wrap: wrap;
+}
+.cap-app-info { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.cap-app-text { font-size: 12px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cap-app-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.cap-status {
+  font-size: 11px; font-weight: 600; padding: 2px 8px;
+  border-radius: 999px;
+}
+.cap-status--pending { background: #fef9c3; color: #a16207; }
+.cap-status--approved { background: #dcfce7; color: #16a34a; }
+.cap-status--rejected { background: #fee2e2; color: #dc2626; }
 .empty-hint {
   padding: 12px;
   color: var(--text-muted, #666);
