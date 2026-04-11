@@ -1,12 +1,12 @@
 /**
- * Twilio service — DISABLED. Voice and video providers are not configured.
+ * Provider Base service — STUB. Voice and video providers are not fully configured.
  * SMS is handled by VonageService (vonage.service.js).
  * This stub exists so existing imports don't crash.
  */
 
-class TwilioService {
+class ProviderBaseService {
   static _notConfigured() {
-    throw new Error('Voice provider not configured');
+    throw new Error('Voice/Video provider not configured');
   }
 
   static getClient() { this._notConfigured(); }
@@ -23,4 +23,4 @@ class TwilioService {
   static async downloadRecordingMedia() { this._notConfigured(); }
 }
 
-export default TwilioService;
+export default ProviderBaseService;

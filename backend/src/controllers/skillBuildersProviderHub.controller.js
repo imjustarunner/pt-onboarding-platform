@@ -62,7 +62,7 @@ import {
   deleteActivityOptionById,
   getActivityOptionById
 } from '../services/skillBuildersActivityOptions.service.js';
-import { createOrGetRoomByUniqueName } from '../services/twilioVideo.service.js';
+import { createOrGetRoomByUniqueName } from '../services/video.service.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { resolvePreferredSenderIdentityForAgency } from '../services/emailSenderIdentityResolver.service.js';
 import EmailService from '../services/email.service.js';

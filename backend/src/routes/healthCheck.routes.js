@@ -13,7 +13,7 @@ router.get('/video', (req, res) => {
   res.json({
     videoConfigured: false,
     provider: null,
-    hint: 'Video provider not configured. Wire up Vonage Video (or another provider) in twilioVideo.service.js.'
+    hint: 'Video provider not configured. Wire up Vonage Video (or another provider) in video.service.js.'
   });
 });
 

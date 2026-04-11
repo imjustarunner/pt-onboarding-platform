@@ -53,8 +53,8 @@ export const createOrganizationAffiliationRequest = async (req, res, next) => {
     if (!child) return res.status(404).json({ error: { message: 'Organization not found' } });
 
     const orgType = String(child.organization_type || 'agency').toLowerCase();
-    if (!['school', 'program', 'learning', 'clinical'].includes(orgType)) {
-      return res.status(400).json({ error: { message: 'Target must be a school, program, learning, or clinical organization' } });
+    if (!['school', 'program', 'learning', 'clinical', 'clubwebapp'].includes(orgType)) {
+      return res.status(400).json({ error: { message: 'Target must be a school, program, learning, clinical, or clubwebapp organization' } });
     }
 
     if (agencyId === organizationId) {

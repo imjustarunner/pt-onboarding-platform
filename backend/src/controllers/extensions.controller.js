@@ -1,6 +1,6 @@
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
-import TwilioNumber from '../models/TwilioNumber.model.js';
+import PhoneNumber from '../models/PhoneNumber.model.js';
 import UserExtension from '../models/UserExtension.model.js';
 
 async function assertAgencyAccess(req, agencyId, { requireAdmin = false } = {}) {
@@ -68,7 +68,7 @@ export const create = async (req, res, next) => {
     }
 
     if (numberId) {
-      const num = await TwilioNumber.findById(parseInt(numberId, 10));
+      const num = await PhoneNumber.findById(parseInt(numberId, 10));
       if (!num || Number(num.agency_id) !== aid) {
         return res.status(400).json({ error: { message: 'numberId is invalid for this agency' } });
       }

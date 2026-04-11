@@ -88,7 +88,7 @@ export const getUserClubMembership = async (userId, clubId) => {
      INNER JOIN users u ON u.id = ua.user_id
      WHERE ua.user_id = ?
        AND ua.agency_id = ?
-       AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'
+       AND LOWER(COALESCE(a.organization_type, '')) IN ('affiliation', 'clubwebapp')
      LIMIT 1`,
     [uid, cid]
   );
@@ -128,7 +128,7 @@ export const canUserManageClub = async ({ user, clubId, allowAssistant = true })
   }
 
   if (!membership || membership.is_active === false) {
-    // Platform tenant admins (SSC/SSTC agency) can manage clubs under that tenant — same scope as challenge access.
+    // Platform tenant admins (SSTC/SSTC agency) can manage clubs under that tenant — same scope as challenge access.
     if (await canTenantPlatformUserManageClub({ user, clubId: cid })) {
       return true;
     }
@@ -160,7 +160,10 @@ async function canTenantPlatformUserManageClub({ user, clubId }) {
 
   const memberships = await User.getAgencies(uid);
   const agencyIds = (memberships || [])
-    .filter((m) => String(m?.organization_type || '').toLowerCase() === 'agency')
+    .filter((m) => {
+      const t = String(m?.organization_type || '').toLowerCase();
+      return t === 'agency' || t === 'clubwebapp';
+    })
     .map((m) => Number(m?.id || 0))
     .filter((n) => Number.isFinite(n) && n > 0);
   return agencyIds.includes(tenantId);
@@ -198,7 +201,7 @@ export const getManagedClubsForUser = async (userId, { includeAssistant = true }
      INNER JOIN agencies a ON a.id = ua.agency_id
      INNER JOIN users u ON u.id = ua.user_id
      WHERE ua.user_id = ?
-       AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'`,
+       AND LOWER(COALESCE(a.organization_type, '')) IN ('affiliation', 'clubwebapp')`,
     [uid]
   );
   return (rows || [])
@@ -223,7 +226,7 @@ export const getClubManagerNotificationRecipientUserIds = async (clubId) => {
      INNER JOIN users u ON u.id = ua.user_id
      INNER JOIN agencies a ON a.id = ua.agency_id
      WHERE ua.agency_id = ?
-       AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'
+       AND LOWER(COALESCE(a.organization_type, '')) IN ('affiliation', 'clubwebapp')
        AND (u.is_archived = 0 OR u.is_archived IS NULL)`,
     [cid]
   );
@@ -255,7 +258,7 @@ export const getPrimaryClubManager = async (clubId) => {
      INNER JOIN users u ON u.id = ua.user_id
      INNER JOIN agencies a ON a.id = ua.agency_id
      WHERE ua.agency_id = ?
-       AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'
+       AND LOWER(COALESCE(a.organization_type, '')) IN ('affiliation', 'clubwebapp')
      ORDER BY
        CASE
          WHEN ${hasClubRole ? "ua.club_role = 'manager'" : "LOWER(COALESCE(u.role, '')) IN ('club_manager','super_admin','admin','support')"} THEN 0
@@ -291,13 +294,13 @@ export const formatClubManagerDisplayName = (manager) => {
 };
 
 /**
- * Parent platform agency (SSC, SSTC, etc.) for an affiliation club via `organization_affiliations`.
+ * Parent platform agency (SSTC, SSTC, etc.) for an affiliation club via `organization_affiliations`.
  * Super-admin icons uploaded to that tenant (`icons.agency_id` = platform id) are shared with all clubs under it.
  */
 export const getClubPlatformTenantAgencyId = async (clubId) => {
   const cid = Number(clubId || 0);
   if (!cid) return null;
-  const preferredSlug = String(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc').trim().toLowerCase();
+  const preferredSlug = String(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'sstc').trim().toLowerCase();
   const [rows] = await pool.execute(
     `SELECT oa.agency_id
      FROM organization_affiliations oa
@@ -307,7 +310,7 @@ export const getClubPlatformTenantAgencyId = async (clubId) => {
      ORDER BY
        CASE
          WHEN LOWER(COALESCE(parent.slug, '')) = ? THEN 0
-         WHEN LOWER(COALESCE(parent.slug, '')) IN ('ssc', 'sstc', 'summit-stats') THEN 1
+         WHEN LOWER(COALESCE(parent.slug, '')) IN ('sstc', 'sstc', 'summit-stats') THEN 1
          ELSE 2
        END,
        oa.agency_id DESC

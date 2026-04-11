@@ -16,7 +16,7 @@
           <li>
             Already have an account with us?
             <router-link :to="loginPath">Log in</router-link>
-            and go to your SSC dashboard — you can start a club directly from your account settings.
+            and go to your SSTC dashboard — you can start a club directly from your account settings.
           </li>
         </ul>
       </div>

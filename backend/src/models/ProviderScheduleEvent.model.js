@@ -102,7 +102,7 @@ class ProviderScheduleEvent {
     return rows || [];
   }
 
-  static async setTwilioRoom(eventId, { roomSid, uniqueName }) {
+  static async setVideoRoom(eventId, { roomSid, uniqueName }) {
     const eid = parseInt(eventId, 10);
     if (!eid) return null;
     await pool.execute(

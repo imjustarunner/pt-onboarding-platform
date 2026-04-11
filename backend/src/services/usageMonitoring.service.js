@@ -1,5 +1,5 @@
 /**
- * Twilio usage monitoring for SMS and voice.
+ * Communication provider usage monitoring for SMS and voice.
  * Tracks usage by agency, supports thresholds and alerts for cost control.
  */
 import pool from '../config/database.js';
@@ -13,11 +13,11 @@ function dateOnlyString(d) {
 }
 
 /**
- * Get Twilio usage summary for an agency (or platform-wide).
+ * Get provider usage summary for an agency (or platform-wide).
  * @param {number|null} agencyId - null for platform-wide
  * @param {{ periodStart?: Date|string, periodEnd?: Date|string }} opts
  */
-export async function getTwilioUsage(agencyId, { periodStart = null, periodEnd = null } = {}) {
+export async function getProviderUsage(agencyId, { periodStart = null, periodEnd = null } = {}) {
   const startStr = dateOnlyString(periodStart) || dateOnlyString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
   const endStr = dateOnlyString(periodEnd) || dateOnlyString(new Date());
 
@@ -79,15 +79,15 @@ export async function getTwilioUsage(agencyId, { periodStart = null, periodEnd =
 
 /**
  * Check if usage exceeds configured thresholds (env vars).
- * TWILIO_SMS_ALERT_THRESHOLD, TWILIO_CALL_MINUTES_ALERT_THRESHOLD (per agency, per period)
+ * SMS_ALERT_THRESHOLD, CALL_MINUTES_ALERT_THRESHOLD (per agency, per period)
  * @returns {{ overThreshold: boolean, alerts: string[] }}
  */
 export async function checkUsageThresholds(agencyId, usage = null) {
   const alerts = [];
-  const u = usage || (await getTwilioUsage(agencyId));
+  const u = usage || (await getProviderUsage(agencyId));
 
-  const smsThreshold = parseInt(process.env.TWILIO_SMS_ALERT_THRESHOLD || '0', 10);
-  const callThreshold = parseInt(process.env.TWILIO_CALL_MINUTES_ALERT_THRESHOLD || '0', 10);
+  const smsThreshold = parseInt(process.env.SMS_ALERT_THRESHOLD || '0', 10);
+  const callThreshold = parseInt(process.env.CALL_MINUTES_ALERT_THRESHOLD || '0', 10);
 
   if (smsThreshold > 0 && u.totalSms >= smsThreshold) {
     alerts.push(`SMS usage (${u.totalSms}) exceeds threshold (${smsThreshold})`);

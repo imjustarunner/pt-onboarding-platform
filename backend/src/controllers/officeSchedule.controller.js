@@ -1316,8 +1316,10 @@ export const refreshEhrAssignedRoomBookings = async (req, res, next) => {
 };
 
 /**
- * Slots the provider must resolve in-app: assigned AVAILABLE without an active booking plan,
- * or TEMPORARY assignment nearing end (extension available).
+ * Slots the provider must resolve in-app:
+ *  - AVAILABLE without an active booking plan (needs_booking)
+ *  - AVAILABLE with a pre-forfeit warning already sent (forfeit_warning — act within 14 days)
+ *  - TEMPORARY assignment nearing end with extensions remaining (temporary_expiring)
  */
 export const getMyMandatoryOfficeReview = async (req, res, next) => {
   try {
@@ -1329,7 +1331,7 @@ export const getMyMandatoryOfficeReview = async (req, res, next) => {
 
     let rows = [];
     try {
-      const [r] = await pool.execute(
+      const [r] = await pool.query(
         `SELECT osa.id AS standing_assignment_id,
                 osa.office_location_id,
                 osa.room_id,
@@ -1341,6 +1343,7 @@ export const getMyMandatoryOfficeReview = async (req, res, next) => {
                 osa.created_at,
                 osa.temporary_until_date,
                 osa.temporary_extension_count,
+                osa.last_forfeit_warning_at,
                 ol.name AS office_name,
                 ol.timezone AS office_timezone,
                 r.name AS room_name,
@@ -1379,10 +1382,20 @@ export const getMyMandatoryOfficeReview = async (req, res, next) => {
 
     const items = (rows || []).map((row) => {
       const mode = String(row.availability_mode || '').toUpperCase();
-      const reason =
-        mode === 'TEMPORARY' && row.temporary_until_date
-          ? 'temporary_expiring'
-          : 'needs_booking';
+      const warnedAt = row.last_forfeit_warning_at ? new Date(row.last_forfeit_warning_at) : null;
+      const daysUntilForfeit = warnedAt
+        ? Math.max(0, 14 - Math.floor((Date.now() - warnedAt.getTime()) / 86400000))
+        : null;
+
+      let reason;
+      if (warnedAt && mode === 'AVAILABLE') {
+        reason = 'forfeit_warning';
+      } else if (mode === 'TEMPORARY' && row.temporary_until_date) {
+        reason = 'temporary_expiring';
+      } else {
+        reason = 'needs_booking';
+      }
+
       const suggestedBookingStartDate = computeSuggestedBookingStartDateMandatory({
         weekday: row.weekday,
         assigned_frequency: row.assigned_frequency,
@@ -1403,7 +1416,8 @@ export const getMyMandatoryOfficeReview = async (req, res, next) => {
         reason,
         temporaryUntilDate: row.temporary_until_date ? String(row.temporary_until_date).slice(0, 10) : null,
         extensionsUsed: Number(row.temporary_extension_count || 0),
-        suggestedBookingStartDate
+        suggestedBookingStartDate,
+        daysUntilForfeit
       };
     });
 

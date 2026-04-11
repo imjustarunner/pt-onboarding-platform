@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 
-class TwilioNumberRule {
+class PhoneNumberRule {
   static async listByNumberId(numberId) {
     const [rows] = await pool.execute(
       `SELECT * FROM twilio_number_rules WHERE number_id = ? ORDER BY created_at DESC`,
@@ -61,4 +61,4 @@ class TwilioNumberRule {
   }
 }
 
-export default TwilioNumberRule;
+export default PhoneNumberRule;

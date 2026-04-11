@@ -7,34 +7,53 @@
       </div>
 
       <div class="modal-body">
-        <label class="field-label">Search client</label>
+        <div class="modal-tabs">
+          <button 
+            type="button" 
+            class="modal-tab" 
+            :class="{ 'modal-tab--active': activeTab === 'clients' }"
+            @click="setTab('clients')"
+          >
+            Clients
+          </button>
+          <button 
+            type="button" 
+            class="modal-tab" 
+            :class="{ 'modal-tab--active': activeTab === 'contacts' }"
+            @click="setTab('contacts')"
+          >
+            Contacts
+          </button>
+        </div>
+
+        <label class="field-label">Search {{ activeTab === 'clients' ? 'client' : 'contact' }}</label>
         <input
           ref="searchInput"
           v-model="search"
           type="text"
           class="form-input"
-          placeholder="Name or phone number…"
+          :placeholder="activeTab === 'clients' ? 'Name or phone number…' : 'Name, phone, or email…'"
           autocomplete="off"
           @input="onSearch"
         />
 
         <div v-if="loading" class="hint">Searching…</div>
-        <div v-else-if="search && clients.length === 0" class="hint">No clients found.</div>
+        <div v-else-if="search && results.length === 0" class="hint">No {{ activeTab }} found.</div>
 
-        <ul v-if="clients.length" class="client-list">
+        <ul v-if="results.length" class="client-list">
           <li
-            v-for="c in clients"
-            :key="c.id"
+            v-for="r in results"
+            :key="r.id"
             class="client-row"
-            :class="{ 'client-row--selected': selected?.id === c.id }"
-            @click="select(c)"
+            :class="{ 'client-row--selected': selected?.id === r.id }"
+            @click="select(r)"
           >
-            <div class="client-avatar">{{ (c.initials || c.client_name || '?')[0].toUpperCase() }}</div>
+            <div class="client-avatar">{{ (r.initials || r.full_name || r.name || '?')[0].toUpperCase() }}</div>
             <div class="client-info">
-              <span class="client-name">{{ c.full_name || c.initials || 'Unknown' }}</span>
-              <span class="client-phone">{{ formatPhone(c.contact_phone) }}</span>
+              <span class="client-name">{{ r.full_name || r.name || r.initials || 'Unknown' }}</span>
+              <span class="client-phone">{{ formatPhone(r.contact_phone || r.phone) }}</span>
             </div>
-            <span v-if="selected?.id === c.id" class="check">✓</span>
+            <span v-if="selected?.id === r.id" class="check">✓</span>
           </li>
         </ul>
 
@@ -53,7 +72,7 @@
         <button
           type="button"
           class="btn btn-primary"
-          :disabled="!selected || !selected.contact_phone"
+          :disabled="!selected || (!selected.contact_phone && !selected.phone)"
           @click="open"
         >
           Open conversation
@@ -70,9 +89,10 @@ import api from '../../services/api';
 const emit = defineEmits(['close', 'open']);
 
 const search = ref('');
-const clients = ref([]);
+const results = ref([]);
 const loading = ref(false);
 const selected = ref(null);
+const activeTab = ref('clients');
 const myNumbers = ref([]);
 const selectedNumberId = ref(null);
 const searchInput = ref(null);
@@ -90,32 +110,52 @@ onMounted(async () => {
   }
 });
 
+function setTab(tab) {
+  activeTab.value = tab;
+  search.value = '';
+  results.value = [];
+  selected.value = null;
+  searchInput.value?.focus();
+}
+
 function onSearch() {
   clearTimeout(searchTimer);
   selected.value = null;
-  if (!search.value.trim()) { clients.value = []; return; }
+  if (!search.value.trim()) { results.value = []; return; }
   searchTimer = setTimeout(doSearch, 300);
 }
 
 async function doSearch() {
   loading.value = true;
   try {
-    const res = await api.get('/clients', { params: { search: search.value.trim(), limit: 20 } });
-    clients.value = Array.isArray(res.data?.clients) ? res.data.clients : (Array.isArray(res.data) ? res.data : []);
+    if (activeTab.value === 'clients') {
+      const res = await api.get('/clients', { params: { search: search.value.trim(), limit: 20 } });
+      results.value = Array.isArray(res.data?.clients) ? res.data.clients : (Array.isArray(res.data) ? res.data : []);
+    } else {
+      // Use the agencyId of the current user for contacts
+      const auth = (await import('../../store/auth')).useAuthStore();
+      const aid = auth.user?.value?.currentAgencyId || auth.user?.value?.agency_id;
+      const res = await api.get(`/contacts/agency/${aid}`, { params: { search: search.value.trim(), limit: 20 } });
+      results.value = Array.isArray(res.data) ? res.data : [];
+    }
   } catch {
-    clients.value = [];
+    results.value = [];
   } finally {
     loading.value = false;
   }
 }
 
-function select(client) {
-  selected.value = selected.value?.id === client.id ? null : client;
+function select(item) {
+  selected.value = selected.value?.id === item.id ? null : item;
 }
 
 function open() {
   if (!selected.value) return;
-  emit('open', { client: selected.value, numberId: selectedNumberId.value });
+  if (activeTab.value === 'clients') {
+    emit('open', { client: selected.value, numberId: selectedNumberId.value });
+  } else {
+    emit('open', { contact: selected.value, numberId: selectedNumberId.value });
+  }
 }
 
 function formatPhone(p) {
@@ -185,6 +225,37 @@ function formatPhone(p) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.modal-tabs {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+
+.modal-tab {
+  background: none;
+  border: none;
+  padding: 4px 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary, #6c7785);
+  cursor: pointer;
+  position: relative;
+}
+
+.modal-tab--active {
+  color: var(--primary-color, #2563eb);
+}
+
+.modal-tab--active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary-color, #2563eb);
 }
 
 .field-label {

@@ -5,7 +5,7 @@ import {
   assignNumber,
   setSmsAccess,
   getAgencySmsSettings,
-  getAgencyTwilioUsage,
+  getAgencySmsUsage,
   getNumberRules,
   listAgencyNumbers,
   getAgencyWebhookStatus,
@@ -39,7 +39,7 @@ router.post('/agency/:agencyId/buy', requireAgencyAdmin, purchaseNumber);
 router.post('/agency/:agencyId/add', requireAgencyAdmin, addManualNumber);
 router.get('/agency/:agencyId/webhooks/status', requireAgencyAdmin, getAgencyWebhookStatus);
 router.post('/agency/:agencyId/webhooks/sync', requireAgencyAdmin, syncAgencyWebhooks);
-router.get('/agency/:agencyId/usage', requireAgencyAccess, getAgencyTwilioUsage);
+router.get('/agency/:agencyId/usage', requireAgencyAccess, getAgencySmsUsage);
 
 // Number lifecycle
 router.delete('/:numberId', releaseNumber);

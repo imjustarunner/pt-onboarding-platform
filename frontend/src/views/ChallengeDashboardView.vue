@@ -6,21 +6,21 @@
     <div v-else class="challenge-detail">
       <div
         v-if="clubDashboardBannerTexts.length"
-        class="ssc-announcement-banner"
+        class="sstc-announcement-banner"
         role="region"
         aria-label="Club announcements"
       >
-        <div class="ssc-announcement-inner">
-          <div class="ssc-announcement-track">
+        <div class="sstc-announcement-inner">
+          <div class="sstc-announcement-track">
             <span
               v-for="(t, idx) in clubDashboardBannerTexts"
               :key="`b-${idx}-${String(t).slice(0, 24)}`"
-              class="ssc-announcement-item"
+              class="sstc-announcement-item"
             >{{ t }}</span>
             <span
               v-for="(t, idx) in clubDashboardBannerTexts"
               :key="`br-${idx}-${String(t).slice(0, 24)}`"
-              class="ssc-announcement-item"
+              class="sstc-announcement-item"
               aria-hidden="true"
             >{{ t }}</span>
           </div>
@@ -868,24 +868,24 @@
 
     <div
       v-if="currentClubSplash"
-      class="ssc-blocking-splash"
+      class="sstc-blocking-splash"
       role="dialog"
       aria-modal="true"
       aria-label="Club announcement"
     >
-      <div class="ssc-blocking-splash-card">
-        <div class="ssc-blocking-splash-head">
-          <span class="ssc-blocking-splash-brand">{{ clubSplashBrandLabel }}</span>
+      <div class="sstc-blocking-splash-card">
+        <div class="sstc-blocking-splash-head">
+          <span class="sstc-blocking-splash-brand">{{ clubSplashBrandLabel }}</span>
         </div>
-        <h3 class="ssc-blocking-splash-title">{{ clubSplashTitle }}</h3>
-        <div v-if="currentClubSplash.splash_image_url" class="ssc-blocking-splash-image-wrap">
-          <img :src="toUploadsUrl(currentClubSplash.splash_image_url)" alt="" class="ssc-blocking-splash-image" />
+        <h3 class="sstc-blocking-splash-title">{{ clubSplashTitle }}</h3>
+        <div v-if="currentClubSplash.splash_image_url" class="sstc-blocking-splash-image-wrap">
+          <img :src="toUploadsUrl(currentClubSplash.splash_image_url)" alt="" class="sstc-blocking-splash-image" />
         </div>
-        <p class="ssc-blocking-splash-message">{{ currentClubSplash.message || '' }}</p>
-        <div v-if="currentClubSplash.ends_at" class="ssc-blocking-splash-meta">
+        <p class="sstc-blocking-splash-message">{{ currentClubSplash.message || '' }}</p>
+        <div v-if="currentClubSplash.ends_at" class="sstc-blocking-splash-meta">
           Scheduled through {{ formatClubSplashEndsAt(currentClubSplash.ends_at) }}
         </div>
-        <div class="ssc-blocking-splash-actions">
+        <div class="sstc-blocking-splash-actions">
           <button type="button" class="btn btn-secondary" @click="remindLaterClubSplash">Remind me later</button>
           <button type="button" class="btn btn-primary" @click="dismissClubSplash">Dismiss</button>
         </div>
@@ -1074,7 +1074,7 @@ const challengeId = computed(() => route.params.id || route.params.challengeId);
 const organizationSlug = computed(() => route.params.organizationSlug || null);
 
 const SSC_HOME_SLUGS = new Set(
-  ['ssc', 'sstc', 'summit-stats', String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc').trim().toLowerCase()].filter(Boolean)
+  ['sstc', 'sstc', 'summit-stats', String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'sstc').trim().toLowerCase()].filter(Boolean)
 );
 const backRoute = computed(() => {
   const slug = organizationSlug.value;
@@ -1467,7 +1467,7 @@ const loadChallenge = async () => {
     participationAgreementStatus.value = r.data?.participationAgreementStatus || null;
     participationAcceptanceError.value = '';
     // Apply the season's club branding regardless of the URL slug so colors/fonts
-    // always match the club (e.g. ssc/season/3 shows Your Superhero's Superheros branding).
+    // always match the club (e.g. sstc/season/3 shows Your Superhero's Superheros branding).
     const clubSlug = challenge.value?.organization_slug;
     if (clubSlug && clubSlug !== organizationSlug.value) {
       // Temporarily override the active route slug so _resolveActivePalette picks
@@ -3269,7 +3269,7 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 }
 
 /* Match My club dashboard announcement UI */
-.ssc-announcement-banner {
+.sstc-announcement-banner {
   background: linear-gradient(90deg, #eff6ff 0%, #ffffff 100%);
   border-left: 4px solid #2563eb;
   border-radius: 16px;
@@ -3280,30 +3280,30 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   contain: paint;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
-.ssc-announcement-inner {
+.sstc-announcement-inner {
   overflow: hidden;
   width: 100%;
   max-width: 100%;
 }
-.ssc-announcement-track {
+.sstc-announcement-track {
   display: inline-flex;
   align-items: center;
   gap: 18px;
   padding-left: 100%;
-  animation: sscBannerMarquee 28s linear infinite;
+  animation: sstcBannerMarquee 28s linear infinite;
   white-space: nowrap;
   color: #1d4ed8;
   font-weight: 600;
   font-size: clamp(14px, 3.5vw, 16px);
 }
-.ssc-announcement-banner:hover .ssc-announcement-track {
+.sstc-announcement-banner:hover .sstc-announcement-track {
   animation-play-state: paused;
 }
-@keyframes sscBannerMarquee {
+@keyframes sstcBannerMarquee {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }
-.ssc-blocking-splash {
+.sstc-blocking-splash {
   position: fixed;
   inset: 0;
   z-index: 1300;
@@ -3312,7 +3312,7 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   place-items: center;
   padding: max(16px, env(safe-area-inset-bottom));
 }
-.ssc-blocking-splash-card {
+.sstc-blocking-splash-card {
   width: min(700px, 96vw);
   max-height: min(90vh, 900px);
   overflow-y: auto;
@@ -3322,36 +3322,36 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   padding: 20px;
   box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
 }
-.ssc-blocking-splash-head {
+.sstc-blocking-splash-head {
   margin-bottom: 8px;
 }
-.ssc-blocking-splash-brand {
+.sstc-blocking-splash-brand {
   font-weight: 800;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #64748b;
 }
-.ssc-blocking-splash-title {
+.sstc-blocking-splash-title {
   margin: 0 0 10px 0;
   color: #1d4ed8;
   font-size: clamp(22px, 6vw, 32px);
   line-height: 1.15;
 }
-.ssc-blocking-splash-image-wrap {
+.sstc-blocking-splash-image-wrap {
   margin: 0 0 12px 0;
   border-radius: 12px;
   overflow: hidden;
   background: #f1f5f9;
 }
-.ssc-blocking-splash-image {
+.sstc-blocking-splash-image {
   display: block;
   width: 100%;
   height: auto;
   max-height: min(40vh, 360px);
   object-fit: contain;
 }
-.ssc-blocking-splash-message {
+.sstc-blocking-splash-message {
   margin: 0;
   color: #0f172a;
   font-size: clamp(16px, 4.2vw, 1.25rem);
@@ -3359,12 +3359,12 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.ssc-blocking-splash-meta {
+.sstc-blocking-splash-meta {
   margin-top: 10px;
   color: #64748b;
   font-size: 12px;
 }
-.ssc-blocking-splash-actions {
+.sstc-blocking-splash-actions {
   margin-top: 16px;
   display: flex;
   flex-wrap: wrap;

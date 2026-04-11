@@ -80,6 +80,25 @@
             <input v-model.number="settings.smsSupportEscalationHours" class="input" type="number" min="1" max="168" />
           </div>
           <div class="form-group">
+            <label>Auto-reply if unanswered (minutes)</label>
+            <input v-model.number="settings.smsUnansweredAutoReplyMinutes" class="input" type="number" min="0" placeholder="0 = Disabled" />
+          </div>
+          <div class="form-group form-group-full">
+            <label>Unanswered auto-reply message</label>
+            <textarea v-model="settings.smsUnansweredAutoReplyMessage" class="textarea" rows="2" placeholder="Your provider hasn't responded yet. Reply YES to forward to support." />
+            <p class="muted">Shown after X minutes of inactivity on a new client message. Use 'YES' to trigger support escalation.</p>
+            
+            <!-- Message Preview -->
+            <div v-if="settings.smsUnansweredAutoReplyMinutes > 0" class="sms-preview">
+              <div class="preview-header">Message Preview (approximate)</div>
+              <div class="phone-mockup">
+                <div class="bubble bubble--in">
+                  {{ (settings.smsUnansweredAutoReplyMessage || "Your provider has not responded in {{minutes}} minutes, respond YES if you'd like it to be forwarded to our support team.").replace('{{minutes}}', settings.smsUnansweredAutoReplyMinutes) }}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
             <label>Voice support fallback phone</label>
             <input v-model="settings.voiceSupportFallbackPhone" class="input" placeholder="+15551234567" />
           </div>
@@ -435,7 +454,9 @@ const settings = ref({
   voiceSupportFallbackMessage: '',
   voiceProviderRingTimeoutSeconds: 20,
   voiceProviderPreConnectMessage: '',
-  voiceSupportPreConnectMessage: ''
+  voiceSupportPreConnectMessage: '',
+  smsUnansweredAutoReplyMinutes: 0,
+  smsUnansweredAutoReplyMessage: ''
 });
 const settingsError = ref('');
 const savingSettings = ref(false);
@@ -506,7 +527,9 @@ const loadSettings = async () => {
       voiceSupportFallbackMessage: res.data?.voiceSupportFallbackMessage || '',
       voiceProviderRingTimeoutSeconds: Number(res.data?.voiceProviderRingTimeoutSeconds || 20) || 20,
       voiceProviderPreConnectMessage: res.data?.voiceProviderPreConnectMessage || '',
-      voiceSupportPreConnectMessage: res.data?.voiceSupportPreConnectMessage || ''
+      voiceSupportPreConnectMessage: res.data?.voiceSupportPreConnectMessage || '',
+      smsUnansweredAutoReplyMinutes: Number(res.data?.smsUnansweredAutoReplyMinutes || 0) || 0,
+      smsUnansweredAutoReplyMessage: res.data?.smsUnansweredAutoReplyMessage || ''
     };
   } catch (e) {
     settingsError.value = e?.response?.data?.error?.message || 'Failed to load SMS settings';
@@ -1067,5 +1090,40 @@ onMounted(async () => {
 .alert-item {
   display: block;
   margin-top: 4px;
+}
+
+/* SMS Preview Styles */
+.sms-preview {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-secondary, #f8fafc);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.preview-header {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.phone-mockup {
+  max-width: 260px;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.bubble {
+  padding: 8px 12px;
+  border-radius: 16px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  max-width: 90%;
+}
+.bubble--in {
+  background: #e2e8f0;
+  color: #1e293b;
+  border-bottom-left-radius: 4px;
 }
 </style>

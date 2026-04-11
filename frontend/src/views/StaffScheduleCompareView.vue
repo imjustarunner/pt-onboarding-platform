@@ -176,7 +176,7 @@ const toggleWeekStartsOn = () => {
 
 const isClubContext = computed(() => {
   const t = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
-  return t === 'affiliation';
+  return t === 'affiliation' || t === 'clubwebapp';
 });
 const effectiveAgencyId = computed(() => {
   const fromStore = Number(agencyStore.currentAgency?.id || 0);

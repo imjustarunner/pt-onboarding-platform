@@ -6,10 +6,10 @@ import MessageLog from '../models/MessageLog.model.js';
 import UserCallSettings from '../models/UserCallSettings.model.js';
 import CallLog from '../models/CallLog.model.js';
 import CallVoicemail from '../models/CallVoicemail.model.js';
-import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
+import PhoneNumberAssignment from '../models/PhoneNumberAssignment.model.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
-import TwilioService from '../services/twilio.service.js';
-import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
+import ProviderBaseService from '../services/providerBase.service.js';
+import { resolveOutboundNumber } from '../services/communicationRouting.service.js';
 import Agency from '../models/Agency.model.js';
 
 function parseIntOrNull(v) {
@@ -122,8 +122,12 @@ export const getCallSettings = async (req, res, next) => {
       sms_outbound_enabled: boolOrDefault(settings?.sms_outbound_enabled, true),
       forward_to_phone: settings?.forward_to_phone || fallbackForwardPhone,
       allow_call_recording: boolOrDefault(settings?.allow_call_recording, false),
+      wait_music_id: settings?.wait_music_id || null,
       voicemail_enabled: boolOrDefault(settings?.voicemail_enabled, false),
+      vacation_mode_enabled: boolOrDefault(settings?.vacation_mode_enabled, false),
       voicemail_message: settings?.voicemail_message || '',
+      voicemail_ooo_message: settings?.voicemail_ooo_message || '',
+      voicemail_vacation_message: settings?.voicemail_vacation_message || '',
       provider_ring_timeout_seconds: safeTimeout
     });
   } catch (e) {
@@ -143,9 +147,13 @@ export const updateCallSettings = async (req, res, next) => {
       sms_inbound_enabled: boolOrDefault(req.body?.sms_inbound_enabled, boolOrDefault(existing?.sms_inbound_enabled, true)),
       sms_outbound_enabled: boolOrDefault(req.body?.sms_outbound_enabled, boolOrDefault(existing?.sms_outbound_enabled, true)),
       allow_call_recording: boolOrDefault(req.body?.allow_call_recording, boolOrDefault(existing?.allow_call_recording, false)),
+      wait_music_id: req.body?.wait_music_id ?? existing?.wait_music_id ?? null,
       forward_to_phone: req.body?.forward_to_phone ?? existing?.forward_to_phone ?? null,
       voicemail_enabled: boolOrDefault(req.body?.voicemail_enabled, boolOrDefault(existing?.voicemail_enabled, false)),
-      voicemail_message: req.body?.voicemail_message ?? existing?.voicemail_message ?? null
+      vacation_mode_enabled: boolOrDefault(req.body?.vacation_mode_enabled, boolOrDefault(existing?.vacation_mode_enabled, false)),
+      voicemail_message: req.body?.voicemail_message ?? existing?.voicemail_message ?? null,
+      voicemail_ooo_message: req.body?.voicemail_ooo_message ?? existing?.voicemail_ooo_message ?? null,
+      voicemail_vacation_message: req.body?.voicemail_vacation_message ?? existing?.voicemail_vacation_message ?? null
     };
     const saved = await UserCallSettings.upsertForUser(userId, patch);
     res.json(saved);
@@ -220,7 +228,7 @@ export const startOutboundCall = async (req, res, next) => {
       status: 'initiated',
       startedAt: nowIso,
       metadata: {
-        provider: 'twilio',
+        provider: 'legacy',
         ownerType: resolved.ownerType || null,
         assignmentUserId: resolved.assignment?.user_id || null,
         agencyId: client.agency_id || null
@@ -237,7 +245,7 @@ export const startOutboundCall = async (req, res, next) => {
     const bridgeUrl = `${voiceBase}/outbound-bridge?token=${encodeURIComponent(token)}`;
     const statusCallback = `${voiceBase}/status?callLogId=${callLog.id}`;
 
-    const created = await TwilioService.createCall({
+    const created = await ProviderBaseService.createCall({
       to: providerPhone,
       from: resolved.number.phone_number,
       url: bridgeUrl,
@@ -246,11 +254,11 @@ export const startOutboundCall = async (req, res, next) => {
     });
 
     const updated = await CallLog.updateById(callLog.id, {
-      twilio_call_sid: created?.sid || null,
+      provider_call_sid: created?.sid || null,
       status: created?.status || 'queued',
       metadata: {
         ...parseJsonObject(callLog.metadata),
-        twilioStatus: created?.status || null
+        providerStatus: created?.status || null
       }
     });
     await logAuditEvent(req, {
@@ -260,7 +268,7 @@ export const startOutboundCall = async (req, res, next) => {
         clientId,
         callLogId: updated?.id || callLog?.id || null,
         numberId: resolved?.number?.id || null,
-        twilioCallSid: created?.sid || null
+        providerCallSid: created?.sid || null
       }
     });
 
@@ -349,14 +357,14 @@ export const startConferenceCall = async (req, res, next) => {
     const statusCallback = `${voiceBase}/status?callLogId=${callLog.id}`;
 
     const [providerCall, clientCall] = await Promise.all([
-      TwilioService.createCall({
+      ProviderBaseService.createCall({
         to: providerPhone,
         from: resolved.number.phone_number,
         url: conferenceUrl,
         statusCallback,
         record: boolOrDefault(settings?.allow_call_recording, false)
       }),
-      TwilioService.createCall({
+      ProviderBaseService.createCall({
         to: clientPhone,
         from: resolved.number.phone_number,
         url: conferenceUrl,
@@ -366,12 +374,12 @@ export const startConferenceCall = async (req, res, next) => {
     ]);
 
     await CallLog.updateById(callLog.id, {
-      twilio_call_sid: providerCall?.sid || null,
+      provider_call_sid: providerCall?.sid || null,
       status: 'in-progress',
       metadata: {
         ...parseJsonObject(callLog.metadata),
         clientCallSid: clientCall?.sid || null,
-        twilioStatus: providerCall?.status || null
+        providerStatus: providerCall?.status || null
       }
     });
 
@@ -384,7 +392,7 @@ export const startConferenceCall = async (req, res, next) => {
     res.status(201).json({
       ...callLog,
       id: callLog.id,
-      twilio_call_sid: providerCall?.sid,
+      provider_call_sid: providerCall?.sid,
       status: 'in-progress',
       conference_room: roomId
     });
@@ -460,7 +468,7 @@ export const transferCall = async (req, res, next) => {
     const callLog = await CallLog.findBySid(callSid);
     const fromNumber = callLog?.from_number || callLog?.to_number;
     const transferUrl = `${voiceBase}/transfer-dial?to=${encodeURIComponent(targetPhone)}${fromNumber ? `&callerId=${encodeURIComponent(fromNumber)}` : ''}`;
-    await TwilioService.updateCall(callSid, { url: transferUrl });
+    await ProviderBaseService.updateCall(callSid, { url: transferUrl });
 
     await logAuditEvent(req, {
       actionType: 'call_transferred',
@@ -495,7 +503,7 @@ export const holdCall = async (req, res, next) => {
 
     const holdMusicUrl = 'https://api.twilio.com/cowbell.mp3';
     const twiml = `<Response><Play loop="0">${holdMusicUrl}</Play></Response>`;
-    await TwilioService.updateCall(callSid, { twiml });
+    await ProviderBaseService.updateCall(callSid, { twiml });
 
     await logAuditEvent(req, {
       actionType: 'call_held',
@@ -534,7 +542,7 @@ export const holdCallResume = async (req, res, next) => {
       });
     }
 
-    await TwilioService.updateCall(callSid, { url: resumeUrl });
+    await ProviderBaseService.updateCall(callSid, { url: resumeUrl });
     await logAuditEvent(req, { actionType: 'call_resumed', metadata: { callSid } });
     res.json({ ok: true, callSid });
   } catch (e) {
@@ -573,7 +581,7 @@ export const listVoicemails = async (req, res, next) => {
       const isProviderOrSchoolStaff = role === 'provider' || role === 'school_staff';
       let assignedNumberIds = [];
       if (isProviderOrSchoolStaff) {
-        const assignments = await TwilioNumberAssignment.listByUserId(userId);
+        const assignments = await PhoneNumberAssignment.listByUserId(userId);
         assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
       }
       if (assignedNumberIds.length > 0) {
@@ -630,7 +638,7 @@ export const streamVoicemailAudio = async (req, res, next) => {
         const [clRows] = await pool.execute('SELECT number_id FROM call_logs WHERE id = ?', [row.call_log_id]);
         const callLog = clRows?.[0];
         if (callLog?.number_id) {
-          const assignments = await TwilioNumberAssignment.listByUserId(userId);
+          const assignments = await PhoneNumberAssignment.listByUserId(userId);
           const assignedIds = new Set((assignments || []).map((a) => Number(a.number_id)));
           canAccess = assignedIds.has(Number(callLog.number_id));
         }
@@ -638,8 +646,8 @@ export const streamVoicemailAudio = async (req, res, next) => {
       if (!canAccess) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
-    const buffer = await TwilioService.downloadRecordingMedia({
-      recordingSid: row.twilio_recording_sid,
+    const buffer = await ProviderBaseService.downloadRecordingMedia({
+      recordingSid: row.provider_recording_sid,
       format: 'mp3'
     });
     await CallVoicemail.markListened(voicemailId);
@@ -682,13 +690,13 @@ export const streamCallRecording = async (req, res, next) => {
     } else if (isProviderOrSchoolStaff) {
       hasAccess = Number(callLog.user_id) === Number(userId);
       if (!hasAccess && callLog.number_id) {
-        const assignments = await TwilioNumberAssignment.listByUserId(userId);
+        const assignments = await PhoneNumberAssignment.listByUserId(userId);
         hasAccess = (assignments || []).some((a) => Number(a.number_id) === Number(callLog.number_id));
       }
     }
     if (!hasAccess) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const buffer = await TwilioService.downloadRecordingMedia({ recordingSid, format: 'mp3' });
+    const buffer = await ProviderBaseService.downloadRecordingMedia({ recordingSid, format: 'mp3' });
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Content-Length', String(buffer.length));
     return res.status(200).send(buffer);

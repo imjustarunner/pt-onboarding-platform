@@ -297,7 +297,7 @@
     <div
       class="dashboard-shell"
       :class="{
-        'dashboard-shell--ssc': isSummitStatsSurface,
+        'dashboard-shell--sstc': isSummitStatsSurface,
         'schedule-focus': activeTab === 'my_schedule',
         'rail-expanded': !railEffectiveCollapsed,
         'rail-collapsed': railEffectiveCollapsed
@@ -434,7 +434,7 @@
           class="card-content"
           :class="{
             'card-content-schedule': activeTab === 'my_schedule',
-            'card-content--ssc-account': isSummitStatsSurface && activeTab === 'my'
+            'card-content--sstc-account': isSummitStatsSurface && activeTab === 'my'
           }"
         >
           <div v-if="!previewMode && activeTab === PROGRAM_WORKSPACE_TAB && inlineProgramHubState.mode" class="my-panel">
@@ -1371,14 +1371,14 @@ function goSkillBuildersProgramsPage() {
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
-/** SSC / affiliation portal: hide HR-style tabs and schedule tooling. Declared early — many computeds depend on it. */
+/** SSTC / affiliation portal: hide HR-style tabs and schedule tooling. Declared early — many computeds depend on it. */
 const isClubContext = computed(() => {
   const t = String(
     agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || ''
   ).toLowerCase();
-  return t === 'affiliation';
+  return t === 'affiliation' || t === 'clubwebapp';
 });
-/** Summit Stats (SSC route or club) — align Account / My panel with mobile Summit dashboard cards. */
+/** Summit Stats (SSTC route or club) — align Account / My panel with mobile Summit dashboard cards. */
 const isSummitStatsSurface = useSummitStatsChallengeChrome();
 const userPrefsStore = useUserPreferencesStore();
 const brandingStore = useBrandingStore();
@@ -2904,7 +2904,7 @@ const previewAgencyLogoUrl = computed(() => {
 });
 
 const filteredTabs = computed(() => {
-  // Club context (SSC/affiliation): hide Checklist and Training; show only Documents
+  // Club context (SSTC/affiliation): hide Checklist and Training; show only Documents
   if (isClubContext.value) return tabs.value.filter(tab => tab.id !== 'checklist' && tab.id !== 'training');
   // PREHIRE_OPEN, PREHIRE_REVIEW, and ONBOARDING users see limited tabs
   if (isPending.value || userStatus.value === 'PREHIRE_REVIEW' || userStatus.value === 'ONBOARDING' ||
@@ -5717,55 +5717,55 @@ h1 {
 }
 
 /* Summit Stats desktop: match mobile /home card density — one soft page canvas + one raised panel for Account */
-.dashboard-shell--ssc .dashboard-detail {
+.dashboard-shell--sstc .dashboard-detail {
   background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
   border-radius: 20px;
   padding: 4px 8px 12px;
   margin: 0 -4px;
 }
-.dashboard-shell--ssc .card-content.card-content--ssc-account {
+.dashboard-shell--sstc .card-content.card-content--sstc-account {
   background: transparent;
   border: none;
   box-shadow: none;
   padding: 12px 8px 28px;
 }
-.dashboard-shell--ssc .card-content.card-content--ssc-account .my-panel {
+.dashboard-shell--sstc .card-content.card-content--sstc-account .my-panel {
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 24px;
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
   padding: 22px 24px 28px;
 }
-.dashboard-shell--ssc .my-subnav {
+.dashboard-shell--sstc .my-subnav {
   border-bottom-color: #e2e8f0;
   margin-bottom: 20px;
   padding-bottom: 14px;
 }
-.dashboard-shell--ssc .my-subnav .subtab {
+.dashboard-shell--sstc .my-subnav .subtab {
   border-radius: 999px;
   border-color: #e2e8f0;
   background: #f8fafc;
   font-size: 13px;
 }
-.dashboard-shell--ssc .my-subnav .subtab.active {
+.dashboard-shell--sstc .my-subnav .subtab.active {
   border-color: #d97706;
   background: linear-gradient(135deg, #fff8ef 0%, #fff 100%);
   color: #9a3412;
   box-shadow: 0 1px 0 rgba(217, 119, 6, 0.35);
 }
-[data-theme='dark'] .dashboard-shell--ssc .dashboard-detail {
+[data-theme='dark'] .dashboard-shell--sstc .dashboard-detail {
   background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
 }
-[data-theme='dark'] .dashboard-shell--ssc .card-content.card-content--ssc-account .my-panel {
+[data-theme='dark'] .dashboard-shell--sstc .card-content.card-content--sstc-account .my-panel {
   background: var(--bg-card);
   border-color: var(--border);
   box-shadow: var(--shadow);
 }
-[data-theme='dark'] .dashboard-shell--ssc .my-subnav .subtab {
+[data-theme='dark'] .dashboard-shell--sstc .my-subnav .subtab {
   background: rgba(255, 255, 255, 0.04);
   border-color: var(--border);
 }
-[data-theme='dark'] .dashboard-shell--ssc .my-subnav .subtab.active {
+[data-theme='dark'] .dashboard-shell--sstc .my-subnav .subtab.active {
   background: rgba(217, 119, 6, 0.12);
   color: #fdba74;
   border-color: rgba(217, 119, 6, 0.45);

@@ -1,5 +1,5 @@
 <template>
-  <div class="login-page" :class="{ 'login-page--ssc': isSSCLogin, 'login-page--app-like': isAppLike }">
+  <div class="login-page" :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike }">
     <div v-if="showAppPreviewToggle" class="app-preview-toggle-group" aria-label="Local preview mode">
       <button
         type="button"
@@ -74,46 +74,46 @@
 
         <!-- Summit Stats + club dual-brand split (shown after username verify when we know the club context) -->
         <div
-          v-else-if="isSSCLogin && sscClubBranding && (sscClubBranding.logoUrl || sscClubBranding.name)"
-          class="login-dual-brand login-dual-brand--ssc"
+          v-else-if="isSSTCLogin && sstcClubBranding && (sstcClubBranding.logoUrl || sstcClubBranding.name)"
+          class="login-dual-brand login-dual-brand--sstc"
         >
           <div class="login-dual-brand__col">
             <span class="login-dual-brand__label">Main App</span>
             <img
               v-if="displayLogoUrl"
               :src="displayLogoUrl"
-              :alt="sscTenantDisplayName"
-              class="login-dual-brand__logo login-dual-brand__logo--ssc"
+              :alt="sstcTenantDisplayName"
+              class="login-dual-brand__logo login-dual-brand__logo--sstc"
               @error="handleLogoError"
             />
-            <div v-else class="login-dual-brand__fallback login-dual-brand__fallback--ssc">
-              {{ sscTenantInitials }}
+            <div v-else class="login-dual-brand__fallback login-dual-brand__fallback--sstc">
+              {{ sstcTenantInitials }}
             </div>
-            <div class="login-dual-brand__name">{{ sscTenantDisplayName }}</div>
+            <div class="login-dual-brand__name">{{ sstcTenantDisplayName }}</div>
           </div>
           <div class="login-dual-brand__divider" aria-hidden="true" />
           <div class="login-dual-brand__col">
             <span class="login-dual-brand__label">Your Club</span>
             <img
-              v-if="sscClubBranding.logoUrl"
-              :src="sscClubBranding.logoUrl"
+              v-if="sstcClubBranding.logoUrl"
+              :src="sstcClubBranding.logoUrl"
               alt=""
               class="login-dual-brand__logo login-dual-brand__logo--club"
               @error="handleLogoError"
             />
             <div v-else class="login-dual-brand__fallback login-dual-brand__fallback--club">
-              {{ sscClubInitials }}
+              {{ sstcClubInitials }}
             </div>
-            <div class="login-dual-brand__name">{{ sscClubDisplayName }}</div>
+            <div class="login-dual-brand__name">{{ sstcClubDisplayName }}</div>
           </div>
         </div>
 
         <div v-else-if="!isIpadPreviewMode" class="login-logo">
           <img :src="displayLogoUrl" alt="Logo" class="logo-image" @error="handleLogoError" v-if="displayLogoUrl" />
         </div>
-        <h2 v-if="!isAppLike && !isSSCLogin && loginParentBranding">{{ portalLoginHeadline }}</h2>
-        <h2 v-else-if="!isAppLike && !isSSCLogin">{{ primaryLoginTitle }}</h2>
-        <p v-if="!isAppLike && !isSSCLogin && loginParentBranding" class="subtitle">{{ portalLoginSubtitle }}</p>
+        <h2 v-if="!isAppLike && !isSSTCLogin && loginParentBranding">{{ portalLoginHeadline }}</h2>
+        <h2 v-else-if="!isAppLike && !isSSTCLogin">{{ primaryLoginTitle }}</h2>
+        <p v-if="!isAppLike && !isSSTCLogin && loginParentBranding" class="subtitle">{{ portalLoginSubtitle }}</p>
         <p v-else-if="!isAppLike" class="subtitle">{{ primaryLoginSubtitle }}</p>
         
         <div v-if="error" class="error" v-html="formatError(error)"></div>
@@ -521,7 +521,7 @@ const tryBiometricLogin = async () => {
   const result = await authenticateWithBiometrics('Sign in to Summit Stats');
   if (result.success && result.token) {
     authStore.setAuth(result.token, result.user);
-    const dest = getDashboardRoute(result.user, loginSlug.value || 'ssc');
+    const dest = getDashboardRoute(result.user, loginSlug.value || 'sstc');
     await router.replace(dest);
   } else {
     biometricError.value = result.error && !result.error.includes('cancel')
@@ -632,7 +632,7 @@ const showSignupSuggestion = computed(() => {
 const normalizeSummitTenantSlug = (value) => String(value || '').trim().toLowerCase();
 const isSummitTenantSlug = (value) => {
   const slug = normalizeSummitTenantSlug(value);
-  return slug === 'ssc' || slug === 'sstc' || slug === 'summit-stats';
+  return slug === 'sstc' || slug === 'sstc' || slug === 'summit-stats';
 };
 const buildInitials = (value, fallback = 'SS') => {
   const words = String(value || '')
@@ -646,8 +646,8 @@ const buildInitials = (value, fallback = 'SS') => {
     .join('');
 };
 
-/** Summit Stats tenants (SSC / SSTC / alias): phone number is an accepted login identifier. */
-const isSSCLogin = computed(() => {
+/** Summit Stats tenants (SSTC / SSTC / alias): phone number is an accepted login identifier. */
+const isSSTCLogin = computed(() => {
   return isSummitTenantSlug(loginSlug.value);
 });
 const summitPostLoginDestination = (slug, role) => {
@@ -660,9 +660,9 @@ const summitPostLoginDestination = (slug, role) => {
 const isAppPreviewMode = computed(() => appPreviewMode.value !== 'off');
 const isIpadPreviewMode = computed(() => appPreviewMode.value === 'ipad');
 const isAppLike = computed(() => isAppPreviewMode.value || browserIsStandalone());
-const primaryLoginTitle = computed(() => (isSSCLogin.value ? SUMMIT_STATS_TEAM_CHALLENGE_NAME : displayTitle.value));
+const primaryLoginTitle = computed(() => (isSSTCLogin.value ? SUMMIT_STATS_TEAM_CHALLENGE_NAME : displayTitle.value));
 const primaryLoginSubtitle = computed(() =>
-  isSSCLogin.value ? 'Sign in to continue' : defaultLoginSubtitle.value
+  isSSTCLogin.value ? 'Sign in to continue' : defaultLoginSubtitle.value
 );
 const loginContainerStyle = computed(() => {
   if (isAppLike.value) {
@@ -672,9 +672,9 @@ const loginContainerStyle = computed(() => {
   }
   return { background: loginBackground.value };
 });
-const usernameFieldLabel = computed(() => (isSSCLogin.value ? 'Email, username, or phone number' : 'Username'));
+const usernameFieldLabel = computed(() => (isSSTCLogin.value ? 'Email, username, or phone number' : 'Username'));
 const usernameFieldPlaceholder = computed(() =>
-  isSSCLogin.value ? 'Email, username, or phone (e.g. 555-867-5309)' : 'Enter your username'
+  isSSTCLogin.value ? 'Email, username, or phone (e.g. 555-867-5309)' : 'Enter your username'
 );
 
 // Agency login theme data
@@ -751,16 +751,16 @@ const portalLoginSubtitle = computed(() => {
 const defaultLoginSubtitle = computed(() =>
   isOrgLogin.value && isSchoolPortalOrg.value ? 'Sign in to your School Portal' : 'Sign in to continue'
 );
-const sscTenantDisplayName = computed(() => {
+const sstcTenantDisplayName = computed(() => {
   const themedName = String(loginTheme.value?.agency?.name || '').trim();
   return themedName || SUMMIT_STATS_TEAM_CHALLENGE_NAME;
 });
-const sscTenantInitials = computed(() => buildInitials(sscTenantDisplayName.value, 'SS'));
-const sscClubDisplayName = computed(() => {
-  const name = String(sscClubBranding.value?.name || '').trim();
+const sstcTenantInitials = computed(() => buildInitials(sstcTenantDisplayName.value, 'SS'));
+const sstcClubDisplayName = computed(() => {
+  const name = String(sstcClubBranding.value?.name || '').trim();
   return name || 'Your Club';
 });
-const sscClubInitials = computed(() => buildInitials(sscClubDisplayName.value, 'CL'));
+const sstcClubInitials = computed(() => buildInitials(sstcClubDisplayName.value, 'CL'));
 
 const loginBackground = computed(() => {
   if (isOrgLogin.value && loginTheme.value?.agency?.themeSettings?.loginBackground) {
@@ -1026,7 +1026,7 @@ const orgOptions = ref([]);
 const selectedOrgSlug = ref('');
 const rememberLogin = ref(false);
 const rememberedGoogleLogin = ref(null);
-const sscClubBranding = ref(null); // populated after identify on Summit-family logins when we know the club context
+const sstcClubBranding = ref(null); // populated after identify on Summit-family logins when we know the club context
 const identifiedLoginMethod = ref('password');
 const lastVerifiedUsername = ref('');
 const lastUsernameInputAt = ref(0);
@@ -1182,7 +1182,7 @@ const resetToUsernameStep = () => {
   password.value = '';
   lastErrorCode.value = null;
   lastVerifiedUsername.value = '';
-  sscClubBranding.value = null;
+  sstcClubBranding.value = null;
 };
 
 const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) => {
@@ -1252,7 +1252,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     const isSummitLogin = isSummitTenantSlug(current);
 
     // Summit-family logins stay on the tenant login the user chose.
-    // This prevents /ssc from snapping over to unrelated org portals like /itsco or /rudy.
+    // This prevents /sstc from snapping over to unrelated org portals like /itsco or /rudy.
     if (isSummitLogin) {
       // Skip redirect; fall through to show password (or Google)
     } else if (resolvedSlug) {
@@ -1284,9 +1284,9 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
 
     // Remember username + portal path (works from platform /login and org pages like /itsco/login).
     if (rememberLogin.value && resolvedSlug) {
-      // When we're already on the correct branded login (e.g. /ssc/login), always store the
+      // When we're already on the correct branded login (e.g. /sstc/login), always store the
       // current canonical loginSlug rather than the internal org alias ('summit-stats').
-      // This prevents the partner-hub redirect from building /ssc/summit-stats/login on the
+      // This prevents the partner-hub redirect from building /sstc/summit-stats/login on the
       // next visit and trapping the user in the two-step nested flow.
       const slugToStore = (isSummitLogin && loginSlug.value) ? loginSlug.value : resolvedSlug;
       setRememberedLogin({
@@ -1298,8 +1298,8 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
       clearRememberedLogin();
     }
 
-    // Capture SSC club branding for the dual-brand split panel
-    sscClubBranding.value =
+    // Capture SSTC club branding for the dual-brand split panel
+    sstcClubBranding.value =
       data?.affiliationBranding && (data.affiliationBranding.logoUrl || data.affiliationBranding.name)
         ? data.affiliationBranding
         : null;
@@ -1827,105 +1827,105 @@ const handleLogoError = (event) => {
   max-width: 400px;
 }
 
-.login-page--ssc .login-card {
+.login-page--sstc .login-card {
   background: transparent;
   border: none;
   box-shadow: none;
 }
 
-.login-page--ssc:not(.login-page--app-like) .login-card {
+.login-page--sstc:not(.login-page--app-like) .login-card {
   width: min(92vw, 560px);
   max-width: 560px;
 }
 
-.login-page--ssc .login-logo {
+.login-page--sstc .login-logo {
   margin-bottom: 14px;
 }
 
-.login-page--ssc .login-logo .logo-image {
+.login-page--sstc .login-logo .logo-image {
   height: 176px;
   max-height: 176px;
 }
 
-.login-page--ssc:not(.login-page--app-like) .login-logo .logo-image {
+.login-page--sstc:not(.login-page--app-like) .login-logo .logo-image {
   height: 300px;
   max-height: 300px;
 }
 
-.login-page--ssc .subtitle {
+.login-page--sstc .subtitle {
   color: #0b1f3d;
   margin-bottom: 14px;
   font-weight: 600;
 }
 
-.login-page--ssc:not(.login-page--app-like) .subtitle {
+.login-page--sstc:not(.login-page--app-like) .subtitle {
   font-size: 18px;
   margin-bottom: 18px;
 }
 
-.login-page--ssc .login-form .form-group label {
+.login-page--sstc .login-form .form-group label {
   color: #0f172a;
   font-weight: 700;
 }
 
-.login-page--ssc:not(.login-page--app-like) .login-form .form-group label {
+.login-page--sstc:not(.login-page--app-like) .login-form .form-group label {
   font-size: 14px;
 }
 
-.login-page--ssc .login-form .form-group input,
-.login-page--ssc .login-form .form-group select {
+.login-page--sstc .login-form .form-group input,
+.login-page--sstc .login-form .form-group select {
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid rgba(148, 163, 184, 0.48);
   color: #0f172a;
 }
 
-.login-page--ssc:not(.login-page--app-like) .login-form .form-group input,
-.login-page--ssc:not(.login-page--app-like) .login-form .form-group select {
+.login-page--sstc:not(.login-page--app-like) .login-form .form-group input,
+.login-page--sstc:not(.login-page--app-like) .login-form .form-group select {
   min-height: 58px;
   font-size: 16px;
 }
 
-.login-page--ssc .login-form .form-group input::placeholder,
-.login-page--ssc .login-form .form-group select::placeholder {
+.login-page--sstc .login-form .form-group input::placeholder,
+.login-page--sstc .login-form .form-group select::placeholder {
   color: #64748b;
 }
 
-.login-page--ssc .remember-me {
+.login-page--sstc .remember-me {
   color: #0f172a;
 }
 
-.login-page--ssc:not(.login-page--app-like) .remember-me {
+.login-page--sstc:not(.login-page--app-like) .remember-me {
   font-size: 20px;
 }
 
-.login-page--ssc .btn-primary {
+.login-page--sstc .btn-primary {
   background: linear-gradient(180deg, #67adf0 0%, #3f8fdb 100%);
   border: 1px solid #69b3fc;
   box-shadow: 0 8px 20px rgba(16, 72, 133, 0.2);
 }
 
-.login-page--ssc:not(.login-page--app-like) .btn-primary {
+.login-page--sstc:not(.login-page--app-like) .btn-primary {
   min-height: 60px;
   font-size: 24px;
   font-weight: 700;
 }
 
-.login-page--ssc .help-link,
-.login-page--ssc .help-link-button {
+.login-page--sstc .help-link,
+.login-page--sstc .help-link-button {
   color: #0f172a;
   font-weight: 600;
 }
 
-.login-page--ssc .help-link:hover,
-.login-page--ssc .help-link-button:hover {
+.login-page--sstc .help-link:hover,
+.login-page--sstc .help-link-button:hover {
   color: #0b3a75;
 }
 
-.login-page--ssc .help-separator {
+.login-page--sstc .help-separator {
   color: rgba(15, 23, 42, 0.45);
 }
 
-.login-page--ssc:not(.login-page--app-like) .login-help {
+.login-page--sstc:not(.login-page--app-like) .login-help {
   font-size: 15px;
 }
 
@@ -2144,8 +2144,8 @@ const handleLogoError = (event) => {
   border-radius: 12px;
 }
 
-/* SSC-specific variant: transparent background to blend with the SSC card */
-.login-page--ssc .login-dual-brand--ssc {
+/* SSTC-specific variant: transparent background to blend with the SSTC card */
+.login-page--sstc .login-dual-brand--sstc {
   gap: 6px;
   padding: 12px 12px;
   background:
@@ -2155,7 +2155,7 @@ const handleLogoError = (event) => {
   backdrop-filter: blur(10px);
 }
 
-.login-dual-brand__logo--ssc {
+.login-dual-brand__logo--sstc {
   max-height: 72px !important;
   width: auto;
 }
@@ -2181,7 +2181,7 @@ const handleLogoError = (event) => {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
-.login-dual-brand__fallback--ssc {
+.login-dual-brand__fallback--sstc {
   background: linear-gradient(135deg, rgba(51, 122, 255, 0.16) 0%, rgba(28, 189, 126, 0.18) 100%);
 }
 

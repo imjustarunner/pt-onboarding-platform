@@ -1,5 +1,5 @@
 import pool from '../config/database.js';
-import TwilioService from './twilio.service.js';
+import VonageService from './vonage.service.js';
 import MessageLog from '../models/MessageLog.model.js';
 import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
 

@@ -1,6 +1,6 @@
 /**
  * Video composition — NOT CONFIGURED.
- * Twilio Video has been removed. This stub keeps imports alive without crashing.
+ * Video has been removed. This stub keeps imports alive without crashing.
  */
 
 export async function createComposition() {

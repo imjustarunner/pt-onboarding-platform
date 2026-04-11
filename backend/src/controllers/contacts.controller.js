@@ -204,6 +204,102 @@ export const create = async (req, res, next) => {
   }
 };
 
+export const convertToClient = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const contact = await AgencyContact.findById(id);
+    if (!contact) return res.status(404).json({ error: { message: 'Contact not found' } });
+
+    await assertAgencyAccess(req, contact.agency_id, { requireAdmin: true });
+
+    if (contact.client_id) {
+      return res.status(400).json({
+        error: { message: 'Contact is already linked to a client', client_id: contact.client_id }
+      });
+    }
+
+    const initials = contact.full_name
+      ? contact.full_name
+          .split(' ')
+          .map((n) => n[0])
+          .join('')
+          .toUpperCase()
+          .slice(0, 5)
+      : '??';
+
+    const schoolIds = await AgencyContact.listSchoolIds(id);
+    const providerIds = await AgencyContact.listProviderIds(id);
+
+    const client = await Client.create({
+      agency_id: contact.agency_id,
+      organization_id: schoolIds[0] || null,
+      provider_id: providerIds[0] || null,
+      initials,
+      full_name: contact.full_name,
+      contact_phone: contact.phone,
+      source: 'contact_conversion',
+      created_by_user_id: req.user.id,
+      status: 'ACTIVE_EMPLOYEE' // Default to active for converted contacts
+    });
+
+    await AgencyContact.update(id, { client_id: client.id });
+
+    // Link past messages to the new client
+    await pool.execute('UPDATE message_logs SET client_id = ? WHERE agency_contact_id = ? AND client_id IS NULL', [
+      client.id,
+      id
+    ]);
+
+    res.json(client);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const convertToGuardian = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const contact = await AgencyContact.findById(id);
+    if (!contact) return res.status(404).json({ error: { message: 'Contact not found' } });
+
+    await assertAgencyAccess(req, contact.agency_id, { requireAdmin: true });
+
+    if (!contact.email) {
+      return res.status(400).json({ error: { message: 'Contact must have an email to be converted to a guardian' } });
+    }
+
+    let user = await User.findByEmail(contact.email);
+    if (!user) {
+      const names = (contact.full_name || 'Contact').split(' ');
+      user = await User.create({
+        email: contact.email,
+        firstName: names[0],
+        lastName: names.slice(1).join(' ') || 'Contact',
+        role: 'guardian',
+        status: 'pending',
+        phoneNumber: contact.phone
+      });
+    }
+
+    // If contact is linked to a client, create the ClientGuardian link
+    if (contact.client_id) {
+      const ClientGuardian = (await import('../models/ClientGuardian.model.js')).default;
+      await ClientGuardian.upsertLink({
+        clientId: contact.client_id,
+        guardianUserId: user.id,
+        relationshipType: 'guardian',
+        relationshipTitle: 'Guardian',
+        accessEnabled: true,
+        createdByUserId: req.user.id
+      });
+    }
+
+    res.json(user);
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const update = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);

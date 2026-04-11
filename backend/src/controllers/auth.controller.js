@@ -54,7 +54,7 @@ async function buildPayrollCaps(user) {
 const SSO_EXCLUDED_ROLES = new Set(['school_staff', 'client_guardian', 'client', 'guardian', 'kiosk']);
 const normalizeTenantSlug = (value) => String(value || '').trim().toLowerCase();
 const SUMMIT_TENANT_SLUGS = new Set(
-  ['ssc', 'sstc', 'summit-stats', normalizeTenantSlug(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc')].filter(Boolean)
+  ['sstc', 'sstc', 'summit-stats', normalizeTenantSlug(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'sstc')].filter(Boolean)
 );
 const isSummitTenantSlug = (value) => {
   const slug = normalizeTenantSlug(value);
@@ -503,8 +503,8 @@ export const login = async (req, res, next) => {
     const identifierDigits = identifier.replace(/\D/g, '');
     const looksLikePhone = identifierDigits.length >= 7 && identifierDigits.length <= 15 && !/[@.]/.test(identifier);
 
-    /** True when the login is happening on the Summit Stats Team Challenge tenant (SSC / SSTC / aliases). */
-    const isSSCTenant = isSummitTenantSlug(orgSlug);
+    /** True when the login is happening on the Summit Stats Team Challenge tenant (SSTC / SSTC / aliases). */
+    const isSSTCTenant = isSummitTenantSlug(orgSlug);
 
     let user;
     try {
@@ -514,8 +514,8 @@ export const login = async (req, res, next) => {
       if (!user) {
         user = await User.findByUsername(identifier);
       }
-      // SSC tenant: allow phone number as login identifier
-      if (!user && isSSCTenant && looksLikePhone) {
+      // SSTC tenant: allow phone number as login identifier
+      if (!user && isSSTCTenant && looksLikePhone) {
         user = await User.findByPhone(identifier);
       }
     } catch (dbError) {

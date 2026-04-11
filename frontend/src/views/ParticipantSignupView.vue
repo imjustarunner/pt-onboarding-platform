@@ -10,7 +10,7 @@
       <div class="expectation-card">
         <h2>What happens next</h2>
         <ul>
-          <li>Your account starts as a free SSC member account.</li>
+          <li>Your account starts as a free SSTC member account.</li>
           <li>You can browse clubs, apply to join, and manage your profile right away.</li>
           <li>Most competition features unlock once a club accepts you or you start your own club.</li>
         </ul>

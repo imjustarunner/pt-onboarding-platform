@@ -13,8 +13,8 @@ import ClientGuardian from '../models/ClientGuardian.model.js';
 import ClientGuardianIntakeProfile from '../models/ClientGuardianIntakeProfile.model.js';
 import MessageLog from '../models/MessageLog.model.js';
 import Notification from '../models/Notification.model.js';
-import TwilioNumber from '../models/TwilioNumber.model.js';
-import TwilioOptInState from '../models/TwilioOptInState.model.js';
+import PhoneNumber from '../models/PhoneNumber.model.js';
+import SmsOptInState from '../models/SmsOptInState.model.js';
 import VonageService from '../services/vonage.service.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
@@ -377,12 +377,12 @@ async function resolveAgencySmsSenderNumber(agencyId) {
   const flags = parseFeatureFlags(agency?.feature_flags);
   const preferredNumberId = Number(flags.companyEventsSenderNumberId || 0);
   if (preferredNumberId) {
-    const preferred = await TwilioNumber.findById(preferredNumberId);
+    const preferred = await PhoneNumber.findById(preferredNumberId);
     if (preferred && Number(preferred.agency_id) === aid && preferred.is_active && preferred.status !== 'released') {
       return preferred;
     }
   }
-  const numbers = await TwilioNumber.listByAgency(aid, { includeInactive: false });
+  const numbers = await PhoneNumber.listByAgency(aid, { includeInactive: false });
   return numbers?.[0] || null;
 }
 
@@ -846,7 +846,7 @@ export const sendClientSchoolRoiSigningText = async (req, res, next) => {
     const flags = parseFeatureFlags(agency?.feature_flags);
     const complianceMode = String(flags.smsComplianceMode || 'opt_in_required');
     if (numberId && client?.id) {
-      const optState = await TwilioOptInState.findByClientNumber({ clientId: client.id, numberId });
+      const optState = await SmsOptInState.findByClientNumber({ clientId: client.id, numberId });
       const optStatus = optState?.status || 'pending';
       if (optStatus === 'opted_out') {
         return res.status(403).json({ error: { message: 'Client has opted out of SMS' } });
@@ -886,7 +886,7 @@ export const sendClientSchoolRoiSigningText = async (req, res, next) => {
     try {
       const msg = await VonageService.sendSms({
         to: normalizedPhone,
-        from: TwilioNumber.normalizePhone(fromNumber) || fromNumber,
+        from: PhoneNumber.normalizePhone(fromNumber) || fromNumber,
         body
       });
       const updatedLog = await MessageLog.markSent(outboundLog.id, msg.sid, {
@@ -926,7 +926,7 @@ export const sendClientSchoolRoiSigningText = async (req, res, next) => {
     } catch (sendErr) {
       await MessageLog.markFailed(outboundLog.id, sendErr.message);
       return res.status(502).json({
-        error: { message: 'Failed to send ROI text message via Twilio', details: sendErr.message }
+        error: { message: 'Failed to send ROI text message', details: sendErr.message }
       });
     }
   } catch (error) {

@@ -700,7 +700,7 @@ class SupervisionSession {
     return this.findById(sid);
   }
 
-  static async setTwilioRoom(sessionId, { roomSid, uniqueName }) {
+  static async setVideoRoom(sessionId, { roomSid, uniqueName }) {
     const sid = parseInt(sessionId, 10);
     if (!sid) return null;
     await pool.execute(

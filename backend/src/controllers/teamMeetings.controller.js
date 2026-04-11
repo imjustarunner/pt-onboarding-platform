@@ -8,12 +8,12 @@ import User from '../models/User.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import ProviderScheduleEventArtifact from '../models/ProviderScheduleEventArtifact.model.js';
 import {
-  isTwilioVideoConfigured,
+  isVideoConfigured,
   createOrGetRoomByUniqueName,
   createAccessTokenAsync,
   setHostOnlyRecordingRules,
   setRecordAllRecordingRules
-} from '../services/twilioVideo.service.js';
+} from '../services/video.service.js';
 
 async function canAccessTeamMeeting(req, event) {
   const actorId = Number(req.user?.id || 0);
@@ -79,8 +79,8 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
  */
 export const getTeamMeetingVideoToken = async (req, res, next) => {
   try {
-    if (!isTwilioVideoConfigured()) {
-      return res.status(503).json({ error: { message: 'Twilio Video is not configured' } });
+    if (!isVideoConfigured()) {
+      return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
 
     const eventId = parseInt(req.params.eventId, 10);
@@ -108,7 +108,7 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     }
 
     if (!row.twilio_room_sid) {
-      await ProviderScheduleEvent.setTwilioRoom(eventId, {
+      await ProviderScheduleEvent.setVideoRoom(eventId, {
         roomSid: roomResult.roomSid,
         uniqueName: roomResult.uniqueName
       });
@@ -142,8 +142,8 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
  */
 export const setTeamMeetingRecordingRules = async (req, res, next) => {
   try {
-    if (!isTwilioVideoConfigured()) {
-      return res.status(503).json({ error: { message: 'Twilio Video is not configured' } });
+    if (!isVideoConfigured()) {
+      return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
 
     const eventId = parseInt(req.params.eventId, 10);
@@ -186,7 +186,7 @@ export const setTeamMeetingRecordingRules = async (req, res, next) => {
 };
 
 /**
- * Save client transcript from Twilio real-time transcription.
+ * Save client transcript from real-time transcription.
  */
 export const saveTeamMeetingClientTranscript = async (req, res, next) => {
   try {

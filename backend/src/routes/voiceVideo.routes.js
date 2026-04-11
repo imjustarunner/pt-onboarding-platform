@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   inboundVoiceWebhook,
+  voiceExtensionInputWebhook,
   outboundBridgeWebhook,
   voiceConferenceJoinWebhook,
   voiceDialCompleteWebhook,
@@ -8,15 +9,19 @@ import {
   voiceResumeWebhook,
   voiceTransferDialWebhook,
   voiceVoicemailCompleteWebhook,
+  voiceTranscriptionWebhook,
   voiceSupportNoticeWebhook,
   voiceStatusWebhook
-} from '../controllers/twilioVoice.controller.js';
-import { videoRoomStatusWebhook, videoCompositionStatusWebhook } from '../controllers/twilioVideoWebhook.controller.js';
+} from '../controllers/voice.controller.js';
+import { videoRoomStatusWebhook, videoCompositionStatusWebhook } from '../controllers/videoWebhook.controller.js';
 
 const router = express.Router();
 
-// Voice — provider not configured; all webhooks respond with safe hangup
-router.post('/voice/inbound', inboundVoiceWebhook);
+// Voice — Vonage NCCO handlers
+router.get('/voice/answer', inboundVoiceWebhook);
+router.post('/voice/answer', inboundVoiceWebhook);
+router.post('/voice/event', voiceStatusWebhook);
+router.post('/voice/extension-input', voiceExtensionInputWebhook);
 router.post('/voice/outbound-bridge', outboundBridgeWebhook);
 router.post('/voice/status', voiceStatusWebhook);
 router.post('/voice/dial-complete', voiceDialCompleteWebhook);
@@ -28,6 +33,7 @@ router.get('/voice/transfer-dial', voiceTransferDialWebhook);
 router.post('/voice/transfer-dial', voiceTransferDialWebhook);
 router.post('/voice/support-notice', voiceSupportNoticeWebhook);
 router.post('/voice/voicemail-complete', voiceVoicemailCompleteWebhook);
+router.post('/voice/transcription', voiceTranscriptionWebhook);
 
 // Video — provider not configured; webhooks accept and discard
 router.post('/video/webhook', videoRoomStatusWebhook);

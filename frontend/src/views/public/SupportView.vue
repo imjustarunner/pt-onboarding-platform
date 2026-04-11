@@ -69,7 +69,7 @@ const brandingStore = useBrandingStore();
 
 const defaults = {
   title: 'Support',
-  subtitle: 'Need help with your SSC account, seasons, or workout imports?',
+  subtitle: 'Need help with your SSTC account, seasons, or workout imports?',
   intro: 'Contact our support team and we will help you get back on track.',
   contactEmail: 'support@plottwisthq.com',
   contactPhone: null,

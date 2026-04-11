@@ -1610,7 +1610,7 @@ const isSscSstcTenant = computed(() => {
   const routeSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
   const agencySlug = String(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || '').trim().toLowerCase();
   const slug = routeSlug || agencySlug;
-  return slug === 'ssc' || slug === 'sstc';
+  return slug === 'sstc' || slug === 'sstc';
 });
 const selectedClubId = computed(() => {
   const id = Number(agencyStore.currentAgency?.id || 0);
@@ -2257,7 +2257,7 @@ const fetchUsers = async () => {
         created_at: m.createdAt
       }));
     } else if (isSscSstcTenant.value) {
-      // SSC context but no club ID yet (agency store still hydrating).
+      // SSTC context but no club ID yet (agency store still hydrating).
       // Leave the list empty — the selectedClubId watcher will trigger a re-fetch once it resolves.
       users.value = [];
     } else {

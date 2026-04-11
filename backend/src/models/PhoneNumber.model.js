@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 
-class TwilioNumber {
+class PhoneNumber {
   static normalizePhone(phone) {
     if (!phone) return null;
     const str = String(phone).trim();
@@ -63,4 +63,4 @@ class TwilioNumber {
   }
 }
 
-export default TwilioNumber;
+export default PhoneNumber;

@@ -1,5 +1,5 @@
 /**
- * SSC Member Application Pipeline
+ * SSTC Member Application Pipeline
  * Handles: public-stats, invite-token resolution, application submission,
  * manager review (approve/deny), invite CRUD, and member referral links.
  */
@@ -107,7 +107,7 @@ const resolveClubByPublicRef = async (clubRef) => {
   return resolveClubByPublicSlug(clubRef);
 };
 
-/** Enrollment window for SSC season join UI (open vs deadline passed → request-only). */
+/** Enrollment window for SSTC season join UI (open vs deadline passed → request-only). */
 const computeJoinPhase = (row, now = new Date()) => {
   if (!row) return null;
   const opens = row.enrollment_opens_at ? new Date(row.enrollment_opens_at).getTime() : null;
@@ -175,8 +175,8 @@ const genToken = (len = 32) => crypto.randomBytes(len).toString('hex').slice(0, 
 
 /** Generate a short referral code (8 chars). */
 const genReferralCode = () => crypto.randomBytes(6).toString('base64url').slice(0, 8).toUpperCase();
-const APPLICATION_WAIVER_VERSION = 'ssc_member_participation_waiver_v2';
-const SSC_RECAPTCHA_ACTION = 'ssc_club_application';
+const APPLICATION_WAIVER_VERSION = 'sstc_member_participation_waiver_v2';
+const SSTC_RECAPTCHA_ACTION = 'sstc_club_application';
 const LOCALHOST_TEST_RECAPTCHA_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI';
 
 /** Hash a plain-text password using bcrypt (reuse pattern from auth). */
@@ -265,7 +265,7 @@ const verifySscApplicationCaptcha = async (req) => {
   const verification = await verifyRecaptchaV3({
     token: captchaToken,
     remoteip: getRequestIp(req),
-    expectedAction: SSC_RECAPTCHA_ACTION,
+    expectedAction: SSTC_RECAPTCHA_ACTION,
     userAgent: req.get('user-agent'),
     siteKeyOverride: siteKey || undefined,
     checkboxKey: true
@@ -308,7 +308,7 @@ const getUserEmailVerificationSupport = async () => {
   return userEmailVerificationColumnsPromise;
 };
 
-const issueUserEmailVerification = async ({ userId, email, firstName = '', portalSlug = 'ssc' }) => {
+const issueUserEmailVerification = async ({ userId, email, firstName = '', portalSlug = 'sstc' }) => {
   const support = await getUserEmailVerificationSupport();
   if (!support.hasVerificationToken || !support.hasVerificationTokenExpiresAt) {
     return { required: false, verifyUrl: null, verificationSent: false };
@@ -329,7 +329,7 @@ const issueUserEmailVerification = async ({ userId, email, firstName = '', porta
 
   const frontendUrl = String(config.frontendUrl || process.env.FRONTEND_URL || '').replace(/\/\s*$/, '');
   const backendBase = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || config.frontendUrl || '').replace(/\/\s*$/, '');
-  const slug = String(portalSlug || 'ssc').trim().replace(/[^a-z0-9-]/gi, '') || 'ssc';
+  const slug = String(portalSlug || 'sstc').trim().replace(/[^a-z0-9-]/gi, '') || 'sstc';
   const verifyUrl = `${backendBase}/api/auth/verify-club-manager-email?token=${token}&portalSlug=${slug}&redirect=1`;
 
   if (!EmailService.isConfigured()) {
@@ -387,7 +387,7 @@ const issueUserEmailVerification = async ({ userId, email, firstName = '', porta
     }
     return { required: true, verifyUrl: null, verificationSent: true };
   } catch (error) {
-    console.error('SSC applicant verification email failed:', error?.message || error);
+    console.error('SSTC applicant verification email failed:', error?.message || error);
     return { required: true, verifyUrl, verificationSent: false };
   }
 };
@@ -1111,7 +1111,7 @@ const notifyClubManagersOfPendingMemberApplication = async ({
   for (const userId of recipientIds) {
     try {
       await Notification.create({
-        type: 'ssc_club_member_application_pending',
+        type: 'sstc_club_member_application_pending',
         severity: 'info',
         title,
         message,
@@ -1715,7 +1715,7 @@ export const createInvite = async (req, res, next) => {
 
     const baseUrl = process.env.FRONTEND_URL || process.env.VITE_APP_URL || '';
     // Build join URL using the platform slug  
-    const joinUrl = `${baseUrl}/ssc/join?invite=${token}`;
+    const joinUrl = `${baseUrl}/sstc/join?invite=${token}`;
 
     return res.status(201).json({ ok: true, token, joinUrl });
   } catch (e) { next(e); }
@@ -1743,7 +1743,7 @@ export const listInvites = async (req, res, next) => {
     const baseUrl = process.env.FRONTEND_URL || process.env.VITE_APP_URL || '';
     const invites = (rows || []).map(inv => ({
       ...inv,
-      joinUrl: `${baseUrl}/ssc/join?invite=${inv.token}`
+      joinUrl: `${baseUrl}/sstc/join?invite=${inv.token}`
     }));
 
     return res.json({ invites });
@@ -1810,7 +1810,7 @@ export const getMyReferralLink = async (req, res, next) => {
     }
 
     const baseUrl = process.env.FRONTEND_URL || process.env.VITE_APP_URL || '';
-    const joinUrl = `${baseUrl}/ssc/join?ref=${code}`;
+    const joinUrl = `${baseUrl}/sstc/join?ref=${code}`;
 
     return res.json({
       referralCode: code,
@@ -2965,7 +2965,7 @@ export const putClubMemberProfile = async (req, res, next) => {
     const currentRole = String(target.role || '').toLowerCase();
     const currentClubRole = String(membershipRows?.[0]?.club_role || 'member').trim().toLowerCase();
     const editableCurrentRoles = new Set([
-      // Standard SSC member roles.
+      // Standard SSTC member roles.
       'provider',
       'provider_plus',
       // Legacy/accidental role states that managers may need to normalize.
@@ -2997,7 +2997,7 @@ export const putClubMemberProfile = async (req, res, next) => {
 
     // Club role change — tracked exclusively in user_agencies.club_role.
     // users.role (global system role) is NEVER changed here. A provider at ITSCO who joins
-    // an SSC club is still a provider at ITSCO. An admin who participates in a club is still
+    // an SSTC club is still a provider at ITSCO. An admin who participates in a club is still
     // an admin. Club membership level (member / assistant_manager) is orthogonal to system role.
     let newClubRole = null;
     if (body.role !== undefined) {
@@ -3473,7 +3473,7 @@ export const getMyDashboardSummary = async (req, res, next) => {
 
 /**
  * PUT /summit-stats/me/account-snapshot
- * Self-service — update name, timezone, contact/activity fields shown on the SSC dashboard snapshot.
+ * Self-service — update name, timezone, contact/activity fields shown on the SSTC dashboard snapshot.
  * Persists to `users` and, when present, the latest `challenge_member_applications` row.
  */
 export const putMyAccountSnapshot = async (req, res, next) => {
@@ -3572,7 +3572,7 @@ export const putMyAccountSnapshot = async (req, res, next) => {
               [userId]
             );
           }
-          // Strategy 3: any agency the user belongs to (handles top-level SSC-only managers)
+          // Strategy 3: any agency the user belongs to (handles top-level SSTC-only managers)
           if (!agencyRow?.length) {
             [agencyRow] = await pool.execute(
               `SELECT a.id FROM agencies a

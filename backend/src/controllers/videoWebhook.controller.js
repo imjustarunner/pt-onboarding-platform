@@ -1,6 +1,6 @@
 /**
  * Video webhooks — NOT CONFIGURED.
- * Twilio Video has been removed. These stubs keep existing route registrations intact.
+ * Video has been removed. These stubs keep existing route registrations intact.
  */
 
 export const videoRoomStatusWebhook = (req, res) => {

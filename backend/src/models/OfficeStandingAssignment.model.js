@@ -100,6 +100,7 @@ class OfficeStandingAssignment {
       'available_since_date',
       'last_two_week_confirmed_at',
       'last_six_week_checked_at',
+      'last_forfeit_warning_at',
       'recurrence_group_id',
       'is_active'
     ];

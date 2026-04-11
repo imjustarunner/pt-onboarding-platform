@@ -2,8 +2,8 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 import Agency from '../models/Agency.model.js';
-import TwilioNumber from '../models/TwilioNumber.model.js';
-import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
+import PhoneNumber from '../models/PhoneNumber.model.js';
+import PhoneNumberAssignment from '../models/PhoneNumberAssignment.model.js';
 import UserPreferences from '../models/UserPreferences.model.js';
 
 const pickFirst = (rows) => (rows && rows.length ? rows[0] : null);
@@ -21,13 +21,13 @@ async function userHasAgency(userId, agencyId) {
 
 async function findFallbackAgencyNumber(agencyId) {
   if (!agencyId) return null;
-  const numbers = await TwilioNumber.listByAgency(agencyId, { includeInactive: false });
+  const numbers = await PhoneNumber.listByAgency(agencyId, { includeInactive: false });
   return pickFirst(numbers);
 }
 
 async function findAssignedUserForNumber(numberId) {
   if (!numberId) return null;
-  const assignments = await TwilioNumberAssignment.listByNumberId(numberId);
+  const assignments = await PhoneNumberAssignment.listByNumberId(numberId);
   return pickFirst(assignments);
 }
 
@@ -76,12 +76,12 @@ export async function resolveOutboundNumber({ userId, clientId, requestedNumberI
   if (!userId) return { error: 'user_required' };
 
   if (requestedNumberId) {
-    const number = await TwilioNumber.findById(requestedNumberId);
+    const number = await PhoneNumber.findById(requestedNumberId);
     if (!number || !number.is_active || number.status === 'released') {
       return { error: 'number_unavailable' };
     }
     const assigned = await findAssignedUserForNumber(number.id);
-    const eligibleIds = await TwilioNumberAssignment.listEligibleUserIdsForNumber(number.id);
+    const eligibleIds = await PhoneNumberAssignment.listEligibleUserIdsForNumber(number.id);
     const userInPool = eligibleIds.some((id) => Number(id) === Number(userId));
     if (assigned && Number(assigned.user_id) !== Number(userId) && !userInPool) {
       return { error: 'number_not_assigned' };
@@ -93,17 +93,30 @@ export async function resolveOutboundNumber({ userId, clientId, requestedNumberI
     return { number, assignment: assigned || null, ownerType: assigned || userInPool ? 'staff' : 'agency' };
   }
 
-  const primary = await TwilioNumberAssignment.findPrimaryForUser(userId);
+  const primary = await PhoneNumberAssignment.findPrimaryForUser(userId);
   if (primary?.number_id) {
-    const number = await TwilioNumber.findById(primary.number_id);
+    const number = await PhoneNumber.findById(primary.number_id);
     if (number && number.is_active && number.status !== 'released') {
       return { number, assignment: primary, ownerType: 'staff' };
     }
   }
 
-  // Provider-only model: no agency fallback for client texting/calling.
-  // Each provider must have their own assigned number. Agency numbers are for
-  // company events, after-hours, etc., not for 1:1 client communication.
+  // Healthcare tenant type check: if they have a "Provider and Support Number" configured,
+  // we use that as the fallback for providers who don't have a personal number.
+  if (userId) {
+    const agencyId = await findAgencyIdForUser(userId);
+    const agency = agencyId ? await Agency.findById(agencyId) : null;
+    const orgType = String(agency?.organization_type || '').toLowerCase();
+    
+    if (orgType === 'clinical' || orgType === 'healthcare') {
+      const agencyNumber = await findFallbackAgencyNumber(agencyId);
+      if (agencyNumber) {
+        return { number: agencyNumber, assignment: null, ownerType: 'agency' };
+      }
+    }
+  }
+
+  // Provider-only model: no agency fallback for client texting/calling for other types.
   return { number: null, assignment: null, ownerType: null };
 }
 
@@ -130,7 +143,7 @@ export async function resolveReminderNumber({ providerUserId, clientId = null })
 }
 
 export async function resolveInboundRoute({ toNumber, fromNumber }) {
-  const number = await TwilioNumber.findByPhoneNumber(toNumber);
+  const number = await PhoneNumber.findByPhoneNumber(toNumber);
   let ownerUser = null;
   let assignment = null;
   let ownerType = null;
@@ -139,7 +152,7 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
 
   if (number) {
     // Multi-recipient: check for users with SMS access on this number
-    eligibleUserIds = await TwilioNumberAssignment.listEligibleUserIdsForNumber(number.id);
+    eligibleUserIds = await PhoneNumberAssignment.listEligibleUserIdsForNumber(number.id);
     if (eligibleUserIds.length > 0) {
       ownerUser = await User.findById(eligibleUserIds[0]);
       assignment = await findAssignedUserForNumber(number.id);

@@ -3,7 +3,7 @@
     <div v-if="resolving" class="join-placeholder">Resolving meeting…</div>
     <div v-else-if="error" class="join-error">{{ error }}</div>
     <div v-else-if="token && roomName" class="join-video">
-      <SupervisionTwilioVideoRoom
+      <SupervisionVideoRoom
         :token="token"
         :room-name="roomName"
         :event-id="eventId"
@@ -50,7 +50,7 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
-import SupervisionTwilioVideoRoom from '../../components/supervision/SupervisionTwilioVideoRoom.vue';
+import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
 import api from '../../services/api';
 
 const router = useRouter();

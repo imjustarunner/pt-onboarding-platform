@@ -6,7 +6,7 @@ import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import ContactCommunicationLog from '../models/ContactCommunicationLog.model.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import VonageService from '../services/vonage.service.js';
-import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
+import { resolveOutboundNumber } from '../services/communicationRouting.service.js';
 import { resolveContactsForAudience } from '../services/contactCampaignAudience.service.js';
 
 const DEFAULT_RESPONSE_OPTIONS = [

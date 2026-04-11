@@ -22,16 +22,18 @@ import MessageLog from '../models/MessageLog.model.js';
 import MessageAutoReplyThrottle from '../models/MessageAutoReplyThrottle.model.js';
 import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
 import VonageService from '../services/vonage.service.js';
-import TwilioNumberRule from '../models/TwilioNumberRule.model.js';
-import TwilioOptInState from '../models/TwilioOptInState.model.js';
+import PhoneNumberRule from '../models/PhoneNumberRule.model.js';
+import SmsOptInState from '../models/SmsOptInState.model.js';
 import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
 import Agency from '../models/Agency.model.js';
-import { resolveInboundRoute } from '../services/twilioNumberRouting.service.js';
+import { resolveInboundRoute } from '../services/communicationRouting.service.js';
 import { handleAgencyCampaignInbound } from './agencyCampaigns.controller.js';
 import { handleCompanyEventInbound } from './companyEvents.controller.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import AgencyContact from '../models/AgencyContact.model.js';
 import ContactCommunicationLog from '../models/ContactCommunicationLog.model.js';
+import SmsAutoReplyRuleService from '../services/smsAutoReplyRule.service.js';
+import VacationScheduleSyncService from '../services/vacationScheduleSync.service.js';
 
 async function getAgencyIdForUser(userId) {
   const agencies = await User.getAgencies(userId);
@@ -55,13 +57,13 @@ function parseInboundKeyword(body) {
 
 async function getRuleMessage(numberId, ruleType, fallbackMessage) {
   if (!numberId) return fallbackMessage;
-  const rule = await TwilioNumberRule.getActiveRule(numberId, ruleType);
+  const rule = await PhoneNumberRule.getActiveRule(numberId, ruleType);
   return rule?.auto_reply_text || fallbackMessage;
 }
 
 async function forwardEmergency({ numberId, agencyId, body, fromNumber }) {
   if (!numberId) return;
-  const rule = await TwilioNumberRule.getActiveRule(numberId, 'emergency_forward');
+  const rule = await PhoneNumberRule.getActiveRule(numberId, 'emergency_forward');
   if (!rule || rule.enabled === 0) return;
   const msg = String(body || '').toLowerCase();
   const isEmergency = msg.includes('emergency') || msg.includes('urgent');
@@ -189,13 +191,31 @@ export const inboundSmsWebhook = async (req, res, next) => {
     const agencyId = route.agencyId || (ownerUser ? await getAgencyIdForUser(ownerUser.id) : null);
     const clientId = client?.id || null;
 
+    if (body.trim().toUpperCase() === 'YES' && agencyId && clientId) {
+      const handled = await SmsAutoReplyRuleService.handleYesReply({
+        fromNumber: fromNorm,
+        toNumber: toNorm,
+        agencyId,
+        clientId,
+        userId: ownerUser?.id || assignedUserId
+      });
+      if (handled) {
+        await VonageService.sendSms({
+          to: fromNorm,
+          from: toNorm,
+          body: "Your request has been received. A support representative will be in touch shortly."
+        });
+        return res.status(200).json({ ok: true });
+      }
+    }
+
     const keyword = parseInboundKeyword(body);
     if (numberId && clientId && keyword === 'STOP') {
-      await TwilioOptInState.upsert({ agencyId, clientId, numberId, status: 'opted_out', source: 'client_stop' });
+      await SmsOptInState.upsert({ agencyId, clientId, numberId, status: 'opted_out', source: 'client_stop' });
     } else if (numberId && clientId && keyword === 'START') {
-      await TwilioOptInState.upsert({ agencyId, clientId, numberId, status: 'opted_in', source: 'client_start' });
+      await SmsOptInState.upsert({ agencyId, clientId, numberId, status: 'opted_in', source: 'client_start' });
     } else if (numberId && clientId) {
-      await TwilioOptInState.upsert({ agencyId, clientId, numberId, status: 'opted_in', source: 'inbound_message' });
+      await SmsOptInState.upsert({ agencyId, clientId, numberId, status: 'opted_in', source: 'inbound_message' });
     }
 
     const metadata = { provider: 'vonage', numberId };
@@ -211,7 +231,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
       body: body || (mediaUrls.length > 0 ? '[MMS]' : ''),
       fromNumber: fromNorm,
       toNumber: toNorm,
-      twilioMessageSid: messageId,
+      providerMessageSid: messageId,
       metadata
     });
 
@@ -243,6 +263,33 @@ export const inboundSmsWebhook = async (req, res, next) => {
     const prefs = ownerUser ? await UserPreferences.findByUserId(ownerUser.id) : null;
 
     if (agencyId && ownerUser?.id) {
+      const isOnVacation = await VacationScheduleSyncService.isUserOnVacation(ownerUser.id, agencyId);
+      const settings = await UserCallSettings.getByUserId(ownerUser.id);
+      
+      if (isOnVacation && settings?.voicemail_vacation_message) {
+        // Send immediate vacation auto-reply if they have a message set
+        try {
+          const from = MessageLog.normalizePhone(toNorm) || toNorm;
+          const to = MessageLog.normalizePhone(fromNorm) || fromNorm;
+          const body = settings.voicemail_vacation_message;
+
+          const outboundLog = await MessageLog.createOutbound({
+            agencyId,
+            userId: ownerUser.id,
+            clientId,
+            body,
+            fromNumber: from,
+            toNumber: to,
+            metadata: { vacationReply: true, provider: 'vonage', triggerInboundId: inboundLog?.id }
+          });
+
+          const msg = await VonageService.sendSms({ to, from, body });
+          await MessageLog.markSent(outboundLog.id, msg.sid, { vacationReply: true, provider: 'vonage', status: msg.status });
+        } catch (e) {
+          console.warn('[VonageWebhook] Vacation SMS reply failed:', e.message);
+        }
+      }
+
       const agency = await Agency.findById(agencyId);
       const flags = parseFeatureFlags(agency?.feature_flags);
       const mirrorEnabled = prefs?.sms_support_mirror_enabled === true || prefs?.sms_support_mirror_enabled === 1;
@@ -318,7 +365,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
     }
 
     if (numberId && !keyword) {
-      const forwardRule = await TwilioNumberRule.getActiveRule(numberId, 'forward_inbound');
+      const forwardRule = await PhoneNumberRule.getActiveRule(numberId, 'forward_inbound');
       if (forwardRule && (forwardRule.forward_to_user_id || forwardRule.forward_to_phone)) {
         const forwardBody = buildForwardBody(forwardRule.auto_reply_text, { body, from: fromNorm });
         try {
@@ -391,7 +438,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
 
     const autoReplyEnabled = prefs?.auto_reply_enabled === true || prefs?.auto_reply_enabled === 1;
     const smsEnabled = prefs?.sms_enabled === true || prefs?.sms_enabled === 1;
-    const ruleAutoReply = numberId ? await TwilioNumberRule.getActiveRule(numberId, 'after_hours') : null;
+    const ruleAutoReply = numberId ? await PhoneNumberRule.getActiveRule(numberId, 'after_hours') : null;
     const autoReplyMessage = ruleAutoReply?.auto_reply_text || prefs?.auto_reply_message || null;
 
     if ((autoReplyEnabled || ruleAutoReply) && smsEnabled && autoReplyMessage) {
@@ -447,7 +494,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
       const flags = parseFeatureFlags(agency?.feature_flags);
       const complianceMode = String(flags.smsComplianceMode || 'opt_in_required');
       if (complianceMode === 'opt_in_required' && numberId && clientId) {
-        const optState = await TwilioOptInState.findByClientNumber({ clientId, numberId });
+        const optState = await SmsOptInState.findByClientNumber({ clientId, numberId });
         if (optState?.status === 'opted_out') {
           return res.status(200).json({ ok: true });
         }
@@ -479,7 +526,7 @@ export const deliveryStatusWebhook = async (req, res) => {
         `UPDATE message_logs
          SET delivery_status = ?, updated_at = NOW()
          WHERE JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.sid')) = ?
-            OR twilio_message_sid = ?`,
+            OR provider_message_sid = ?`,
         [normalizedStatus, messageId, messageId]
       );
     }

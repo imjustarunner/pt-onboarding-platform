@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 
-class TwilioNumberAssignment {
+class PhoneNumberAssignment {
   static async listByUserId(userId) {
     const [rows] = await pool.execute(
       `SELECT tna.*, tn.phone_number, tn.agency_id, tn.status, tn.is_active AS number_active
@@ -119,4 +119,4 @@ class TwilioNumberAssignment {
   }
 }
 
-export default TwilioNumberAssignment;
+export default PhoneNumberAssignment;

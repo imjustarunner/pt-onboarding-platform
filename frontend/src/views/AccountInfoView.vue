@@ -49,7 +49,7 @@
         </div>
       </div>
 
-      <!-- Photo Album (SSC self-service) -->
+      <!-- Photo Album (SSTC self-service) -->
       <div v-if="isSsc" class="info-section">
         <div class="section-header">
           <h2 style="margin:0;">My Photos</h2>
@@ -117,7 +117,7 @@
       <div class="info-section">
         <h2>Personal Information</h2>
 
-        <!-- ── SSC: fully editable personal info form ────────────────── -->
+        <!-- ── SSTC: fully editable personal info form ────────────────── -->
         <div v-if="isSsc" class="card compact-card">
           <div class="section-header">
             <h3 style="margin:0;">Your Details</h3>
@@ -196,7 +196,7 @@
           </div>
         </div>
 
-        <!-- ── Non-SSC: existing read-only grid ──────────────────────── -->
+        <!-- ── Non-SSTC: existing read-only grid ──────────────────────── -->
         <div v-else class="info-grid">
           <div class="info-item">
             <label>Login Email:</label>
@@ -276,7 +276,7 @@
           </div>
         </div>
 
-        <!-- ── SSC: Activity Profile (weight / height) ───────────────── -->
+        <!-- ── SSTC: Activity Profile (weight / height) ───────────────── -->
         <div v-if="isSsc" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin:0;">Activity Profile <span style="font-size:12px;font-weight:400;color:var(--text-secondary);">Optional — used for division recognition (Clydesdale, Athena, age categories)</span></h3>
@@ -304,7 +304,7 @@
           </div>
         </div>
 
-        <!-- ── SSC: Club custom field values ────────────────────────── -->
+        <!-- ── SSTC: Club custom field values ────────────────────────── -->
         <div v-if="isSsc && memberCustomFields.length" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin:0;">Club Profile Fields <span style="font-size:12px;font-weight:400;color:var(--text-secondary);">Custom attributes defined by your club</span></h3>
@@ -442,7 +442,7 @@
           </div>
         </div>
 
-        <!-- ── Timezone preference (SSC members) ─────────────────────── -->
+        <!-- ── Timezone preference (SSTC members) ─────────────────────── -->
         <div v-if="isSsc" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">My Timezone</h3>
@@ -470,7 +470,7 @@
           </div>
         </div>
 
-        <!-- ── Invite a Friend / Referral Link (SSC members) ─────────── -->
+        <!-- ── Invite a Friend / Referral Link (SSTC members) ─────────── -->
         <div v-if="isSsc" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">Invite a Friend</h3>
@@ -499,7 +499,7 @@
           </div>
         </div>
 
-        <!-- SSC: preferred name is inside the editable "Your Details" card above -->
+        <!-- SSTC: preferred name is inside the editable "Your Details" card above -->
         <div v-if="!isSsc" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">Preferred Name (display only)</h3>
@@ -919,7 +919,7 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const isClubContext = computed(() => {
   const t = String(agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || '').toLowerCase();
-  return t === 'affiliation';
+  return t === 'affiliation' || t === 'clubwebapp';
 });
 const isSsc = useSummitStatsChallengeChrome();
 const userId = computed(() => authStore.user?.id);
@@ -936,7 +936,7 @@ const profilePhotoUrl = computed(() => {
 const canManageProfilePhoto = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   if (['admin', 'super_admin', 'staff', 'provider_plus'].includes(role)) return true;
-  // SSC members can upload their own profile photo
+  // SSTC members can upload their own profile photo
   return !!isSsc.value;
 });
 const initials = computed(() => {
@@ -1075,7 +1075,7 @@ const preferredNameForm = ref('');
 const savingPreferredName = ref(false);
 const preferredNameError = ref('');
 
-// SSC editable personal info
+// SSTC editable personal info
 const editingPersonalInfo = ref(false);
 const savingPersonalInfo = ref(false);
 const personalInfoError = ref('');
@@ -1172,7 +1172,7 @@ const stravaRolloutDisabled = computed(
 const formatStravaDate = (d) =>
   (d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
-// SSC activity profile (weight / height)
+// SSTC activity profile (weight / height)
 const editingActivityProfile = ref(false);
 const savingActivityProfile = ref(false);
 const activityProfileError = ref('');
@@ -1183,7 +1183,7 @@ const cancelEditActivityProfile = () => {
   activityProfileError.value = '';
 };
 
-// SSC member custom field values
+// SSTC member custom field values
 const memberCustomFields = ref([]);
 const customFieldDraft = ref({});
 const editingCustomFields = ref(false);
@@ -1738,7 +1738,7 @@ const fetchAccountInfo = async () => {
     const response = await api.get(`/users/${userId.value}/account-info`);
     accountInfo.value = response.data;
     preferredNameForm.value = response.data?.preferredName || '';
-    // Seed SSC personal-info form with current values (stays hidden until user clicks Edit)
+    // Seed SSTC personal-info form with current values (stays hidden until user clicks Edit)
     personalInfoForm.value = {
       username: response.data?.username || '',
       phoneNumber: response.data?.phoneNumber || response.data?.personalPhone || '',
@@ -1754,7 +1754,7 @@ const fetchAccountInfo = async () => {
     };
     savedHomeAddressSnapshot.value = { ...homeAddressForm.value };
     editingHomeAddress.value = false;
-    // Load SSC-specific data when applicable
+    // Load SSTC-specific data when applicable
     if (isSsc.value) {
       loadMemberCustomFields().catch(() => {});
       loadPhotoAlbum().catch(() => {});

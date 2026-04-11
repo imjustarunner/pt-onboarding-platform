@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import LearningClassSession from '../models/LearningClassSession.model.js';
 import LearningProgress from '../models/LearningProgress.model.js';
-import { createOrGetRoomByUniqueName, createAccessTokenAsync, isTwilioVideoConfigured } from '../services/twilioVideo.service.js';
+import { createOrGetRoomByUniqueName, createAccessTokenAsync, isVideoConfigured } from '../services/video.service.js';
 import {
   assertLearningClassAccess,
   assertLearningSessionAccess,
@@ -164,8 +164,8 @@ export const startClassSession = async (req, res, next) => {
     const sessionId = asInt(req.params.sessionId);
     const { session, canModerate } = await assertLearningSessionAccess(req, sessionId);
     if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
-    if (!isTwilioVideoConfigured()) {
-      return res.status(503).json({ error: { message: 'Twilio Video is not configured' } });
+    if (!isVideoConfigured()) {
+      return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
     const roomName = session.twilio_room_unique_name || `learning-class-${session.learning_class_id}-session-${session.id}`;
     const room = await createOrGetRoomByUniqueName(roomName);
@@ -208,8 +208,8 @@ export const getClassSessionVideoToken = async (req, res, next) => {
   try {
     const sessionId = asInt(req.params.sessionId);
     const { session, actorRole } = await assertLearningSessionAccess(req, sessionId);
-    if (!isTwilioVideoConfigured()) {
-      return res.status(503).json({ error: { message: 'Twilio Video is not configured' } });
+    if (!isVideoConfigured()) {
+      return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
     const roomName = session.twilio_room_unique_name || `learning-class-${session.learning_class_id}-session-${session.id}`;
     const room = await createOrGetRoomByUniqueName(roomName);

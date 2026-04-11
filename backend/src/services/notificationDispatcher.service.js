@@ -3,9 +3,10 @@ import User from '../models/User.model.js';
 import UserPreferences from '../models/UserPreferences.model.js';
 import * as PushService from './pushNotification.service.js';
 import NotificationGatekeeperService from './notificationGatekeeper.service.js';
-import TwilioService from './twilio.service.js';
+import VonageService from './vonage.service.js';
 import NotificationSmsLog from '../models/NotificationSmsLog.model.js';
 import AgencyNotificationPreferences from '../models/AgencyNotificationPreferences.model.js';
+import MagicLinkService from './magicLink.service.js';
 
 const SMS_CATEGORY_BY_TYPE = {
   inbound_client_message: 'messaging_new_inbound_client_text',
@@ -180,7 +181,18 @@ class NotificationDispatcherService {
     const decision = await NotificationGatekeeperService.decideChannels({ userId, context: decisionContext });
     if (!decision?.sms) return { dispatched: false, reason: 'gatekeeper_sms_false', decision };
 
-    const body = buildSmsBody({ title: notification.title, message: notification.message });
+    let body = buildSmsBody({ title: notification.title, message: notification.message });
+
+    // Append Magic Link for inbound client messages
+    if (notification.type === 'inbound_client_message' || notification.type === 'support_safety_net_alert') {
+      try {
+        const magicLink = await MagicLinkService.generateMagicLink(userId, '/admin/communications');
+        body += `\n\nLogin & Reply: ${magicLink}`;
+      } catch (e) {
+        console.warn('[NotificationDispatcher] Magic link generation failed:', e.message);
+      }
+    }
+
     const log = await NotificationSmsLog.create({
       userId,
       agencyId,
@@ -197,8 +209,8 @@ class NotificationDispatcherService {
         from: User.normalizePhone(from) || from,
         body
       });
-      await NotificationSmsLog.updateStatus(log.id, { status: 'sent', twilioSid: msg.sid, errorMessage: null });
-      return { dispatched: true, channel: 'sms', sid: msg.sid, decision };
+      await NotificationSmsLog.updateStatus(log.id, { status: 'sent', providerRef: msg.sid, errorMessage: null });
+      return { dispatched: true, channel: 'sms', providerRef: msg.sid, decision };
     } catch (e) {
       await NotificationSmsLog.updateStatus(log.id, { status: 'failed', errorMessage: e.message });
       return { dispatched: false, reason: 'send_failed', error: e.message, decision };

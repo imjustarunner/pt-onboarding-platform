@@ -285,7 +285,11 @@ export const setBookingPlan = async (req, res, next) => {
 
     // When booking, availability is still considered assigned_available unless temporarily set;
     // the materializer will mark occurrences as booked.
-    await OfficeStandingAssignment.update(sid, { last_two_week_confirmed_at: new Date() });
+    // Clear last_forfeit_warning_at so the warning clock resets now that a booking plan exists.
+    await OfficeStandingAssignment.update(sid, {
+      last_two_week_confirmed_at: new Date(),
+      last_forfeit_warning_at: null
+    });
 
     // Also mark the selected occurrence booked immediately so UI reflects assigned_booked now.
     // If no concrete event exists yet for that date/hour, booking-plan still remains active.
@@ -376,11 +380,13 @@ export const keepAvailable = async (req, res, next) => {
     }
 
     // Keeping available clears any temporary mode and keeps booking plan inactive unless user books later.
+    // Clear last_forfeit_warning_at so the 14-day warning clock resets.
     await OfficeStandingAssignment.update(sid, {
       availability_mode: 'AVAILABLE',
       temporary_until_date: null,
       available_since_date: assignment.available_since_date || new Date().toISOString().slice(0, 10),
-      last_two_week_confirmed_at: new Date()
+      last_two_week_confirmed_at: new Date(),
+      last_forfeit_warning_at: null
     });
     res.json({ ok: true });
   } catch (e) {
@@ -459,10 +465,12 @@ export const extendTemporary = async (req, res, next) => {
     until.setDate(until.getDate() + 6 * 7);
     const untilDate = until.toISOString().slice(0, 10);
 
+    // Clear last_forfeit_warning_at — extending resets the warning clock.
     await OfficeStandingAssignment.update(sid, {
       temporary_until_date: untilDate,
       temporary_extension_count: extCount + 1,
-      last_two_week_confirmed_at: new Date()
+      last_two_week_confirmed_at: new Date(),
+      last_forfeit_warning_at: null
     });
     res.json({ ok: true, temporaryUntilDate: untilDate, extensionCount: extCount + 1 });
   } catch (e) {
@@ -500,7 +508,7 @@ export const forfeitAssignment = async (req, res, next) => {
     }
 
     await OfficeBookingPlan.deactivateByAssignmentId(sid);
-    await OfficeStandingAssignment.update(sid, { is_active: false });
+    await OfficeStandingAssignment.update(sid, { is_active: false, last_forfeit_warning_at: null });
     res.json({ ok: true, scope: 'future' });
   } catch (e) {
     next(e);

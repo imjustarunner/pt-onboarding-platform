@@ -78,14 +78,14 @@ onMounted(async () => {
         // visiting Club Settings.
         const a = agencyStore.currentAgency;
         const orgType = String(a?.organization_type || '').toLowerCase();
-        if (orgType === 'affiliation' && a?.id) {
+        if ((orgType === 'affiliation' || orgType === 'clubwebapp') && a?.id) {
           try {
             const cp = typeof a.color_palette === 'string'
               ? JSON.parse(a.color_palette || '{}')
               : (a.color_palette || {});
             if (cp && (cp.fontFamily || cp.primary)) {
               const parentTenantId = Number(a.affiliated_agency_id || 0) || null;
-              const fontBrandingAgencyId = parentTenantId || a.id;
+              const fontBrandingAgencyId = (orgType === 'affiliation' || orgType === 'clubwebapp') && parentTenantId ? parentTenantId : a.id;
               brandingStore.applyTheme({
                 colorPalette: cp,
                 themeSettings: typeof a.theme_settings === 'string'
@@ -129,14 +129,14 @@ watch(
       // Same affiliation-club direct-apply fallback as in onMounted.
       const a = agencyStore.currentAgency;
       const orgType = String(a?.organization_type || '').toLowerCase();
-      if (orgType === 'affiliation' && a?.id) {
+      if ((orgType === 'affiliation' || orgType === 'clubwebapp') && a?.id) {
         try {
           const cp = typeof a.color_palette === 'string'
             ? JSON.parse(a.color_palette || '{}')
             : (a.color_palette || {});
           if (cp && (cp.fontFamily || cp.primary)) {
             const parentTenantId = Number(a.affiliated_agency_id || 0) || null;
-            const fontBrandingAgencyId = parentTenantId || a.id;
+            const fontBrandingAgencyId = (orgType === 'affiliation' || orgType === 'clubwebapp') && parentTenantId ? parentTenantId : a.id;
             brandingStore.applyTheme({
               colorPalette: cp,
               themeSettings: typeof a.theme_settings === 'string'

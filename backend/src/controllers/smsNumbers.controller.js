@@ -2,13 +2,13 @@ import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
-import TwilioNumber from '../models/TwilioNumber.model.js';
-import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
-import TwilioNumberRule from '../models/TwilioNumberRule.model.js';
-import TwilioOptInState from '../models/TwilioOptInState.model.js';
+import PhoneNumber from '../models/PhoneNumber.model.js';
+import PhoneNumberAssignment from '../models/PhoneNumberAssignment.model.js';
+import PhoneNumberRule from '../models/PhoneNumberRule.model.js';
+import SmsOptInState from '../models/SmsOptInState.model.js';
 import VonageService from '../services/vonage.service.js';
-import { resolveOutboundNumber, resolveReminderNumber } from '../services/twilioNumberRouting.service.js';
-import { getTwilioUsage, checkUsageThresholds } from '../services/twilioUsageMonitoring.service.js';
+import { resolveOutboundNumber, resolveReminderNumber } from '../services/communicationRouting.service.js';
+import { getProviderUsage, checkUsageThresholds } from '../services/usageMonitoring.service.js';
 
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
@@ -26,7 +26,7 @@ const normalizeUrl = (value) => {
 };
 
 async function assertNumberAccess(req, numberId, { requireAdmin = false } = {}) {
-  const number = await TwilioNumber.findById(numberId);
+  const number = await PhoneNumber.findById(numberId);
   if (!number) {
     const err = new Error('Number not found');
     err.status = 404;
@@ -51,14 +51,14 @@ async function assertNumberAccess(req, numberId, { requireAdmin = false } = {}) 
   return number;
 }
 
-export const getAgencyTwilioUsage = async (req, res, next) => {
+export const getAgencySmsUsage = async (req, res, next) => {
   try {
     const agencyId = parseInt(req.params.agencyId, 10);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
     const agency = await Agency.findById(agencyId);
     if (!agency) return res.status(404).json({ error: { message: 'Agency not found' } });
     const { periodStart, periodEnd } = req.query || {};
-    const usage = await getTwilioUsage(agencyId, { periodStart, periodEnd });
+    const usage = await getProviderUsage(agencyId, { periodStart, periodEnd });
     const thresholds = await checkUsageThresholds(agencyId, usage);
     res.json({ agencyId, usage, thresholds });
   } catch (e) {
@@ -89,7 +89,9 @@ export const getAgencySmsSettings = async (req, res, next) => {
       voiceProviderPreConnectMessage: flags.voiceProviderPreConnectMessage || null,
       voiceSupportPreConnectMessage: flags.voiceSupportPreConnectMessage || null,
       smsSupportFallbackPhone: flags.smsSupportFallbackPhone || null,
-      smsSupportEscalationHours: Number(flags.smsSupportEscalationHours || 12) || 12
+      smsSupportEscalationHours: Number(flags.smsSupportEscalationHours || 12) || 12,
+      smsUnansweredAutoReplyMinutes: Number(flags.smsUnansweredAutoReplyMinutes || 0) || 0,
+      smsUnansweredAutoReplyMessage: flags.smsUnansweredAutoReplyMessage || null
     });
   } catch (e) {
     next(e);
@@ -116,7 +118,9 @@ export const updateAgencySmsSettings = async (req, res, next) => {
       voiceProviderPreConnectMessage,
       voiceSupportPreConnectMessage,
       smsSupportFallbackPhone,
-      smsSupportEscalationHours
+      smsSupportEscalationHours,
+      smsUnansweredAutoReplyMinutes,
+      smsUnansweredAutoReplyMessage
     } = req.body || {};
     if (smsNumbersEnabled != null) flags.smsNumbersEnabled = !!smsNumbersEnabled;
     if (smsComplianceMode) flags.smsComplianceMode = String(smsComplianceMode);
@@ -126,7 +130,7 @@ export const updateAgencySmsSettings = async (req, res, next) => {
     if (companyEventsSenderNumberId !== undefined) {
       const parsedNumberId = companyEventsSenderNumberId ? Number(companyEventsSenderNumberId) : null;
       if (parsedNumberId) {
-        const number = await TwilioNumber.findById(parsedNumberId);
+        const number = await PhoneNumber.findById(parsedNumberId);
         if (!number || Number(number.agency_id) !== Number(agencyId)) {
           return res.status(400).json({ error: { message: 'companyEventsSenderNumberId is invalid for this agency' } });
         }
@@ -165,6 +169,13 @@ export const updateAgencySmsSettings = async (req, res, next) => {
       const n = parseInt(smsSupportEscalationHours, 10);
       flags.smsSupportEscalationHours = Number.isFinite(n) ? Math.min(Math.max(n, 1), 168) : 12;
     }
+    if (smsUnansweredAutoReplyMinutes !== undefined) {
+      const n = parseInt(smsUnansweredAutoReplyMinutes, 10);
+      flags.smsUnansweredAutoReplyMinutes = Number.isFinite(n) ? Math.max(n, 0) : 0;
+    }
+    if (smsUnansweredAutoReplyMessage !== undefined) {
+      flags.smsUnansweredAutoReplyMessage = smsUnansweredAutoReplyMessage ? String(smsUnansweredAutoReplyMessage).trim() : null;
+    }
 
     await pool.execute('UPDATE agencies SET feature_flags = ? WHERE id = ?', [JSON.stringify(flags), agencyId]);
     res.json({
@@ -183,7 +194,9 @@ export const updateAgencySmsSettings = async (req, res, next) => {
       voiceProviderPreConnectMessage: flags.voiceProviderPreConnectMessage || null,
       voiceSupportPreConnectMessage: flags.voiceSupportPreConnectMessage || null,
       smsSupportFallbackPhone: flags.smsSupportFallbackPhone || null,
-      smsSupportEscalationHours: Number(flags.smsSupportEscalationHours || 12) || 12
+      smsSupportEscalationHours: Number(flags.smsSupportEscalationHours || 12) || 12,
+      smsUnansweredAutoReplyMinutes: Number(flags.smsUnansweredAutoReplyMinutes || 0) || 0,
+      smsUnansweredAutoReplyMessage: flags.smsUnansweredAutoReplyMessage || null
     });
   } catch (e) {
     next(e);
@@ -194,10 +207,10 @@ export const listAgencyNumbers = async (req, res, next) => {
   try {
     const agencyId = parseInt(req.params.agencyId, 10);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
-    const numbers = await TwilioNumber.listByAgency(agencyId, { includeInactive: true });
+    const numbers = await PhoneNumber.listByAgency(agencyId, { includeInactive: true });
     const withAssignments = await Promise.all(
       numbers.map(async (n) => {
-        const assignments = await TwilioNumberAssignment.listByNumberId(n.id);
+        const assignments = await PhoneNumberAssignment.listByNumberId(n.id);
         return { ...n, assignments };
       })
     );
@@ -231,7 +244,7 @@ export const purchaseNumber = async (req, res, next) => {
 
     const smsUrl = process.env.VONAGE_SMS_WEBHOOK_URL || null;
     const purchased = await VonageService.purchaseNumber({ phoneNumber, friendlyName, smsUrl });
-    const record = await TwilioNumber.create({
+    const record = await PhoneNumber.create({
       agencyId,
       phoneNumber: purchased.phoneNumber || phoneNumber,
       twilioSid: purchased.sid || null, // stores Vonage msisdn for API reference
@@ -251,7 +264,7 @@ export const addManualNumber = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
     const { phoneNumber, friendlyName } = req.body || {};
     if (!phoneNumber) return res.status(400).json({ error: { message: 'phoneNumber is required' } });
-    const record = await TwilioNumber.create({ agencyId, phoneNumber, friendlyName, status: 'active' });
+    const record = await PhoneNumber.create({ agencyId, phoneNumber, friendlyName, status: 'active' });
     res.status(201).json(record);
   } catch (e) {
     next(e);
@@ -266,7 +279,7 @@ export const releaseNumber = async (req, res, next) => {
     if (number.twilio_sid) {
       await VonageService.releaseNumber({ incomingPhoneNumberSid: number.twilio_sid });
     }
-    const updated = await TwilioNumber.markReleased(numberId);
+    const updated = await PhoneNumber.markReleased(numberId);
     res.json(updated);
   } catch (e) {
     next(e);
@@ -285,13 +298,13 @@ export const assignNumber = async (req, res, next) => {
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
 
     const assignment = addToPool
-      ? await TwilioNumberAssignment.addToPool({
+      ? await PhoneNumberAssignment.addToPool({
           numberId: numId,
           userId: uid,
           smsAccessEnabled: true,
           isPrimary: isPrimary === true
         })
-      : await TwilioNumberAssignment.assign({
+      : await PhoneNumberAssignment.assign({
           numberId: numId,
           userId: uid,
           isPrimary: isPrimary !== false,
@@ -312,7 +325,7 @@ export const setSmsAccess = async (req, res, next) => {
     if (typeof enabled !== 'boolean') return res.status(400).json({ error: { message: 'enabled must be a boolean' } });
 
     await assertNumberAccess(req, numId, { requireAdmin: true });
-    const assignment = await TwilioNumberAssignment.setSmsAccess({ numberId: numId, userId: uid, enabled });
+    const assignment = await PhoneNumberAssignment.setSmsAccess({ numberId: numId, userId: uid, enabled });
     res.json({ assignment });
   } catch (e) {
     next(e);
@@ -326,7 +339,7 @@ export const unassignNumber = async (req, res, next) => {
     const uid = parseInt(userId, 10);
     if (!numId || !uid) return res.status(400).json({ error: { message: 'numberId and userId are required' } });
     await assertNumberAccess(req, numId, { requireAdmin: true });
-    await TwilioNumberAssignment.unassign({ numberId: numId, userId: uid });
+    await PhoneNumberAssignment.unassign({ numberId: numId, userId: uid });
     res.json({ ok: true });
   } catch (e) {
     next(e);
@@ -344,7 +357,7 @@ export const listUserAssignedNumbers = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
-    const assignments = await TwilioNumberAssignment.listByUserId(targetUserId);
+    const assignments = await PhoneNumberAssignment.listByUserId(targetUserId);
     const numbers = assignments.map((a) => ({
       id: a.number_id,
       phone_number: a.phone_number,
@@ -361,7 +374,7 @@ export const listUserAvailableNumbers = async (req, res, next) => {
   try {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
-    const assignments = await TwilioNumberAssignment.listByUserId(userId);
+    const assignments = await PhoneNumberAssignment.listByUserId(userId);
 
     // Provider-only model: no agency numbers for client texting. Each provider/staff
     // must have their own assigned number. Agency numbers are for company events,
@@ -386,7 +399,7 @@ export const getNumberRules = async (req, res, next) => {
     const numberId = parseInt(req.params.numberId, 10);
     if (!numberId) return res.status(400).json({ error: { message: 'Invalid numberId' } });
     await assertNumberAccess(req, numberId, { requireAdmin: false });
-    const rules = await TwilioNumberRule.listByNumberId(numberId);
+    const rules = await PhoneNumberRule.listByNumberId(numberId);
     res.json(rules);
   } catch (e) {
     next(e);
@@ -403,7 +416,7 @@ export const upsertNumberRules = async (req, res, next) => {
     const updated = [];
     for (const r of rules) {
       if (!r?.rule_type) continue;
-      const rule = await TwilioNumberRule.upsert({
+      const rule = await PhoneNumberRule.upsert({
         numberId,
         ruleType: r.rule_type,
         scheduleJson: r.schedule_json || null,
@@ -467,15 +480,15 @@ export const getClientConsentStates = async (req, res, next) => {
     if (!ok && req.user?.role !== 'super_admin') return res.status(403).json({ error: { message: 'Access denied' } });
 
     // Provider-only model: return consent only for numbers the user is assigned to.
-    const assignments = await TwilioNumberAssignment.listByUserId(req.user?.id);
+    const assignments = await PhoneNumberAssignment.listByUserId(req.user?.id);
     const assignedNumberIds = new Set((assignments || []).map((a) => Number(a.number_id)).filter(Boolean));
-    const allNumbers = await TwilioNumber.listByAgency(client.agency_id, { includeInactive: false });
+    const allNumbers = await PhoneNumber.listByAgency(client.agency_id, { includeInactive: false });
     const numbers =
       assignedNumberIds.size > 0 ? (allNumbers || []).filter((n) => assignedNumberIds.has(Number(n.id))) : [];
 
     const states = [];
     for (const n of numbers || []) {
-      const state = await TwilioOptInState.findByClientNumber({ clientId, numberId: n.id });
+      const state = await SmsOptInState.findByClientNumber({ clientId, numberId: n.id });
       states.push({
         numberId: n.id,
         phoneNumber: n.phone_number,
@@ -507,7 +520,7 @@ export const updateClientConsentState = async (req, res, next) => {
     }
     const client = await Client.findById(clientId, { includeSensitive: false });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
-    const number = await TwilioNumber.findById(numberId);
+    const number = await PhoneNumber.findById(numberId);
     if (!number || Number(number.agency_id) !== Number(client.agency_id)) {
       return res.status(400).json({ error: { message: 'Selected number is invalid for this client agency' } });
     }
@@ -519,14 +532,14 @@ export const updateClientConsentState = async (req, res, next) => {
     const role = String(req.user?.role || '').toLowerCase();
     const isAdmin = ['admin', 'support', 'super_admin', 'clinical_practice_assistant'].includes(role);
     if (!isAdmin) {
-      const assignments = await TwilioNumberAssignment.listByUserId(req.user?.id);
+      const assignments = await PhoneNumberAssignment.listByUserId(req.user?.id);
       const assignedIds = new Set((assignments || []).map((a) => Number(a.number_id)));
       if (!assignedIds.has(Number(numberId))) {
         return res.status(403).json({ error: { message: 'You can only update consent for numbers assigned to you' } });
       }
     }
 
-    const updated = await TwilioOptInState.upsert({
+    const updated = await SmsOptInState.upsert({
       agencyId: client.agency_id,
       clientId,
       numberId,
@@ -547,7 +560,7 @@ export const getAgencyWebhookStatus = async (req, res, next) => {
     const expectedSmsUrl = normalizeUrl(process.env.VONAGE_SMS_WEBHOOK_URL);
     const expectedSmsConfigured = Boolean(expectedSmsUrl);
 
-    const numbers = await TwilioNumber.listByAgency(agencyId, { includeInactive: true });
+    const numbers = await PhoneNumber.listByAgency(agencyId, { includeInactive: true });
     const statuses = await Promise.all(
       (numbers || []).map(async (n) => {
         if (!n?.twilio_sid) {
@@ -611,7 +624,7 @@ export const syncAgencyWebhooks = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'No webhook URL configured. Set VONAGE_SMS_WEBHOOK_URL.' } });
     }
 
-    const numbers = await TwilioNumber.listByAgency(agencyId, { includeInactive: true });
+    const numbers = await PhoneNumber.listByAgency(agencyId, { includeInactive: true });
     const results = [];
     for (const n of numbers || []) {
       if (!n?.twilio_sid) {

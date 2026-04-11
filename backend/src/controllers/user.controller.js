@@ -3446,10 +3446,11 @@ export const getUserScheduleSummary = async (req, res, next) => {
     let supervisionSessions = [];
     const supervisionGoogleEventIds = new Set();
     let supervisionJoinUrlBase = null;
+    let isVideoConfigured = false;
     try {
-      const { isTwilioVideoConfigured } = await import('../services/twilioVideo.service.js');
+      const { isVideoConfigured: videoOk } = await import('../services/video.service.js');
       const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-      if (isTwilioVideoConfigured() && frontendUrl) {
+      if (videoOk() && frontendUrl) {
         supervisionJoinUrlBase = frontendUrl;
       }
     } catch {
@@ -3516,10 +3517,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
       });
       const actorId = Number(req.user?.id || 0);
       const canSeePrivateTitle = actorId === Number(providerId);
-      let isTwilioVideoConfigured = false;
+      let isVideoConfigured = false;
       try {
-        const { isTwilioVideoConfigured: twilioOk } = await import('../services/twilioVideo.service.js');
-        isTwilioVideoConfigured = twilioOk();
+        const { isVideoConfigured: videoOk } = await import('../services/video.service.js');
+        isVideoConfigured = videoOk();
       } catch {
         // ignore
       }
@@ -3536,7 +3537,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const startAtOut = isAllDay ? null : (toIsoUtcForSchedule(r.start_at) || toMysqlDateTimeWall(r.start_at) || r.start_at || null);
         const endAtOut = isAllDay ? null : (toIsoUtcForSchedule(r.end_at) || toMysqlDateTimeWall(r.end_at) || r.end_at || null);
         const kind = String(r.kind || '').trim().toUpperCase() || 'PERSONAL_EVENT';
-        const appJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isTwilioVideoConfigured && frontendUrl)
+        const appJoinUrl = ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && isVideoConfigured && frontendUrl)
           ? `${frontendUrl}/join/team-meeting/${Number(r.id || 0)}`
           : null;
         return {
@@ -3819,10 +3820,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
       }
     }
 
-    let twilioVideoConfigured = false;
+    let videoConfigured = false;
     try {
-      const { isTwilioVideoConfigured } = await import('../services/twilioVideo.service.js');
-      twilioVideoConfigured = isTwilioVideoConfigured();
+      const { isVideoConfigured: videoOk } = await import('../services/video.service.js');
+      videoConfigured = videoOk();
     } catch {
       // ignore
     }
@@ -3842,7 +3843,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       supervisionSessions,
       scheduleEvents,
       externalCalendarsAvailable,
-      twilioVideoConfigured,
+      videoConfigured,
       ...(externalCalendarIds.length ? { externalCalendars } : {}),
       ...(includeGoogleBusy ? { googleBusy, googleBusyError } : {}),
       ...(includeGoogleEvents ? { googleEvents, googleEventsError } : {}),
@@ -4062,9 +4063,9 @@ export const createUserScheduleEvent = async (req, res, next) => {
         await ProviderScheduleEventAttendee.upsertForEvent(saved.id, attendeeUserIds);
       }
       if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && result?.eventId) {
-        const { isTwilioVideoConfigured } = await import('../services/twilioVideo.service.js');
+        const { isVideoConfigured } = await import('../services/video.service.js');
         const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-        if (isTwilioVideoConfigured() && frontendUrl) {
+        if (isVideoConfigured() && frontendUrl) {
           const appJoinUrl = `${frontendUrl}/join/team-meeting/${saved.id}`;
           await GoogleCalendarService.appendToEventDescription({
             subjectEmail,

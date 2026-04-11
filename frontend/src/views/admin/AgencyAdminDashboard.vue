@@ -33,7 +33,7 @@
       </div>
     </div>
     
-    <!-- Summit Stats club managers only (ssc slug): create/manage club as main interface -->
+    <!-- Summit Stats club managers only (sstc slug): create/manage club as main interface -->
     <div v-if="clubContextLoading && isSscAdminRoute" class="loading">Loading…</div>
     <div v-else-if="isSscAdminRoute && clubContext?.summitStatsScopedAdmin && !(clubContext.clubs?.length)" class="create-club-section">
       <div v-if="!clubContext?.emailVerified" class="create-club-card create-club-verify">
@@ -252,7 +252,7 @@ const ticketsLink = computed(() => {
 });
 const currentAgency = computed(() => agencyStore.currentAgency);
 
-// Summit platform org slug (ssc / sstc / summit-stats / env) — same as club-manager dashboard route
+// Summit platform org slug (sstc / sstc / summit-stats / env) — same as club-manager dashboard route
 const isSscAdminRoute = computed(() => isSummitPlatformRouteSlug(route.params?.organizationSlug));
 // Summit Stats club context: use "Club" terminology instead of "Agency"
 const isSummitStatsContext = computed(() => {
@@ -332,7 +332,7 @@ const loadClubManagerContext = async () => {
     clubContext.value = r.data || null;
 
     // Club already exists: the dashboard will skip the create-club form (clubs.length > 0 guard).
-    // No redirect needed — club managers stay at /ssc/admin regardless of which club they own.
+    // No redirect needed — club managers stay at /sstc/admin regardless of which club they own.
   } catch {
     clubContext.value = null;
   } finally {
@@ -357,7 +357,7 @@ const applyClubTargetAgency = async (target) => {
 };
 
 /**
- * Club managers often still have the SSC platform org as persisted currentAgency (localStorage).
+ * Club managers often still have the SSTC platform org as persisted currentAgency (localStorage).
  * Panels (applications, club specs) need the affiliation id — not the platform tenant.
  * Supports `?club=<id>` for multi-club switching and bookmarkable links.
  */
@@ -620,7 +620,7 @@ const fetchStats = async () => {
       activeUsers: (usersRes.data || []).filter((u) => String(u?.status || '').toUpperCase() === 'ACTIVE_EMPLOYEE').length
     };
 
-    // For SSC club context: fetch active/dormant member counts
+    // For SSTC club context: fetch active/dormant member counts
     if (isClub && currentAgency.value?.id) {
       try {
         const msRes = await api.get(`/summit-stats/clubs/${currentAgency.value.id}/member-stats`);
@@ -1181,7 +1181,7 @@ onMounted(async () => {
   }
   // Ensure currentAgency is set/hydrated for non-super-admins; Quick Action icon overrides depend on it.
   await agencyStore.fetchUserAgencies();
-  // Summit Stats club managers only (ssc/sstc): load context for create-club flow
+  // Summit Stats club managers only (sstc/sstc): load context for create-club flow
   if (isSscAdminRoute.value) {
     await loadClubManagerContext();
     await syncClubManagerAffiliationContext();

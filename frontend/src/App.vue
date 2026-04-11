@@ -64,11 +64,11 @@
                 </div>
               </div>
               <h1 v-if="navTitleText" class="nav-title">{{ navTitleText }}</h1>
-              <span v-if="isSummitStatsChallengeChrome" class="ssc-nav-brand-label">{{ summitTeamBrandLabel }}</span>
+              <span v-if="isSummitStatsChallengeChrome" class="sstc-nav-brand-label">{{ summitTeamBrandLabel }}</span>
             </div>
             <div class="nav-links-wrapper" :class="{ 'nav-menus-open': navDropdownOpen }">
               <div class="nav-links">
-              <!-- SSC Summit: primary nav order (matches mobile sidebar) -->
+              <!-- SSTC Summit: primary nav order (matches mobile sidebar) -->
               <template v-if="isSummitStatsChallengeChrome && isAuthenticated && isSscClubManager">
                 <router-link :to="myAccountNavTo" @click="closeMobileMenu">My Account</router-link>
                 <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }">
@@ -80,11 +80,11 @@
                   @click="closeMobileMenu"
                 >{{ myClubPublicNav.label }}</router-link>
                 <router-link
-                  v-if="sscActiveSeasonNav"
-                  :to="sscActiveSeasonNav.to"
+                  v-if="sstcActiveSeasonNav"
+                  :to="sstcActiveSeasonNav.to"
                   class="nav-active-season-link"
                   @click="closeMobileMenu"
-                >{{ sscActiveSeasonNav.label }}</router-link>
+                >{{ sstcActiveSeasonNav.label }}</router-link>
                 <div class="nav-dropdown" @click.stop>
                   <button
                     type="button"
@@ -117,18 +117,18 @@
                   My Dashboard
                 </router-link>
                 <router-link
-                  v-if="sscMemberMyClubNav"
-                  :to="sscMemberMyClubNav.to"
+                  v-if="sstcMemberMyClubNav"
+                  :to="sstcMemberMyClubNav.to"
                   @click="closeMobileMenu"
-                >{{ sscMemberMyClubNav.label }}</router-link>
+                >{{ sstcMemberMyClubNav.label }}</router-link>
                 <router-link
-                  v-if="sscActiveSeasonNav"
-                  :to="sscActiveSeasonNav.to"
+                  v-if="sstcActiveSeasonNav"
+                  :to="sstcActiveSeasonNav.to"
                   class="nav-active-season-link"
                   @click="closeMobileMenu"
-                >{{ sscActiveSeasonNav.label }}</router-link>
+                >{{ sstcActiveSeasonNav.label }}</router-link>
                 <router-link
-                  v-if="sscMemberShowClubEvents"
+                  v-if="sstcMemberShowClubEvents"
                   :to="orgTo('/admin/company-events')"
                   @click="closeMobileMenu"
                 >Club Events</router-link>
@@ -617,11 +617,11 @@
           </div>
         </div>
       </nav>
-      <div v-if="sscClubBannerImageUrl" class="ssc-club-banner-strip" aria-hidden="true">
-        <img :src="sscClubBannerImageUrl" alt="" class="ssc-club-banner-img" />
+      <div v-if="sstcClubBannerImageUrl" class="sstc-club-banner-strip" aria-hidden="true">
+        <img :src="sstcClubBannerImageUrl" alt="" class="sstc-club-banner-img" />
       </div>
       <SummitStatsContextBar :visible="showSummitStatsClubContextBar" />
-      <!-- Welcome tag (hangs under navbar); omitted on SSC / club portals to avoid a dead band under the header -->
+      <!-- Welcome tag (hangs under navbar); omitted on SSTC / club portals to avoid a dead band under the header -->
       <div v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isSummitStatsChallengeChrome" class="welcome-hang-wrap">
         <router-link
           class="welcome-hang-link"
@@ -659,11 +659,11 @@
                 class="mobile-nav-link"
               >{{ myClubPublicNav.label }}</router-link>
               <router-link
-                v-if="sscActiveSeasonNav"
-                :to="sscActiveSeasonNav.to"
+                v-if="sstcActiveSeasonNav"
+                :to="sstcActiveSeasonNav.to"
                 class="mobile-nav-link mobile-nav-active-season-link"
                 @click="closeMobileMenu"
-              >{{ sscActiveSeasonNav.label }}</router-link>
+              >{{ sstcActiveSeasonNav.label }}</router-link>
               <div class="mobile-nav-group mobile-nav-group-collapsible">
                 <button
                   type="button"
@@ -695,19 +695,19 @@
               <router-link :to="myAccountNavTo" @click="closeMobileMenu" class="mobile-nav-link">My Account</router-link>
               <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }" class="mobile-nav-link">My Dashboard</router-link>
               <router-link
-                v-if="sscMemberMyClubNav"
-                :to="sscMemberMyClubNav.to"
+                v-if="sstcMemberMyClubNav"
+                :to="sstcMemberMyClubNav.to"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
-              >{{ sscMemberMyClubNav.label }}</router-link>
+              >{{ sstcMemberMyClubNav.label }}</router-link>
               <router-link
-                v-if="sscActiveSeasonNav"
-                :to="sscActiveSeasonNav.to"
+                v-if="sstcActiveSeasonNav"
+                :to="sstcActiveSeasonNav.to"
                 class="mobile-nav-link mobile-nav-active-season-link"
                 @click="closeMobileMenu"
-              >{{ sscActiveSeasonNav.label }}</router-link>
+              >{{ sstcActiveSeasonNav.label }}</router-link>
               <router-link
-                v-if="sscMemberShowClubEvents"
+                v-if="sstcMemberShowClubEvents"
                 :to="orgTo('/admin/company-events')"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
@@ -1038,7 +1038,7 @@
       ></div>
       <main :class="{ 'main-no-global-chrome': hideGlobalNavForSchoolStaff }">
         <!-- Keep legacy selector for non-super-admin users; super admins use the top-nav switcher.
-             Hidden on SSC / affiliation portals: the context bar below the navbar replaces it. -->
+             Hidden on SSTC / affiliation portals: the context bar below the navbar replaces it. -->
         <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff && !isSummitStatsChallengeChrome && !String(route.path || '').includes('/tickets')" />
 
         <!-- Password expiry warning banner (shown 14 days before expiry, dismissible per session) -->
@@ -1318,7 +1318,7 @@ watch(showPublicTranslateWidget, (show) => {
 
 const mobileMenuOpen = ref(false);
 
-// Active season nav — fetched once when the SSC chrome is active so every user
+// Active season nav — fetched once when the SSTC chrome is active so every user
 // can see a quick-access link to the current season directly in the nav bar.
 const activeNavSeason = ref(null);
 const activeNavSeasonLoading = ref(false);
@@ -1354,13 +1354,13 @@ let loadingStartedAt = 0;
 const LOADER_MIN_MS = 250;
 
 // Prefer the selected agency icon for the loader even before authStore hydrates.
-// Falls back through: club logo → portal-agency logo (e.g. SSC org icon) → platform branding logo.
+// Falls back through: club logo → portal-agency logo (e.g. SSTC org icon) → platform branding logo.
 const loaderLogoUrl = computed(() => {
   const a = agencyStore.currentAgency;
   if (a?.logo_path) return toUploadsUrl(a.logo_path);
   if (a?.icon_file_path) return toUploadsUrl(a.icon_file_path);
   if (a?.logo_url) return a.logo_url;
-  // portalAgency is set by the route's portal theme (e.g. the ssc org's icon when at /ssc/…).
+  // portalAgency is set by the route's portal theme (e.g. the sstc org's icon when at /sstc/…).
   // This catches org icons uploaded via admin → org settings → Organization Icon.
   const portalLogo = brandingStore.portalAgency?.logoUrl;
   if (portalLogo) return portalLogo;
@@ -1370,7 +1370,7 @@ const loaderLogoUrl = computed(() => {
   return pb?.organization_logo_url || null;
 });
 
-// Top-left logo: club logo first, then the portal-agency logo (SSC org icon when at /ssc/…),
+// Top-left logo: club logo first, then the portal-agency logo (SSTC org icon when at /sstc/…),
 // then platform branding.  Keeps the navbar always showing something meaningful.
 const navBrandLogoUrl = computed(() => {
   const resolved = brandingStore.displayLogoUrl;
@@ -1399,8 +1399,8 @@ function parseAgencyPublicPageConfig(agency) {
   return typeof raw === 'object' ? raw : null;
 }
 
-/** When viewing an affiliation (club), prefer its logo in nav over the SSC portal slug logo. */
-const sscAffiliationNavLogoUrl = computed(() => {
+/** When viewing an affiliation (club), prefer its logo in nav over the SSTC portal slug logo. */
+const sstcAffiliationNavLogoUrl = computed(() => {
   if (!isSummitStatsChallengeChrome.value) return null;
   const a = agencyStore.currentAgency;
   if (!a?.id) return null;
@@ -1412,7 +1412,7 @@ const sscAffiliationNavLogoUrl = computed(() => {
   return null;
 });
 
-const sscClubBannerImageUrl = computed(() => {
+const sstcClubBannerImageUrl = computed(() => {
   if (!isSummitStatsChallengeChrome.value) return null;
   const a = agencyStore.currentAgency;
   if (!a?.id) return null;
@@ -1423,7 +1423,7 @@ const sscClubBannerImageUrl = computed(() => {
   return u || null;
 });
 
-const navBarLogoUrl = computed(() => sscAffiliationNavLogoUrl.value || navBrandLogoUrl.value);
+const navBarLogoUrl = computed(() => sstcAffiliationNavLogoUrl.value || navBrandLogoUrl.value);
 
 function syncPageLoading(isOn) {
   if (isOn) {
@@ -1786,7 +1786,7 @@ watch(() => route.path, () => {
 });
 
 // Navigation title - only show if it's not "PlotTwistCo" and there's a valid platform template name.
-// Hidden on SSC / club portals: the logo alone + context bar serves as identity there.
+// Hidden on SSTC / club portals: the logo alone + context bar serves as identity there.
 const navTitleText = computed(() => {
   if (isSummitStatsChallengeChrome.value) return null;
   const title = brandingStore.navigationTitle || (brandingStore.displayName + ' ' + (brandingStore.peopleOpsTerm || 'People Operations'));
@@ -1886,7 +1886,7 @@ const isTrueAdmin = computed(() => {
   return role === 'admin' || role === 'super_admin';
 });
 
-// SSC/affiliation context: current org is a club (affiliation). Simplified nav: Team Lead Dashboards, Schedule, Members, Settings.
+// SSTC/affiliation context: current org is a club (affiliation). Simplified nav: Team Lead Dashboards, Schedule, Members, Settings.
 const isAffiliationContext = computed(() => {
   const t = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
   return t === 'affiliation';
@@ -1904,7 +1904,7 @@ const isSscClubManager = computed(
   () => isSscSstcTenant.value && String(user.value?.role || '').toLowerCase() === 'club_manager'
 );
 
-/** Club name + team row below the navbar (SSC / club portals only). */
+/** Club name + team row below the navbar (SSTC / club portals only). */
 const showSummitStatsClubContextBar = computed(() => {
   if (!isSummitStatsChallengeChrome.value || hideGlobalNavForSchoolStaff.value) return false;
   const a = agencyStore.currentAgency;
@@ -2468,8 +2468,8 @@ const myClubPublicNav = computed(() => {
   return { label: 'My Clubs', to: orgTo('/my_club_dashboard') };
 });
 
-/** SSC members (non club managers): My Club / My Clubs — includes applicants with no affiliation yet (hub lists applications + contact manager). */
-const sscMemberMyClubNav = computed(() => {
+/** SSTC members (non club managers): My Club / My Clubs — includes applicants with no affiliation yet (hub lists applications + contact manager). */
+const sstcMemberMyClubNav = computed(() => {
   if (!isSummitStatsChallengeChrome.value || hideGlobalNavForSchoolStaff.value) return null;
   if (isSscClubManager.value) return null;
   const clubs = (agencyStore.userAgencies || []).filter(
@@ -2486,8 +2486,8 @@ const sscMemberMyClubNav = computed(() => {
   return { label: 'My Clubs', to: orgTo('/my_club_dashboard') };
 });
 
-/** Active season nav link — shown for every SSC user when a season is currently live. */
-const sscActiveSeasonNav = computed(() => {
+/** Active season nav link — shown for every SSTC user when a season is currently live. */
+const sstcActiveSeasonNav = computed(() => {
   if (!isSummitStatsChallengeChrome.value || !isAuthenticated.value) return null;
   const s = activeNavSeason.value;
   if (!s?.id || s.status !== 'active') return null;
@@ -2496,7 +2496,7 @@ const sscActiveSeasonNav = computed(() => {
 });
 
 /** Member has at least one active club affiliation — show Club Events in nav. */
-const sscMemberShowClubEvents = computed(() => {
+const sstcMemberShowClubEvents = computed(() => {
   if (isSscClubManager.value) return false;
   const clubs = (agencyStore.userAgencies || []).filter(
     (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
@@ -2549,7 +2549,7 @@ const myDashboardTo = computed(() => {
 /** "My Account" = personal account/security page; "My Dashboard" = club home. */
 const myAccountNavTo = computed(() => {
   if (isSscSstcTenant.value) {
-    // SSC: My Account stays inside the Summit member dashboard instead of falling into the shared provider dashboard.
+    // SSTC: My Account stays inside the Summit member dashboard instead of falling into the shared provider dashboard.
     return { path: orgTo('/my_club_dashboard'), query: { view: 'account' } };
   }
   const t = myDashboardTo.value;
@@ -2660,7 +2660,7 @@ watch(sessionSettingsKey, () => {
 
 // ---- Obnoxious notifications badge (admin/support) ----
 const communicationsPendingCount = computed(() => Number(communicationsCountsStore.pendingDeliveryCount || 0));
-/** SSC/SSTC: open the comms workspace on “All” by default; other tenants jump to Automation when items are pending. */
+/** SSTC/SSTC: open the comms workspace on “All” by default; other tenants jump to Automation when items are pending. */
 const communicationsWorkspaceQuery = computed(() => {
   if (isSscSstcTenant.value) return {};
   return communicationsPendingCount.value > 0 ? { tab: 'automation' } : {};
@@ -3778,7 +3778,7 @@ onUnmounted(() => {
   min-width: 0;
 }
 
-.ssc-nav-brand-label {
+.sstc-nav-brand-label {
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -4606,7 +4606,7 @@ onUnmounted(() => {
 }
 
 /* Club banner (affiliation public page) under main nav on Summit / club surfaces */
-.ssc-club-banner-strip {
+.sstc-club-banner-strip {
   width: 100%;
   max-height: 120px;
   overflow: hidden;
@@ -4615,7 +4615,7 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.ssc-club-banner-img {
+.sstc-club-banner-img {
   width: 100%;
   max-height: 120px;
   object-fit: cover;
@@ -4950,8 +4950,8 @@ main.main-no-global-chrome {
 .is-native .nav-title {
   display: none;
 }
-/* Show the SSC brand label ("Summit Stats Team Challenge") prominently */
-.is-native .ssc-nav-brand-label {
+/* Show the SSTC brand label ("Summit Stats Team Challenge") prominently */
+.is-native .sstc-nav-brand-label {
   display: block;
   font-size: 0.75rem;
   font-weight: 700;

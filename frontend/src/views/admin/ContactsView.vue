@@ -237,6 +237,24 @@
           <div v-if="canEdit(selectedContact)" class="detail-actions">
             <button class="btn btn-secondary btn-sm" @click="editContact(selectedContact)">Edit</button>
             <button class="btn btn-danger btn-sm" @click="deleteContact(selectedContact)">Delete</button>
+            
+            <template v-if="!selectedContact.client_id">
+              <button 
+                class="btn btn-outline-primary btn-sm" 
+                @click="convertToClient(selectedContact)"
+                :disabled="conversionLoading"
+              >
+                Convert to Client
+              </button>
+              <button 
+                v-if="selectedContact.email"
+                class="btn btn-outline-primary btn-sm" 
+                @click="convertToGuardian(selectedContact)"
+                :disabled="conversionLoading"
+              >
+                Convert to Guardian
+              </button>
+            </template>
           </div>
           <h4>Communication Log</h4>
           <div v-if="commsLoading" class="loading">Loading…</div>
@@ -279,6 +297,7 @@ const error = ref('');
 const syncLoading = ref(false);
 const saveLoading = ref(false);
 const commsLoading = ref(false);
+const conversionLoading = ref(false);
 
 const filters = ref({
   schoolId: '',
@@ -500,6 +519,36 @@ const deleteContact = async (c) => {
     await fetchContacts();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to delete.';
+  }
+};
+
+const convertToClient = async (c) => {
+  if (!confirm('Convert this contact to a full Client record?')) return;
+  conversionLoading.value = true;
+  try {
+    await api.post(`/contacts/${c.id}/convert-to-client`);
+    alert('Contact converted to Client successfully.');
+    selectedContact.value = null;
+    await fetchContacts();
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Conversion failed.');
+  } finally {
+    conversionLoading.value = false;
+  }
+};
+
+const convertToGuardian = async (c) => {
+  if (!confirm('Convert this contact to a Guardian account?')) return;
+  conversionLoading.value = true;
+  try {
+    await api.post(`/contacts/${c.id}/convert-to-guardian`);
+    alert('Contact converted to Guardian successfully.');
+    selectedContact.value = null;
+    await fetchContacts();
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Conversion failed.');
+  } finally {
+    conversionLoading.value = false;
   }
 };
 
@@ -932,6 +981,21 @@ onUnmounted(() => {
 
 .detail-actions {
   margin-bottom: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn-outline-primary {
+  background: transparent;
+  color: var(--primary-color, #2563eb);
+  border: 1px solid var(--primary-color, #2563eb);
+}
+.btn-outline-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary-color, #2563eb) 10%, transparent);
+}
+.btn-outline-primary:disabled {
+  opacity: 0.5;
 }
 
 .comms-list {

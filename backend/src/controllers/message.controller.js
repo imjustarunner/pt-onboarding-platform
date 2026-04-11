@@ -6,12 +6,13 @@ import MessageLog from '../models/MessageLog.model.js';
 import StorageService from '../services/storage.service.js';
 import Agency from '../models/Agency.model.js';
 import UserCallSettings from '../models/UserCallSettings.model.js';
-import TwilioOptInState from '../models/TwilioOptInState.model.js';
-import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
+import SmsOptInState from '../models/SmsOptInState.model.js';
+import PhoneNumberAssignment from '../models/PhoneNumberAssignment.model.js';
 import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
 import VonageService from '../services/vonage.service.js';
-import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
+import { resolveOutboundNumber } from '../services/communicationRouting.service.js';
 import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
+import SmsAutoReplyRuleService from '../services/smsAutoReplyRule.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import AgencyContact from '../models/AgencyContact.model.js';
 import ContactCommunicationLog from '../models/ContactCommunicationLog.model.js';
@@ -76,7 +77,7 @@ export const getThreads = async (req, res, next) => {
     let userParams = [uid, uid]; // second uid for agency EXISTS subquery
 
     if (isProviderOrSchoolStaff) {
-      const assignments = await TwilioNumberAssignment.listByUserId(uid);
+      const assignments = await PhoneNumberAssignment.listByUserId(uid);
       const assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
       if (assignedNumberIds.length > 0) {
         const placeholders = assignedNumberIds.map(() => '?').join(',');
@@ -98,19 +99,21 @@ export const getThreads = async (req, res, next) => {
     const innerSql = `
       SELECT
         ml.client_id,
+        ml.agency_contact_id,
         MAX(ml.created_at)                                          AS last_message_at,
         MAX(ml.id)                                                  AS last_message_id,
         MAX(CASE WHEN ml.direction = 'OUTBOUND' THEN ml.created_at END) AS last_outbound_at
       FROM message_logs ml
       LEFT JOIN clients c ON ml.client_id = c.id
+      LEFT JOIN agency_contacts ac ON ml.agency_contact_id = ac.id
       WHERE ${userWhereClause}
-        AND ml.client_id IS NOT NULL
+        AND (ml.client_id IS NOT NULL OR ml.agency_contact_id IS NOT NULL)
         AND (ml.agency_id IS NULL OR EXISTS (
           SELECT 1 FROM user_agencies ua WHERE ua.user_id = ? AND ua.agency_id = ml.agency_id
         ))
         ${agencyFilter}
         ${searchFilter}
-      GROUP BY ml.client_id
+      GROUP BY ml.client_id, ml.agency_contact_id
     `;
 
     const innerParams = [...userParams, ...agencyParam, ...searchParams];
@@ -118,12 +121,13 @@ export const getThreads = async (req, res, next) => {
     const sql = `
       SELECT
         t.client_id,
+        t.agency_contact_id,
         t.last_message_at,
         t.last_message_id,
         t.last_outbound_at,
         (
           SELECT COUNT(*) FROM message_logs m2
-          WHERE m2.client_id = t.client_id
+          WHERE (m2.client_id = t.client_id OR (t.client_id IS NULL AND m2.agency_contact_id = t.agency_contact_id))
             AND m2.direction = 'INBOUND'
             AND (t.last_outbound_at IS NULL OR m2.created_at > t.last_outbound_at)
         ) AS unread_count,
@@ -135,17 +139,22 @@ export const getThreads = async (req, res, next) => {
         c.initials     AS client_initials,
         COALESCE(c.full_name, c.initials) AS client_name,
         c.contact_phone AS client_phone,
+        ac.full_name   AS contact_name,
+        ac.phone       AS contact_phone,
         u.first_name   AS user_first_name,
         u.last_name    AS user_last_name
       FROM (${innerSql}) t
       LEFT JOIN message_logs ml ON ml.id = t.last_message_id
       LEFT JOIN clients c       ON t.client_id = c.id
+      LEFT JOIN agency_contacts ac ON t.agency_contact_id = ac.id
       LEFT JOIN users u         ON ml.user_id = u.id
       ORDER BY t.last_message_at DESC
       LIMIT ?
     `;
 
-    const [rows] = await pool.execute(sql, [...innerParams, limit]);
+    // pool.query (not execute) is required here because mysql2 prepared statements
+    // don't support correlated subqueries in the SELECT list reliably.
+    const [rows] = await pool.query(sql, [...innerParams, limit]);
     res.json(rows || []);
   } catch (e) {
     next(e);
@@ -161,7 +170,7 @@ export const getMyNumbers = async (req, res, next) => {
     const uid = parseIntOrNull(req.user?.id);
     if (!uid) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
-    const assignments = await TwilioNumberAssignment.listByUserId(uid);
+    const assignments = await PhoneNumberAssignment.listByUserId(uid);
     const numbers = (assignments || []).map((a) => ({
       id: a.number_id,
       phone_number: a.phone_number,
@@ -191,7 +200,7 @@ export const getRecentMessages = async (req, res, next) => {
     let userClause = `ml.user_id = ${safeUid}`;
     const params = [];
     if (isProviderOrSchoolStaff) {
-      const assignments = await TwilioNumberAssignment.listByUserId(uid);
+      const assignments = await PhoneNumberAssignment.listByUserId(uid);
       const assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
       if (assignedNumberIds.length > 0) {
         const placeholders = assignedNumberIds.map(() => '?').join(',');
@@ -231,18 +240,30 @@ export const getRecentMessages = async (req, res, next) => {
 export const getThread = async (req, res, next) => {
   try {
     const { userId, clientId } = req.params;
+    const { contactId } = req.query; // Optional contactId override
     const uidParam = parseIntOrNull(userId);
     const cid = parseIntOrNull(clientId);
-    if (!cid) return res.status(400).json({ error: { message: 'clientId is required' } });
+    const aid = parseIntOrNull(contactId);
+
+    if (!cid && !aid) return res.status(400).json({ error: { message: 'clientId or contactId is required' } });
 
     // Privacy rule: the authenticated user can only load their own thread.
     if (uidParam && uidParam !== req.user.id) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
-    const client = await Client.findById(cid, { includeSensitive: false });
-    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
-    await assertClientAgencyAccess(req.user.id, client);
+    let client = null;
+    let contact = null;
+
+    if (cid) {
+      client = await Client.findById(cid, { includeSensitive: false });
+      if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+      await assertClientAgencyAccess(req.user.id, client);
+    } else if (aid) {
+      contact = await AgencyContact.findById(aid);
+      if (!contact) return res.status(404).json({ error: { message: 'Contact not found' } });
+      // TODO: Assert contact agency access
+    }
 
     const rawLimit = req.query.limit ? parseInt(req.query.limit, 10) : 100;
     const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 100;
@@ -250,16 +271,17 @@ export const getThread = async (req, res, next) => {
     const isProviderOrSchoolStaff = role === 'provider' || role === 'school_staff';
     let assignedNumberIds = [];
     if (isProviderOrSchoolStaff) {
-      const assignments = await TwilioNumberAssignment.listByUserId(req.user.id);
+      const assignments = await PhoneNumberAssignment.listByUserId(req.user.id);
       assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
     }
     const rows = await MessageLog.listThread({
       userId: req.user.id,
       clientId: cid,
+      agencyContactId: aid,
       limit,
       assignedNumberIds: assignedNumberIds.length > 0 ? assignedNumberIds : undefined
     });
-    res.json({ client, messages: rows });
+    res.json({ client, contact, messages: rows });
   } catch (e) {
     next(e);
   }
@@ -267,27 +289,42 @@ export const getThread = async (req, res, next) => {
 
 export const sendMessage = async (req, res, next) => {
   try {
-    const { userId, clientId, body, mediaUrls } = req.body;
+    const { userId, clientId, contactId, body, mediaUrls } = req.body;
     if (userId && parseIntOrNull(userId) && parseIntOrNull(userId) !== req.user.id) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     const hasMedia = Array.isArray(mediaUrls) && mediaUrls.length > 0;
-    if (!clientId || (!body && !hasMedia)) {
-      return res.status(400).json({ error: { message: 'clientId and (body or mediaUrls) are required' } });
+    if ((!clientId && !contactId) || (!body && !hasMedia)) {
+      return res.status(400).json({ error: { message: '(clientId or contactId) and (body or mediaUrls) are required' } });
     }
 
     const uid = req.user.id;
     const cid = parseIntOrNull(clientId);
-    if (!cid) return res.status(400).json({ error: { message: 'clientId is required' } });
+    const aid = parseIntOrNull(contactId);
 
     const user = await User.findById(uid);
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
 
-    const client = await Client.findById(cid, { includeSensitive: true });
-    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
-    await assertClientAgencyAccess(req.user.id, client);
-    if (!client.contact_phone) {
-      return res.status(400).json({ error: { message: 'Client does not have a contact phone assigned' } });
+    let targetPhone = null;
+    let targetAgencyId = null;
+    let client = null;
+    let contact = null;
+
+    if (cid) {
+      client = await Client.findById(cid, { includeSensitive: true });
+      if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+      await assertClientAgencyAccess(req.user.id, client);
+      targetPhone = client.contact_phone;
+      targetAgencyId = client.agency_id;
+    } else if (aid) {
+      contact = await AgencyContact.findById(aid);
+      if (!contact) return res.status(404).json({ error: { message: 'Contact not found' } });
+      targetPhone = contact.phone;
+      targetAgencyId = contact.agency_id;
+    }
+
+    if (!targetPhone) {
+      return res.status(400).json({ error: { message: 'Recipient does not have a contact phone assigned' } });
     }
 
     const resolved = await resolveOutboundNumber({
@@ -322,10 +359,12 @@ export const sendMessage = async (req, res, next) => {
     }
 
     let activeEscalation = null;
-    try {
-      activeEscalation = await SmsThreadEscalation.findActive({ userId: uid, clientId: cid });
-    } catch {
-      activeEscalation = null;
+    if (cid) {
+      try {
+        activeEscalation = await SmsThreadEscalation.findActive({ userId: uid, clientId: cid });
+      } catch {
+        activeEscalation = null;
+      }
     }
     if (activeEscalation && activeEscalation.thread_mode === 'read_only') {
       return res.status(403).json({
@@ -340,11 +379,11 @@ export const sendMessage = async (req, res, next) => {
     const assignedUserId = resolved?.assignment?.user_id || uid;
 
     // Compliance: opt-in/opt-out handling per agency feature flags.
-    const agency = client.agency_id ? await Agency.findById(client.agency_id) : null;
+    const agency = targetAgencyId ? await Agency.findById(targetAgencyId) : null;
     const flags = parseFeatureFlags(agency?.feature_flags);
     const complianceMode = String(flags.smsComplianceMode || 'opt_in_required');
-    if (numberId && client?.id) {
-      const optState = await TwilioOptInState.findByClientNumber({ clientId: client.id, numberId });
+    if (numberId && cid) {
+      const optState = await SmsOptInState.findByClientNumber({ clientId: cid, numberId });
       const optStatus = optState?.status || 'pending';
       if (optStatus === 'opted_out') {
         return res.status(403).json({ error: { message: 'Client has opted out of SMS' } });
@@ -365,22 +404,24 @@ export const sendMessage = async (req, res, next) => {
     if (hasMedia) outboundMetadata.media_urls = mediaUrls;
 
     const outboundLog = await MessageLog.createOutbound({
-      agencyId: client.agency_id || null,
+      agencyId: targetAgencyId || null,
       userId: uid,
       assignedUserId,
       numberId,
       ownerType,
       clientId: cid,
+      agencyContactId: aid,
       body: body || (hasMedia ? '[MMS]' : ''),
       fromNumber,
-      toNumber: client.contact_phone,
+      toNumber: targetPhone,
       deliveryStatus: 'pending',
+      providerMessageSid: null,
       metadata: outboundMetadata
     });
 
     try {
       const msg = await VonageService.sendSms({
-        to: MessageLog.normalizePhone(client.contact_phone) || client.contact_phone,
+        to: MessageLog.normalizePhone(targetPhone) || targetPhone,
         from: MessageLog.normalizePhone(fromNumber) || fromNumber,
         body: body || '',
         mediaUrl: hasMedia ? mediaUrls : null
@@ -388,43 +429,50 @@ export const sendMessage = async (req, res, next) => {
       const sentMetadata = { provider: 'vonage', status: msg.status, gatekeeper: decision };
       if (hasMedia) sentMetadata.media_urls = mediaUrls;
       const updated = await MessageLog.markSent(outboundLog.id, msg.sid, sentMetadata);
+      
+      // Sync with ContactCommunicationLog if it's a contact or client matched to contact
       try {
-        const contact = await AgencyContact.findByPhone(client.contact_phone, client.agency_id);
-        if (contact) {
+        const matchedContact = contact || await AgencyContact.findByPhone(targetPhone, targetAgencyId);
+        if (matchedContact) {
           const existing = await ContactCommunicationLog.findByExternalRefId(String(outboundLog.id));
           if (!existing) {
             await ContactCommunicationLog.create({
-              contactId: contact.id,
+              contactId: matchedContact.id,
               channel: 'sms',
               direction: 'outbound',
               body,
               externalRefId: String(outboundLog.id),
-              metadata: { fromNumber, toNumber: client.contact_phone, messageLogId: outboundLog.id }
+              metadata: { fromNumber, toNumber: targetPhone, messageLogId: outboundLog.id }
             });
           }
         }
       } catch {
         // Best-effort; do not fail send
       }
+      
       await logAuditEvent(req, {
         actionType: 'sms_sent',
-        agencyId: client.agency_id || null,
+        agencyId: targetAgencyId || null,
         metadata: {
           clientId: cid,
+          contactId: aid,
           messageLogId: updated?.id || outboundLog?.id || null,
           numberId,
           ownerType
         }
       });
-      await SmsThreadEscalation.resolveActive({ userId: uid, clientId: cid }).catch(() => {});
+      if (cid) {
+        await SmsThreadEscalation.resolveActive({ userId: uid, clientId: cid }).catch(() => {});
+      }
       res.status(201).json(updated);
     } catch (sendErr) {
       await MessageLog.markFailed(outboundLog.id, sendErr.message);
       await logAuditEvent(req, {
         actionType: 'sms_send_failed',
-        agencyId: client.agency_id || null,
+        agencyId: targetAgencyId || null,
         metadata: {
           clientId: cid,
+          contactId: aid,
           messageLogId: outboundLog?.id || null,
           numberId,
           ownerType,
@@ -442,9 +490,13 @@ const smsMediaUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+    const allowed = [
+      'image/jpeg', 'image/jpg', 'image/png', 'image/gif',
+      'application/pdf', 'application/msword', 
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
     if (allowed.includes(file.mimetype)) cb(null, true);
-    else cb(new Error('Invalid file type. Only JPG, PNG, and GIF images are allowed for MMS.'), false);
+    else cb(new Error('Invalid file type. Only JPG, PNG, GIF, PDF, and DOC/DOCX files are allowed.'), false);
   }
 });
 
@@ -500,6 +552,110 @@ export const deleteMessageLog = async (req, res, next) => {
       metadata: { messageLogId: id }
     });
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/messages/forward-to-support
+ * Body: { clientId, message }
+ * Forwards a thread to support.
+ */
+export const forwardToSupport = async (req, res, next) => {
+  try {
+    const { clientId, message } = req.body;
+    const uid = req.user.id;
+    const cid = parseIntOrNull(clientId);
+    if (!cid) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    const client = await Client.findById(cid);
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+    await assertClientAgencyAccess(uid, client);
+
+    const agency = client.agency_id ? await Agency.findById(client.agency_id) : null;
+    const flags = parseFeatureFlags(agency?.feature_flags);
+    
+    // Find the latest inbound message to link the escalation
+    const [latestInbound] = await pool.execute(
+      `SELECT * FROM message_logs 
+       WHERE client_id = ? AND user_id = ? AND direction = 'INBOUND'
+       ORDER BY created_at DESC LIMIT 1`,
+      [cid, uid]
+    );
+    const inboundLog = latestInbound?.[0] || null;
+
+    const supportPhone = MessageLog.normalizePhone(flags.smsSupportFallbackPhone || agency?.phone_number) || 
+      flags.smsSupportFallbackPhone || agency?.phone_number || null;
+
+    if (!supportPhone) {
+      return res.status(400).json({ error: { message: 'Support phone not configured for this agency' } });
+    }
+
+    const body = `Forwarded to Support by ${req.user.first_name || 'Provider'}: ${message || '(No note)'}. Client ${client.initials || '#'+cid} thread escalated.`;
+    const from = inboundLog ? (MessageLog.normalizePhone(inboundLog.to_number) || inboundLog.to_number) : supportPhone;
+
+    await VonageService.sendSms({ to: supportPhone, from, body });
+
+    await SmsThreadEscalation.createOrKeep({
+      agencyId: client.agency_id,
+      userId: uid,
+      clientId: cid,
+      inboundLogId: inboundLog?.id || null,
+      escalatedToPhone: supportPhone,
+      escalationType: 'manual_forward',
+      threadMode: 'respondable',
+      metadata: { forwarderUserId: uid, forwarderNote: message }
+    });
+
+    await logAuditEvent(req, {
+      actionType: 'sms_thread_forwarded_to_support',
+      agencyId: client.agency_id || null,
+      metadata: { clientId: cid, supportPhone, message }
+    });
+
+    res.json({ ok: true, message: 'Thread forwarded to support' });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getSmartReplies = async (req, res, next) => {
+  try {
+    const { clientId, contactId } = req.query;
+    const uid = req.user.id;
+    const cid = clientId ? parseInt(clientId, 10) : null;
+    const aid = contactId ? parseInt(contactId, 10) : null;
+
+    const suggestions = await SmsAutoReplyRuleService.generateSmartReplies({
+      userId: uid,
+      clientId: cid,
+      agencyContactId: aid
+    });
+
+    res.json({ suggestions });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getRtcToken = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const userName = `user_${user.id}`;
+    
+    // Ensure Vonage user exists (best effort)
+    try {
+      await VonageService.createRtcUser({ 
+        name: userName, 
+        displayName: `${user.first_name} ${user.last_name}`.trim() || user.username 
+      });
+    } catch (e) {
+      // If user already exists, this might fail, which is fine
+    }
+
+    const token = VonageService.generateRtcJwt(userName);
+    res.json({ token, userName });
   } catch (e) {
     next(e);
   }

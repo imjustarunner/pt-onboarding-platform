@@ -1,6 +1,6 @@
 /**
  * Auto-generate supervision session summary from transcript.
- * Called after Twilio Video room recording is transcribed (room-ended pipeline).
+ * Called after video room recording is transcribed (room-ended pipeline).
  */
 
 import { callGeminiText } from './geminiText.service.js';

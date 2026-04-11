@@ -108,7 +108,7 @@ class BillingUsageService {
       [parsedAgencyId, hasWindow ? 1 : 0, startStr || '1970-01-01', endStr || '1970-01-01']
     );
 
-    // Active phone numbers (Twilio numbers owned by agency)
+    // Active phone numbers (numbers owned by agency)
     const [phoneRows] = await pool.execute(
       `SELECT COUNT(*) AS cnt
        FROM twilio_numbers tn

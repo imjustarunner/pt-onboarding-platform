@@ -2,6 +2,8 @@ import pool from '../config/database.js';
 import NotificationEvent from '../models/NotificationEvent.model.js';
 import { createNotificationAndDispatch } from './notificationDispatcher.service.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
+import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
+import OfficeEvent from '../models/OfficeEvent.model.js';
 import GoogleCalendarService from './googleCalendar.service.js';
 import {
   refreshAllLocationsFromEhr,
@@ -90,6 +92,7 @@ export class OfficeScheduleWatchdogService {
 
     return { ok: true, horizonDays: Number(horizonDays || 28), candidates: events.length, synced, failed };
   }
+
   static async emitSixWeekBookingConfirmReminders() {
     // Remind providers to confirm booked plans every ~6 weeks.
     // Use office_standing_assignments.last_six_week_checked_at to avoid spamming.
@@ -169,76 +172,242 @@ export class OfficeScheduleWatchdogService {
     return { notified, candidates: (rows || []).length };
   }
 
-  static async autoForfeitStaleAvailableSlots() {
-    // Forfeit assigned_available slots that have been available (unbooked) for 6 weeks.
-    // Condition: active standing assignment, AVAILABLE, available_since_date <= today-42, no active booking plan.
-    // Stale = unbooked (no active plan) for 42+ days. Anchor is the later of "went available"
-    // and "last confirmed keep-available" so 2-week confirmations reset the clock (same idea
-    // as materializer confirmAnchor) and we do not forfeit slots that were only stale on available_since_date.
-    const [rows] = await pool.execute(
-      `SELECT
-         osa.id AS standing_assignment_id,
-         osa.provider_id,
-         ola.agency_id,
-         ol.name AS office_name
-       FROM office_standing_assignments osa
-       JOIN office_location_agencies ola ON ola.office_location_id = osa.office_location_id
-       JOIN office_locations ol ON ol.id = osa.office_location_id
-       LEFT JOIN office_booking_plans bp ON bp.standing_assignment_id = osa.id AND bp.is_active = TRUE
-       WHERE osa.is_active = TRUE
-         AND osa.availability_mode = 'AVAILABLE'
-         AND osa.available_since_date IS NOT NULL
-         AND GREATEST(
-           osa.available_since_date,
-           COALESCE(DATE(osa.last_two_week_confirmed_at), '1970-01-01')
-         ) <= DATE_SUB(CURDATE(), INTERVAL 42 DAY)
-         AND bp.id IS NULL`
-    );
+  /**
+   * Phase A: For AVAILABLE standing assignments with no active booking plan,
+   * check if the provider has an active provider_schedule_events entry (e.g. a therapy
+   * or client session — excludes internal meeting kinds) overlapping a future office_event
+   * occurrence. For each overlap found, mark the event ASSIGNED_BOOKED and upsert an
+   * active booking plan with bookingOrigin 'ehr_sync'. This prevents PSE-covered slots
+   * from being flagged as stale and entering the forfeit warning pipeline.
+   */
+  static async autoBookFromInternalSessions() {
+    let booked = 0;
 
+    let rows = [];
+    try {
+      [rows] = await pool.query(
+        `SELECT
+           oe.id AS event_id,
+           oe.standing_assignment_id,
+           osa.provider_id,
+           osa.assigned_frequency,
+           DATE(oe.start_at) AS event_date,
+           oe.start_at,
+           oe.end_at
+         FROM office_events oe
+         JOIN office_standing_assignments osa ON osa.id = oe.standing_assignment_id
+         LEFT JOIN office_booking_plans bp
+           ON bp.standing_assignment_id = osa.id AND bp.is_active = TRUE
+         WHERE osa.is_active = TRUE
+           AND osa.availability_mode = 'AVAILABLE'
+           AND oe.slot_state IN ('ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY')
+           AND oe.start_at >= NOW()
+           AND bp.id IS NULL
+           AND EXISTS (
+             SELECT 1
+             FROM provider_schedule_events pse
+             WHERE pse.provider_id = osa.provider_id
+               AND pse.status = 'ACTIVE'
+               AND UPPER(COALESCE(pse.kind, '')) NOT IN ('TEAM_MEETING', 'HUDDLE')
+               AND pse.start_at IS NOT NULL
+               AND pse.end_at IS NOT NULL
+               AND pse.start_at < oe.end_at
+               AND pse.end_at > oe.start_at
+           )`
+      );
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+        return { booked: 0, reason: 'tables_missing' };
+      }
+      throw e;
+    }
+
+    // Group by standing_assignment_id — we only need to upsert one booking plan per assignment
+    // even if multiple upcoming events overlap PSE entries.
+    const seenAssignments = new Set();
+
+    for (const r of rows || []) {
+      const eventId = Number(r.event_id);
+      const assignmentId = Number(r.standing_assignment_id);
+      const providerId = Number(r.provider_id);
+      const eventDate = String(r.event_date || '').slice(0, 10);
+      const freq = String(r.assigned_frequency || 'WEEKLY').toUpperCase();
+
+      if (!eventId || !assignmentId || !providerId || !eventDate) continue;
+
+      try {
+        // Mark this specific event as BOOKED.
+        await OfficeEvent.markBooked({ eventId, bookedProviderId: providerId });
+        booked += 1;
+
+        // Upsert the booking plan once per assignment (not once per overlapping event).
+        if (!seenAssignments.has(assignmentId)) {
+          seenAssignments.add(assignmentId);
+          await OfficeBookingPlan.upsertActive({
+            standingAssignmentId: assignmentId,
+            bookedFrequency: freq,
+            bookingStartDate: eventDate,
+            activeUntilDate: null,
+            bookedOccurrenceCount: null,
+            createdByUserId: 1,
+            bookingOrigin: 'ehr_sync'
+          });
+        }
+      } catch {
+        // Best-effort per event; do not block the rest of the run.
+      }
+    }
+
+    return { booked };
+  }
+
+  /**
+   * Two-phase forfeit for AVAILABLE standing assignments that have been unbooked for 42+ days.
+   *
+   * Phase B1 (warn): If last_forfeit_warning_at IS NULL, send a "your slot will be released
+   * in 14 days" notification and set last_forfeit_warning_at = NOW(). Do NOT forfeit yet.
+   * The mandatory review splash (OfficeMandatoryReviewSplash) will surface this slot with
+   * urgency so the provider can book, extend, or forfeit it themselves.
+   *
+   * Phase B2 (forfeit): If last_forfeit_warning_at was set 14+ days ago and the slot is
+   * still unbooked, set is_active = FALSE and send the forfeit notification.
+   *
+   * Any provider action (keepAvailable, setBookingPlan, extendTemporary, forfeitAssignment)
+   * must clear last_forfeit_warning_at = NULL so the clock resets.
+   */
+  static async autoForfeitStaleAvailableSlots() {
+    // Base query fragment for stale AVAILABLE slots (no active booking plan, 42+ days stale).
+    const baseWhere = `
+      osa.is_active = TRUE
+      AND osa.availability_mode = 'AVAILABLE'
+      AND osa.available_since_date IS NOT NULL
+      AND GREATEST(
+        osa.available_since_date,
+        COALESCE(DATE(osa.last_two_week_confirmed_at), '1970-01-01')
+      ) <= DATE_SUB(CURDATE(), INTERVAL 42 DAY)
+      AND bp.id IS NULL
+    `;
+
+    const selectCols = `
+      osa.id AS standing_assignment_id,
+      osa.provider_id,
+      osa.last_forfeit_warning_at,
+      ola.agency_id,
+      ol.name AS office_name,
+      r.name AS room_name,
+      r.label AS room_label,
+      osa.weekday,
+      osa.hour
+    `;
+
+    const joins = `
+      JOIN office_location_agencies ola ON ola.office_location_id = osa.office_location_id
+      JOIN office_locations ol ON ol.id = osa.office_location_id
+      JOIN office_rooms r ON r.id = osa.room_id
+      LEFT JOIN office_booking_plans bp ON bp.standing_assignment_id = osa.id AND bp.is_active = TRUE
+    `;
+
+    let rows = [];
+    try {
+      [rows] = await pool.query(
+        `SELECT ${selectCols}
+         FROM office_standing_assignments osa
+         ${joins}
+         WHERE ${baseWhere}`
+      );
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') {
+        // last_forfeit_warning_at column not yet added; fall back to old behavior (warn only).
+        return { warned: 0, forfeited: 0, reason: 'column_missing_run_migration_697' };
+      }
+      throw e;
+    }
+
+    let warned = 0;
     let forfeited = 0;
     let notified = 0;
+
     for (const r of rows || []) {
       const assignmentId = Number(r.standing_assignment_id);
       const providerId = Number(r.provider_id);
       const agencyId = Number(r.agency_id);
       if (!assignmentId || !providerId || !agencyId) continue;
 
-      await pool.execute(
-        `UPDATE office_standing_assignments
-         SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [assignmentId]
-      );
-      forfeited += 1;
+      const roomLabel = String(r.room_label || r.room_name || '').trim() || 'Room';
+      const officeName = String(r.office_name || '').trim() || 'Office';
+      const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][Number(r.weekday)] || String(r.weekday);
+      const hour = Number(r.hour);
+      const hourLabel = Number.isFinite(hour) ? `${hour}:00` : '';
+      const slotLabel = `${officeName} • ${roomLabel} • ${day} ${hourLabel}`;
 
-      // Notify provider (deduped by trigger+provider).
-      try {
-        const ok = await NotificationEvent.tryCreate({
-          agencyId,
-          triggerKey: 'office_schedule_unbooked_forfeit',
-          providerUserId: providerId,
-          recipientUserId: providerId
-        });
-        if (ok) {
+      const warnedAt = r.last_forfeit_warning_at ? new Date(r.last_forfeit_warning_at) : null;
+      const warnedDaysAgo = warnedAt ? Math.floor((Date.now() - warnedAt.getTime()) / 86400000) : null;
+
+      if (!warnedAt) {
+        // Phase B1: send warning notification; do NOT forfeit yet.
+        try {
+          await pool.execute(
+            `UPDATE office_standing_assignments
+             SET last_forfeit_warning_at = NOW(), updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [assignmentId]
+          );
+
           await createNotificationAndDispatch({
-            type: 'office_schedule_unbooked_forfeit',
+            type: 'office_schedule_forfeit_warning',
             severity: 'warning',
-            title: 'Office slot forfeited',
-            message: `An office slot remained unbooked for 6 weeks and has been forfeited (${r.office_name || 'Office'}).`,
+            title: 'Office slot needs your attention',
+            message: `Your office slot has been unbooked for 6+ weeks (${slotLabel}). Please book, keep available, or release it within 14 days — otherwise it will be automatically released.`,
             userId: providerId,
             agencyId,
             relatedEntityType: 'office_standing_assignment',
             relatedEntityId: assignmentId,
             actorSource: 'Office Scheduling'
           });
-          notified += 1;
+          warned += 1;
+        } catch {
+          // ignore per-row errors
         }
-      } catch {
-        // ignore
+      } else if (warnedDaysAgo !== null && warnedDaysAgo >= 14) {
+        // Phase B2: 14-day grace period has passed with no provider action — forfeit.
+        try {
+          await pool.execute(
+            `UPDATE office_standing_assignments
+             SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [assignmentId]
+          );
+          forfeited += 1;
+
+          // Notify provider (deduped by trigger+provider).
+          const ok = await NotificationEvent.tryCreate({
+            agencyId,
+            triggerKey: 'office_schedule_unbooked_forfeit',
+            providerUserId: providerId,
+            recipientUserId: providerId
+          });
+          if (ok) {
+            await createNotificationAndDispatch({
+              type: 'office_schedule_unbooked_forfeit',
+              severity: 'warning',
+              title: 'Office slot released',
+              message: `An office slot remained unbooked and was automatically released after the 14-day notice period (${slotLabel}).`,
+              userId: providerId,
+              agencyId,
+              relatedEntityType: 'office_standing_assignment',
+              relatedEntityId: assignmentId,
+              actorSource: 'Office Scheduling'
+            });
+            notified += 1;
+          }
+        } catch {
+          // ignore per-row errors
+        }
       }
+      // else: warning was sent but 14-day window not yet elapsed — skip.
     }
 
-    return { forfeited, notified };
+    return { warned, forfeited, notified };
   }
 
   static async run() {
@@ -250,8 +419,17 @@ export class OfficeScheduleWatchdogService {
       ehrRefresh = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
 
+    // Phase A: auto-book slots that overlap provider_schedule_events (internal sessions).
+    let internalSessionBook = null;
+    try {
+      internalSessionBook = await this.autoBookFromInternalSessions();
+    } catch (e) {
+      internalSessionBook = { ok: false, reason: 'exception', error: String(e?.message || e) };
+    }
+
     const confirms = await this.emitSixWeekBookingConfirmReminders();
     const forfeits = await this.autoForfeitStaleAvailableSlots();
+
     let googleSync = null;
     try {
       googleSync = await this.syncBookedToGoogle({ horizonDays: 28 });
@@ -267,7 +445,6 @@ export class OfficeScheduleWatchdogService {
       ehrTnDowngrade = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
 
-    return { ok: true, ehrRefresh, confirms, forfeits, googleSync, ehrTnDowngrade };
+    return { ok: true, ehrRefresh, internalSessionBook, confirms, forfeits, googleSync, ehrTnDowngrade };
   }
 }
-

@@ -6,12 +6,12 @@ import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import { fetchMeetTranscriptForSession } from '../services/googleMeetTranscript.service.js';
 import {
-  isTwilioVideoConfigured,
+  isVideoConfigured,
   createOrGetRoom,
   createOrGetRoomByUniqueName,
   createAccessTokenAsync,
   listRoomParticipants
-} from '../services/twilioVideo.service.js';
+} from '../services/video.service.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
@@ -808,8 +808,8 @@ export const getSupervisionJoinInfo = async (req, res, next) => {
 
 export const getSupervisionVideoToken = async (req, res, next) => {
   try {
-    if (!isTwilioVideoConfigured()) {
-      return res.status(503).json({ error: { message: 'Twilio Video is not configured' } });
+    if (!isVideoConfigured()) {
+      return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
 
     const id = parseInt(req.params.id, 10);
@@ -861,7 +861,7 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       }
 
       if (!row.twilio_room_sid && roomParam !== 'lobby') {
-        await SupervisionSession.setTwilioRoom(id, {
+        await SupervisionSession.setVideoRoom(id, {
           roomSid: roomResult.roomSid,
           uniqueName: roomResult.uniqueName
         });
@@ -908,8 +908,8 @@ export const getSupervisionVideoToken = async (req, res, next) => {
 
 export const getLobbyParticipants = async (req, res, next) => {
   try {
-    if (!isTwilioVideoConfigured()) {
-      return res.status(503).json({ error: { message: 'Twilio Video is not configured' } });
+    if (!isVideoConfigured()) {
+      return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
 
     const id = parseInt(req.params.id, 10);
@@ -1004,8 +1004,8 @@ export const admitToMainRoom = async (req, res, next) => {
 
 export const getAdmissionStatus = async (req, res, next) => {
   try {
-    if (!isTwilioVideoConfigured()) {
-      return res.status(503).json({ error: { message: 'Twilio Video is not configured' } });
+    if (!isVideoConfigured()) {
+      return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
 
     const id = parseInt(req.params.id, 10);
@@ -1603,9 +1603,9 @@ export const createSupervisionSession = async (req, res, next) => {
       ? `Group supervision (${participantCount})`
       : `Supervision — ${(supervisee.first_name || '').trim()} ${(supervisee.last_name || '').trim()}`.trim();
     const desc = notes ? String(notes) : null;
-    const useTwilioVideo = isTwilioVideoConfigured();
+    const useVideo = isVideoConfigured();
     const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-    const appJoinUrl = useTwilioVideo && frontendUrl
+    const appJoinUrl = useVideo && frontendUrl
       ? `${frontendUrl}/join/supervision/${created.id}`
       : null;
     const sync = await GoogleCalendarService.upsertSupervisionSession({
@@ -1617,7 +1617,7 @@ export const createSupervisionSession = async (req, res, next) => {
       endAt,
       summary,
       description: desc,
-      createMeetLink: useTwilioVideo ? false : createMeetLink,
+      createMeetLink: useVideo ? false : createMeetLink,
       appJoinUrl
     });
 
@@ -1718,9 +1718,9 @@ export const patchSupervisionSession = async (req, res, next) => {
 
     const summary = `Supervision — ${(supervisee?.first_name || '').trim()} ${(supervisee?.last_name || '').trim()}`.trim();
     const desc = updated?.notes ? String(updated.notes) : null;
-    const useTwilioVideo = isTwilioVideoConfigured();
+    const useVideo = isVideoConfigured();
     const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-    const appJoinUrl = useTwilioVideo && frontendUrl
+    const appJoinUrl = useVideo && frontendUrl
       ? `${frontendUrl}/join/supervision/${id}`
       : null;
     const sync = await GoogleCalendarService.upsertSupervisionSession({
@@ -1731,7 +1731,7 @@ export const patchSupervisionSession = async (req, res, next) => {
       endAt: nextEnd,
       summary,
       description: desc,
-      createMeetLink: useTwilioVideo ? false : (createMeetLink && !String(row.google_meet_link || '').trim()),
+      createMeetLink: useVideo ? false : (createMeetLink && !String(row.google_meet_link || '').trim()),
       appJoinUrl,
       existingGoogleEventId: row.google_event_id || null,
       existingMeetLink: row.google_meet_link || null
@@ -1849,7 +1849,7 @@ export const getMySupervisionPrompts = async (req, res, next) => {
     });
 
     const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-    const useAppJoin = isTwilioVideoConfigured() && frontendUrl;
+    const useAppJoin = isVideoConfigured() && frontendUrl;
 
     const prompts = (rows || []).map((row) => {
       const start = new Date(row.startAt || 0);

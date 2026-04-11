@@ -1228,7 +1228,7 @@
             </div>
           </div>
           <div v-else class="muted" style="margin-top: 8px;">
-            No video link yet. Join link appears when Twilio Video is configured.
+            No video link yet. Join link appears when video is configured.
           </div>
 
           <div style="margin-top: 12px;">
@@ -1370,7 +1370,7 @@
           <div v-else-if="supvAppVideoRoomMode === 'lobby' && supvAppVideoLobbyEnabled" class="hint" style="margin-bottom: 12px;">
             Waiting for supervisor to admit you to the room…
           </div>
-          <SupervisionTwilioVideoRoom
+          <SupervisionVideoRoom
             :token="supvAppVideoToken"
             :room-name="supvAppVideoRoomName"
             :session-title="supvAppVideoSessionTitle"
@@ -1683,7 +1683,7 @@ import { useUserPreferencesStore } from '../../store/userPreferences';
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import BrandingLogo from '../BrandingLogo.vue';
-import SupervisionTwilioVideoRoom from '../supervision/SupervisionTwilioVideoRoom.vue';
+import SupervisionVideoRoom from '../supervision/SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from '../supervision/SupervisionVideoLobbyPanel.vue';
 
 const props = defineProps({

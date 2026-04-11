@@ -426,7 +426,7 @@ import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { toUploadsUrl } from '../utils/uploadsUrl';
-import ClubFeedPanel from '../components/ssc/ClubFeedPanel.vue';
+import ClubFeedPanel from '../components/sstc/ClubFeedPanel.vue';
 
 const route  = useRoute();
 const router = useRouter();

@@ -222,7 +222,7 @@
         <div v-if="callsError" class="error-box">{{ callsError }}</div>
         <div v-else-if="callsLoading" class="loading">Loading call activity…</div>
         <div v-else-if="!callsEnabled" class="empty">
-          Voice logs are not enabled in this environment yet. This tab is ready for Twilio voice rollout.
+          Voice logs are not enabled in this environment yet. This tab is ready for voice rollout.
         </div>
         <div v-else-if="callRows.length === 0" class="empty">No call logs yet.</div>
         <div v-else class="list" data-tour="comms-list">
@@ -452,7 +452,7 @@
         <div class="proof-card">
           <h3>Deployment link examples (use for screenshots)</h3>
           <p class="muted">
-            Show both deployments in consent proof screenshots so Twilio reviewers can see co-branded usage.
+            Show both deployments in consent proof screenshots so reviewers can see co-branded usage.
           </p>
           <div class="proof-deployment-grid">
             <div v-for="d in proofDeployments" :key="d.name" class="proof-deployment-item">
@@ -781,10 +781,10 @@ const isSscSstcTenant = computed(() => {
   const routeSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
   const agencySlug = String(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || '').trim().toLowerCase();
   const slug = routeSlug || agencySlug;
-  return slug === 'ssc' || slug === 'sstc';
+  return slug === 'sstc' || slug === 'sstc';
 });
 
-/** SSC/SSTC club portals: hide school-program and compliance-proof surfaces for signed-in managers. */
+/** SSTC/SSTC club portals: hide school-program and compliance-proof surfaces for signed-in managers. */
 const hideSscSchoolComplianceTabs = computed(() => isSscSstcTenant.value && authStore.isAuthenticated);
 const hideSscTicketsButton = computed(() => isSscSstcTenant.value && authStore.isAuthenticated);
 

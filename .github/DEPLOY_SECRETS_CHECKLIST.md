@@ -72,6 +72,8 @@ SMS and voice/video are no longer on Twilio in app code; these may remain empty.
 Add these as GitHub Actions **repository secrets** so `deploy-backend.yml` can pass them to Cloud Run.
 - `VONAGE_API_KEY`
 - `VONAGE_API_SECRET`
+- `VONAGE_APPLICATION_ID` — from Vonage Application page
+- `VONAGE_PRIVATE_KEY` — full text of your generated private key file
 - `VONAGE_SMS_WEBHOOK_URL` — e.g. `https://<your-backend-host>/api/vonage/inbound`
 - `VONAGE_FROM` — default outbound sender (E.164), used with `VONAGE_DEFAULT_FROM` as fallback in code
 - `VONAGE_DEFAULT_FROM` — optional second fallback for system SMS

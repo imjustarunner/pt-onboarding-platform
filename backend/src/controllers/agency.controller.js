@@ -239,7 +239,7 @@ export const createAgency = async (req, res, next) => {
     }
 
     // For child org types, affiliated agency is required and must be allowed for this user.
-    const isChildOrgType = ['school', 'program', 'learning', 'clinical'].includes(requestedType);
+    const isChildOrgType = ['school', 'program', 'learning', 'clinical', 'clubwebapp'].includes(requestedType);
     let resolvedAffiliatedAgencyId = null;
     let resolvedAffiliatedAgency = null;
     if (isChildOrgType) {
@@ -812,7 +812,7 @@ export const updateAgency = async (req, res, next) => {
       }
 
       const type = String(agency.organization_type || organizationType || 'agency').toLowerCase();
-      const isChildOrgType = ['school', 'program', 'learning', 'clinical'].includes(type);
+      const isChildOrgType = ['school', 'program', 'learning', 'clinical', 'clubwebapp'].includes(type);
       if (!isChildOrgType) {
         return res.status(400).json({ error: { message: 'Affiliation can only be set for school/program/learning/clinical organizations' } });
       }

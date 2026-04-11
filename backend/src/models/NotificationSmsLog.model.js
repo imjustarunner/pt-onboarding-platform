@@ -8,7 +8,7 @@ class NotificationSmsLog {
     toNumber,
     fromNumber,
     body,
-    twilioSid = null,
+    providerRef = null,
     status = 'pending',
     errorMessage = null
   }) {
@@ -16,21 +16,21 @@ class NotificationSmsLog {
       `INSERT INTO notification_sms_logs
        (user_id, agency_id, notification_id, to_number, from_number, body, twilio_sid, status, error_message)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, agencyId, notificationId, toNumber, fromNumber, body, twilioSid, status, errorMessage]
+      [userId, agencyId, notificationId, toNumber, fromNumber, body, providerRef, status, errorMessage]
     );
     return this.findById(result.insertId);
   }
 
-  static async updateStatus(id, { status, twilioSid = null, errorMessage = null }) {
+  static async updateStatus(id, { status, providerRef = null, errorMessage = null }) {
     const fields = [];
     const values = [];
     if (status) {
       fields.push('status = ?');
       values.push(status);
     }
-    if (twilioSid !== null) {
+    if (providerRef !== null) {
       fields.push('twilio_sid = ?');
-      values.push(twilioSid);
+      values.push(providerRef);
     }
     if (errorMessage !== null) {
       fields.push('error_message = ?');

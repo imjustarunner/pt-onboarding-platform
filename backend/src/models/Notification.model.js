@@ -24,7 +24,7 @@ class Notification {
     // Documents / credentials compliance
     'credential_expiring',
     'credential_expired_blocking',
-    // Communications (Twilio messaging)
+    // Communications (messaging)
     'inbound_client_message',
     'support_safety_net_alert',
     // Kiosk

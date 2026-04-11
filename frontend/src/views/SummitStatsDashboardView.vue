@@ -1,5 +1,5 @@
 <template>
-  <div class="ssc-dashboard">
+  <div class="sstc-dashboard">
     <section class="dashboard-hero card dash-section dash-section--hero">
       <div>
         <p class="eyebrow">{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }}</p>
@@ -9,14 +9,14 @@
           (the weekly tasks your team completes).
         </p>
       </div>
-      <label class="ssc-dark-mode-toggle" :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'">
-        <span class="ssc-dark-mode-text">Dark mode</span>
-        <span class="ssc-toggle-switch" :class="{ 'ssc-toggle-switch--on': isDarkMode }" aria-hidden="true">
-          <span class="ssc-toggle-thumb"></span>
+      <label class="sstc-dark-mode-toggle" :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'">
+        <span class="sstc-dark-mode-text">Dark mode</span>
+        <span class="sstc-toggle-switch" :class="{ 'sstc-toggle-switch--on': isDarkMode }" aria-hidden="true">
+          <span class="sstc-toggle-thumb"></span>
         </span>
         <input
           type="checkbox"
-          class="ssc-dark-mode-input"
+          class="sstc-dark-mode-input"
           :checked="isDarkMode"
           @change="onDarkModeToggle"
         />
@@ -26,21 +26,21 @@
     <!-- Club-wide banner + splashes (same API as main org dashboard) -->
     <div
       v-if="!loading && !dashboardError && clubDashboardBannerTexts.length"
-      class="ssc-announcement-banner"
+      class="sstc-announcement-banner"
       role="region"
       aria-label="Club announcements"
     >
-      <div class="ssc-announcement-inner">
-        <div class="ssc-announcement-track">
+      <div class="sstc-announcement-inner">
+        <div class="sstc-announcement-track">
           <span
             v-for="(t, idx) in clubDashboardBannerTexts"
             :key="`b-${idx}-${String(t).slice(0, 24)}`"
-            class="ssc-announcement-item"
+            class="sstc-announcement-item"
           >{{ t }}</span>
           <span
             v-for="(t, idx) in clubDashboardBannerTexts"
             :key="`br-${idx}-${String(t).slice(0, 24)}`"
-            class="ssc-announcement-item"
+            class="sstc-announcement-item"
             aria-hidden="true"
           >{{ t }}</span>
         </div>
@@ -640,24 +640,24 @@
     <!-- One-time splash (display_type: splash) — dismiss or remind in 24h -->
     <div
       v-if="currentClubSplash"
-      class="ssc-blocking-splash"
+      class="sstc-blocking-splash"
       role="dialog"
       aria-modal="true"
       aria-label="Club announcement"
     >
-      <div class="ssc-blocking-splash-card">
-        <div class="ssc-blocking-splash-head">
-          <span class="ssc-blocking-splash-brand">{{ clubSplashBrandLabel }}</span>
+      <div class="sstc-blocking-splash-card">
+        <div class="sstc-blocking-splash-head">
+          <span class="sstc-blocking-splash-brand">{{ clubSplashBrandLabel }}</span>
         </div>
-        <h3 class="ssc-blocking-splash-title">{{ clubSplashTitle }}</h3>
-        <div v-if="currentClubSplash.splash_image_url" class="ssc-blocking-splash-image-wrap">
-          <img :src="toUploadsUrl(currentClubSplash.splash_image_url)" alt="" class="ssc-blocking-splash-image" />
+        <h3 class="sstc-blocking-splash-title">{{ clubSplashTitle }}</h3>
+        <div v-if="currentClubSplash.splash_image_url" class="sstc-blocking-splash-image-wrap">
+          <img :src="toUploadsUrl(currentClubSplash.splash_image_url)" alt="" class="sstc-blocking-splash-image" />
         </div>
-        <p class="ssc-blocking-splash-message">{{ currentClubSplash.message || '' }}</p>
-        <div v-if="currentClubSplash.ends_at" class="ssc-blocking-splash-meta">
+        <p class="sstc-blocking-splash-message">{{ currentClubSplash.message || '' }}</p>
+        <div v-if="currentClubSplash.ends_at" class="sstc-blocking-splash-meta">
           Scheduled through {{ formatClubSplashEndsAt(currentClubSplash.ends_at) }}
         </div>
-        <div class="ssc-blocking-splash-actions">
+        <div class="sstc-blocking-splash-actions">
           <button type="button" class="btn btn-secondary" @click="remindLaterClubSplash">Remind me later</button>
           <button type="button" class="btn btn-primary" @click="dismissClubSplash">Dismiss</button>
         </div>
@@ -673,7 +673,7 @@ import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../utils/summitPlatformSlugs.js';
-import ClubFeedPanel from '../components/ssc/ClubFeedPanel.vue';
+import ClubFeedPanel from '../components/sstc/ClubFeedPanel.vue';
 import {
   AVERAGE_MILES_PER_WEEK_OPTIONS,
   PHYSICAL_ACTIVITY_HOURS_OPTIONS
@@ -689,7 +689,7 @@ const router = useRouter();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 
-const orgSlug = computed(() => String(route.params?.organizationSlug || 'ssc').toLowerCase());
+const orgSlug = computed(() => String(route.params?.organizationSlug || 'sstc').toLowerCase());
 // Always use the platform slug for season/dashboard navigation so the long club slug never leaks
 const navSlug = computed(() => isSummitPlatformRouteSlug(orgSlug.value) ? orgSlug.value : NATIVE_APP_ORG_SLUG);
 
@@ -1232,7 +1232,7 @@ watch(
 </script>
 
 <style scoped>
-.ssc-dashboard {
+.sstc-dashboard {
   max-width: 1180px;
   margin: 0 auto;
   padding: 24px;
@@ -1258,7 +1258,7 @@ watch(
   background: linear-gradient(135deg, #fff8ef 0%, #f8fbff 100%);
 }
 
-.ssc-dark-mode-toggle {
+.sstc-dark-mode-toggle {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -1274,18 +1274,18 @@ watch(
   box-shadow: 0 12px 26px rgba(15, 23, 42, 0.08);
 }
 
-.ssc-dark-mode-text {
+.sstc-dark-mode-text {
   white-space: nowrap;
 }
 
-.ssc-dark-mode-input {
+.sstc-dark-mode-input {
   position: absolute;
   inset: 0;
   opacity: 0;
   cursor: pointer;
 }
 
-.ssc-toggle-switch {
+.sstc-toggle-switch {
   width: 46px;
   height: 26px;
   border-radius: 999px;
@@ -1294,11 +1294,11 @@ watch(
   transition: background 0.2s ease;
 }
 
-.ssc-toggle-switch--on {
+.sstc-toggle-switch--on {
   background: linear-gradient(135deg, #2563eb 0%, #0f172a 100%);
 }
 
-.ssc-toggle-thumb {
+.sstc-toggle-thumb {
   display: block;
   width: 20px;
   height: 20px;
@@ -1309,7 +1309,7 @@ watch(
   transition: transform 0.2s ease;
 }
 
-.ssc-toggle-switch--on .ssc-toggle-thumb {
+.sstc-toggle-switch--on .sstc-toggle-thumb {
   transform: translateX(20px);
 }
 
@@ -1898,7 +1898,7 @@ watch(
   margin-bottom: 10px;
 }
 
-.ssc-announcement-banner {
+.sstc-announcement-banner {
   background: linear-gradient(90deg, #eff6ff 0%, #ffffff 100%);
   border-left: 4px solid #2563eb;
   border-radius: 16px;
@@ -1909,26 +1909,26 @@ watch(
   contain: paint;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
-.ssc-announcement-inner {
+.sstc-announcement-inner {
   overflow: hidden;
   width: 100%;
   max-width: 100%;
 }
-.ssc-announcement-track {
+.sstc-announcement-track {
   display: inline-flex;
   align-items: center;
   gap: 18px;
   padding-left: 100%;
-  animation: sscBannerMarquee 28s linear infinite;
+  animation: sstcBannerMarquee 28s linear infinite;
   white-space: nowrap;
   color: #1d4ed8;
   font-weight: 600;
   font-size: clamp(14px, 3.5vw, 16px);
 }
-.ssc-announcement-banner:hover .ssc-announcement-track {
+.sstc-announcement-banner:hover .sstc-announcement-track {
   animation-play-state: paused;
 }
-@keyframes sscBannerMarquee {
+@keyframes sstcBannerMarquee {
   0% {
     transform: translateX(0);
   }
@@ -1937,7 +1937,7 @@ watch(
   }
 }
 
-.ssc-blocking-splash {
+.sstc-blocking-splash {
   position: fixed;
   inset: 0;
   z-index: 1300;
@@ -1946,7 +1946,7 @@ watch(
   place-items: center;
   padding: max(16px, env(safe-area-inset-bottom));
 }
-.ssc-blocking-splash-card {
+.sstc-blocking-splash-card {
   width: min(700px, 96vw);
   max-height: min(90vh, 900px);
   overflow-y: auto;
@@ -1956,36 +1956,36 @@ watch(
   padding: 20px;
   box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
 }
-.ssc-blocking-splash-head {
+.sstc-blocking-splash-head {
   margin-bottom: 8px;
 }
-.ssc-blocking-splash-brand {
+.sstc-blocking-splash-brand {
   font-weight: 800;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #64748b;
 }
-.ssc-blocking-splash-title {
+.sstc-blocking-splash-title {
   margin: 0 0 10px 0;
   color: #1d4ed8;
   font-size: clamp(22px, 6vw, 32px);
   line-height: 1.15;
 }
-.ssc-blocking-splash-image-wrap {
+.sstc-blocking-splash-image-wrap {
   margin: 0 0 12px 0;
   border-radius: 12px;
   overflow: hidden;
   background: #f1f5f9;
 }
-.ssc-blocking-splash-image {
+.sstc-blocking-splash-image {
   display: block;
   width: 100%;
   height: auto;
   max-height: min(40vh, 360px);
   object-fit: contain;
 }
-.ssc-blocking-splash-message {
+.sstc-blocking-splash-message {
   margin: 0;
   color: #0f172a;
   font-size: clamp(16px, 4.2vw, 1.25rem);
@@ -1993,12 +1993,12 @@ watch(
   white-space: pre-wrap;
   word-break: break-word;
 }
-.ssc-blocking-splash-meta {
+.sstc-blocking-splash-meta {
   margin-top: 10px;
   color: #64748b;
   font-size: 12px;
 }
-.ssc-blocking-splash-actions {
+.sstc-blocking-splash-actions {
   margin-top: 16px;
   display: flex;
   flex-wrap: wrap;
@@ -2007,7 +2007,7 @@ watch(
 }
 
 @media (max-width: 760px) {
-  .ssc-dashboard {
+  .sstc-dashboard {
     padding: 10px 12px;
     gap: 12px;
   }
@@ -2042,7 +2042,7 @@ watch(
     display: grid;
   }
 
-  .ssc-dark-mode-toggle {
+  .sstc-dark-mode-toggle {
     justify-self: start;
   }
 

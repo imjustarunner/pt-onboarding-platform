@@ -6,9 +6,9 @@ import Task from '../models/Task.model.js';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import GoogleWorkspaceDirectoryService from './googleWorkspaceDirectory.service.js';
 import EmailService from './email.service.js';
-import TwilioService from './twilio.service.js';
-import TwilioNumber from '../models/TwilioNumber.model.js';
-import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
+import VonageService from './vonage.service.js';
+import PhoneNumber from '../models/PhoneNumber.model.js';
+import PhoneNumberAssignment from '../models/PhoneNumberAssignment.model.js';
 
 const parseJsonObject = (raw, fallback = {}) => {
   if (!raw) return fallback;
@@ -149,12 +149,12 @@ const normalizeAreaCodeFromPhone = (phone) => {
   return null;
 };
 
-async function autoProvisionTwilioNumber({ user, agency }) {
+async function autoProvisionPhoneNumber({ user, agency }) {
   const featureFlags = parseJsonObject(agency?.feature_flags, {});
   const enabled = featureFlags.smsNumbersEnabled === true && featureFlags.smsAutoProvisionOnPrehire === true;
   if (!enabled) return { skipped: true };
 
-  const existingAssignment = await TwilioNumberAssignment.findPrimaryForUser(user.id);
+  const existingAssignment = await PhoneNumberAssignment.findPrimaryForUser(user.id);
   if (existingAssignment?.number_id) return { skipped: true, reason: 'already_assigned' };
 
   const areaCode = normalizeAreaCodeFromPhone(user.personal_phone || user.phone_number || user.work_phone);
@@ -163,7 +163,7 @@ async function autoProvisionTwilioNumber({ user, agency }) {
     candidates = await VonageService.searchAvailableLocalNumbers({ country: 'US', limit: 5 });
   }
   if (!Array.isArray(candidates) || candidates.length === 0) {
-    throw new Error('No available Twilio numbers found.');
+    throw new Error('No available phone numbers found.');
   }
 
   const picked = candidates[0];
@@ -174,7 +174,7 @@ async function autoProvisionTwilioNumber({ user, agency }) {
     smsUrl
   });
 
-  const record = await TwilioNumber.create({
+  const record = await PhoneNumber.create({
     agencyId: agency?.id || null,
     phoneNumber: purchased.phoneNumber || picked.phoneNumber,
     twilioSid: purchased.sid || null,
@@ -183,7 +183,7 @@ async function autoProvisionTwilioNumber({ user, agency }) {
     status: 'active'
   });
 
-  await TwilioNumberAssignment.assign({ numberId: record.id, userId: user.id, isPrimary: true });
+  await PhoneNumberAssignment.assign({ numberId: record.id, userId: user.id, isPrimary: true });
   await User.update(user.id, { systemPhoneNumber: record.phone_number });
   return { number: record.phone_number };
 }
@@ -280,11 +280,11 @@ class PendingCompletionService {
     }
 
     const workspaceProvisioning = await provisionWorkspaceAccount({ user, agency });
-    let twilioProvisioning = null;
+    let phoneProvisioning = null;
     try {
-      twilioProvisioning = await autoProvisionTwilioNumber({ user, agency });
-    } catch (twilioError) {
-      console.warn('Twilio auto-provisioning failed:', twilioError?.message || twilioError);
+      phoneProvisioning = await autoProvisionPhoneNumber({ user, agency });
+    } catch (phoneError) {
+      console.warn('Phone auto-provisioning failed:', phoneError?.message || phoneError);
     }
     
     // Update user status and lock access
@@ -310,7 +310,7 @@ class PendingCompletionService {
       completedAt: now,
       isAutoComplete,
       workspaceProvisioning,
-      twilioProvisioning
+      phoneProvisioning
     };
   }
 

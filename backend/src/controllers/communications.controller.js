@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
-import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
+import PhoneNumberAssignment from '../models/PhoneNumberAssignment.model.js';
 import UserCommunication from '../models/UserCommunication.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import EmailService from '../services/email.service.js';
@@ -239,12 +239,12 @@ export const getCommunicationsFeed = async (req, res, next) => {
           );
           rows = r || [];
         } else {
-          // Provider/staff visibility: own messages + messages to/from their assigned Twilio numbers.
+          // Provider/staff visibility: own messages + messages to/from their assigned phone numbers.
           const roleNorm = String(role || '').toLowerCase();
           const isProviderOrSchoolStaff = roleNorm === 'provider' || roleNorm === 'school_staff';
           let assignedNumberIds = [];
           if (isProviderOrSchoolStaff) {
-            const assignments = await TwilioNumberAssignment.listByUserId(userId);
+            const assignments = await PhoneNumberAssignment.listByUserId(userId);
             assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
           }
           const smsUserClause =
@@ -401,12 +401,12 @@ export const getCallsFeed = async (req, res, next) => {
       return res.json({ enabled: true, items: rows || [] });
     }
 
-    // Provider/staff users: own call rows + calls to/from their assigned Twilio numbers.
+    // Provider/staff users: own call rows + calls to/from their assigned phone numbers.
     const roleNorm = String(role || '').toLowerCase();
     const isProviderOrSchoolStaff = roleNorm === 'provider' || roleNorm === 'school_staff';
     let assignedNumberIds = [];
     if (isProviderOrSchoolStaff) {
-      const assignments = await TwilioNumberAssignment.listByUserId(userId);
+      const assignments = await PhoneNumberAssignment.listByUserId(userId);
       assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
     }
 
@@ -493,7 +493,7 @@ export const getCallsAnalytics = async (req, res, next) => {
       const isProviderOrSchoolStaff = roleNorm === 'provider' || roleNorm === 'school_staff';
       let assignedNumberIds = [];
       if (isProviderOrSchoolStaff) {
-        const assignments = await TwilioNumberAssignment.listByUserId(userId);
+        const assignments = await PhoneNumberAssignment.listByUserId(userId);
         assignedNumberIds = (assignments || []).map((a) => Number(a.number_id)).filter(Boolean);
       }
       const numberIdClause =

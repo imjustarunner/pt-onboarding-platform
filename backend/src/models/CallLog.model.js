@@ -15,7 +15,7 @@ class CallLog {
     fromNumber = null,
     toNumber = null,
     targetPhone = null,
-    twilioCallSid = null,
+    providerCallSid = null,
     parentCallSid = null,
     status = null,
     durationSeconds = null,
@@ -37,7 +37,7 @@ class CallLog {
         this.normalizePhone(fromNumber) || fromNumber,
         this.normalizePhone(toNumber) || toNumber,
         this.normalizePhone(targetPhone) || targetPhone,
-        twilioCallSid,
+        providerCallSid,
         parentCallSid,
         status,
         Number.isFinite(Number(durationSeconds)) ? Number(durationSeconds) : null,
@@ -77,7 +77,7 @@ class CallLog {
       values.push(value);
     };
 
-    if (patch.twilio_call_sid !== undefined) set('twilio_call_sid', patch.twilio_call_sid || null);
+    if (patch.provider_call_sid !== undefined) set('twilio_call_sid', patch.provider_call_sid || null);
     if (patch.parent_call_sid !== undefined) set('parent_call_sid', patch.parent_call_sid || null);
     if (patch.status !== undefined) set('status', patch.status || null);
     if (patch.duration_seconds !== undefined) {

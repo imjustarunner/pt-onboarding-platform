@@ -261,7 +261,10 @@ const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 const isAuthenticated = computed(() => authStore.isAuthenticated);
 const isAgencyOrgType = (org) => String(org?.organization_type || org?.organizationType || 'agency').toLowerCase() === 'agency';
-const isAffiliationOrgType = (org) => String(org?.organization_type || org?.organizationType || '').toLowerCase() === 'affiliation';
+const isAffiliationOrgType = (org) => {
+  const t = String(org?.organization_type || org?.organizationType || '').toLowerCase();
+  return t === 'affiliation' || t === 'clubwebapp';
+};
 const agencyId = computed(() => {
   const current = agencyStore.currentAgency || null;
   if (!current) return null;

@@ -11,7 +11,7 @@
           <h1 data-tour="user-profile-title">{{ headerDisplayName }}</h1>
           <span
             v-if="isSscMemberProfileMode && memberCaptainMeta.everTeamCaptain"
-            class="ssc-captain-badge ssc-captain-badge--legacy"
+            class="sstc-captain-badge sstc-captain-badge--legacy"
             :title="`Team captain in ${memberCaptainMeta.captainTeamCount} season${memberCaptainMeta.captainTeamCount === 1 ? '' : 's'}`"
           >C</span>
           <span 
@@ -1339,7 +1339,7 @@
           </div>
             
             <!-- SSC/SSTC member profiles: club status is managed from the Member Management list, not here -->
-            <div v-if="isSscMemberProfileMode" class="ssc-status-note">
+            <div v-if="isSstcMemberProfileMode" class="ssc-status-note">
               <span class="ssc-status-icon">ℹ️</span>
               Club membership status (Active / Inactive) is managed from the
               <strong>Member Management</strong> page. Use the toggle there to activate or
@@ -2831,7 +2831,7 @@ const isSscSstcTenant = computed(() => {
   return routeSlug === 'ssc' || routeSlug === 'sstc' || agencySlug === 'ssc' || agencySlug === 'sstc';
 });
 
-const isSscMemberProfileMode = computed(() => {
+const isSstcMemberProfileMode = computed(() => {
   return isSscSstcTenant.value && !isViewingGuardian.value;
 });
 

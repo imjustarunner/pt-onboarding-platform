@@ -4,10 +4,23 @@ class VonageService {
   static getClient() {
     const apiKey = process.env.VONAGE_API_KEY;
     const apiSecret = process.env.VONAGE_API_SECRET;
+    const applicationId = process.env.VONAGE_APPLICATION_ID;
+    
+    // In production/Cloud Run, we pass the private key as a string in VONAGE_PRIVATE_KEY
+    // In local dev, we might use VONAGE_PRIVATE_KEY_PATH pointing to a file.
+    const privateKey = process.env.VONAGE_PRIVATE_KEY || process.env.VONAGE_PRIVATE_KEY_PATH || './vonage_private.key';
+    
     if (!apiKey || !apiSecret) {
       throw new Error('Vonage not configured (missing VONAGE_API_KEY/VONAGE_API_SECRET)');
     }
-    return new Vonage({ apiKey, apiSecret });
+    
+    const config = { apiKey, apiSecret };
+    if (applicationId) {
+      config.applicationId = applicationId;
+      config.privateKey = privateKey;
+    }
+    
+    return new Vonage(config);
   }
 
   static async sendSms({ to, from, body, mediaUrl = null }) {
@@ -136,6 +149,44 @@ class VonageService {
   static validateWebhook({ params, signature }) {
     const vonage = this.getClient();
     return vonage.sms.verifySignature(params, signature, process.env.VONAGE_SIGNATURE_SECRET || '');
+  }
+
+  /**
+   * Create a Vonage RTC User.
+   */
+  static async createRtcUser({ name, displayName = null, imageUrl = null }) {
+    const vonage = this.getClient();
+    const user = await vonage.users.createUser({
+      name,
+      displayName: displayName || name,
+      imageUrl: imageUrl || null
+    });
+    return user;
+  }
+
+  /**
+   * Generate a JWT for a Vonage User to join a conversation or join the RTC SDK.
+   */
+  static generateRtcJwt(userName) {
+    const vonage = this.getClient();
+    // Use the built-in JWT generator if available, or manual if not.
+    // The @vonage/server-sdk has a generateJwt method.
+    return vonage.generateJwt({
+      sub: userName,
+      acl: {
+        paths: {
+          '/*/users/**': {},
+          '/*/conversations/**': {},
+          '/*/sessions/**': {},
+          '/*/devices/**': {},
+          '/*/image/**': {},
+          '/*/media/**': {},
+          '/*/applications/**': {},
+          '/*/push/**': {},
+          '/*/knocking/**': {}
+        }
+      }
+    });
   }
 }
 

@@ -2,16 +2,16 @@
  * Send reminder/digest via SMS to the current user ("Text me this").
  */
 import User from '../models/User.model.js';
-import TwilioNumber from '../models/TwilioNumber.model.js';
+import PhoneNumber from '../models/PhoneNumber.model.js';
 import VonageService from '../services/vonage.service.js';
-import { resolveReminderNumber } from '../services/twilioNumberRouting.service.js';
+import { resolveReminderNumber } from '../services/communicationRouting.service.js';
 import NotificationSmsLog from '../models/NotificationSmsLog.model.js';
 import UserCommunication from '../models/UserCommunication.model.js';
 import { buildReminderDigestText } from '../services/reminderDigest.service.js';
 
 function pickUserPhone(user) {
   const raw = user?.personal_phone || user?.work_phone || user?.phone_number || null;
-  return raw ? TwilioNumber.normalizePhone(raw) : null;
+  return raw ? PhoneNumber.normalizePhone(raw) : null;
 }
 
 export const sendReminderSms = async (req, res, next) => {
@@ -54,7 +54,7 @@ export const sendReminderSms = async (req, res, next) => {
       });
     }
 
-    const from = TwilioNumber.normalizePhone(resolved.number.phone_number) || resolved.number.phone_number;
+    const from = PhoneNumber.normalizePhone(resolved.number.phone_number) || resolved.number.phone_number;
 
     const log = await NotificationSmsLog.create({
       userId,
@@ -86,7 +86,7 @@ export const sendReminderSms = async (req, res, next) => {
 
     try {
       const msg = await VonageService.sendSms({ to, from, body: truncated });
-      await NotificationSmsLog.updateStatus(log.id, { status: 'sent', twilioSid: msg.sid });
+      await NotificationSmsLog.updateStatus(log.id, { status: 'sent', providerRef: msg.sid });
       if (comm?.id) {
         await UserCommunication.updateDeliveryStatus(comm.id, 'sent', msg?.sid || null);
       }

@@ -1,65 +1,65 @@
 <template>
-  <transition name="ssc-bar-slide">
-    <div v-if="visible" class="ssc-context-bar" aria-label="Club and team context">
-      <div class="ssc-context-inner">
+  <transition name="sstc-bar-slide">
+    <div v-if="visible" class="sstc-context-bar" aria-label="Club and team context">
+      <div class="sstc-context-inner">
         <!-- Club identity -->
-        <div class="ssc-club-block">
+        <div class="sstc-club-block">
           <img
             v-if="clubLogoSrc"
             :src="clubLogoSrc"
             alt=""
-            class="ssc-club-logo"
+            class="sstc-club-logo"
             width="36"
             height="36"
           />
-          <span class="ssc-pill-badge">Club</span>
-          <span class="ssc-club-name" :title="clubDisplayName">{{ clubDisplayName }}</span>
+          <span class="sstc-pill-badge">Club</span>
+          <span class="sstc-club-name" :title="clubDisplayName">{{ clubDisplayName }}</span>
         </div>
 
-        <div class="ssc-separator" aria-hidden="true" />
+        <div class="sstc-separator" aria-hidden="true" />
 
         <!-- Team block -->
-        <div class="ssc-team-block">
-          <span class="ssc-pill-badge ssc-pill-badge--team">Team</span>
+        <div class="sstc-team-block">
+          <span class="sstc-pill-badge sstc-pill-badge--team">Team</span>
 
           <template v-if="loading">
             <img
               v-if="platformLogoUrl"
               :src="platformLogoUrl"
-              class="ssc-loading-logo"
+              class="sstc-loading-logo"
               alt="Loading"
               aria-label="Loading teams…"
             />
-            <span v-else class="ssc-skeleton" />
+            <span v-else class="sstc-skeleton" />
           </template>
 
           <template v-else-if="teams.length === 0">
-            <span class="ssc-muted">No team assigned</span>
+            <span class="sstc-muted">No team assigned</span>
           </template>
 
           <template v-else-if="teams.length === 1">
-            <span class="ssc-team-name">{{ teams[0].teamName }}</span>
+            <span class="sstc-team-name">{{ teams[0].teamName }}</span>
           </template>
 
           <template v-else>
-            <div class="ssc-select-wrap">
-              <select v-model="selectedTeamId" class="ssc-team-select" aria-label="Select team">
+            <div class="sstc-select-wrap">
+              <select v-model="selectedTeamId" class="sstc-team-select" aria-label="Select team">
                 <option v-for="opt in teamOptions" :key="opt.key" :value="opt.teamId">
                   {{ opt.teamName }}
                 </option>
               </select>
-              <span class="ssc-select-caret" aria-hidden="true">▾</span>
+              <span class="sstc-select-caret" aria-hidden="true">▾</span>
             </div>
           </template>
         </div>
 
         <!-- Season / challenge name — pushed to the right on wide screens -->
-        <div v-if="selectedTeam?.challengeName" class="ssc-season-block">
-          <span class="ssc-season-icon" aria-hidden="true">🏆</span>
-          <span class="ssc-season-label" :title="selectedTeam.challengeName">{{ selectedTeam.challengeName }}</span>
+        <div v-if="selectedTeam?.challengeName" class="sstc-season-block">
+          <span class="sstc-season-icon" aria-hidden="true">🏆</span>
+          <span class="sstc-season-label" :title="selectedTeam.challengeName">{{ selectedTeam.challengeName }}</span>
           <router-link
             v-if="challengeLink(selectedTeam)"
-            class="ssc-challenge-btn"
+            class="sstc-challenge-btn"
             :to="challengeLink(selectedTeam)"
           >
             Open challenge
@@ -122,7 +122,7 @@ const clubLogoSrc = computed(() => {
 });
 
 function storageKey() {
-  return orgId.value ? `sscContextTeamId:${orgId.value}` : null;
+  return orgId.value ? `sstcContextTeamId:${orgId.value}` : null;
 }
 
 const teamOptions = computed(() =>
@@ -193,23 +193,23 @@ watch(
 
 <style scoped>
 /* Slide-in transition */
-.ssc-bar-slide-enter-active,
-.ssc-bar-slide-leave-active {
+.sstc-bar-slide-enter-active,
+.sstc-bar-slide-leave-active {
   transition: max-height 0.2s ease, opacity 0.2s ease;
   overflow: hidden;
 }
-.ssc-bar-slide-enter-from,
-.ssc-bar-slide-leave-to {
+.sstc-bar-slide-enter-from,
+.sstc-bar-slide-leave-to {
   max-height: 0;
   opacity: 0;
 }
-.ssc-bar-slide-enter-to,
-.ssc-bar-slide-leave-from {
+.sstc-bar-slide-enter-to,
+.sstc-bar-slide-leave-from {
   max-height: 80px;
   opacity: 1;
 }
 
-.ssc-context-bar {
+.sstc-context-bar {
   width: 100%;
   flex-shrink: 0;
   background: linear-gradient(
@@ -222,7 +222,7 @@ watch(
   overflow: hidden;
 }
 
-.ssc-context-inner {
+.sstc-context-inner {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -233,7 +233,7 @@ watch(
 }
 
 /* ── Club block ─────────────────────────────── */
-.ssc-club-block {
+.sstc-club-block {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -241,7 +241,7 @@ watch(
   flex-shrink: 1;
 }
 
-.ssc-club-logo {
+.sstc-club-logo {
   width: 36px;
   height: 36px;
   border-radius: 10px;
@@ -251,7 +251,7 @@ watch(
   flex-shrink: 0;
 }
 
-.ssc-club-name {
+.sstc-club-name {
   font-size: 15px;
   font-weight: 700;
   color: var(--primary, #1e3a8a);
@@ -263,7 +263,7 @@ watch(
 }
 
 /* ── Pill badges (Club / Team labels) ────────── */
-.ssc-pill-badge {
+.sstc-pill-badge {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
@@ -278,14 +278,14 @@ watch(
   border: 1px solid rgba(30, 58, 138, 0.2);
 }
 
-.ssc-pill-badge--team {
+.sstc-pill-badge--team {
   background: rgba(249, 115, 22, 0.1);
   color: #c2570a;
   border-color: rgba(249, 115, 22, 0.28);
 }
 
 /* ── Vertical separator ───────────────────── */
-.ssc-separator {
+.sstc-separator {
   width: 1px;
   height: 28px;
   background: rgba(30, 58, 138, 0.18);
@@ -294,7 +294,7 @@ watch(
 }
 
 /* ── Team block ───────────────────────────── */
-.ssc-team-block {
+.sstc-team-block {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -302,7 +302,7 @@ watch(
   flex-shrink: 1;
 }
 
-.ssc-team-name {
+.sstc-team-name {
   font-size: 15px;
   font-weight: 700;
   color: #c2570a;
@@ -312,20 +312,20 @@ watch(
   text-overflow: ellipsis;
 }
 
-.ssc-muted {
+.sstc-muted {
   font-size: 13px;
   color: var(--text-secondary, #64748b);
   font-style: italic;
 }
 
 /* ── Team dropdown ────────────────────────── */
-.ssc-select-wrap {
+.sstc-select-wrap {
   position: relative;
   display: inline-flex;
   align-items: center;
 }
 
-.ssc-team-select {
+.sstc-team-select {
   appearance: none;
   -webkit-appearance: none;
   min-width: 140px;
@@ -341,12 +341,12 @@ watch(
   outline-offset: 2px;
 }
 
-.ssc-team-select:focus {
+.sstc-team-select:focus {
   outline: 2px solid var(--accent, #f97316);
   border-color: transparent;
 }
 
-.ssc-select-caret {
+.sstc-select-caret {
   position: absolute;
   right: 9px;
   pointer-events: none;
@@ -356,7 +356,7 @@ watch(
 }
 
 /* ── Season / challenge ──────────────────── */
-.ssc-season-block {
+.sstc-season-block {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -365,12 +365,12 @@ watch(
   min-width: 0;
 }
 
-.ssc-season-icon {
+.sstc-season-icon {
   font-size: 13px;
   flex-shrink: 0;
 }
 
-.ssc-season-label {
+.sstc-season-label {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary, #475569);
@@ -380,7 +380,7 @@ watch(
   max-width: 200px;
 }
 
-.ssc-challenge-btn {
+.sstc-challenge-btn {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -395,62 +395,62 @@ watch(
   transition: background 0.15s, color 0.15s;
 }
 
-.ssc-challenge-btn:hover {
+.sstc-challenge-btn:hover {
   background: var(--accent, #f97316);
   color: #fff;
 }
 
 /* ── Skeleton / loading states ───────────── */
-.ssc-skeleton {
+.sstc-skeleton {
   display: inline-block;
   width: 120px;
   height: 16px;
   border-radius: 6px;
   background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
   background-size: 200% 100%;
-  animation: ssc-shimmer 1.4s infinite;
+  animation: sstc-shimmer 1.4s infinite;
 }
 
-@keyframes ssc-shimmer {
+@keyframes sstc-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
 
-.ssc-loading-logo {
+.sstc-loading-logo {
   height: 22px;
   width: auto;
   max-width: 80px;
   object-fit: contain;
   opacity: 0.75;
-  animation: ssc-spin 1.1s linear infinite;
+  animation: sstc-spin 1.1s linear infinite;
   transform-origin: center;
 }
 
-@keyframes ssc-spin {
+@keyframes sstc-spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
 
 /* ── Responsive ──────────────────────────── */
 @media (max-width: 640px) {
-  .ssc-context-inner {
+  .sstc-context-inner {
     padding: 8px 16px;
     gap: 6px 14px;
   }
 
-  .ssc-separator {
+  .sstc-separator {
     display: none;
   }
 
-  .ssc-season-block {
+  .sstc-season-block {
     width: 100%;
     margin-left: 0;
     margin-top: 2px;
     flex-wrap: wrap;
   }
 
-  .ssc-club-name,
-  .ssc-team-name {
+  .sstc-club-name,
+  .sstc-team-name {
     max-width: 180px;
   }
 }

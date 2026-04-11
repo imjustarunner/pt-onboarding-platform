@@ -24,6 +24,9 @@ async function getAgencySchemaColumns() {
  * - 'school': School organizations with school-specific portals
  * - 'program': Standalone program initiatives
  * - 'learning': Learning-focused organizations (e.g., tutoring companies)
+ * - 'clinical': Clinical practice organizations
+ * - 'affiliation': Affiliated clubs (e.g., Summit Stats Team Challenge clubs)
+ * - 'ClubWebApp': Specialized platform organizations (e.g., Summit Stats Team Challenge)
  */
 class Agency {
   /**

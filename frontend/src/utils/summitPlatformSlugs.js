@@ -8,7 +8,7 @@
 const norm = (s) => String(s || '').toLowerCase().trim();
 
 /** Canonical native / default portal segment (Capacitor redirects, fallbacks). */
-export const NATIVE_APP_ORG_SLUG = String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'ssc')
+export const NATIVE_APP_ORG_SLUG = String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'sstc')
   .trim()
   .toLowerCase();
 

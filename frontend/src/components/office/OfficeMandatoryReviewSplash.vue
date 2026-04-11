@@ -31,13 +31,19 @@
                   Temporary until {{ it.temporaryUntilDate }}
                   <span v-if="it.extensionsUsed"> · {{ it.extensionsUsed }} extension(s) used</span>
                 </div>
+                <div v-if="it.reason === 'forfeit_warning'" class="office-mandatory-badge office-mandatory-badge--urgent">
+                  Will be automatically released in {{ it.daysUntilForfeit }} day{{ it.daysUntilForfeit === 1 ? '' : 's' }} — act now
+                </div>
               </div>
 
               <div v-if="rowError[it.standingAssignmentId]" class="office-mandatory-error">
                 {{ rowError[it.standingAssignmentId] }}
               </div>
 
-              <div v-if="it.reason === 'needs_booking'" class="office-mandatory-actions">
+              <div v-if="it.reason === 'needs_booking' || it.reason === 'forfeit_warning'" class="office-mandatory-actions">
+                <div v-if="it.reason === 'forfeit_warning'" class="office-mandatory-warning-note">
+                  This slot has been unbooked for 6+ weeks. Book it to keep it, confirm you still want it available, or release it to free up space.
+                </div>
                 <div class="office-mandatory-book-row">
                   <label class="office-mandatory-label">Book occurrences</label>
                   <select v-model="bookFreq[it.standingAssignmentId]" class="office-mandatory-select">
@@ -56,11 +62,19 @@
                 </div>
                 <button
                   type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="!!rowBusy[it.standingAssignmentId]"
+                  @click="keepAvailable(it)"
+                >
+                  Keep available (reset timer)
+                </button>
+                <button
+                  type="button"
                   class="btn btn-secondary btn-sm"
                   :disabled="!!rowBusy[it.standingAssignmentId]"
                   @click="forfeit(it)"
                 >
-                  Forfeit slot
+                  Release slot
                 </button>
               </div>
 
@@ -283,6 +297,23 @@ async function forfeit(it) {
   }
 }
 
+async function keepAvailable(it) {
+  const id = it.standingAssignmentId;
+  rowError.value = { ...rowError.value, [id]: '' };
+  rowBusy.value = { ...rowBusy.value, [id]: true };
+  try {
+    await api.post(`/office-slots/${it.officeLocationId}/assignments/${id}/keep-available`, {});
+    await load();
+  } catch (e) {
+    rowError.value = {
+      ...rowError.value,
+      [id]: e.response?.data?.error?.message || 'Could not confirm availability.'
+    };
+  } finally {
+    rowBusy.value = { ...rowBusy.value, [id]: false };
+  }
+}
+
 async function extendTemporary(it) {
   const id = it.standingAssignmentId;
   rowError.value = { ...rowError.value, [id]: '' };
@@ -409,6 +440,27 @@ watch(
   font-size: 0.85rem;
   color: #b45309;
   font-weight: 600;
+}
+
+.office-mandatory-badge--urgent {
+  color: #dc2626;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 3px 8px;
+  display: inline-block;
+}
+
+.office-mandatory-warning-note {
+  width: 100%;
+  font-size: 0.87rem;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  line-height: 1.4;
 }
 
 .office-mandatory-actions {

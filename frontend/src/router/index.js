@@ -36,7 +36,7 @@ const isSscPortalSlug = isSummitPlatformRouteSlug;
 const isAllowedSscAuthenticatedPath = (path) => {
   const normalized = String(path || '').trim().toLowerCase();
   if (!normalized) return false;
-  // Org-scoped admin subtree (each route enforces role). A single `admin(?:/|$)` alternative does not match `/ssc/admin/surveys`.
+  // Org-scoped admin subtree (each route enforces role). A single `admin(?:/|$)` alternative does not match `/sstc/admin/surveys`.
   if (/^\/[^/]+\/admin(\/|$)/.test(normalized)) return true;
   // Notifications hub lives outside `/admin` (still org-scoped).
   if (/^\/[^/]+\/notifications(\/|$)/.test(normalized)) return true;
@@ -54,15 +54,15 @@ const isNonAgencyOrgType = (value) => {
 };
 
 /** Bare /:slug/dashboard → Summit club home (no personal HR tabs in query). */
-const SSC_DASHBOARD_PERSONAL_QUERY_KEYS = [
+const SSTC_DASHBOARD_PERSONAL_QUERY_KEYS = [
   'tab', 'my', 'sp', 'sso', 'scheduleMode', 'superviseeId', 'employeeId', 'scheduleViewAs', 'programHub', 'sbPrograms', 'programId'
 ];
 const shouldRedirectSscDashboardToMyClub = (query) => {
   const q = query || {};
-  return !SSC_DASHBOARD_PERSONAL_QUERY_KEYS.some((k) => q[k] != null && String(q[k]).length > 0);
+  return !SSTC_DASHBOARD_PERSONAL_QUERY_KEYS.some((k) => q[k] != null && String(q[k]).length > 0);
 };
 /** Keep classic personal dashboard for internal staff roles (schedule rail, payroll, etc.). */
-const SSC_ROLES_SKIP_MY_CLUB_DASH_REDIRECT = new Set([
+const SSTC_ROLES_SKIP_MY_CLUB_DASH_REDIRECT = new Set([
   'provider_plus',
   'clinical_practice_assistant',
   'admin',
@@ -123,7 +123,7 @@ const getDefaultOrganizationSlug = () => {
       return fromStore;
     }
 
-    // Prefer affiliation (SSC) when picking from stored user agencies
+    // Prefer affiliation (SSTC) when picking from stored user agencies
     const isAffiliation = (org) => String(org?.organization_type || org?.organizationType || '').toLowerCase() === 'affiliation';
     const storedList = JSON.parse(localStorage.getItem('userAgencies') || '[]');
     const storedArr = Array.isArray(storedList) ? storedList : [];
@@ -423,19 +423,19 @@ const routes = [
   {
     path: '/:organizationSlug/clubs/:clubId',
     name: 'SscPublicClub',
-    component: () => import('../views/SscPublicClubView.vue'),
+    component: () => import('../views/SstcPublicClubView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/clubs/:clubId/members',
     name: 'SscClubMembersDirectory',
-    component: () => import('../views/SscClubMembersDirectoryView.vue'),
+    component: () => import('../views/SstcClubMembersDirectoryView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/clubs/:clubId/records',
     name: 'SscClubTeamRecords',
-    component: () => import('../views/SscClubTeamRecordsView.vue'),
+    component: () => import('../views/SstcClubTeamRecordsView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
@@ -453,7 +453,7 @@ const routes = [
   {
     path: '/:organizationSlug/join',
     name: 'SscMemberApplication',
-    component: () => import('../views/SscMemberApplicationView.vue'),
+    component: () => import('../views/SstcMemberApplicationView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
@@ -1012,7 +1012,7 @@ const routes = [
     component: () => import('../views/admin/CommunicationsHubView.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'],
+      requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff'],
       organizationSlug: true
     }
   },
@@ -1698,7 +1698,7 @@ const routes = [
     path: '/admin/communications',
     name: 'CommunicationsHub',
     component: () => import('../views/admin/CommunicationsHubView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff'] }
   },
   {
     path: '/admin/communications/sms',
@@ -1714,7 +1714,7 @@ const routes = [
     path: '/admin/communications/chats',
     name: 'PlatformChats',
     component: () => import('../views/admin/PlatformChatsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff'] }
   },
   {
     path: '/admin/communications/campaigns',
@@ -2152,8 +2152,8 @@ router.beforeEach(async (to, from, next) => {
     const isSummitStatsAlias =
       rawPath === '/summit-stats' || rawPath.startsWith('/summit-stats/');
 
-    // Hard block: if the path contains an org slug that is NOT the native SSC slug,
-    // redirect to the SSC dashboard. This prevents native users from accidentally or
+    // Hard block: if the path contains an org slug that is NOT the native SSTC slug,
+    // redirect to the SSTC dashboard. This prevents native users from accidentally or
     // intentionally navigating to other organizations' portals.
     if (!isAlreadyScoped && !isSummitStatsAlias) {
       const orgSlugInPath = rawPath.match(/^\/([^/]+)\//)?.[1] || rawPath.match(/^\/([^/]+)$/)?.[1];
@@ -2204,22 +2204,24 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
-  // Summit Stats canonical slug redirect: /summit-stats/* → /ssc/*
+  // Summit Stats canonical slug redirect: /summit-stats/* or /sstc/* → /sstc/*
   // The platform org may have been created with slug "summit-stats" but the canonical
-  // public-facing URL is /ssc. Redirect transparently so links and bookmarks still work.
+  // public-facing URL is /sstc. Redirect transparently so links and bookmarks still work.
   {
     const rawPath = String(to.path || '');
-    if (rawPath === '/summit-stats' || rawPath.startsWith('/summit-stats/')) {
-      const rest = rawPath === '/summit-stats' ? '' : rawPath.slice('/summit-stats'.length);
-      next({ path: `/ssc${rest}`, query: to.query, hash: to.hash, replace: true });
+    if (rawPath === '/summit-stats' || rawPath.startsWith('/summit-stats/') || 
+        rawPath === '/sstc' || rawPath.startsWith('/sstc/')) {
+      const matchedBase = (rawPath === '/summit-stats' || rawPath.startsWith('/summit-stats/')) ? '/summit-stats' : '/sstc';
+      const rest = rawPath === matchedBase ? '' : rawPath.slice(matchedBase.length);
+      next({ path: `/sstc${rest}`, query: to.query, hash: to.hash, replace: true });
       return;
     }
-    // Also handle /ssc/summit-stats/* → /ssc/*
-    // The "Remember username" logic can store orgSlug='summit-stats' and parentOrgSlug='ssc',
-    // which causes the partner-hub redirect to build /ssc/summit-stats/login. Normalise it.
-    if (rawPath === '/ssc/summit-stats' || rawPath.startsWith('/ssc/summit-stats/')) {
-      const rest = rawPath.slice('/ssc/summit-stats'.length) || '/';
-      next({ path: `/ssc${rest}`, query: to.query, hash: to.hash, replace: true });
+    // Also handle /sstc/summit-stats/* → /sstc/* or /sstc/sstc/* → /sstc/*
+    if (rawPath.startsWith('/sstc/summit-stats/') || rawPath === '/sstc/summit-stats' ||
+        rawPath.startsWith('/sstc/sstc/') || rawPath === '/sstc/sstc') {
+      const base = rawPath.includes('/summit-stats') ? '/sstc/summit-stats' : '/sstc/sstc';
+      const rest = rawPath.slice(base.length) || '/';
+      next({ path: `/sstc${rest}`, query: to.query, hash: to.hash, replace: true });
       return;
     }
   }
@@ -2277,7 +2279,7 @@ router.beforeEach(async (to, from, next) => {
     return;
   }
 
-  // Club managers (admin with only affiliation orgs): redirect /admin to /ssc/admin
+  // Club managers (admin with only affiliation orgs): redirect /admin to /sstc/admin
   const isAdminPath = to.path === '/admin' || String(to.path || '').startsWith('/admin/');
   if (authStore.isAuthenticated && isAdminPath && !to.meta.organizationSlug) {
     const userRole = String(authStore.user?.role || '').toLowerCase();
@@ -2476,7 +2478,7 @@ router.beforeEach(async (to, from, next) => {
     to.path === '/mydashboard' ||
     String(to.name || '') === 'Dashboard';
   const allowUnscopedDocumentSigning = ['DocumentSigning', 'DocumentReview', 'DocumentPrint'].includes(String(to.name || ''));
-  // Users with affiliation (SSC) access: redirect to club dashboard instead of platform /dashboard
+  // Users with affiliation (SSTC) access: redirect to club dashboard instead of platform /dashboard
   if (
     authStore.isAuthenticated &&
     authStore.user?.role !== 'super_admin' &&
@@ -2491,7 +2493,7 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
-  // Summit Stats (SSC): members stay inside the club dashboard shell, not the shared provider dashboard.
+  // Summit Stats (SSTC): members stay inside the club dashboard shell, not the shared provider dashboard.
   // Preserve only backoffice/provider-plus roles on /:slug/dashboard when they intentionally use the work surfaces.
   if (
     authStore.isAuthenticated &&
@@ -2500,7 +2502,7 @@ router.beforeEach(async (to, from, next) => {
     isSstcTenantSlug(to.params.organizationSlug)
   ) {
     const roleNorm = String(authStore.user?.role || '').toLowerCase();
-    if (!SSC_ROLES_SKIP_MY_CLUB_DASH_REDIRECT.has(roleNorm)) {
+    if (!SSTC_ROLES_SKIP_MY_CLUB_DASH_REDIRECT.has(roleNorm)) {
       const slug = String(to.params.organizationSlug).trim();
       next({
         path: `/${slug}/my_club_dashboard`,
@@ -2525,7 +2527,7 @@ router.beforeEach(async (to, from, next) => {
       `/${slug}/credentials`,
       `/${slug}/account-info`
     ]);
-    if (!SSC_ROLES_SKIP_MY_CLUB_DASH_REDIRECT.has(roleNorm) && summitPersonalAliases.has(pathNorm)) {
+    if (!SSTC_ROLES_SKIP_MY_CLUB_DASH_REDIRECT.has(roleNorm) && summitPersonalAliases.has(pathNorm)) {
       next({
         path: `/${slug}/my_club_dashboard`,
         query: { ...to.query, view: 'account' },
@@ -2815,7 +2817,7 @@ router.beforeEach(async (to, from, next) => {
         );
       })();
 
-    // Club managers (any context, including SSC work-tenant where effectiveRole = 'provider'): block payroll/audit surfaces.
+    // Club managers (any context, including SSTC work-tenant where effectiveRole = 'provider'): block payroll/audit surfaces.
     if (userRoleNorm === 'club_manager' || currentUserRoleNorm === 'club_manager') {
       const p = String(to.path || '');
       if (p.includes('/admin/audit-center') || p.includes('/admin/payroll') || p.includes('/admin/expenses')) {

@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 
-class TwilioOptInState {
+class SmsOptInState {
   static async findByClientNumber({ clientId, numberId }) {
     const [rows] = await pool.execute(
       `SELECT * FROM twilio_opt_in_state WHERE client_id = ? AND number_id = ? LIMIT 1`,
@@ -34,4 +34,4 @@ class TwilioOptInState {
   }
 }
 
-export default TwilioOptInState;
+export default SmsOptInState;

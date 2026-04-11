@@ -227,16 +227,16 @@
         <div class="form-section-divider">
           <h4>{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }} footer</h4>
           <p class="section-description">
-            When you add one or more links here, club managers and members on <code>/ssc</code> or any club (affiliation)
+            When you add one or more links here, club managers and members on <code>/sstc</code> or any club (affiliation)
             portal see this set instead of the default Privacy / Terms / Public Proof / HIPAA row. Use full
             <code>https://</code> URLs for external documents, or in-app paths such as <code>/privacypolicy</code> for the
-            embedded viewer. Leave empty to keep the default footer on SSC.
+            embedded viewer. Leave empty to keep the default footer on SSTC.
           </p>
         </div>
         <div
           v-for="(row, idx) in platformForm.summitStatsFooterLinks"
-          :key="'ssc-foot-' + idx"
-          class="ssc-footer-link-row"
+          :key="'sstc-foot-' + idx"
+          class="sstc-footer-link-row"
         >
           <div class="form-group">
             <label>Title</label>
@@ -246,7 +246,7 @@
             <label>URL or path</label>
             <input v-model="row.href" type="text" placeholder="https://… or /terms" />
           </div>
-          <div class="ssc-footer-link-actions">
+          <div class="sstc-footer-link-actions">
             <button type="button" class="btn btn-sm btn-danger" @click="removeSummitStatsFooterRow(idx)">Remove</button>
           </div>
         </div>
@@ -261,7 +261,7 @@
         <div class="form-section-divider">
           <h4>{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }} support page</h4>
           <p class="section-description">
-            Public route: <code>/ssc/support</code>. This content is used for Strava/API compliance support links and member help.
+            Public route: <code>/sstc/support</code>. This content is used for Strava/API compliance support links and member help.
           </p>
         </div>
         <div class="form-group">
@@ -270,7 +270,7 @@
         </div>
         <div class="form-group">
           <label>Support subtitle</label>
-          <input v-model="platformForm.supportPage.subtitle" type="text" placeholder="Need help with your SSC account?" />
+          <input v-model="platformForm.supportPage.subtitle" type="text" placeholder="Need help with your SSTC account?" />
         </div>
         <div class="form-group">
           <label>Intro paragraph</label>
@@ -313,7 +313,7 @@
           <div
             v-for="(row, idx) in platformForm.supportPage.faq"
             :key="'support-faq-' + idx"
-            class="ssc-footer-link-row"
+            class="sstc-footer-link-row"
           >
             <div class="form-group">
               <label>Question</label>
@@ -323,7 +323,7 @@
               <label>Answer</label>
               <textarea v-model="row.a" rows="3" placeholder="Go to My Account > Fitness Integrations..." />
             </div>
-            <div class="ssc-footer-link-actions">
+            <div class="sstc-footer-link-actions">
               <button type="button" class="btn btn-sm btn-danger" @click="removeSupportFaqRow(idx)">Remove</button>
             </div>
           </div>
@@ -4950,7 +4950,7 @@ onActivated(async () => {
   font-size: 12px;
 }
 
-.ssc-footer-link-row {
+.sstc-footer-link-row {
   display: grid;
   grid-template-columns: 1fr 1fr auto;
   gap: 12px 16px;
@@ -4958,7 +4958,7 @@ onActivated(async () => {
   margin-bottom: 12px;
 }
 
-.ssc-footer-link-actions {
+.sstc-footer-link-actions {
   display: flex;
   align-items: center;
   padding-bottom: 2px;
@@ -4971,7 +4971,7 @@ onActivated(async () => {
 }
 
 @media (max-width: 768px) {
-  .ssc-footer-link-row {
+  .sstc-footer-link-row {
     grid-template-columns: 1fr;
   }
   .form-group-inline-grid {

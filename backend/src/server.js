@@ -78,7 +78,7 @@ import referralRoutes from './routes/referral.routes.js';
 import bulkImportRoutes from './routes/bulkImport.routes.js';
 import userPreferencesRoutes from './routes/userPreferences.routes.js';
 import officeScheduleRoutes from './routes/officeSchedule.routes.js';
-import twilioRoutes from './routes/twilio.routes.js';
+import voiceVideoRoutes from './routes/voiceVideo.routes.js';
 import vonageRoutes from './routes/vonage.routes.js';
 import messageRoutes from './routes/message.routes.js';
 import smsNumbersRoutes from './routes/smsNumbers.routes.js';
@@ -666,7 +666,7 @@ app.use('/api/agents', agentsRoutes);
 app.use('/api/clinical-notes', clinicalNoteGeneratorRoutes);
 app.use('/api/compliance-corner', complianceCornerRoutes);
 app.use('/api', researchCandidateRoutes);
-app.use('/api/twilio', twilioRoutes);
+  app.use('/api/voice-video', voiceVideoRoutes);
 app.use('/api/vonage', vonageRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/sms-numbers', smsNumbersRoutes);
@@ -1147,7 +1147,7 @@ if (!isBootstrap) {
       }
     } catch (error) {
       if (error.code === 'ER_NO_SUCH_TABLE') {
-        console.warn('SMS/voice retention tables not found. Run Twilio migrations.');
+        console.warn('SMS/voice retention tables not found. Run migrations.');
       } else {
         console.error('Error in SMS/voice retention cleanup:', error);
       }
@@ -1333,6 +1333,20 @@ if (!isBootstrap) {
 
   scheduleSmsSupportEscalations();
   setInterval(scheduleSmsSupportEscalations, 10 * 60 * 1000);
+
+  // SMS unanswered auto-replies (runs every 5 minutes)
+  const scheduleSmsAutoReplies = async () => {
+    try {
+      const SmsAutoReplyRuleService = (await import('./services/smsAutoReplyRule.service.js')).default;
+      await SmsAutoReplyRuleService.runTick();
+      await SmsAutoReplyRuleService.runOooDigestCheck();
+    } catch (error) {
+      console.error('Error in SMS auto-reply scheduler:', error);
+    }
+  };
+
+  scheduleSmsAutoReplies();
+  setInterval(scheduleSmsAutoReplies, 5 * 60 * 1000);
 
   // Company event RSVP reminders (runs every 10 minutes)
   const scheduleCompanyEventReminders = async () => {

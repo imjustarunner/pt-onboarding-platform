@@ -52,14 +52,14 @@
     <ul v-else class="conv-list__items" role="listbox">
       <li
         v-for="t in filtered"
-        :key="t.client_id"
+        :key="t.client_id || ('contact-' + t.agency_contact_id)"
         class="thread-row"
         :class="{
-          'thread-row--active': activeClientId === t.client_id,
+          'thread-row--active': isActive(t),
           'thread-row--unread': t.unread_count > 0
         }"
         role="option"
-        :aria-selected="activeClientId === t.client_id"
+        :aria-selected="isActive(t)"
         tabindex="0"
         @click="select(t)"
         @keydown.enter="select(t)"
@@ -69,7 +69,7 @@
         </div>
         <div class="thread-body">
           <div class="thread-top">
-            <span class="thread-name">{{ t.client_name || t.client_initials || 'Unknown' }}</span>
+            <span class="thread-name">{{ t.client_name || t.client_initials || t.contact_name || 'Unknown' }}</span>
             <span class="thread-time">{{ relativeTime(t.last_message_at) }}</span>
           </div>
           <div class="thread-preview">
@@ -90,8 +90,10 @@ import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
-  activeClientId: { type: [Number, String], default: null },
-  agencyId:       { type: [Number, String], default: null }
+  activeClientId:  { type: [Number, String], default: null },
+  activeContactId: { type: [Number, String], default: null },
+  activeTab:       { type: String, default: 'clients' },
+  agencyId:        { type: [Number, String], default: null }
 });
 
 const emit = defineEmits(['select']);
@@ -109,6 +111,14 @@ const filters = [
 
 const filtered = computed(() => {
   let list = threads.value;
+
+  // First filter by tab
+  if (props.activeTab === 'clients') {
+    list = list.filter((t) => !!t.client_id);
+  } else if (props.activeTab === 'contacts') {
+    list = list.filter((t) => !!t.agency_contact_id && !t.client_id);
+  }
+
   if (activeFilter.value === 'unread')  list = list.filter((t) => t.unread_count > 0);
   if (activeFilter.value === 'inbound') list = list.filter((t) => t.last_direction === 'INBOUND');
   return list;
@@ -148,14 +158,21 @@ function select(t) {
   emit('select', t);
 }
 
+function isActive(t) {
+  if (t.client_id) return props.activeClientId === t.client_id;
+  if (t.agency_contact_id) return props.activeContactId === t.agency_contact_id;
+  return false;
+}
+
 function avatarLetter(t) {
-  const name = t.client_name || t.client_initials || '?';
+  const name = t.client_name || t.client_initials || t.contact_name || '?';
   return name[0].toUpperCase();
 }
 
 const palette = ['#dbeafe', '#d1fae5', '#fce7f3', '#fef3c7', '#ede9fe', '#fee2e2', '#e0f2fe'];
 function avatarStyle(t) {
-  const idx = (t.client_id || 0) % palette.length;
+  const id = t.client_id || t.agency_contact_id || 0;
+  const idx = id % palette.length;
   const bg = palette[idx];
   const darkColors = ['#1d4ed8', '#065f46', '#9d174d', '#92400e', '#5b21b6', '#991b1b', '#0369a1'];
   return { background: bg, color: darkColors[idx] };

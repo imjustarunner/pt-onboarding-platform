@@ -18,16 +18,17 @@ class MessageLog {
     numberId = null,
     ownerType = null,
     clientId = null,
+    agencyContactId = null,
     body,
     fromNumber,
     toNumber,
-    twilioMessageSid = null,
+    providerMessageSid = null,
     metadata = null
   }) {
     const [result] = await pool.execute(
       `INSERT INTO message_logs
-       (agency_id, number_id, user_id, assigned_user_id, owner_type, client_id, direction, body, from_number, to_number, twilio_message_sid, delivery_status, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, 'INBOUND', ?, ?, ?, ?, 'received', ?)`,
+       (agency_id, number_id, user_id, assigned_user_id, owner_type, client_id, agency_contact_id, direction, body, from_number, to_number, twilio_message_sid, delivery_status, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'INBOUND', ?, ?, ?, ?, 'received', ?)`,
       [
         agencyId,
         numberId,
@@ -35,10 +36,11 @@ class MessageLog {
         assignedUserId,
         ownerType,
         clientId,
+        agencyContactId,
         body,
         this.normalizePhone(fromNumber) || fromNumber,
         this.normalizePhone(toNumber) || toNumber,
-        twilioMessageSid,
+        providerMessageSid,
         metadata ? JSON.stringify(metadata) : null
       ]
     );
@@ -52,17 +54,18 @@ class MessageLog {
     numberId = null,
     ownerType = null,
     clientId = null,
+    agencyContactId = null,
     body,
     fromNumber,
     toNumber,
-    twilioMessageSid = null,
+    providerMessageSid = null,
     deliveryStatus = 'pending',
     metadata = null
   }) {
     const [result] = await pool.execute(
       `INSERT INTO message_logs
-       (agency_id, number_id, user_id, assigned_user_id, owner_type, client_id, direction, body, from_number, to_number, twilio_message_sid, delivery_status, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, 'OUTBOUND', ?, ?, ?, ?, ?, ?)`,
+       (agency_id, number_id, user_id, assigned_user_id, owner_type, client_id, agency_contact_id, direction, body, from_number, to_number, twilio_message_sid, delivery_status, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'OUTBOUND', ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
         numberId,
@@ -70,10 +73,11 @@ class MessageLog {
         assignedUserId,
         ownerType,
         clientId,
+        agencyContactId,
         body,
         this.normalizePhone(fromNumber) || fromNumber,
         this.normalizePhone(toNumber) || toNumber,
-        twilioMessageSid,
+        providerMessageSid,
         deliveryStatus,
         metadata ? JSON.stringify(metadata) : null
       ]
@@ -85,7 +89,7 @@ class MessageLog {
     await pool.execute(
       `UPDATE message_logs
        SET delivery_status = 'sent',
-           twilio_message_sid = COALESCE(twilio_message_sid, ?),
+           provider_message_sid = COALESCE(provider_message_sid, ?),
            metadata = COALESCE(?, metadata)
        WHERE id = ?`,
       [sid, metadata ? JSON.stringify(metadata) : null, id]
@@ -114,10 +118,12 @@ class MessageLog {
     const [rows] = await pool.execute(
       `SELECT ml.*,
               c.initials AS client_initials,
+              ac.full_name AS contact_name,
               u.first_name AS user_first_name,
               u.last_name AS user_last_name
        FROM message_logs ml
        LEFT JOIN clients c ON ml.client_id = c.id
+       LEFT JOIN agency_contacts ac ON ml.agency_contact_id = ac.id
        LEFT JOIN users u ON ml.user_id = u.id
        WHERE ml.agency_id = ?
        ORDER BY ml.created_at DESC
@@ -129,25 +135,31 @@ class MessageLog {
 
   /**
    * @param {number} userId - Current user loading the thread
-   * @param {number} clientId - Client for the thread
+   * @param {number} [clientId] - Client for the thread
+   * @param {number} [agencyContactId] - Contact for the thread
    * @param {number} limit - Max messages to return
    * @param {number[]} [assignedNumberIds] - For providers: include messages to/from these number_ids (multi-recipient pools)
    */
-  static async listThread({ userId, clientId, limit = 100, assignedNumberIds = [] }) {
+  static async listThread({ userId, clientId = null, agencyContactId = null, limit = 100, assignedNumberIds = [] }) {
     const ids = (assignedNumberIds || []).map(Number).filter(Boolean);
-    let whereClause = 'user_id = ? AND client_id = ?';
-    const params = [userId, clientId];
-    if (ids.length > 0) {
-      const placeholders = ids.map(() => '?').join(',');
-      whereClause = `(user_id = ? OR number_id IN (${placeholders})) AND client_id = ?`;
-      params.length = 0;
-      params.push(userId, ...ids, clientId);
+    const conditions = ['(user_id = ? OR number_id IN (' + (ids.length > 0 ? ids.map(() => '?').join(',') : 'NULL') + '))'];
+    const params = [userId, ...ids];
+
+    if (clientId) {
+      conditions.push('client_id = ?');
+      params.push(clientId);
+    } else if (agencyContactId) {
+      conditions.push('agency_contact_id = ?');
+      params.push(agencyContactId);
+    } else {
+      throw new Error('Either clientId or agencyContactId is required');
     }
+
     params.push(limit);
     const [rows] = await pool.execute(
       `SELECT *
        FROM message_logs
-       WHERE ${whereClause}
+       WHERE ${conditions.join(' AND ')}
        ORDER BY created_at DESC
        LIMIT ?`,
       params

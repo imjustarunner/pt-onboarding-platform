@@ -1,6 +1,18 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { deleteMessageLog, deleteThread, getMyNumbers, getRecentMessages, getThread, getThreads, sendMessage, uploadSmsMedia } from '../controllers/message.controller.js';
+import { 
+  deleteMessageLog, 
+  deleteThread, 
+  forwardToSupport, 
+  getMyNumbers, 
+  getRecentMessages, 
+  getThread, 
+  getThreads, 
+  sendMessage, 
+  uploadSmsMedia,
+  getSmartReplies,
+  getRtcToken 
+} from '../controllers/message.controller.js';
 
 const router = express.Router();
 
@@ -23,6 +35,15 @@ router.post('/upload-media', uploadSmsMedia);
 
 // Send outbound message (masked) via Vonage
 router.post('/send', sendMessage);
+
+// Manual forward thread to support
+router.post('/forward-to-support', forwardToSupport);
+
+// AI smart replies
+router.get('/smart-replies', getSmartReplies);
+
+// RTC token for typing indicators / real-time chat
+router.get('/rtc-token', getRtcToken);
 
 // Permanently delete an entire thread (all logs for this user+client)
 router.delete('/thread/:clientId', deleteThread);

@@ -483,7 +483,7 @@ export const useBrandingStore = defineStore('branding', () => {
     const orgType = String(a.organization_type || '').toLowerCase();
     const parentTenantId = Number(a.affiliated_agency_id || 0) || null;
     const fontBrandingAgencyId =
-      orgType === 'affiliation' && parentTenantId ? parentTenantId : a.id;
+      (orgType === 'affiliation' || orgType === 'clubwebapp') && parentTenantId ? parentTenantId : a.id;
     applyTheme({
       colorPalette: mergedPalette,
       themeSettings: mergedThemeSettings,
@@ -1116,7 +1116,7 @@ export const useBrandingStore = defineStore('branding', () => {
   const resolveIconSourceOrganization = (org) => {
     if (!org || typeof org !== 'object') return org;
     const orgType = String(org.organization_type || org.organizationType || 'agency').toLowerCase();
-    const isChildOrg = ['school', 'program', 'learning', 'clinical', 'affiliation'].includes(orgType);
+    const isChildOrg = ['school', 'program', 'learning', 'clinical', 'affiliation', 'clubwebapp'].includes(orgType);
     if (!isChildOrg) return org;
     const themeSettings = parseThemeSettingsObject(org);
     const useAffiliatedAgencyIcons = themeSettings.useAffiliatedAgencyIcons !== false;

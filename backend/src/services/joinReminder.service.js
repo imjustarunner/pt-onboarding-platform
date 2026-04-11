@@ -4,12 +4,12 @@
  */
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
-import TwilioNumber from '../models/TwilioNumber.model.js';
-import TwilioService from './twilio.service.js';
-import { resolveReminderNumber } from './twilioNumberRouting.service.js';
+import PhoneNumber from '../models/PhoneNumber.model.js';
+import VonageService from './vonage.service.js';
+import { resolveReminderNumber } from './communicationRouting.service.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import NotificationGatekeeperService from './notificationGatekeeper.service.js';
-import { isTwilioVideoConfigured } from './twilioVideo.service.js';
+import { isVideoConfigured } from './video.service.js';
 
 const WINDOW_START_MINUTES = 5;
 const WINDOW_END_MINUTES = 8;
@@ -47,7 +47,7 @@ async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessio
 
   const toEmail = user.email || user.work_email || null;
   const toPhone = user.personal_phone || user.work_phone || user.phone_number || null;
-  const toPhoneNorm = toPhone ? TwilioNumber.normalizePhone(toPhone) : null;
+  const toPhoneNorm = toPhone ? PhoneNumber.normalizePhone(toPhone) : null;
 
   const decision = await NotificationGatekeeperService.decideChannels({
     userId,
@@ -87,7 +87,7 @@ async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessio
     try {
       const resolved = await resolveReminderNumber({ providerUserId: userId, clientId: null });
       const from = resolved?.number?.phone_number
-        ? TwilioNumber.normalizePhone(resolved.number.phone_number) || resolved.number.phone_number
+        ? PhoneNumber.normalizePhone(resolved.number.phone_number) || resolved.number.phone_number
         : null;
       if (from) {
         const body = `${label} starting soon. Join: ${joinUrl}`.slice(0, 480);
@@ -112,7 +112,7 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
   const startSql = toSqlDatetime(start);
   const endSql = toSqlDatetime(end);
 
-  const useAppJoin = isTwilioVideoConfigured() && FRONTEND_URL;
+  const useAppJoin = isVideoConfigured() && FRONTEND_URL;
 
   try {
     // Supervision sessions starting in 5-8 min

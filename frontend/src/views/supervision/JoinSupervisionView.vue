@@ -15,7 +15,7 @@
         :session-id="sessionId"
         :is-supervisor="isSupervisor"
       />
-      <SupervisionTwilioVideoRoom
+      <SupervisionVideoRoom
         :key="videoRoomKey"
         :token="token"
         :room-name="roomName"
@@ -34,7 +34,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import BrandingLogo from '../../components/BrandingLogo.vue';
-import SupervisionTwilioVideoRoom from '../../components/supervision/SupervisionTwilioVideoRoom.vue';
+import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
 import api from '../../services/api';
 

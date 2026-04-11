@@ -1,6 +1,6 @@
 /**
  * Auto-generate team meeting summary from transcript.
- * Called after Twilio Video room recording is transcribed or client posts transcript.
+ * Called after video room recording is transcribed or client posts transcript.
  */
 
 import { callGeminiText } from './geminiText.service.js';

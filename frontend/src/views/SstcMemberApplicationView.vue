@@ -158,7 +158,7 @@
             </div>
 
             <div v-else-if="emailLookupDone && form.email.trim()" class="field-hint field-hint-success">
-              This email is new to the platform, so we’ll create an SSC account with the password below.
+              This email is new to the platform, so we’ll create an SSTC account with the password below.
             </div>
 
             <div class="field">
@@ -508,7 +508,7 @@ const rawGenderOptions = ref(['male', 'female']);
 const allowCustomPronouns = ref(false);
 
 // ── Route context ───────────────────────────────────────────────────────────
-const orgSlug      = computed(() => route.params.organizationSlug || 'ssc');
+const orgSlug      = computed(() => route.params.organizationSlug || 'sstc');
 const inviteToken  = computed(() => route.query.invite || '');
 const referralCode = computed(() => route.query.ref || '');
 const clubIdParam  = computed(() => route.query.club || '');
@@ -592,7 +592,7 @@ const resetExistingAccountState = () => {
 const clearPendingSessionHint = () => {
   const cid = resolvedClubId.value;
   try {
-    if (cid) sessionStorage.removeItem(`ssc_join_pending_${cid}`);
+    if (cid) sessionStorage.removeItem(`sstc_join_pending_${cid}`);
   } catch {
     /* ignore */
   }
@@ -659,7 +659,7 @@ onMounted(async () => {
     const cid = inviteData.value?.clubId || clubInfo.value?.id || clubIdParam.value;
     if (cid) {
       try {
-        if (sessionStorage.getItem(`ssc_join_pending_${cid}`) === '1') {
+        if (sessionStorage.getItem(`sstc_join_pending_${cid}`) === '1') {
           pendingFromSession.value = true;
         }
       } catch {
@@ -712,14 +712,14 @@ onBeforeUnmount(() => {
 const loadRecaptchaScript = async (mode = 'standard', forceReload = false) => {
   if (!activeRecaptchaSiteKey.value) return null;
   if (forceReload) {
-    document.querySelectorAll('script[data-ssc-recaptcha]').forEach((el) => el.remove());
+    document.querySelectorAll('script[data-sstc-recaptcha]').forEach((el) => el.remove());
     try {
       delete window.grecaptcha;
     } catch {
       window.grecaptcha = undefined;
     }
   }
-  const existing = document.querySelector('script[data-ssc-recaptcha]');
+  const existing = document.querySelector('script[data-sstc-recaptcha]');
   if (existing) {
     return new Promise((resolve) => {
       existing.addEventListener('load', () => resolve(window.grecaptcha), { once: true });
@@ -734,7 +734,7 @@ const loadRecaptchaScript = async (mode = 'standard', forceReload = false) => {
       : 'https://www.google.com/recaptcha/api.js?render=explicit';
     script.async = true;
     script.defer = true;
-    script.setAttribute('data-ssc-recaptcha', 'true');
+    script.setAttribute('data-sstc-recaptcha', 'true');
     script.onload = () => resolve(window.grecaptcha);
     script.onerror = () => reject(new Error('Failed to load captcha'));
     document.head.appendChild(script);
@@ -958,7 +958,7 @@ const handleSubmit = async () => {
     customFields: form.customFields,
     referralCode: referralCode.value || null,
     captchaToken: captchaToken.value || null,
-    portalSlug: orgSlug.value || 'ssc'
+    portalSlug: orgSlug.value || 'sstc'
   };
 
   submitting.value = true;
@@ -977,7 +977,7 @@ const handleSubmit = async () => {
     submitted.value = true;
     try {
       const sid = inviteData.value?.clubId || clubInfo.value?.id || clubIdParam.value;
-      if (sid) sessionStorage.setItem(`ssc_join_pending_${sid}`, '1');
+      if (sid) sessionStorage.setItem(`sstc_join_pending_${sid}`, '1');
     } catch {
       /* ignore */
     }
