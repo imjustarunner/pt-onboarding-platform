@@ -196,6 +196,7 @@
             :activity-type-options="activityTypeOptions"
             :club-id="challenge?.organization_id"
             :weekly-task-options="weeklyTaskOptions"
+            :moderation-mode="challenge?.season_settings_json?.workoutModeration?.mode || 'treadmill_only'"
             @media-uploaded="refreshAfterActivityAction"
           />
         </div>

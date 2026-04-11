@@ -643,6 +643,7 @@ const props = defineProps({
   activityTypeOptions: { type: Array, default: () => [] },
   clubId: { type: [String, Number], default: null },
   weeklyTaskOptions: { type: Array, default: () => [] },
+  moderationMode: { type: String, default: 'treadmill_only' },
 });
 
 const TERRAIN_OPTIONS = ['Road', 'Trail', 'Track', 'Beach', 'Treadmill', 'Race', 'Other'];
@@ -751,12 +752,15 @@ const filteredWorkouts = computed(() => {
 
 /** Workouts that a manager still needs to review (pending proof). */
 const pendingWorkouts = computed(() =>
-  filteredWorkouts.value.filter((w) =>
-    Number(w.is_disqualified) !== 1 && (
-      w.proof_status === 'pending' ||
-      (Number(w.is_treadmill) === 1 && w.proof_status !== 'approved' && w.proof_status !== 'rejected')
-    )
-  )
+  filteredWorkouts.value.filter((w) => {
+    if (Number(w.is_disqualified) === 1) return false;
+    if (w.proof_status === 'pending') return true;
+    if (Number(w.is_treadmill) === 1 && w.proof_status !== 'approved' && w.proof_status !== 'rejected') return true;
+    // When moderation mode is "all", also surface not_required workouts so
+    // managers see every unreviewed import regardless of activity type.
+    if (props.moderationMode === 'all' && w.proof_status === 'not_required') return true;
+    return false;
+  })
 );
 
 /** Open the "More info" panel for every pending workout so the manager can review them all at once. */
