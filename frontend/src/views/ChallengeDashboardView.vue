@@ -115,6 +115,23 @@
           </button>
           <span class="hint">Scheduled announcement to your team roster only.</span>
         </div>
+        <!-- Live Draft banner — visible to all season participants when draft is live or pending -->
+        <div v-if="draftSessionStatus === 'in_progress' || draftSessionStatus === 'pending'" class="live-draft-banner">
+          <span v-if="draftSessionStatus === 'in_progress'" class="live-draft-dot" />
+          <div class="live-draft-banner__text">
+            <span v-if="draftSessionStatus === 'in_progress'" class="live-draft-banner__label">Team Draft Live Now</span>
+            <span v-else class="live-draft-banner__label">Team Draft Starting Soon</span>
+            <span class="live-draft-banner__sub">
+              {{ draftSessionStatus === 'in_progress' ? 'Captains are picking their teams — watch live!' : 'The draft has been set up and is ready to start.' }}
+            </span>
+          </div>
+          <router-link
+            :to="`/${challenge.organization_id ? (agencySlugForDraft || organizationSlug) : organizationSlug}/season/${challengeId}/draft`"
+            class="btn btn-primary btn-sm live-draft-banner__btn"
+          >
+            {{ draftSessionStatus === 'in_progress' ? 'Watch Live →' : 'View Draft Room →' }}
+          </router-link>
+        </div>
       </div>
 
       <!-- Not-enrolled call-to-action — shown at the top so visitors immediately see it -->
@@ -1050,6 +1067,7 @@ const stravaImporting = ref(false);
 const stravaDuplicateMessage = ref('');
 const captainApplications = ref([]);
 const captainAppsLoading = ref(false);
+const draftSessionStatus = ref(null);
 const captainAppsError = ref('');
 const captainsFinalizeSubmitting = ref(false);
 const captainApplyText = ref('');
@@ -1072,6 +1090,7 @@ const kudosStatsLoading = ref(false);
 
 const challengeId = computed(() => route.params.id || route.params.challengeId);
 const organizationSlug = computed(() => route.params.organizationSlug || null);
+const agencySlugForDraft = computed(() => challenge.value?.organization_slug || null);
 
 const SSC_HOME_SLUGS = new Set(
   ['sstc', 'sstc', 'summit-stats', String(import.meta.env.VITE_NATIVE_APP_ORG_SLUG || 'sstc').trim().toLowerCase()].filter(Boolean)
@@ -1651,6 +1670,15 @@ const loadCaptainApplications = async () => {
   }
 };
 
+const loadDraftSessionStatus = async () => {
+  const id = challengeId.value;
+  if (!id) return;
+  try {
+    const { data } = await api.get(`/learning-program-classes/${id}/draft-session`, { skipGlobalLoading: true });
+    draftSessionStatus.value = data?.session?.status || null;
+  } catch { draftSessionStatus.value = null; }
+};
+
 const reviewCaptain = async (applicationId, status) => {
   const id = challengeId.value;
   if (!id || !applicationId) return;
@@ -2006,6 +2034,7 @@ onMounted(async () => {
       loadTeams(),
       loadActivity(),
       loadCaptainApplications(),
+      loadDraftSessionStatus(),
       loadWeeklyTaskOptions(),
       loadSeasonSummary(),
       loadRecordBoards(),
@@ -3246,6 +3275,31 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   align-items: center;
   gap: 10px;
 }
+
+/* Live Draft banner */
+.live-draft-banner {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(16,185,129,.12), rgba(99,102,241,.1));
+  border: 1px solid rgba(16,185,129,.25);
+  flex-wrap: wrap;
+}
+.live-draft-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #10b981; flex-shrink: 0;
+  animation: ldPulse 1.4s ease-in-out infinite;
+}
+@keyframes ldPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.live-draft-banner__text {
+  display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0;
+}
+.live-draft-banner__label { font-weight: 700; font-size: 14px; }
+.live-draft-banner__sub { font-size: 12px; color: var(--text-secondary, #6b7280); }
+.live-draft-banner__btn { flex-shrink: 0; text-decoration: none; }
 .team-msg-modal .form-row {
   margin-bottom: 12px;
 }

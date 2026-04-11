@@ -730,11 +730,38 @@
         <div v-show="manageTab === 'teams'" class="manage-panel">
           <div class="panel-actions">
             <button class="btn btn-primary btn-sm" @click="openAddTeamModal" :disabled="!managingChallenge">Add Team</button>
-            <button class="btn btn-secondary btn-sm" :disabled="!managingChallenge" @click="loadSnakeDraftBoard">Snake Draft Board</button>
+            <button class="btn btn-secondary btn-sm" :disabled="!managingChallenge" @click="loadSnakeDraftBoard">Preview Draft Order</button>
             <button v-if="teams.length > 1" class="btn btn-secondary btn-sm" @click="randomizeSnakeDraftBoard">🔀 Randomize Order</button>
           </div>
+
+          <!-- Live Draft Room card -->
+          <div v-if="managingChallenge && teams.length >= 2" class="draft-room-card">
+            <div class="draft-room-card__header">
+              <div class="draft-room-card__title-row">
+                <span class="draft-room-card__icon">🏈</span>
+                <div>
+                  <div class="draft-room-card__title">Live Team Draft</div>
+                  <div class="draft-room-card__sub">
+                    <span v-if="!draftSessionStatus" class="drs-badge drs-badge--none">Not set up</span>
+                    <span v-else-if="draftSessionStatus === 'pending'" class="drs-badge drs-badge--pending">Ready to start</span>
+                    <span v-else-if="draftSessionStatus === 'in_progress'" class="drs-badge drs-badge--live">● Live now</span>
+                    <span v-else-if="draftSessionStatus === 'completed'" class="drs-badge drs-badge--done">Completed</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                class="btn btn-primary btn-sm"
+                @click="openDraftRoom"
+                :disabled="!managingChallenge"
+              >Open Draft Room →</button>
+            </div>
+            <p class="draft-room-card__hint">
+              Set up team draft order, start a live draft session, and let captains pick their members in real time. Members and captains can watch the draft unfold live.
+            </p>
+          </div>
+
           <div v-if="snakeDraftPicks.length" class="mini-list">
-            <h4>Snake Draft Picks</h4>
+            <h4>Draft Order Preview</h4>
             <p class="hint" style="margin: 0 0 8px;">{{ snakeDraftRandomized ? '🔀 Randomized order — click again for a new shuffle.' : 'Alphabetical order — click Randomize Order to shuffle.' }}</p>
             <div v-for="pick in snakeDraftPicks" :key="`pick-${pick.pickNumber}`" class="mini-row">
               <span>Round {{ pick.round }} · Pick {{ pick.pickNumber }} · {{ pick.teamName }}</span>
@@ -2534,7 +2561,7 @@ const openManageModal = async (c) => {
   const currentWeekOpt = opts.findLast((w) => w.value <= today) || opts[0];
   if (currentWeekOpt) weeklyTasksWeek.value = currentWeekOpt.value;
   await Promise.all([loadTeams(c.id), loadProviderMembers(c.id), loadOrgUsers()]);
-  await loadSnakeDraftBoard();
+  await Promise.all([loadSnakeDraftBoard(), loadDraftSessionStatus()]);
 };
 
 const launchChallenge = async (c) => {
@@ -2713,6 +2740,31 @@ const loadWeeklyTasks = async () => {
     weeklyAssignments.value = [];
   }
 };
+
+// ─── Draft room helpers ─────────────────────────────────────────────────────
+const draftSessionStatus = ref(null);
+
+const loadDraftSessionStatus = async () => {
+  if (!managingChallenge.value?.id) return;
+  try {
+    const { data } = await api.get(
+      `/learning-program-classes/${managingChallenge.value.id}/draft-session`,
+      { skipGlobalLoading: true }
+    );
+    draftSessionStatus.value = data?.session?.status || null;
+  } catch { draftSessionStatus.value = null; }
+};
+
+const openDraftRoom = () => {
+  if (!managingChallenge.value?.id) return;
+  const slug = organizationSlug.value;
+  if (slug) {
+    router.push(`/${slug}/season/${managingChallenge.value.id}/draft`);
+  } else {
+    router.push(`/season/${managingChallenge.value.id}/draft`);
+  }
+};
+// ────────────────────────────────────────────────────────────────────────────
 
 const loadSnakeDraftBoard = async () => {
   if (!managingChallenge.value?.id) return;
@@ -3359,6 +3411,47 @@ onMounted(async () => {
 .panel-actions {
   margin-bottom: 12px;
 }
+/* Draft Room card */
+.draft-room-card {
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 12px;
+  background: rgba(99, 102, 241, 0.06);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.draft-room-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.draft-room-card__title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.draft-room-card__icon { font-size: 20px; }
+.draft-room-card__title { font-weight: 700; font-size: 14px; }
+.draft-room-card__sub { margin-top: 2px; }
+.draft-room-card__hint {
+  font-size: 12px;
+  color: var(--text-muted, #666);
+  margin: 0;
+  line-height: 1.5;
+}
+.drs-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.drs-badge--none { background: rgba(148,163,184,.15); color: #94a3b8; }
+.drs-badge--pending { background: rgba(245,158,11,.15); color: #d97706; }
+.drs-badge--live { background: rgba(16,185,129,.15); color: #059669; }
+.drs-badge--done { background: rgba(99,102,241,.15); color: #6366f1; }
 .empty-hint {
   padding: 12px;
   color: var(--text-muted, #666);

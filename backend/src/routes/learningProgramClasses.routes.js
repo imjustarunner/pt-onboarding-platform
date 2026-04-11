@@ -60,6 +60,11 @@ import {
   pinChallengeMessage,
   getDraftReport,
   upsertDraftNote,
+  getDraftSession,
+  createDraftSession,
+  startDraftSession,
+  makeDraftPick,
+  resetDraftSession,
   listWorkoutComments,
   postWorkoutComment,
   deleteWorkoutComment,
@@ -217,6 +222,11 @@ router.get('/:classId/weekly-tasks/:taskId/detail', getWeeklyTaskDetail);
 router.post('/:classId/weekly-tasks/ai-draft', generateWeeklyTasksDraft);
 router.post('/:classId/weekly-tasks/publish', publishWeeklyTasksDraft);
 router.get('/:classId/snake-draft-board', getSnakeDraftBoard);
+router.get('/:classId/draft-session', getDraftSession);
+router.post('/:classId/draft-session', createDraftSession);
+router.post('/:classId/draft-session/start', startDraftSession);
+router.post('/:classId/draft-session/pick', makeDraftPick);
+router.delete('/:classId/draft-session', resetDraftSession);
 router.get('/:classId/no-show-risk-alerts', getNoShowRiskAlerts);
 router.get('/:classId/weekly-assignments', listWeeklyAssignments);
 router.get('/:classId/bye-weeks/my', listMyByeWeeks);

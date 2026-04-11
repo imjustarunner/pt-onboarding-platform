@@ -648,6 +648,12 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/season/:classId/draft',
+    name: 'ChallengeDraftRoom',
+    component: () => import('../components/challenge/ChallengeLiveDraft.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/home',
     name: 'OrganizationSummitHome',
     redirect: (to) => ({

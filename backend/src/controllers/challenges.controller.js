@@ -2103,3 +2103,347 @@ export const uploadWorkoutMedia = async (req, res, next) => {
     next(e);
   }
 };
+
+// ---------------------------------------------------------------------------
+// Live Draft Session handlers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the full draft session payload shared by GET /draft-session.
+ * Returns { session, teams, availableMembers, currentPickTeamId, isComplete }
+ */
+const buildDraftPayload = async (classId) => {
+  // Session row
+  const [sessionRows] = await pool.execute(
+    `SELECT id, status, draft_mode, pick_queue_json, current_pick_index, started_at, completed_at, created_by_user_id
+     FROM challenge_draft_sessions WHERE learning_class_id = ? LIMIT 1`,
+    [classId]
+  );
+  const session = sessionRows?.[0] || null;
+
+  // Teams with members already drafted
+  const [teamRows] = await pool.execute(
+    `SELECT t.id, t.team_name, t.team_manager_user_id,
+            u.first_name AS captain_first, u.last_name AS captain_last,
+            u.profile_photo_path AS captain_photo
+     FROM challenge_teams t
+     LEFT JOIN users u ON u.id = t.team_manager_user_id
+     WHERE t.learning_class_id = ?
+     ORDER BY t.team_name ASC`,
+    [classId]
+  );
+  const [memberRows] = await pool.execute(
+    `SELECT ctm.team_id, ctm.provider_user_id, u.first_name, u.last_name, u.profile_photo_path
+     FROM challenge_team_members ctm
+     INNER JOIN users u ON u.id = ctm.provider_user_id
+     WHERE ctm.team_id IN (
+       SELECT id FROM challenge_teams WHERE learning_class_id = ?
+     )`,
+    [classId]
+  );
+  const membersByTeam = new Map();
+  for (const m of memberRows || []) {
+    const tid = Number(m.team_id);
+    if (!membersByTeam.has(tid)) membersByTeam.set(tid, []);
+    membersByTeam.get(tid).push({
+      providerUserId: Number(m.provider_user_id),
+      firstName: m.first_name,
+      lastName: m.last_name,
+      photo: m.profile_photo_path || null
+    });
+  }
+  const draftedUserIds = new Set((memberRows || []).map((m) => Number(m.provider_user_id)));
+
+  const teams = (teamRows || []).map((t) => ({
+    id: Number(t.id),
+    teamName: t.team_name,
+    captainUserId: t.team_manager_user_id ? Number(t.team_manager_user_id) : null,
+    captainName: t.captain_first ? `${t.captain_first} ${t.captain_last || ''}`.trim() : null,
+    captainPhoto: t.captain_photo || null,
+    picks: membersByTeam.get(Number(t.id)) || []
+  }));
+
+  // All season participants not yet drafted
+  const [participantRows] = await pool.execute(
+    `SELECT pm.provider_user_id, u.first_name, u.last_name, u.profile_photo_path,
+            COALESCE(dn.note_text, '') AS draft_note
+     FROM learning_class_provider_memberships pm
+     INNER JOIN users u ON u.id = pm.provider_user_id
+     LEFT JOIN challenge_member_draft_notes dn
+       ON dn.learning_class_id = pm.learning_class_id AND dn.provider_user_id = pm.provider_user_id
+     WHERE pm.learning_class_id = ? AND pm.membership_status IN ('active','completed')
+     ORDER BY u.last_name ASC, u.first_name ASC`,
+    [classId]
+  );
+  const availableMembers = (participantRows || [])
+    .filter((p) => !draftedUserIds.has(Number(p.provider_user_id)))
+    .map((p) => ({
+      providerUserId: Number(p.provider_user_id),
+      firstName: p.first_name,
+      lastName: p.last_name,
+      photo: p.profile_photo_path || null,
+      draftNote: p.draft_note || ''
+    }));
+
+  let currentPickTeamId = null;
+  let pickQueue = [];
+  let currentPickIndex = 0;
+  if (session) {
+    try {
+      pickQueue = typeof session.pick_queue_json === 'string'
+        ? JSON.parse(session.pick_queue_json)
+        : (session.pick_queue_json || []);
+    } catch { pickQueue = []; }
+    currentPickIndex = Number(session.current_pick_index || 0);
+    if (session.status === 'in_progress' && currentPickIndex < pickQueue.length && availableMembers.length > 0) {
+      currentPickTeamId = pickQueue[currentPickIndex] || null;
+    }
+  }
+
+  return {
+    session: session ? {
+      id: Number(session.id),
+      status: session.status,
+      draftMode: session.draft_mode,
+      currentPickIndex,
+      totalPicks: pickQueue.length,
+      startedAt: session.started_at || null,
+      completedAt: session.completed_at || null
+    } : null,
+    teams,
+    availableMembers,
+    currentPickTeamId
+  };
+};
+
+/**
+ * GET /:classId/draft-session
+ * Public to all season participants; returns live draft state.
+ */
+export const getDraftSession = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    if (!access.ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    const payload = await buildDraftPayload(classId);
+    return res.json(payload);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /:classId/draft-session
+ * Manager creates (or resets) the draft session.
+ * Body: { draftMode: 'snake'|'random', captainOrder: [teamId, ...], rounds: number }
+ */
+export const createDraftSession = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Manager access required' } });
+    }
+
+    const draftMode = ['snake', 'random'].includes(req.body?.draftMode) ? req.body.draftMode : 'snake';
+    const captainOrder = Array.isArray(req.body?.captainOrder) ? req.body.captainOrder.map(Number).filter(Boolean) : [];
+    const rounds = Math.max(1, Math.min(30, asInt(req.body?.rounds) || 10));
+
+    // Validate teams
+    if (!captainOrder.length) {
+      return res.status(400).json({ error: { message: 'captainOrder must contain at least one team ID' } });
+    }
+
+    // Build pick queue
+    let pickQueue = [];
+    if (draftMode === 'snake') {
+      for (let r = 0; r < rounds; r++) {
+        const row = r % 2 === 0 ? captainOrder : [...captainOrder].reverse();
+        pickQueue.push(...row);
+      }
+    } else {
+      // Random: shuffle once, then repeat for rounds
+      for (let r = 0; r < rounds; r++) {
+        const shuffled = [...captainOrder].sort(() => Math.random() - 0.5);
+        pickQueue.push(...shuffled);
+      }
+    }
+
+    await pool.execute(
+      `INSERT INTO challenge_draft_sessions
+         (learning_class_id, status, draft_mode, pick_queue_json, current_pick_index, created_by_user_id)
+       VALUES (?, 'pending', ?, ?, 0, ?)
+       ON DUPLICATE KEY UPDATE
+         status = 'pending',
+         draft_mode = VALUES(draft_mode),
+         pick_queue_json = VALUES(pick_queue_json),
+         current_pick_index = 0,
+         started_at = NULL,
+         completed_at = NULL,
+         created_by_user_id = VALUES(created_by_user_id),
+         updated_at = CURRENT_TIMESTAMP`,
+      [classId, draftMode, JSON.stringify(pickQueue), req.user.id]
+    );
+
+    const payload = await buildDraftPayload(classId);
+    return res.json(payload);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /:classId/draft-session/start
+ * Manager starts the draft (status → in_progress).
+ */
+export const startDraftSession = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Manager access required' } });
+    }
+    const [rows] = await pool.execute(
+      `SELECT id, status FROM challenge_draft_sessions WHERE learning_class_id = ? LIMIT 1`,
+      [classId]
+    );
+    if (!rows?.length) return res.status(404).json({ error: { message: 'No draft session found — set it up first' } });
+    if (rows[0].status === 'in_progress') return res.status(400).json({ error: { message: 'Draft is already in progress' } });
+    if (rows[0].status === 'completed') return res.status(400).json({ error: { message: 'Draft is already completed — reset to start again' } });
+    await pool.execute(
+      `UPDATE challenge_draft_sessions SET status = 'in_progress', started_at = NOW(), updated_at = CURRENT_TIMESTAMP
+       WHERE learning_class_id = ?`,
+      [classId]
+    );
+    const payload = await buildDraftPayload(classId);
+    return res.json(payload);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /:classId/draft-session/pick
+ * Current captain (or manager override) drafts a member.
+ * Body: { providerUserId: number }
+ */
+export const makeDraftPick = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    const providerUserId = asInt(req.body?.providerUserId);
+    if (!classId || !providerUserId) return res.status(400).json({ error: { message: 'Invalid classId or providerUserId' } });
+
+    const [sessionRows] = await pool.execute(
+      `SELECT id, status, pick_queue_json, current_pick_index FROM challenge_draft_sessions WHERE learning_class_id = ? LIMIT 1`,
+      [classId]
+    );
+    if (!sessionRows?.length) return res.status(404).json({ error: { message: 'No draft session found' } });
+    const session = sessionRows[0];
+    if (session.status !== 'in_progress') {
+      return res.status(400).json({ error: { message: `Draft is ${session.status} — cannot pick` } });
+    }
+
+    let pickQueue;
+    try { pickQueue = typeof session.pick_queue_json === 'string' ? JSON.parse(session.pick_queue_json) : (session.pick_queue_json || []); }
+    catch { pickQueue = []; }
+    const currentIndex = Number(session.current_pick_index || 0);
+    if (currentIndex >= pickQueue.length) {
+      return res.status(400).json({ error: { message: 'All picks are exhausted' } });
+    }
+
+    const currentPickTeamId = Number(pickQueue[currentIndex]);
+
+    // Permission: must be current turn's captain OR a manager
+    const isManager = await canManageChallenge({ user: req.user, classId });
+    if (!isManager) {
+      // Verify caller is the captain of the team whose turn it is
+      const [captainCheck] = await pool.execute(
+        `SELECT 1 FROM challenge_teams WHERE id = ? AND team_manager_user_id = ? LIMIT 1`,
+        [currentPickTeamId, req.user.id]
+      );
+      if (!captainCheck?.length) {
+        return res.status(403).json({ error: { message: 'It is not your team\'s turn to pick' } });
+      }
+    }
+
+    // Verify member is a season participant and not already drafted
+    const [memberCheck] = await pool.execute(
+      `SELECT 1 FROM learning_class_provider_memberships
+       WHERE learning_class_id = ? AND provider_user_id = ? AND membership_status IN ('active','completed') LIMIT 1`,
+      [classId, providerUserId]
+    );
+    if (!memberCheck?.length) return res.status(404).json({ error: { message: 'Member not found in this season' } });
+
+    const [alreadyDrafted] = await pool.execute(
+      `SELECT 1 FROM challenge_team_members ctm
+       INNER JOIN challenge_teams t ON t.id = ctm.team_id
+       WHERE t.learning_class_id = ? AND ctm.provider_user_id = ? LIMIT 1`,
+      [classId, providerUserId]
+    );
+    if (alreadyDrafted?.length) return res.status(400).json({ error: { message: 'Member is already on a team' } });
+
+    // Add to team
+    await pool.execute(
+      `INSERT IGNORE INTO challenge_team_members (team_id, provider_user_id) VALUES (?, ?)`,
+      [currentPickTeamId, providerUserId]
+    );
+
+    // Advance pick index
+    const nextIndex = currentIndex + 1;
+
+    // Check if draft should auto-complete (queue exhausted after this pick)
+    // We'll check available members after the pick in buildDraftPayload; for now advance index
+    await pool.execute(
+      `UPDATE challenge_draft_sessions
+       SET current_pick_index = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE learning_class_id = ?`,
+      [nextIndex, classId]
+    );
+
+    const payload = await buildDraftPayload(classId);
+
+    // Auto-complete if no more available members or queue exhausted
+    const shouldComplete = nextIndex >= pickQueue.length || payload.availableMembers.length === 0;
+    if (shouldComplete && payload.session?.status === 'in_progress') {
+      await pool.execute(
+        `UPDATE challenge_draft_sessions SET status = 'completed', completed_at = NOW(), updated_at = CURRENT_TIMESTAMP
+         WHERE learning_class_id = ?`,
+        [classId]
+      );
+      payload.session.status = 'completed';
+      payload.session.completedAt = new Date().toISOString();
+      payload.currentPickTeamId = null;
+    }
+
+    return res.json(payload);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * DELETE /:classId/draft-session
+ * Manager resets the draft: removes all team members and deletes the session.
+ */
+export const resetDraftSession = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) {
+      return res.status(403).json({ error: { message: 'Manager access required' } });
+    }
+    // Remove all team member assignments for this season's teams
+    await pool.execute(
+      `DELETE ctm FROM challenge_team_members ctm
+       INNER JOIN challenge_teams t ON t.id = ctm.team_id
+       WHERE t.learning_class_id = ?`,
+      [classId]
+    );
+    // Delete the session
+    await pool.execute(`DELETE FROM challenge_draft_sessions WHERE learning_class_id = ?`, [classId]);
+    return res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
