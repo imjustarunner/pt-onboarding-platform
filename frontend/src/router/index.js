@@ -2204,23 +2204,22 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
-  // Summit Stats canonical slug redirect: /summit-stats/* or /sstc/* → /sstc/*
-  // The platform org may have been created with slug "summit-stats" but the canonical
-  // public-facing URL is /sstc. Redirect transparently so links and bookmarks still work.
+  // Summit Stats canonical slug redirect: /summit-stats/* or /ssc/* → /sstc/*
+  // Only redirect legacy aliases — never redirect /sstc/* to itself (infinite loop).
   {
     const rawPath = String(to.path || '');
-    if (rawPath === '/summit-stats' || rawPath.startsWith('/summit-stats/') || 
-        rawPath === '/sstc' || rawPath.startsWith('/sstc/')) {
-      const matchedBase = (rawPath === '/summit-stats' || rawPath.startsWith('/summit-stats/')) ? '/summit-stats' : '/sstc';
-      const rest = rawPath === matchedBase ? '' : rawPath.slice(matchedBase.length);
+    const legacyBases = ['/summit-stats', '/ssc'];
+    const matchedLegacy = legacyBases.find((b) => rawPath === b || rawPath.startsWith(`${b}/`));
+    if (matchedLegacy) {
+      const rest = rawPath === matchedLegacy ? '' : rawPath.slice(matchedLegacy.length);
       next({ path: `/sstc${rest}`, query: to.query, hash: to.hash, replace: true });
       return;
     }
-    // Also handle /sstc/summit-stats/* → /sstc/* or /sstc/sstc/* → /sstc/*
-    if (rawPath.startsWith('/sstc/summit-stats/') || rawPath === '/sstc/summit-stats' ||
-        rawPath.startsWith('/sstc/sstc/') || rawPath === '/sstc/sstc') {
-      const base = rawPath.includes('/summit-stats') ? '/sstc/summit-stats' : '/sstc/sstc';
-      const rest = rawPath.slice(base.length) || '/';
+    // Handle /sstc/summit-stats/* or /sstc/ssc/* or /sstc/sstc/* → /sstc/*
+    const sstcDoubled = ['/sstc/summit-stats', '/sstc/ssc', '/sstc/sstc'];
+    const matchedDoubled = sstcDoubled.find((b) => rawPath === b || rawPath.startsWith(`${b}/`));
+    if (matchedDoubled) {
+      const rest = rawPath.slice(matchedDoubled.length) || '/';
       next({ path: `/sstc${rest}`, query: to.query, hash: to.hash, replace: true });
       return;
     }
