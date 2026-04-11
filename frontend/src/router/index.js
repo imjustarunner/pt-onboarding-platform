@@ -2928,8 +2928,8 @@ router.beforeEach(async (to, from, next) => {
       next();
     }
   } else {
-    // Block ARCHIVED users from all routes
-    if (authStore.user?.status === 'ARCHIVED') {
+    // Block archived / inactive users from all routes
+    if (authStore.user?.status === 'ARCHIVED' || authStore.user?.status === 'INACTIVE_EMPLOYEE') {
       next('/login');
       return;
     }

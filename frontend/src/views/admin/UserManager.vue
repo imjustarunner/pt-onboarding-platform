@@ -180,6 +180,7 @@
               <option value="ONBOARDING">Onboarding</option>
               <option value="ACTIVE_EMPLOYEE">Active</option>
               <option value="TERMINATED_PENDING">Terminated (Grace Period)</option>
+              <option value="INACTIVE_EMPLOYEE">Inactive (offboarded)</option>
             </select>
           </div>
 
@@ -543,9 +544,9 @@
                 >
                   Download & Wipe Training/Docs
                 </button>
-                <button 
-                  v-if="canArchiveDelete && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))" 
-                  @click="archiveUser(user)" 
+                <button
+                  v-if="canArchiveDelete && (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant')"
+                  @click="archiveUser(user)"
                   class="btn btn-warning btn-sm"
                 >
                   Archive
@@ -1615,10 +1616,7 @@ const selectedClubId = computed(() => {
   const id = Number(agencyStore.currentAgency?.id || 0);
   return Number.isFinite(id) && id > 0 ? id : null;
 });
-const canArchiveDelete = computed(() => {
-  const role = authStore.user?.role;
-  return role === 'admin' || role === 'super_admin';
-});
+const canArchiveDelete = computed(() => authStore.user?.role === 'super_admin');
 
 // Supervisors modal state
 const showSupervisorsModal = ref(false);
@@ -3460,6 +3458,9 @@ const getStatusLabelWrapper = (status, isActive = true) => {
   if (status === 'ARCHIVED') {
     return 'Archived';
   }
+  if (status === 'INACTIVE_EMPLOYEE') {
+    return 'Inactive (offboarded)';
+  }
   return getStatusLabel(status);
 };
 
@@ -3532,7 +3533,7 @@ const sortedUsers = computed(() => {
       // Include legacy 'active' rows for older databases.
       filtered = filtered.filter((user) => user.status === 'ACTIVE_EMPLOYEE' || user.status === 'active');
     } else {
-      filtered = filtered.filter(user => {
+      filtered = filtered.filter((user) => {
         return user.status === statusSort.value;
       });
     }

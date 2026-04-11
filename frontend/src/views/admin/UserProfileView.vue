@@ -1563,24 +1563,35 @@
                     {{ updatingStatus ? 'Updating...' : 'Mark Terminated' }}
                   </button>
                   
-                  <!-- Archive: Available for most statuses except ARCHIVED -->
-                  <button 
-                    v-if="user.status !== 'ARCHIVED' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin') && authStore.user?.role !== 'clinical_practice_assistant'"
-                    @click="archiveUser" 
+                  <!-- Mark inactive: standard offboard (removes org/school links; keeps record) -->
+                  <button
+                    v-if="user.status !== 'ARCHIVED' && user.status !== 'INACTIVE_EMPLOYEE' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
+                    type="button"
+                    @click="markStaffInactive"
                     class="btn btn-warning btn-sm"
+                    :disabled="updatingStatus"
+                  >
+                    {{ updatingStatus ? 'Working...' : 'Mark inactive' }}
+                  </button>
+
+                  <!-- Archive: super admin only (hard lifecycle; managed in Archive settings) -->
+                  <button
+                    v-if="user.status !== 'ARCHIVED' && user.status !== 'INACTIVE_EMPLOYEE' && authStore.user?.role === 'super_admin'"
+                    @click="archiveUser"
+                    class="btn btn-outline-warning btn-sm"
                     :disabled="updatingStatus"
                   >
                     {{ updatingStatus ? 'Archiving...' : 'Archive' }}
                   </button>
-                  
-                  <!-- Show "Reactivate" for ARCHIVED users -->
-                  <button 
-                    v-if="user.status === 'ARCHIVED' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)))"
-                    @click="markActive" 
+
+                  <!-- Reactivate from inactive -->
+                  <button
+                    v-if="user.status === 'INACTIVE_EMPLOYEE' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)))"
+                    @click="markActive"
                     class="btn btn-secondary btn-sm"
                     :disabled="updatingStatus"
                   >
-                    {{ updatingStatus ? 'Updating...' : 'Restore' }}
+                    {{ updatingStatus ? 'Updating...' : 'Reactivate' }}
                   </button>
                   
                   <!-- Show "Activate" for pending users (admin can activate directly) -->
@@ -5776,7 +5787,13 @@ const availableStatusesForChange = computed(() => {
   const roleNorm = String(u.role || '').toLowerCase();
   const statuses = ['school_staff', 'client_guardian'].includes(roleNorm) ? RESTRICTED_ROLE_STATUSES : VALID_EMPLOYEE_STATUSES;
   const current = String(u.status || '').toUpperCase();
-  return statuses.filter((s) => s !== current);
+  const actorIsSuper = String(authStore.user?.role || '').toLowerCase() === 'super_admin';
+  return statuses.filter((s) => {
+    if (s === current) return false;
+    if (s === 'INACTIVE_EMPLOYEE') return false;
+    if (s === 'ARCHIVED' && !actorIsSuper) return false;
+    return true;
+  });
 });
 
 
@@ -5793,6 +5810,7 @@ const getStatusLabel = (status, isActive = true) => {
     'ONBOARDING': 'Onboarding',
     'ACTIVE_EMPLOYEE': 'Active',
     'TERMINATED_PENDING': 'Terminated (Grace Period)',
+    'INACTIVE_EMPLOYEE': 'Inactive (offboarded)',
     'ARCHIVED': 'Archived',
 
     // Legacy statuses (backward compatibility)
@@ -5818,6 +5836,7 @@ const getStatusBadgeClass = (status, isActive = true) => {
     'ONBOARDING': 'badge-info',
     'ACTIVE_EMPLOYEE': 'badge-success',
     'TERMINATED_PENDING': 'badge-danger',
+    'INACTIVE_EMPLOYEE': 'badge-secondary',
     'ARCHIVED': 'badge-secondary',
 
     // Legacy statuses
@@ -5966,7 +5985,12 @@ const markTerminated = async () => {
 };
 
 const markActive = async () => {
-  if (!confirm('Are you sure you want to reactivate this user? This will restore their access immediately.')) {
+  const st = String(user.value?.status || '').toUpperCase();
+  const msg =
+    st === 'INACTIVE_EMPLOYEE'
+      ? 'Reactivate this user? They will be able to sign in again; you will need to re-assign agencies and schools.'
+      : 'Are you sure you want to reactivate this user? This will restore their access immediately.';
+  if (!confirm(msg)) {
     return;
   }
   
@@ -5982,16 +6006,37 @@ const markActive = async () => {
   }
 };
 
-const archiveUser = async () => {
-  if (!confirm(`Are you sure you want to archive "${user.value?.first_name} ${user.value?.last_name}"? You can restore them from the Archive section in Settings.`)) {
+const markStaffInactive = async () => {
+  const name = `${user.value?.first_name || ''} ${user.value?.last_name || ''}`.trim() || 'this user';
+  if (
+    !confirm(
+      `Mark ${name} inactive?\n\nThey will be signed out, removed from all agencies/schools and related schedules, and their account will stay on file for history. You can reactivate them later and re-assign organizations.`
+    )
+  ) {
     return;
   }
-  
+  try {
+    updatingStatus.value = true;
+    await api.post(`/users/${userId.value}/set-inactive`);
+    alert('User marked inactive. Re-assign agencies/schools when they return.');
+    await fetchUser();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to mark user inactive';
+    alert(error.value);
+  } finally {
+    updatingStatus.value = false;
+  }
+};
+
+const archiveUser = async () => {
+  if (!confirm(`Are you sure you want to archive "${user.value?.first_name} ${user.value?.last_name}"? This is for super-admin testing and full archive workflow.`)) {
+    return;
+  }
+
   try {
     updatingStatus.value = true;
     await api.post(`/users/${userId.value}/archive`);
     alert('User archived successfully');
-    // Redirect to users list
     router.push(backToUsersList.value);
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to archive user';

@@ -18,6 +18,7 @@ const AUDIT_ACTION_REGISTRY = {
   revoke_medical_records_release_access: { label: 'Medical records release access revoked', category: 'Staff' },
   user_profile_updated: { label: 'User profile updated', category: 'Staff' },
   user_archived: { label: 'User archived', category: 'Staff' },
+  user_set_inactive: { label: 'User marked inactive (affiliations removed)', category: 'Staff' },
   user_restored: { label: 'User restored from archive', category: 'Staff' },
   user_status_changed: { label: 'User status changed', category: 'Staff' },
   user_assigned_to_agency: { label: 'User assigned to agency', category: 'Staff' },

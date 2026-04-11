@@ -566,8 +566,8 @@ export const requireActiveStatus = async (req, res, next) => {
       return res.status(401).json({ error: { message: 'User not found' } });
     }
     
-    // Superadmins bypass all status checks (except ARCHIVED)
-    if (user.role === 'super_admin' && user.status !== 'ARCHIVED') {
+    // Superadmins bypass all status checks (except terminal states)
+    if (user.role === 'super_admin' && user.status !== 'ARCHIVED' && user.status !== 'INACTIVE_EMPLOYEE') {
       // Give superadmins full access
       req.userAccess = {
         canAccessOnDemand: true,
@@ -593,10 +593,15 @@ export const requireActiveStatus = async (req, res, next) => {
       });
     }
     
-    // Block ARCHIVED users from all routes
+    // Block archived / inactive users from all routes
     if (user.status === 'ARCHIVED') {
       return res.status(403).json({ 
         error: { message: 'Your account has been archived. Please contact your administrator.' } 
+      });
+    }
+    if (user.status === 'INACTIVE_EMPLOYEE') {
+      return res.status(403).json({
+        error: { message: 'Your account is inactive. Please contact your administrator.' }
       });
     }
     

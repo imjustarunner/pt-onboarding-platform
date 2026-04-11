@@ -81,8 +81,8 @@ export function checkAccess(user, { effectiveRole } = {}) {
   // Use effectiveRole when provided (context-aware); fall back to stored role.
   const userRole = effectiveRole ?? user.role;
 
-  // Superadmins have full access regardless of status (except ARCHIVED)
-  if (userRole === 'super_admin' && status !== 'ARCHIVED') {
+  // Superadmins have full access regardless of status (except terminal states)
+  if (userRole === 'super_admin' && status !== 'ARCHIVED' && status !== 'INACTIVE_EMPLOYEE') {
     return {
       canAccessOnDemand: true,
       canAccessDashboard: true,
@@ -97,7 +97,7 @@ export function checkAccess(user, { effectiveRole } = {}) {
   // This also correctly handles a work-role user whose effectiveRole resolved to 'manager'
   // via inferLegacyClubRole — the club_role values ('member','manager','assistant_manager') fall
   // through to the status-based switch below, which grants them normal employee access.
-  if (userRole === 'club_manager' && status !== 'ARCHIVED') {
+  if (userRole === 'club_manager' && status !== 'ARCHIVED' && status !== 'INACTIVE_EMPLOYEE') {
     return {
       canAccessOnDemand: false,
       canAccessDashboard: true,
@@ -187,6 +187,14 @@ export function checkAccess(user, { effectiveRole } = {}) {
       canAccessAdmin = false;
       break;
 
+    case 'INACTIVE_EMPLOYEE':
+      canAccessOnDemand = false;
+      canAccessDashboard = false;
+      canAccessTraining = false;
+      canAccessDocuments = false;
+      canAccessAdmin = false;
+      break;
+
     default:
       // Unknown status - default to no access for safety
       console.warn(`Unknown user status: ${status} for user ${user.id}`);
@@ -217,13 +225,13 @@ export function canLogin(user) {
   const status = user.status;
   const userRole = user.role;
 
-  // Superadmins can always login (except if ARCHIVED)
-  if (userRole === 'super_admin' && status !== 'ARCHIVED') {
+  // Superadmins can always login (except terminal account states)
+  if (userRole === 'super_admin' && status !== 'ARCHIVED' && status !== 'INACTIVE_EMPLOYEE') {
     return true;
   }
 
-  // ARCHIVED users cannot login
-  if (status === 'ARCHIVED') {
+  // ARCHIVED / inactive users cannot login
+  if (status === 'ARCHIVED' || status === 'INACTIVE_EMPLOYEE') {
     return false;
   }
 

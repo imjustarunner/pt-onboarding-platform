@@ -139,7 +139,7 @@ async function listAgencyProviderDirectoryRows(agencyId) {
      INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
      WHERE (u.is_active IS NULL OR u.is_active = TRUE)
        AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-       AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
+       AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE'))
        AND (
          LOWER(COALESCE(u.role, '')) IN ('provider', 'clinician', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'staff')
          OR (u.has_provider_access = TRUE)
@@ -2741,7 +2741,7 @@ export const getSkillBuilderEventSkillsGroupRoster = async (req, res, next) => {
        INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
        WHERE (u.is_active IS NULL OR u.is_active = TRUE)
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-         AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
+         AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE'))
          AND (
            LOWER(u.role) IN ('provider', 'clinician', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant')
            OR (u.has_provider_access = TRUE)

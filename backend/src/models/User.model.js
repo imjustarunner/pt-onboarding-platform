@@ -674,22 +674,34 @@ class User {
       console.error('Error checking for archived_by_agency_id column:', err);
     }
 
-    let query = 'SELECT id, email, role, status, completed_at, terminated_at, status_expires_at, first_name, last_name, created_at, archived_at, archived_by_user_id FROM users WHERE is_archived = TRUE';
+    let query =
+      'SELECT u.id, u.email, u.role, u.status, u.completed_at, u.terminated_at, u.status_expires_at, u.first_name, u.last_name, u.created_at, u.archived_at, u.archived_by_user_id FROM users u WHERE u.is_archived = TRUE';
     const params = [];
 
     // Filter by archived_by_agency_id
     // - If agencyIds is null (super_admin, no filter), don't filter
     // - If agencyIds is an array, filter by those agencies
+    // Rows archived via status change (or legacy paths) may have archived_by_agency_id NULL; include them when
+    // the user still has a user_agencies row for one of the viewer's agencies so Archive Management matches reality.
     if (hasAgencyColumn && agencyIds !== null && agencyIds !== undefined && agencyIds.length > 0) {
       const placeholders = agencyIds.map(() => '?').join(',');
-      query += ` AND archived_by_agency_id IN (${placeholders})`;
-      params.push(...agencyIds);
+      query += ` AND (
+        u.archived_by_agency_id IN (${placeholders})
+        OR (
+          u.archived_by_agency_id IS NULL
+          AND EXISTS (
+            SELECT 1 FROM user_agencies ua_arch
+            WHERE ua_arch.user_id = u.id AND ua_arch.agency_id IN (${placeholders})
+          )
+        )
+      )`;
+      params.push(...agencyIds, ...agencyIds);
     } else if (hasAgencyColumn && userRole !== 'super_admin') {
       // For non-super_admin users, if no agencyIds provided, return empty (they shouldn't see anything)
       query += ' AND 1=0'; // Always false condition
     }
 
-    query += ' ORDER BY archived_at DESC';
+    query += ' ORDER BY u.archived_at DESC';
     const [rows] = await pool.execute(query, params);
     return rows;
   }
@@ -2368,6 +2380,11 @@ class User {
       updates.push('is_archived = TRUE');
       updates.push('archived_at = NOW()');
       values.push('ARCHIVED');
+    } else if (status === 'INACTIVE_EMPLOYEE') {
+      updates.push('status = ?');
+      updates.push('is_active = FALSE');
+      updates.push('provider_accepting_new_clients = FALSE');
+      values.push('INACTIVE_EMPLOYEE');
     } else if (status === 'PENDING_SETUP') {
       updates.push('status = ?');
       updates.push('completed_at = NULL');

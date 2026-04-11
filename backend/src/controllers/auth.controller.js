@@ -592,10 +592,15 @@ export const login = async (req, res, next) => {
     const { canLogin: canUserLogin, isAccessExpired } = await import('../utils/accessControl.js');
     const userStatus = user.status || 'PENDING_SETUP';
     
-    // Block ARCHIVED users from login
+    // Block ARCHIVED / inactive users from login
     if (userStatus === 'ARCHIVED') {
       return res.status(403).json({ 
         error: { message: 'Account has been archived. Access denied.' } 
+      });
+    }
+    if (userStatus === 'INACTIVE_EMPLOYEE') {
+      return res.status(403).json({
+        error: { message: 'Account is inactive. Access denied.' }
       });
     }
     
@@ -1940,9 +1945,12 @@ export const passwordlessTokenLogin = async (req, res, next) => {
 
     const pw = calcPasswordExpiry(fullUser);
     
-    // Block ARCHIVED users
+    // Block ARCHIVED / inactive users
     if (fullUser.status === 'ARCHIVED') {
       return res.status(403).json({ error: { message: 'Account has been archived. Access denied.' } });
+    }
+    if (fullUser.status === 'INACTIVE_EMPLOYEE') {
+      return res.status(403).json({ error: { message: 'Account is inactive. Access denied.' } });
     }
     
     // Check access expiration for TERMINATED_PENDING users

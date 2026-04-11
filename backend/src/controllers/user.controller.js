@@ -23,7 +23,7 @@ import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import pool from '../config/database.js';
 import { canUserManageClub } from '../utils/sscClubAccess.js';
-import { adjustProviderSlots } from '../services/providerSlots.service.js';
+import { detachUserFromOrganization, detachUserGlobalLinks } from '../services/userStaffDetach.service.js';
 import { syncProgramMembershipForSkillBuilderEligibleUser } from '../services/skillBuildersProgramAffiliation.service.js';
 import { isStravaRolloutEnabledForEmail } from '../utils/stravaRollout.js';
 
@@ -1378,9 +1378,10 @@ export const aiQueryUsers = async (req, res, next) => {
 
 export const archiveUser = async (req, res, next) => {
   try {
-    // Support users cannot archive users
-    if (req.user.role === 'support') {
-      return res.status(403).json({ error: { message: 'Support users cannot archive users' } });
+    if (req.user.role !== 'super_admin') {
+      return res.status(403).json({
+        error: { message: 'Only super administrators can archive accounts. Use Mark inactive to offboard staff while keeping their record.' }
+      });
     }
     
     const { id } = req.params;
@@ -1436,6 +1437,124 @@ export const archiveUser = async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+};
+
+/**
+ * Offboard a staff/provider: INACTIVE_EMPLOYEE, login disabled, all org/school affiliations and related operational links removed.
+ * History (clients worked with, notes, training, etc.) remains on the user id.
+ */
+export const setStaffInactive = async (req, res, next) => {
+  let conn = null;
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!['admin', 'super_admin', 'support'].includes(role)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    const uid = parseInt(req.params.id, 10);
+    if (!uid) {
+      return res.status(400).json({ error: { message: 'Invalid user id' } });
+    }
+    if (uid === req.user.id) {
+      return res.status(400).json({ error: { message: 'You cannot mark your own account inactive' } });
+    }
+
+    const target = await User.findById(uid);
+    if (!target) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    const targetRole = String(target.role || '').toLowerCase();
+    if (targetRole === 'client_guardian') {
+      return res.status(400).json({ error: { message: 'Use guardian tools to manage guardian accounts' } });
+    }
+    if (target.email === 'superadmin@plottwistco.com' && role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Not allowed' } });
+    }
+
+    if (role !== 'super_admin') {
+      const actorAgencies = await User.getAgencies(req.user.id);
+      const targetAgencies = await User.getAgencies(uid);
+      const actorIds = new Set((actorAgencies || []).map((a) => Number(a.id)));
+      const shared = (targetAgencies || []).some((a) => actorIds.has(Number(a.id)));
+      if (!shared) {
+        return res.status(403).json({ error: { message: 'You can only mark inactive users who share an organization with you' } });
+      }
+    }
+
+    const [memRows] = await pool.execute('SELECT agency_id FROM user_agencies WHERE user_id = ?', [uid]);
+    const agencyIds = (memRows || []).map((r) => Number(r.agency_id)).filter((n) => Number.isFinite(n) && n > 0);
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const actorId = Number(req.user.id) || 0;
+    for (const aid of agencyIds) {
+      await detachUserFromOrganization(conn, { userId: uid, agencyId: aid, actorUserId: actorId });
+      try {
+        await AdminAuditLog.logAction({
+          actionType: 'user_removed_from_agency',
+          actorUserId: actorId,
+          targetUserId: uid,
+          agencyId: aid,
+          metadata: { source: 'set_staff_inactive' }
+        });
+      } catch (e) {
+        console.warn('Admin audit log failed:', e?.message || e);
+      }
+    }
+
+    await detachUserGlobalLinks(conn, uid);
+
+    await conn.execute(
+      `UPDATE users
+       SET status = 'INACTIVE_EMPLOYEE',
+           is_active = FALSE,
+           provider_accepting_new_clients = FALSE
+       WHERE id = ?`,
+      [uid]
+    );
+
+    await conn.commit();
+
+    try {
+      const agencyId = await getFirstAgencyForAudit(req.user.id, uid, req.user.role);
+      if (agencyId) {
+        await AdminAuditLog.logAction({
+          actionType: 'user_set_inactive',
+          actorUserId: actorId,
+          targetUserId: uid,
+          agencyId,
+          metadata: null
+        });
+      }
+    } catch (e) {
+      console.warn('Admin audit log failed:', e?.message || e);
+    }
+
+    const user = await User.findById(uid);
+    res.json({
+      message: 'User marked inactive. Organization and school links were removed; their history remains on file.',
+      user
+    });
+  } catch (error) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        // ignore
+      }
+    }
+    next(error);
+  } finally {
+    if (conn) {
+      try {
+        conn.release();
+      } catch {
+        // ignore
+      }
+    }
   }
 };
 
@@ -1509,9 +1628,8 @@ export const restoreUser = async (req, res, next) => {
 
 export const deleteUser = async (req, res, next) => {
   try {
-    // Support users cannot delete users
-    if (req.user.role === 'support') {
-      return res.status(403).json({ error: { message: 'Support users cannot delete users' } });
+    if (req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only super administrators can permanently delete users.' } });
     }
     
     const { id } = req.params;
@@ -4849,176 +4967,11 @@ export const removeUserFromAgency = async (req, res, next) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    // Determine whether this "agency" is actually a school org. If so, clean up School Portal day/provider rows
-    // so orphaned day assignments never keep showing in the portal.
-    const [[orgRow]] = await conn.execute(
-      `SELECT organization_type
-       FROM agencies
-       WHERE id = ?
-       LIMIT 1`,
-      [aid]
-    );
-    const orgType = String(orgRow?.organization_type || 'agency').toLowerCase();
-
-    // Remove the membership itself.
-    await conn.execute('DELETE FROM user_agencies WHERE user_id = ? AND agency_id = ?', [uid, aid]);
-
-    const ignoreIfMissing = (e) => {
-      const msg = String(e?.message || '');
-      return (
-        msg.includes('ER_NO_SUCH_TABLE') ||
-        msg.includes("doesn't exist") ||
-        msg.includes('Unknown column') ||
-        msg.includes('ER_BAD_FIELD_ERROR')
-      );
-    };
-
-    if (orgType === 'school') {
-      // Unassign this provider from any clients at this school (and refund slots).
-      // This is intentionally best-effort/backward-compatible: older DBs may not have multi-provider tables.
-      try {
-        const [assignRows] = await conn.execute(
-          `SELECT id, client_id, service_day
-           FROM client_provider_assignments
-           WHERE provider_user_id = ? AND organization_id = ? AND is_active = TRUE
-           FOR UPDATE`,
-          [uid, aid]
-        );
-
-        for (const a of assignRows || []) {
-          if (a?.service_day) {
-            await adjustProviderSlots(conn, {
-              providerUserId: uid,
-              schoolId: aid,
-              dayOfWeek: a.service_day,
-              delta: +1
-            });
-          }
-
-          await conn.execute(
-            `UPDATE client_provider_assignments
-             SET is_active = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?`,
-            [req.user.id, a.id]
-          );
-
-          // Keep legacy single-provider fields in sync (snap back to Not assigned when none remain).
-          // Prefer explicit primary if available; otherwise pick most recent active assignment.
-          let next = null;
-          try {
-            const [nextRows] = await conn.execute(
-              `SELECT provider_user_id, service_day
-               FROM client_provider_assignments
-               WHERE client_id = ? AND is_active = TRUE
-               ORDER BY (CASE WHEN is_primary = TRUE THEN 1 ELSE 0 END) DESC, updated_at DESC
-               LIMIT 1`,
-              [a.client_id]
-            );
-            next = nextRows?.[0] || null;
-          } catch (e) {
-            const msg = String(e?.message || '');
-            const missingIsPrimary = msg.includes('Unknown column') && msg.includes('is_primary');
-            if (!missingIsPrimary) throw e;
-            const [nextRows] = await conn.execute(
-              `SELECT provider_user_id, service_day
-               FROM client_provider_assignments
-               WHERE client_id = ? AND is_active = TRUE
-               ORDER BY updated_at DESC
-               LIMIT 1`,
-              [a.client_id]
-            );
-            next = nextRows?.[0] || null;
-          }
-
-          try {
-            await conn.execute(
-              `UPDATE clients
-               SET provider_id = ?, service_day = ?, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
-               WHERE id = ?`,
-              [next?.provider_user_id || null, next?.service_day || null, req.user.id, a.client_id]
-            );
-          } catch {
-            // best-effort
-          }
-        }
-      } catch (e) {
-        if (!ignoreIfMissing(e)) throw e;
-
-        // Legacy fallback: clients table only (no multi-provider assignments table).
-        try {
-          const [rows] = await conn.execute(
-            `SELECT id, service_day
-             FROM clients
-             WHERE organization_id = ? AND provider_id = ?`,
-            [aid, uid]
-          );
-          for (const r of rows || []) {
-            if (r?.service_day) {
-              await adjustProviderSlots(conn, {
-                providerUserId: uid,
-                schoolId: aid,
-                dayOfWeek: r.service_day,
-                delta: +1
-              });
-            }
-          }
-          await conn.execute(
-            `UPDATE clients
-             SET provider_id = NULL, service_day = NULL, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
-             WHERE organization_id = ? AND provider_id = ?`,
-            [req.user.id, aid, uid]
-          );
-        } catch (e2) {
-          if (!ignoreIfMissing(e2)) throw e2;
-        }
-      }
-
-      // Best-effort: deactivate work-hour assignments (legacy) so they don't continue to drive portal behavior.
-      try {
-        await conn.execute(
-          `UPDATE provider_school_assignments
-           SET is_active = FALSE
-           WHERE provider_user_id = ? AND school_organization_id = ?`,
-          [uid, aid]
-        );
-      } catch (e) {
-        if (!ignoreIfMissing(e)) throw e;
-      }
-
-      // Best-effort: deactivate School Portal day-provider roster rows.
-      try {
-        await conn.execute(
-          `UPDATE school_day_provider_assignments
-           SET is_active = FALSE
-           WHERE provider_user_id = ? AND school_organization_id = ?`,
-          [uid, aid]
-        );
-      } catch (e) {
-        if (!ignoreIfMissing(e)) throw e;
-      }
-
-      // Best-effort: remove soft schedule rows for this provider at this school.
-      try {
-        await conn.execute(
-          `DELETE FROM soft_schedule_slots
-           WHERE provider_user_id = ? AND school_organization_id = ?`,
-          [uid, aid]
-        );
-      } catch (e) {
-        if (!ignoreIfMissing(e)) throw e;
-      }
-
-      // Best-effort: remove school-entered logistics schedule entries for this provider at this school.
-      try {
-        await conn.execute(
-          `DELETE FROM school_provider_schedule_entries
-           WHERE provider_user_id = ? AND school_organization_id = ?`,
-          [uid, aid]
-        );
-      } catch (e) {
-        if (!ignoreIfMissing(e)) throw e;
-      }
-    }
+    await detachUserFromOrganization(conn, {
+      userId: uid,
+      agencyId: aid,
+      actorUserId: req.user.id
+    });
 
     try {
       if (aid) {
@@ -6678,6 +6631,7 @@ const VALID_EMPLOYEE_STATUSES = [
   'ONBOARDING',
   'ACTIVE_EMPLOYEE',
   'TERMINATED_PENDING',
+  'INACTIVE_EMPLOYEE',
   'ARCHIVED'
 ];
 
@@ -6705,6 +6659,21 @@ export const updateUserStatus = async (req, res, next) => {
       });
     }
 
+    if (statusUpper === 'INACTIVE_EMPLOYEE') {
+      return res.status(400).json({
+        error: {
+          message:
+            'Use “Mark inactive” on the user profile (or POST /users/:id/set-inactive) so affiliations and school links are removed automatically.'
+        }
+      });
+    }
+
+    if (statusUpper === 'ARCHIVED' && req.user.role !== 'super_admin') {
+      return res.status(403).json({
+        error: { message: 'Only super administrators may set status to Archived. Use Mark inactive for standard offboarding.' }
+      });
+    }
+
     const user = await User.findById(id);
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
@@ -6726,6 +6695,11 @@ export const updateUserStatus = async (req, res, next) => {
             message: `${roleNorm.replace('_', ' ')} can only be set to: ${allowedStatuses.join(', ')}`,
             validStatuses: allowedStatuses
           }
+        });
+      }
+      if (statusUpper === 'ARCHIVED' && req.user.role !== 'super_admin') {
+        return res.status(403).json({
+          error: { message: 'Only super administrators may set school staff or guardians to Archived.' }
         });
       }
     }
@@ -7001,7 +6975,36 @@ export const markUserActive = async (req, res, next) => {
     if (!currentUser) {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
-    
+
+    const statusNorm = String(currentUser.status || '').trim().toUpperCase();
+    if (statusNorm === 'INACTIVE_EMPLOYEE') {
+      const idNum = parseInt(id, 10);
+      await User.updateStatus(idNum, 'ACTIVE_EMPLOYEE', req.user.id);
+      const poolLocal = (await import('../config/database.js')).default;
+      await poolLocal.execute('UPDATE users SET is_active = TRUE WHERE id = ?', [idNum]);
+
+      const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
+      const [employeeEntries] = await poolLocal.execute(
+        'SELECT id, password_hash FROM approved_employee_emails WHERE email = ?',
+        [currentUser.email]
+      );
+      let refreshed = await User.findById(idNum);
+      if (refreshed && !refreshed.password_hash && employeeEntries.length > 0) {
+        const employeePasswordHash = employeeEntries[0].password_hash;
+        if (employeePasswordHash) {
+          await poolLocal.execute('UPDATE users SET password_hash = ? WHERE id = ?', [employeePasswordHash, idNum]);
+        }
+      }
+      for (const entry of employeeEntries) {
+        await ApprovedEmployee.delete(entry.id);
+      }
+
+      return res.json({
+        message: 'User reactivated from inactive. Re-assign them to agencies and schools as needed.',
+        user: await User.findById(idNum)
+      });
+    }
+
     // If user is pending or ready_for_review, we need to set up credentials
     if (currentUser.status === 'pending' || currentUser.status === 'ready_for_review') {
       // For pending users, check if all items are complete

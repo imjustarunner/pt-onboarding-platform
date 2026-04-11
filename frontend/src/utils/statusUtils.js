@@ -11,6 +11,7 @@ export const VALID_EMPLOYEE_STATUSES = [
   'ONBOARDING',
   'ACTIVE_EMPLOYEE',
   'TERMINATED_PENDING',
+  'INACTIVE_EMPLOYEE',
   'ARCHIVED'
 ];
 
@@ -31,6 +32,7 @@ export function getStatusLabel(status) {
     'ONBOARDING': 'Onboarding',
     'ACTIVE_EMPLOYEE': 'Active',
     'TERMINATED_PENDING': 'Terminated (Grace Period)',
+    'INACTIVE_EMPLOYEE': 'Inactive (offboarded)',
     'ARCHIVED': 'Archived',
     // Legacy statuses for backward compatibility during transition
     'pending': 'Pre-Hire',
@@ -66,6 +68,8 @@ export function getStatusBadgeClass(status, isActive) {
       return 'badge-success';
     case 'TERMINATED_PENDING':
       return 'badge-warning';
+    case 'INACTIVE_EMPLOYEE':
+      return 'badge-secondary';
     case 'ARCHIVED':
       return 'badge-danger';
     // Legacy statuses
@@ -100,5 +104,10 @@ export function canAccessOnDemand(status) {
  * @returns {boolean} Whether user can access dashboard
  */
 export function canAccessDashboard(status) {
-  return status !== 'ARCHIVED' && status !== 'PENDING_SETUP' && status !== 'PROSPECTIVE';
+  return (
+    status !== 'ARCHIVED' &&
+    status !== 'INACTIVE_EMPLOYEE' &&
+    status !== 'PENDING_SETUP' &&
+    status !== 'PROSPECTIVE'
+  );
 }

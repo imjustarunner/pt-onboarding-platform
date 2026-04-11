@@ -168,6 +168,8 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
            ON psp.school_organization_id = psa.school_organization_id
           AND psp.provider_user_id = psa.provider_user_id
          WHERE psa.school_organization_id = ? AND psa.is_active = TRUE
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'PROSPECTIVE')
          ORDER BY u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,
         [parseInt(schoolId, 10)]
       );
@@ -200,6 +202,8 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
              ON psp.school_organization_id = psa.school_organization_id
             AND psp.provider_user_id = psa.provider_user_id
            WHERE psa.school_organization_id = ? AND psa.is_active = TRUE
+             AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+             AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'PROSPECTIVE')
            ORDER BY u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,
           [parseInt(schoolId, 10)]
         );
@@ -230,6 +234,8 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
              ON ua.user_id = psa.provider_user_id
             AND ua.agency_id = psa.school_organization_id
            WHERE psa.school_organization_id = ? AND psa.is_active = TRUE
+             AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+             AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'PROSPECTIVE')
            ORDER BY u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,
           [parseInt(schoolId, 10)]
         );
