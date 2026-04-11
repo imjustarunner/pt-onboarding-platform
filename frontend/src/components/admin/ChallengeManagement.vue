@@ -797,6 +797,14 @@
               </div>
               <div class="captain-mgmt-actions">
                 <button
+                  v-if="managingChallenge?.captains_finalized"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="finalizingCaptains"
+                  @click="unfinalizeCaptainsAction"
+                >
+                  {{ finalizingCaptains ? '…' : 'Unfinalize' }}
+                </button>
+                <button
                   v-if="!managingChallenge?.captains_finalized && !managingChallenge?.captain_application_open"
                   class="btn btn-primary btn-sm"
                   :disabled="togglingCaptainApps"
@@ -2707,6 +2715,25 @@ const finalizeCaptainsAction = async () => {
     }
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to finalize captains');
+  } finally {
+    finalizingCaptains.value = false;
+  }
+};
+
+const unfinalizeCaptainsAction = async () => {
+  if (!managingChallenge.value?.id) return;
+  finalizingCaptains.value = true;
+  try {
+    await api.put(
+      `/learning-program-classes/${managingChallenge.value.id}`,
+      { captainsFinalized: false },
+      { skipGlobalLoading: true }
+    );
+    if (managingChallenge.value) {
+      managingChallenge.value.captains_finalized = false;
+    }
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to unfinalize captains');
   } finally {
     finalizingCaptains.value = false;
   }
