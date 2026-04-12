@@ -839,13 +839,22 @@
             <div v-else-if="captainAppsError" class="error-inline">{{ captainAppsError }}</div>
             <div v-else-if="!captainApps.length" class="empty-hint" style="padding: 8px 0;">No applications yet.</div>
             <ul v-else class="cap-app-list">
-              <li v-for="app in captainApps" :key="app.id" class="cap-app-item">
+              <li
+                v-for="app in captainApps"
+                :key="app.id"
+                class="cap-app-item"
+                :class="`cap-app-item--${app.status}`"
+              >
                 <div class="cap-app-info">
-                  <strong>{{ app.first_name }} {{ app.last_name }}</strong>
-                  <span v-if="app.application_text" class="cap-app-text">{{ app.application_text }}</span>
+                  <div class="cap-app-name-row">
+                    <strong class="cap-app-name">{{ app.first_name }} {{ app.last_name }}</strong>
+                    <span class="cap-app-role-label" :class="`cap-app-role-label--${app.status}`">
+                      {{ app.status === 'approved' ? 'Approved Captain Applicant' : app.status === 'rejected' ? 'Rejected Captain Applicant' : 'Captain Applicant' }}
+                    </span>
+                  </div>
+                  <span v-if="app.application_text" class="cap-app-text">"{{ app.application_text }}"</span>
                 </div>
                 <div class="cap-app-actions">
-                  <span class="cap-status" :class="`cap-status--${app.status}`">{{ app.status }}</span>
                   <button
                     v-if="app.status !== 'approved' && !managingChallenge?.captains_finalized"
                     class="btn btn-primary btn-sm"
@@ -3684,13 +3693,24 @@ onMounted(async () => {
 .cap-badge--finalized { background: #ede9fe; color: #7c3aed; }
 .cap-app-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .cap-app-item {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; padding: 10px 12px; border-radius: 8px;
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px; padding: 12px 14px; border-radius: 10px;
   background: #f8fafc; border: 1px solid #e2e8f0; flex-wrap: wrap;
 }
-.cap-app-info { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-.cap-app-text { font-size: 12px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cap-app-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.cap-app-item--approved { background: #f0fdf4; border-color: #bbf7d0; }
+.cap-app-item--rejected { background: #fff5f5; border-color: #fecaca; }
+.cap-app-info { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.cap-app-name-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cap-app-name { font-size: 14px; font-weight: 700; color: #0f172a; }
+.cap-app-role-label {
+  font-size: 11px; font-weight: 600; padding: 2px 9px;
+  border-radius: 999px; white-space: nowrap;
+}
+.cap-app-role-label--pending  { background: #fef9c3; color: #a16207; }
+.cap-app-role-label--approved { background: #dcfce7; color: #16a34a; }
+.cap-app-role-label--rejected { background: #fee2e2; color: #dc2626; }
+.cap-app-text { font-size: 12px; color: #64748b; font-style: italic; }
+.cap-app-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-top: 2px; }
 .cap-status {
   font-size: 11px; font-weight: 600; padding: 2px 8px;
   border-radius: 999px;
