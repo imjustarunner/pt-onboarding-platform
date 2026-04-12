@@ -509,7 +509,7 @@ async function loadAffiliatedOrganizationsWithBranding(agencyId) {
   }
 
   let selectSql =
-    'child.id, child.name, child.organization_type, child.slug, child.logo_url';
+    'child.id, child.name, child.official_name, child.organization_type, child.slug, child.logo_url';
   if (hasLogoPath) selectSql += ', child.logo_path';
   if (hasIconId) {
     selectSql += ', master_i.file_path AS icon_file_path, master_i.id AS icon_id';
@@ -545,9 +545,11 @@ async function loadAffiliatedOrganizationsWithBranding(agencyId) {
   );
 
   return (rows || []).map((r) => {
+    const rawName = String(r.name || '').trim();
+    const officialName = r.official_name != null ? String(r.official_name).trim() : '';
     const base = {
       id: Number(r.id),
-      name: String(r.name || '').trim() || `Organization ${r.id}`,
+      name: officialName || rawName || `Organization ${r.id}`,
       organizationType: String(r.organization_type || 'school').toLowerCase(),
       slug: r.slug != null && String(r.slug).trim() ? String(r.slug).trim().toLowerCase() : null,
       logo_url: r.logo_url != null ? String(r.logo_url) : null
