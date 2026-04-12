@@ -3426,19 +3426,26 @@ const dashboardCards = computed(() => {
 
     // Sub Coordinator access (backed by users.has_skill_builder_coordinator_access)
     // grants elevated affiliated-org tools.
+    // Skill Builders admin card: super_admin, admin, and coordinator-flag users
+    // who aren't already seeing the provider-hub card via skill_builder_eligible.
+    if (
+      !isSkillBuilderEligible.value &&
+      (role === 'super_admin' || role === 'admin' || isSkillBuilderCoordinator.value)
+    ) {
+      const sbIconOrg = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
+      cards.push({
+        id: 'skill_builders_availability',
+        label: 'Skill Builders',
+        kind: 'link',
+        to: '/admin/skill-builders-availability',
+        badgeCount: 0,
+        iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', sbIconOrg),
+        description: 'Manage Skill Builder provider availability and settings.'
+      });
+    }
+
     if (hasSkillBuilderCoordinatorToolsAccess.value) {
       const orgOverride = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
-      if ((role === 'super_admin' || role === 'admin') && !isSkillBuilderEligible.value) {
-        cards.push({
-          id: 'skill_builders_availability',
-          label: 'Skill Builders',
-          kind: 'link',
-          to: '/admin/skill-builders-availability',
-          badgeCount: 0,
-          iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', orgOverride),
-          description: 'Manage Skill Builder provider availability and settings.'
-        });
-      }
       cards.push({
         id: 'sub_coordinator_school_overview',
         label: 'School Overview',
