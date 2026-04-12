@@ -1204,7 +1204,7 @@
             <select v-model="teamForm.teamManagerUserId">
               <option value="">None</option>
               <option
-                v-for="m in providerMembers"
+                v-for="m in availableCaptains"
                 :key="m.provider_user_id"
                 :value="m.provider_user_id"
               >{{ memberDisplayName(m) }}</option>
@@ -2068,6 +2068,16 @@ const availableUsers = computed(() => {
   return (orgUsers.value || []).filter((u) => !memberIds.has(Number(u.id)));
 });
 
+const availableCaptains = computed(() => {
+  const editingTeamId = editingTeam.value?.id;
+  const takenIds = new Set(
+    (teams.value || [])
+      .filter((t) => t.team_manager_user_id && Number(t.id) !== Number(editingTeamId))
+      .map((t) => Number(t.team_manager_user_id))
+  );
+  return (providerMembers.value || []).filter((m) => !takenIds.has(Number(m.provider_user_id)));
+});
+
 const loadChallenges = async () => {
   if (!organizationId.value) return;
   loading.value = true;
@@ -2497,7 +2507,7 @@ const resolveUploadUrl = (path, { classId, type } = {}) => {
   if (path.startsWith('http')) return path;
   // If classId + type are provided, use the dedicated serve endpoint (no GCS path issues)
   if (classId && type) {
-    const apiBase = String(import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+    const apiBase = String(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/$/, '');
     return `${apiBase}/learning-program-classes/${classId}/${type}`;
   }
   return `/uploads/${path.replace(/^\/+/, '')}`;
@@ -3533,6 +3543,7 @@ onMounted(async () => {
 }
 .challenge-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .challenge-description {
@@ -3714,13 +3725,13 @@ onMounted(async () => {
 .cap-badge--finalized { background: #ede9fe; color: #7c3aed; }
 .cap-app-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .cap-app-item {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 10px; padding: 12px 14px; border-radius: 10px;
-  background: #f8fafc; border: 1px solid #e2e8f0; flex-wrap: wrap;
+  display: flex; flex-direction: column;
+  gap: 8px; padding: 12px 14px; border-radius: 10px;
+  background: #f8fafc; border: 1px solid #e2e8f0;
 }
 .cap-app-item--approved { background: #f0fdf4; border-color: #bbf7d0; }
 .cap-app-item--rejected { background: #fff5f5; border-color: #fecaca; }
-.cap-app-info { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.cap-app-info { display: flex; flex-direction: column; gap: 4px; }
 .cap-app-name-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cap-app-name { font-size: 14px; font-weight: 700; color: #0f172a; }
 .cap-app-role-label {
@@ -3731,7 +3742,7 @@ onMounted(async () => {
 .cap-app-role-label--approved { background: #dcfce7; color: #16a34a; }
 .cap-app-role-label--rejected { background: #fee2e2; color: #dc2626; }
 .cap-app-text { font-size: 12px; color: #64748b; font-style: italic; }
-.cap-app-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-top: 2px; }
+.cap-app-actions { display: flex; align-items: center; gap: 8px; }
 .cap-status {
   font-size: 11px; font-weight: 600; padding: 2px 8px;
   border-radius: 999px;

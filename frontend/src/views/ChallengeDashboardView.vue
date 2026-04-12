@@ -1452,7 +1452,7 @@ const resolveSeasonAssetUrl = (path, type = 'banner') => {
   // Use the dedicated serve endpoint (reads from GCS via DB path — no URL-encoding issues)
   const id = challenge.value?.id;
   if (id) {
-    const apiBase = String(import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+    const apiBase = String(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/$/, '');
     return `${apiBase}/learning-program-classes/${id}/${type}`;
   }
   return `/uploads/${path.replace(/^\/+/, '')}`;

@@ -626,6 +626,18 @@
           <p class="snapshot-security-hint">
             You can change your password at any time.
           </p>
+
+          <!-- Biometric login toggle (native app only) -->
+          <div v-if="biometricSupported" class="biometric-toggle-row">
+            <div class="biometric-toggle-info">
+              <strong>{{ biometricLabel }}</strong>
+              <span class="biometric-toggle-hint">Sign in with {{ biometricLabel }} instead of typing your password.</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" :checked="biometricEnabled" @change="toggleBiometric" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
         </div>
       </article>
     </section>
@@ -755,6 +767,13 @@ import {
 import { TIMEZONE_GROUPS, ALL_TIMEZONES } from '../utils/timezones.js';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { setDarkMode } from '../utils/darkMode.js';
+import {
+  isNativePlatform,
+  checkBiometricAvailability,
+  hasSavedToken,
+  saveBiometricToken,
+  clearBiometricToken
+} from '../utils/biometricAuth.js';
 import api from '../services/api';
 import { useAffiliationClubAnnouncements } from '../composables/useAffiliationClubAnnouncements.js';
 
@@ -772,6 +791,39 @@ const dashboardError = ref('');
 const summary = ref(null);
 const applications = ref([]);
 const clubContext = ref(null);
+
+// Biometric login state
+const biometricSupported = ref(false);
+const biometricEnabled = ref(false);
+const biometricLabel = ref('Face ID');
+
+const initBiometric = async () => {
+  if (!isNativePlatform()) return;
+  const info = await checkBiometricAvailability();
+  biometricSupported.value = info.available;
+  if (info.available) {
+    const type = String(info.biometryType || '').toLowerCase();
+    if (type.includes('face')) biometricLabel.value = 'Face ID';
+    else if (type.includes('touch') || type.includes('fingerprint')) biometricLabel.value = 'Touch ID';
+    else biometricLabel.value = 'Biometric Login';
+    biometricEnabled.value = await hasSavedToken();
+  }
+};
+
+const toggleBiometric = async (e) => {
+  const enabled = e.target.checked;
+  if (enabled) {
+    const token = authStore.token;
+    const user = authStore.user;
+    if (token) {
+      await saveBiometricToken(token, user);
+      biometricEnabled.value = true;
+    }
+  } else {
+    await clearBiometricToken();
+    biometricEnabled.value = false;
+  }
+};
 const accountSnapshotCardRef = ref(null);
 const accountEditing = ref(false);
 const accountSaving = ref(false);
@@ -1178,7 +1230,7 @@ const formatDate = (value) => {
 };
 const resolveSeasonImgUrl = (classId, type = 'banner') => {
   if (!classId) return '';
-  const apiBase = String(import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+  const apiBase = String(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/$/, '');
   return `${apiBase}/learning-program-classes/${classId}/${type}`;
 };
 
@@ -1290,6 +1342,7 @@ onMounted(async () => {
   await loadDashboard();
   await fetchStravaStatus();
   await scrollToAccountSnapshot();
+  initBiometric();
 });
 
 onBeforeUnmount(() => {
@@ -1899,6 +1952,56 @@ watch(
   font-size: 13px;
   color: #6b7280;
 }
+
+/* Biometric toggle */
+.biometric-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #f1f5f9;
+}
+.biometric-toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.biometric-toggle-hint {
+  font-size: 12px;
+  color: #6b7280;
+}
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+  flex-shrink: 0;
+}
+.toggle-switch input { display: none; }
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: #cbd5e1;
+  border-radius: 999px;
+  transition: background 0.2s;
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  left: 3px;
+  bottom: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+.toggle-switch input:checked + .toggle-slider { background: #16a34a; }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(22px); }
 
 .pill {
   display: inline-flex;
