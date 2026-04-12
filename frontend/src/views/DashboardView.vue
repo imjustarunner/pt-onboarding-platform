@@ -3241,7 +3241,7 @@ const dashboardCards = computed(() => {
             description: 'Program shift schedule, sign up, and call-off.'
           });
         }
-        if (isSkillBuilderEligible.value && !isSkillBuilderCoordinator.value) {
+        if (isSkillBuilderEligible.value) {
           cards.push({
             id: 'skill_builders_provider_hub',
             label: 'Skill Builders',
