@@ -3251,6 +3251,8 @@ export const getMyDashboardSummary = async (req, res, next) => {
          c.starts_at,
          c.ends_at,
          c.organization_id AS club_id,
+         c.banner_image_path,
+         c.logo_image_path,
          a.name AS club_name,
          a.slug AS club_slug,
          m.membership_status,
@@ -3273,7 +3275,8 @@ export const getMyDashboardSummary = async (req, res, next) => {
          AND m.membership_status IN ('active', 'completed')
          AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'
        GROUP BY
-         c.id, c.class_name, c.status, c.starts_at, c.ends_at, c.organization_id, a.name, a.slug, m.membership_status
+         c.id, c.class_name, c.status, c.starts_at, c.ends_at, c.organization_id,
+         c.banner_image_path, c.logo_image_path, a.name, a.slug, m.membership_status
        ORDER BY COALESCE(c.starts_at, c.created_at) DESC, c.id DESC`,
       [userId]
     );
@@ -3301,6 +3304,8 @@ export const getMyDashboardSummary = async (req, res, next) => {
            c.starts_at,
            c.ends_at,
            c.organization_id AS club_id,
+           c.banner_image_path,
+           c.logo_image_path,
            a.name AS club_name,
            a.slug AS club_slug,
            NULL AS membership_status,
@@ -3349,6 +3354,8 @@ export const getMyDashboardSummary = async (req, res, next) => {
         workoutCount: Number(row.workout_count || 0),
         totalMiles: normalizeNum(row.total_miles, 1),
         totalPoints: Number(row.total_points || 0),
+        bannerImagePath: row.banner_image_path || null,
+        logoImagePath: row.logo_image_path || null,
         bucket
       };
     });

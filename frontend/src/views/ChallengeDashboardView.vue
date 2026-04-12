@@ -517,7 +517,10 @@
             <template v-if="myOwnCaptainApp">
               <div class="captain-app-card captain-app-card--mine">
                 <div class="captain-app-header">
-                  <span>Your application</span>
+                  <div class="captain-app-who">
+                    <strong>{{ authStore.user?.first_name }} {{ authStore.user?.last_name }}</strong>
+                    <span class="captain-app-subtitle">Applied for Captain</span>
+                  </div>
                   <span class="captain-app-status" :class="`status-${String(myOwnCaptainApp.status || '').toLowerCase()}`">
                     {{ myOwnCaptainApp.status }}
                   </span>
@@ -2930,6 +2933,16 @@ watch(() => workoutForm.value.terrain, (terrain) => {
 .captain-app-card--mine {
   border-color: #c8102e;
   background: #fff8f8;
+}
+.captain-app-who {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.captain-app-subtitle {
+  font-size: 0.78rem;
+  color: #c8102e;
+  font-weight: 500;
 }
 .captain-apply-form {
   display: flex;

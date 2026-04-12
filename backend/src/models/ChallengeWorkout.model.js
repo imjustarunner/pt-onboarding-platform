@@ -306,6 +306,124 @@ class ChallengeWorkout {
     return Object.values(byTeam);
   }
 
+  /**
+   * Per-team breakdown by activity category (run / ruck / other) for the scoreboard.
+   * Includes ALL non-disqualified workouts regardless of proof_status so managers
+   * see live data even before reviews are complete.
+   */
+  static async getWeeklyTeamBreakdown(learningClassId, weekStart, { weekCutoffTime = '00:00', weekTimeZone = null } = {}) {
+    const classId = toInt(learningClassId);
+    if (!classId) return [];
+    const range = this._weeklyRange(weekStart, weekCutoffTime, weekTimeZone);
+    if (!range) return [];
+
+    const [rows] = await pool.execute(
+      `SELECT
+         w.user_id,
+         u.first_name, u.last_name, u.profile_photo_path,
+         w.team_id, t.team_name,
+         CASE
+           WHEN LOWER(COALESCE(w.activity_type,'')) LIKE '%ruck%' THEN 'ruck'
+           WHEN LOWER(COALESCE(w.activity_type,'')) LIKE '%run%'  THEN 'run'
+           ELSE 'other'
+         END AS activity_cat,
+         COALESCE(w.distance_value, 0)    AS miles,
+         COALESCE(w.duration_minutes, 0)  AS minutes,
+         COALESCE(w.calories_burned, 0)   AS calories,
+         COALESCE(w.average_heartrate, 0) AS avg_hr
+       FROM challenge_workouts w
+       INNER JOIN users u ON u.id = w.user_id
+       INNER JOIN challenge_teams t ON t.id = w.team_id
+       WHERE w.learning_class_id = ?
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         AND w.completed_at >= ? AND w.completed_at < ?`,
+      [classId, range.start, range.end]
+    );
+
+    // Aggregate per team → per category → per user
+    const teams = {};
+    for (const r of rows || []) {
+      const tid = r.team_id;
+      if (!teams[tid]) teams[tid] = { team_id: tid, team_name: r.team_name, run: {}, ruck: {}, other: {} };
+      const cat = r.activity_cat;
+      const uid = r.user_id;
+      const bucket = teams[tid][cat];
+      if (!bucket[uid]) {
+        bucket[uid] = {
+          user_id: uid,
+          first_name: r.first_name,
+          last_name: r.last_name,
+          profile_photo_path: r.profile_photo_path || null,
+          miles: 0, minutes: 0, calories: 0, hr_sum: 0, hr_count: 0
+        };
+      }
+      const u = bucket[uid];
+      u.miles    += Number(r.miles    || 0);
+      u.minutes  += Number(r.minutes  || 0);
+      u.calories += Number(r.calories || 0);
+      if (Number(r.avg_hr) > 0) { u.hr_sum += Number(r.avg_hr); u.hr_count += 1; }
+    }
+
+    const formatPace = (minutes, miles) => {
+      if (!miles || !minutes) return null;
+      const paceMin = minutes / miles;
+      const m = Math.floor(paceMin);
+      const s = Math.round((paceMin - m) * 60);
+      return `${m}:${String(s).padStart(2, '0')}`;
+    };
+
+    return Object.values(teams).map((team) => {
+      const buildCatStats = (catObj, metric) => {
+        const athletes = Object.values(catObj);
+        if (!athletes.length) return null;
+        if (metric === 'miles') {
+          athletes.sort((a, b) => b.miles - a.miles);
+          const leader = athletes[0];
+          const teamMiles = athletes.reduce((s, a) => s + a.miles, 0);
+          const teamMins  = athletes.reduce((s, a) => s + a.minutes, 0);
+          return {
+            team_total_miles: Math.round(teamMiles * 100) / 100,
+            team_avg_pace: formatPace(teamMins, teamMiles),
+            leader: {
+              user_id: leader.user_id,
+              first_name: leader.first_name,
+              last_name: leader.last_name,
+              profile_photo_path: leader.profile_photo_path,
+              miles: Math.round(leader.miles * 100) / 100,
+              avg_pace: formatPace(leader.minutes, leader.miles)
+            }
+          };
+        }
+        // metric === 'calories'
+        athletes.sort((a, b) => b.calories - a.calories);
+        const leader = athletes[0];
+        const hrCounts = athletes.filter((a) => a.hr_count > 0);
+        const avgHr = hrCounts.length
+          ? Math.round(hrCounts.reduce((s, a) => s + a.hr_sum / a.hr_count, 0) / hrCounts.length)
+          : null;
+        return {
+          team_avg_hr: avgHr,
+          leader: {
+            user_id: leader.user_id,
+            first_name: leader.first_name,
+            last_name: leader.last_name,
+            profile_photo_path: leader.profile_photo_path,
+            calories: Math.round(leader.calories),
+            avg_hr: leader.hr_count > 0 ? Math.round(leader.hr_sum / leader.hr_count) : null
+          }
+        };
+      };
+
+      return {
+        team_id: team.team_id,
+        team_name: team.team_name,
+        runs:  buildCatStats(team.run,  'miles'),
+        rucks: buildCatStats(team.ruck, 'miles'),
+        other: buildCatStats(team.other, 'calories')
+      };
+    });
+  }
+
   static async getWeeklyPointsForUser(learningClassId, userId, weekStartDate, { weekCutoffTime = '00:00', weekTimeZone = null } = {}) {
     const classId = toInt(learningClassId);
     const uId = toInt(userId);

@@ -218,10 +218,13 @@ export const getScoreboard = async (req, res, next) => {
       }
       return res.json({ weekStartDate: weekStart, weekPhase, postedAt: snap.posted_at, ...data });
     }
+    const teamRankings = (await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: 10, weekCutoffTime, weekTimeZone }))
+      .map((r) => ({ team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
+    const teamBreakdown = await ChallengeWorkout.getWeeklyTeamBreakdown(classId, weekStart, { weekCutoffTime, weekTimeZone });
+    // Keep legacy fields populated for any clients that still reference them.
     const top5Athletes = (await ChallengeWorkout.getWeeklyLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime, weekTimeZone }))
       .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, profile_photo_path: r.profile_photo_path || null, team_name: r.team_name, total_points: Number(r.total_points) }));
-    const top5Teams = (await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: 5, weekCutoffTime, weekTimeZone }))
-      .map((r) => ({ team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
+    const top5Teams = teamRankings.slice(0, 5);
     const topPerTeam = (await ChallengeWorkout.getWeeklyTopPerTeam(classId, weekStart, { weekCutoffTime, weekTimeZone }))
       .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, profile_photo_path: r.profile_photo_path || null, team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points) }));
     const [klassRows] = await pool.execute(`SELECT masters_age_threshold, recognition_categories_json, starts_at, ends_at, week_cutoff_time, week_time_zone FROM learning_program_classes WHERE id = ?`, [classId]);
@@ -237,6 +240,8 @@ export const getScoreboard = async (req, res, next) => {
       weekStartDate: weekStart,
       weekPhase,
       postedAt: null,
+      teamRankings,
+      teamBreakdown,
       top5Athletes,
       top5Teams,
       topPerTeam,

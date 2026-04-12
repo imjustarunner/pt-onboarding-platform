@@ -63,41 +63,93 @@
         </div>
       </div>
       <div v-if="currentSeasons.length" class="season-list">
-        <div v-for="season in currentSeasons" :key="season.classId" class="season-card">
-          <div class="season-card-top">
-            <div>
-              <strong>{{ season.className }}</strong>
-              <div class="muted">{{ season.clubName }}</div>
+        <div
+          v-for="season in currentSeasons"
+          :key="season.classId"
+          class="season-card season-card--rich"
+          :class="{ 'season-card--has-banner': !!season.bannerImagePath }"
+        >
+          <!-- Banner hero -->
+          <div
+            v-if="season.bannerImagePath"
+            class="season-card-banner"
+            :style="{ backgroundImage: `url(${resolveSeasonImgUrl(season.classId, 'banner')})` }"
+          >
+            <img
+              v-if="season.logoImagePath"
+              :src="resolveSeasonImgUrl(season.classId, 'logo')"
+              class="season-card-logo"
+              alt=""
+            />
+            <div class="season-card-banner-overlay">
+              <div class="season-card-banner-title">{{ season.className }}</div>
+              <div class="season-card-banner-club">{{ season.clubName }}</div>
+            </div>
+            <span class="pill season-card-pill" :class="pillClass(season.bucket)">
+              {{ season.bucket === 'upcoming' ? 'Upcoming' : 'Current' }}
+            </span>
+          </div>
+
+          <!-- Header (no banner fallback) -->
+          <div v-else class="season-card-top">
+            <div class="season-card-title-group">
+              <img
+                v-if="season.logoImagePath"
+                :src="resolveSeasonImgUrl(season.classId, 'logo')"
+                class="season-card-logo-inline"
+                alt=""
+              />
+              <div>
+                <strong>{{ season.className }}</strong>
+                <div class="muted">{{ season.clubName }}</div>
+              </div>
             </div>
             <span class="pill" :class="pillClass(season.bucket)">{{ season.bucket === 'upcoming' ? 'Upcoming' : 'Current' }}</span>
           </div>
-          <div class="season-meta">
-            <span v-if="season.teamName">Team: {{ season.teamName }}</span>
-            <span>{{ formatSeasonDates(season) }}</span>
-          </div>
-          <div class="season-totals">
-            {{ formatWhole(season.totalPoints) }} pts • {{ formatDecimal(season.totalMiles) }} mi • {{ formatWhole(season.workoutCount) }} workouts
-          </div>
-          <div class="season-card-actions">
-            <button type="button" class="btn btn-primary btn-sm" @click="openSeason(season)">
-              Open Season
-            </button>
-            <button
-              v-if="season.bucket !== 'upcoming'"
-              type="button"
-              class="btn btn-upload btn-sm"
-              @click="router.push({ path: `/${navSlug}/season/${season.classId}`, query: { openUpload: '1' } })"
-            >⬆ Log Workout</button>
-            <template v-if="isManagedClub(season.clubId)">
-              <router-link
-                :to="`/${navSlug}/club/seasons?manageSeason=${season.classId}`"
-                class="btn btn-secondary btn-sm"
-              >Manage Season</router-link>
-              <router-link
-                :to="`/${navSlug}/club/seasons?editSeason=${season.classId}`"
-                class="btn btn-secondary btn-sm"
-              >Edit Season</router-link>
-            </template>
+
+          <!-- Body -->
+          <div class="season-card-body">
+            <div class="season-meta">
+              <span v-if="season.teamName" class="season-team-badge">{{ season.teamName }}</span>
+              <span class="season-dates">{{ formatSeasonDates(season) }}</span>
+            </div>
+            <div class="season-stats-row">
+              <div class="season-stat">
+                <span class="season-stat-val">{{ formatWhole(season.totalPoints) }}</span>
+                <span class="season-stat-label">pts</span>
+              </div>
+              <div class="season-stat-divider" aria-hidden="true"></div>
+              <div class="season-stat">
+                <span class="season-stat-val">{{ formatDecimal(season.totalMiles) }}</span>
+                <span class="season-stat-label">mi</span>
+              </div>
+              <div class="season-stat-divider" aria-hidden="true"></div>
+              <div class="season-stat">
+                <span class="season-stat-val">{{ formatWhole(season.workoutCount) }}</span>
+                <span class="season-stat-label">workouts</span>
+              </div>
+            </div>
+            <div class="season-card-actions">
+              <button type="button" class="btn btn-primary btn-sm" @click="openSeason(season)">
+                Open Season
+              </button>
+              <button
+                v-if="season.bucket !== 'upcoming'"
+                type="button"
+                class="btn btn-upload btn-sm"
+                @click="router.push({ path: `/${navSlug}/season/${season.classId}`, query: { openUpload: '1' } })"
+              >⬆ Log Workout</button>
+              <template v-if="isManagedClub(season.clubId)">
+                <router-link
+                  :to="`/${navSlug}/club/seasons?manageSeason=${season.classId}`"
+                  class="btn btn-secondary btn-sm"
+                >Manage</router-link>
+                <router-link
+                  :to="`/${navSlug}/club/seasons?editSeason=${season.classId}`"
+                  class="btn btn-secondary btn-sm"
+                >Edit</router-link>
+              </template>
+            </div>
           </div>
         </div>
       </div>
@@ -115,25 +167,47 @@
           <span>Open to join</span>
         </div>
         <div class="season-list">
-          <div v-for="season in availableSeasons" :key="`avail-${season.classId}`" class="season-card season-card--available">
-            <div class="season-card-top">
-              <div>
-                <strong>{{ season.className }}</strong>
-                <div class="muted">{{ season.clubName }}</div>
+          <div
+            v-for="season in availableSeasons"
+            :key="`avail-${season.classId}`"
+            class="season-card season-card--rich season-card--available"
+            :class="{ 'season-card--has-banner': !!season.bannerImagePath }"
+          >
+            <div v-if="season.bannerImagePath" class="season-card-banner season-card-banner--sm"
+              :style="{ backgroundImage: `url(${resolveSeasonImgUrl(season.classId, 'banner')})` }"
+            >
+              <img v-if="season.logoImagePath" :src="resolveSeasonImgUrl(season.classId, 'logo')" class="season-card-logo" alt="" />
+              <div class="season-card-banner-overlay">
+                <div class="season-card-banner-title">{{ season.className }}</div>
+                <div class="season-card-banner-club">{{ season.clubName }}</div>
+              </div>
+              <span class="pill season-card-pill pill--open">Active</span>
+            </div>
+            <div v-else class="season-card-top">
+              <div class="season-card-title-group">
+                <img v-if="season.logoImagePath" :src="resolveSeasonImgUrl(season.classId, 'logo')" class="season-card-logo-inline" alt="" />
+                <div>
+                  <strong>{{ season.className }}</strong>
+                  <div class="muted">{{ season.clubName }}</div>
+                </div>
               </div>
               <span class="pill pill--open">Active</span>
             </div>
-            <div class="season-meta">
-              <span>{{ formatSeasonDates(season) }}</span>
+            <div class="season-card-body">
+              <div class="season-meta">
+                <span class="season-dates">{{ formatSeasonDates(season) }}</span>
+              </div>
+              <div class="season-card-actions">
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  :disabled="joiningSeasonId === season.classId"
+                  @click="joinAndOpenSeason(season)"
+                >
+                  {{ joiningSeasonId === season.classId ? 'Joining…' : 'Join Season' }}
+                </button>
+              </div>
             </div>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              :disabled="joiningSeasonId === season.classId"
-              @click="joinAndOpenSeason(season)"
-            >
-              {{ joiningSeasonId === season.classId ? 'Joining…' : 'Join Season' }}
-            </button>
           </div>
         </div>
       </template>
@@ -1102,6 +1176,12 @@ const formatDate = (value) => {
   if (!value) return 'recently';
   return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 };
+const resolveSeasonImgUrl = (classId, type = 'banner') => {
+  if (!classId) return '';
+  const apiBase = String(import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+  return `${apiBase}/learning-program-classes/${classId}/${type}`;
+};
+
 const formatSeasonDates = (season) => {
   if (!season?.startsAt && !season?.endsAt) return 'Dates not set';
   const fmt = (value) => new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1589,6 +1669,7 @@ watch(
 
 .membership-card,
 .application-card,
+/* ── Season card base ─────────────────────────────────────────── */
 .season-card {
   border: 1px solid #e2e8f0;
   border-radius: 18px;
@@ -1596,16 +1677,162 @@ watch(
   background: #fbfdff;
 }
 
+.season-card--rich {
+  padding: 0;
+  overflow: hidden;
+  border-radius: 20px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+  transition: box-shadow 0.2s;
+}
+.season-card--rich:hover { box-shadow: 0 4px 22px rgba(0,0,0,0.12); }
+
 .season-card--available {
   border-color: #bfdbfe;
   background: #eff6ff;
 }
+
+/* Banner hero */
+.season-card-banner {
+  position: relative;
+  height: 130px;
+  background-size: cover;
+  background-position: center;
+  border-radius: 0;
+  display: flex;
+  align-items: flex-end;
+}
+.season-card-banner--sm { height: 90px; }
+.season-card-banner-overlay {
+  padding: 10px 14px 10px 14px;
+  flex: 1;
+  min-width: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.60) 0%, transparent 100%);
+  border-radius: 0;
+}
+.season-card-banner-title {
+  font-weight: 800;
+  font-size: 1.05em;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.season-card-banner-club {
+  font-size: 0.8em;
+  color: rgba(255,255,255,0.8);
+  margin-top: 1px;
+}
+.season-card-pill {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+}
+.season-card-logo {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: rgba(255,255,255,0.9);
+  padding: 3px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.18);
+}
+
+/* No-banner header */
+.season-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 14px 16px 0;
+}
+.season-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.season-card-logo-inline {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: #f1f5f9;
+  padding: 3px;
+  flex-shrink: 0;
+}
+
+/* Card body */
+.season-card-body {
+  padding: 12px 16px 14px;
+}
+
 .season-card-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
 }
+
+/* Stats row */
+.season-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-top: 10px;
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 10px 14px;
+  gap: 4px;
+}
+.season-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+.season-stat-val {
+  font-weight: 800;
+  font-size: 1.1em;
+  color: #0f172a;
+  line-height: 1.1;
+}
+.season-stat-label {
+  font-size: 0.72em;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.season-stat-divider {
+  width: 1px;
+  height: 30px;
+  background: #e2e8f0;
+  margin: 0 4px;
+}
+
+/* Meta */
+.season-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 0.85em;
+}
+.season-team-badge {
+  background: #e0e7ff;
+  color: #3730a3;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-weight: 600;
+  font-size: 0.82em;
+  white-space: nowrap;
+}
+.season-dates { color: #94a3b8; }
 
 .available-seasons-divider {
   display: flex;
@@ -1631,8 +1858,7 @@ watch(
   color: #166534;
 }
 
-.membership-top,
-.season-card-top {
+.membership-top {
   display: flex;
   justify-content: space-between;
   gap: 16px;
@@ -1640,14 +1866,12 @@ watch(
 }
 
 .membership-body,
-.season-meta,
 .season-totals {
   margin-top: 10px;
   color: #526071;
 }
 
-.meta-line + .meta-line,
-.season-meta span + span {
+.meta-line + .meta-line {
   display: inline-block;
   margin-left: 10px;
 }

@@ -1194,7 +1194,11 @@
             <label>Team Lead (optional)</label>
             <select v-model="teamForm.teamManagerUserId">
               <option value="">None</option>
-              <option v-for="u in orgUsers" :key="u.id" :value="u.id">{{ userDisplayName(u) }}</option>
+              <option
+                v-for="m in providerMembers"
+                :key="m.provider_user_id"
+                :value="m.provider_user_id"
+              >{{ memberDisplayName(m) }}</option>
             </select>
             <small>Team Leads (provider_plus) can manage their team.</small>
           </div>

@@ -50,7 +50,11 @@ class ChallengeCaptainApplication {
     const uid = toInt(userId);
     if (!classId || !uid) return null;
     const [rows] = await pool.execute(
-      `SELECT * FROM challenge_captain_applications WHERE learning_class_id = ? AND user_id = ? LIMIT 1`,
+      `SELECT a.*, u.first_name, u.last_name, u.email
+       FROM challenge_captain_applications a
+       INNER JOIN users u ON u.id = a.user_id
+       WHERE a.learning_class_id = ? AND a.user_id = ?
+       LIMIT 1`,
       [classId, uid]
     );
     return rows?.[0] || null;
