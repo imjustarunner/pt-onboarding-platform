@@ -779,10 +779,10 @@
           <div v-if="teams.length === 0" class="empty-hint">No teams yet. Add a team or use preset names above.</div>
           <ul v-else class="team-list">
             <li v-for="t in teams" :key="t.id" class="team-item">
-              <span>{{ t.team_name }}</span>
-              <span v-if="teamLeadName(t)" class="team-lead">Lead: {{ teamLeadName(t) }}</span>
-              <button class="btn btn-secondary btn-sm" @click="openEditTeamModal(t)">Edit</button>
-              <button class="btn btn-secondary btn-sm" @click="removeTeam(t)">Remove</button>
+              <span class="team-item-name">{{ t.team_name }}</span>
+              <span v-if="teamLeadName(t)" class="team-lead">Captain: {{ teamLeadName(t) }}</span>
+              <button class="btn btn-secondary btn-sm" @click="openEditTeamModal(t)">Change Name / Choose Captain</button>
+              <button class="btn btn-danger btn-sm" @click="removeTeam(t)">Remove</button>
             </li>
           </ul>
 
@@ -3544,14 +3544,25 @@ onMounted(async () => {
 .member-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 0;
+  gap: 10px;
+  padding: 10px 0;
   border-bottom: 1px solid var(--border-color, #eee);
+  flex-wrap: wrap;
+}
+.team-item-name {
+  font-weight: 600;
+  flex: 1;
+  min-width: 80px;
 }
 .team-lead,
 .member-status {
-  font-size: 0.9em;
-  color: var(--text-muted, #666);
+  font-size: 0.85em;
+  color: #16a34a;
+  font-weight: 500;
+  background: #dcfce7;
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
 }
 .manage-tabs {
   display: flex;
