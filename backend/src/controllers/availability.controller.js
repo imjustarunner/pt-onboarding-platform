@@ -477,9 +477,9 @@ async function getAgencySkillBuilderSettings(agencyId) {
         ? Math.max(1, Number(row.required_hours_per_week))
         : 6
     };
-  } catch (e) {
-    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') return defaults;
-    throw e;
+  } catch {
+    // Return defaults on any error (table not migrated yet, permissions, etc.)
+    return defaults;
   }
 }
 

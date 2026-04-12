@@ -3428,7 +3428,7 @@ const dashboardCards = computed(() => {
     // grants elevated affiliated-org tools.
     if (hasSkillBuilderCoordinatorToolsAccess.value) {
       const orgOverride = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
-      if (role === 'super_admin' || role === 'admin') {
+      if ((role === 'super_admin' || role === 'admin') && !isSkillBuilderEligible.value) {
         cards.push({
           id: 'skill_builders_availability',
           label: 'Skill Builders',
