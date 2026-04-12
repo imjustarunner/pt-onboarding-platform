@@ -89,6 +89,7 @@ import {
   publishWeeklyTasksDraft,
   listWeeklyAssignments,
   getSnakeDraftBoard,
+  saveDraftCaptainOrder,
   getNoShowRiskAlerts,
   listMyByeWeeks,
   declareByeWeek,
@@ -222,6 +223,7 @@ router.get('/:classId/weekly-tasks/:taskId/detail', getWeeklyTaskDetail);
 router.post('/:classId/weekly-tasks/ai-draft', generateWeeklyTasksDraft);
 router.post('/:classId/weekly-tasks/publish', publishWeeklyTasksDraft);
 router.get('/:classId/snake-draft-board', getSnakeDraftBoard);
+router.put('/:classId/snake-draft-board/captain-order', saveDraftCaptainOrder);
 router.get('/:classId/draft-session', getDraftSession);
 router.post('/:classId/draft-session', createDraftSession);
 router.post('/:classId/draft-session/start', startDraftSession);

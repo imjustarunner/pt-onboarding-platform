@@ -426,7 +426,24 @@ export const getSnakeDraftBoard = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
     const teams = await ChallengeTeam.listByChallenge(classId);
-    const ordered = (teams || []).slice().sort((a, b) => String(a.team_name || '').localeCompare(String(b.team_name || '')));
+    const teamMap = Object.fromEntries((teams || []).map((t) => [Number(t.id), t]));
+
+    // Use saved captain order if present, otherwise fall back to alphabetical.
+    let ordered;
+    const klass = access.class;
+    let settings = {};
+    try { settings = typeof klass.season_settings_json === 'string' ? JSON.parse(klass.season_settings_json) : (klass.season_settings_json || {}); } catch { settings = {}; }
+    const savedOrder = Array.isArray(settings.draftCaptainOrder) ? settings.draftCaptainOrder : null;
+    if (savedOrder && savedOrder.length) {
+      // Restore saved order; append any new teams (not in saved order) alphabetically.
+      const inOrder = savedOrder.map((id) => teamMap[Number(id)]).filter(Boolean);
+      const savedIds = new Set(savedOrder.map(Number));
+      const extras = (teams || []).filter((t) => !savedIds.has(Number(t.id))).sort((a, b) => String(a.team_name || '').localeCompare(String(b.team_name || '')));
+      ordered = [...inOrder, ...extras];
+    } else {
+      ordered = (teams || []).slice().sort((a, b) => String(a.team_name || '').localeCompare(String(b.team_name || '')));
+    }
+
     const picks = [];
     for (let r = 1; r <= rounds; r++) {
       const row = (r % 2 === 1) ? ordered : ordered.slice().reverse();
@@ -439,7 +456,33 @@ export const getSnakeDraftBoard = async (req, res, next) => {
         });
       });
     }
-    return res.json({ rounds, teams: ordered.length, picks });
+    return res.json({ rounds, teams: ordered.length, picks, isCustomOrder: !!savedOrder });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const saveDraftCaptainOrder = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const access = await getAccess(req, classId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (!(await canManageChallenge({ user: req.user, classId }))) return res.status(403).json({ error: { message: 'Manage access required' } });
+
+    const teamIds = req.body.captainOrder;
+    if (!Array.isArray(teamIds)) return res.status(400).json({ error: { message: 'captainOrder must be an array of team IDs' } });
+
+    const klass = access.class;
+    let settings = {};
+    try { settings = typeof klass.season_settings_json === 'string' ? JSON.parse(klass.season_settings_json) : (klass.season_settings_json || {}); } catch { settings = {}; }
+    settings.draftCaptainOrder = teamIds.map(Number);
+
+    await pool.execute(
+      `UPDATE learning_program_classes SET season_settings_json = ? WHERE id = ?`,
+      [JSON.stringify(settings), classId]
+    );
+    return res.json({ ok: true, draftCaptainOrder: settings.draftCaptainOrder });
   } catch (e) {
     next(e);
   }

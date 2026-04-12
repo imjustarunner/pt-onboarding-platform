@@ -761,7 +761,7 @@
 
           <div v-if="snakeDraftPicks.length" class="mini-list">
             <h4>Draft Order Preview</h4>
-            <p class="hint" style="margin: 0 0 8px;">{{ snakeDraftRandomized ? '🔀 Randomized order — click again for a new shuffle.' : 'Alphabetical order — click Randomize Order to shuffle.' }}</p>
+            <p class="hint" style="margin: 0 0 8px;">{{ snakeDraftRandomized ? '🔀 Custom order saved — click Randomize Order again for a new shuffle.' : 'Alphabetical order — click Randomize Order to shuffle and save a custom pick order.' }}</p>
             <div v-for="pick in snakeDraftPicks" :key="`pick-${pick.pickNumber}`" class="mini-row">
               <span>Round {{ pick.round }} · Pick {{ pick.pickNumber }} · {{ pick.teamName }}</span>
             </div>
@@ -2978,17 +2978,18 @@ const openDraftRoom = () => {
 
 const loadSnakeDraftBoard = async () => {
   if (!managingChallenge.value?.id) return;
-  snakeDraftRandomized.value = false;
   try {
     const r = await api.get(`/learning-program-classes/${managingChallenge.value.id}/snake-draft-board`, { params: { rounds: 3 } });
     snakeDraftPicks.value = Array.isArray(r.data?.picks) ? r.data.picks : [];
+    snakeDraftRandomized.value = !!r.data?.isCustomOrder;
   } catch {
     snakeDraftPicks.value = [];
+    snakeDraftRandomized.value = false;
   }
 };
 
-const randomizeSnakeDraftBoard = () => {
-  if (!teams.value.length) return;
+const randomizeSnakeDraftBoard = async () => {
+  if (!teams.value.length || !managingChallenge.value?.id) return;
   // Fisher-Yates shuffle of the current teams list
   const shuffled = [...teams.value];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -3010,6 +3011,15 @@ const randomizeSnakeDraftBoard = () => {
   }
   snakeDraftPicks.value = picks;
   snakeDraftRandomized.value = true;
+  // Persist the new order so it survives page reloads
+  try {
+    await api.put(
+      `/learning-program-classes/${managingChallenge.value.id}/snake-draft-board/captain-order`,
+      { captainOrder: shuffled.map((t) => t.id) }
+    );
+  } catch {
+    // Non-fatal — the UI already reflects the shuffled order
+  }
 };
 
 const loadNoShowAlerts = async () => {
