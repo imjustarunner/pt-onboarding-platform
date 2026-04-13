@@ -4069,8 +4069,8 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
         if (!(Number.isFinite(units) && units > 0)) continue;
         if (outMap.has(key)) {
           const row = outMap.get(key);
-          row.noNoteUnits = 0;
-          row.draftUnits = 0;
+          // Keep unpaid-note columns from the latest import visible in provider/admin
+          // breakdowns even when supervision pay uses the resolved attendance source.
           row.oldDoneNotesUnits = Number(row.oldDoneNotesUnits || 0);
           row.finalizedUnits = Number(row.oldDoneNotesUnits || 0) + units;
           row.supervisionSource = 'resolved_app_or_legacy';
@@ -4100,8 +4100,7 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
         if (!uid) continue;
         const k = `${uid}:${code}`;
         if (!selectedByUserCode.has(k)) {
-          row.noNoteUnits = 0;
-          row.draftUnits = 0;
+          // Preserve unpaid-note counts for display/reporting; only zero the paid portion.
           row.finalizedUnits = Number(row.oldDoneNotesUnits || 0);
           row.supervisionSource = 'not_selected';
         }
@@ -18104,4 +18103,3 @@ export const syncMeetingAttendance = async (req, res, next) => {
     next(e);
   }
 };
-
