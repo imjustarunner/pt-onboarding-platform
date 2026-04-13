@@ -113,9 +113,6 @@
               </template>
               <template v-else-if="isSummitStatsChallengeChrome && isAuthenticated">
                 <router-link :to="myAccountNavTo" @click="closeMobileMenu">My Account</router-link>
-                <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }">
-                  My Dashboard
-                </router-link>
                 <router-link
                   v-if="sstcMemberMyClubNav"
                   :to="sstcMemberMyClubNav.to"
@@ -693,7 +690,6 @@
             </template>
             <template v-else-if="isSummitStatsChallengeChrome && isAuthenticated">
               <router-link :to="myAccountNavTo" @click="closeMobileMenu" class="mobile-nav-link">My Account</router-link>
-              <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }" class="mobile-nav-link">My Dashboard</router-link>
               <router-link
                 v-if="sstcMemberMyClubNav"
                 :to="sstcMemberMyClubNav.to"

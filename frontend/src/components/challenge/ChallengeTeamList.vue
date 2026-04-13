@@ -6,7 +6,7 @@
       <div v-for="t in teams" :key="t.id" class="team-card">
         <div class="team-name">{{ t.team_name }}</div>
         <div v-if="t.manager_first_name || t.manager_last_name" class="team-lead hint">
-          Team Lead: {{ t.manager_first_name }} {{ t.manager_last_name }}
+          Team Captain: {{ t.manager_first_name }} {{ t.manager_last_name }}
         </div>
       </div>
       <div v-if="!teams.length" class="empty-hint">No teams yet. Contact your Program Manager to add teams.</div>

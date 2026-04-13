@@ -1610,7 +1610,17 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
          COALESCE(SUM(w.points), 0) AS weekly_points,
          COALESCE(SUM(w.distance_value), 0) AS weekly_miles
        FROM challenge_teams t
-       INNER JOIN challenge_team_members tm ON tm.team_id = t.id
+       INNER JOIN (
+         SELECT team_id, provider_user_id FROM challenge_team_members
+         UNION
+         SELECT ct2.id, ct2.team_manager_user_id
+         FROM challenge_teams ct2
+         WHERE ct2.team_manager_user_id IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM challenge_team_members tm2
+             WHERE tm2.team_id = ct2.id AND tm2.provider_user_id = ct2.team_manager_user_id
+           )
+       ) tm ON tm.team_id = t.id
        INNER JOIN users u ON u.id = tm.provider_user_id
        LEFT JOIN challenge_workouts w
          ON w.learning_class_id = t.learning_class_id
