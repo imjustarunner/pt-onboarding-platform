@@ -1700,8 +1700,9 @@ const reviewProof = async (workoutId, status) => {
 .manager-review-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px 10px;
   background: #fffbeb;
   border: 1px solid #fde68a;
   border-radius: 10px;
@@ -1724,6 +1725,8 @@ const reviewProof = async (workoutId, status) => {
   font-size: 0.88em;
   font-weight: 600;
   color: #92400e;
+  min-width: 0;
+  flex: 1;
 }
 .manager-review-bar--idle .pending-count-label { color: #166534; }
 .pending-dot {

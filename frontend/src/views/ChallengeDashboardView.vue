@@ -2148,6 +2148,8 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   margin: 0 auto;
   padding: 24px;
   overflow-x: hidden;
+  box-sizing: border-box;
+  width: 100%;
 }
 /* ── Season announcement banner ── */
 /* ── Season Hero Banner ── */
@@ -2218,7 +2220,7 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   font-weight: 500;
   color: #7a5c00;
 }
-.season-announcement-text { flex: 1; }
+.season-announcement-text { flex: 1; min-width: 0; word-break: break-word; }
 .season-announcement-close {
   background: none;
   border: none;
@@ -3411,7 +3413,7 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   display: inline-flex;
   align-items: center;
   gap: 18px;
-  padding-left: 100%;
+  transform: translateX(100%);
   animation: sstcBannerMarquee 28s linear infinite;
   white-space: nowrap;
   color: #1d4ed8;
@@ -3422,7 +3424,7 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   animation-play-state: paused;
 }
 @keyframes sstcBannerMarquee {
-  0% { transform: translateX(0); }
+  0% { transform: translateX(100%); }
   100% { transform: translateX(-50%); }
 }
 .sstc-blocking-splash {

@@ -592,6 +592,8 @@ const teamBarStyle = (miles, required) => {
   padding: 4px 0;
   min-height: 28px;
   font-size: 0.76rem;
+  min-width: 0;
+  max-width: 100%;
 }
 .swtd-member-row--eliminated {
   opacity: 0.55;
