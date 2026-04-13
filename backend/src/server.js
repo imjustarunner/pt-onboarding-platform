@@ -138,6 +138,7 @@ import complianceCornerRoutes from './routes/complianceCorner.routes.js';
 import learningBillingRoutes from './routes/learningBilling.routes.js';
 import guardianBillingRoutes from './routes/guardianBilling.routes.js';
 import learningProgramClassesRoutes from './routes/learningProgramClasses.routes.js';
+import { serveSeasonBanner, serveSeasonLogo } from './controllers/learningProgramClasses.controller.js';
 import learningStandardsRoutes from './routes/learningStandards.routes.js';
 import learningGoalsRoutes from './routes/learningGoals.routes.js';
 import learningProgressRoutes from './routes/learningProgress.routes.js';
@@ -615,6 +616,11 @@ app.use('/api/email-templates', emailTemplateRoutes);
 app.use('/api/email-settings', emailSettingsRoutes);
 app.use('/api/email-senders', emailSenderIdentityRoutes);
 app.use('/api/notification-triggers', notificationTriggerAdminRoutes);
+// Season banner/logo images are public (loaded by <img> which can't send auth headers).
+// Must be registered before any catch-all '/api' router that uses router.use(authenticate).
+app.get('/api/learning-program-classes/:classId/banner', serveSeasonBanner);
+app.get('/api/learning-program-classes/:classId/logo', serveSeasonLogo);
+
 app.use('/api', userCommunicationRoutes);
 app.use('/api', userAdminDocsRoutes);
 app.use('/api/users', userPreferencesRoutes);

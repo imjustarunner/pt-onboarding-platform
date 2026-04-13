@@ -2245,7 +2245,8 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: 18px;
-  padding-left: 100%;
+  /* Use transform (not padding-left) for the start position so it doesn't affect scroll/layout width */
+  transform: translateX(100%);
   animation: sstcBannerMarquee 28s linear infinite;
   white-space: nowrap;
   color: #1d4ed8;
@@ -2257,7 +2258,7 @@ watch(
 }
 @keyframes sstcBannerMarquee {
   0% {
-    transform: translateX(0);
+    transform: translateX(100%);
   }
   100% {
     transform: translateX(-50%);
@@ -2461,6 +2462,7 @@ watch(
 .btn-strava-connect-image {
   height: 48px;
   width: auto;
+  max-width: 100%;
   display: block;
 }
 .integ-logo--strava-mark {
