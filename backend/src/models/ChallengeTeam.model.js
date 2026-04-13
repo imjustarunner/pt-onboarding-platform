@@ -125,7 +125,8 @@ class ChallengeTeam {
     const classId = toInt(learningClassId);
     const pId = toInt(providerUserId);
     if (!classId || !pId) return null;
-    const [rows] = await pool.execute(
+    // First check team_members table (normal roster)
+    const [memberRows] = await pool.execute(
       `SELECT t.*, m.joined_at
        FROM challenge_teams t
        INNER JOIN challenge_team_members m ON m.team_id = t.id
@@ -133,7 +134,16 @@ class ChallengeTeam {
        LIMIT 1`,
       [classId, pId]
     );
-    return rows?.[0] || null;
+    if (memberRows?.length) return memberRows[0];
+    // Fallback: check if user is team captain (team_manager_user_id)
+    const [captainRows] = await pool.execute(
+      `SELECT t.*, NULL AS joined_at
+       FROM challenge_teams t
+       WHERE t.learning_class_id = ? AND t.team_manager_user_id = ?
+       LIMIT 1`,
+      [classId, pId]
+    );
+    return captainRows?.[0] || null;
   }
 }
 

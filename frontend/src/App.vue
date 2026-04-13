@@ -66,6 +66,19 @@
               <h1 v-if="navTitleText" class="nav-title">{{ navTitleText }}</h1>
               <span v-if="isSummitStatsChallengeChrome" class="sstc-nav-brand-label">{{ summitTeamBrandLabel }}</span>
             </div>
+            <div v-if="showSstcSurfaceSwitcher" class="nav-surface-switcher">
+              <label class="nav-surface-switcher-label" for="sstc-surface-select">View</label>
+              <select
+                id="sstc-surface-select"
+                class="nav-surface-switcher-select"
+                :value="sstcSurfaceSelectValue"
+                title="Switch between employer portal and Summit clubs"
+                @change="onSstcSurfaceSelect($event)"
+              >
+                <option value="summit">Summit / My clubs</option>
+                <option value="work">Employer dashboard</option>
+              </select>
+            </div>
             <div class="nav-links-wrapper" :class="{ 'nav-menus-open': navDropdownOpen }">
               <div class="nav-links">
               <!-- SSTC Summit: primary nav order (matches mobile sidebar) -->
@@ -645,6 +658,19 @@
             <button class="mobile-close" @click="mobileMenuOpen = false" aria-label="Close menu">×</button>
           </div>
           <div class="mobile-nav-links">
+            <div v-if="showSstcSurfaceSwitcher" class="mobile-surface-switcher">
+              <label class="mobile-surface-switcher-label" for="sstc-surface-select-mobile">View</label>
+              <select
+                id="sstc-surface-select-mobile"
+                class="mobile-surface-switcher-select"
+                :value="sstcSurfaceSelectValue"
+                title="Switch between employer portal and Summit clubs"
+                @change="onSstcSurfaceSelect($event)"
+              >
+                <option value="summit">Summit / My clubs</option>
+                <option value="work">Employer dashboard</option>
+              </select>
+            </div>
             <router-link v-if="showOnDemandLink && !isSscSstcTenant" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
             <template v-if="isSummitStatsChallengeChrome && isAuthenticated && isSscClubManager">
               <router-link :to="myAccountNavTo" @click="closeMobileMenu" class="mobile-nav-link">My Account</router-link>
@@ -1274,6 +1300,19 @@ import { buildSuperadminAgencyBrandUrl } from './utils/brandSwitchUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 import { useSummitStatsChallengeChrome } from './composables/useSummitStatsChallengeChrome';
 import { isSummitPlatformRouteSlug } from './utils/summitPlatformSlugs.js';
+import { isStandalonePwa } from './utils/pwa';
+import { getDashboardRoute } from './utils/router';
+import {
+  resolveSummitStatsSlug,
+  isDualHomedSummitUser,
+  isSummitScopedOrg
+} from './utils/summitRoutingContext.js';
+import {
+  getSstcSurfaceChoice,
+  setSstcSurfaceChoice,
+  getPreferredWorkAgencyId,
+  setPreferredWorkAgencyId
+} from './utils/sstcSurfaceChoice.js';
 import SummitStatsContextBar from './components/summit/SummitStatsContextBar.vue';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from './constants/summitStatsBranding.js';
 
@@ -1823,6 +1862,67 @@ const sessionSettingsKey = computed(() => {
 });
 const user = computed(() => authStore.user);
 
+const userAgenciesListForSurface = computed(() => {
+  const u = user.value;
+  const fromUser = Array.isArray(u?.agencies) ? u.agencies : [];
+  if (fromUser.length) return fromUser;
+  const fromStore = agencyStore.userAgencies?.value ?? agencyStore.userAgencies;
+  return Array.isArray(fromStore) ? fromStore : [];
+});
+
+const showSstcSurfaceSwitcher = computed(() => {
+  if (!isAuthenticated.value || isStandalonePwa()) return false;
+  const orgs = userAgenciesListForSurface.value;
+  if (orgs.length < 2) return false;
+  const cur = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
+  const summitSlug = resolveSummitStatsSlug({
+    organizationContext: organizationStore.organizationContext || null,
+    currentAgency: cur,
+    orgs
+  });
+  return isDualHomedSummitUser({ summitSlug, orgs });
+});
+
+const sstcSurfaceSelectValue = computed(() => {
+  const stored = getSstcSurfaceChoice();
+  if (stored === 'work' || stored === 'summit') return stored;
+  const slug = String(route.params?.organizationSlug || '').trim().toLowerCase();
+  if (isSummitPlatformRouteSlug(slug)) return 'summit';
+  return 'work';
+});
+
+const onSstcSurfaceSelect = async (e) => {
+  const v = String(e?.target?.value || '');
+  if (v !== 'work' && v !== 'summit') return;
+  setSstcSurfaceChoice(v);
+  const orgs = userAgenciesListForSurface.value;
+  const cur = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
+  const curId = Number(cur?.id || 0);
+  if (v === 'work') {
+    const workOrgs = orgs.filter((o) => !isSummitScopedOrg(o));
+    const prefId = getPreferredWorkAgencyId();
+    const pick =
+      (cur && !isSummitScopedOrg(cur) && workOrgs.some((o) => Number(o.id) === curId) ? cur : null) ||
+      (prefId ? workOrgs.find((o) => Number(o?.id) === prefId) : null) ||
+      workOrgs[0];
+    if (pick?.id) {
+      setPreferredWorkAgencyId(Number(pick.id));
+      agencyStore.setCurrentAgency(pick);
+    }
+  } else {
+    const summitOrgs = orgs.filter((o) => isSummitScopedOrg(o));
+    const pick =
+      (cur && isSummitScopedOrg(cur) && summitOrgs.some((o) => Number(o.id) === curId) ? cur : null) ||
+      summitOrgs.find(
+        (o) => String(o?.organization_type || o?.organizationType || '').toLowerCase() === 'affiliation'
+      ) ||
+      summitOrgs[0];
+    if (pick) agencyStore.setCurrentAgency(pick);
+  }
+  mobileMenuOpen.value = false;
+  await router.replace(getDashboardRoute());
+};
+
 const hideGlobalNavForSchoolStaff = computed(() => {
   if (!isAuthenticated.value) return false;
   const role = String(user.value?.role || '').toLowerCase();
@@ -1944,6 +2044,9 @@ const currentAgencyFeatureFlags = computed(() => {
 const showBookClubPortalLink = computed(() => {
   if (!authStore.isAuthenticated) return false;
   if (isSummitStatsChallengeChrome.value) return false;
+  if (isSscSstcTenant.value) return false;
+  const pathSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
+  if (isSummitPlatformRouteSlug(pathSlug)) return false;
   return isTruthyFlag(currentAgencyFeatureFlags.value?.bookClubEnabled);
 });
 
@@ -3787,6 +3890,50 @@ onUnmounted(() => {
   line-height: 1;
 }
 
+.nav-surface-switcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+.nav-surface-switcher-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--header-text-color, #fff);
+  opacity: 0.92;
+  white-space: nowrap;
+}
+.nav-surface-switcher-select {
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--header-text-color, #fff);
+  max-width: 210px;
+}
+
+.mobile-surface-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.mobile-surface-switcher-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+.mobile-surface-switcher-select {
+  font-size: 15px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  width: 100%;
+}
+
 /* Wrapper for nav-links to enable horizontal scrolling */
 .nav-links-wrapper {
   flex: 1;
@@ -4954,7 +5101,7 @@ main.main-no-global-chrome {
   letter-spacing: 0.04em;
   color: rgba(255,255,255,0.9);
   white-space: nowrap;
-  max-width: 180px;
+  max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -4963,14 +5110,26 @@ main.main-no-global-chrome {
   display: none;
 }
 
-/* ── Prevent horizontal scroll / rubber-band bounce on all platforms ── */
+</style>
+
+<style>
+/* Unscoped: prevent horizontal scroll / rubber-band bounce on all platforms */
 html, body {
   overflow-x: hidden;
   overscroll-behavior-x: none;
 }
-/* Native iOS: restrict touch gestures to vertical pan only */
-.is-native body {
+html.is-native body,
+html.is-native #app {
   touch-action: pan-y;
   overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+#app {
+  overflow-x: hidden;
+  max-width: 100vw;
+  /* Symmetric horizontal inset so season dashboard isn’t shifted when L/R safe-area differ (e.g. iOS). */
+  padding-left: max(env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
+  padding-right: max(env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
 }
 </style>

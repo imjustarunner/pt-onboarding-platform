@@ -25,7 +25,7 @@
         <div class="metric">
           <div class="k">Total Points</div>
           <div class="v">{{ formatNum(stats?.totalPoints) }}</div>
-          <div class="hint">All-time challenge points</div>
+          <div class="hint">Lifetime points earned across all seasons</div>
         </div>
         <div class="metric">
           <div class="k">Total Workouts</div>

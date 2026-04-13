@@ -14,7 +14,8 @@ import config from '../config/config.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { resolvePreferredSenderIdentityForAgency } from '../services/emailSenderIdentityResolver.service.js';
-import { getPlatformAgencyId } from './summitStats.controller.js';
+import { getPlatformAgencyId, getPlatformAgencyIds } from './summitStats.controller.js';
+import { sqlAffiliationUnderSummitPlatform } from '../utils/summitPlatformClubs.js';
 import { buildRaceDivisions, buildRecordMetricMap } from './challenges.controller.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 import Notification from '../models/Notification.model.js';
@@ -3168,8 +3169,11 @@ export const getMyDashboardSummary = async (req, res, next) => {
     const user = userRows?.[0];
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
 
+    const platformIds = await getPlatformAgencyIds(null);
+    const plat = sqlAffiliationUnderSummitPlatform('a', platformIds);
+
     const agencies = await User.getAgencies(userId);
-    const clubs = (agencies || [])
+    let clubs = (agencies || [])
       .filter((agency) => String(agency?.organization_type || agency?.organizationType || '').toLowerCase() === 'affiliation')
       .map((agency) => ({
         id: Number(agency.id),
@@ -3180,6 +3184,20 @@ export const getMyDashboardSummary = async (req, res, next) => {
         clubRole: agency.club_role || 'member',
         isActive: agency.is_active !== false && agency.is_active !== 0 && String(agency.is_active || '1') !== '0'
       }));
+    if (plat) {
+      const cids = clubs.map((c) => c.id).filter((id) => Number.isFinite(id) && id > 0);
+      if (cids.length) {
+        const ph = cids.map(() => '?').join(',');
+        const [allowedRows] = await pool.execute(
+          `SELECT a.id FROM agencies a WHERE a.id IN (${ph})${plat.sql}`,
+          [...cids, ...plat.params]
+        );
+        const allowed = new Set((allowedRows || []).map((r) => Number(r.id)));
+        clubs = clubs.filter((c) => allowed.has(c.id));
+      } else {
+        clubs = [];
+      }
+    }
 
     // Fetch latest application; fall back to a query without `pronouns` if the column
     // migration has not yet been run on this environment (migration 675).
@@ -3213,6 +3231,8 @@ export const getMyDashboardSummary = async (req, res, next) => {
     }
     const latestApplication = applicationRows?.[0] || null;
 
+    const statsSqlSuffix = plat ? plat.sql : '';
+    const statsParams = plat ? [userId, ...plat.params] : [userId];
     const [statsRows] = await pool.execute(
       `SELECT
          COUNT(w.id) AS workout_count,
@@ -3238,11 +3258,13 @@ export const getMyDashboardSummary = async (req, res, next) => {
        INNER JOIN agencies a ON a.id = c.organization_id
        WHERE w.user_id = ?
          AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
-         AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'`,
-      [userId]
+         AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'${statsSqlSuffix}`,
+      statsParams
     );
     const totals = statsRows?.[0] || {};
 
+    const memberSeasonSqlSuffix = `${plat ? plat.sql : ''}`;
+    const memberSeasonParams = plat ? [userId, ...plat.params] : [userId];
     const [seasonRows] = await pool.execute(
       `SELECT
          c.id AS class_id,
@@ -3274,24 +3296,35 @@ export const getMyDashboardSummary = async (req, res, next) => {
        WHERE m.provider_user_id = ?
          AND m.membership_status IN ('active', 'completed')
          AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'
+         AND LOWER(COALESCE(c.program_kind, 'season')) <> 'monthly_book'${memberSeasonSqlSuffix}
        GROUP BY
          c.id, c.class_name, c.status, c.starts_at, c.ends_at, c.organization_id,
          c.banner_image_path, c.logo_image_path, a.name, a.slug, m.membership_status
        ORDER BY COALESCE(c.starts_at, c.created_at) DESC, c.id DESC`,
-      [userId]
+      memberSeasonParams
     );
 
     const memberSeasonRows = seasonRows || [];
     const seenClassIds = new Set(memberSeasonRows.map((r) => Number(r.class_id)));
 
     const managedClubRows = await getManagedClubsForUser(userId, { includeAssistant: true });
-    const managedClubIds = [
+    let managedClubIds = [
       ...new Set(
         (managedClubRows || [])
           .map((row) => Number(row.id))
           .filter((id) => Number.isFinite(id) && id > 0)
       )
     ];
+    if (plat && managedClubIds.length) {
+      const phm = managedClubIds.map(() => '?').join(',');
+      const [managedOk] = await pool.execute(
+        `SELECT a.id FROM agencies a WHERE a.id IN (${phm})${plat.sql}`,
+        [...managedClubIds, ...plat.params]
+      );
+      managedClubIds = (managedOk || []).map((r) => Number(r.id)).filter((id) => id > 0);
+    } else if (plat && !managedClubIds.length) {
+      managedClubIds = [];
+    }
 
     let mergedSeasonRows = memberSeasonRows;
     if (managedClubIds.length) {
@@ -3379,6 +3412,8 @@ export const getMyDashboardSummary = async (req, res, next) => {
     let availableSeasons = [];
     if (memberClubIds.length) {
       const ph = memberClubIds.map(() => '?').join(',');
+      const availSuffix = plat ? plat.sql : '';
+      const availParams = plat ? [...memberClubIds, ...plat.params] : memberClubIds;
       const [availRows] = await pool.execute(
         `SELECT c.id AS class_id, c.class_name, c.status AS class_status,
                 c.starts_at, c.ends_at, c.allow_late_join,
@@ -3388,9 +3423,9 @@ export const getMyDashboardSummary = async (req, res, next) => {
          WHERE c.organization_id IN (${ph})
            AND c.status = 'active'
            AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'
-           AND LOWER(COALESCE(c.program_kind, 'season')) <> 'monthly_book'
+           AND LOWER(COALESCE(c.program_kind, 'season')) <> 'monthly_book'${availSuffix}
          ORDER BY COALESCE(c.starts_at, c.created_at) DESC, c.id DESC`,
-        memberClubIds
+        availParams
       );
       availableSeasons = (availRows || [])
         .filter((r) => !enrolledClassIds.has(Number(r.class_id)))

@@ -389,6 +389,7 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue';
 import api from '../../services/api';
+import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
@@ -814,10 +815,10 @@ function resolveLibraryIconUrl(icon) {
       .then(({ data }) => {
         let u = data?.url || null;
         if (!u && data?.file_path) {
-          u = `/uploads/${data.file_path}`.replace('/uploads/uploads/', '/uploads/');
+          u = data.file_path;
         }
         if (u) {
-          libraryIconCache.value = { ...libraryIconCache.value, [key]: u };
+          libraryIconCache.value = { ...libraryIconCache.value, [key]: toUploadsUrl(u) || u };
         }
       })
       .catch(() => {})

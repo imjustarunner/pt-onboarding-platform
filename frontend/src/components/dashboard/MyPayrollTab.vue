@@ -829,6 +829,12 @@
                 </span>
                 <span class="muted" v-if="l.taxable === false"> • non-taxable</span>
                 <span class="muted" v-else> • taxable</span>
+                <details v-if="l.meta && Array.isArray(l.meta.details) && l.meta.details.length" style="margin-top: 6px; width: 100%;">
+                  <summary class="muted" style="cursor: pointer;">View details</summary>
+                  <div class="muted" style="margin-top: 6px;">
+                    <div v-for="(d, j) in l.meta.details" :key="`adj-detail:${i}:${j}`">{{ d.label }}: {{ d.value }}</div>
+                  </div>
+                </details>
               </div>
             </div>
             <div v-else>
@@ -5153,4 +5159,3 @@ textarea {
   flex-wrap: wrap;
 }
 </style>
-

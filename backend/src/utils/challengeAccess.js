@@ -7,6 +7,7 @@ import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import User from '../models/User.model.js';
 import ChallengeElimination from '../models/ChallengeElimination.model.js';
+import { canUserManageChallengeClass } from './sscClubAccess.js';
 
 const getUserAgencyContext = async (userId) => {
   const memberships = await User.getAgencies(userId);
@@ -47,4 +48,18 @@ export const canAccessChallenge = async ({ user, learningClassId }) => {
   );
   if (cg?.length) return { ok: true, class: klass };
   return { ok: false };
+};
+
+/**
+ * Participant / guardian access, or club-level challenge manager (read chat, mark read, etc.).
+ */
+export const resolveChallengeAccessOrManage = async ({ user, learningClassId }) => {
+  const base = await canAccessChallenge({ user, learningClassId });
+  if (base.ok) return base;
+  if (base.eliminated) return base;
+  if (await canUserManageChallengeClass({ user, learningClassId })) {
+    const klass = await LearningProgramClass.findById(learningClassId);
+    if (klass) return { ok: true, class: klass };
+  }
+  return base;
 };

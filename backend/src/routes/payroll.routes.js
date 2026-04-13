@@ -162,6 +162,9 @@ import {
   ,getAgencyPayrollScheduleSettings
   ,putAgencyPayrollScheduleSettings
   ,cleanupFuturePayrollPeriods
+  ,listPayrollImportRowNotes
+  ,createPayrollImportRowNote
+  ,applyPayrollRawAuditActions
   ,getPayrollReportSessionsUnits
   ,getPayrollReportProviderPaySummary
   ,getPayrollReportAdjustmentsBreakdown
@@ -197,6 +200,8 @@ router.get('/periods/:id/imports', listPayrollPeriodImports);
 router.delete('/periods/:periodId/imports/:importId', deletePayrollImport);
 router.post('/periods/:periodId/imports/:importId/replace', ...replacePayrollImport);
 router.patch('/import-rows/:rowId', patchPayrollImportRow);
+router.get('/import-rows/:rowId/audit-notes', listPayrollImportRowNotes);
+router.post('/import-rows/:rowId/audit-notes', createPayrollImportRowNote);
 router.get('/periods/:id/reports/sessions-units', getPayrollReportSessionsUnits);
 router.get('/periods/:id/reports/late-notes', getPayrollReportLateNotesTotals);
 router.get('/periods/:id/reports/provider-pay-summary', getPayrollReportProviderPaySummary);
@@ -212,6 +217,7 @@ router.post('/periods/:id/runs/snapshot', snapshotPayrollPeriodRun);
 router.post('/periods/:id/runs/snapshot-from-file', snapshotPayrollPeriodRunFromFile);
 router.get('/periods/:id/carryover/preview', previewPayrollCarryover);
 router.post('/periods/:id/carryover/apply', applyPayrollCarryover);
+router.post('/periods/:id/raw-audit-actions/apply', applyPayrollRawAuditActions);
 router.patch('/periods/:id/staging', patchPayrollStaging);
 router.put('/periods/:id/prior-unpaid', putPayrollStagePriorUnpaid);
 router.post('/periods/:id/submit', submitPayrollPeriod);
@@ -378,4 +384,3 @@ router.get('/me/compensation', getMyCompensation);
 router.post('/periods/:id/adp/export', requestAdpExport);
 
 export default router;
-

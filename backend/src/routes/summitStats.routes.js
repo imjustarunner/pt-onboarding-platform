@@ -16,6 +16,7 @@ import {
   reviewClubRecordVerification,
   getClubMemberStats
 } from '../controllers/summitStats.controller.js';
+import { postClubShareWithEmployer } from '../controllers/clubEmployerShare.controller.js';
 import {
   listCustomFields,
   createCustomField,
@@ -126,6 +127,7 @@ router.put('/me/account-snapshot', putMyAccountSnapshot);
 router.get('/my-applications', getMyApplications);
 router.get('/club-specs', getClubSpecs);
 router.get('/club-manager-context', getClubManagerContext);
+router.post('/clubs/:clubId/share-with-employer', postClubShareWithEmployer);
 router.post('/clubs', [
   body('name').trim().notEmpty().withMessage('Club name is required'),
   body('slug').optional().trim().isString()

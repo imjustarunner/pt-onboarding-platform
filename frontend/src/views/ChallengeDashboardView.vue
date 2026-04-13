@@ -207,6 +207,9 @@
             :challenge-id="challengeId"
             :my-user-id="authStore.user?.id"
             :is-manager="isChallengeManager"
+            :team-mate-user-ids="myTeamMateUserIds"
+            :mention-slugs="myChatMentionSlugs"
+            team-accent-color="#ea580c"
           />
         </div>
 
@@ -219,10 +222,18 @@
               <ChallengeScoreboard :challenge-id="challengeId" :season-starts-at="challenge?.starts_at || challenge?.startsAt" :season-ends-at="challenge?.ends_at || challenge?.endsAt" />
             </div>
             <div id="section-team-progress" class="challenge-section">
-              <ChallengeTeamWeeklyProgress :challenge-id="challengeId" :season-starts-at="challenge?.starts_at || challenge?.startsAt" :season-ends-at="challenge?.ends_at || challenge?.endsAt" />
+              <SeasonWeekTeamDistanceTracker
+                :challenge-id="challengeId"
+                :season-starts-at="challenge?.starts_at || challenge?.startsAt"
+                :season-ends-at="challenge?.ends_at || challenge?.endsAt"
+                :week-cutoff-time="challengeWeekSchedule.cutoff"
+                :week-time-zone="challengeWeekSchedule.tz"
+                :challenge-updated-at="challenge?.updated_at || challenge?.updatedAt || null"
+                @week-boundary="onTeamProgressWeekBoundary"
+              />
             </div>
             <div id="section-summary" class="challenge-section">
-              <h2>📈 Weekly + Season Summary</h2>
+              <h2>📈 Weekly leaders + season summary</h2>
               <div v-if="seasonSummaryLoading" class="loading-inline">Loading summary…</div>
               <div v-else-if="!seasonSummary" class="hint">Summary data will appear after workouts are logged.</div>
               <div v-else class="summary-grid">
@@ -233,14 +244,9 @@
                       {{ r.first_name }} {{ r.last_name }} — {{ formatPts(r.total_points) }} pts
                     </li>
                   </ol>
-                </div>
-                <div class="summary-card">
-                  <h4>Top Teams (Week)</h4>
-                  <ol>
-                    <li v-for="r in seasonSummary.weeklySummary?.topTeams || []" :key="`wt-${r.team_id}`">
-                      {{ r.team_name }} — {{ formatPts(r.total_points) }} pts
-                    </li>
-                  </ol>
+                  <p class="hint" style="margin-top: 8px;">
+                    Weekly team miles and goals are in <a href="#section-weekly-goals">Weekly goals</a> above.
+                  </p>
                 </div>
                 <div class="summary-card">
                   <h4>Season Standings</h4>
@@ -995,7 +1001,7 @@ import ChallengeScoreboard from '../components/challenge/ChallengeScoreboard.vue
 import ChallengeEliminationBoard from '../components/challenge/ChallengeEliminationBoard.vue';
 import ChallengeWeeklyTasks from '../components/challenge/ChallengeWeeklyTasks.vue';
 import ChallengeActivityFeed from '../components/challenge/ChallengeActivityFeed.vue';
-import ChallengeTeamWeeklyProgress from '../components/challenge/ChallengeTeamWeeklyProgress.vue';
+import SeasonWeekTeamDistanceTracker from '../components/challenge/SeasonWeekTeamDistanceTracker.vue';
 import ChallengeMessageFeed from '../components/challenge/ChallengeMessageFeed.vue';
 import ChallengeDraftReport from '../components/challenge/ChallengeDraftReport.vue';
 import ChallengeParticipationAgreementModal from '../components/challenge/ChallengeParticipationAgreementModal.vue';
@@ -1082,6 +1088,8 @@ const treadmillpocalypseWeek = ref(null);
 const treadmillpocalypseIconUrl = ref(null);
 const seasonSummary = ref(null);
 const seasonSummaryLoading = ref(false);
+/** Synced from Team Weekly Progress so season-summary uses the same week boundaries as the scoreboard. */
+const seasonSummaryWeekStart = ref(null);
 const recordBoards = ref({ seasonRecords: [], clubAllTimeRecords: [] });
 const recordBoardsLoading = ref(false);
 const raceDivisions = ref({ halfMarathon: { season: [], allTime: [] }, marathon: { season: [], allTime: [] } });
@@ -1295,6 +1303,34 @@ const myTeamId = computed(() => {
   return myTeam?.id || null;
 });
 
+const myTeamMateUserIds = computed(() => {
+  const tid = myTeamId.value;
+  if (!tid) return [];
+  const t = (teams.value || []).find((x) => Number(x.id) === Number(tid));
+  if (!t) return [];
+  const ids = (Array.isArray(t.members) ? t.members : [])
+    .map((m) => Number(m.provider_user_id ?? m.user_id))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const cap = Number(t.team_manager_user_id);
+  if (cap && !ids.includes(cap)) ids.push(cap);
+  return ids;
+});
+
+const myChatMentionSlugs = computed(() => {
+  const u = authStore.user;
+  if (!u) return [];
+  const fn = String(u.first_name || '').trim();
+  const ln = String(u.last_name || '').trim();
+  const un = String(u.username || '').replace(/^@/, '').trim();
+  const emailHead = String(u.email || '').split('@')[0] || '';
+  const compact = `${fn}${ln}`.replace(/\s+/g, '');
+  const candidates = [
+    fn, ln, un, emailHead, compact,
+    `${fn}${ln}`, `${fn}.${ln}`, `${fn}_${ln}`, `${fn}-${ln}`
+  ].map((s) => String(s).toLowerCase()).filter((s) => s.length > 1);
+  return [...new Set(candidates)];
+});
+
 const captainTeamId = computed(() => {
   const myId = Number(authStore.user?.id || 0);
   const t = (teams.value || []).find((x) => Number(x.team_manager_user_id) === myId);
@@ -1449,13 +1485,11 @@ const splitRunProgress = (task) => {
 const resolveSeasonAssetUrl = (path, type = 'banner') => {
   if (!path) return '';
   if (path.startsWith('http')) return path;
-  // Use the dedicated serve endpoint (reads from GCS via DB path — no URL-encoding issues)
-  const id = challenge.value?.id;
-  if (id) {
-    const apiBase = String(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/$/, '');
-    return `${apiBase}/learning-program-classes/${id}/${type}`;
-  }
-  return `/uploads/${path.replace(/^\/+/, '')}`;
+  // Match My Club behavior: load directly from uploads path.
+  // Dedicated logo/banner endpoints can get stale in some iOS WebView caches.
+  const base = toUploadsUrl(path) || '';
+  const version = encodeURIComponent(String(path || challenge.value?.updated_at || Date.now()));
+  return `${base}${base.includes('?') ? '&' : '?'}v=${version}`;
 };
 
 const formatStatus = (c) => {
@@ -1486,6 +1520,7 @@ const loadChallenge = async () => {
   try {
     const r = await api.get(`/learning-program-classes/${id}`, { skipGlobalLoading: true });
     challenge.value = r.data?.class || null;
+    seasonSummaryWeekStart.value = null;
     providerMembers.value = Array.isArray(r.data?.providerMembers) ? r.data.providerMembers : [];
     participationAgreementStatus.value = r.data?.participationAgreementStatus || null;
     participationAcceptanceError.value = '';
@@ -1595,13 +1630,32 @@ const loadSeasonSummary = async () => {
   if (!id) return;
   seasonSummaryLoading.value = true;
   try {
-    const r = await api.get(`/learning-program-classes/${id}/season-summary`, { skipGlobalLoading: true });
+    const params = {};
+    const w = seasonSummaryWeekStart.value;
+    if (w) params.weekStart = String(w).slice(0, 10);
+    const r = await api.get(`/learning-program-classes/${id}/season-summary`, { params, skipGlobalLoading: true });
     seasonSummary.value = r.data || null;
   } catch {
     seasonSummary.value = null;
   } finally {
     seasonSummaryLoading.value = false;
   }
+};
+
+const challengeWeekSchedule = computed(() => {
+  const s = challenge.value?.season_settings_json?.schedule || {};
+  return {
+    cutoff: String(s.weekEndsSundayAt || challenge.value?.week_start_time || '00:00'),
+    tz: String(s.weekTimeZone || 'UTC')
+  };
+});
+
+const onTeamProgressWeekBoundary = (ymd) => {
+  const y = String(ymd || '').slice(0, 10);
+  if (!y) return;
+  if (seasonSummaryWeekStart.value === y) return;
+  seasonSummaryWeekStart.value = y;
+  loadSeasonSummary();
 };
 
 const loadRecordBoards = async () => {

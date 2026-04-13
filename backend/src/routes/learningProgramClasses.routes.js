@@ -56,6 +56,7 @@ import {
   postChallengeMessage,
   uploadChallengeMessageAttachment,
   getChallengeMessageUnreadCounts,
+  markChallengeMessagesRead,
   deleteChallengeMessage,
   pinChallengeMessage,
   getDraftReport,
@@ -201,6 +202,7 @@ router.get('/:classId/messages', listChallengeMessages);
 router.post('/:classId/messages', postChallengeMessage);
 router.post('/:classId/messages/attachment', workoutMediaUpload.single('file'), uploadChallengeMessageAttachment);
 router.get('/:classId/messages/unread-counts', getChallengeMessageUnreadCounts);
+router.post('/:classId/messages/mark-read', markChallengeMessagesRead);
 router.delete('/:classId/messages/:messageId', deleteChallengeMessage);
 router.put('/:classId/messages/:messageId/pin', pinChallengeMessage);
 router.get('/:classId/messages/:messageId/reactions', listMessageReactions);

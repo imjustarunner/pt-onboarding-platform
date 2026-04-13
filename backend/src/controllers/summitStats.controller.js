@@ -10,6 +10,7 @@ import {
   getPrimaryClubManager
 } from '../utils/sscClubAccess.js';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
+import { sqlAffiliationUnderSummitPlatform } from '../utils/summitPlatformClubs.js';
 import { estimateCalories } from '../utils/calorieUtils.js';
 
 function slugify(name) {
@@ -815,12 +816,44 @@ export const getClubManagerContext = async (req, res, next) => {
       return res.status(401).json({ error: { message: 'Not authenticated' } });
     }
 
+    const platformIds = await getPlatformAgencyIds(null);
+    const plat = sqlAffiliationUnderSummitPlatform('a', platformIds);
+
     const agencies = await User.getAgencies(user.id);
-    const clubs = (agencies || []).filter(
+    let clubs = (agencies || []).filter(
       (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
     );
+    if (plat) {
+      const cids = clubs.map((c) => Number(c.id)).filter((id) => id > 0);
+      if (cids.length) {
+        const ph = cids.map(() => '?').join(',');
+        const [allowedRows] = await pool.execute(
+          `SELECT a.id FROM agencies a WHERE a.id IN (${ph})${plat.sql}`,
+          [...cids, ...plat.params]
+        );
+        const allowed = new Set((allowedRows || []).map((r) => Number(r.id)));
+        clubs = clubs.filter((c) => allowed.has(Number(c.id)));
+      } else {
+        clubs = [];
+      }
+    }
+
     const emailVerified = await hasUserEmailVerified(user.id);
-    const managedClubs = await getManagedClubsForUser(user.id, { includeAssistant: true });
+    let managedClubs = await getManagedClubsForUser(user.id, { includeAssistant: true });
+    if (plat && managedClubs?.length) {
+      const mids = managedClubs.map((row) => Number(row.id)).filter((id) => id > 0);
+      if (mids.length) {
+        const phm = mids.map(() => '?').join(',');
+        const [mOk] = await pool.execute(
+          `SELECT a.id FROM agencies a WHERE a.id IN (${phm})${plat.sql}`,
+          [...mids, ...plat.params]
+        );
+        const allowM = new Set((mOk || []).map((r) => Number(r.id)));
+        managedClubs = managedClubs.filter((row) => allowM.has(Number(row.id)));
+      } else {
+        managedClubs = [];
+      }
+    }
     const summitStatsScopedAdmin = managedClubs.length > 0;
 
     res.json({

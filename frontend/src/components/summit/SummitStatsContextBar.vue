@@ -16,43 +16,6 @@
           <span class="sstc-club-name" :title="clubDisplayName">{{ clubDisplayName }}</span>
         </div>
 
-        <div class="sstc-separator" aria-hidden="true" />
-
-        <!-- Team block -->
-        <div class="sstc-team-block">
-          <span class="sstc-pill-badge sstc-pill-badge--team">Team</span>
-
-          <template v-if="loading">
-            <img
-              v-if="platformLogoUrl"
-              :src="platformLogoUrl"
-              class="sstc-loading-logo"
-              alt="Loading"
-              aria-label="Loading teams…"
-            />
-            <span v-else class="sstc-skeleton" />
-          </template>
-
-          <template v-else-if="teams.length === 0">
-            <span class="sstc-muted">No team assigned</span>
-          </template>
-
-          <template v-else-if="teams.length === 1">
-            <span class="sstc-team-name">{{ teams[0].teamName }}</span>
-          </template>
-
-          <template v-else>
-            <div class="sstc-select-wrap">
-              <select v-model="selectedTeamId" class="sstc-team-select" aria-label="Select team">
-                <option v-for="opt in teamOptions" :key="opt.key" :value="opt.teamId">
-                  {{ opt.teamName }}
-                </option>
-              </select>
-              <span class="sstc-select-caret" aria-hidden="true">▾</span>
-            </div>
-          </template>
-        </div>
-
         <!-- Season / challenge name — pushed to the right on wide screens -->
         <div v-if="selectedTeam?.challengeName" class="sstc-season-block">
           <span class="sstc-season-icon" aria-hidden="true">🏆</span>
@@ -77,6 +40,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { isSummitPlatformRouteSlug } from '../../utils/summitPlatformSlugs.js';
 
 const props = defineProps({
   visible: {
@@ -99,7 +63,10 @@ const loading = ref(false);
 const teams = ref([]);
 const selectedTeamId = ref(null);
 
-const orgId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
+const orgId = computed(() => {
+  const id = Number(agencyStore.currentAgency?.id);
+  return Number.isFinite(id) && id > 0 ? id : null;
+});
 
 const orgSlug = computed(() => {
   const fromRoute = String(route.params?.organizationSlug || '').trim();
@@ -146,18 +113,26 @@ function challengeLink(row) {
 }
 
 async function loadSummary() {
-  if (!props.visible || !orgId.value) {
+  if (!props.visible) {
     teams.value = [];
     selectedTeamId.value = null;
     return;
   }
   loading.value = true;
   try {
-    const r = await api.get('/learning-program-classes/my/summary', {
-      params: { organizationId: orgId.value },
-      skipGlobalLoading: true
-    });
-    const list = Array.isArray(r.data?.teams) ? r.data.teams : [];
+    let list = [];
+    if (orgId.value) {
+      const r = await api.get('/learning-program-classes/my/summary', {
+        params: { organizationId: orgId.value },
+        skipGlobalLoading: true
+      });
+      list = Array.isArray(r.data?.teams) ? r.data.teams : [];
+    }
+    const summitPlatformPath = isSummitPlatformRouteSlug(String(route.params?.organizationSlug || ''));
+    if (!list.length && !summitPlatformPath) {
+      const rAll = await api.get('/learning-program-classes/my/summary', { skipGlobalLoading: true });
+      list = Array.isArray(rAll.data?.teams) ? rAll.data.teams : [];
+    }
     teams.value = list;
     const key = storageKey();
     let nextId = null;

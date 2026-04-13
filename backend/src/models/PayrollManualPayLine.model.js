@@ -1,5 +1,15 @@
 import pool from '../config/database.js';
 
+function parseJsonMaybe(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 class PayrollManualPayLine {
   static async _hasColumn(colName) {
     try {
@@ -22,6 +32,10 @@ class PayrollManualPayLine {
     return this._hasColumn('credits_hours');
   }
 
+  static async _hasMetadataJsonColumn() {
+    return this._hasColumn('metadata_json');
+  }
+
   static async listForPeriod(args) {
     // Supports:
     // - listForPeriod(payrollPeriodId)
@@ -37,6 +51,7 @@ class PayrollManualPayLine {
 
     if (!payrollPeriodId) return [];
 
+    const hasMetadataJson = await this._hasMetadataJsonColumn();
     const [rows] = await pool.execute(
       `SELECT *
        FROM payroll_manual_pay_lines
@@ -45,7 +60,10 @@ class PayrollManualPayLine {
        ORDER BY id ASC`,
       agencyId ? [payrollPeriodId, agencyId] : [payrollPeriodId]
     );
-    return rows || [];
+    return (rows || []).map((row) => ({
+      ...row,
+      ...(hasMetadataJson ? { metadata_json: parseJsonMaybe(row?.metadata_json) } : {})
+    }));
   }
 
   static async create({
@@ -57,6 +75,7 @@ class PayrollManualPayLine {
     label,
     category = 'indirect',
     creditsHours = null,
+    metadataJson = null,
     amount,
     createdByUserId
   }) {
@@ -67,31 +86,37 @@ class PayrollManualPayLine {
     const hasCredits = await this._hasCreditsHoursColumn();
     const hasLineType = await this._hasColumn('line_type');
     const hasPtoBucket = await this._hasColumn('pto_bucket');
+    const hasMetadataJson = await this._hasMetadataJsonColumn();
     const hrsRaw = creditsHours === null || creditsHours === undefined || creditsHours === '' ? null : Number(creditsHours);
     const safeHrs = Number.isFinite(hrsRaw) ? Math.round(hrsRaw * 100) / 100 : null;
+    const cols = ['payroll_period_id', 'agency_id', 'user_id'];
+    const vals = [payrollPeriodId, agencyId, userId];
+    if (hasLineType) {
+      cols.push('line_type');
+      vals.push(lt);
+    }
+    if (hasPtoBucket) {
+      cols.push('pto_bucket');
+      vals.push(lt === 'pto' ? ptoB : null);
+    }
+    cols.push('label', 'category');
+    vals.push(label, safeCat);
+    if (hasCredits) {
+      cols.push('credits_hours');
+      vals.push(safeHrs);
+    }
+    if (hasMetadataJson) {
+      cols.push('metadata_json');
+      vals.push(metadataJson && typeof metadataJson === 'object' ? JSON.stringify(metadataJson) : null);
+    }
+    cols.push('amount', 'created_by_user_id');
+    vals.push(amount, createdByUserId);
+    const placeholders = cols.map(() => '?').join(', ');
     const [res] = await pool.execute(
-      (hasLineType && hasPtoBucket && hasCredits)
-        ? `INSERT INTO payroll_manual_pay_lines
-           (payroll_period_id, agency_id, user_id, line_type, pto_bucket, label, category, credits_hours, amount, created_by_user_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        : (hasLineType && hasPtoBucket)
-          ? `INSERT INTO payroll_manual_pay_lines
-             (payroll_period_id, agency_id, user_id, line_type, pto_bucket, label, category, amount, created_by_user_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          : hasCredits
-            ? `INSERT INTO payroll_manual_pay_lines
-               (payroll_period_id, agency_id, user_id, label, category, credits_hours, amount, created_by_user_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-            : `INSERT INTO payroll_manual_pay_lines
-               (payroll_period_id, agency_id, user_id, label, category, amount, created_by_user_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      (hasLineType && hasPtoBucket && hasCredits)
-        ? [payrollPeriodId, agencyId, userId, lt, (lt === 'pto' ? ptoB : null), label, safeCat, safeHrs, amount, createdByUserId]
-        : (hasLineType && hasPtoBucket)
-          ? [payrollPeriodId, agencyId, userId, lt, (lt === 'pto' ? ptoB : null), label, safeCat, amount, createdByUserId]
-          : hasCredits
-            ? [payrollPeriodId, agencyId, userId, label, safeCat, safeHrs, amount, createdByUserId]
-            : [payrollPeriodId, agencyId, userId, label, safeCat, amount, createdByUserId]
+      `INSERT INTO payroll_manual_pay_lines
+       (${cols.join(', ')})
+       VALUES (${placeholders})`,
+      vals
     );
     return res?.insertId || null;
   }
@@ -155,7 +180,8 @@ class PayrollManualPayLine {
           (l?.credits_hours === null || l?.credits_hours === undefined || l?.credits_hours === '')
             ? null
             : Number(l?.credits_hours),
-        amount: Number(l?.amount || 0)
+        amount: Number(l?.amount || 0),
+        metadataJson: parseJsonMaybe(l?.metadata_json)
       });
     }
     return { byUserId };
@@ -176,6 +202,10 @@ class PayrollManualPayLine {
       const cat = String(r?.category || 'indirect').trim().toLowerCase();
       const category = (cat === 'indirect') ? 'indirect' : 'direct';
       const amount = Number(r?.amount);
+      const metadataJson =
+        r?.metadataJson && typeof r.metadataJson === 'object'
+          ? r.metadataJson
+          : null;
       const hrsRaw = (r?.creditsHours === null || r?.creditsHours === undefined || r?.creditsHours === '' || r?.credits_hours === null || r?.credits_hours === undefined || r?.credits_hours === '')
         ? null
         : Number(r?.creditsHours ?? r?.credits_hours);
@@ -185,13 +215,25 @@ class PayrollManualPayLine {
       if (!Number.isFinite(amount)) continue;
       if (hrsRaw !== null && (!Number.isFinite(hrsRaw) || hrsRaw < 0)) continue;
       // Allow negative amounts for corrections.
-      clean.push({ userId, label, category, creditsHours: (hrsRaw === null ? null : Number((Math.round(hrsRaw * 100) / 100).toFixed(2))), amount: Number(amount.toFixed(2)) });
+      clean.push({
+        userId,
+        label,
+        category,
+        creditsHours: (hrsRaw === null ? null : Number((Math.round(hrsRaw * 100) / 100).toFixed(2))),
+        metadataJson,
+        amount: Number(amount.toFixed(2))
+      });
     }
 
     if (!clean.length) return [];
 
     const hasCredits = await this._hasCreditsHoursColumn();
-    const placeholders = clean.map(() => (hasCredits ? '(?, ?, ?, ?, ?, ?, ?, ?)' : '(?, ?, ?, ?, ?, ?, ?)')).join(',');
+    const hasMetadataJson = await this._hasMetadataJsonColumn();
+    const cols = ['payroll_period_id', 'agency_id', 'user_id', 'label', 'category'];
+    if (hasCredits) cols.push('credits_hours');
+    if (hasMetadataJson) cols.push('metadata_json');
+    cols.push('amount', 'created_by_user_id');
+    const placeholders = clean.map(() => `(${cols.map(() => '?').join(', ')})`).join(',');
     const params = [];
     for (const r of clean) {
       params.push(
@@ -201,18 +243,15 @@ class PayrollManualPayLine {
         r.label,
         r.category,
         ...(hasCredits ? [r.creditsHours] : []),
+        ...(hasMetadataJson ? [r.metadataJson ? JSON.stringify(r.metadataJson) : null] : []),
         r.amount,
         createdByUserId
       );
     }
     await pool.execute(
-      hasCredits
-        ? `INSERT INTO payroll_manual_pay_lines
-           (payroll_period_id, agency_id, user_id, label, category, credits_hours, amount, created_by_user_id)
-           VALUES ${placeholders}`
-        : `INSERT INTO payroll_manual_pay_lines
-           (payroll_period_id, agency_id, user_id, label, category, amount, created_by_user_id)
-           VALUES ${placeholders}`,
+      `INSERT INTO payroll_manual_pay_lines
+       (${cols.join(', ')})
+       VALUES ${placeholders}`,
       params
     );
 
@@ -221,4 +260,3 @@ class PayrollManualPayLine {
 }
 
 export default PayrollManualPayLine;
-

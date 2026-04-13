@@ -9,7 +9,7 @@ import ChallengeWorkout from '../models/ChallengeWorkout.model.js';
 import ChallengeWeeklyTask from '../models/ChallengeWeeklyTask.model.js';
 import ChallengeWeeklyAssignment from '../models/ChallengeWeeklyAssignment.model.js';
 import ChallengeElimination from '../models/ChallengeElimination.model.js';
-import { getWeekStartDate, getWeekDateTimeRange, getSeasonWeekPhase } from '../utils/challengeWeekUtils.js';
+import { getWeekStartDate, getWeekDateTimeRange, getSeasonWeekPhase, getSeasonWeekMileGoals } from '../utils/challengeWeekUtils.js';
 import { canAccessChallenge } from '../utils/challengeAccess.js';
 import { ensureChallengeParticipationAgreementAccepted } from '../utils/challengeParticipationAgreement.js';
 import { normalizeRecognitionCategories } from './learningProgramClasses.controller.js';
@@ -84,28 +84,17 @@ const getRunRuckProgression = ({ klass, weekStart, fallbackMemberCount = 0 }) =>
   const settings = parseJsonObject(klass?.season_settings_json || {});
   const event = parseJsonObject(settings.event || {});
   if (String(event.category || 'run_ruck').toLowerCase() !== 'run_ruck') return null;
-  const participation = parseJsonObject(settings.participation || {});
-  const cutoff = getWeekCutoffTime(klass);
-  const tz = getWeekTimeZone(klass);
-  const baseMiles = Number(participation.runRuckStartMilesPerPerson ?? 0) || 0;
-  const weeklyIncrease = Number(participation.runRuckWeeklyIncreaseMilesPerPerson ?? 2) || 0;
-  const baselineMembers = Math.max(
-    0,
-    Number.parseInt(participation.baselineMemberCount, 10) || Number(fallbackMemberCount) || 0
-  );
-  const anchorWeek = klass?.starts_at
-    ? getWeekStartDate(new Date(klass.starts_at), cutoff, tz)
-    : String(weekStart || '').slice(0, 10);
-  const startDate = new Date(`${String(anchorWeek).slice(0, 10)}T00:00:00`);
-  const targetDate = new Date(`${String(weekStart).slice(0, 10)}T00:00:00`);
-  const weekIndex = Math.max(0, Math.floor((targetDate.getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000)));
-  const individualMilesMinimum = Number((baseMiles + (weekIndex * weeklyIncrease)).toFixed(2));
-  const teamMilesMinimum = Number((individualMilesMinimum * baselineMembers).toFixed(2));
+  const merged = { ...klass };
+  const fb = Number(fallbackMemberCount);
+  if (fb > 0 && !(Number(merged.expected_team_size) > 0)) {
+    merged.expected_team_size = fb;
+  }
+  const g = getSeasonWeekMileGoals(merged, String(weekStart || '').slice(0, 10));
   return {
-    weekIndex,
-    individualMilesMinimum,
-    teamMilesMinimum,
-    baselineMembers
+    weekIndex: g.weekIndex,
+    individualMilesMinimum: g.individualMilesMinimum,
+    teamMilesMinimum: g.teamMilesMinimum,
+    baselineMembers: g.baselineMembers
   };
 };
 
@@ -1010,10 +999,36 @@ export const getSeasonSummary = async (req, res, next) => {
     const weekTimeZone = getWeekTimeZone(access.class);
     const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
     const limits = deriveSummaryLimits(access.class);
+    const seasonSettings = parseJsonObject(access.class?.season_settings_json || {});
+    const participation = parseJsonObject(seasonSettings.participation || {});
+    const eventCategory = String(seasonSettings?.event?.category || 'run_ruck').toLowerCase();
+    const weeklyGoalMetric = String(participation?.weeklyGoalMetric || '').toLowerCase();
+    const summaryTeamMetricIsMiles = eventCategory === 'run_ruck' || weeklyGoalMetric === 'miles' || weeklyGoalMetric.includes('mile');
     const weeklyTopAthletes = (await ChallengeWorkout.getWeeklyLeaderboard(classId, weekStart, { limit: limits.weeklyTopAthletes, weekCutoffTime, weekTimeZone }))
       .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, team_name: r.team_name, total_points: Number(r.total_points || 0) }));
-    const weeklyTopTeams = (await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, { limit: limits.weeklyTopTeams, weekCutoffTime, weekTimeZone }))
-      .map((r) => ({ team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points || 0) }));
+    // Include pending / unreviewed proof so dashboard matches team weekly progress; list all teams (zeros included).
+    const weeklyTopTeamsRaw = await ChallengeWorkout.getWeeklyTeamLeaderboard(classId, weekStart, {
+      limit: 500,
+      weekCutoffTime,
+      weekTimeZone,
+      requireApprovedProof: false
+    });
+    let weeklyTopTeams = (weeklyTopTeamsRaw || []).map((r) => ({
+      team_id: r.team_id,
+      team_name: r.team_name,
+      total_points: Number(r.total_points || 0),
+      total_miles: Number(r.total_miles || 0)
+    }));
+    if (summaryTeamMetricIsMiles) {
+      weeklyTopTeams = [...weeklyTopTeams].sort(
+        (a, b) => Number(b.total_miles || 0) - Number(a.total_miles || 0) || Number(b.total_points || 0) - Number(a.total_points || 0)
+      );
+    } else {
+      weeklyTopTeams = [...weeklyTopTeams].sort(
+        (a, b) => Number(b.total_points || 0) - Number(a.total_points || 0) || Number(b.total_miles || 0) - Number(a.total_miles || 0)
+      );
+    }
+    weeklyTopTeams = weeklyTopTeams.slice(0, limits.weeklyTopTeams);
     const seasonTopIndividuals = (await ChallengeWorkout.getLeaderboardIndividual(classId, { limit: limits.seasonTopIndividuals }))
       .map((r) => ({ user_id: r.user_id, first_name: r.first_name, last_name: r.last_name, profile_photo_path: r.profile_photo_path || null, total_points: Number(r.total_points || 0), total_miles: Number(r.total_miles || 0) }));
     const [teamSeasonRows] = await pool.execute(
@@ -1070,6 +1085,7 @@ export const getSeasonSummary = async (req, res, next) => {
       weekStartDate: weekStart,
       weekPhase,
       weeklySummary: {
+        teamMetricUnit: summaryTeamMetricIsMiles ? 'mi' : 'pts',
         topAthletes: weeklyTopAthletes,
         topTeams: weeklyTopTeams,
         teamSeasonTotals: (teamSeasonRows || []).map((r) => ({ team_id: r.team_id, team_name: r.team_name, total_points: Number(r.total_points || 0) })),

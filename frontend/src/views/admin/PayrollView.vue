@@ -920,6 +920,12 @@
                       <span class="muted" v-if="l.taxable === false"> (non-taxable)</span>
                       <span class="muted" v-else> (taxable)</span>
                       <span class="muted" v-if="l.meta && (l.meta.hours || l.meta.rate)"> • {{ fmtNum(l.meta.hours ?? 0) }} hrs @ {{ fmtMoney(l.meta.rate ?? 0) }}</span>
+                      <details v-if="l.meta && Array.isArray(l.meta.details) && l.meta.details.length" style="margin-top: 6px;">
+                        <summary class="muted" style="cursor: pointer;">View details</summary>
+                        <div class="muted" style="margin-top: 6px;">
+                          <div v-for="(d, j) in l.meta.details" :key="`adj-detail:${i}:${j}`">{{ d.label }}: {{ d.value }}</div>
+                        </div>
+                      </details>
                     </div>
                     <div class="right">{{ fmtMoney(l.amount ?? 0) }}</div>
                   </div>
@@ -4481,6 +4487,7 @@
                     <th>Paid?</th>
                     <th v-if="rawMode === 'draft_audit'">Draft Payable?</th>
                     <th v-else>Status</th>
+                    <th>Notes</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -4553,9 +4560,12 @@
                         </button>
                       </div>
                     </td>
+                    <td>
+                      <button type="button" class="btn btn-secondary btn-sm" @click="openRawRowNotes(r)">Notes</button>
+                    </td>
                   </tr>
                   <tr v-if="!rawModeRows.length">
-                    <td colspan="8" class="muted">No rows found.</td>
+                    <td colspan="9" class="muted">No rows found.</td>
                   </tr>
                 </tbody>
               </table>
@@ -4593,6 +4603,7 @@
                       <th>Units</th>
                       <th>Paid?</th>
                       <th v-if="rawAuditHasDraftRows">Draft Payable?</th>
+                      <th>Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4606,12 +4617,14 @@
                           {{ c.from_status || '—' }}
                         </span>
                         <span class="muted"> • {{ c.from_service_code || '—' }}</span>
+                        <div v-if="rawAuditLocationLabel(c, 'from')" class="muted" style="margin-top: 4px;">{{ rawAuditLocationLabel(c, 'from') }}</div>
                       </td>
                       <td>
                         <span class="status-pill" :class="rawStatusPillClass({ normalized_status: c.to_status })">
                           {{ c.to_status || '—' }}
                         </span>
                         <span class="muted"> • {{ c.to_service_code || '—' }}</span>
+                        <div v-if="rawAuditLocationLabel(c, 'to')" class="muted" style="margin-top: 4px;">{{ rawAuditLocationLabel(c, 'to') }}</div>
                       </td>
                       <td class="right">{{ fmtNum(c.from_units || 0) }} → {{ fmtNum(c.to_units || 0) }}</td>
                       <td><strong>{{ c.paid_state || 'UNPAID' }}</strong></td>
@@ -4627,22 +4640,25 @@
                         </select>
                         <span v-else class="muted">—</span>
                       </td>
+                      <td>
+                        <button type="button" class="btn btn-secondary btn-sm" @click="openRawRowNotes(c)">Notes</button>
+                      </td>
                     </tr>
                     <tr v-if="!rawAuditChangesLimited.length">
-                      <td :colspan="rawAuditHasDraftRows ? 9 : 8" class="muted">No run-to-run changes found for this selection.</td>
+                      <td :colspan="rawAuditHasDraftRows ? 10 : 9" class="muted">No run-to-run changes found for this selection.</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
 
               <div
-                v-if="rawMode !== 'missed_appts_paid_in_full' && rawAuditPayableChanges.length > 0 && rawAuditBaselineImportId !== rawAuditSelectedImportId"
+                v-if="rawMode !== 'missed_appts_paid_in_full' && rawAddToCurrentPeriodFiltered.length > 0 && rawAuditBaselineImportId !== rawAuditSelectedImportId"
                 class="card"
                 style="margin-top: 12px; padding: 12px;"
               >
                 <strong>Add to current period</strong>
                 <div class="hint muted" style="margin-top: 4px;">
-                  {{ rawAuditPayableChanges.length }} note(s) to be paid (finalized or draft payable). Select destination period, check rows to add, then click Add.
+                  {{ rawAddToCurrentPeriodFiltered.length }} actionable row(s). Review flagged rows, choose whether to add or reduce them, then apply to the destination period.
                 </div>
                 <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr auto;">
                   <div class="field">
@@ -4658,28 +4674,58 @@
                       @click="applyRawAddToCurrentPeriod"
                       :disabled="rawAddToCurrentPeriodApplying || !rawAddToCurrentPeriodDestinationId || rawAddToCurrentPeriodSelectedCount === 0 || isRawAddToCurrentPeriodDestPosted"
                     >
-                      {{ rawAddToCurrentPeriodApplying ? 'Adding…' : 'Add selected to current period' }}
+                      {{ rawAddToCurrentPeriodApplying ? 'Applying…' : 'Apply selected to current period' }}
                     </button>
                   </div>
                 </div>
                 <div v-if="rawAddToCurrentPeriodError" class="warn-box" style="margin-top: 8px;">{{ rawAddToCurrentPeriodError }}</div>
+                <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr auto;">
+                  <div class="field">
+                    <label>Search actionable rows</label>
+                    <input v-model="rawAddToCurrentPeriodSearch" type="text" placeholder="Search provider, client, code, location, change…" />
+                  </div>
+                  <div class="hint muted" style="align-self: end;">
+                    {{ rawAddToCurrentPeriodSelectedCount }} selected
+                  </div>
+                </div>
                 <table class="table" style="margin-top: 10px; font-size: 0.9em;">
                   <thead>
-                    <tr><th style="width: 36px;"></th><th>Provider</th><th>Client</th><th>DOS</th><th>Service code</th><th>Type</th><th class="right">Units</th></tr>
+                    <tr>
+                      <th class="th-sortable" @click="toggleRawAddToCurrentPeriodSort('provider_name')">Provider <span class="th-sort-indicator">{{ rawAddToCurrentPeriodSortIndicator('provider_name') }}</span></th>
+                      <th class="th-sortable" @click="toggleRawAddToCurrentPeriodSort('client')">Client <span class="th-sort-indicator">{{ rawAddToCurrentPeriodSortIndicator('client') }}</span></th>
+                      <th class="th-sortable" @click="toggleRawAddToCurrentPeriodSort('service_date')">DOS <span class="th-sort-indicator">{{ rawAddToCurrentPeriodSortIndicator('service_date') }}</span></th>
+                      <th class="th-sortable" @click="toggleRawAddToCurrentPeriodSort('service_code')">Service code <span class="th-sort-indicator">{{ rawAddToCurrentPeriodSortIndicator('service_code') }}</span></th>
+                      <th class="th-sortable" @click="toggleRawAddToCurrentPeriodSort('location')">Location <span class="th-sort-indicator">{{ rawAddToCurrentPeriodSortIndicator('location') }}</span></th>
+                      <th class="th-sortable" @click="toggleRawAddToCurrentPeriodSort('change')">Change <span class="th-sort-indicator">{{ rawAddToCurrentPeriodSortIndicator('change') }}</span></th>
+                      <th class="th-sortable" @click="toggleRawAddToCurrentPeriodSort('type')">Type <span class="th-sort-indicator">{{ rawAddToCurrentPeriodSortIndicator('type') }}</span></th>
+                      <th class="th-sortable right" @click="toggleRawAddToCurrentPeriodSort('units')">Units <span class="th-sort-indicator">{{ rawAddToCurrentPeriodSortIndicator('units') }}</span></th>
+                      <th>Action</th>
+                      <th>Notes</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="c in rawAuditPayableChanges" :key="c.rowMatchKey" :style="!rawAddToCurrentPeriodRowSelected(c) ? { opacity: 0.5 } : {}">
-                      <td>
-                        <input type="checkbox" :checked="rawAddToCurrentPeriodRowSelected(c)" @change="rawAddToCurrentPeriodToggleRow(c, $event.target.checked)" />
-                      </td>
+                    <tr v-for="c in rawAddToCurrentPeriodFiltered" :key="c.rowMatchKey" :style="rawAddToCurrentPeriodRowAction(c) === 'skip' ? { opacity: 0.55 } : {}">
                       <td>{{ c.provider_name || getUserName(c.user_id) }}</td>
                       <td class="muted">{{ rawClientHint(c) || '—' }}</td>
                       <td class="muted">{{ ymd(c.service_date) || '—' }}</td>
-                      <td>{{ c.to_service_code || '—' }}</td>
+                      <td>{{ c.to_service_code || c.from_service_code || '—' }}</td>
+                      <td class="muted">{{ rawAuditLocationLabel(c, 'to') || rawAuditLocationLabel(c, 'from') || '—' }}</td>
+                      <td>{{ rawChangeTypeLabel(c.changeType) }}</td>
                       <td><span class="badge badge-success">{{ rawAuditPayableTypeBadge(c) }}</span></td>
                       <td class="right">
                         <input type="number" :value="rawAddToCurrentPeriodRowUnits(c)" @input="rawAddToCurrentPeriodSetRowUnits(c, $event.target.value)" min="0" step="0.01" style="width: 80px; text-align: right;" />
                       </td>
+                      <td>
+                        <select :value="rawAddToCurrentPeriodRowAction(c)" @change="rawAddToCurrentPeriodSetRowAction(c, $event.target.value)">
+                          <option v-for="opt in rawAddToCurrentPeriodActionOptions(c)" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                      </td>
+                      <td>
+                        <button type="button" class="btn btn-secondary btn-sm" @click="openRawRowNotes(c)">Notes</button>
+                      </td>
+                    </tr>
+                    <tr v-if="!rawAddToCurrentPeriodFiltered.length">
+                      <td colspan="10" class="muted">No actionable rows found.</td>
                     </tr>
                   </tbody>
                 </table>
@@ -4714,6 +4760,46 @@
                 </div>
               </div>
             </div>
+            </div>
+          </div>
+        </teleport>
+
+        <teleport to="body">
+          <div v-if="rawRowNotesOpen" class="modal-backdrop" @click.self="rawRowNotesOpen = false">
+            <div class="modal" style="width: min(92vw, 720px);">
+              <div class="modal-header">
+                <div>
+                  <div class="modal-title">Raw Import Notes</div>
+                  <div class="hint">{{ rawRowNotesContext }}</div>
+                </div>
+                <div class="actions" style="margin: 0;">
+                  <button class="btn btn-secondary btn-sm" @click="rawRowNotesOpen = false">Close</button>
+                </div>
+              </div>
+              <div v-if="rawRowNotesError" class="warn-box" style="margin-top: 10px;">{{ rawRowNotesError }}</div>
+              <div class="field" style="margin-top: 10px;">
+                <label>Add note</label>
+                <textarea v-model="rawRowNoteDraft" rows="3" placeholder="Add a payroll note with context for future review…"></textarea>
+              </div>
+              <div class="actions" style="margin-top: 10px;">
+                <button class="btn btn-primary" :disabled="rawRowNotesSaving || !String(rawRowNoteDraft || '').trim()" @click="saveRawRowNote">
+                  {{ rawRowNotesSaving ? 'Saving…' : 'Save note' }}
+                </button>
+              </div>
+              <div style="margin-top: 14px;">
+                <strong>History</strong>
+                <div v-if="rawRowNotesLoading" class="muted" style="margin-top: 8px;">Loading notes…</div>
+                <div v-else-if="!rawRowNotes.length" class="muted" style="margin-top: 8px;">No notes yet.</div>
+                <div v-else class="stack" style="margin-top: 10px;">
+                  <div v-for="n in rawRowNotes" :key="n.id" class="card" style="padding: 10px; margin-top: 8px;">
+                    <div style="display: flex; justify-content: space-between; gap: 10px;">
+                      <strong>{{ n.authorName || 'Unknown user' }}</strong>
+                      <span class="muted">{{ n.changedAt ? fmtDateTime(n.changedAt) : 'Unknown time' }}</span>
+                    </div>
+                    <div style="margin-top: 6px; white-space: pre-wrap;">{{ n.note }}</div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </teleport>
@@ -5936,14 +6022,25 @@ const rawAuditShowAllChanges = ref(false);
 const rawAuditLoading = ref(false);
 const missedAppointmentsPaidInFull = ref([]); // display-only flags from billing import
 const rawDraftSearch = ref('');
+const rawAddToCurrentPeriodSearch = ref('');
 const rawRowFilter = ref('unpaid_only'); // unpaid_only | draft_only | all
 const rawRowLimit = ref(200);
 const rawSortColumn = ref('service_date'); // provider_name | client | service_code | service_date | unit_count | note_status | draft_payable
 const rawSortDirection = ref('desc'); // asc | desc
+const rawAddToCurrentPeriodSortColumn = ref('provider_name');
+const rawAddToCurrentPeriodSortDirection = ref('asc');
 const rawProcessChecklistByRowId = ref({}); // UI-only checklist (not saved anywhere)
 const rawPostedProcessingUnlocked = ref(false);
 const updatingDraftPayable = ref(false);
 const rawDraftError = ref('');
+const rawRowNotesOpen = ref(false);
+const rawRowNotesLoading = ref(false);
+const rawRowNotesSaving = ref(false);
+const rawRowNotesError = ref('');
+const rawRowNotesRowId = ref(null);
+const rawRowNotesContext = ref('');
+const rawRowNotes = ref([]);
+const rawRowNoteDraft = ref('');
 const runningPayroll = ref(false);
 const postingPayroll = ref(false);
 const unpostingPayroll = ref(false);
@@ -9743,6 +9840,9 @@ const rawAuditChangesFiltered = computed(() => {
     const changeType = String(c?.changeType || '').toLowerCase();
     if (changeType === 'added') return true;
     if (changeType === 'overpaid_deleted') return true;
+    if (changeType === 'code_change') return true;
+    if (changeType === 'location_changed') return true;
+    if (changeType === 'service_code_changed') return true;
     const fromStatus = String(c?.from_status || '').toUpperCase();
     const wasPaidInBaseline = fromStatus === 'FINALIZED' || fromStatus === 'DRAFT_PAID';
     return !wasPaidInBaseline;
@@ -9765,10 +9865,14 @@ const rawAuditChangesLimited = computed(() => {
   if (q) {
     rows = rows.filter((r) => {
       const prov = String(r?.provider_name || '').toLowerCase();
+      const client = String(r?.patient_first_name || '').toLowerCase();
       const codeFrom = String(r?.from_service_code || '').toLowerCase();
       const codeTo = String(r?.to_service_code || '').toLowerCase();
       const dos = String(r?.service_date || '').toLowerCase();
-      return prov.includes(q) || codeFrom.includes(q) || codeTo.includes(q) || dos.includes(q);
+      const changeType = rawChangeTypeLabel(r?.changeType).toLowerCase();
+      const fromLoc = String(r?.metadata_json?.fromLocation || '').toLowerCase();
+      const toLoc = String(r?.metadata_json?.toLocation || '').toLowerCase();
+      return prov.includes(q) || client.includes(q) || codeFrom.includes(q) || codeTo.includes(q) || dos.includes(q) || changeType.includes(q) || fromLoc.includes(q) || toLoc.includes(q);
     });
   }
   return rows.slice(0, 500);
@@ -9789,8 +9893,39 @@ const rawAuditChangeCanToggleDraft = (c) => {
 
 const rawAuditDraftUnpaidUpdating = ref(null);
 
+const rawAuditLocationLabel = (c, side = 'to') => {
+  if (side === 'from') return String(c?.metadata_json?.fromLocation || '').trim();
+  return String(c?.metadata_json?.toLocation || '').trim();
+};
+
+const rawAuditCanAddAsCarryover = (c) => {
+  const toStatus = String(c?.to_status || '').toUpperCase();
+  const fromStatus = String(c?.from_status || '').toUpperCase();
+  const toUnits = Number(c?.to_units || 0);
+  const userId = Number(c?.user_id || 0);
+  if (!userId || !(toUnits > 1e-9)) return false;
+  if (toStatus === 'DRAFT_PAID') return true;
+  if (toStatus === 'FINALIZED') {
+    if (fromStatus === 'DRAFT_PAID') return false;
+    return true;
+  }
+  return false;
+};
+
+const rawAuditCanAddAsReduction = (c) => {
+  const changeType = String(c?.changeType || '').trim().toLowerCase();
+  const fromUnits = Number(c?.from_units || 0);
+  const userId = Number(c?.user_id || 0);
+  return changeType === 'overpaid_deleted' && userId > 0 && fromUnits > 1e-9;
+};
+
 const rawAuditPayableTypeBadge = (c) => {
-  if (String(c?.changeType || '').toLowerCase() === 'added') return 'Added';
+  const changeType = String(c?.changeType || '').toLowerCase();
+  if (changeType === 'overpaid_deleted') return 'Reduction';
+  if (changeType === 'location_changed') return 'Review location';
+  if (changeType === 'service_code_changed') return 'Review code';
+  if (changeType === 'code_change') return 'Review code';
+  if (changeType === 'added') return 'Added';
   const to = String(c?.to_status || '').toUpperCase();
   if (to === 'DRAFT_PAID') return 'Draft';
   return 'Finalized';
@@ -9812,22 +9947,9 @@ const rawAuditToggleDraftPayable = async (c, isPayable) => {
   }
 };
 
-const rawAuditPayableChanges = computed(() => {
+const rawAuditActionableChanges = computed(() => {
   const all = (rawAuditChanges.value || []).slice();
-  return all.filter((c) => {
-    const toStatus = String(c?.to_status || '').toUpperCase();
-    const fromStatus = String(c?.from_status || '').toUpperCase();
-    const toUnits = Number(c?.to_units || 0);
-    if (!(toUnits > 1e-9)) return false;
-    const userId = Number(c?.user_id || 0);
-    if (!userId) return false;
-    if (toStatus === 'DRAFT_PAID') return true;
-    if (toStatus === 'FINALIZED') {
-      if (fromStatus === 'DRAFT_PAID') return false;
-      return true;
-    }
-    return false;
-  });
+  return all.filter((c) => rawAuditCanAddAsCarryover(c) || rawAuditCanAddAsReduction(c));
 });
 
 const rawAddToCurrentPeriodDestinationId = ref(null);
@@ -9858,17 +9980,42 @@ const rawAddToCurrentPeriodDestOptions = computed(() => {
   }).sort((a, b) => String(a?.period_start || '').localeCompare(String(b?.period_start || '')));
 });
 
-watch(rawAuditPayableChanges, (payable) => {
+const rawAddToCurrentPeriodDefaultAction = (c) => {
+  const changeType = String(c?.changeType || '').trim().toLowerCase();
+  if (changeType === 'overpaid_deleted') return 'skip';
+  if (changeType === 'location_changed' || changeType === 'service_code_changed' || changeType === 'code_change') return 'skip';
+  return rawAuditCanAddAsCarryover(c) ? 'add' : 'skip';
+};
+
+const rawAddToCurrentPeriodActionOptions = (c) => {
+  if (rawAuditCanAddAsReduction(c)) {
+    return [
+      { value: 'skip', label: 'Do not add' },
+      { value: 'reduction', label: 'Add to pay period as reduction' }
+    ];
+  }
+  return [
+    { value: 'skip', label: 'Do not add' },
+    { value: 'add', label: 'Add to current period' }
+  ];
+};
+
+watch(rawAuditActionableChanges, (payable) => {
   const sel = {};
   for (const c of payable || []) {
     const k = c?.rowMatchKey;
-    if (k) sel[k] = { selected: true, units: Number(c?.to_units || 0) };
+    if (k) {
+      sel[k] = {
+        action: rawAddToCurrentPeriodDefaultAction(c),
+        units: Number((c?.to_units ?? c?.from_units) || 0)
+      };
+    }
   }
   rawAddToCurrentPeriodSelection.value = sel;
 }, { immediate: true });
 
-watch([rawAuditPayableChanges, rawAddToCurrentPeriodDestOptions], () => {
-  const payable = rawAuditPayableChanges.value || [];
+watch([rawAuditActionableChanges, rawAddToCurrentPeriodDestOptions], () => {
+  const payable = rawAuditActionableChanges.value || [];
   const opts = rawAddToCurrentPeriodDestOptions.value || [];
   if (!payable.length) {
     rawAddToCurrentPeriodDestinationId.value = null;
@@ -9887,9 +10034,49 @@ watch([rawAuditPayableChanges, rawAddToCurrentPeriodDestOptions], () => {
   }
 }, { immediate: true });
 
+const rawAddToCurrentPeriodFiltered = computed(() => {
+  const q = String(rawAddToCurrentPeriodSearch.value || '').trim().toLowerCase();
+  let rows = (rawAuditActionableChanges.value || []).slice();
+  if (q) {
+    rows = rows.filter((r) => {
+      const provider = String(r?.provider_name || '').toLowerCase();
+      const client = String(r?.patient_first_name || '').toLowerCase();
+      const clientHint = String(rawClientHint(r) || '').toLowerCase();
+      const fromCode = String(r?.from_service_code || '').toLowerCase();
+      const toCode = String(r?.to_service_code || '').toLowerCase();
+      const dos = String(r?.service_date || '').toLowerCase();
+      const type = String(rawAuditPayableTypeBadge(r) || '').toLowerCase();
+      const changeLabel = String(rawChangeTypeLabel(r?.changeType) || '').toLowerCase();
+      const fromLoc = String(r?.metadata_json?.fromLocation || '').toLowerCase();
+      const toLoc = String(r?.metadata_json?.toLocation || '').toLowerCase();
+      return provider.includes(q) || client.includes(q) || clientHint.includes(q) || fromCode.includes(q) || toCode.includes(q) || dos.includes(q) || type.includes(q) || changeLabel.includes(q) || fromLoc.includes(q) || toLoc.includes(q);
+    });
+  }
+  const dir = rawAddToCurrentPeriodSortDirection.value === 'asc' ? 1 : -1;
+  const col = String(rawAddToCurrentPeriodSortColumn.value || 'provider_name');
+  const str = (v) => String(v || '').trim().toLowerCase();
+  const dateStr = (v) => String(v || '').slice(0, 10);
+  rows.sort((a, b) => {
+    let cmp = 0;
+    if (col === 'provider_name') cmp = str(a?.provider_name).localeCompare(str(b?.provider_name));
+    else if (col === 'client') cmp = str(a?.patient_first_name).localeCompare(str(b?.patient_first_name));
+    else if (col === 'service_date') cmp = dateStr(a?.service_date).localeCompare(dateStr(b?.service_date));
+    else if (col === 'service_code') cmp = str(a?.to_service_code || a?.from_service_code).localeCompare(str(b?.to_service_code || b?.from_service_code));
+    else if (col === 'location') cmp = str(rawAuditLocationLabel(a, 'to') || rawAuditLocationLabel(a, 'from')).localeCompare(str(rawAuditLocationLabel(b, 'to') || rawAuditLocationLabel(b, 'from')));
+    else if (col === 'change') cmp = str(rawChangeTypeLabel(a?.changeType)).localeCompare(str(rawChangeTypeLabel(b?.changeType)));
+    else if (col === 'type') cmp = str(rawAuditPayableTypeBadge(a)).localeCompare(str(rawAuditPayableTypeBadge(b)));
+    else if (col === 'units') cmp = Number(rawAddToCurrentPeriodRowUnits(a) || 0) - Number(rawAddToCurrentPeriodRowUnits(b) || 0);
+    if (cmp) return cmp * dir;
+    const dosCmp = dateStr(b?.service_date).localeCompare(dateStr(a?.service_date));
+    if (dosCmp) return dosCmp;
+    return str(a?.provider_name).localeCompare(str(b?.provider_name));
+  });
+  return rows;
+});
+
 const rawAddToCurrentPeriodSelectedCount = computed(() => {
   const sel = rawAddToCurrentPeriodSelection.value || {};
-  return (rawAuditPayableChanges.value || []).filter((c) => sel[c.rowMatchKey]?.selected).length;
+  return (rawAuditActionableChanges.value || []).filter((c) => String(sel[c.rowMatchKey]?.action || 'skip') !== 'skip').length;
 });
 
 const isRawAddToCurrentPeriodDestPosted = computed(() => {
@@ -9899,55 +10086,130 @@ const isRawAddToCurrentPeriodDestPosted = computed(() => {
   return (p?.status || '').toLowerCase() === 'posted' || (p?.status || '').toLowerCase() === 'finalized';
 });
 
-const rawAddToCurrentPeriodRowSelected = (c) => {
+const rawAddToCurrentPeriodRowAction = (c) => {
   const k = c?.rowMatchKey;
   const s = rawAddToCurrentPeriodSelection.value?.[k];
-  return s ? s.selected : true;
+  return s ? s.action : rawAddToCurrentPeriodDefaultAction(c);
 };
-const rawAddToCurrentPeriodToggleRow = (c, checked) => {
+const rawAddToCurrentPeriodSetRowAction = (c, action) => {
   const k = c?.rowMatchKey;
-  const base = rawAddToCurrentPeriodSelection.value[k] || { selected: true, units: Number(c?.to_units || 0) };
-  rawAddToCurrentPeriodSelection.value = { ...rawAddToCurrentPeriodSelection.value, [k]: { ...base, selected: !!checked } };
+  const base = rawAddToCurrentPeriodSelection.value[k] || { action: rawAddToCurrentPeriodDefaultAction(c), units: Number((c?.to_units ?? c?.from_units) || 0) };
+  rawAddToCurrentPeriodSelection.value = { ...rawAddToCurrentPeriodSelection.value, [k]: { ...base, action: String(action || 'skip') } };
 };
 const rawAddToCurrentPeriodRowUnits = (c) => {
   const k = c?.rowMatchKey;
   const s = rawAddToCurrentPeriodSelection.value?.[k];
-  const def = Number(c?.to_units || 0);
+  const def = Number((c?.to_units ?? c?.from_units) || 0);
   return s ? s.units : def;
 };
 const rawAddToCurrentPeriodSetRowUnits = (c, val) => {
   const k = c?.rowMatchKey;
   const num = Math.max(0, Number(val) || 0);
-  const base = rawAddToCurrentPeriodSelection.value[k] || { selected: true, units: Number(c?.to_units || 0) };
+  const base = rawAddToCurrentPeriodSelection.value[k] || { action: rawAddToCurrentPeriodDefaultAction(c), units: Number((c?.to_units ?? c?.from_units) || 0) };
   rawAddToCurrentPeriodSelection.value = { ...rawAddToCurrentPeriodSelection.value, [k]: { ...base, units: num } };
+};
+
+const toggleRawAddToCurrentPeriodSort = (column) => {
+  const col = String(column || '').trim();
+  if (!col) return;
+  if (rawAddToCurrentPeriodSortColumn.value === col) {
+    rawAddToCurrentPeriodSortDirection.value = rawAddToCurrentPeriodSortDirection.value === 'asc' ? 'desc' : 'asc';
+    return;
+  }
+  rawAddToCurrentPeriodSortColumn.value = col;
+  rawAddToCurrentPeriodSortDirection.value = (col === 'service_date' || col === 'units') ? 'desc' : 'asc';
+};
+
+const rawAddToCurrentPeriodSortIndicator = (column) => {
+  const col = String(column || '').trim();
+  if (!col || rawAddToCurrentPeriodSortColumn.value !== col) return '';
+  return rawAddToCurrentPeriodSortDirection.value === 'asc' ? '↑' : '↓';
+};
+
+const rawAddToCurrentPeriodCarryoverMeta = (c, units) => {
+  const changeType = String(c?.changeType || '').trim().toLowerCase();
+  const safeUnits = Number(units || 0);
+  const categories = {
+    old_note: { units: 0, notes: 0 },
+    late_addition: { units: 0, notes: 0 },
+    code_changed: { units: 0, notes: 0, fromCodes: [] }
+  };
+  if (changeType === 'service_code_changed' || changeType === 'code_change') {
+    categories.code_changed.units = safeUnits;
+    categories.code_changed.notes = 1;
+    categories.code_changed.fromCodes = [String(c?.from_service_code || '').trim()].filter(Boolean);
+  } else {
+    categories.late_addition.units = safeUnits;
+    categories.late_addition.notes = 1;
+  }
+  return {
+    categories,
+    rawAuditRows: [{
+      rowMatchKey: c?.rowMatchKey || null,
+      changeType,
+      fromServiceCode: c?.from_service_code || null,
+      toServiceCode: c?.to_service_code || null,
+      providerName: c?.provider_name || null,
+      patientFirstName: c?.patient_first_name || null,
+      serviceDate: c?.service_date || null,
+      fromStatus: c?.from_status || null,
+      toStatus: c?.to_status || null,
+      fromLocation: c?.metadata_json?.fromLocation || null,
+      toLocation: c?.metadata_json?.toLocation || null
+    }]
+  };
 };
 
 const applyRawAddToCurrentPeriod = async () => {
   const destId = rawAddToCurrentPeriodDestinationId.value;
   if (!destId) return;
-  const payable = rawAuditPayableChanges.value || [];
+  const payable = rawAddToCurrentPeriodFiltered.value || [];
   const sel = rawAddToCurrentPeriodSelection.value || {};
   const rowsToApply = [];
   for (const c of payable) {
-    if (!sel[c.rowMatchKey]?.selected) continue;
+    const action = String(sel[c.rowMatchKey]?.action || 'skip');
+    if (action === 'skip') continue;
     const units = rawAddToCurrentPeriodRowUnits(c);
     if (!(units > 1e-9)) continue;
     const userId = Number(c?.user_id || 0);
     if (!userId) continue;
-    const serviceCode = String(c?.to_service_code || '').trim();
+    const serviceCode = String(c?.to_service_code || c?.from_service_code || '').trim();
     if (!serviceCode) continue;
-    rowsToApply.push({
-      userId,
-      serviceCode,
-      carryoverFinalizedUnits: Number(units.toFixed(2)),
-      carryoverFinalizedRowCount: 1
-    });
+    if (action === 'reduction') {
+      rowsToApply.push({
+        actionType: 'reduction',
+        userId,
+        serviceCode,
+        units: Number(units.toFixed(2)),
+        rowMatchKey: c?.rowMatchKey || null,
+        providerName: c?.provider_name || null,
+        patientFirstName: c?.patient_first_name || null,
+        serviceDate: c?.service_date || null,
+        fromStatus: c?.from_status || null,
+        location: c?.metadata_json?.fromLocation || c?.metadata_json?.toLocation || null,
+        baselineRowId: c?.metadata_json?.baselineRowId || null,
+        compareRowId: c?.metadata_json?.compareRowId || null
+      });
+    } else {
+      rowsToApply.push({
+        actionType: 'add',
+        userId,
+        serviceCode,
+        rowMatchKey: c?.rowMatchKey || null,
+        carryoverFinalizedUnits: Number(units.toFixed(2)),
+        carryoverFinalizedRowCount: 1,
+        carryoverMeta: rawAddToCurrentPeriodCarryoverMeta(c, units)
+      });
+    }
   }
   if (!rowsToApply.length) return;
   try {
     rawAddToCurrentPeriodApplying.value = true;
     rawAddToCurrentPeriodError.value = '';
-    await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: rowsToApply });
+    await api.post(`/payroll/periods/${destId}/raw-audit-actions/apply`, {
+      sourcePayrollPeriodId: rawAuditActivePeriodId.value,
+      rows: rowsToApply
+    });
     rawAddToCurrentPeriodError.value = '';
     rawAddToCurrentPeriodSelection.value = {};
     await loadPeriods();
@@ -9957,7 +10219,10 @@ const applyRawAddToCurrentPeriod = async () => {
     if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || String(msg).includes('H2014') || String(msg).includes('H2032'))) {
       const ok = window.confirm('Carryover is blocked by H0031/H0032/H2014/H2032 processing. Apply anyway (skip processing gate)?');
       if (ok) {
-        await api.post(`/payroll/periods/${destId}/carryover/apply`, { rows: rowsToApply }, { params: { skipProcessingGate: 'true' } });
+        await api.post(`/payroll/periods/${destId}/raw-audit-actions/apply`, {
+          sourcePayrollPeriodId: rawAuditActivePeriodId.value,
+          rows: rowsToApply
+        }, { params: { skipProcessingGate: 'true' } });
         rawAddToCurrentPeriodError.value = '';
         rawAddToCurrentPeriodSelection.value = {};
         await loadPeriods();
@@ -10004,8 +10269,68 @@ const rawChangeTypeLabel = (type) => {
   if (t === 'unit_change') return 'Units changed';
   if (t === 'added') return 'Added in selected run';
   if (t === 'removed') return 'Removed in selected run';
+  if (t === 'location_changed') return 'Place of service changed';
+  if (t === 'service_code_changed') return 'Service code changed';
   if (t === 'overpaid_deleted') return 'Overpaid—session deleted';
   return type || 'Changed';
+};
+
+const rawAuditNoteTargetRowId = (item) => {
+  if (!item) return null;
+  if (Number(item?.id || 0) > 0) return Number(item.id);
+  const compareRowId = Number(item?.metadata_json?.compareRowId || 0);
+  if (compareRowId > 0) return compareRowId;
+  const baselineRowId = Number(item?.metadata_json?.baselineRowId || 0);
+  if (baselineRowId > 0) return baselineRowId;
+  return null;
+};
+
+const rawAuditNoteContextLabel = (item) => {
+  const provider = String(item?.provider_name || '').trim() || 'Unknown provider';
+  const client = String(item?.patient_first_name || '').trim() || 'Unknown client';
+  const code = String(item?.service_code || item?.to_service_code || item?.from_service_code || '').trim() || 'Unknown code';
+  const dos = ymd(item?.service_date) || 'Unknown DOS';
+  return `${provider} • ${client} • ${code} • ${dos}`;
+};
+
+const openRawRowNotes = async (item) => {
+  const rowId = rawAuditNoteTargetRowId(item);
+  if (!rowId) {
+    rawRowNotesError.value = 'This row does not have a note target.';
+    return;
+  }
+  rawRowNotesOpen.value = true;
+  rawRowNotesRowId.value = rowId;
+  rawRowNotesContext.value = rawAuditNoteContextLabel(item);
+  rawRowNotesError.value = '';
+  rawRowNoteDraft.value = '';
+  rawRowNotesLoading.value = true;
+  try {
+    const resp = await api.get(`/payroll/import-rows/${rowId}/audit-notes`);
+    rawRowNotes.value = resp.data?.notes || [];
+  } catch (e) {
+    rawRowNotesError.value = e.response?.data?.error?.message || e.message || 'Failed to load notes';
+    rawRowNotes.value = [];
+  } finally {
+    rawRowNotesLoading.value = false;
+  }
+};
+
+const saveRawRowNote = async () => {
+  const rowId = Number(rawRowNotesRowId.value || 0);
+  const note = String(rawRowNoteDraft.value || '').trim();
+  if (!rowId || !note) return;
+  try {
+    rawRowNotesSaving.value = true;
+    rawRowNotesError.value = '';
+    const resp = await api.post(`/payroll/import-rows/${rowId}/audit-notes`, { note });
+    rawRowNotes.value = resp.data?.notes || [];
+    rawRowNoteDraft.value = '';
+  } catch (e) {
+    rawRowNotesError.value = e.response?.data?.error?.message || e.message || 'Failed to save note';
+  } finally {
+    rawRowNotesSaving.value = false;
+  }
 };
 
 const missedAppointmentsPaidInFullRows = computed(() => {

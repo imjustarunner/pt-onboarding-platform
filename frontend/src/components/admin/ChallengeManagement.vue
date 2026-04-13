@@ -648,13 +648,13 @@
                 <label class="branding-label">Banner Image</label>
                 <p class="branding-hint">Recommended: 1200 × 400 px. After uploading, drag the crosshair to set the focal point.</p>
                 <div
-                  v-if="editBannerPreview || editingChallenge?.banner_image_path"
+                  v-if="editBannerPreview || editingChallenge?.banner_image_path || editingChallenge?.bannerImagePath"
                   class="banner-preview-wrap"
                   @click="onBannerFocalClick"
                   title="Click to set focal point"
                 >
                   <img
-                    :src="editBannerPreview || resolveUploadUrl(editingChallenge?.banner_image_path, { classId: editingChallenge?.id, type: 'banner' })"
+                    :src="editBannerPreview || resolveUploadUrl(editingChallenge?.banner_image_path || editingChallenge?.bannerImagePath, { classId: editingChallenge?.id, type: 'banner', version: editingChallenge?.updated_at })"
                     class="banner-preview-img"
                     :style="{ objectPosition: `${editBannerFocalX}% ${editBannerFocalY}%` }"
                     draggable="false"
@@ -668,11 +668,11 @@
                 </div>
                 <div class="branding-upload-row">
                   <label class="btn btn-secondary btn-sm branding-upload-btn">
-                    {{ editBannerPreview || editingChallenge?.banner_image_path ? 'Replace Banner' : 'Upload Banner' }}
+                    {{ editBannerPreview || editingChallenge?.banner_image_path || editingChallenge?.bannerImagePath ? 'Replace Banner' : 'Upload Banner' }}
                     <input type="file" accept="image/png,image/jpeg,image/webp" style="display:none" @change="onEditBannerChange" />
                   </label>
                   <button
-                    v-if="editBannerPreview || editingChallenge?.banner_image_path"
+                    v-if="editBannerPreview || editingChallenge?.banner_image_path || editingChallenge?.bannerImagePath"
                     type="button"
                     class="btn btn-danger btn-sm"
                     @click="removeEditBanner"
@@ -683,19 +683,19 @@
               <div class="branding-field branding-field--logo">
                 <label class="branding-label">Season Logo / Icon</label>
                 <p class="branding-hint">Recommended: 256 × 256 px square, PNG with transparency.</p>
-                <div v-if="editLogoPreview || editingChallenge?.logo_image_path" class="logo-preview-wrap">
+                <div v-if="editLogoPreview || editingChallenge?.logo_image_path || editingChallenge?.logoImagePath" class="logo-preview-wrap">
                   <img
-                    :src="editLogoPreview || resolveUploadUrl(editingChallenge?.logo_image_path, { classId: editingChallenge?.id, type: 'logo' })"
+                    :src="editLogoPreview || resolveUploadUrl(editingChallenge?.logo_image_path || editingChallenge?.logoImagePath, { classId: editingChallenge?.id, type: 'logo', version: editingChallenge?.updated_at })"
                     class="logo-preview-img"
                   />
                 </div>
                 <div class="branding-upload-row">
                   <label class="btn btn-secondary btn-sm branding-upload-btn">
-                    {{ editLogoPreview || editingChallenge?.logo_image_path ? 'Replace Logo' : 'Upload Logo' }}
+                    {{ editLogoPreview || editingChallenge?.logo_image_path || editingChallenge?.logoImagePath ? 'Replace Logo' : 'Upload Logo' }}
                     <input type="file" accept="image/png,image/jpeg,image/webp" style="display:none" @change="onEditLogoChange" />
                   </label>
                   <button
-                    v-if="editLogoPreview || editingChallenge?.logo_image_path"
+                    v-if="editLogoPreview || editingChallenge?.logo_image_path || editingChallenge?.logoImagePath"
                     type="button"
                     class="btn btn-danger btn-sm"
                     @click="removeEditLogo"
@@ -727,6 +727,117 @@
         </div>
 
         <div v-show="manageTab === 'teams'" class="manage-panel">
+          <div class="planned-roster-card">
+            <h4 class="planned-roster-title">Planned team size (weekly distance bar)</h4>
+            <p class="hint planned-roster-hint">
+              Used to compute each team’s weekly mileage target: <strong>per-person minimum × this number</strong>.
+              It stays fixed even if someone leaves the team, so the club can plan coverage.
+            </p>
+            <div class="planned-roster-row">
+              <label for="manage-members-per-team">Members per team</label>
+              <input
+                id="manage-members-per-team"
+                v-model.number="manageTeamsMembersPerTeam"
+                type="number"
+                min="1"
+                max="99"
+                step="1"
+                class="input planned-roster-input"
+              />
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="!managingChallenge || manageTeamsMembersPerTeamSaving || !Number.isFinite(manageTeamsMembersPerTeam) || manageTeamsMembersPerTeam < 1"
+                @click="saveManageTeamsMembersPerTeam"
+              >
+                {{ manageTeamsMembersPerTeamSaving ? 'Saving…' : 'Save' }}
+              </button>
+            </div>
+            <p v-if="manageTeamsMembersPerTeamMsg" class="planned-roster-msg">{{ manageTeamsMembersPerTeamMsg }}</p>
+          </div>
+
+          <div
+            v-if="managingChallenge && manageTeamsIsMilesGoal && manageTeamsWeekRows.length"
+            class="weekly-team-targets-card"
+          >
+            <h4 class="weekly-team-targets-title">Weekly team targets (mi)</h4>
+            <p class="hint weekly-team-targets-hint">
+              Rows use the same week boundaries as the season dashboard (schedule cutoff &amp; timezone).
+              Default = per-person minimum × <strong>members per team</strong> above. Edit to override; Reset clears the override.
+            </p>
+            <div class="wtt-table-wrap">
+              <table class="wtt-table">
+                <thead>
+                  <tr>
+                    <th>Week</th>
+                    <th>Basis</th>
+                    <th>Team target (mi)</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in manageTeamsWeekRows" :key="row.weekStart">
+                    <td class="wtt-week">{{ row.label }}</td>
+                    <td class="wtt-basis">
+                      <template v-if="row.perPerson != null">
+                        {{ Number(row.perPerson).toFixed(1) }} mi × {{ row.roster }}
+                      </template>
+                      <template v-else>—</template>
+                    </td>
+                    <td class="wtt-target">
+                      <template v-if="weeklyTargetEditingWeekStart === row.weekStart">
+                        <input
+                          v-model="weeklyTargetEditDraft"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          class="input wtt-input"
+                          :disabled="weeklyTargetSaving"
+                        />
+                      </template>
+                      <template v-else>
+                        <span class="wtt-target-val">{{ row.active != null ? Number(row.active).toFixed(2) : '—' }}</span>
+                        <span v-if="row.hasOverride" class="wtt-badge">Custom</span>
+                      </template>
+                    </td>
+                    <td class="wtt-actions">
+                      <template v-if="weeklyTargetEditingWeekStart === row.weekStart">
+                        <button
+                          type="button"
+                          class="btn btn-primary btn-sm"
+                          :disabled="weeklyTargetSaving"
+                          @click="saveWeeklyTeamTarget"
+                        >{{ weeklyTargetSaving ? 'Saving…' : 'Save' }}</button>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          :disabled="weeklyTargetSaving"
+                          @click="cancelEditWeeklyTeamTarget"
+                        >Cancel</button>
+                      </template>
+                      <template v-else>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          :disabled="weeklyTargetSaving || !!weeklyTargetEditingWeekStart"
+                          @click="startEditWeeklyTeamTarget(row)"
+                        >Edit</button>
+                        <button
+                          v-if="row.hasOverride"
+                          type="button"
+                          class="btn btn-link btn-sm"
+                          :disabled="weeklyTargetSaving"
+                          @click="resetWeeklyTeamTargetToAuto(row.weekStart)"
+                        >Reset</button>
+                      </template>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-if="weeklyTargetMsg" class="planned-roster-msg">{{ weeklyTargetMsg }}</p>
+          </div>
+
           <div class="panel-actions">
             <button class="btn btn-primary btn-sm" @click="openAddTeamModal" :disabled="!managingChallenge">Add Team</button>
             <button class="btn btn-secondary btn-sm" :disabled="!managingChallenge" @click="loadSnakeDraftBoard">Preview Draft Order</button>
@@ -1123,7 +1234,7 @@
                 title="Click to reposition focal point"
               >
                 <img
-                  :src="manageBannerPreview || resolveUploadUrl(managingChallenge?.banner_image_path, { classId: managingChallenge?.id, type: 'banner' })"
+                  :src="manageBannerPreview || resolveUploadUrl(managingChallenge?.banner_image_path, { classId: managingChallenge?.id, type: 'banner', version: managingChallenge?.updated_at })"
                   class="banner-preview-img"
                   :style="{ objectPosition: `${manageBannerFocalX}% ${manageBannerFocalY}%` }"
                   draggable="false"
@@ -1163,7 +1274,7 @@
               <p class="hint">Shown beside the season name. Recommended: 256 × 256 px square PNG.</p>
               <div v-if="manageLogoPreview || managingChallenge?.logo_image_path" class="logo-preview-wrap">
                 <img
-                  :src="manageLogoPreview || resolveUploadUrl(managingChallenge?.logo_image_path, { classId: managingChallenge?.id, type: 'logo' })"
+                  :src="manageLogoPreview || resolveUploadUrl(managingChallenge?.logo_image_path, { classId: managingChallenge?.id, type: 'logo', version: managingChallenge?.updated_at })"
                   class="logo-preview-img"
                 />
               </div>
@@ -1332,6 +1443,7 @@ import ClubCustomFields from '../club/ClubCustomFields.vue';
 import IconSelector from '../admin/IconSelector.vue';
 import IconLibraryView from '../../views/admin/IconLibraryView.vue';
 import { TIMEZONE_GROUPS } from '../../utils/timezones.js';
+import { getWeekStartDate, getWeekDateTimeRange, ymdUtcDiffDays } from '../../utils/challengeWeekUtils.js';
 import {
   agreementItemsToTextarea,
   agreementTextareaToItems,
@@ -1342,6 +1454,7 @@ import {
 } from '../../utils/seasonParticipationAgreement.js';
 import { useAuthStore } from '../../store/auth';
 import { isSummitPlatformRouteSlug } from '../../utils/summitPlatformSlugs.js';
+import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 
 const router = useRouter();
 const route = useRoute();
@@ -1549,6 +1662,84 @@ const goalProgressionRows = computed(() => {
     return { wk, perPerson: perPerson.toFixed(1), teamTotal: (perPerson * members).toFixed(1) };
   });
 });
+
+/** Mirrors backend resolveWeeklyDistanceTargets per-person miles for a calendar week (Manage → Teams table). */
+function resolvePerPersonMilesForManagedWeek(klass, weekStartYmd) {
+  if (!klass) return null;
+  const settings = klass.season_settings_json && typeof klass.season_settings_json === 'object' ? klass.season_settings_json : {};
+  const participation = settings.participation || {};
+  const schedule = settings.schedule || {};
+  const drafting = settings.drafting || {};
+  const teamsBlock = settings.teams || {};
+  const cutoff = String(schedule.weekEndsSundayAt || klass.week_start_time || '00:00').trim() || '00:00';
+  const tz = String(schedule.weekTimeZone || 'UTC').trim() || 'UTC';
+
+  const firstPositiveNumber = (...vals) => {
+    for (const v of vals) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 0;
+  };
+
+  const membersPerTeamFromTeamsSettings = firstPositiveNumber(teamsBlock.membersPerTeam, teamsBlock.members_per_team);
+  const chainBaseline =
+    (membersPerTeamFromTeamsSettings > 0 ? Math.floor(membersPerTeamFromTeamsSettings) : 0) ||
+    Number(participation.weeklyGoalMembersPerTeam) ||
+    Number(participation.baselineMemberCount) ||
+    Number(drafting.membersPerTeam) ||
+    Number(klass.expected_team_size) ||
+    12;
+  const baselineMembers = Math.max(1, Math.floor(Number(chainBaseline) || 12));
+
+  const perPersonStart = firstPositiveNumber(
+    participation.runRuckStartMilesPerPerson,
+    participation.run_ruck_start_miles_per_person,
+    participation.individualMinPointsPerWeek,
+    participation.individual_min_points_per_week,
+    klass.individual_min_points_per_week
+  );
+  const weeklyIncrease =
+    Number(participation.runRuckWeeklyIncreaseMilesPerPerson ?? participation.run_ruck_weekly_increase_miles_per_person ?? 0) || 0;
+
+  const weeklyGoalMin = firstPositiveNumber(
+    participation.weeklyGoalMinimum,
+    participation.weekly_goal_minimum,
+    klass.weekly_goal_minimum,
+    klass.weeklyGoalMinimum
+  );
+
+  const anchorWeek = klass.starts_at
+    ? getWeekStartDate(new Date(klass.starts_at), cutoff, tz)
+    : String(weekStartYmd).slice(0, 10);
+  const ws = String(weekStartYmd).slice(0, 10);
+  const weekIndex = anchorWeek && ws ? Math.max(0, Math.floor(ymdUtcDiffDays(anchorWeek, ws) / 7)) : 0;
+
+  let perPersonMiles = Number((perPersonStart + weekIndex * weeklyIncrease).toFixed(2));
+
+  if (perPersonMiles <= 0 && weeklyGoalMin > 0) {
+    perPersonMiles = Number((weeklyGoalMin / baselineMembers).toFixed(2));
+  }
+
+  let teamMilesBaseline = Number((perPersonMiles * baselineMembers).toFixed(2));
+
+  const dbTeamMin = klass.team_min_points_per_week != null ? Number(klass.team_min_points_per_week) : 0;
+  if (Number.isFinite(dbTeamMin) && dbTeamMin > 0) {
+    if (teamMilesBaseline <= 0 || dbTeamMin > teamMilesBaseline) {
+      teamMilesBaseline = Number(dbTeamMin.toFixed(2));
+    }
+    if (perPersonMiles <= 0 && baselineMembers > 0) {
+      perPersonMiles = Number((teamMilesBaseline / baselineMembers).toFixed(2));
+    }
+  }
+
+  if (perPersonMiles <= 0 && weeklyGoalMin > 0 && baselineMembers > 0) {
+    perPersonMiles = Number((weeklyGoalMin / baselineMembers).toFixed(2));
+  }
+
+  return Number.isFinite(perPersonMiles) && perPersonMiles > 0 ? perPersonMiles : null;
+}
+
 const recordMetricOptions = [
   { value: 'longest_run', label: 'Longest Run' },
   { value: 'fastest_mile', label: 'Best Mile Pace (Run)' },
@@ -1929,6 +2120,97 @@ const captainAppsError = ref('');
 const togglingCaptainApps = ref(false);
 const finalizingCaptains = ref(false);
 const creatingPresetTeams = ref(false);
+const manageTeamsMembersPerTeam = ref(10);
+const manageTeamsMembersPerTeamSaving = ref(false);
+const manageTeamsMembersPerTeamMsg = ref('');
+
+/** Per-week team mile targets (YYYY-MM-DD week start → miles). Loaded from teams.weeklyTeamTargets. */
+const weeklyTargetOverrides = ref({});
+const weeklyTargetEditingWeekStart = ref(null);
+const weeklyTargetEditDraft = ref('');
+const weeklyTargetSaving = ref(false);
+const weeklyTargetMsg = ref('');
+
+const manageTeamsIsMilesGoal = computed(() => {
+  const row = managingChallenge.value;
+  if (!row) return false;
+  const s = row.season_settings_json ?? row.seasonSettingsJson;
+  const season = s && typeof s === 'object' ? s : {};
+  const cat = String(season?.event?.category || 'run_ruck').toLowerCase();
+  const part = season.participation || {};
+  const metric = String(part.weeklyGoalMetric || '').toLowerCase();
+  return cat === 'run_ruck' || metric === 'miles' || metric.includes('mile');
+});
+
+const manageTeamsWeekRows = computed(() => {
+  const klass = managingChallenge.value;
+  if (!klass || !manageTeamsIsMilesGoal.value) return [];
+
+  const raw = klass.season_settings_json ?? klass.seasonSettingsJson;
+  const season = raw && typeof raw === 'object' ? raw : {};
+  const schedule = season.schedule || {};
+  const cutoff = String(schedule.weekEndsSundayAt || klass.week_start_time || '00:00').trim() || '00:00';
+  const tz = String(schedule.weekTimeZone || 'UTC').trim() || 'UTC';
+  const rawStart = klass.starts_at || klass.startsAt;
+  const rawEnd = klass.ends_at || klass.endsAt;
+
+  let cur = getWeekStartDate(rawStart ? new Date(rawStart) : new Date(), cutoff, tz);
+  if (!cur) cur = getWeekStartDate(new Date(), cutoff, tz);
+  if (!cur) return [];
+
+  const todayWeek = getWeekStartDate(new Date(), cutoff, tz) || cur;
+  const endWeek = rawEnd ? getWeekStartDate(new Date(rawEnd), cutoff, tz) : todayWeek;
+  const maxWeek = !endWeek || String(endWeek) > String(todayWeek) ? todayWeek : endWeek;
+
+  const roster = Math.max(1, Math.floor(Number(manageTeamsMembersPerTeam.value) || 1));
+  const overrides = weeklyTargetOverrides.value || {};
+
+  const fmt = (d) =>
+    (typeof d === 'string' ? new Date(`${d}T12:00:00Z`) : d).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric'
+    });
+
+  const rows = [];
+  let guard = 0;
+  let weekNum = 0;
+  while (cur && guard++ < 520) {
+    if (String(cur) > String(maxWeek)) break;
+    weekNum += 1;
+    const range = getWeekDateTimeRange(cur, cutoff, tz);
+    if (!range?.end) break;
+    const endLabel = new Date(range.end.replace(' ', 'T') + 'Z');
+    const label = `Week ${weekNum} (${fmt(cur)} – ${fmt(endLabel)})`;
+
+    const perPerson = resolvePerPersonMilesForManagedWeek(klass, cur);
+    const computed =
+      perPerson != null && Number.isFinite(perPerson) && perPerson > 0
+        ? Number((perPerson * roster).toFixed(2))
+        : null;
+    const overrideRaw = overrides[cur];
+    const override =
+      overrideRaw != null && Number.isFinite(Number(overrideRaw)) && Number(overrideRaw) > 0
+        ? Number(Number(overrideRaw).toFixed(2))
+        : null;
+
+    rows.push({
+      weekNum,
+      weekStart: cur,
+      label,
+      perPerson,
+      roster,
+      computed,
+      override,
+      hasOverride: override != null,
+      active: override ?? computed
+    });
+
+    const nextStart = getWeekStartDate(new Date(range.end.replace(' ', 'T') + 'Z'), cutoff, tz);
+    if (!nextStart || nextStart === cur) break;
+    cur = nextStart;
+  }
+  return rows;
+});
 
 // Branding – edit form state
 const editBannerFile = ref(null);
@@ -2165,24 +2447,35 @@ const openCreateModal = () => {
   showChallengeModal.value = true;
 };
 
-const openEditModal = (c) => {
-  editingChallenge.value = c;
+const openEditModal = async (c) => {
+  let row = c;
+  if (c?.id) {
+    try {
+      const r = await api.get(`/learning-program-classes/${c.id}`, { skipGlobalLoading: true });
+      const full = r.data?.class;
+      if (full && typeof full === 'object') row = { ...c, ...full };
+    } catch {
+      /* list row only */
+    }
+  }
+  editingChallenge.value = row;
   // Reset branding state
   editBannerFile.value = null;
   editBannerPreview.value = null;
-  editBannerFocalX.value = Number(c?.banner_focal_x ?? 50);
-  editBannerFocalY.value = Number(c?.banner_focal_y ?? 50);
+  editBannerFocalX.value = Number(row?.banner_focal_x ?? row?.bannerFocalX ?? 50);
+  editBannerFocalY.value = Number(row?.banner_focal_y ?? row?.bannerFocalY ?? 50);
   editLogoFile.value = null;
   editLogoPreview.value = null;
-  const at = c?.activity_types_json;
+  const at = row?.activity_types_json ?? row?.activityTypesJson;
   let activityTypesText = '';
   if (Array.isArray(at)) activityTypesText = at.join(', ');
   else if (typeof at === 'object' && at) activityTypesText = Object.keys(at).join(', ');
-  const rec = c.recognition_categories_json ?? c.recognitionCategoriesJson;
+  const rec = row.recognition_categories_json ?? row.recognitionCategoriesJson;
   const recArr = Array.isArray(rec) ? rec : (typeof rec === 'string' ? (() => { try { return JSON.parse(rec) || []; } catch { return []; } })() : []);
-  const seasonSettings = c.season_settings_json && typeof c.season_settings_json === 'object'
-    ? c.season_settings_json
-    : {};
+  const rawSeason = row.season_settings_json ?? row.seasonSettingsJson;
+  const seasonSettings = rawSeason && typeof rawSeason === 'object'
+    ? rawSeason
+    : (typeof rawSeason === 'string' ? (() => { try { return JSON.parse(rawSeason) || {}; } catch { return {}; } })() : {});
   const scoringSettings = seasonSettings.scoring || {};
   const scheduleSettings = seasonSettings.schedule || {};
   const publishSettings = seasonSettings.challengePublish || {};
@@ -2200,18 +2493,18 @@ const openEditModal = (c) => {
   selectedAgreementTemplateKey.value = '';
   challengeForm.value = {
     ...buildAgreementFieldsFromSettings(seasonSettings),
-    className: c.class_name || c.className || '',
-    description: c.description || '',
-    status: (c.status || 'draft').toLowerCase(),
-    startsAt: c.starts_at || c.startsAt ? new Date(c.starts_at || c.startsAt).toISOString().slice(0, 16) : '',
-    endsAt: c.ends_at || c.endsAt ? new Date(c.ends_at || c.endsAt).toISOString().slice(0, 16) : '',
+    className: row.class_name || row.className || '',
+    description: row.description || '',
+    status: (row.status || 'draft').toLowerCase(),
+    startsAt: row.starts_at || row.startsAt ? new Date(row.starts_at || row.startsAt).toISOString().slice(0, 16) : '',
+    endsAt: row.ends_at || row.endsAt ? new Date(row.ends_at || row.endsAt).toISOString().slice(0, 16) : '',
     activityTypesText,
-    weeklyGoalMinimum: c.weekly_goal_minimum ?? c.weeklyGoalMinimum ?? null,
+    weeklyGoalMinimum: row.weekly_goal_minimum ?? row.weeklyGoalMinimum ?? null,
     weeklyGoalMetric: seasonSettings?.participation?.weeklyGoalMetric || 'miles',
-    weeklyGoalMembersPerTeam: seasonSettings?.participation?.weeklyGoalMembersPerTeam ?? 10,
-    teamMinPointsPerWeek: c.team_min_points_per_week ?? c.teamMinPointsPerWeek ?? null,
-    individualMinPointsPerWeek: c.individual_min_points_per_week ?? c.individualMinPointsPerWeek ?? null,
-    mastersAgeThreshold: c.masters_age_threshold ?? c.mastersAgeThreshold ?? 53,
+    weeklyGoalMembersPerTeam: teamsSettings.membersPerTeam ?? seasonSettings?.participation?.weeklyGoalMembersPerTeam ?? 10,
+    teamMinPointsPerWeek: row.team_min_points_per_week ?? row.teamMinPointsPerWeek ?? null,
+    individualMinPointsPerWeek: row.individual_min_points_per_week ?? row.individualMinPointsPerWeek ?? null,
+    mastersAgeThreshold: row.masters_age_threshold ?? row.mastersAgeThreshold ?? 53,
     recognitionCategories: recArr,
     billingEnabled: billingSettings.enabled === true,
     billingChargeTarget: String(billingSettings.chargeTarget || 'member').toLowerCase() === 'club' ? 'club' : 'member',
@@ -2385,13 +2678,18 @@ const saveChallenge = async () => {
           }
         },
         teams: {
+          ...(editingChallenge.value?.season_settings_json?.teams &&
+          typeof editingChallenge.value.season_settings_json.teams === 'object'
+            ? editingChallenge.value.season_settings_json.teams
+            : {}),
           teamCount: Number(challengeForm.value.teamCount ?? 2),
           presetTeamNames: String(challengeForm.value.presetTeamNamesText || '')
             .split(',')
             .map((s) => s.trim())
             .filter(Boolean),
           allowCaptainRenameTeam: challengeForm.value.allowCaptainRenameTeam !== false,
-          allowCaptainNicknameSuffixWhenLocked: challengeForm.value.allowCaptainNicknameSuffixWhenLocked === true
+          allowCaptainNicknameSuffixWhenLocked: challengeForm.value.allowCaptainNicknameSuffixWhenLocked === true,
+          membersPerTeam: Math.max(1, Number(challengeForm.value.weeklyGoalMembersPerTeam ?? 10))
         },
         participation: {
           weeklyGoalMetric: challengeForm.value.weeklyGoalMetric || 'miles',
@@ -2502,15 +2800,19 @@ const editFromManageModal = () => {
 
 // ── Branding helpers ─────────────────────────────────────────────────────────
 
-const resolveUploadUrl = (path, { classId, type } = {}) => {
+const resolveUploadUrl = (path, { classId, type, version } = {}) => {
   if (!path) return '';
   if (path.startsWith('http')) return path;
-  // If classId + type are provided, use the dedicated serve endpoint (no GCS path issues)
+  const direct = toUploadsUrl(path);
+  if (direct) {
+    const v = version != null ? encodeURIComponent(String(version)) : '';
+    return v ? `${direct}${direct.includes('?') ? '&' : '?'}v=${v}` : direct;
+  }
   if (classId && type) {
     const apiBase = String(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/$/, '');
     return `${apiBase}/learning-program-classes/${classId}/${type}`;
   }
-  return `/uploads/${path.replace(/^\/+/, '')}`;
+  return '';
 };
 
 // Edit-form branding
@@ -2523,9 +2825,13 @@ const onEditBannerChange = (e) => {
 const removeEditBanner = async () => {
   editBannerPreview.value = null;
   editBannerFile.value = null;
-  if (editingChallenge.value?.id && editingChallenge.value?.banner_image_path) {
+  const hasBanner = editingChallenge.value?.banner_image_path || editingChallenge.value?.bannerImagePath;
+  if (editingChallenge.value?.id && hasBanner) {
     await api.delete(`/learning-program-classes/${editingChallenge.value.id}/banner`).catch(() => {});
-    if (editingChallenge.value) editingChallenge.value.banner_image_path = null;
+    if (editingChallenge.value) {
+      editingChallenge.value.banner_image_path = null;
+      editingChallenge.value.bannerImagePath = null;
+    }
   }
 };
 const onEditLogoChange = (e) => {
@@ -2537,9 +2843,13 @@ const onEditLogoChange = (e) => {
 const removeEditLogo = async () => {
   editLogoPreview.value = null;
   editLogoFile.value = null;
-  if (editingChallenge.value?.id && editingChallenge.value?.logo_image_path) {
+  const hasLogo = editingChallenge.value?.logo_image_path || editingChallenge.value?.logoImagePath;
+  if (editingChallenge.value?.id && hasLogo) {
     await api.delete(`/learning-program-classes/${editingChallenge.value.id}/logo`).catch(() => {});
-    if (editingChallenge.value) editingChallenge.value.logo_image_path = null;
+    if (editingChallenge.value) {
+      editingChallenge.value.logo_image_path = null;
+      editingChallenge.value.logoImagePath = null;
+    }
   }
 };
 const onBannerFocalClick = (e) => {
@@ -2666,10 +2976,144 @@ const removeManageLogo = async () => {
   }
 };
 
+const syncManageTeamsMembersPerTeamFromChallenge = (row) => {
+  if (!row) return;
+  const raw = row.season_settings_json ?? row.seasonSettingsJson;
+  const season = raw && typeof raw === 'object' ? raw : {};
+  const teamsS = season.teams || {};
+  const part = season.participation || {};
+  const n = Number(teamsS.membersPerTeam || part.weeklyGoalMembersPerTeam);
+  manageTeamsMembersPerTeam.value = Number.isFinite(n) && n >= 1 ? Math.floor(n) : 10;
+  manageTeamsMembersPerTeamMsg.value = '';
+  const wtt = teamsS.weeklyTeamTargets;
+  weeklyTargetOverrides.value =
+    wtt && typeof wtt === 'object' && !Array.isArray(wtt) ? { ...wtt } : {};
+  weeklyTargetEditingWeekStart.value = null;
+  weeklyTargetEditDraft.value = '';
+  weeklyTargetMsg.value = '';
+};
+
+const persistWeeklyTeamTargets = async (nextOverrides) => {
+  if (!managingChallenge.value?.id) return;
+  weeklyTargetSaving.value = true;
+  weeklyTargetMsg.value = '';
+  try {
+    const { data } = await api.get(`/learning-program-classes/${managingChallenge.value.id}`, { skipGlobalLoading: true });
+    const klass = data?.class || data;
+    const prev = klass?.season_settings_json && typeof klass.season_settings_json === 'object' ? klass.season_settings_json : {};
+    const nextSettings = {
+      ...prev,
+      teams: {
+        ...(prev.teams || {}),
+        weeklyTeamTargets: nextOverrides
+      }
+    };
+    const { data: out } = await api.put(
+      `/learning-program-classes/${managingChallenge.value.id}`,
+      { season_settings_json: nextSettings },
+      { skipGlobalLoading: true }
+    );
+    const updated = out?.class;
+    if (updated && managingChallenge.value) {
+      managingChallenge.value = { ...managingChallenge.value, season_settings_json: updated.season_settings_json };
+    }
+    const wt = updated?.season_settings_json?.teams?.weeklyTeamTargets;
+    weeklyTargetOverrides.value = wt && typeof wt === 'object' && !Array.isArray(wt) ? { ...wt } : {};
+    weeklyTargetMsg.value = 'Weekly team targets saved.';
+  } catch (e) {
+    weeklyTargetMsg.value = e?.response?.data?.error?.message || 'Could not save weekly targets.';
+    throw e;
+  } finally {
+    weeklyTargetSaving.value = false;
+  }
+};
+
+const startEditWeeklyTeamTarget = (row) => {
+  weeklyTargetEditingWeekStart.value = row.weekStart;
+  const v = row.active;
+  weeklyTargetEditDraft.value = v != null && Number.isFinite(Number(v)) ? String(Number(v)) : '';
+};
+
+const cancelEditWeeklyTeamTarget = () => {
+  weeklyTargetEditingWeekStart.value = null;
+  weeklyTargetEditDraft.value = '';
+};
+
+const saveWeeklyTeamTarget = async () => {
+  const weekStart = weeklyTargetEditingWeekStart.value;
+  if (!weekStart || !managingChallenge.value?.id) return;
+  const row = manageTeamsWeekRows.value.find((r) => r.weekStart === weekStart);
+  const draft = Number(String(weeklyTargetEditDraft.value).trim());
+  const next = { ...weeklyTargetOverrides.value };
+  if (!Number.isFinite(draft) || draft <= 0) {
+    delete next[weekStart];
+  } else if (row?.computed != null && Math.abs(draft - row.computed) < 0.015) {
+    delete next[weekStart];
+  } else {
+    next[weekStart] = Number(draft.toFixed(2));
+  }
+  try {
+    await persistWeeklyTeamTargets(next);
+    weeklyTargetEditingWeekStart.value = null;
+    weeklyTargetEditDraft.value = '';
+  } catch {
+    /* message set in persist */
+  }
+};
+
+const resetWeeklyTeamTargetToAuto = async (weekStart) => {
+  if (!weekStart || !managingChallenge.value?.id) return;
+  const next = { ...weeklyTargetOverrides.value };
+  delete next[weekStart];
+  try {
+    await persistWeeklyTeamTargets(next);
+  } catch {
+    /* message set in persist */
+  }
+};
+
+const saveManageTeamsMembersPerTeam = async () => {
+  if (!managingChallenge.value?.id) return;
+  const n = Math.max(1, Math.min(99, Math.floor(Number(manageTeamsMembersPerTeam.value) || 1)));
+  manageTeamsMembersPerTeamSaving.value = true;
+  manageTeamsMembersPerTeamMsg.value = '';
+  try {
+    const { data } = await api.get(`/learning-program-classes/${managingChallenge.value.id}`, { skipGlobalLoading: true });
+    const klass = data?.class || data;
+    const prev = klass?.season_settings_json && typeof klass.season_settings_json === 'object' ? klass.season_settings_json : {};
+    const nextSettings = {
+      ...prev,
+      teams: { ...(prev.teams || {}), membersPerTeam: n },
+      participation: { ...(prev.participation || {}), weeklyGoalMembersPerTeam: n }
+    };
+    const { data: out } = await api.put(
+      `/learning-program-classes/${managingChallenge.value.id}`,
+      { season_settings_json: nextSettings },
+      { skipGlobalLoading: true }
+    );
+    const updated = out?.class;
+    if (updated && managingChallenge.value) {
+      managingChallenge.value = { ...managingChallenge.value, season_settings_json: updated.season_settings_json };
+    }
+    syncManageTeamsMembersPerTeamFromChallenge(managingChallenge.value);
+    manageTeamsMembersPerTeamMsg.value = 'Saved. Weekly distance targets will use this roster size.';
+  } catch (e) {
+    manageTeamsMembersPerTeamMsg.value = e?.response?.data?.error?.message || 'Could not save.';
+  } finally {
+    manageTeamsMembersPerTeamSaving.value = false;
+  }
+};
+
 const openManageModal = async (c) => {
-  managingChallenge.value = c;
   manageTab.value = 'teams';
   showManageModal.value = true;
+  try {
+    const { data } = await api.get(`/learning-program-classes/${c.id}`, { skipGlobalLoading: true });
+    managingChallenge.value = data?.class ? { ...c, ...data.class } : c;
+  } catch {
+    managingChallenge.value = c;
+  }
+  syncManageTeamsMembersPerTeamFromChallenge(managingChallenge.value);
   // Auto-select the current week in the weekly challenges tab
   const today = new Date().toISOString().slice(0, 10);
   const opts = seasonWeekOptions.value;
@@ -2875,6 +3319,10 @@ const closeManageModal = () => {
   managingChallenge.value = null;
   teams.value = [];
   providerMembers.value = [];
+  weeklyTargetOverrides.value = {};
+  weeklyTargetEditingWeekStart.value = null;
+  weeklyTargetEditDraft.value = '';
+  weeklyTargetMsg.value = '';
 };
 
 const loadTeams = async (classId) => {
@@ -3614,6 +4062,112 @@ onMounted(async () => {
 }
 .manage-panel {
   padding: 12px 0;
+}
+.planned-roster-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  background: #f8fafc;
+}
+.planned-roster-title {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+.planned-roster-hint {
+  margin: 0 0 10px;
+  max-width: 40rem;
+}
+.planned-roster-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.planned-roster-row label {
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+.planned-roster-input {
+  width: 5rem;
+  padding: 6px 10px;
+}
+.planned-roster-msg {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  color: #15803d;
+}
+.weekly-team-targets-card {
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  background: #eef2ff;
+}
+.weekly-team-targets-title {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+.weekly-team-targets-hint {
+  margin: 0 0 10px;
+  max-width: 48rem;
+}
+.wtt-table-wrap {
+  overflow-x: auto;
+}
+.wtt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.wtt-table th,
+.wtt-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+}
+.wtt-table th {
+  background: #f1f5f9;
+  font-weight: 700;
+  color: #475569;
+}
+.wtt-week {
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+}
+.wtt-basis {
+  color: #64748b;
+}
+.wtt-target-val {
+  font-weight: 700;
+  color: #1d4ed8;
+}
+.wtt-badge {
+  margin-left: 8px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #7c3aed;
+  background: #ede9fe;
+  border: 1px solid #ddd6fe;
+  border-radius: 4px;
+  padding: 2px 6px;
+  vertical-align: middle;
+}
+.wtt-actions {
+  white-space: nowrap;
+}
+.wtt-actions .btn {
+  margin-right: 6px;
+}
+.wtt-input {
+  width: 6.5rem;
+  padding: 4px 8px;
 }
 .checkbox-group {
   display: flex;

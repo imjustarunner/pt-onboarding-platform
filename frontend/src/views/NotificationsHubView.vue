@@ -2,8 +2,7 @@
   <div class="container">
     <div class="header" data-tour="notifhub-header">
       <h1 data-tour="notifhub-title">Notifications</h1>
-      <p class="sub">Alerts only. Use Communications workspace for texting, calls, and delivery queues.</p>
-      <router-link class="btn btn-secondary btn-sm" :to="communicationsLink">Open Communications</router-link>
+      <p class="sub">Your alerts and notifications.</p>
     </div>
 
     <div class="card-grid" data-tour="notifhub-grid">
@@ -147,16 +146,6 @@
         </div>
       </div>
 
-      <div v-if="showPlatformCard" class="card card-compact" data-tour="notifhub-card-platform">
-        <div class="card-top">
-          <h2>Delivery Alerts</h2>
-          <span class="pill">{{ communicationsPendingCount }} pending</span>
-        </div>
-        <p class="hint">Pending emails and texts ready to send. Manage in Communications → Automation.</p>
-        <router-link class="btn btn-primary" :to="communicationsAutomationLink">
-          {{ communicationsPendingCount > 0 ? `Review ${communicationsPendingCount} pending` : 'Open Communications' }}
-        </router-link>
-      </div>
     </div>
   </div>
 

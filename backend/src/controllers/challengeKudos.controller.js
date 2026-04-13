@@ -27,15 +27,41 @@ const asInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n 
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
-const getWeekCutoff = (klass) => {
-  const settings = (() => { try { return JSON.parse(klass?.season_settings_json || '{}'); } catch { return {}; } })();
-  return String(settings?.schedule?.weekCutoffTime || klass?.week_cutoff_time || '23:59');
+const parseJsonObject = (raw, fallback = {}) => {
+  if (!raw) return fallback;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {
+      // ignore parse failure and use fallback
+    }
+  }
+  return fallback;
 };
-const getWeekTz = (klass) => String(
-  (() => { try { return JSON.parse(klass?.season_settings_json || '{}'); } catch { return {}; } })()?.schedule?.weekTimeZone
-  || klass?.week_time_zone
-  || 'America/New_York'
-);
+
+const getWeekCutoff = (klass) => {
+  const settings = parseJsonObject(klass?.season_settings_json || {});
+  const schedule = parseJsonObject(settings?.schedule || {});
+  // Keep both legacy and current keys for backwards compatibility.
+  return String(
+    schedule?.weekEndsSundayAt
+    || schedule?.weekCutoffTime
+    || klass?.week_start_time
+    || klass?.week_cutoff_time
+    || '00:00'
+  );
+};
+const getWeekTz = (klass) => {
+  const settings = parseJsonObject(klass?.season_settings_json || {});
+  const schedule = parseJsonObject(settings?.schedule || {});
+  return String(
+    schedule?.weekTimeZone
+    || klass?.week_time_zone
+    || 'UTC'
+  );
+};
 
 async function getAccess(req, classId) {
   const access = await canAccessChallenge({ user: req.user, learningClassId: classId });

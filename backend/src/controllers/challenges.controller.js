@@ -12,17 +12,26 @@ import ChallengeCaptainApplication from '../models/ChallengeCaptainApplication.m
 import ChallengeMessage from '../models/ChallengeMessage.model.js';
 import ChallengeWorkoutComment from '../models/ChallengeWorkoutComment.model.js';
 import ChallengeWorkoutMedia from '../models/ChallengeWorkoutMedia.model.js';
-import { queueClubRecordBreakCandidates } from './summitStats.controller.js';
+import { queueClubRecordBreakCandidates, getPlatformAgencyIds } from './summitStats.controller.js';
+import { sqlAffiliationUnderSummitPlatform } from '../utils/summitPlatformClubs.js';
 import { canManageTeam } from '../utils/challengePermissions.js';
-import { canAccessChallenge } from '../utils/challengeAccess.js';
+import { canAccessChallenge, resolveChallengeAccessOrManage } from '../utils/challengeAccess.js';
 import { ensureChallengeParticipationAgreementAccepted } from '../utils/challengeParticipationAgreement.js';
-import { getWeekStartDate, getWeekDateTimeRange } from '../utils/challengeWeekUtils.js';
+import {
+  getWeekStartDate,
+  getWeekDateTimeRange,
+  getSeasonWeekMileGoals,
+  resolveWeeklyDistanceTargets,
+  weekSeventhPaceState
+} from '../utils/challengeWeekUtils.js';
 import { enqueueWorkoutVision } from '../services/challengeWorkoutVision.service.js';
 import { challengeMessageBridge } from '../services/challengeMessageBridge.service.js';
 import { canUserManageChallengeClass } from '../utils/sscClubAccess.js';
 import { sanitizeCalories, estimateCalories } from '../utils/calorieUtils.js';
 import { normalizeActivityType } from '../utils/activityTypeUtils.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import ChallengeElimination from '../models/ChallengeElimination.model.js';
 
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
@@ -586,38 +595,72 @@ export const getMyParticipationSummary = async (req, res, next) => {
     const userId = Number(req.user?.id || 0);
     const organizationId = asInt(req.query.organizationId);
     if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
-    const orgFilter = organizationId ? ' AND c.organization_id = ?' : '';
-    const statsParams = organizationId ? [userId, userId, organizationId] : [userId, userId];
+    const platformIds = await getPlatformAgencyIds(null);
+    const plat = sqlAffiliationUnderSummitPlatform('a', platformIds);
+    const platSql = plat ? plat.sql : '';
+    const platParams = plat ? plat.params : [];
+    // Match seasons tied to this club OR its parent agency (and NULL org legacy rows) so the context bar
+    // still finds teams when class.organization_id differs from the affiliation id in the UI.
+    let orgFilter = '';
+    let orgParams = [];
+    if (organizationId) {
+      const orgIds = [organizationId];
+      const parentAgencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(organizationId);
+      if (parentAgencyId && !orgIds.includes(Number(parentAgencyId))) orgIds.push(Number(parentAgencyId));
+      const ph = orgIds.map(() => '?').join(', ');
+      orgFilter = ` AND (c.organization_id IS NULL OR c.organization_id IN (${ph}))`;
+      orgParams = orgIds;
+    }
+    const statsParams = organizationId
+      ? [userId, userId, ...orgParams, ...platParams]
+      : [userId, userId, ...platParams];
     const [stats] = await pool.execute(
       `SELECT
          COUNT(DISTINCT w.id) AS workout_count,
          COALESCE(SUM(w.points), 0) AS total_points
        FROM challenge_workouts w
        INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+       INNER JOIN agencies a ON a.id = c.organization_id
        INNER JOIN learning_class_provider_memberships m ON m.learning_class_id = w.learning_class_id AND m.provider_user_id = ?
        WHERE w.user_id = ? AND m.membership_status IN ('active','completed')
-         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)${orgFilter}`,
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'${orgFilter}${platSql}`,
       statsParams
     );
-    const teamsParams = organizationId ? [userId, organizationId] : [userId];
+    const teamsParams = organizationId
+      ? [userId, ...orgParams, ...platParams, userId, ...orgParams, ...platParams]
+      : [userId, ...platParams, userId, ...platParams];
     const [teams] = await pool.execute(
-      `SELECT c.id AS challenge_id, c.class_name, t.id AS team_id, t.team_name
-       FROM challenge_team_members m
-       INNER JOIN challenge_teams t ON t.id = m.team_id
-       INNER JOIN learning_program_classes c ON c.id = t.learning_class_id
-       WHERE m.provider_user_id = ?${orgFilter}
-       ORDER BY COALESCE(c.starts_at, '9999-12-31') DESC, t.team_name`,
+      `SELECT challenge_id, class_name, team_id, team_name FROM (
+         SELECT c.id AS challenge_id, c.class_name AS class_name, t.id AS team_id, t.team_name AS team_name, c.starts_at
+         FROM challenge_team_members m
+         INNER JOIN challenge_teams t ON t.id = m.team_id
+         INNER JOIN learning_program_classes c ON c.id = t.learning_class_id
+         INNER JOIN agencies a ON a.id = c.organization_id
+         WHERE m.provider_user_id = ?
+           AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'${orgFilter}${platSql}
+         UNION
+         SELECT c.id, c.class_name, t.id, t.team_name, c.starts_at
+         FROM challenge_teams t
+         INNER JOIN learning_program_classes c ON c.id = t.learning_class_id
+         INNER JOIN agencies a ON a.id = c.organization_id
+         WHERE t.team_manager_user_id = ?
+           AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'${orgFilter}${platSql}
+       ) AS combined
+       ORDER BY COALESCE(combined.starts_at, '9999-12-31') DESC, combined.team_name`,
       teamsParams
     );
-    const recentParams = organizationId ? [userId, userId, organizationId] : [userId, userId];
+    const recentParams = organizationId ? [userId, userId, ...orgParams, ...platParams] : [userId, userId, ...platParams];
     const [recent] = await pool.execute(
       `SELECT w.id, w.learning_class_id, w.activity_type, w.points, w.completed_at, c.class_name, t.team_name
        FROM challenge_workouts w
        INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+       INNER JOIN agencies a ON a.id = c.organization_id
        INNER JOIN learning_class_provider_memberships pm ON pm.learning_class_id = c.id AND pm.provider_user_id = ?
        LEFT JOIN challenge_teams t ON t.id = w.team_id
        WHERE w.user_id = ? AND pm.membership_status IN ('active','completed')
-         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)${orgFilter}
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         AND LOWER(COALESCE(a.organization_type, '')) = 'affiliation'${orgFilter}${platSql}
        ORDER BY w.completed_at DESC, w.created_at DESC
        LIMIT 10`,
       recentParams
@@ -1084,6 +1127,22 @@ export const getDraftReport = async (req, res, next) => {
     const notesByUser = new Map((noteRows || []).map((r) => [Number(r.provider_user_id), { note: r.note_text || '', updatedAt: r.updated_at || null }]));
     let previousSeason = null;
     const orgId = Number(access.class?.organization_id || 0);
+    let clubNotesByUser = new Map();
+    if (orgId > 0) {
+      try {
+        const [clubNoteRows] = await pool.execute(
+          `SELECT provider_user_id, note_text, updated_at
+           FROM club_member_draft_notes
+           WHERE club_organization_id = ?`,
+          [orgId]
+        );
+        clubNotesByUser = new Map(
+          (clubNoteRows || []).map((r) => [Number(r.provider_user_id), { note: r.note_text || '', updatedAt: r.updated_at || null }])
+        );
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+    }
     if (orgId > 0) {
       const anchor = access.class?.starts_at || access.class?.created_at || new Date().toISOString().slice(0, 19).replace('T', ' ');
       const [prevRows] = await pool.execute(
@@ -1132,16 +1191,26 @@ export const getDraftReport = async (req, res, next) => {
         });
       }
     }
-    const participants = (members || []).map((m) => ({
-      providerUserId: Number(m.provider_user_id),
-      firstName: m.first_name,
-      lastName: m.last_name,
-      email: m.email,
-      membershipStatus: m.membership_status,
-      draftNote: notesByUser.get(Number(m.provider_user_id))?.note || '',
-      draftNoteUpdatedAt: notesByUser.get(Number(m.provider_user_id))?.updatedAt || null,
-      previousSeason: previousByUser.get(Number(m.provider_user_id)) || null
-    }));
+    const participants = (members || []).map((m) => {
+      const uid = Number(m.provider_user_id);
+      const seasonNote = String(notesByUser.get(uid)?.note || '').trim();
+      const clubNote = String(clubNotesByUser.get(uid)?.note || '').trim();
+      const draftNote = seasonNote || clubNote;
+      const draftNoteUpdatedAt = seasonNote
+        ? notesByUser.get(uid)?.updatedAt || null
+        : clubNotesByUser.get(uid)?.updatedAt || null;
+      return {
+        providerUserId: uid,
+        firstName: m.first_name,
+        lastName: m.last_name,
+        email: m.email,
+        membershipStatus: m.membership_status,
+        draftNote,
+        draftNoteUpdatedAt,
+        draftNoteScope: seasonNote ? 'season' : clubNote ? 'club' : 'none',
+        previousSeason: previousByUser.get(uid) || null
+      };
+    });
     return res.json({
       canEditNotes: canManage,
       previousSeason: previousSeason
@@ -1180,6 +1249,23 @@ export const upsertDraftNote = async (req, res, next) => {
          updated_at = CURRENT_TIMESTAMP`,
       [classId, providerUserId, noteText, req.user.id, req.user.id]
     );
+    const orgId = Number(access.class?.organization_id || 0);
+    if (orgId > 0) {
+      try {
+        await pool.execute(
+          `INSERT INTO club_member_draft_notes
+           (club_organization_id, provider_user_id, note_text, updated_by_user_id)
+           VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             note_text = VALUES(note_text),
+             updated_by_user_id = VALUES(updated_by_user_id),
+             updated_at = CURRENT_TIMESTAMP`,
+          [orgId, providerUserId, noteText, req.user.id]
+        );
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+    }
     return res.json({ ok: true, providerUserId, noteText });
   } catch (e) {
     next(e);
@@ -1574,6 +1660,25 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
     const seasonSettings = parseJsonObject(access.class?.season_settings_json || {});
     const eventCategory = String(seasonSettings?.event?.category || 'run_ruck').toLowerCase();
     const participation = parseJsonObject(seasonSettings?.participation || {});
+    const weeklyGoalMetricRaw = String(participation?.weeklyGoalMetric || '').toLowerCase();
+    const weeklyGoalMetric = weeklyGoalMetricRaw;
+    const firstPositiveInt = (...vals) => {
+      for (const v of vals) {
+        const n = Number(v);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+      return null;
+    };
+    const teamsSettings = parseJsonObject(seasonSettings?.teams || {});
+    const membersPerTeamFallback = Math.max(1, firstPositiveInt(
+      teamsSettings.membersPerTeam,
+      teamsSettings.members_per_team,
+      participation.weeklyGoalMembersPerTeam,
+      participation.weekly_goal_members_per_team,
+      participation.baselineMemberCount,
+      seasonSettings?.drafting?.membersPerTeam,
+      access.class?.expected_team_size
+    ) ?? 12);
     let individualMinimum = access.class?.individual_min_points_per_week != null
       ? Number.parseInt(access.class.individual_min_points_per_week, 10)
       : null;
@@ -1582,23 +1687,25 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
       : null;
     let metricUnit = 'pts';
     let metricField = 'weekly_points';
-    if (eventCategory === 'run_ruck') {
-      const cutoff = String(seasonSettings?.schedule?.weekEndsSundayAt || access.class?.week_start_time || '00:00');
-      const tz = String(seasonSettings?.schedule?.weekTimeZone || 'UTC');
-      const baseMiles = Number(participation.runRuckStartMilesPerPerson ?? 0) || 0;
-      const weeklyIncrease = Number(participation.runRuckWeeklyIncreaseMilesPerPerson ?? 2) || 0;
-      const baselineMembers = Math.max(0, Number.parseInt(participation.baselineMemberCount, 10) || 0);
-      const anchorWeek = access.class?.starts_at
-        ? getWeekStartDate(new Date(access.class.starts_at), cutoff, tz)
-        : String(weekStart || '').slice(0, 10);
-      const startAnchor = new Date(`${String(anchorWeek).slice(0, 10)}T00:00:00`);
-      const currentWeek = new Date(`${String(weekStart).slice(0, 10)}T00:00:00`);
-      const weekIndex = Math.max(0, Math.floor((currentWeek.getTime() - startAnchor.getTime()) / (7 * 24 * 60 * 60 * 1000)));
-      individualMinimum = Number((baseMiles + (weekIndex * weeklyIncrease)).toFixed(2));
-      teamMinimum = Number((individualMinimum * baselineMembers).toFixed(2));
+    let milesTargets = null;
+    const isMilesGoal = eventCategory === 'run_ruck' || weeklyGoalMetric === 'miles' || weeklyGoalMetric.includes('mile');
+    if (isMilesGoal) {
+      milesTargets = resolveWeeklyDistanceTargets(access.class, String(weekStart).slice(0, 10));
+      individualMinimum = milesTargets.perPersonMilesMinimum;
+      teamMinimum = milesTargets.teamMilesMinimumBaseline;
       metricUnit = 'mi';
       metricField = 'weekly_miles';
+    } else if ((teamMinimum == null || Number(teamMinimum) === 0) && individualMinimum != null && Number(individualMinimum) > 0) {
+      teamMinimum = Math.round(Number(individualMinimum) * membersPerTeamFallback);
     }
+
+    const viewWeekYmd = String(weekStart).slice(0, 10);
+
+    const [allTeamRows] = await pool.execute(
+      `SELECT id, team_name FROM challenge_teams WHERE learning_class_id = ?`,
+      [classId]
+    );
+    const teamMeta = new Map((allTeamRows || []).map((t) => [Number(t.id), String(t.team_name || '')]));
 
     const [rows] = await pool.execute(
       `SELECT
@@ -1610,17 +1717,7 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
          COALESCE(SUM(w.points), 0) AS weekly_points,
          COALESCE(SUM(w.distance_value), 0) AS weekly_miles
        FROM challenge_teams t
-       INNER JOIN (
-         SELECT team_id, provider_user_id FROM challenge_team_members
-         UNION
-         SELECT ct2.id, ct2.team_manager_user_id
-         FROM challenge_teams ct2
-         WHERE ct2.team_manager_user_id IS NOT NULL
-           AND NOT EXISTS (
-             SELECT 1 FROM challenge_team_members tm2
-             WHERE tm2.team_id = ct2.id AND tm2.provider_user_id = ct2.team_manager_user_id
-           )
-       ) tm ON tm.team_id = t.id
+       INNER JOIN challenge_team_members tm ON tm.team_id = t.id
        INNER JOIN users u ON u.id = tm.provider_user_id
        LEFT JOIN challenge_workouts w
          ON w.learning_class_id = t.learning_class_id
@@ -1634,40 +1731,220 @@ export const getTeamWeeklyProgress = async (req, res, next) => {
       [startStr, endStr, classId]
     );
 
+    // Also fetch captains with their workout data for this week
+    const [captainRows] = await pool.execute(
+      `SELECT
+         t.id AS team_id,
+         t.team_name,
+         u.id AS user_id,
+         u.first_name,
+         u.last_name,
+         COALESCE(SUM(w.points), 0) AS weekly_points,
+         COALESCE(SUM(w.distance_value), 0) AS weekly_miles
+       FROM challenge_teams t
+       INNER JOIN users u ON u.id = t.team_manager_user_id
+       LEFT JOIN challenge_workouts w
+         ON w.learning_class_id = t.learning_class_id
+         AND w.user_id = t.team_manager_user_id
+         AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
+         AND w.completed_at >= ?
+         AND w.completed_at < ?
+       WHERE t.learning_class_id = ?
+         AND t.team_manager_user_id IS NOT NULL
+       GROUP BY t.id, t.team_name, u.id, u.first_name, u.last_name`,
+      [startStr, endStr, classId]
+    );
+
+    const pace = weekSeventhPaceState({
+      rangeStartSql: startStr,
+      rangeEndSql: endStr,
+      timeZone: weekTimeZone
+    });
+    const paceFraction = pace.paceFraction;
+
     const teamsMap = new Map();
-    for (const r of rows || []) {
+    const memberSeen = new Set();
+    const addMember = (r, opts = {}) => {
+      const eliminated = !!opts.eliminated;
+      const eliminationWeekStart = opts.eliminationWeekStart ? String(opts.eliminationWeekStart).slice(0, 10) : null;
       const tid = Number(r.team_id);
+      const uid = Number(r.user_id);
+      const key = `${tid}:${uid}`;
+      if (memberSeen.has(key)) return;
+      memberSeen.add(key);
+      const teamName = String(r.team_name || teamMeta.get(tid) || '').trim() || 'Team';
       if (!teamsMap.has(tid)) {
         teamsMap.set(tid, {
           teamId: tid,
-          teamName: r.team_name,
+          teamName,
           totalWeeklyPoints: 0,
+          totalWeeklyMiles: 0,
           members: []
         });
       }
       const metricValue = Number(r[metricField] || 0);
-      const progressStatus = individualMinimum == null
-        ? 'tracking'
-        : (metricValue < individualMinimum ? 'behind' : metricValue === individualMinimum ? 'met' : 'ahead');
+      let progressStatus = 'tracking';
+      if (individualMinimum != null) {
+        const ind = Number(individualMinimum);
+        const expectedToDate = Number((ind * paceFraction).toFixed(2));
+        if (metricValue > ind) progressStatus = 'ahead';
+        else if (metricValue === ind) progressStatus = 'met';
+        else if (metricValue >= expectedToDate) progressStatus = 'tracking';
+        else progressStatus = 'behind';
+      }
       const entry = teamsMap.get(tid);
       entry.totalWeeklyPoints += Number(r.weekly_points || 0);
-      entry.totalWeeklyMiles = Number((entry.totalWeeklyMiles || 0) + Number(r.weekly_miles || 0));
+      entry.totalWeeklyMiles += Number(r.weekly_miles || 0);
       entry.members.push({
-        userId: Number(r.user_id),
+        userId: uid,
         firstName: r.first_name,
         lastName: r.last_name,
         weeklyPoints: Number(r.weekly_points || 0),
         weeklyMiles: Number(r.weekly_miles || 0),
-        progressStatus
+        progressStatus,
+        eliminated,
+        eliminationWeekStart
       });
+    };
+    for (const r of rows || []) addMember(r);
+    for (const r of captainRows || []) addMember(r);
+
+    const elimRows = await ChallengeElimination.listAll(classId);
+    const elimUids = [...new Set((elimRows || []).map((e) => Number(e.provider_user_id)).filter(Boolean))];
+    let elimWorkoutByUser = new Map();
+    if (elimUids.length) {
+      const ph = elimUids.map(() => '?').join(',');
+      const [wElim] = await pool.execute(
+        `SELECT user_id,
+                COALESCE(SUM(points), 0) AS weekly_points,
+                COALESCE(SUM(distance_value), 0) AS weekly_miles
+         FROM challenge_workouts
+         WHERE learning_class_id = ?
+           AND user_id IN (${ph})
+           AND (is_disqualified IS NULL OR is_disqualified = 0)
+           AND completed_at >= ?
+           AND completed_at < ?
+         GROUP BY user_id`,
+        [classId, ...elimUids, startStr, endStr]
+      );
+      elimWorkoutByUser = new Map(
+        (wElim || []).map((row) => [
+          Number(row.user_id),
+          { weekly_points: row.weekly_points, weekly_miles: row.weekly_miles }
+        ])
+      );
     }
+    for (const er of elimRows || []) {
+      const tid = Number(er.team_id);
+      const uid = Number(er.provider_user_id);
+      if (!tid || !uid) continue;
+      const elimWeek = String(er.week_start_date || '').slice(0, 10);
+      const eliminatedForThisWeekView = Boolean(elimWeek && viewWeekYmd >= elimWeek);
+      const wr = elimWorkoutByUser.get(uid) || { weekly_points: 0, weekly_miles: 0 };
+      addMember(
+        {
+          team_id: tid,
+          team_name: teamMeta.get(tid) || er.team_name || 'Team',
+          user_id: uid,
+          first_name: er.first_name,
+          last_name: er.last_name,
+          weekly_points: wr.weekly_points,
+          weekly_miles: wr.weekly_miles
+        },
+        { eliminated: eliminatedForThisWeekView, eliminationWeekStart: elimWeek || null }
+      );
+    }
+
+    const storedWeekTarget = teamsSettings?.weeklyTeamTargets?.[viewWeekYmd];
+    const plannedTeamTarget =
+      storedWeekTarget != null && Number.isFinite(Number(storedWeekTarget)) && Number(storedWeekTarget) > 0
+        ? Number(Number(storedWeekTarget).toFixed(2))
+        : Number.isFinite(Number(individualMinimum)) && Number(individualMinimum) > 0
+          ? Number((Number(individualMinimum) * membersPerTeamFallback).toFixed(2))
+          : null;
+
+    const progressStatusRank = (s) => {
+      const x = String(s || 'tracking').toLowerCase();
+      if (x === 'behind') return 0;
+      if (x === 'tracking') return 1;
+      if (x === 'met') return 2;
+      if (x === 'ahead') return 3;
+      return 1;
+    };
+    const rankToProgressStatus = (r) => {
+      if (r <= 0) return 'behind';
+      if (r === 1) return 'tracking';
+      if (r === 2) return 'met';
+      return 'ahead';
+    };
+
+    const teamsOut = Array.from(teamsMap.values()).map((entry) => {
+      const rosteredMemberCount = Array.isArray(entry.members) ? entry.members.length : 0;
+      const activeMemberCount = Array.isArray(entry.members)
+        ? entry.members.filter((m) => !m.eliminated).length
+        : 0;
+      const totalMetric = metricUnit === 'mi'
+        ? Number(entry.totalWeeklyMiles || 0)
+        : Number(entry.totalWeeklyPoints || 0);
+      const teamTargetForStatus = plannedTeamTarget;
+      if (teamTargetForStatus == null) {
+        return {
+          ...entry,
+          rosteredMemberCount,
+          activeMemberCount,
+          teamMilesTargetPlanned: null,
+          teamPointsTargetPlanned: null,
+          teamProgressStatus: 'tracking',
+          teamExpectedToDate: null
+        };
+      }
+      const expected = Number((teamTargetForStatus * paceFraction).toFixed(2));
+      let teamProgressStatus = 'tracking';
+      if (totalMetric > teamTargetForStatus) teamProgressStatus = 'ahead';
+      else if (totalMetric === teamTargetForStatus) teamProgressStatus = 'met';
+      else if (totalMetric >= expected) teamProgressStatus = 'tracking';
+      else teamProgressStatus = 'behind';
+
+      let worstRank = progressStatusRank(teamProgressStatus);
+      for (const m of entry.members || []) {
+        if (m.eliminated) continue;
+        worstRank = Math.min(worstRank, progressStatusRank(m.progressStatus));
+      }
+      teamProgressStatus = rankToProgressStatus(worstRank);
+
+      return {
+        ...entry,
+        rosteredMemberCount,
+        activeMemberCount,
+        teamMilesTargetPlanned: metricUnit === 'mi' ? teamTargetForStatus : null,
+        teamPointsTargetPlanned: metricUnit === 'mi' ? null : teamTargetForStatus,
+        teamProgressStatus,
+        teamExpectedToDate: expected
+      };
+    });
+
+    const indMinNum = individualMinimum != null ? Number(individualMinimum) : null;
 
     return res.json({
       weekStartDate: String(weekStart).slice(0, 10),
       individualMinimum,
       teamMinimum,
+      /** Effective group weekly target (mi or pts) after DB + fallbacks; same for every team. */
+      groupWeeklyTarget: plannedTeamTarget,
+      teamMilesMinimumBaseline: metricUnit === 'mi' ? plannedTeamTarget : null,
+      baselineRosterSize: membersPerTeamFallback,
       metricUnit,
-      teams: Array.from(teamsMap.values())
+      paceFraction,
+      paceDayNumber: pace.dayNumberInWeek,
+      elapsedHoursRatio: pace.elapsedHoursRatio,
+      individualRequiredPerSegment:
+        indMinNum != null && indMinNum > 0 ? Number((indMinNum / 7).toFixed(3)) : null,
+      teamRequiredPerSegment:
+        plannedTeamTarget != null && plannedTeamTarget > 0
+          ? Number((plannedTeamTarget / 7).toFixed(3))
+          : null,
+      targetBasis: metricUnit === 'mi' ? 'planned_roster_baseline' : 'points',
+      teams: teamsOut
     });
   } catch (e) {
     next(e);
@@ -1678,7 +1955,7 @@ export const listChallengeMessages = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
-    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    const access = await resolveChallengeAccessOrManage({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
     const limit = Math.min(100, asInt(req.query.limit) || 50);
     const offset = asInt(req.query.offset) || 0;
@@ -1689,14 +1966,19 @@ export const listChallengeMessages = async (req, res, next) => {
       teamId = team?.id || null;
     }
     const messages = await ChallengeMessage.listByChallenge(classId, { limit, offset, scope, teamId });
-    const newestId = messages?.length ? Number(messages[0].id) : null;
-    await ChallengeMessage.markRead({
-      learningClassId: classId,
-      userId: req.user.id,
-      scope,
-      teamId: teamId || 0,
-      lastReadMessageId: newestId
-    });
+    const peek = String(req.query.peek || req.query.noMarkRead || '').trim() === '1';
+    if (!peek) {
+      const newestId = await ChallengeMessage.getLatestMessageId(classId, { scope, teamId: teamId || 0 });
+      if (newestId) {
+        await ChallengeMessage.bumpReadWatermark({
+          learningClassId: classId,
+          userId: Number(req.user.id),
+          scope,
+          teamId: teamId || 0,
+          lastReadMessageId: newestId
+        });
+      }
+    }
     return res.json({ scope, teamId: teamId || null, messages });
   } catch (e) {
     next(e);
@@ -1845,7 +2127,7 @@ export const getChallengeMessageUnreadCounts = async (req, res, next) => {
   try {
     const classId = asInt(req.params.classId);
     if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
-    const access = await canAccessChallenge({ user: req.user, learningClassId: classId });
+    const access = await resolveChallengeAccessOrManage({ user: req.user, learningClassId: classId });
     if (!access.ok) return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
     let teamId = 0;
     const team = await ChallengeTeam.getTeamForUser(classId, req.user.id);
@@ -1856,6 +2138,51 @@ export const getChallengeMessageUnreadCounts = async (req, res, next) => {
       teamId
     });
     return res.json({ ...unread, teamId: teamId || null });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** Mark season + team chat as read (latest message id per scope). */
+export const markChallengeMessagesRead = async (req, res, next) => {
+  try {
+    const classId = asInt(req.params.classId);
+    if (!classId) return res.status(400).json({ error: { message: 'Invalid classId' } });
+    const access = await resolveChallengeAccessOrManage({ user: req.user, learningClassId: classId });
+    if (!access.ok) {
+      return res.status(403).json({ error: { message: access.eliminated ? 'You have been eliminated from this season.' : 'Access denied' } });
+    }
+    const uid = Number(req.user.id);
+    const team = await ChallengeTeam.getTeamForUser(classId, uid);
+    const teamId = team?.id || 0;
+    const seasonNewest = await ChallengeMessage.getLatestMessageId(classId, { scope: 'season', teamId: 0 });
+    if (seasonNewest) {
+      await ChallengeMessage.bumpReadWatermark({
+        learningClassId: classId,
+        userId: uid,
+        scope: 'season',
+        teamId: 0,
+        lastReadMessageId: seasonNewest
+      });
+    }
+    if (teamId) {
+      const teamNewest = await ChallengeMessage.getLatestMessageId(classId, { scope: 'team', teamId });
+      if (teamNewest) {
+        await ChallengeMessage.bumpReadWatermark({
+          learningClassId: classId,
+          userId: uid,
+          scope: 'team',
+          teamId,
+          lastReadMessageId: teamNewest
+        });
+      }
+    }
+    const unread = await ChallengeMessage.getUnreadCounts({
+      learningClassId: classId,
+      userId: uid,
+      teamId
+    });
+    return res.json({ ok: true, ...unread, teamId: teamId || null });
   } catch (e) {
     next(e);
   }

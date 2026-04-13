@@ -190,6 +190,43 @@ function mapRawRowForAudit(row) {
   };
 }
 
+function normalizeLocationValue(location) {
+  return String(location || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function rawAuditDeltaCodeForPair(delta) {
+  return baseServiceCodeForSession(delta?.to_service_code || delta?.from_service_code || '') ||
+    String(delta?.to_service_code || delta?.from_service_code || '').trim().toUpperCase();
+}
+
+function rawAuditDeltaLocationForPair(delta) {
+  return normalizeLocationValue(delta?.metadata_json?.toLocation ?? delta?.metadata_json?.fromLocation ?? '');
+}
+
+function rawAuditDeltaStatusForPair(delta) {
+  return String(delta?.to_status || delta?.from_status || '').trim().toUpperCase();
+}
+
+function rawAuditDeltaUnitsForPair(delta) {
+  const raw = delta?.to_units ?? delta?.from_units ?? 0;
+  const num = Number(raw || 0);
+  return Number.isFinite(num) ? num.toFixed(2) : '0.00';
+}
+
+function rawAuditDeltaPairKey(delta, { ignoreCode = false, ignoreLocation = false, shortClient = false } = {}) {
+  const provider = normalizeName(delta?.provider_name || '');
+  const client = shortClient ? '' : firstTokenForClient(delta?.patient_first_name);
+  const serviceDate = String(delta?.service_date || '').slice(0, 10);
+  const code = ignoreCode ? '' : rawAuditDeltaCodeForPair(delta);
+  const location = ignoreLocation ? '' : rawAuditDeltaLocationForPair(delta);
+  const status = rawAuditDeltaStatusForPair(delta);
+  const units = rawAuditDeltaUnitsForPair(delta);
+  return `${provider}:${serviceDate}:${client}:${code}:${location}:${status}:${units}`;
+}
+
 function computeRawRunDiffRows({ baselineRows, compareRows }) {
   const baselinePool = new Map();
   for (const r of baselineRows || []) {
@@ -216,14 +253,21 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
         const toStatus = normalizedRawStatus(c);
         const fromCode = String(b.service_code || '').trim().toUpperCase();
         const toCode = String(c.service_code || '').trim().toUpperCase();
+        const fromBaseCode = baseServiceCodeForSession(fromCode) || fromCode;
+        const toBaseCode = baseServiceCodeForSession(toCode) || toCode;
         const fromUnits = Number(b.unit_count || 0);
         const toUnits = Number(c.unit_count || 0);
+        const fromLocation = String(b.location || '').trim() || null;
+        const toLocation = String(c.location || '').trim() || null;
         const codeChanged = fromCode !== toCode;
+        const logicalCodeChanged = fromBaseCode !== toBaseCode;
         const statusChanged = fromStatus !== toStatus;
         const unitsChanged = Math.abs(fromUnits - toUnits) > 1e-9;
-        if (codeChanged || statusChanged || unitsChanged) {
+        const locationChanged = normalizeLocationValue(fromLocation) !== normalizeLocationValue(toLocation);
+        if (codeChanged || statusChanged || unitsChanged || locationChanged) {
           let deltaType = 'status_change';
-          if (codeChanged) deltaType = 'code_change';
+          if (!statusChanged && !unitsChanged && !logicalCodeChanged && locationChanged) deltaType = 'location_changed';
+          else if (codeChanged) deltaType = 'code_change';
           else if (unitsChanged && !statusChanged) deltaType = 'unit_change';
           const code = String(toCode || fromCode || '').trim().toUpperCase();
           const isUnitEditable = UNIT_EDITABLE_CODES.has(code);
@@ -244,12 +288,16 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
             paid_state: paidStateForStatus(toStatus),
             metadata_json: {
               baselineRowId: b.id || null,
-              compareRowId: c.id || null
-            }
+              compareRowId: c.id || null,
+              fromLocation,
+              toLocation
+            },
+            redFlag: deltaType === 'location_changed'
           });
         }
       } else if (b && !c) {
         const fromStatus = normalizedRawStatus(b);
+        const fromLocation = String(b.location || '').trim() || null;
         out.push({
           rowMatchKey: rowStableMatchKey(b),
           changeType: 'removed',
@@ -264,10 +312,11 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
           from_units: Number(b.unit_count || 0),
           to_units: null,
           paid_state: paidStateForStatus(fromStatus),
-          metadata_json: { baselineRowId: b.id || null, compareRowId: null }
+          metadata_json: { baselineRowId: b.id || null, compareRowId: null, fromLocation, toLocation: null }
         });
       } else if (!b && c) {
         const toStatus = normalizedRawStatus(c);
+        const toLocation = String(c.location || '').trim() || null;
         out.push({
           rowMatchKey: rowStableMatchKey(c),
           changeType: 'added',
@@ -282,7 +331,7 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
           from_units: null,
           to_units: Number(c.unit_count || 0),
           paid_state: paidStateForStatus(toStatus),
-          metadata_json: { baselineRowId: null, compareRowId: c.id || null }
+          metadata_json: { baselineRowId: null, compareRowId: c.id || null, fromLocation: null, toLocation }
         });
       }
   }
@@ -300,6 +349,72 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
   const removedByFull = new Map(); // fullKey → index into out
   const addedByShort = new Map();  // shortKey → index into out
   const removedByShort = new Map();// shortKey → index into out
+
+  const pairAddedRemoved = ({ kind, ignoreCode = false, ignoreLocation = false }) => {
+    const addedByFull = new Map();
+    const removedByFull = new Map();
+    const addedByShort = new Map();
+    const removedByShort = new Map();
+
+    for (let i = 0; i < out.length; i++) {
+      const o = out[i];
+      if (!o) continue;
+      if (o.changeType === 'added') {
+        const fk = rawAuditDeltaPairKey(o, { ignoreCode, ignoreLocation, shortClient: false });
+        const sk = rawAuditDeltaPairKey(o, { ignoreCode, ignoreLocation, shortClient: true });
+        if (!addedByFull.has(fk)) addedByFull.set(fk, i);
+        if (!addedByShort.has(sk)) addedByShort.set(sk, i);
+      }
+      if (o.changeType === 'removed') {
+        const fk = rawAuditDeltaPairKey(o, { ignoreCode, ignoreLocation, shortClient: false });
+        const sk = rawAuditDeltaPairKey(o, { ignoreCode, ignoreLocation, shortClient: true });
+        if (!removedByFull.has(fk)) removedByFull.set(fk, i);
+        if (!removedByShort.has(sk)) removedByShort.set(sk, i);
+      }
+    }
+
+    const applyPair = (addedIdx, removedIdx) => {
+      const added = out[addedIdx];
+      const removed = out[removedIdx];
+      if (!added || !removed) return;
+      out[addedIdx] = null;
+      out[removedIdx] = null;
+      out.push({
+        rowMatchKey: added.rowMatchKey || removed.rowMatchKey,
+        changeType: kind,
+        user_id: Number(added.user_id || removed.user_id || 0) || null,
+        provider_name: added.provider_name || removed.provider_name || null,
+        patient_first_name: added.patient_first_name || removed.patient_first_name || null,
+        service_date: added.service_date || removed.service_date || null,
+        from_status: removed.from_status || null,
+        to_status: added.to_status || null,
+        from_service_code: removed.from_service_code || null,
+        to_service_code: added.to_service_code || null,
+        from_units: removed.from_units ?? null,
+        to_units: added.to_units ?? null,
+        paid_state: paidStateForStatus(added.to_status || removed.from_status || null),
+        metadata_json: {
+          baselineRowId: removed?.metadata_json?.baselineRowId || null,
+          compareRowId: added?.metadata_json?.compareRowId || null,
+          fromLocation: removed?.metadata_json?.fromLocation ?? null,
+          toLocation: added?.metadata_json?.toLocation ?? null
+        },
+        redFlag: true
+      });
+    };
+
+    for (const [fk, addedIdx] of addedByFull) {
+      const removedIdx = removedByFull.get(fk);
+      if (removedIdx !== undefined) applyPair(addedIdx, removedIdx);
+    }
+    for (const [sk, addedIdx] of addedByShort) {
+      const removedIdx = removedByShort.get(sk);
+      if (removedIdx !== undefined) applyPair(addedIdx, removedIdx);
+    }
+  };
+
+  pairAddedRemoved({ kind: 'service_code_changed', ignoreCode: true, ignoreLocation: false });
+  pairAddedRemoved({ kind: 'location_changed', ignoreCode: false, ignoreLocation: true });
 
   for (let i = 0; i < out.length; i++) {
     const o = out[i];
@@ -353,6 +468,196 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
   }
 
   return out.filter(Boolean);
+}
+
+function cloneCarryoverCategories(meta) {
+  const cats = meta?.categories && typeof meta.categories === 'object' ? meta.categories : {};
+  const fromCodes = Array.isArray(cats?.code_changed?.fromCodes) ? cats.code_changed.fromCodes : [];
+  return {
+    old_note: {
+      units: Number(cats?.old_note?.units || 0),
+      notes: Number(cats?.old_note?.notes || 0)
+    },
+    late_addition: {
+      units: Number(cats?.late_addition?.units || 0),
+      notes: Number(cats?.late_addition?.notes || 0)
+    },
+    code_changed: {
+      units: Number(cats?.code_changed?.units || 0),
+      notes: Number(cats?.code_changed?.notes || 0),
+      fromCodes: Array.from(new Set(fromCodes.map((x) => String(x || '').trim()).filter(Boolean)))
+    }
+  };
+}
+
+function mergeCarryoverMeta(baseMeta, patchMeta) {
+  const next = {
+    categories: cloneCarryoverCategories(baseMeta),
+    rawAuditRows: Array.isArray(baseMeta?.rawAuditRows) ? [...baseMeta.rawAuditRows] : []
+  };
+  const patchCats = patchMeta?.categories && typeof patchMeta.categories === 'object' ? patchMeta.categories : null;
+  if (patchCats) {
+    if (patchCats.old_note) {
+      next.categories.old_note.units = Number((Number(next.categories.old_note.units || 0) + Number(patchCats.old_note.units || 0)).toFixed(2));
+      next.categories.old_note.notes = Number((Number(next.categories.old_note.notes || 0) + Number(patchCats.old_note.notes || 0)).toFixed(2));
+    }
+    if (patchCats.late_addition) {
+      next.categories.late_addition.units = Number((Number(next.categories.late_addition.units || 0) + Number(patchCats.late_addition.units || 0)).toFixed(2));
+      next.categories.late_addition.notes = Number((Number(next.categories.late_addition.notes || 0) + Number(patchCats.late_addition.notes || 0)).toFixed(2));
+    }
+    if (patchCats.code_changed) {
+      next.categories.code_changed.units = Number((Number(next.categories.code_changed.units || 0) + Number(patchCats.code_changed.units || 0)).toFixed(2));
+      next.categories.code_changed.notes = Number((Number(next.categories.code_changed.notes || 0) + Number(patchCats.code_changed.notes || 0)).toFixed(2));
+      const merged = Array.from(new Set([
+        ...(next.categories.code_changed.fromCodes || []),
+        ...(Array.isArray(patchCats.code_changed.fromCodes) ? patchCats.code_changed.fromCodes : [])
+      ].map((x) => String(x || '').trim()).filter(Boolean)));
+      next.categories.code_changed.fromCodes = merged;
+    }
+  }
+  const patchRawAuditRows = Array.isArray(patchMeta?.rawAuditRows) ? patchMeta.rawAuditRows : [];
+  if (patchRawAuditRows.length) {
+    const seen = new Set(next.rawAuditRows.map((r) => String(r?.rowMatchKey || '').trim()).filter(Boolean));
+    for (const row of patchRawAuditRows) {
+      const rowMatchKey = String(row?.rowMatchKey || '').trim();
+      if (!rowMatchKey || seen.has(rowMatchKey)) continue;
+      seen.add(rowMatchKey);
+      next.rawAuditRows.push(row);
+    }
+  }
+  return next;
+}
+
+function hasCarryoverRawAuditRow(meta, rowMatchKey) {
+  const key = String(rowMatchKey || '').trim();
+  if (!key) return false;
+  const rows = Array.isArray(meta?.rawAuditRows) ? meta.rawAuditRows : [];
+  return rows.some((r) => String(r?.rowMatchKey || '').trim() === key);
+}
+
+function buildRawAuditReductionKey({ sourcePayrollPeriodId, rowMatchKey, baselineRowId, compareRowId, serviceCode }) {
+  const source = Number(sourcePayrollPeriodId || 0) || 0;
+  const rowKey = String(rowMatchKey || '').trim();
+  const baseline = Number(baselineRowId || 0) || 0;
+  const compare = Number(compareRowId || 0) || 0;
+  const code = String(serviceCode || '').trim().toUpperCase();
+  return `${source}:${rowKey}:${baseline}:${compare}:${code}`;
+}
+
+async function computeRawAuditReductionAmount({
+  agencyId,
+  userId,
+  serviceCode,
+  units,
+  serviceDate,
+  cache
+}) {
+  const codeKey = String(serviceCode || '').trim().toUpperCase();
+  const qty = Number(units || 0);
+  if (!agencyId || !userId || !codeKey || !(qty > 1e-9)) return 0;
+
+  const rulesCacheKey = `rules:${agencyId}`;
+  if (!cache.rulesByAgency.has(rulesCacheKey)) {
+    const rules = await PayrollServiceCodeRule.listForAgency(agencyId);
+    cache.rulesByAgency.set(rulesCacheKey, new Map((rules || []).map((r) => [String(r?.service_code || '').trim().toUpperCase(), r])));
+  }
+  const ruleByCode = cache.rulesByAgency.get(rulesCacheKey) || new Map();
+
+  const rateCardCacheKey = `rate-card:${agencyId}:${userId}`;
+  if (!cache.rateCards.has(rateCardCacheKey)) {
+    cache.rateCards.set(rateCardCacheKey, await PayrollRateCard.findForUser(agencyId, userId));
+  }
+  const rateCard = cache.rateCards.get(rateCardCacheKey) || null;
+
+  const userCacheKey = `user:${userId}`;
+  if (!cache.users.has(userCacheKey)) {
+    cache.users.set(userCacheKey, await User.findById(userId));
+  }
+  const user = cache.users.get(userCacheKey) || null;
+
+  const asOf = ymdFromDbDate(serviceDate) || null;
+  const rateCacheKey = `rate:${agencyId}:${userId}:${codeKey}:${asOf || ''}`;
+  if (!cache.perCodeRates.has(rateCacheKey)) {
+    cache.perCodeRates.set(rateCacheKey, await PayrollRate.findBestRate({ agencyId, userId, serviceCode: codeKey, asOf }));
+  }
+  const perCode = cache.perCodeRates.get(rateCacheKey) || null;
+
+  const supervisionCacheKey = `supervision:${agencyId}:${userId}`;
+  if (!cache.supervisionEligibility.has(supervisionCacheKey)) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT supervision_is_prelicensed
+         FROM user_agencies
+         WHERE agency_id = ? AND user_id = ?
+         LIMIT 1`,
+        [agencyId, userId]
+      );
+      const raw = rows?.[0]?.supervision_is_prelicensed;
+      cache.supervisionEligibility.set(supervisionCacheKey, raw === 1 || raw === true || String(raw || '') === '1');
+    } catch {
+      cache.supervisionEligibility.set(supervisionCacheKey, null);
+    }
+  }
+  const isPrelicensed = cache.supervisionEligibility.get(supervisionCacheKey);
+
+  const defaults = payrollDefaultsForCode(codeKey);
+  const rule = ruleByCode.get(codeKey) || null;
+  const category = String(rule?.category ?? defaults?.category ?? 'direct').trim().toLowerCase();
+  const otherSlot = Number(rule?.other_slot ?? defaults?.otherSlot ?? 1);
+  const payDivisor = Number(
+    (rule?.pay_divisor === null || rule?.pay_divisor === undefined)
+      ? (defaults?.payDivisor ?? 1)
+      : rule.pay_divisor
+  );
+  const safeDivisor = (!Number.isFinite(payDivisor) || payDivisor <= 0) ? 1 : Number(payDivisor);
+  const payHours = qty / safeDivisor;
+
+  const baseBucket =
+    (category === 'indirect' || category === 'admin' || category === 'meeting') ? 'indirect'
+      : (category === 'other' || category === 'tutoring') ? 'other'
+        : (category === 'mileage' || category === 'bonus' || category === 'reimbursement' || category === 'other_pay') ? 'flat'
+          : 'direct';
+
+  let rateAmount = 0;
+  let rateSource = 'none';
+  const rulePayUnitRaw = String(rule?.pay_rate_unit || '').trim().toLowerCase();
+  const rulePayUnit = rulePayUnitRaw === 'per_hour' ? 'per_hour' : 'per_unit';
+  const legacyPerCodeUnit = perCode ? String(perCode.rate_unit || 'per_unit').trim().toLowerCase() : null;
+  let perCodePayUnit = rulePayUnitRaw ? rulePayUnit : (legacyPerCodeUnit === 'per_hour' ? 'per_hour' : 'per_unit');
+  if (isSupervisionMeetingCode(codeKey)) perCodePayUnit = 'per_hour';
+
+  if (perCode) {
+    rateSource = 'per_code_rate';
+    rateAmount = Number(perCode.rate_amount || 0);
+  } else if (rateCard && baseBucket !== 'flat') {
+    rateSource = 'rate_card';
+    if (baseBucket === 'indirect') rateAmount = Number(rateCard.indirect_rate || 0);
+    else if (baseBucket === 'other') {
+      if (otherSlot === 2) rateAmount = Number(rateCard.other_rate_2 || 0);
+      else if (otherSlot === 3) rateAmount = Number(rateCard.other_rate_3 || 0);
+      else rateAmount = Number(rateCard.other_rate_1 || 0);
+    } else {
+      rateAmount = Number(rateCard.direct_rate || 0);
+    }
+  }
+
+  if ((codeKey === '99414' || codeKey === '99415' || codeKey === '99416') && String(user?.role || '').trim().toLowerCase() === 'intern') {
+    return 0;
+  }
+  if ((codeKey === '99414' || codeKey === '99416') && isPrelicensed === false) {
+    return 0;
+  }
+
+  let amount = 0;
+  if (perCode) {
+    if (baseBucket !== 'flat') amount = perCodePayUnit === 'per_hour' ? (payHours * rateAmount) : (qty * rateAmount);
+    else amount = qty * rateAmount;
+  } else if (rateCard && baseBucket !== 'flat') {
+    amount = payHours * rateAmount;
+  } else {
+    amount = qty * rateAmount;
+  }
+  return Number((Math.round(amount * 100) / 100).toFixed(2));
 }
 
 function importSlotByDate({ periodEnd, importedAt }) {
@@ -2739,6 +3044,91 @@ export const patchPayrollImportRow = async (req, res, next) => {
   }
 };
 
+export const listPayrollImportRowNotes = async (req, res, next) => {
+  try {
+    const rowId = parseInt(req.params.rowId, 10);
+    if (!rowId) return res.status(400).json({ error: { message: 'rowId is required' } });
+    const row = await PayrollImportRow.findById(rowId);
+    if (!row) return res.status(404).json({ error: { message: 'Import row not found' } });
+    const period = await PayrollPeriod.findById(row.payroll_period_id);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    try {
+      const notes = await PayrollImportRowAudit.listNotesForRow({
+        payrollImportRowId: rowId,
+        agencyId: period.agency_id
+      });
+      return res.json({
+        rowId,
+        notes: (notes || []).map((n) => ({
+          id: Number(n.id || 0),
+          payrollImportRowId: Number(n.payroll_import_row_id || rowId),
+          note: String(n.to_value || ''),
+          authorUserId: Number(n.changed_by_user_id || 0) || null,
+          authorName: `${String(n.author_first_name || '').trim()} ${String(n.author_last_name || '').trim()}`.trim() || 'Unknown user',
+          changedAt: n.changed_at || null
+        }))
+      });
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ rowId, notes: [] });
+      throw e;
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createPayrollImportRowNote = async (req, res, next) => {
+  try {
+    const rowId = parseInt(req.params.rowId, 10);
+    const note = String(req.body?.note || '').trim();
+    if (!rowId) return res.status(400).json({ error: { message: 'rowId is required' } });
+    if (!note) return res.status(400).json({ error: { message: 'note is required' } });
+    if (note.length > 4000) return res.status(400).json({ error: { message: 'note must be 4000 characters or fewer' } });
+    const row = await PayrollImportRow.findById(rowId);
+    if (!row) return res.status(404).json({ error: { message: 'Import row not found' } });
+    const period = await PayrollPeriod.findById(row.payroll_period_id);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    try {
+      const noteId = await PayrollImportRowAudit.create({
+        payrollImportRowId: row.id,
+        payrollImportId: row.payroll_import_id,
+        payrollPeriodId: row.payroll_period_id,
+        agencyId: row.agency_id,
+        fieldChanged: 'admin_note',
+        fromValue: null,
+        toValue: note,
+        changedByUserId: req.user.id
+      });
+      const notes = await PayrollImportRowAudit.listNotesForRow({
+        payrollImportRowId: row.id,
+        agencyId: period.agency_id
+      });
+      return res.status(201).json({
+        ok: true,
+        id: noteId,
+        rowId: row.id,
+        notes: (notes || []).map((n) => ({
+          id: Number(n.id || 0),
+          payrollImportRowId: Number(n.payroll_import_row_id || row.id),
+          note: String(n.to_value || ''),
+          authorUserId: Number(n.changed_by_user_id || 0) || null,
+          authorName: `${String(n.author_first_name || '').trim()} ${String(n.author_last_name || '').trim()}`.trim() || 'Unknown user',
+          changedAt: n.changed_at || null
+        }))
+      });
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') {
+        return res.status(409).json({ error: { message: 'Payroll row audit notes are not available yet (run database migrations first).' } });
+      }
+      throw e;
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getPayrollReportSessionsUnits = async (req, res, next) => {
   try {
     const payrollPeriodId = parseInt(req.params.id, 10);
@@ -4905,6 +5295,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         (l?.creditsHours === null || l?.creditsHours === undefined || l?.creditsHours === '')
           ? null
           : Number(l?.creditsHours),
+      metadataJson: l?.metadataJson && typeof l.metadataJson === 'object' ? l.metadataJson : null,
       amount: Number(l?.amount || 0)
     }));
     const manualPayLinesAmount = manualPayLines.reduce((a, l) => a + Number(l?.amount || 0), 0);
@@ -5065,7 +5456,12 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         taxable: true,
         amount: amt,
         bucket: cat,
-        meta: { creditsHours: (Number.isFinite(hrs) ? hrs : null) }
+        meta: {
+          creditsHours: (Number.isFinite(hrs) ? hrs : null),
+          details: Array.isArray(l?.metadataJson?.details) ? l.metadataJson.details : null,
+          reductionKey: l?.metadataJson?.reductionKey || null,
+          kind: l?.metadataJson?.kind || null
+        }
       });
     }
 
@@ -10756,6 +11152,256 @@ export const applyPayrollCarryover = async (req, res, next) => {
     );
 
     res.json({ ok: true, inserted: rows.length, warnings });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const applyPayrollRawAuditActions = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    if (isEffectivelyPostedOrFinalized(period)) {
+      return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
+    }
+
+    const skipProcessingGate =
+      String(req.query?.skipProcessingGate || '').toLowerCase() === 'true' ||
+      String(req.query?.skipProcessingGate || '') === '1';
+    const sourcePayrollPeriodId = req.body?.sourcePayrollPeriodId ? parseInt(req.body.sourcePayrollPeriodId, 10) : null;
+    const requestRows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!requestRows.length) {
+      return res.status(400).json({ error: { message: 'rows are required' } });
+    }
+
+    const positiveRows = [];
+    const reductionRows = [];
+    for (let i = 0; i < requestRows.length; i++) {
+      const row = requestRows[i] || {};
+      const actionType = String(row?.actionType || 'add').trim().toLowerCase();
+      const userId = Number(row?.userId || 0);
+      const serviceCode = String(row?.serviceCode || '').trim().toUpperCase();
+      const rowMatchKey = String(row?.rowMatchKey || '').trim() || null;
+      const carryoverMeta =
+        row?.carryoverMeta && typeof row.carryoverMeta === 'object'
+          ? row.carryoverMeta
+          : null;
+      if (!userId || !serviceCode) {
+        return res.status(400).json({ error: { message: `rows[${i}] must include userId and serviceCode` } });
+      }
+      if (actionType === 'reduction') {
+        const units = Number(row?.units ?? row?.fromUnits ?? 0);
+        if (!(units > 1e-9)) continue;
+        reductionRows.push({
+          userId,
+          serviceCode,
+          units: Number(units.toFixed(2)),
+          rowMatchKey,
+          providerName: String(row?.providerName || '').trim() || null,
+          patientFirstName: String(row?.patientFirstName || '').trim() || null,
+          serviceDate: row?.serviceDate || null,
+          fromStatus: String(row?.fromStatus || '').trim().toUpperCase() || null,
+          location: String(row?.location || '').trim() || null,
+          baselineRowId: Number(row?.baselineRowId || 0) || null,
+          compareRowId: Number(row?.compareRowId || 0) || null
+        });
+      } else {
+        const units = Number(row?.carryoverFinalizedUnits ?? row?.units ?? 0);
+        const rowCount = Number.isFinite(Number(row?.carryoverFinalizedRowCount))
+          ? Math.max(0, parseInt(Number(row?.carryoverFinalizedRowCount), 10) || 0)
+          : 1;
+        if (!(units > 1e-9)) continue;
+        positiveRows.push({
+          userId,
+          serviceCode,
+          carryoverFinalizedUnits: Number(units.toFixed(2)),
+          carryoverFinalizedRowCount: rowCount || 1,
+          carryoverMeta,
+          rowMatchKey
+        });
+      }
+    }
+
+    const warnings = [];
+    if (positiveRows.length) {
+      const pendingProcessingCount = await PayrollImportRow.countUnprocessedForPeriod({ payrollPeriodId });
+      if (!skipProcessingGate && pendingProcessingCount > 0) {
+        const sample = await PayrollImportRow.listUnprocessedForPeriod({ payrollPeriodId, limit: 50 });
+        return res.status(409).json({
+          error: {
+            message: `Cannot apply raw import actions: ${pendingProcessingCount} H0031/H0032/H2014/H2032 row(s) require processing (minutes + Done) in the current pay period.`
+          },
+          pendingProcessing: { count: pendingProcessingCount, sample }
+        });
+      }
+      if (skipProcessingGate && pendingProcessingCount > 0) {
+        warnings.push({
+          code: 'H0031/H0032',
+          message: `Raw import actions applied with skipProcessingGate=true while ${pendingProcessingCount} H0031/H0032/H2014/H2032 row(s) in the current pay period still require processing.`
+        });
+      }
+    }
+
+    let mergedCarryoverRows = [];
+    let carryoverAppliedCount = 0;
+    if (positiveRows.length) {
+      const existingCarryovers = await PayrollStageCarryover.listForPeriod(payrollPeriodId);
+      const keyed = new Map();
+      for (const row of existingCarryovers || []) {
+        let meta = row?.carryover_meta_json ?? row?.carryoverMetaJson ?? null;
+        if (typeof meta === 'string') {
+          try { meta = JSON.parse(meta); } catch { meta = null; }
+        }
+        const key = `${Number(row?.user_id || 0)}:${String(row?.service_code || '').trim().toUpperCase()}`;
+        keyed.set(key, {
+          userId: Number(row?.user_id || 0),
+          serviceCode: String(row?.service_code || '').trim().toUpperCase(),
+          carryoverFinalizedUnits: Number(row?.carryover_finalized_units || 0),
+          carryoverFinalizedRowCount: Number(row?.carryover_finalized_row_count || 0),
+          carryoverMeta: meta && typeof meta === 'object' ? meta : null
+        });
+      }
+
+      for (const row of positiveRows) {
+        const key = `${row.userId}:${row.serviceCode}`;
+        const existing = keyed.get(key) || {
+          userId: row.userId,
+          serviceCode: row.serviceCode,
+          carryoverFinalizedUnits: 0,
+          carryoverFinalizedRowCount: 0,
+          carryoverMeta: null
+        };
+        if (row.rowMatchKey && hasCarryoverRawAuditRow(existing.carryoverMeta, row.rowMatchKey)) {
+          warnings.push({
+            code: 'duplicate_raw_audit_add',
+            message: `Skipped duplicate raw-import add for ${row.serviceCode} (already applied).`,
+            rowMatchKey: row.rowMatchKey
+          });
+          continue;
+        }
+        existing.carryoverFinalizedUnits = Number((Number(existing.carryoverFinalizedUnits || 0) + Number(row.carryoverFinalizedUnits || 0)).toFixed(2));
+        existing.carryoverFinalizedRowCount = Number(existing.carryoverFinalizedRowCount || 0) + Number(row.carryoverFinalizedRowCount || 0);
+        existing.carryoverMeta = mergeCarryoverMeta(existing.carryoverMeta, row.carryoverMeta || null);
+        keyed.set(key, existing);
+        carryoverAppliedCount += 1;
+      }
+
+      mergedCarryoverRows = Array.from(keyed.values()).filter((row) => Number(row?.carryoverFinalizedUnits || 0) > 1e-9);
+      await PayrollStageCarryover.replaceForPeriod({
+        payrollPeriodId,
+        agencyId: period.agency_id,
+        sourcePayrollPeriodId,
+        computedByUserId: req.user.id,
+        rows: mergedCarryoverRows
+      });
+    }
+
+    let reductionCreatedCount = 0;
+    if (reductionRows.length) {
+      const cache = {
+        rulesByAgency: new Map(),
+        rateCards: new Map(),
+        users: new Map(),
+        perCodeRates: new Map(),
+        supervisionEligibility: new Map()
+      };
+      const existingManualLines = await PayrollManualPayLine.listForPeriod({ payrollPeriodId, agencyId: period.agency_id });
+      const existingReductionKeys = new Set(
+        (existingManualLines || [])
+          .map((line) => String(line?.metadata_json?.reductionKey || '').trim())
+          .filter(Boolean)
+      );
+
+      for (const row of reductionRows) {
+        const reductionKey = buildRawAuditReductionKey({
+          sourcePayrollPeriodId,
+          rowMatchKey: row.rowMatchKey,
+          baselineRowId: row.baselineRowId,
+          compareRowId: row.compareRowId,
+          serviceCode: row.serviceCode
+        });
+        if (existingReductionKeys.has(reductionKey)) {
+          warnings.push({
+            code: 'duplicate_raw_audit_reduction',
+            message: `Skipped duplicate reduction for ${row.serviceCode} (already added).`,
+            rowMatchKey: row.rowMatchKey
+          });
+          continue;
+        }
+
+        const amount = await computeRawAuditReductionAmount({
+          agencyId: period.agency_id,
+          userId: row.userId,
+          serviceCode: row.serviceCode,
+          units: row.units,
+          serviceDate: row.serviceDate,
+          cache
+        });
+        if (!(Math.abs(Number(amount || 0)) > 1e-9)) {
+          warnings.push({
+            code: 'zero_reduction_amount',
+            message: `Skipped reduction for ${row.serviceCode} because no payable amount could be calculated.`,
+            rowMatchKey: row.rowMatchKey
+          });
+          continue;
+        }
+
+        const clientLabel = String(row.patientFirstName || '').trim() || 'Unknown client';
+        const dosLabel = ymdFromDbDate(row.serviceDate) || 'Unknown DOS';
+        const label = `Deleted note reduction • ${row.serviceCode} • ${clientLabel} • ${dosLabel}`;
+        await PayrollManualPayLine.create({
+          payrollPeriodId,
+          agencyId: period.agency_id,
+          userId: row.userId,
+          label,
+          category: 'indirect',
+          amount: Number((-Math.abs(amount)).toFixed(2)),
+          metadataJson: {
+            kind: 'raw_audit_reduction',
+            reductionKey,
+            sourcePayrollPeriodId: Number(sourcePayrollPeriodId || 0) || null,
+            reason: 'overpaid_deleted',
+            rowMatchKey: row.rowMatchKey,
+            details: [
+              { label: 'Service code', value: row.serviceCode },
+              { label: 'Client', value: clientLabel },
+              { label: 'Date of service', value: dosLabel },
+              { label: 'Units', value: Number(row.units || 0) },
+              { label: 'Prior status', value: row.fromStatus || 'PAID' },
+              { label: 'Location', value: row.location || '—' },
+              { label: 'Reason', value: 'Deleted after being paid from a prior pay period' }
+            ],
+            baselineRowId: row.baselineRowId,
+            compareRowId: row.compareRowId
+          },
+          createdByUserId: req.user.id
+        });
+        existingReductionKeys.add(reductionKey);
+        reductionCreatedCount += 1;
+      }
+    }
+
+    if (carryoverAppliedCount > 0 || reductionCreatedCount > 0) {
+      await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
+      await pool.execute(
+        `UPDATE payroll_periods
+         SET status = 'staged',
+             ran_at = NULL,
+             ran_by_user_id = NULL
+         WHERE id = ?`,
+        [payrollPeriodId]
+      );
+    }
+
+    res.json({
+      ok: true,
+      carryoverAppliedCount,
+      carryoverRowsTotal: mergedCarryoverRows.length,
+      reductionCreatedCount,
+      warnings
+    });
   } catch (e) {
     next(e);
   }

@@ -249,7 +249,19 @@ const normalizeSeasonSettings = (input = {}) => {
       teamCount: Math.max(1, numOr(teams.teamCount, 2)),
       presetTeamNames: parseList(teams.presetTeamNames),
       allowCaptainRenameTeam: asBool(teams.allowCaptainRenameTeam, true),
-      allowCaptainNicknameSuffixWhenLocked: asBool(teams.allowCaptainNicknameSuffixWhenLocked, false)
+      allowCaptainNicknameSuffixWhenLocked: asBool(teams.allowCaptainNicknameSuffixWhenLocked, false),
+      /** Planned roster size for weekly team distance bar (Manage season → Teams). 0 = unset, use participation fallback. */
+      membersPerTeam: Math.max(0, numOr(teams.membersPerTeam, 0)),
+      weeklyTeamTargets: (() => {
+        const raw = teams.weeklyTeamTargets;
+        if (!raw || typeof raw !== 'object') return {};
+        const out = {};
+        for (const [k, v] of Object.entries(raw)) {
+          const n = Number(v);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(k) && Number.isFinite(n) && n > 0) out[k] = n;
+        }
+        return out;
+      })()
     },
     participation: {
       weeklyGoalMembersPerTeam: Math.max(1, numOr(participation.weeklyGoalMembersPerTeam, 10)),
@@ -1633,7 +1645,7 @@ export const serveSeasonBanner = async (req, res, next) => {
     const [buffer] = await file.download();
     const [meta] = await file.getMetadata();
     res.setHeader('Content-Type', meta.contentType || 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     return res.send(buffer);
   } catch (e) { next(e); }
 };
@@ -1659,7 +1671,7 @@ export const serveSeasonLogo = async (req, res, next) => {
     const [buffer] = await file.download();
     const [meta] = await file.getMetadata();
     res.setHeader('Content-Type', meta.contentType || 'image/png');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     return res.send(buffer);
   } catch (e) { next(e); }
 };

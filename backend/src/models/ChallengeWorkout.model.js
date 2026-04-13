@@ -262,22 +262,53 @@ class ChallengeWorkout {
     return rows || [];
   }
 
-  static async getWeeklyTeamLeaderboard(learningClassId, weekStart, { limit = 50, weekCutoffTime = '00:00', weekTimeZone = null } = {}) {
+  static async getWeeklyTeamLeaderboard(learningClassId, weekStart, { limit = 50, weekCutoffTime = '00:00', weekTimeZone = null, requireApprovedProof = true } = {}) {
     const classId = toInt(learningClassId);
     if (!classId) return [];
     const range = this._weeklyRange(weekStart, weekCutoffTime, weekTimeZone);
     if (!range) return [];
     const lim = Math.min(Math.max(toInt(limit) || 50, 1), 500);
+    const workoutClause = requireApprovedProof
+      ? this._qualifiedClause('w')
+      : '(w.is_disqualified IS NULL OR w.is_disqualified = 0)';
     const [rows] = await pool.execute(
-      `SELECT w.team_id, t.team_name, SUM(w.points) AS total_points
-       FROM challenge_workouts w
-       INNER JOIN challenge_teams t ON t.id = w.team_id
-       WHERE w.learning_class_id = ? AND w.team_id IS NOT NULL AND ${this._qualifiedClause('w')}
-         AND w.completed_at >= ? AND w.completed_at < ?
-       GROUP BY w.team_id, t.team_name
-       ORDER BY total_points DESC
+      `SELECT
+         t.id AS team_id,
+         t.team_name,
+         COALESCE(SUM(eff.points), 0) AS total_points,
+         COALESCE(SUM(eff.miles), 0) AS total_miles
+       FROM challenge_teams t
+       LEFT JOIN (
+         SELECT
+           w.points,
+           COALESCE(w.distance_value, 0) AS miles,
+           COALESCE(
+             w.team_id,
+             tmmap.team_id,
+             capmap.team_id
+           ) AS effective_team_id
+         FROM challenge_workouts w
+         LEFT JOIN (
+           SELECT tm.provider_user_id AS user_id, MIN(tm.team_id) AS team_id
+           FROM challenge_team_members tm
+           INNER JOIN challenge_teams ttm ON ttm.id = tm.team_id
+           WHERE ttm.learning_class_id = ?
+           GROUP BY tm.provider_user_id
+         ) tmmap ON tmmap.user_id = w.user_id
+         LEFT JOIN (
+           SELECT ct.team_manager_user_id AS user_id, MIN(ct.id) AS team_id
+           FROM challenge_teams ct
+           WHERE ct.learning_class_id = ? AND ct.team_manager_user_id IS NOT NULL
+           GROUP BY ct.team_manager_user_id
+         ) capmap ON capmap.user_id = w.user_id
+         WHERE w.learning_class_id = ? AND ${workoutClause}
+           AND w.completed_at >= ? AND w.completed_at < ?
+       ) eff ON eff.effective_team_id = t.id
+       WHERE t.learning_class_id = ?
+       GROUP BY t.id, t.team_name
+       ORDER BY total_points DESC, t.team_name ASC
        LIMIT ${lim}`,
-      [classId, range.start, range.end]
+      [classId, classId, classId, range.start, range.end, classId]
     );
     return rows || [];
   }

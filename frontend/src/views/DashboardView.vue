@@ -10,9 +10,19 @@
       </div>
     </div>
     <div v-else class="dashboard-header-user">
-      <h1 data-tour="dash-header-title">{{ isPending && !isClubContext ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
-      <span class="badge badge-user">Personal</span>
-      <span v-if="tierBadgeText" class="badge badge-tier" :class="tierBadgeKind">{{ tierBadgeText }}</span>
+      <div class="dashboard-header-user__titles">
+        <h1 data-tour="dash-header-title">{{ isPending && !isClubContext ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
+        <span class="badge badge-user">Personal</span>
+        <span v-if="tierBadgeText" class="badge badge-tier" :class="tierBadgeKind">{{ tierBadgeText }}</span>
+      </div>
+      <button
+        v-if="showShareClubWithStaffButton"
+        type="button"
+        class="btn btn-secondary btn-sm share-club-staff-btn"
+        @click="openShareClubModal"
+      >
+        Share club with staff?
+      </button>
     </div>
 
     <!-- Agency announcement banner (Dashboard) -->
@@ -143,6 +153,7 @@
     </div>
 
     <SurveyPromptCard v-if="!previewMode && isOnboardingComplete && !isClubContext" />
+    <ClubEmployerSharePromptCard v-if="showEmployerClubSharePromptsShell" />
     <BookClubPromptCard v-if="!previewMode && isOnboardingComplete && !isClubContext" />
     
     <!-- Pending Completion Button -->
@@ -1149,6 +1160,54 @@
       </div>
     </div>
 
+    <div
+      v-if="showShareClubModal"
+      class="blocking-splash"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Share club with staff"
+      @click.self="showShareClubModal = false"
+    >
+      <div class="blocking-splash-card share-club-modal-card" @click.stop>
+        <h3 class="share-club-modal-title">Share club with staff</h3>
+        <p class="hint share-club-modal-hint">
+          Coworkers in the employer you pick will see a short prompt on their dashboard to join this Summit club.
+        </p>
+        <div class="form-group">
+          <label for="share-club-select-club">Managed club</label>
+          <select id="share-club-select-club" v-model.number="shareModalClubId" class="form-control">
+            <option v-for="c in mergedManagedClubsForShare" :key="c.id" :value="c.id">{{ c.name }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="share-club-select-employer">Employer (work agency)</label>
+          <select id="share-club-select-employer" v-model.number="shareModalEmployerId" class="form-control">
+            <option v-for="e in workEmployerAgencies" :key="e.id" :value="e.id">{{ e.name }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="share-club-message">Optional message</label>
+          <textarea
+            id="share-club-message"
+            v-model="shareModalMessage"
+            class="form-control"
+            rows="3"
+            maxlength="2000"
+            placeholder="Why join? (optional)"
+          />
+        </div>
+        <div class="share-club-modal-actions">
+          <button type="button" class="btn btn-secondary" :disabled="shareSubmitting" @click="showShareClubModal = false">
+            Cancel
+          </button>
+          <button type="button" class="btn btn-primary" :disabled="shareSubmitting || !shareModalClubId || !shareModalEmployerId" @click="submitShareClubWithEmployer">
+            {{ shareSubmitting ? 'Sending…' : 'Send' }}
+          </button>
+        </div>
+        <p v-if="shareModalError" class="error">{{ shareModalError }}</p>
+      </div>
+    </div>
+
     <SkillBuilderAvailabilityModal
       v-if="showSkillBuilderModal"
       :agency-id="currentAgencyId"
@@ -1333,6 +1392,9 @@ import PresenceStatusWidget from '../components/dashboard/PresenceStatusWidget.v
 import StaffCard from '../components/dashboard/StaffCard.vue';
 import SurveyPromptCard from '../components/dashboard/SurveyPromptCard.vue';
 import BookClubPromptCard from '../components/bookClub/BookClubPromptCard.vue';
+import ClubEmployerSharePromptCard from '../components/club/ClubEmployerSharePromptCard.vue';
+import { isNativePlatform } from '../utils/biometricAuth.js';
+import { isSummitScopedOrg } from '../utils/summitRoutingContext.js';
 import ToolsAidsView from './admin/ToolsAidsView.vue';
 import CommunicationsFeedView from './admin/CommunicationsFeedView.vue';
 import PlatformChatsView from './admin/PlatformChatsView.vue';
@@ -1470,6 +1532,13 @@ const RAIL_PULSE_DURATION_MS = 2500;
 const showLastPaycheckModal = ref(false);
 const lastPaycheckPayrollPeriodId = ref(null);
 const showAddSeasonModal = ref(false);
+const showShareClubModal = ref(false);
+const shareModalClubId = ref(null);
+const shareModalEmployerId = ref(null);
+const shareModalMessage = ref('');
+const shareModalError = ref('');
+const shareSubmitting = ref(false);
+const clubManagerContextForShare = ref(null);
 const railCardDescriptors = getDashboardRailCardDescriptors();
 const openCardDescriptorId = ref('');
 
@@ -2870,6 +2939,111 @@ const isOnboardingComplete = computed(() => {
     lower === 'terminated'
   );
 });
+
+async function loadClubManagerContextForShare() {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role !== 'club_manager' || isNativePlatform()) {
+    clubManagerContextForShare.value = null;
+    return;
+  }
+  try {
+    const { data } = await api.get('/summit-stats/club-manager-context', { skipGlobalLoading: true });
+    clubManagerContextForShare.value = data || null;
+  } catch {
+    clubManagerContextForShare.value = null;
+  }
+}
+
+const mergedManagedClubsForShare = computed(() => {
+  const ctx = clubManagerContextForShare.value;
+  if (!ctx) return [];
+  const seen = new Set();
+  const out = [];
+  for (const a of [...(ctx.managedClubs || []), ...(ctx.clubs || [])]) {
+    const id = Number(a?.id || 0);
+    if (!id || seen.has(id)) continue;
+    if (String(a?.organization_type || a?.organizationType || '').toLowerCase() !== 'affiliation') continue;
+    seen.add(id);
+    out.push({ id, name: String(a?.name || `Club ${id}`) });
+  }
+  return out.sort((x, y) => x.name.localeCompare(y.name));
+});
+
+const workEmployerAgencies = computed(() => {
+  const raw =
+    (Array.isArray(authStore.user?.agencies) && authStore.user.agencies.length
+      ? authStore.user.agencies
+      : agencyStore.userAgencies?.value ?? agencyStore.userAgencies) || [];
+  const list = Array.isArray(raw) ? raw : [];
+  return list
+    .filter((a) => {
+      if (String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation') return false;
+      return !isSummitScopedOrg(a);
+    })
+    .map((a) => ({
+      id: Number(a.id),
+      name: String(a?.name || '').trim() || `Agency ${a.id}`
+    }))
+    .filter((a) => a.id > 0)
+    .sort((x, y) => x.name.localeCompare(y.name));
+});
+
+const showShareClubWithStaffButton = computed(() => {
+  if (props.previewMode) return false;
+  if (isNativePlatform()) return false;
+  if (!isOnboardingComplete.value) return false;
+  if (isClubContext.value) return false;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role !== 'club_manager') return false;
+  return mergedManagedClubsForShare.value.length > 0 && workEmployerAgencies.value.length > 0;
+});
+
+const showEmployerClubSharePromptsShell = computed(() => {
+  if (props.previewMode) return false;
+  if (!isOnboardingComplete.value) return false;
+  if (isClubContext.value) return false;
+  if (isNativePlatform()) return false;
+  const t = String(agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || '').toLowerCase();
+  if (t === 'affiliation') return false;
+  return !!agencyStore.currentAgency?.id;
+});
+
+function openShareClubModal() {
+  shareModalError.value = '';
+  const clubs = mergedManagedClubsForShare.value;
+  const emps = workEmployerAgencies.value;
+  shareModalClubId.value = clubs[0]?.id ?? null;
+  shareModalEmployerId.value = emps.length === 1 ? emps[0].id : (emps[0]?.id ?? null);
+  showShareClubModal.value = true;
+}
+
+async function submitShareClubWithEmployer() {
+  if (!shareModalClubId.value || !shareModalEmployerId.value) {
+    shareModalError.value = 'Choose a club and employer.';
+    return;
+  }
+  shareSubmitting.value = true;
+  shareModalError.value = '';
+  try {
+    await api.post(`/summit-stats/clubs/${shareModalClubId.value}/share-with-employer`, {
+      employerAgencyId: shareModalEmployerId.value,
+      message: shareModalMessage.value.trim() || undefined
+    });
+    showShareClubModal.value = false;
+    shareModalMessage.value = '';
+  } catch (e) {
+    shareModalError.value = e?.response?.data?.error?.message || 'Could not send';
+  } finally {
+    shareSubmitting.value = false;
+  }
+}
+
+watch(
+  () => [authStore.user?.id, authStore.user?.role],
+  () => {
+    void loadClubManagerContextForShare();
+  }
+);
 
 async function loadSubCoordinatorProgramOrgs() {
   subCoordinatorProgramOrgs.value = [];
@@ -4414,6 +4588,7 @@ onMounted(async () => {
     }
   };
   await fetchOnboardingStatus();
+  void loadClubManagerContextForShare();
   loadScheduleViewPrefs();
   syncFromQuery();
   // When no tab in URL, apply default_landing_page preference or fall back to existing logic.
@@ -6591,15 +6766,50 @@ h1 {
 .dashboard-header-user {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px 16px;
   margin-bottom: 30px;
   padding-bottom: 20px;
   border-bottom: 2px solid var(--border);
 }
 
-.dashboard-header-user h1 {
+.dashboard-header-user__titles {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  min-width: 0;
+}
+
+.dashboard-header-user__titles h1 {
   margin: 0;
   color: var(--text-primary);
+}
+
+.share-club-staff-btn {
+  flex-shrink: 0;
+}
+
+.share-club-modal-card {
+  max-width: 480px;
+  width: calc(100vw - 2rem);
+  text-align: left;
+}
+
+.share-club-modal-title {
+  margin-top: 0;
+}
+
+.share-club-modal-hint {
+  margin-bottom: 1rem;
+}
+
+.share-club-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .badge-user {

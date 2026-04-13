@@ -1,14 +1,24 @@
 <template>
   <section class="challenge-message-feed">
     <h2>Chat</h2>
-    <div class="chat-tabs">
-      <button type="button" class="tab-btn" :class="{ active: activeScope === 'season' }" @click="switchScope('season')">
-        Season Chat
-        <span v-if="unread.season > 0" class="badge">{{ unread.season }}</span>
-      </button>
-      <button type="button" class="tab-btn" :class="{ active: activeScope === 'team' }" @click="switchScope('team')">
-        Team Chat
-        <span v-if="unread.team > 0" class="badge">{{ unread.team }}</span>
+    <div class="chat-tabs-row">
+      <div class="chat-tabs">
+        <button type="button" class="tab-btn" :class="{ active: activeScope === 'season' }" @click="switchScope('season')">
+          Season Chat
+          <span v-if="unread.season > 0" class="badge">{{ unread.season }}</span>
+        </button>
+        <button type="button" class="tab-btn" :class="{ active: activeScope === 'team' }" @click="switchScope('team')">
+          Team Chat
+          <span v-if="unread.team > 0" class="badge">{{ unread.team }}</span>
+        </button>
+      </div>
+      <button
+        type="button"
+        class="mark-all-read-btn"
+        :disabled="markAllReadBusy || (unread.season < 1 && unread.team < 1)"
+        @click="markAllRead"
+      >
+        {{ markAllReadBusy ? '…' : 'Mark all as read' }}
       </button>
     </div>
 
@@ -68,16 +78,19 @@
     </p>
 
     <div v-if="loading" class="loading-inline">Loading messages…</div>
-    <div v-else class="messages-list">
+    <div ref="messagesListEl" class="messages-list" :class="{ 'messages-list--loading': loading }">
       <article
         v-for="(m, idx) in messages"
         :key="`msg-${m.id}`"
+        :data-msg-id="m.id"
         class="message-card"
         :class="{
           'message-card--pinned': Number(m.is_pinned) === 1,
           'message-card--mine': Number(m.user_id) === Number(myUserId),
-          'message-card--alt': idx % 2 === 1
+          'message-card--alt': idx % 2 === 1,
+          'message-card--teammate': isTeammateMessage(m)
         }"
+        :style="teammateCardStyle(m)"
       >
         <div class="message-body-row">
           <!-- Avatar -->
@@ -113,7 +126,7 @@
               <span class="quoted-name">{{ m.parent_first_name }}</span>: {{ truncate(m.parent_message_text, 80) }}
             </div>
 
-            <p v-html="renderMessageWithMentions(m.message_text)" />
+            <p v-html="renderMessageWithMentions(m.message_text)" class="msg-text" />
 
             <!-- Attachments -->
             <div v-if="parseAttachments(m).length" class="message-attachments">
@@ -175,13 +188,19 @@
 </template>
 
 <script setup>
-import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, watch, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
   challengeId: { type: [String, Number], required: true },
   myUserId: { type: [String, Number], default: null },
-  isManager: { type: Boolean, default: false }
+  isManager: { type: Boolean, default: false },
+  /** User ids on the viewer's team (season or team chat) — highlighted with team accent. */
+  teamMateUserIds: { type: Array, default: () => [] },
+  /** Lowercase strings matched after @ for "mentioned you" styling. */
+  mentionSlugs: { type: Array, default: () => [] },
+  /** Left border for teammate messages (match Team Chat tab accent). */
+  teamAccentColor: { type: String, default: '#ea580c' }
 });
 
 const messages      = ref([]);
@@ -191,6 +210,7 @@ const draft         = ref('');
 const activeScope   = ref('season');
 const currentTeamId = ref(null);
 const unread        = ref({ season: 0, team: 0 });
+const markAllReadBusy = ref(false);
 const emojiOpen     = ref(false);
 const pendingAttachments = ref([]);
 const attachInputRef = ref(null);
@@ -198,6 +218,9 @@ const replyingTo    = ref(null);
 const reactionPickerFor = ref(null);
 const reactionsMap  = ref({});  // { messageId: [{ emoji, count, mine }] }
 const lightboxUrl   = ref(null);
+const messagesListEl = ref(null);
+const lastSeasonReadMsgId = ref(0);
+const lastTeamReadMsgId = ref(0);
 let unreadPollTimer = null;
 
 const emojiList = [
@@ -213,27 +236,67 @@ const avatarPalette = ['#6d5efc','#e97b2a','#2196F3','#4caf50','#e91e63','#9c27b
 const userColor = (userId) => avatarPalette[Number(userId || 0) % avatarPalette.length];
 const initials = (first, last) => `${String(first || '').charAt(0)}${String(last || '').charAt(0)}`.toUpperCase();
 
-const backendUrl = import.meta.env.VITE_API_BASE_URL?.replace('/api', '') || '';
 const toAvatarUrl = (path) => {
   if (!path) return '';
   if (path.startsWith('http')) return path;
-  return `${backendUrl}/uploads/${path.replace(/^\/+/, '')}`;
+  const apiBase = String(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/$/, '');
+  const cleaned = path.replace(/^\/+/, '').replace(/^(?:api\/)?uploads\//, '');
+  return `${apiBase}/uploads/${cleaned}`;
 };
 
 const msgReactions = (messageId) => reactionsMap.value[Number(messageId)] || [];
+
+const teammateIdSet = computed(() => new Set((props.teamMateUserIds || []).map((id) => Number(id)).filter((n) => n > 0)));
+
+const isTeammateMessage = (m) => {
+  const uid = Number(m?.user_id);
+  const myId = Number(props.myUserId || 0);
+  if (!uid || uid === myId) return false;
+  return teammateIdSet.value.has(uid);
+};
+
+const teammateCardStyle = (m) => {
+  if (!isTeammateMessage(m)) return {};
+  return { borderLeft: `3px solid ${props.teamAccentColor}` };
+};
+
+const scrollMessageIntoView = (messageId, behavior = 'smooth') => {
+  if (!messageId || !messagesListEl.value) return;
+  const el = messagesListEl.value.querySelector(`[data-msg-id="${messageId}"]`);
+  el?.scrollIntoView({ block: 'center', behavior });
+};
 
 const load = async () => {
   if (!props.challengeId) return;
   loading.value = true;
   try {
-    const r = await api.get(`/learning-program-classes/${props.challengeId}/messages`, {
-      params: { scope: activeScope.value },
+    await loadUnreadCounts();
+    const rPeek = await api.get(`/learning-program-classes/${props.challengeId}/messages`, {
+      params: { scope: activeScope.value, peek: 1, limit: 50 },
       skipGlobalLoading: true
     });
-    messages.value = Array.isArray(r.data?.messages) ? r.data.messages : [];
-    currentTeamId.value = r.data?.teamId ? Number(r.data.teamId) : null;
+    messages.value = Array.isArray(rPeek.data?.messages) ? rPeek.data.messages : [];
+    currentTeamId.value = rPeek.data?.teamId ? Number(rPeek.data.teamId) : null;
+    const wmPeek = activeScope.value === 'season' ? lastSeasonReadMsgId.value : lastTeamReadMsgId.value;
+    const myId = Number(props.myUserId || 0);
+    const firstUnreadPeek = (messages.value || []).find((m) => Number(m.user_id) !== myId && Number(m.id) > wmPeek);
+    const scrollAnchorId = firstUnreadPeek?.id ?? null;
+    await nextTick();
+    if (scrollAnchorId) scrollMessageIntoView(scrollAnchorId, 'auto');
+    const rFinal = await api.get(`/learning-program-classes/${props.challengeId}/messages`, {
+      params: { scope: activeScope.value, limit: 50 },
+      skipGlobalLoading: true
+    });
+    messages.value = Array.isArray(rFinal.data?.messages) ? rFinal.data.messages : [];
+    currentTeamId.value = rFinal.data?.teamId ? Number(rFinal.data.teamId) : null;
+    if (activeScope.value === 'season') unread.value = { ...unread.value, season: 0 };
+    else unread.value = { ...unread.value, team: 0 };
     await loadUnreadCounts();
     await loadAllReactions();
+    await nextTick();
+    if (scrollAnchorId && (messages.value || []).some((m) => Number(m.id) === Number(scrollAnchorId))) {
+      scrollMessageIntoView(scrollAnchorId, 'auto');
+    }
   } catch {
     messages.value = [];
     currentTeamId.value = null;
@@ -242,14 +305,42 @@ const load = async () => {
   }
 };
 
+const scrollToFirstUnread = () => {
+  const wm = activeScope.value === 'season' ? lastSeasonReadMsgId.value : lastTeamReadMsgId.value;
+  const myId = Number(props.myUserId || 0);
+  const target = (messages.value || []).find((m) => Number(m.user_id) !== myId && Number(m.id) > wm);
+  if (!target) return;
+  scrollMessageIntoView(target.id, 'smooth');
+};
+
 const loadUnreadCounts = async () => {
   if (!props.challengeId) return;
   try {
     const r = await api.get(`/learning-program-classes/${props.challengeId}/messages/unread-counts`, { skipGlobalLoading: true });
     unread.value = { season: Number(r.data?.seasonUnread || 0), team: Number(r.data?.teamUnread || 0) };
+    lastSeasonReadMsgId.value = Number(r.data?.seasonLastReadMessageId || 0);
+    lastTeamReadMsgId.value = Number(r.data?.teamLastReadMessageId || 0);
     if (r.data?.teamId) currentTeamId.value = Number(r.data.teamId);
   } catch {
     unread.value = { season: 0, team: 0 };
+  }
+};
+
+const markAllRead = async () => {
+  if (!props.challengeId || markAllReadBusy.value) return;
+  markAllReadBusy.value = true;
+  try {
+    const r = await api.post(`/learning-program-classes/${props.challengeId}/messages/mark-read`, {}, { skipGlobalLoading: true });
+    unread.value = {
+      season: Number(r.data?.seasonUnread ?? 0),
+      team: Number(r.data?.teamUnread ?? 0)
+    };
+    if (r.data?.teamId) currentTeamId.value = Number(r.data.teamId);
+    await loadUnreadCounts();
+  } catch {
+    /* keep badges; user can retry */
+  } finally {
+    markAllReadBusy.value = false;
   }
 };
 
@@ -385,9 +476,16 @@ const escapeHtml = (s) => String(s || '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 
+const mentionSlugSet = computed(() => new Set((props.mentionSlugs || []).map((s) => String(s).toLowerCase()).filter(Boolean)));
+
 const renderMessageWithMentions = (text) => {
   const escaped = escapeHtml(text);
-  return escaped.replace(/(^|\s)(@[a-zA-Z0-9_]+)/g, '$1<span class="mention">$2</span>');
+  const slugs = mentionSlugSet.value;
+  return escaped.replace(/(^|[\s(])(@[^\s@<]+)/g, (_full, pre, raw) => {
+    const handle = String(raw).slice(1).toLowerCase();
+    const cls = slugs.has(handle) ? 'mention mention--me' : 'mention';
+    return `${pre}<span class="${cls}">${raw}</span>`;
+  });
 };
 
 const onDocClick = () => { emojiOpen.value = false; reactionPickerFor.value = null; };
@@ -411,7 +509,28 @@ onBeforeUnmount(() => {
   padding: 20px 20px 16px;
 }
 .challenge-message-feed > h2 { margin: 0 0 12px; font-size: 1.1em; }
-.chat-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+.chat-tabs-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.chat-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.mark-all-read-btn {
+  border: 1px solid #c7d2fe;
+  background: #f8fafc;
+  color: #4338ca;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mark-all-read-btn:hover:not(:disabled) { background: #eef2ff; }
+.mark-all-read-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .tab-btn {
   border: 1px solid #d8d8d8; background: #fff; border-radius: 999px;
   padding: 4px 12px; cursor: pointer; font-size: 0.87em;
@@ -482,6 +601,10 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   padding-right: 4px;
   scroll-behavior: smooth;
+}
+.messages-list--loading {
+  opacity: 0.55;
+  pointer-events: none;
 }
 .message-card {
   border-radius: 10px; padding: 10px 12px;
@@ -555,7 +678,15 @@ onBeforeUnmount(() => {
 .empty-hint, .loading-inline { color: var(--text-muted, #666); padding: 8px 0; }
 .btn-link { border: none; background: transparent; color: #6d5efc; cursor: pointer; font-size: 0.78rem; }
 .delete-link { color: #c62828; }
-:deep(.mention) { color: #3c2fd3; font-weight: 600; }
+:deep(.mention) { color: #4338ca; font-weight: 600; background: rgba(67, 56, 202, 0.08); padding: 0 3px; border-radius: 4px; }
+:deep(.mention--me) {
+  color: #713f12;
+  font-weight: 700;
+  background: linear-gradient(120deg, #fef08a 0%, #fde047 100%);
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+.message-card--teammate:not(.message-card--mine) { background: #fffaf5; }
 
 /* Lightbox */
 .lightbox-overlay {

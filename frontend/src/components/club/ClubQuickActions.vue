@@ -110,7 +110,7 @@
       <div
         class="action-card action-card--notif"
         :class="{ 'action-card--notif-active': clubNotifCount > 0 }"
-        @click="clubNotifCount > 0 ? openNotifModal() : goToNotifications()"
+        @click="goToNotifications()"
       >
         <div class="action-icon-wrap">
           <div class="notif-icon-bubble" :class="{ 'notif-icon-bubble--active': clubNotifCount > 0 }">

@@ -17,6 +17,10 @@ import {
 } from '../controllers/taskComments.controller.js';
 import { listNotesToSign, getNotesToSignCount, signNote, getClinicalNotesEligible } from '../controllers/notesToSign.controller.js';
 import { getMyBookClubStatus, respondToMyBookClubPrompt } from '../controllers/bookClub.controller.js';
+import {
+  getMyClubEmployerSharePrompts,
+  postMyClubEmployerSharePromptRespond
+} from '../controllers/clubEmployerShare.controller.js';
 
 const router = express.Router();
 
@@ -39,5 +43,7 @@ router.get('/company-events/:eventId/ics', authenticate, downloadCompanyEventIcs
 router.post('/company-events/:eventId/respond', authenticate, respondToMyCompanyEvent);
 router.get('/book-club/status', authenticate, getMyBookClubStatus);
 router.post('/book-club/respond', authenticate, respondToMyBookClubPrompt);
+router.get('/club-employer-share-prompts', authenticate, getMyClubEmployerSharePrompts);
+router.post('/club-employer-share-prompts/:broadcastId/respond', authenticate, postMyClubEmployerSharePromptRespond);
 
 export default router;

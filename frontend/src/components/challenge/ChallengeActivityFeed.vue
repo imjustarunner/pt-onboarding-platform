@@ -1066,7 +1066,9 @@ const toUploadsUrl = (filePath) => {
   const path = String(filePath || '').replace(/^\/+/, '');
   if (!path) return '';
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
-  return `/uploads/${path}`;
+  const apiBase = String(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/$/, '');
+  const cleaned = path.replace(/^(?:api\/)?uploads\//, '');
+  return `${apiBase}/uploads/${cleaned}`;
 };
 
 const loadComments = async (workoutId) => {

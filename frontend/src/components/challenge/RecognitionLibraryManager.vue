@@ -533,6 +533,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
 import IconSelector from '../admin/IconSelector.vue';
+import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 
 const props = defineProps({
   clubId: { type: [Number, String], default: null },
@@ -557,8 +558,8 @@ function resolvedIconUrl(iconRef) {
   if (iconUrlCache.value[id]) return iconUrlCache.value[id];
   // Fetch asynchronously and cache
   api.get(`/icons/${id}`).then(({ data }) => {
-    if (data?.url) iconUrlCache.value[id] = data.url;
-    else if (data?.file_path) iconUrlCache.value[id] = `/uploads/${data.file_path}`.replace('/uploads/uploads/', '/uploads/');
+    if (data?.url) iconUrlCache.value[id] = toUploadsUrl(data.url) || data.url;
+    else if (data?.file_path) iconUrlCache.value[id] = toUploadsUrl(data.file_path) || data.file_path;
   }).catch(() => {});
   return null;
 }
@@ -632,8 +633,8 @@ function onLibraryIconSelected(iconId) {
   // Pre-cache the URL
   if (iconId) {
     api.get(`/icons/${iconId}`).then(({ data }) => {
-      if (data?.url) iconUrlCache.value[iconId] = data.url;
-      else if (data?.file_path) iconUrlCache.value[iconId] = `/uploads/${data.file_path}`.replace('/uploads/uploads/', '/uploads/');
+      if (data?.url) iconUrlCache.value[iconId] = toUploadsUrl(data.url) || data.url;
+      else if (data?.file_path) iconUrlCache.value[iconId] = toUploadsUrl(data.file_path) || data.file_path;
     }).catch(() => {});
   }
 }

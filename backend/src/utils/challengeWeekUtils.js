@@ -211,3 +211,176 @@ export function getSeasonWeekPhase({
     postseasonEnabled: enabled
   };
 }
+
+const parseJsonLocal = (raw, fallback = {}) => {
+  if (!raw) return fallback;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {
+      // ignore
+    }
+  }
+  return fallback;
+};
+
+/** Whole calendar days between two YYYY-MM-DD strings (UTC noon anchors, DST-safe). */
+export function ymdUtcDiffDays(ymdA, ymdB) {
+  const a = String(ymdA || '').slice(0, 10);
+  const b = String(ymdB || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b)) return 0;
+  const da = Date.parse(`${a}T12:00:00Z`);
+  const db = Date.parse(`${b}T12:00:00Z`);
+  if (!Number.isFinite(da) || !Number.isFinite(db)) return 0;
+  return Math.round((db - da) / 86400000);
+}
+
+/**
+ * Weekly on-track pacing in 7 day-sized steps using calendar dates in the challenge timezone.
+ * Expected miles/points so far = weeklyTarget * (dayNumber / 7), where dayNumber is 1..7 from week start date through "today" (capped).
+ * Also returns fine-grained hour ratio for optional UI.
+ */
+export function weekSeventhPaceState({ rangeStartSql, rangeEndSql, timeZone }) {
+  const tz = normalizeTimeZone(timeZone || 'UTC', 'UTC');
+  const startMs = Date.parse(String(rangeStartSql || '').replace(' ', 'T') + 'Z');
+  const endMs = Date.parse(String(rangeEndSql || '').replace(' ', 'T') + 'Z');
+  const nowMs = Date.now();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return {
+      paceFraction: 1,
+      dayNumberInWeek: 7,
+      elapsedHoursRatio: 1
+    };
+  }
+  const elapsedHoursRatio =
+    nowMs <= startMs ? 0 : nowMs >= endMs ? 1 : (nowMs - startMs) / (endMs - startMs);
+
+  if (nowMs >= endMs) {
+    return { paceFraction: 1, dayNumberInWeek: 7, elapsedHoursRatio: 1 };
+  }
+  if (nowMs < startMs) {
+    return { paceFraction: 0, dayNumberInWeek: 0, elapsedHoursRatio: 0 };
+  }
+
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const startYmd = fmt.format(new Date(startMs));
+  const nowYmd = fmt.format(new Date(nowMs));
+  const inclusiveCalendarDays = ymdUtcDiffDays(startYmd, nowYmd) + 1;
+  const dayNumberInWeek = Math.min(7, Math.max(1, inclusiveCalendarDays));
+  const paceFraction = dayNumberInWeek / 7;
+
+  return { paceFraction, dayNumberInWeek, elapsedHoursRatio };
+}
+
+const firstPositiveNumber = (...vals) => {
+  for (const v of vals) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+};
+
+/**
+ * Single source of truth for weekly distance (miles) targets on run/ruck seasons.
+ * Uses season JSON + DB columns; week index from calendar weeks between season anchor week and selected week.
+ */
+export function resolveWeeklyDistanceTargets(klass, weekStartYmd) {
+  const settings = parseJsonLocal(klass?.season_settings_json || {});
+  const participation = parseJsonLocal(settings.participation || {});
+  const schedule = parseJsonLocal(settings.schedule || {});
+  const drafting = parseJsonLocal(settings.drafting || {});
+  const teamsBlock = parseJsonLocal(settings.teams || {});
+  const cutoff = String(schedule.weekEndsSundayAt || klass?.week_start_time || '00:00').trim() || '00:00';
+  const tz = normalizeTimeZone(schedule.weekTimeZone || 'UTC');
+
+  const membersPerTeamFromTeamsSettings = firstPositiveNumber(
+    teamsBlock.membersPerTeam,
+    teamsBlock.members_per_team
+  );
+  const chainBaseline =
+    (membersPerTeamFromTeamsSettings > 0 ? Math.floor(membersPerTeamFromTeamsSettings) : 0) ||
+    Number(participation.weeklyGoalMembersPerTeam) ||
+    Number(participation.baselineMemberCount) ||
+    Number(drafting.membersPerTeam) ||
+    Number(klass?.expected_team_size) ||
+    12;
+  let baselineMembers = Math.max(1, Math.floor(Number(chainBaseline) || 12));
+  if (!Number.isFinite(baselineMembers) || baselineMembers < 1) baselineMembers = 12;
+
+  let perPersonStart = firstPositiveNumber(
+    participation.runRuckStartMilesPerPerson,
+    participation.run_ruck_start_miles_per_person,
+    participation.individualMinPointsPerWeek,
+    participation.individual_min_points_per_week,
+    klass?.individual_min_points_per_week
+  );
+
+  const weeklyIncrease = Number(
+    participation.runRuckWeeklyIncreaseMilesPerPerson ?? participation.run_ruck_weekly_increase_miles_per_person ?? 0
+  ) || 0;
+
+  const weeklyGoalMin = firstPositiveNumber(
+    participation.weeklyGoalMinimum,
+    participation.weekly_goal_minimum,
+    klass?.weekly_goal_minimum,
+    klass?.weeklyGoalMinimum
+  );
+
+  const anchorWeek = klass?.starts_at
+    ? getWeekStartDate(new Date(klass.starts_at), cutoff, tz)
+    : String(weekStartYmd || '').slice(0, 10);
+  const ws = String(weekStartYmd || '').slice(0, 10);
+  const weekIndex = anchorWeek && ws ? Math.max(0, Math.floor(ymdUtcDiffDays(anchorWeek, ws) / 7)) : 0;
+
+  let perPersonMiles = Number((perPersonStart + weekIndex * weeklyIncrease).toFixed(2));
+
+  if (perPersonMiles <= 0 && weeklyGoalMin > 0) {
+    perPersonMiles = Number((weeklyGoalMin / baselineMembers).toFixed(2));
+  }
+
+  let teamMilesBaseline = Number((perPersonMiles * baselineMembers).toFixed(2));
+
+  const dbTeamMin = klass?.team_min_points_per_week != null ? Number(klass.team_min_points_per_week) : 0;
+  if (Number.isFinite(dbTeamMin) && dbTeamMin > 0) {
+    if (teamMilesBaseline <= 0 || dbTeamMin > teamMilesBaseline) {
+      teamMilesBaseline = Number(dbTeamMin.toFixed(2));
+    }
+    if (perPersonMiles <= 0 && baselineMembers > 0) {
+      perPersonMiles = Number((teamMilesBaseline / baselineMembers).toFixed(2));
+    }
+  }
+
+  if (perPersonMiles <= 0 && weeklyGoalMin > 0 && baselineMembers > 0) {
+    perPersonMiles = Number((weeklyGoalMin / baselineMembers).toFixed(2));
+    teamMilesBaseline = Number((perPersonMiles * baselineMembers).toFixed(2));
+  }
+
+  return {
+    weekIndex,
+    perPersonMilesMinimum: perPersonMiles,
+    teamMilesMinimumBaseline: teamMilesBaseline,
+    baselineMemberCount: baselineMembers,
+    weeklyIncrease
+  };
+}
+
+/**
+ * Per-person and team mile targets for a week (baseline team total = baseline roster × per-person miles).
+ * @deprecated Prefer resolveWeeklyDistanceTargets; kept for callers expecting legacy field names.
+ */
+export function getSeasonWeekMileGoals(klass, weekStartYmd) {
+  const t = resolveWeeklyDistanceTargets(klass, weekStartYmd);
+  return {
+    weekIndex: t.weekIndex,
+    individualMilesMinimum: t.perPersonMilesMinimum,
+    teamMilesMinimum: t.teamMilesMinimumBaseline,
+    baselineMembers: t.baselineMemberCount
+  };
+}

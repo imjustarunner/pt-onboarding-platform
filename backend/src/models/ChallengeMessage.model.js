@@ -10,19 +10,19 @@ class ChallengeMessage {
     const classId = toInt(learningClassId);
     if (!classId) return [];
     const normalizedScope = String(scope || 'season').toLowerCase() === 'team' ? 'team' : 'season';
-    let whereSql = 'm.learning_class_id = ?';
-    const params = [classId];
+    let baseWhere = 'm.learning_class_id = ?';
+    const baseParams = [classId];
     if (normalizedScope === 'team') {
-      whereSql += ' AND m.team_id = ?';
-      params.push(toInt(teamId) || 0);
+      baseWhere += ' AND m.team_id = ?';
+      baseParams.push(toInt(teamId) || 0);
     } else {
-      whereSql += ' AND m.team_id IS NULL';
+      baseWhere += ' AND m.team_id IS NULL';
     }
-    whereSql += ' AND m.deleted_at IS NULL';
-    // Inline LIMIT/OFFSET: mysql2 prepared statements reject numeric ? for LIMIT/OFFSET (ER_WRONG_ARGUMENTS)
+    baseWhere += ' AND m.deleted_at IS NULL';
     const lim = Math.min(Math.max(toInt(limit) || 50, 1), 500);
     const off = Math.max(toInt(offset) || 0, 0);
-    const [rows] = await pool.execute(
+    // Pinned messages first (small set), then the *most recent* unpinned messages (DESC), reversed to chronological for the UI.
+    const [pinnedRows] = await pool.execute(
       `SELECT m.*, u.first_name, u.last_name, u.profile_photo_path, t.team_name,
               pm.message_text AS parent_message_text, pu.first_name AS parent_first_name
        FROM challenge_messages m
@@ -30,12 +30,49 @@ class ChallengeMessage {
        LEFT JOIN challenge_teams t ON t.id = m.team_id
        LEFT JOIN challenge_messages pm ON pm.id = m.parent_message_id
        LEFT JOIN users pu ON pu.id = pm.user_id
-       WHERE ${whereSql}
-       ORDER BY m.is_pinned DESC, m.pinned_at DESC, m.created_at ASC, m.id ASC
-       LIMIT ${lim} OFFSET ${off}`,
+       WHERE ${baseWhere} AND m.is_pinned = 1
+       ORDER BY m.pinned_at DESC, m.id DESC`,
+      baseParams
+    );
+    const pinned = (pinnedRows || []).reverse().slice(0, lim);
+    const pinCount = pinned.length;
+    const takeUnpinned = Math.max(0, lim - pinCount);
+    if (takeUnpinned === 0) return pinned;
+    const [unpinnedDesc] = await pool.execute(
+      `SELECT m.*, u.first_name, u.last_name, u.profile_photo_path, t.team_name,
+              pm.message_text AS parent_message_text, pu.first_name AS parent_first_name
+       FROM challenge_messages m
+       INNER JOIN users u ON u.id = m.user_id
+       LEFT JOIN challenge_teams t ON t.id = m.team_id
+       LEFT JOIN challenge_messages pm ON pm.id = m.parent_message_id
+       LEFT JOIN users pu ON pu.id = pm.user_id
+       WHERE ${baseWhere} AND (m.is_pinned IS NULL OR m.is_pinned = 0)
+       ORDER BY m.created_at DESC, m.id DESC
+       LIMIT ${takeUnpinned} OFFSET ${off}`,
+      baseParams
+    );
+    const unpinnedChrono = (unpinnedDesc || []).reverse();
+    return [...pinned, ...unpinnedChrono];
+  }
+
+  static async getLatestMessageId(learningClassId, { scope = 'season', teamId = null } = {}) {
+    const classId = toInt(learningClassId);
+    if (!classId) return null;
+    const normalizedScope = String(scope || 'season').toLowerCase() === 'team' ? 'team' : 'season';
+    let whereSql = 'learning_class_id = ? AND deleted_at IS NULL';
+    const params = [classId];
+    if (normalizedScope === 'team') {
+      whereSql += ' AND team_id = ?';
+      params.push(toInt(teamId) || 0);
+    } else {
+      whereSql += ' AND team_id IS NULL';
+    }
+    const [rows] = await pool.execute(
+      `SELECT MAX(id) AS latest_id FROM challenge_messages WHERE ${whereSql}`,
       params
     );
-    return rows || [];
+    const id = toInt(rows?.[0]?.latest_id);
+    return id || null;
   }
 
   static async findById(id) {
@@ -119,18 +156,65 @@ class ChallengeMessage {
        (learning_class_id, user_id, scope, team_id, last_read_message_id, last_read_at)
        VALUES (?, ?, ?, ?, ?, NOW())
        ON DUPLICATE KEY UPDATE
-         last_read_message_id = VALUES(last_read_message_id),
+         last_read_message_id = CASE
+           WHEN VALUES(last_read_message_id) IS NOT NULL THEN GREATEST(COALESCE(last_read_message_id, 0), VALUES(last_read_message_id))
+           ELSE last_read_message_id
+         END,
          last_read_at = NOW()`,
       [classId, uid, normalizedScope, tid, msgId]
     );
     return true;
   }
 
+  /** Advance read pointer using UPDATE+GREATEST (avoids INSERT NULL edge cases). */
+  static async bumpReadWatermark({ learningClassId, userId, scope = 'season', teamId = 0, lastReadMessageId = null }) {
+    const classId = toInt(learningClassId);
+    const uid = toInt(userId);
+    const msgId = toInt(lastReadMessageId);
+    const normalizedScope = String(scope || 'season').toLowerCase() === 'team' ? 'team' : 'season';
+    const tid = normalizedScope === 'team' ? (toInt(teamId) || 0) : 0;
+    if (!classId || !uid || !msgId) return false;
+    const [upd] = await pool.execute(
+      `UPDATE challenge_message_reads
+       SET last_read_message_id = GREATEST(COALESCE(last_read_message_id, 0), ?),
+           last_read_at = NOW()
+       WHERE learning_class_id = ? AND user_id = ? AND scope = ? AND team_id = ?`,
+      [msgId, classId, uid, normalizedScope, tid]
+    );
+    if (Number(upd?.affectedRows || 0) > 0) return true;
+    return this.markRead({ learningClassId: classId, userId: uid, scope: normalizedScope, teamId: tid, lastReadMessageId: msgId });
+  }
+
   static async getUnreadCounts({ learningClassId, userId, teamId = 0 }) {
     const classId = toInt(learningClassId);
     const uid = toInt(userId);
     const tid = toInt(teamId) || 0;
-    if (!classId || !uid) return { seasonUnread: 0, teamUnread: 0 };
+    if (!classId || !uid) {
+      return {
+        seasonUnread: 0,
+        teamUnread: 0,
+        seasonLastReadMessageId: null,
+        teamLastReadMessageId: null
+      };
+    }
+    const [seasonReadRow] = await pool.execute(
+      `SELECT last_read_message_id FROM challenge_message_reads
+       WHERE learning_class_id = ? AND user_id = ? AND scope = 'season' AND team_id = 0
+       LIMIT 1`,
+      [classId, uid]
+    );
+    let teamLastReadMessageId = null;
+    if (tid > 0) {
+      const [teamReadRow] = await pool.execute(
+        `SELECT last_read_message_id FROM challenge_message_reads
+         WHERE learning_class_id = ? AND user_id = ? AND scope = 'team' AND team_id = ?
+         LIMIT 1`,
+        [classId, uid, tid]
+      );
+      teamLastReadMessageId = teamReadRow?.[0]?.last_read_message_id != null
+        ? toInt(teamReadRow[0].last_read_message_id)
+        : null;
+    }
     const [seasonRows] = await pool.execute(
       `SELECT COUNT(*) AS unread
        FROM challenge_messages m
@@ -167,7 +251,11 @@ class ChallengeMessage {
     }
     return {
       seasonUnread: Number(seasonRows?.[0]?.unread || 0),
-      teamUnread
+      teamUnread,
+      seasonLastReadMessageId: seasonReadRow?.[0]?.last_read_message_id != null
+        ? toInt(seasonReadRow[0].last_read_message_id)
+        : null,
+      teamLastReadMessageId: teamLastReadMessageId
     };
   }
 }

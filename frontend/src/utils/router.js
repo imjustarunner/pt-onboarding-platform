@@ -6,6 +6,12 @@ import { getOrganizationDashboardRoute } from './organizationContext.js';
 import { hasProviderMobileAccess } from './providerMobileAccess.js';
 import { isLikelyMobileViewport, isStandalonePwa } from './pwa.js';
 import { isSummitPlatformRouteSlug } from './summitPlatformSlugs.js';
+import {
+  isSummitScopedOrg,
+  resolveSummitStatsSlug,
+  isDualHomedSummitUser
+} from './summitRoutingContext.js';
+import { getSstcSurfaceChoice, getPreferredWorkAgencyId } from './sstcSurfaceChoice.js';
 
 /**
  * Returns the correct dashboard route based on user role and organization type
@@ -30,44 +36,15 @@ export function getDashboardRoute() {
     : (Array.isArray(agencyStore.userAgencies?.value ?? agencyStore.userAgencies)
       ? (agencyStore.userAgencies?.value ?? agencyStore.userAgencies)
       : []);
-  const resolveSummitStatsSlug = () => {
-    const orgContext = organizationStore.organizationContext || null;
-    const contextSlug = String(orgContext?.slug || '').trim().toLowerCase();
-    const contextParent = String(orgContext?.parentSlug || orgContext?.parent_slug || '').trim().toLowerCase();
-    if (isSummitPlatformRouteSlug(contextSlug)) return contextSlug;
-    if (isSummitPlatformRouteSlug(contextParent)) return contextParent;
-
-    const currentAgency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
-    const currentSlug = String(currentAgency?.slug || currentAgency?.portal_url || currentAgency?.portalUrl || '').trim().toLowerCase();
-    const currentParent = String(currentAgency?.parent_slug || currentAgency?.parentSlug || '').trim().toLowerCase();
-    if (isSummitPlatformRouteSlug(currentSlug)) return currentSlug;
-    if (isSummitPlatformRouteSlug(currentParent)) return currentParent;
-
-    for (const org of orgs) {
-      const slug = String(org?.slug || org?.portal_url || org?.portalUrl || '').trim().toLowerCase();
-      const parent = String(org?.parent_slug || org?.parentSlug || '').trim().toLowerCase();
-      const orgType = String(org?.organization_type || org?.organizationType || '').trim().toLowerCase();
-      if (isSummitPlatformRouteSlug(slug)) return slug;
-      if (isSummitPlatformRouteSlug(parent)) return parent;
-      if (orgType === 'affiliation' && parent) return parent;
-    }
-    return null;
-  };
-  const isSummitScopedOrg = (org) => {
-    const slug = String(org?.slug || org?.portal_url || org?.portalUrl || '').trim().toLowerCase();
-    const parent = String(org?.parent_slug || org?.parentSlug || '').trim().toLowerCase();
-    const orgType = String(org?.organization_type || org?.organizationType || '').trim().toLowerCase();
-    return (
-      isSummitPlatformRouteSlug(slug) ||
-      isSummitPlatformRouteSlug(parent) ||
-      (orgType === 'affiliation' && isSummitPlatformRouteSlug(parent))
-    );
-  };
-  const summitSlug = resolveSummitStatsSlug();
   const orgContext = organizationStore.organizationContext || null;
+  const currentAgency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
+  const summitSlug = resolveSummitStatsSlug({
+    organizationContext: orgContext,
+    currentAgency,
+    orgs
+  });
   const orgContextSlug = String(orgContext?.slug || '').trim().toLowerCase();
   const orgContextParent = String(orgContext?.parentSlug || orgContext?.parent_slug || '').trim().toLowerCase();
-  const currentAgency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
   const currentAgencySlug = String(currentAgency?.slug || currentAgency?.portal_url || currentAgency?.portalUrl || '').trim().toLowerCase();
   const currentAgencyParent = String(currentAgency?.parent_slug || currentAgency?.parentSlug || '').trim().toLowerCase();
   const summitContextActive =
@@ -76,12 +53,38 @@ export function getDashboardRoute() {
     isSummitPlatformRouteSlug(currentAgencySlug) ||
     isSummitPlatformRouteSlug(currentAgencyParent);
   const summitOnlyMemberships = orgs.length > 0 && orgs.every(isSummitScopedOrg);
+  const dualHomedEligible = isDualHomedSummitUser({ summitSlug, orgs });
+  const surfaceChoice = getSstcSurfaceChoice();
 
-  if (summitSlug && (summitContextActive || summitOnlyMemberships)) {
+  const shouldUseSummitHome =
+    summitSlug &&
+    (summitContextActive ||
+      summitOnlyMemberships ||
+      (dualHomedEligible && surfaceChoice === 'summit'));
+
+  if (shouldUseSummitHome && !(dualHomedEligible && surfaceChoice === 'work')) {
     if (userRole === 'club_manager') {
       return `/${summitSlug}/club_manager_dashboard`;
     }
     return `/${summitSlug}/my_club_dashboard`;
+  }
+
+  if (dualHomedEligible && surfaceChoice === 'work') {
+    const workOrgs = orgs.filter((o) => !isSummitScopedOrg(o));
+    const prefId = getPreferredWorkAgencyId();
+    let pick = prefId ? workOrgs.find((o) => Number(o?.id) === prefId) : null;
+    if (!pick && workOrgs.length) pick = workOrgs[0];
+    if (pick) {
+      const slug = pick.slug || pick.portal_url || pick.portalUrl;
+      if (slug && String(slug).trim()) {
+        const orgType = String(pick.organization_type || pick.organizationType || '').toLowerCase();
+        if (orgType === 'school') {
+          if (isProviderPlusExperienceRole) return `/${slug}/operations-dashboard`;
+          return `/${slug}/dashboard`;
+        }
+        return `/${slug}/dashboard`;
+      }
+    }
   }
 
   if (hasProviderMobileAccess(user) && isLikelyMobileViewport() && isStandalonePwa()) {
@@ -138,8 +141,15 @@ export function getDashboardRoute() {
   }
 
   if (userRole === 'club_manager') {
-    const summitSlug = resolveSummitStatsSlug();
-    return summitSlug ? `/${summitSlug}/club_manager_dashboard` : '/dashboard';
+    const slug = resolveSummitStatsSlug({
+      organizationContext: organizationStore.organizationContext || null,
+      currentAgency: agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null,
+      orgs
+    });
+    if (slug && !(dualHomedEligible && surfaceChoice === 'work')) {
+      return `/${slug}/club_manager_dashboard`;
+    }
+    return '/dashboard';
   }
   
   // Supervisors (not admin/super_admin/support) use provider dashboard when they have a slug
@@ -188,7 +198,11 @@ export function getDashboardRoute() {
     const orgs = fromUser.length > 0 ? fromUser : (Array.isArray(fromStore) ? fromStore : []);
     if (orgs.length === 1 && (orgs[0]?.slug || orgs[0]?.portal_url)) {
       const slug = orgs[0].slug || orgs[0].portal_url;
-      if (slug && String(slug).trim()) return `/${slug}/dashboard`;
+      const orgType = String(orgs[0]?.organization_type || orgs[0]?.organizationType || '').toLowerCase();
+      if (slug && String(slug).trim()) {
+        if (orgType === 'affiliation') return `/${slug}/my_club_dashboard`;
+        return `/${slug}/dashboard`;
+      }
     }
   }
 

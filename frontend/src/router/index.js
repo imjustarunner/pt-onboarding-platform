@@ -14,6 +14,7 @@ import { getSchoolStaffWaiverStatus } from '../utils/schoolStaffWaiverGate';
 import api from '../services/api';
 import { officeMandatoryBlocking } from '../utils/officeMandatoryGate';
 import { isSummitPlatformRouteSlug, NATIVE_APP_ORG_SLUG } from '../utils/summitPlatformSlugs.js';
+import { userChoseWorkOverSummitFromStores } from '../utils/sstcSurfaceChoice.js';
 import { isSstcTenantSlug } from '../config/tenantAppProfiles.js';
 
 const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff', 'provider_plus'];
@@ -2721,7 +2722,13 @@ router.beforeEach(async (to, from, next) => {
     isSscPortalSlug(String(currentOrgSlug).toLowerCase())
   ) {
     const p = String(to.path || '');
-    if (p === `/${currentOrgSlug}/admin` || p === `/${currentOrgSlug}/admin/`) {
+    const onSscAdmin = p === `/${currentOrgSlug}/admin` || p === `/${currentOrgSlug}/admin/`;
+    if (userChoseWorkOverSummitFromStores(authStore, agencyStore, organizationStore)) {
+      if (onSscAdmin) {
+        next({ path: getDashboardRoute(), query: to.query, hash: to.hash, replace: true });
+        return;
+      }
+    } else if (onSscAdmin) {
       next({ path: `/${currentOrgSlug}/club_manager_dashboard`, query: to.query, hash: to.hash, replace: true });
       return;
     }
@@ -2733,6 +2740,10 @@ router.beforeEach(async (to, from, next) => {
     isSscPortalSlug(currentOrgSlug) &&
     !isAllowedSscAuthenticatedPath(to.path)
   ) {
+    if (userChoseWorkOverSummitFromStores(authStore, agencyStore, organizationStore)) {
+      next(getDashboardRoute());
+      return;
+    }
     next(`/${currentOrgSlug}/my_club_dashboard`);
     return;
   }

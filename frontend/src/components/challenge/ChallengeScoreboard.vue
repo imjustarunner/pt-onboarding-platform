@@ -146,6 +146,7 @@ import { ref, watch, computed } from 'vue';
 import api from '../../services/api';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useSeasonWeeks } from '../../composables/useSeasonWeeks.js';
+import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 
 const formatPts = (v) => parseFloat(Number(v || 0).toFixed(2));
 const rankMedal = (idx) => idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
@@ -190,7 +191,7 @@ function resolveScoreboardIconUrl(iconRef) {
   if (!id) return null;
   if (scoreboardIconCache.value[id]) return scoreboardIconCache.value[id];
   api.get(`/icons/${id}`).then(({ data }) => {
-    if (data?.url) scoreboardIconCache.value[id] = data.url;
+    if (data?.url) scoreboardIconCache.value[id] = toUploadsUrl(data.url) || data.url;
   }).catch(() => {});
   return null;
 }
