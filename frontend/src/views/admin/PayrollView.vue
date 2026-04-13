@@ -1044,7 +1044,7 @@
             Compare complete. Review what would be added below, then click <strong>Add to current period</strong> when ready.
           </div>
           <div
-            v-if="!batchCatchUpResult.applied && ((batchCatchUpResult.carryoverApplied || []).length > 0 || (batchCatchUpResult.superFlag || []).length > 0)"
+            v-if="batchCatchUpResult.twoRunMode && !batchCatchUpResult.applied && ((batchCatchUpResult.carryoverApplied || []).length > 0 || (batchCatchUpResult.superFlag || []).length > 0)"
             class="actions"
             style="margin-top: 10px;"
           >
@@ -1059,7 +1059,7 @@
           </div>
 
           <!-- ── Section 1: Late Add & Notes to be Paid ── -->
-          <div v-if="(batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 16px; padding: 16px; border-left: 4px solid var(--primary, #2563eb);">
+          <div v-if="batchCatchUpResult.twoRunMode && (batchCatchUpResult.carryoverApplied || []).length > 0" class="card" style="margin-top: 16px; padding: 16px; border-left: 4px solid var(--primary, #2563eb);">
             <div style="display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
               <h3 class="card-title" style="margin: 0; font-size: 1.05em;">
                 Section 1 — Late Add &amp; Notes to be Paid
@@ -6036,6 +6036,7 @@ const batchCatchUpSelection = ref({}); // { 'userId:code': { selected, units } }
 const batchCatchUpResetKey = ref(0);
 const batchCatchUpPriorPeriodId = ref(null);
 const batchCatchUpPriorPeriodImports = ref([]);
+const batchCatchUpPriorImportsRequestId = ref(0);
 
 const batchCatchUpRun1Disabled = computed(() => {
   const imp = batchCatchUpPriorPeriodImports.value || [];
@@ -9833,16 +9834,22 @@ const rawAddToCurrentPeriodDestinationId = ref(null);
 const rawAddToCurrentPeriodSelection = ref({});
 const rawAddToCurrentPeriodApplying = ref(false);
 const rawAddToCurrentPeriodError = ref('');
+const rawAuditActivePeriodId = computed(() => Number((rawModalActivePeriodId.value ?? selectedPeriodId.value) || 0) || null);
+const rawAuditActivePeriod = computed(() => {
+  const activeId = Number(rawAuditActivePeriodId.value || 0);
+  if (!activeId) return null;
+  if (selectedPeriod.value && Number(selectedPeriod.value.id) === activeId) return selectedPeriod.value;
+  return (periods.value || []).find((p) => Number(p?.id) === activeId) || null;
+});
 
 const rawAddToCurrentPeriodDestOptions = computed(() => {
-  const priorId = Number(selectedPeriodId.value || 0);
+  const priorId = Number(rawAuditActivePeriodId.value || 0);
+  const priorEnd = String(rawAuditActivePeriod.value?.period_end || '').slice(0, 10);
   const list = Array.isArray(periods.value) ? periods.value : [];
   return list.filter((p) => {
     if (!p?.id) return false;
     const pid = Number(p.id || 0);
     if (priorId && pid === priorId) return false;
-    if (String(p?.status || '').toLowerCase() === 'draft') return false;
-    const priorEnd = String((periods.value || []).find((x) => Number(x?.id) === priorId)?.period_end || '').slice(0, 10);
     if (priorEnd) {
       const pStart = String(p?.period_start || '').slice(0, 10);
       if (pStart && pStart <= priorEnd) return false;
@@ -9861,14 +9868,22 @@ watch(rawAuditPayableChanges, (payable) => {
 }, { immediate: true });
 
 watch([rawAuditPayableChanges, rawAddToCurrentPeriodDestOptions], () => {
-  if (rawAuditPayableChanges.value?.length > 0 && !rawAddToCurrentPeriodDestinationId.value) {
-    const opts = rawAddToCurrentPeriodDestOptions.value || [];
-    const batchDest = batchCatchUpDestinationPeriodId.value;
-    if (batchDest && opts.some((p) => Number(p?.id) === Number(batchDest))) {
-      rawAddToCurrentPeriodDestinationId.value = batchDest;
-    } else if (opts.length > 0) {
-      rawAddToCurrentPeriodDestinationId.value = opts[0]?.id || null;
-    }
+  const payable = rawAuditPayableChanges.value || [];
+  const opts = rawAddToCurrentPeriodDestOptions.value || [];
+  if (!payable.length) {
+    rawAddToCurrentPeriodDestinationId.value = null;
+    return;
+  }
+  const currentDest = Number(rawAddToCurrentPeriodDestinationId.value || 0);
+  if (currentDest && opts.some((p) => Number(p?.id) === currentDest)) return;
+  const batchDest = Number(batchCatchUpDestinationPeriodId.value || 0);
+  const selectedDest = Number(selectedPeriodId.value || 0);
+  if (batchDest && opts.some((p) => Number(p?.id) === batchDest)) {
+    rawAddToCurrentPeriodDestinationId.value = batchDest;
+  } else if (selectedDest && opts.some((p) => Number(p?.id) === selectedDest)) {
+    rawAddToCurrentPeriodDestinationId.value = selectedDest;
+  } else {
+    rawAddToCurrentPeriodDestinationId.value = opts[0]?.id || null;
   }
 }, { immediate: true });
 
@@ -12233,6 +12248,14 @@ watch(selectedOrgId, async (id) => {
 });
 
 watch(batchCatchUpPriorPeriodId, () => {
+  batchCatchUpResult.value = null;
+  batchCatchUpError.value = '';
+  batchCatchUpSelection.value = {};
+  batchCatchUpSearch.value = '';
+  superFlagSearch.value = '';
+  if (showRawModal.value && rawModalActivePeriodId.value) {
+    closeRawModal();
+  }
   loadBatchCatchUpPriorImports();
 });
 
@@ -12403,14 +12426,18 @@ const resetBatchCatchUp = () => {
 
 const loadBatchCatchUpPriorImports = async () => {
   const priorId = batchCatchUpPriorPeriodId.value;
+  const requestId = batchCatchUpPriorImportsRequestId.value + 1;
+  batchCatchUpPriorImportsRequestId.value = requestId;
+  batchCatchUpPriorPeriodImports.value = [];
   if (!priorId) {
-    batchCatchUpPriorPeriodImports.value = [];
     return;
   }
   try {
     const resp = await api.get(`/payroll/periods/${priorId}/imports`);
+    if (requestId !== batchCatchUpPriorImportsRequestId.value) return;
     batchCatchUpPriorPeriodImports.value = resp.data?.imports || [];
   } catch {
+    if (requestId !== batchCatchUpPriorImportsRequestId.value) return;
     batchCatchUpPriorPeriodImports.value = [];
   }
 };
@@ -13570,4 +13597,3 @@ input[type='number'] {
   }
 }
 </style>
-
