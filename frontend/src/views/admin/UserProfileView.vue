@@ -1339,7 +1339,7 @@
           </div>
             
             <!-- SSC/SSTC member profiles: club status is managed from the Member Management list, not here -->
-            <div v-if="isSstcMemberProfileMode" class="ssc-status-note">
+            <div v-if="isSscMemberProfileMode" class="ssc-status-note">
               <span class="ssc-status-icon">ℹ️</span>
               Club membership status (Active / Inactive) is managed from the
               <strong>Member Management</strong> page. Use the toggle there to activate or
@@ -2831,7 +2831,7 @@ const isSscSstcTenant = computed(() => {
   return routeSlug === 'ssc' || routeSlug === 'sstc' || agencySlug === 'ssc' || agencySlug === 'sstc';
 });
 
-const isSstcMemberProfileMode = computed(() => {
+const isSscMemberProfileMode = computed(() => {
   return isSscSstcTenant.value && !isViewingGuardian.value;
 });
 
