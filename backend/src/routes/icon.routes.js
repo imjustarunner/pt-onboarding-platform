@@ -74,6 +74,10 @@ router.post(
   bulkUploadIcons
 );
 
+// Bulk metadata routes must be registered before `/:id` so paths like `bulk-edit` are not treated as ids.
+router.put('/bulk-edit', requireBackofficeAdminOrClubManager, bulkEditIcons);
+router.post('/bulk-delete', requireBackofficeAdminOrClubManager, bulkDeleteIcons);
+
 // Update route - supports both metadata-only updates and file uploads
 router.put(
   '/:id',

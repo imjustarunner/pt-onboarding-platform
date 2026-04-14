@@ -978,11 +978,31 @@
             </div>
           </div>
 
+          <div
+            class="form-group"
+            style="padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt); margin-top: 14px;"
+          >
+            <label style="display: flex; align-items: flex-start; gap: 10px; margin: 0; cursor: pointer;">
+              <input
+                v-model="agencyForm.themeSettings.useExtendedBrandingColors"
+                type="checkbox"
+                style="margin-top: 3px;"
+              />
+              <span>
+                <strong>Use extended UI colors</strong>
+                <span class="hint" style="display: block; margin-top: 4px; font-weight: normal;">
+                  When checked, the fields below override backgrounds, text, dividers, and related UI using your saved extended palette.
+                  When unchecked, the app derives those areas from <strong>Primary</strong>, <strong>Secondary</strong>, and <strong>Accent</strong> only (extended values stay saved but are not applied).
+                </span>
+              </span>
+            </label>
+          </div>
+
           <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);">
             <h4 style="margin: 0 0 8px 0; font-size: 15px; font-weight: 600;">Extended Colors (optional)</h4>
             <small style="color: var(--text-secondary);">Override specific UI areas. Leave blank to keep defaults. Click the swatch to pick a color.</small>
           </div>
-          <div class="extended-colors-grid">
+          <div class="extended-colors-grid" :class="{ 'extended-colors-inactive': agencyForm.themeSettings?.useExtendedBrandingColors === false }">
             <div class="form-group extended-color-item">
               <label>Primary Hover</label>
               <div class="color-input-group">
@@ -1107,6 +1127,33 @@
               For <code>/programs/…/events</code> on this program’s portal slug, use this program’s logo and colors when turned on, or automatically when the program is linked to more than one agency.
               Other portal pages keep using affiliated agency branding (per the option above).
             </small>
+            <div style="margin-top: 12px; display: grid; gap: 10px;">
+              <div>
+                <label>Program footer legal title (optional)</label>
+                <input
+                  v-model="agencyForm.themeSettings.programFooterLegalTitle"
+                  type="text"
+                  placeholder="Program legal documents"
+                />
+                <small class="hint">Shown above program-specific legal links on public program pages.</small>
+              </div>
+              <div>
+                <label>Program Privacy Policy URL (optional)</label>
+                <input
+                  v-model="agencyForm.themeSettings.programPrivacyPolicyUrl"
+                  type="url"
+                  placeholder="https://example.com/program-privacy"
+                />
+              </div>
+              <div>
+                <label>Program Terms of Service URL (optional)</label>
+                <input
+                  v-model="agencyForm.themeSettings.programTermsUrl"
+                  type="url"
+                  placeholder="https://example.com/program-terms"
+                />
+              </div>
+            </div>
           </div>
 
           <div
@@ -6159,7 +6206,11 @@ const defaultAgencyForm = () => ({
     publicWebsiteUrl: '',
     useAffiliatedAgencyBranding: true,
     useAffiliatedAgencyIcons: true,
-    usePublicEventsOwnBranding: false
+    usePublicEventsOwnBranding: false,
+    programFooterLegalTitle: '',
+    programPrivacyPolicyUrl: '',
+    programTermsUrl: '',
+    useExtendedBrandingColors: true
   },
   terminologySettings: {
     peopleOpsTerm: '',
@@ -7538,7 +7589,20 @@ const editAgency = async (agency) => {
       usePublicEventsOwnBranding:
         String(agency.organization_type || agency.organizationType || 'agency').toLowerCase() === 'program'
           ? themeSettings.usePublicEventsOwnBranding === true
-          : false
+          : false,
+      programFooterLegalTitle:
+        String(agency.organization_type || agency.organizationType || 'agency').toLowerCase() === 'program'
+          ? String(themeSettings.programFooterLegalTitle || '')
+          : '',
+      programPrivacyPolicyUrl:
+        String(agency.organization_type || agency.organizationType || 'agency').toLowerCase() === 'program'
+          ? String(themeSettings.programPrivacyPolicyUrl || '')
+          : '',
+      programTermsUrl:
+        String(agency.organization_type || agency.organizationType || 'agency').toLowerCase() === 'program'
+          ? String(themeSettings.programTermsUrl || '')
+          : '',
+      useExtendedBrandingColors: themeSettings.useExtendedBrandingColors !== false
     },
     terminologySettings: {
       peopleOpsTerm: terminology.peopleOpsTerm || '',
@@ -8235,9 +8299,21 @@ const saveAgency = async () => {
       themeSettings.useAffiliatedAgencyBranding = agencyForm.value.themeSettings?.useAffiliatedAgencyBranding !== false;
       themeSettings.useAffiliatedAgencyIcons = agencyForm.value.themeSettings?.useAffiliatedAgencyIcons !== false;
     }
+    themeSettings.useExtendedBrandingColors =
+      agencyForm.value.themeSettings?.useExtendedBrandingColors !== false;
+
     if (String(agencyForm.value.organizationType || 'agency').toLowerCase() === 'program') {
       themeSettings.usePublicEventsOwnBranding =
         agencyForm.value.themeSettings?.usePublicEventsOwnBranding === true;
+      if (agencyForm.value.themeSettings?.programFooterLegalTitle?.trim()) {
+        themeSettings.programFooterLegalTitle = agencyForm.value.themeSettings.programFooterLegalTitle.trim();
+      }
+      if (agencyForm.value.themeSettings?.programPrivacyPolicyUrl?.trim()) {
+        themeSettings.programPrivacyPolicyUrl = agencyForm.value.themeSettings.programPrivacyPolicyUrl.trim();
+      }
+      if (agencyForm.value.themeSettings?.programTermsUrl?.trim()) {
+        themeSettings.programTermsUrl = agencyForm.value.themeSettings.programTermsUrl.trim();
+      }
     }
 
     const retentionPolicyRaw = agencyForm.value.intakeRetentionPolicy || null;
@@ -9797,6 +9873,9 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 16px;
+}
+.extended-colors-grid.extended-colors-inactive {
+  opacity: 0.55;
 }
 .extended-color-item .color-input-group {
   display: flex;

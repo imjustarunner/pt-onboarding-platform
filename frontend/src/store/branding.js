@@ -141,6 +141,7 @@ export const useBrandingStore = defineStore('branding', () => {
    */
   const _palettesBySlug = reactive({});  // slug → colorPalette
   const _logosBySlug = reactive({});     // slug → logoUrl
+  const _themeSettingsBySlug = reactive({}); // slug → themeSettings (parallel to slug theme fetch)
 
   /**
    * Returns true when portalAgency's theme should override currentAgency.
@@ -313,6 +314,9 @@ export const useBrandingStore = defineStore('branding', () => {
       if (data.logoUrl) {
         _logosBySlug[slugKey] = data.logoUrl;
       }
+      _themeSettingsBySlug[slugKey] = data.themeSettings && typeof data.themeSettings === 'object'
+        ? data.themeSettings
+        : {};
     }
 
     applyTheme(data);
@@ -655,6 +659,36 @@ export const useBrandingStore = defineStore('branding', () => {
     return { palette: null, source: 'platform' };
   };
 
+  /**
+   * Theme settings for the active branding context (route slug cache, else current agency).
+   * Used for flags like useExtendedBrandingColors without extra fetches.
+   */
+  const _resolveActiveThemeSettings = () => {
+    const routeSlug = activeRouteSlug.value;
+    if (routeSlug) {
+      const cached = _themeSettingsBySlug[routeSlug];
+      if (cached && typeof cached === 'object') return cached;
+    }
+    const agency = agencyStore.currentAgency;
+    if (agency) {
+      const raw = agency.theme_settings ?? agency.themeSettings;
+      if (raw) {
+        try {
+          return typeof raw === 'string' ? JSON.parse(raw) : raw;
+        } catch {
+          return {};
+        }
+      }
+    }
+    return {};
+  };
+
+  /** When false, only primary/secondary/accent drive UI; extended palette keys are ignored (still saved on the org). */
+  const useExtendedBrandingColors = computed(() => {
+    const ts = _resolveActiveThemeSettings();
+    return ts?.useExtendedBrandingColors !== false;
+  });
+
   // Primary color based on branding mode
   const primaryColor = computed(() => {
     const { palette } = _resolveActivePalette();
@@ -682,64 +716,82 @@ export const useBrandingStore = defineStore('branding', () => {
   // Extended palette (optional overrides; fallbacks preserve existing display)
   const primaryHover = computed(() => {
     const p = getPalette();
-    const v = p?.primaryHover || p?.primary_hover;
-    if (v) return v;
+    if (useExtendedBrandingColors.value) {
+      const v = p?.primaryHover || p?.primary_hover;
+      if (v) return v;
+    }
     return primaryColor.value; // fallback: same as primary (no change)
   });
 
   const backgroundColor = computed(() => {
     const p = getPalette();
-    const v = p?.backgroundColor || p?.background || p?.background_color;
-    if (v) return v;
+    if (useExtendedBrandingColors.value) {
+      const v = p?.backgroundColor || p?.background || p?.background_color;
+      if (v) return v;
+    }
     return platformBranding.value?.background_color || '#F3F6FA';
   });
 
   const secondaryBackground = computed(() => {
     const p = getPalette();
-    const v = p?.secondaryBackground || p?.secondary_background;
-    if (v) return v;
+    if (useExtendedBrandingColors.value) {
+      const v = p?.secondaryBackground || p?.secondary_background;
+      if (v) return v;
+    }
     return '#FFFFFF';
   });
 
   const dividerColor = computed(() => {
     const p = getPalette();
-    const v = p?.dividerColor || p?.divider || p?.divider_color;
-    if (v) return v;
+    if (useExtendedBrandingColors.value) {
+      const v = p?.dividerColor || p?.divider || p?.divider_color;
+      if (v) return v;
+    }
     return '#E3E8EF';
   });
 
   const successColor = computed(() => {
     const p = getPalette();
-    const v = p?.successColor || p?.success || p?.success_color;
-    if (v) return v;
+    if (useExtendedBrandingColors.value) {
+      const v = p?.successColor || p?.success || p?.success_color;
+      if (v) return v;
+    }
     return platformBranding.value?.success_color || '#2F8F83';
   });
 
   const dataNumbersColor = computed(() => {
     const p = getPalette();
-    const v = p?.dataNumbersColor || p?.dataNumbers || p?.data_numbers_color;
-    if (v) return v;
-    return '#2C7BE5';
+    if (useExtendedBrandingColors.value) {
+      const v = p?.dataNumbersColor || p?.dataNumbers || p?.data_numbers_color;
+      if (v) return v;
+    }
+    return secondaryColor.value;
   });
 
   const textPrimaryColor = computed(() => {
     const p = getPalette();
-    const v = p?.textPrimary || p?.text_primary;
-    if (v) return v;
+    if (useExtendedBrandingColors.value) {
+      const v = p?.textPrimary || p?.text_primary;
+      if (v) return v;
+    }
     return secondaryColor.value; // current behavior: text-primary uses secondary
   });
 
   const textSecondaryColor = computed(() => {
     const p = getPalette();
-    const v = p?.textSecondary || p?.text_secondary;
-    if (v) return v;
+    if (useExtendedBrandingColors.value) {
+      const v = p?.textSecondary || p?.text_secondary;
+      if (v) return v;
+    }
     return accentColor.value; // current behavior: text-secondary uses accent
   });
 
   const textMutedColor = computed(() => {
     const p = getPalette();
-    const v = p?.textMuted || p?.text_muted;
-    if (v) return v;
+    if (useExtendedBrandingColors.value) {
+      const v = p?.textMuted || p?.text_muted;
+      if (v) return v;
+    }
     return '#8A97A6';
   });
 
@@ -1313,6 +1365,7 @@ export const useBrandingStore = defineStore('branding', () => {
     primaryColor,
     secondaryColor,
     accentColor,
+    useExtendedBrandingColors,
     primaryHover,
     backgroundColor,
     secondaryBackground,
