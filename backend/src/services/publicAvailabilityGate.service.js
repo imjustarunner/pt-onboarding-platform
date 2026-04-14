@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
-import { getEffectiveBillingPricingForAgency } from './billingPricing.service.js';
+import AgencyBillingAccount from '../models/AgencyBillingAccount.model.js';
+import { getEffectiveBillingPricingForAgency, resolveFeatureEntitlements } from './billingPricing.service.js';
 
 function parseFeatureFlags(raw) {
   if (!raw) return {};
@@ -51,7 +52,12 @@ export async function checkPublicAvailabilityGate(agencyId) {
   }
 
   const pricingBundle = await getEffectiveBillingPricingForAgency(aId);
-  const paid = Boolean(pricingBundle?.effective?.addonsEnabled?.publicAvailability);
+  const account = await AgencyBillingAccount.getByAgencyId(aId);
+  const entitlements = resolveFeatureEntitlements({
+    pricingConfig: pricingBundle?.effective,
+    featureEntitlementsJson: account?.feature_entitlements_json || null
+  });
+  const paid = Boolean(entitlements?.publicAvailability?.enabled);
   if (!paid) {
     return { ok: false, status: 402, message: 'Public availability is not included in this agency plan' };
   }
@@ -60,4 +66,3 @@ export async function checkPublicAvailabilityGate(agencyId) {
 }
 
 export { isPublicProviderFinderFeatureEnabled };
-

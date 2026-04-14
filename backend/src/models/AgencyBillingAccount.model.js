@@ -22,6 +22,28 @@ class AgencyBillingAccount {
     return this.getByAgencyId(aId);
   }
 
+  static async updateBillingRollout(agencyId, billingRolloutJson) {
+    const aId = parseInt(agencyId, 10);
+    await pool.execute(
+      `INSERT INTO agency_billing_accounts (agency_id, billing_rollout_json)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE billing_rollout_json = VALUES(billing_rollout_json), updated_at = CURRENT_TIMESTAMP`,
+      [aId, billingRolloutJson ? JSON.stringify(billingRolloutJson) : null]
+    );
+    return this.getByAgencyId(aId);
+  }
+
+  static async updateFeatureEntitlements(agencyId, featureEntitlementsJson) {
+    const aId = parseInt(agencyId, 10);
+    await pool.execute(
+      `INSERT INTO agency_billing_accounts (agency_id, feature_entitlements_json)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE feature_entitlements_json = VALUES(feature_entitlements_json), updated_at = CURRENT_TIMESTAMP`,
+      [aId, featureEntitlementsJson ? JSON.stringify(featureEntitlementsJson) : null]
+    );
+    return this.getByAgencyId(aId);
+  }
+
   static async upsertQboConnection({
     agencyId,
     billingEmail = null,
@@ -105,7 +127,7 @@ class AgencyBillingAccount {
     return this.getByAgencyId(aId);
   }
 
-  static async updateSettings(agencyId, { billingEmail = undefined, autopayEnabled = undefined } = {}) {
+  static async updateSettings(agencyId, { billingEmail = undefined, autopayEnabled = undefined, subscriptionPaymentProvider = undefined } = {}) {
     const aId = parseInt(agencyId, 10);
     if (!aId) throw new Error('Invalid agencyId');
     const fields = [];
@@ -118,15 +140,20 @@ class AgencyBillingAccount {
       fields.push('autopay_enabled = ?');
       values.push(autopayEnabled ? 1 : 0);
     }
+    if (subscriptionPaymentProvider !== undefined) {
+      fields.push('subscription_payment_provider = ?');
+      values.push(subscriptionPaymentProvider || 'QUICKBOOKS');
+    }
     if (!fields.length) return this.getByAgencyId(aId);
     await pool.execute(
-      `INSERT INTO agency_billing_accounts (agency_id, billing_email, autopay_enabled)
-       VALUES (?, ?, ?)
+      `INSERT INTO agency_billing_accounts (agency_id, billing_email, autopay_enabled, subscription_payment_provider)
+       VALUES (?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP`,
       [
         aId,
         billingEmail !== undefined ? (billingEmail || null) : null,
-        autopayEnabled ? 1 : 0
+        autopayEnabled ? 1 : 0,
+        subscriptionPaymentProvider || 'QUICKBOOKS'
       ]
     );
     return this.getByAgencyId(aId);
@@ -134,22 +161,25 @@ class AgencyBillingAccount {
 
   static async setSubscriptionMerchantMode(agencyId, {
     subscriptionMerchantMode,
+    subscriptionPaymentProvider = undefined,
     subscriptionProviderConnectionId = undefined,
     resetSubscriptionProcessorState = false
   } = {}) {
     const aId = parseInt(agencyId, 10);
     if (!aId) throw new Error('Invalid agencyId');
     await pool.execute(
-      `INSERT INTO agency_billing_accounts (agency_id, subscription_merchant_mode, subscription_provider_connection_id)
-       VALUES (?, ?, ?)
+      `INSERT INTO agency_billing_accounts (agency_id, subscription_merchant_mode, subscription_payment_provider, subscription_provider_connection_id)
+       VALUES (?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          subscription_merchant_mode = VALUES(subscription_merchant_mode),
+         subscription_payment_provider = COALESCE(VALUES(subscription_payment_provider), subscription_payment_provider),
          subscription_provider_connection_id = VALUES(subscription_provider_connection_id),
          ${resetSubscriptionProcessorState ? 'payment_customer_ref = NULL, qbo_customer_id = NULL,' : ''}
          updated_at = CURRENT_TIMESTAMP`,
       [
         aId,
         subscriptionMerchantMode || 'agency_managed',
+        subscriptionPaymentProvider === undefined ? null : (subscriptionPaymentProvider || 'QUICKBOOKS'),
         subscriptionProviderConnectionId === undefined ? null : (subscriptionProviderConnectionId ? Number(subscriptionProviderConnectionId) : null)
       ]
     );
@@ -244,4 +274,3 @@ class AgencyBillingAccount {
 }
 
 export default AgencyBillingAccount;
-

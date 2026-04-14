@@ -64,6 +64,17 @@ class BillingUsageService {
       [parsedAgencyId]
     );
 
+    const [activeEmployeeRows] = await pool.execute(
+      `SELECT COUNT(DISTINCT u.id) as cnt
+       FROM users u
+       INNER JOIN user_agencies ua ON u.id = ua.user_id
+       WHERE ua.agency_id = ?
+         AND UPPER(COALESCE(u.status,'')) = 'ACTIVE_EMPLOYEE'
+         AND u.is_active = TRUE
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)`,
+      [parsedAgencyId]
+    );
+
     // Active onboardees (status ONBOARDING)
     const [onboardeeRows] = await pool.execute(
       `SELECT COUNT(DISTINCT u.id) as cnt
@@ -182,6 +193,7 @@ class BillingUsageService {
       schoolsUsed: Number(schoolsRows?.[0]?.cnt || 0),
       programsUsed: Number(programRows?.[0]?.cnt || 0),
       adminsUsed: Number(adminRows?.[0]?.cnt || 0),
+      activeEmployeesUsed: Number(activeEmployeeRows?.[0]?.cnt || 0),
       activeOnboardeesUsed: Number(onboardeeRows?.[0]?.cnt || 0),
       outboundSmsUsed: Number(outboundSmsRows?.[0]?.cnt || 0),
       inboundSmsUsed: Number(inboundSmsRows?.[0]?.cnt || 0),
@@ -197,4 +209,3 @@ class BillingUsageService {
 }
 
 export default BillingUsageService;
-

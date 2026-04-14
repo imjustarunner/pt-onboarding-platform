@@ -8,6 +8,75 @@ import AgencyBillingAccount from '../models/AgencyBillingAccount.model.js';
 import PlatformBillingPricing from '../models/PlatformBillingPricing.model.js';
 import { getCommunicationRateCards } from './agencyCommunicationBilling.service.js';
 
+const DEFAULT_FEATURE_CATALOG = {
+  publicAvailability: {
+    key: 'publicAvailability',
+    label: 'Provider availability publishing',
+    description: 'Public provider availability pages and scheduling-intake publishing.',
+    pricingModel: 'flat_monthly',
+    unitAmountCents: 0,
+    unitLabel: 'month',
+    usageKey: null,
+    defaultAvailable: false,
+    tenantSelfServe: true
+  },
+  momentumList: {
+    key: 'momentumList',
+    label: 'Momentum List',
+    description: 'Momentum Stickies, digest, and focus assistant billed per active employee.',
+    pricingModel: 'usage',
+    unitAmountCents: 500,
+    unitLabel: 'active employee',
+    usageKey: 'momentumListUsersUsed',
+    defaultAvailable: false,
+    tenantSelfServe: true
+  },
+  geminiNoteAid: {
+    key: 'geminiNoteAid',
+    label: 'Gemini Note Aid',
+    description: 'AI note helper access billed per active employee when this feature is ready.',
+    pricingModel: 'usage',
+    unitAmountCents: 0,
+    unitLabel: 'active employee',
+    usageKey: 'activeEmployeesUsed',
+    defaultAvailable: false,
+    tenantSelfServe: true
+  },
+  officeSchedulingPublishing: {
+    key: 'officeSchedulingPublishing',
+    label: 'Office scheduling + public availability',
+    description: 'Office scheduling workflows plus public provider availability publishing.',
+    pricingModel: 'flat_monthly',
+    unitAmountCents: 0,
+    unitLabel: 'month',
+    usageKey: null,
+    defaultAvailable: false,
+    tenantSelfServe: true
+  },
+  payrollWorkspace: {
+    key: 'payrollWorkspace',
+    label: 'Payroll workspace',
+    description: 'Payroll management tools and related admin workflows.',
+    pricingModel: 'flat_monthly',
+    unitAmountCents: 0,
+    unitLabel: 'month',
+    usageKey: null,
+    defaultAvailable: false,
+    tenantSelfServe: true
+  },
+  summerProgramManagement: {
+    key: 'summerProgramManagement',
+    label: 'Summer program management',
+    description: 'Custom project billing for registration, kiosk check-ins, staffing, and operational setup.',
+    pricingModel: 'manual_quantity',
+    unitAmountCents: 150000,
+    unitLabel: 'session',
+    usageKey: null,
+    defaultAvailable: false,
+    tenantSelfServe: false
+  }
+};
+
 const FALLBACK_PRICING = {
   baseFeeCents: 19900,
   included: {
@@ -47,7 +116,8 @@ const FALLBACK_PRICING = {
   addonsEnabled: {
     publicAvailability: false,
     momentumList: false
-  }
+  },
+  featureCatalog: DEFAULT_FEATURE_CATALOG
 };
 
 function overage(included, used) {
@@ -152,8 +222,120 @@ function mergePricing(base, override) {
     addonsEnabled: {
       ...(b.addonsEnabled || {}),
       ...(o.addonsEnabled || {})
+    },
+    featureCatalog: {
+      ...(b.featureCatalog || {}),
+      ...(o.featureCatalog || {})
     }
   };
+}
+
+function isRecord(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function legacyFeatureCatalogFromPricing(pricing) {
+  const p = pricing || {};
+  return {
+    publicAvailability: {
+      ...DEFAULT_FEATURE_CATALOG.publicAvailability,
+      unitAmountCents: Math.max(0, Number(p?.addonsUnitCents?.publicAvailability || DEFAULT_FEATURE_CATALOG.publicAvailability.unitAmountCents || 0)),
+      defaultAvailable: Boolean(p?.addonsEnabled?.publicAvailability)
+    },
+    momentumList: {
+      ...DEFAULT_FEATURE_CATALOG.momentumList,
+      unitAmountCents: Math.max(0, Number(p?.addonsUnitCents?.momentumList || DEFAULT_FEATURE_CATALOG.momentumList.unitAmountCents || 0)),
+      defaultAvailable: Boolean(p?.addonsEnabled?.momentumList)
+    }
+  };
+}
+
+function normalizeFeatureCatalogEntry(key, value, fallback = {}) {
+  const merged = {
+    ...(DEFAULT_FEATURE_CATALOG[key] || {}),
+    ...(fallback || {}),
+    ...(isRecord(value) ? value : {})
+  };
+  return {
+    key,
+    label: String(merged.label || key),
+    description: String(merged.description || ''),
+    pricingModel: ['flat_monthly', 'usage', 'manual_quantity'].includes(String(merged.pricingModel || 'flat_monthly'))
+      ? String(merged.pricingModel || 'flat_monthly')
+      : 'flat_monthly',
+    unitAmountCents: Math.max(0, Number(merged.unitAmountCents || 0)),
+    unitLabel: String(merged.unitLabel || 'month'),
+    usageKey: merged.usageKey ? String(merged.usageKey) : null,
+    defaultAvailable: merged.defaultAvailable === true,
+    tenantSelfServe: merged.tenantSelfServe !== false
+  };
+}
+
+export function getFeatureCatalog(pricingConfig = null) {
+  const pricing = pricingConfig || FALLBACK_PRICING;
+  const legacy = legacyFeatureCatalogFromPricing(pricing);
+  const raw = isRecord(pricing?.featureCatalog) ? pricing.featureCatalog : {};
+  const keys = Array.from(new Set([
+    ...Object.keys(DEFAULT_FEATURE_CATALOG),
+    ...Object.keys(legacy),
+    ...Object.keys(raw)
+  ]));
+  const catalog = {};
+  for (const key of keys) {
+    catalog[key] = normalizeFeatureCatalogEntry(key, raw[key], legacy[key]);
+  }
+  return catalog;
+}
+
+function normalizeFeatureEntitlementEntry(rawEntry, catalogEntry, legacyEnabled = false) {
+  const entry = isRecord(rawEntry) ? rawEntry : {};
+  const available = entry.available === undefined
+    ? (catalogEntry?.defaultAvailable === true || legacyEnabled)
+    : entry.available === true;
+  const enabled = entry.enabled === undefined
+    ? legacyEnabled
+    : entry.enabled === true;
+  const included = entry.included === true;
+  const unitAmountRaw = entry.unitAmountCents;
+  const quantityRaw = entry.quantity;
+  const quantity = Number.isFinite(Number(quantityRaw)) ? Math.max(0, Number(quantityRaw)) : null;
+  const unitAmountCents = Number.isFinite(Number(unitAmountRaw)) ? Math.max(0, Number(unitAmountRaw)) : null;
+  return {
+    available,
+    enabled: included ? true : enabled,
+    included,
+    locked: entry.locked === true,
+    quantity,
+    unitAmountCents,
+    notes: entry.notes ? String(entry.notes) : ''
+  };
+}
+
+export function resolveFeatureEntitlements({ pricingConfig = null, featureEntitlementsJson = null } = {}) {
+  const pricing = pricingConfig || FALLBACK_PRICING;
+  const catalog = getFeatureCatalog(pricing);
+  const raw = parseJsonMaybe(featureEntitlementsJson) || {};
+  const resolved = {};
+  for (const key of Object.keys(catalog)) {
+    const legacyEnabled = key === 'publicAvailability'
+      ? Boolean(pricing?.addonsEnabled?.publicAvailability)
+      : key === 'momentumList'
+        ? Boolean(pricing?.addonsEnabled?.momentumList)
+        : false;
+    resolved[key] = normalizeFeatureEntitlementEntry(raw[key], catalog[key], legacyEnabled);
+  }
+  return resolved;
+}
+
+function resolveFeatureUsage(feature, usage, entitlement) {
+  if (!feature || !entitlement?.enabled) return 0;
+  if (feature.pricingModel === 'manual_quantity') {
+    return Math.max(0, Number(entitlement?.quantity || 0));
+  }
+  if (feature.pricingModel === 'usage') {
+    return Math.max(0, Number(usage?.[feature.usageKey] || 0));
+  }
+  return 1;
 }
 
 export async function getPlatformBillingPricing() {
@@ -191,11 +373,12 @@ export async function getEffectiveBillingPricingForAgency(agencyId) {
   return { platform, override, effective };
 }
 
-export function buildEstimate(usage, pricingConfig = null) {
+export function buildEstimate(usage, pricingConfig = null, options = {}) {
   const PRICING = pricingConfig || FALLBACK_PRICING;
   const schoolsUsed = Number(usage?.schoolsUsed || 0);
   const programsUsed = Number(usage?.programsUsed || 0);
   const adminsUsed = Number(usage?.adminsUsed || 0);
+  const activeEmployeesUsed = Number(usage?.activeEmployeesUsed || 0);
   const activeOnboardeesUsed = Number(usage?.activeOnboardeesUsed || 0);
   const momentumListUsersUsed = Number(usage?.momentumListUsersUsed || 0);
   const outboundSmsUsed = Number(usage?.outboundSmsUsed || 0);
@@ -216,17 +399,6 @@ export function buildEstimate(usage, pricingConfig = null) {
   const extraProgramsCents = programsOver * PRICING.unitCents.program;
   const extraAdminsCents = adminsOver * PRICING.unitCents.admin;
   const extraOnboardeesCents = onboardeesOver * PRICING.unitCents.onboardee;
-
-  const publicAvailabilityAddonEnabled = Boolean(PRICING?.addonsEnabled?.publicAvailability);
-  const publicAvailabilityAddonCents = publicAvailabilityAddonEnabled
-    ? Math.max(0, Number(PRICING?.addonsUnitCents?.publicAvailability || 0))
-    : 0;
-
-  const momentumListAddonEnabled = Boolean(PRICING?.addonsEnabled?.momentumList);
-  const momentumListUnitCents = Math.max(0, Number(PRICING?.addonsUnitCents?.momentumList || 0));
-  const momentumListAddonCents = momentumListAddonEnabled
-    ? momentumListUsersUsed * momentumListUnitCents
-    : 0;
 
   const communicationLineItems = [
     {
@@ -303,6 +475,43 @@ export function buildEstimate(usage, pricingConfig = null) {
   const communicationMarkupCents = communicationLineItems.reduce((sum, item) => sum + Number(item.markupCents || 0), 0);
   const communicationSubtotalCents = communicationLineItems.reduce((sum, item) => sum + Number(item.extraCents || 0), 0);
 
+  const featureCatalog = getFeatureCatalog(PRICING);
+  const featureEntitlements = resolveFeatureEntitlements({
+    pricingConfig: PRICING,
+    featureEntitlementsJson: options?.featureEntitlements
+  });
+  const featureLineItems = Object.keys(featureCatalog).map((key) => {
+    const feature = featureCatalog[key];
+    const entitlement = featureEntitlements[key];
+    const unitAmountCents = entitlement?.unitAmountCents != null
+      ? Math.max(0, Number(entitlement.unitAmountCents || 0))
+      : Math.max(0, Number(feature?.unitAmountCents || 0));
+    const used = resolveFeatureUsage(feature, usage, entitlement);
+    const billableQuantity = entitlement?.included ? 0 : used;
+    const extraCents = billableQuantity * unitAmountCents;
+    return {
+      key: `feature_${key}`,
+      featureKey: key,
+      label: feature.label,
+      description: feature.description,
+      included: entitlement?.included ? used : 0,
+      used,
+      overage: billableQuantity,
+      unitCostCents: unitAmountCents,
+      extraCents,
+      selected: entitlement?.enabled === true,
+      available: entitlement?.available === true,
+      pricingModel: feature.pricingModel,
+      unitLabel: feature.unitLabel
+    };
+  }).filter((item) => item.available || item.selected || item.included > 0);
+  const featureAddonsCents = featureLineItems.reduce((sum, item) => sum + Number(item.extraCents || 0), 0);
+  const publicAvailabilityAddonCents = Number(featureLineItems.find((item) => item.featureKey === 'publicAvailability')?.extraCents || 0);
+  const momentumListAddonCents = Number(featureLineItems.find((item) => item.featureKey === 'momentumList')?.extraCents || 0);
+  const momentumListUnitCents = Number(featureLineItems.find((item) => item.featureKey === 'momentumList')?.unitCostCents || 0);
+  const publicAvailabilityAddonEnabled = featureEntitlements.publicAvailability?.enabled === true;
+  const momentumListAddonEnabled = featureEntitlements.momentumList?.enabled === true;
+
   const totalCents =
     PRICING.baseFeeCents +
     extraSchoolsCents +
@@ -310,8 +519,7 @@ export function buildEstimate(usage, pricingConfig = null) {
     extraAdminsCents +
     extraOnboardeesCents +
     communicationSubtotalCents +
-    publicAvailabilityAddonCents +
-    momentumListAddonCents;
+    featureAddonsCents;
 
   const lineItems = [
     {
@@ -351,32 +559,18 @@ export function buildEstimate(usage, pricingConfig = null) {
       extraCents: extraOnboardeesCents
     },
     ...communicationLineItems,
-    {
-      key: 'addon_public_availability',
-      label: 'Add-on: Public Availability',
-      included: 0,
-      used: publicAvailabilityAddonEnabled ? 1 : 0,
-      overage: publicAvailabilityAddonEnabled ? 1 : 0,
-      unitCostCents: publicAvailabilityAddonCents,
-      extraCents: publicAvailabilityAddonCents
-    },
-    {
-      key: 'addon_momentum_list',
-      label: 'Add-on: Momentum List',
-      included: 0,
-      used: momentumListUsersUsed,
-      overage: momentumListAddonEnabled ? momentumListUsersUsed : 0,
-      unitCostCents: momentumListUnitCents,
-      extraCents: momentumListAddonCents
-    }
+    ...featureLineItems
   ];
 
   return {
     pricing: PRICING,
+    featureCatalog,
+    featureEntitlements,
     usage: {
       schoolsUsed,
       programsUsed,
       adminsUsed,
+      activeEmployeesUsed,
       activeOnboardeesUsed,
       outboundSmsUsed,
       inboundSmsUsed,
@@ -396,6 +590,7 @@ export function buildEstimate(usage, pricingConfig = null) {
       communicationActualCostCents,
       communicationMarkupCents,
       communicationSubtotalCents,
+      featureAddonsCents,
       publicAvailabilityAddonCents,
       momentumListAddonCents,
       totalCents
@@ -403,4 +598,3 @@ export function buildEstimate(usage, pricingConfig = null) {
     lineItems
   };
 }
-

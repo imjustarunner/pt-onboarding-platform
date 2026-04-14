@@ -176,7 +176,10 @@ async function runMigration(migrationFile, dryRun = false) {
       const s = statement.trim();
       if (!s) continue;
       try {
-        await pool.execute(s);
+        // Use text protocol for migration statements so MySQL control statements
+        // like PREPARE / EXECUTE work in environments where the prepared
+        // statement protocol rejects them.
+        await pool.query(s);
       } catch (err) {
         if (isIgnorableSchemaError(err)) {
           console.log(`  ⚠️  Skipping statement (already applied): ${String(err?.message || err)}`);

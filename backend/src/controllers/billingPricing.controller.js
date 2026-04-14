@@ -1,7 +1,7 @@
 import { body, validationResult } from 'express-validator';
 import AgencyBillingAccount from '../models/AgencyBillingAccount.model.js';
 import PlatformBillingPricing from '../models/PlatformBillingPricing.model.js';
-import { getEffectiveBillingPricingForAgency, getPlatformBillingPricing } from '../services/billingPricing.service.js';
+import { getEffectiveBillingPricingForAgency, getFeatureCatalog, getPlatformBillingPricing, resolveFeatureEntitlements } from '../services/billingPricing.service.js';
 
 function requireValid(req, res) {
   const errors = validationResult(req);
@@ -119,7 +119,10 @@ export const agencyPricingOverrideValidators = [
 export const getPlatformPricing = async (req, res, next) => {
   try {
     const pricing = await getPlatformBillingPricing();
-    res.json({ pricing });
+    res.json({
+      pricing,
+      featureCatalog: getFeatureCatalog(pricing)
+    });
   } catch (e) {
     next(e);
   }
@@ -130,7 +133,10 @@ export const updatePlatformPricing = async (req, res, next) => {
     if (!requireValid(req, res)) return;
     const pricing = req.body?.pricing || {};
     const saved = await PlatformBillingPricing.upsertPricingJson(pricing);
-    res.json({ pricing: saved });
+    res.json({
+      pricing: saved,
+      featureCatalog: getFeatureCatalog(saved)
+    });
   } catch (e) {
     next(e);
   }
@@ -146,12 +152,19 @@ export const getAgencyPricing = async (req, res, next) => {
 
     const acct = await AgencyBillingAccount.getByAgencyId(parsedAgencyId);
     const { platform, override, effective } = await getEffectiveBillingPricingForAgency(parsedAgencyId);
+    const featureCatalog = getFeatureCatalog(effective);
+    const featureEntitlements = resolveFeatureEntitlements({
+      pricingConfig: effective,
+      featureEntitlementsJson: acct?.feature_entitlements_json || null
+    });
     res.json({
       agencyId: parsedAgencyId,
       billingEmail: acct?.billing_email || null,
       platformPricing: platform,
       pricingOverride: override,
-      effectivePricing: effective
+      effectivePricing: effective,
+      featureCatalog,
+      featureEntitlements
     });
   } catch (e) {
     next(e);
@@ -168,17 +181,27 @@ export const updateAgencyPricingOverride = async (req, res, next) => {
     }
 
     const override = req.body?.pricing || null;
-    const acct = await AgencyBillingAccount.updatePricingOverride(parsedAgencyId, override);
+    const featureEntitlements = req.body?.featureEntitlements;
+    const acctAfterPricing = await AgencyBillingAccount.updatePricingOverride(parsedAgencyId, override);
+    if (featureEntitlements !== undefined) {
+      await AgencyBillingAccount.updateFeatureEntitlements(parsedAgencyId, featureEntitlements);
+    }
+    const acct = await AgencyBillingAccount.getByAgencyId(parsedAgencyId);
     const { platform, override: savedOverride, effective } = await getEffectiveBillingPricingForAgency(parsedAgencyId);
+    const resolvedFeatureEntitlements = resolveFeatureEntitlements({
+      pricingConfig: effective,
+      featureEntitlementsJson: acct?.feature_entitlements_json || null
+    });
     res.json({
       agencyId: parsedAgencyId,
-      billingEmail: acct?.billing_email || null,
+      billingEmail: acctAfterPricing?.billing_email || acct?.billing_email || null,
       platformPricing: platform,
       pricingOverride: savedOverride,
-      effectivePricing: effective
+      effectivePricing: effective,
+      featureCatalog: getFeatureCatalog(effective),
+      featureEntitlements: resolvedFeatureEntitlements
     });
   } catch (e) {
     next(e);
   }
 };
-

@@ -3,7 +3,7 @@
     <div class="section-header">
       <h2>Billing</h2>
       <p class="section-description">
-        Transparent billing breakdown and QuickBooks integration.
+        Transparent billing breakdown with tenant-level QuickBooks or Stripe controls.
       </p>
     </div>
     
@@ -31,7 +31,7 @@
 
       <div v-if="isSuperAdmin" class="card" style="margin-top: 16px; text-align: left;">
         <h3>Platform Billing Merchant</h3>
-        <p class="muted">Connect the platform QuickBooks account here before assigning agencies to platform-managed subscription billing.</p>
+        <p class="muted">Configure the platform-level merchant connections that tenant billing can inherit. Tenants can now use either QuickBooks Payments or Stripe for subscription billing, depending on their billing settings.</p>
         <div class="status-grid">
           <div>
             <div class="label">Connection</div>
@@ -70,7 +70,7 @@
 
       <div v-if="isSuperAdmin" class="card" style="margin-top: 16px; text-align: left;">
         <h3>Platform Default Pricing (Super Admin)</h3>
-        <p class="muted">These defaults apply to all agencies unless overridden per agency.</p>
+        <p class="muted">These defaults apply to all agencies unless overridden per agency. Feature catalog entries below are what tenants can eventually add onto their plan.</p>
 
         <div v-if="pricingError" class="error">{{ pricingError }}</div>
 
@@ -197,6 +197,56 @@
           </div>
         </div>
 
+        <div class="feature-catalog-panel">
+          <div class="feature-catalog-header">
+            <div>
+              <h4>Billable Feature Catalog</h4>
+              <p class="muted">Use this catalog to define self-serve add-ons and special billing lines like summer program management.</p>
+            </div>
+          </div>
+          <div class="feature-catalog-list">
+            <div v-for="feature in platformFeatureDrafts" :key="`platform-feature-${feature.key}`" class="feature-item feature-item-admin">
+              <div class="feature-copy">
+                <div class="feature-title">{{ feature.label }}</div>
+                <div class="feature-key">{{ feature.key }}</div>
+                <div class="feature-description">{{ feature.description }}</div>
+              </div>
+              <div class="feature-controls-grid">
+                <div class="form-group">
+                  <div class="label">Price</div>
+                  <input v-model.number="feature.unitAmountDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+                </div>
+                <div class="form-group">
+                  <div class="label">Units</div>
+                  <input v-model="feature.unitLabel" class="input" type="text" :disabled="pricingLoading || pricingSaving" />
+                </div>
+                <div class="form-group">
+                  <div class="label">Pricing model</div>
+                  <select v-model="feature.pricingModel" class="select" :disabled="pricingLoading || pricingSaving">
+                    <option value="flat_monthly">Flat monthly</option>
+                    <option value="usage">Usage based</option>
+                    <option value="manual_quantity">Manual quantity</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <div class="label">Default availability</div>
+                  <select v-model="feature.defaultAvailable" class="select" :disabled="pricingLoading || pricingSaving">
+                    <option :value="false">Hidden by default</option>
+                    <option :value="true">Available by default</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <div class="label">Tenant self-serve</div>
+                  <select v-model="feature.tenantSelfServe" class="select" :disabled="pricingLoading || pricingSaving">
+                    <option :value="true">Tenant can add</option>
+                    <option :value="false">Super admin only</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div style="display:flex; gap: 10px; margin-top: 12px;">
           <button class="btn" type="button" @click="savePlatformPricing" :disabled="pricingLoading || pricingSaving">
             {{ pricingSaving ? 'Saving…' : 'Save platform pricing' }}
@@ -214,9 +264,61 @@
         <span>{{ banner.message }}</span>
       </div>
 
+      <div class="card rollout-card" :class="{ 'rollout-card-live': billingRolloutActive }">
+        <div class="rollout-card-header">
+          <div>
+            <h3>{{ billingRolloutActive ? 'Billing is live' : 'Billing coming soon' }}</h3>
+            <p class="muted">
+              {{ billingRolloutActive
+                ? 'Invoices, receipts, and self-serve feature billing are active for this tenant.'
+                : (billingRollout?.comingSoonMessage || 'Platform billing is coming soon for this tenant.') }}
+            </p>
+          </div>
+          <span :class="['pill', billingRolloutActive ? 'pill-on' : 'pill-off']">
+            {{ billingRolloutActive ? 'Active' : 'Coming soon' }}
+          </span>
+        </div>
+        <div class="status-grid">
+          <div>
+            <div class="label">Subscription provider</div>
+            <div class="value">{{ subscriptionProviderLabel }}</div>
+          </div>
+          <div>
+            <div class="label">Payment readiness</div>
+            <div class="value">{{ subscriptionProviderStatus?.paymentsEnabled ? 'Ready' : 'Setup required' }}</div>
+          </div>
+          <div>
+            <div class="label">Invoices</div>
+            <div class="value">{{ billingProviderReadiness?.invoiceDownloadsEnabled ? 'Download enabled' : 'Not ready' }}</div>
+          </div>
+          <div>
+            <div class="label">Receipts</div>
+            <div class="value">{{ billingProviderReadiness?.receiptDownloadsEnabled ? 'Download enabled' : 'Not ready' }}</div>
+          </div>
+        </div>
+        <div v-if="isSuperAdmin" class="rollout-editor">
+          <div class="form-group">
+            <div class="label">Rollout status</div>
+            <select v-model="billingRollout.status" class="select">
+              <option value="coming_soon">Coming soon</option>
+              <option value="active">Active</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <div class="label">Tenant message</div>
+            <input v-model="billingRollout.comingSoonMessage" class="input" type="text" placeholder="Platform billing is coming soon for this tenant." />
+          </div>
+          <div class="inline" style="align-items: end;">
+            <button class="btn" :disabled="savingRollout" @click="saveBillingRollout">
+              {{ savingRollout ? 'Saving…' : 'Save rollout' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div v-if="isSuperAdmin" class="card">
         <h3>Platform Billing</h3>
-        <p class="muted">This connection is used when an agency’s subscription is billed through the platform merchant account.</p>
+        <p class="muted">This platform QuickBooks connection can be used by tenants that choose platform-managed QuickBooks billing. Stripe can also be selected per tenant for subscription billing when the platform or tenant Stripe setup is ready.</p>
         <div class="status-grid">
           <div>
             <div class="label">Connection</div>
@@ -255,7 +357,7 @@
 
       <div v-if="isSuperAdmin" class="card">
         <h3>Pricing (Super Admin)</h3>
-        <p class="muted">Set global defaults and optionally override pricing for this agency.</p>
+        <p class="muted">Set global defaults and optionally override pricing for this agency. You can also decide which billable features this tenant is allowed to add.</p>
 
         <div v-if="pricingError" class="error">{{ pricingError }}</div>
 
@@ -401,9 +503,63 @@
           </div>
         </div>
 
+        <div class="feature-catalog-panel" style="margin-top: 18px;">
+          <div class="feature-catalog-header">
+            <div>
+              <h4>Tenant Billable Features</h4>
+              <p class="muted">Make features available, pre-enable them, or lock them as special billing lines for this tenant.</p>
+            </div>
+          </div>
+          <div class="feature-catalog-list">
+            <div v-for="feature in agencyFeatureDrafts" :key="`agency-feature-${feature.key}`" class="feature-item feature-item-admin">
+              <div class="feature-copy">
+                <div class="feature-title">{{ feature.label }}</div>
+                <div class="feature-key">{{ feature.key }}</div>
+                <div class="feature-description">{{ feature.description }}</div>
+                <div class="feature-price-preview">{{ formatFeaturePricing({ unitAmountCents: feature.unitAmountOverrideDollars != null ? feature.unitAmountOverrideDollars * 100 : feature.unitAmountDollars * 100, pricingModel: feature.pricingModel, unitLabel: feature.unitLabel }) }}</div>
+              </div>
+              <div class="feature-controls-grid">
+                <div class="form-group">
+                  <div class="label">Available to tenant</div>
+                  <select v-model="feature.available" class="select" :disabled="pricingLoading || pricingSaving">
+                    <option :value="false">Hidden</option>
+                    <option :value="true">Available</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <div class="label">Selected now</div>
+                  <select v-model="feature.enabled" class="select" :disabled="pricingLoading || pricingSaving">
+                    <option :value="false">Not selected</option>
+                    <option :value="true">Selected</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <div class="label">Lock selection</div>
+                  <select v-model="feature.locked" class="select" :disabled="pricingLoading || pricingSaving">
+                    <option :value="false">Tenant can change</option>
+                    <option :value="true">Super admin only</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <div class="label">Price override</div>
+                  <input v-model.number="feature.unitAmountOverrideDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" placeholder="Use platform default" />
+                </div>
+                <div v-if="feature.pricingModel === 'manual_quantity'" class="form-group">
+                  <div class="label">Quantity</div>
+                  <input v-model.number="feature.quantity" class="input" type="number" step="1" min="0" :disabled="pricingLoading || pricingSaving" />
+                </div>
+                <div class="form-group">
+                  <div class="label">Notes</div>
+                  <input v-model="feature.notes" class="input" type="text" :disabled="pricingLoading || pricingSaving" placeholder="Optional internal note" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div style="display:flex; gap: 10px; margin-top: 12px;">
           <button class="btn" type="button" @click="saveAgencyPricingOverride" :disabled="pricingLoading || pricingSaving">
-            {{ pricingSaving ? 'Saving…' : (agencyOverrideEnabled ? 'Save agency override' : 'Clear agency override') }}
+            {{ pricingSaving ? 'Saving…' : (agencyOverrideEnabled ? 'Save agency override + features' : 'Clear agency override + save features') }}
           </button>
         </div>
       </div>
@@ -413,25 +569,25 @@
         <div class="status-grid">
           <div>
             <div class="label">Current Bill (Estimated)</div>
-            <div class="big">{{ estimate ? money(estimate.totals.totalCents) : '—' }}</div>
+            <div class="big">{{ canUseLiveBilling ? (estimate ? money(estimate.totals.totalCents) : '—') : 'Coming soon' }}</div>
           </div>
           <div>
             <div class="label">Billing Cycle</div>
-            <div class="value">{{ estimate?.billingCycle?.label || '—' }}</div>
+            <div class="value">{{ canUseLiveBilling ? (estimate?.billingCycle?.label || '—') : 'Not active yet' }}</div>
           </div>
           <div>
             <div class="label">Billing Merchant</div>
             <div class="value">
               <span :class="['pill', 'pill-on']">
-                {{ merchantModeLabel }}
+                {{ merchantModeLabel }} · {{ subscriptionProviderLabel }}
               </span>
             </div>
           </div>
           <div>
             <div class="label">Payments</div>
             <div class="value">
-              <span :class="['pill', qboStatus?.paymentsEnabled ? 'pill-on' : 'pill-off']">
-                {{ qboStatus?.paymentsEnabled ? 'Payments ready' : 'Reconnect required' }}
+              <span :class="['pill', subscriptionProviderStatus?.paymentsEnabled ? 'pill-on' : 'pill-off']">
+                {{ subscriptionProviderStatus?.paymentsEnabled ? 'Payments ready' : 'Reconnect required' }}
               </span>
             </div>
           </div>
@@ -439,8 +595,61 @@
             <div class="label">Connection Source</div>
             <div class="value">{{ agencyBillingConnectionLabel }}</div>
           </div>
+          <div>
+            <div class="label">Rollout</div>
+            <div class="value">{{ billingRolloutActive ? 'Billing live' : 'Coming soon' }}</div>
+          </div>
+          <div>
+            <div class="label">Selected Features</div>
+            <div class="value">{{ selectedFeatureCount }}</div>
+          </div>
         </div>
         <div v-if="estimateError" class="error">{{ estimateError }}</div>
+      </div>
+
+      <div class="card">
+        <h3>{{ isSuperAdmin ? 'Feature Selection Preview' : 'Available Platform Features' }}</h3>
+        <p class="muted">
+          {{ isSuperAdmin
+            ? 'These are the billable platform features this tenant can add to its subscription.'
+            : 'Once billing is active, available features can be added here and they will flow into the tenant invoice automatically.' }}
+        </p>
+        <div v-if="visibleAgencyFeatures.length === 0" class="empty">No billable features are configured for this tenant yet.</div>
+        <div v-else class="feature-catalog-list">
+          <div v-for="feature in visibleAgencyFeatures" :key="`feature-select-${feature.key}`" class="feature-item">
+            <div class="feature-copy">
+              <div class="feature-title">{{ feature.label }}</div>
+              <div class="feature-description">{{ feature.description }}</div>
+              <div class="feature-meta">
+                <span :class="['pill', feature.enabled ? 'pill-on' : 'pill-off']">
+                  {{ feature.enabled ? 'Selected' : (feature.available ? 'Available' : 'Hidden') }}
+                </span>
+                <span class="feature-price-preview">{{ formatFeaturePricing({ unitAmountCents: (feature.unitAmountOverrideDollars != null ? feature.unitAmountOverrideDollars : feature.unitAmountDollars) * 100, pricingModel: feature.pricingModel, unitLabel: feature.unitLabel }) }}</span>
+              </div>
+            </div>
+            <div class="feature-controls-inline">
+              <div v-if="feature.pricingModel === 'manual_quantity'" class="form-group">
+                <div class="label">Quantity</div>
+                <input v-model.number="feature.quantity" class="input feature-qty" type="number" step="1" min="0" :disabled="!canUseLiveBilling || !feature.available || feature.locked || !feature.tenantSelfServe || isSuperAdmin" />
+              </div>
+              <button
+                v-if="!isSuperAdmin"
+                class="btn"
+                :disabled="!canUseLiveBilling || !feature.available || feature.locked || !feature.tenantSelfServe"
+                @click="feature.enabled = !feature.enabled"
+              >
+                {{ feature.enabled ? 'Remove feature' : 'Add feature' }}
+              </button>
+              <span v-else class="muted">{{ feature.locked ? 'Locked to super admin' : (feature.tenantSelfServe ? 'Tenant can self-serve' : 'Super admin only') }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-if="!isSuperAdmin" style="display:flex; gap:10px; margin-top: 14px;">
+          <button class="btn" :disabled="savingFeatureSelections || !canUseLiveBilling" @click="saveFeatureSelections">
+            {{ savingFeatureSelections ? 'Saving…' : 'Save selected features' }}
+          </button>
+          <div v-if="!canUseLiveBilling" class="muted">Activate billing first to let the tenant add features.</div>
+        </div>
       </div>
 
       <div class="card">
@@ -483,15 +692,28 @@
         </table>
       </div>
 
-      <div class="card">
+      <div v-if="canUseLiveBilling" class="card">
         <h3>Management</h3>
         <div class="manage-grid">
           <div>
             <div class="label">Subscription Merchant</div>
             <div class="inline">
               <select v-model="subscriptionMerchantMode" class="select">
-                <option value="agency_managed">Agency-owned QuickBooks</option>
-                <option value="platform_managed">Platform-owned QuickBooks</option>
+                <option value="agency_managed">Agency-managed merchant</option>
+                <option value="platform_managed">Platform-managed merchant</option>
+              </select>
+              <button class="btn" :disabled="savingSettings" @click="saveBillingSettings">
+                {{ savingSettings ? 'Saving…' : 'Save' }}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <div class="label">Payment Provider</div>
+            <div class="inline">
+              <select v-model="subscriptionPaymentProvider" class="select">
+                <option value="QUICKBOOKS">QuickBooks Payments</option>
+                <option value="STRIPE">Stripe</option>
               </select>
               <button class="btn" :disabled="savingSettings" @click="saveBillingSettings">
                 {{ savingSettings ? 'Saving…' : 'Save' }}
@@ -523,8 +745,8 @@
           </div>
 
           <div>
-            <div class="label">QuickBooks Connection</div>
-            <div v-if="subscriptionMerchantMode === 'agency_managed'" class="inline">
+            <div class="label">{{ usingStripeForSubscription ? 'Stripe Connection' : 'QuickBooks Connection' }}</div>
+            <div v-if="!usingStripeForSubscription && subscriptionMerchantMode === 'agency_managed'" class="inline">
               <button
                 v-if="!qboStatus?.isConnected || qboStatus?.needsReconnectForPayments"
                 class="btn"
@@ -537,8 +759,18 @@
                 {{ disconnectingQbo ? 'Disconnecting…' : 'Disconnect' }}
               </button>
             </div>
-            <div v-else class="value">
+            <div v-else-if="!usingStripeForSubscription" class="value">
               This agency uses the platform billing merchant. Cards and invoice collection run through the platform QuickBooks connection.
+            </div>
+            <div v-else-if="subscriptionMerchantMode === 'agency_managed'" class="value">
+              {{ subscriptionProviderStatus?.isConnected
+                ? 'This tenant has an active Stripe Connect account for subscription billing.'
+                : 'This tenant must finish Stripe Connect onboarding before Stripe subscription cards can be saved.' }}
+            </div>
+            <div v-else class="value">
+              {{ subscriptionProviderStatus?.isConnected
+                ? 'Platform Stripe is configured for subscription billing.'
+                : 'Platform Stripe keys are not configured yet.' }}
             </div>
           </div>
 
@@ -553,10 +785,15 @@
         </div>
 
         <div v-if="manageError" class="error">{{ manageError }}</div>
-        <div v-if="qboStatus?.needsReconnectForPayments" class="error" style="margin-top: 10px;">
+        <div v-if="!usingStripeForSubscription && qboStatus?.needsReconnectForPayments" class="error" style="margin-top: 10px;">
           {{ subscriptionMerchantMode === 'platform_managed'
             ? 'The platform QuickBooks merchant is connected for accounting, but still needs Payments access before cards on file or autopay will work.'
             : 'QuickBooks is connected for accounting, but this agency still needs to reconnect with QuickBooks Payments access before cards on file or autopay will work.' }}
+        </div>
+        <div v-if="usingStripeForSubscription && !subscriptionProviderStatus?.paymentsEnabled" class="error" style="margin-top: 10px;">
+          {{ subscriptionMerchantMode === 'platform_managed'
+            ? 'Platform Stripe is not configured yet for tenant subscription billing.'
+            : 'Stripe Connect must be active for this tenant before Stripe subscription billing can charge cards.' }}
         </div>
 
         <div class="card" style="margin-top: 16px;">
@@ -569,8 +806,29 @@
 
         <div class="card" style="margin-top: 16px;">
           <h4 style="margin: 0 0 10px 0;">Payment Methods</h4>
-          <p class="muted">Cards on file are used only for this agency’s subscription billing. They are stored under the currently selected billing merchant.</p>
-          <div class="manage-grid">
+          <p class="muted">Cards on file are used only for this agency’s subscription billing. They are stored under the currently selected billing merchant and payment provider.</p>
+          <div v-if="usingStripeForSubscription" class="stripe-card-panel">
+            <div class="manage-grid">
+              <div>
+                <div class="label">Cardholder Name</div>
+                <input v-model="stripeCardholderName" class="input" type="text" placeholder="Billing contact name" />
+              </div>
+              <div style="grid-column: span 2;">
+                <div class="label">Card</div>
+                <div class="stripe-card-shell">
+                  <div v-if="stripeLoading" class="muted" style="margin: 0;">Loading Stripe form…</div>
+                  <div ref="stripeMountRef" class="stripe-card-mount"></div>
+                </div>
+                <div v-if="stripeElementError" class="error">{{ stripeElementError }}</div>
+              </div>
+              <div class="inline" style="align-items: end;">
+                <button class="btn" :disabled="addingPaymentMethod || !subscriptionProviderStatus?.paymentsEnabled" @click="addPaymentMethod">
+                  {{ addingPaymentMethod ? 'Saving…' : 'Add Stripe Billing Card' }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-else class="manage-grid">
             <div>
               <div class="label">Cardholder Name</div>
               <input v-model="paymentMethodDraft.name" class="input" type="text" placeholder="Billing contact name" />
@@ -671,7 +929,7 @@
                 <button
                   v-if="inv.payment_status !== 'paid' && autopayEnabled"
                   class="btn btn-secondary"
-                  :disabled="retryingInvoiceId === inv.id || !qboStatus?.paymentsEnabled"
+                  :disabled="retryingInvoiceId === inv.id || !subscriptionProviderStatus?.paymentsEnabled"
                   @click="retryInvoicePayment(inv.id)"
                 >
                   {{ retryingInvoiceId === inv.id ? 'Retrying…' : 'Retry Autopay' }}
@@ -685,7 +943,7 @@
                   {{ sendingInvoiceId === inv.id ? 'Sending…' : 'Send Invoice' }}
                 </button>
                 <button class="btn" @click="downloadPdf(inv.id)" :disabled="!inv.pdf_storage_path">
-                  Download PDF
+                  {{ inv.payment_status === 'paid' ? 'Download Receipt' : 'Download Invoice' }}
                 </button>
               </td>
             </tr>
@@ -693,7 +951,12 @@
         </table>
       </div>
 
-      <div class="card">
+      <div v-else class="card">
+        <h3>Billing Preview</h3>
+        <p class="muted">This tenant is still in coming-soon mode. When you activate billing, this section will open up for invoice generation, payment methods, receipts, and live collection settings.</p>
+      </div>
+
+      <div v-if="canUseLiveBilling" class="card">
         <h3>Linked Schools (for billing)</h3>
         <p class="muted">
           These schools count toward your billing “Schools” usage. Link schools even before any clients exist.
@@ -752,7 +1015,7 @@
         </table>
       </div>
 
-      <div v-if="currentAgencyId" class="card">
+      <div v-if="currentAgencyId && canUseLiveBilling" class="card">
         <h3>Organization link requests</h3>
         <p class="muted">
           To link a school or program that already belongs to another agency, the organization must approve your request first.
@@ -791,8 +1054,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
+import { loadStripe } from '@stripe/stripe-js';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -851,9 +1115,33 @@ const invoices = ref([]);
 const billingEmail = ref('');
 const autopayEnabled = ref(false);
 const subscriptionMerchantMode = ref('agency_managed');
+const subscriptionPaymentProvider = ref('QUICKBOOKS');
 const clientPaymentsMode = ref('not_configured');
+const billingRollout = ref({
+  status: 'coming_soon',
+  comingSoonMessage: 'Platform billing is coming soon for this tenant. Invoices and payment collection will appear here once billing is activated.',
+  activationLabel: null,
+  isActive: false
+});
+const billingProviderReadiness = ref({
+  subscriptionProvider: 'quickbooks',
+  subscriptionStripeReady: false,
+  invoicesEnabled: true,
+  invoiceDownloadsEnabled: true,
+  receiptDownloadsEnabled: true
+});
 const paymentMethods = ref([]);
 const manageError = ref('');
+const savingRollout = ref(false);
+const savingFeatureSelections = ref(false);
+const subscriptionProviderStatus = ref({
+  provider: 'QUICKBOOKS',
+  isConnected: false,
+  paymentsEnabled: false,
+  needsReconnectForPayments: false,
+  stripePublishableKey: null,
+  stripeConnectedAccountId: null
+});
 
 const savingSettings = ref(false);
 const connectingQbo = ref(false);
@@ -871,6 +1159,8 @@ const banner = ref(null);
 const pricingLoading = ref(false);
 const pricingSaving = ref(false);
 const pricingError = ref('');
+const platformFeatureDrafts = ref([]);
+const agencyFeatureDrafts = ref([]);
 
 const platformDraft = ref({
   baseFeeDollars: 0,
@@ -947,6 +1237,14 @@ const paymentMethodDraft = ref({
   postalCode: '',
   isDefault: true
 });
+const stripeCardholderName = ref('');
+const stripeMountRef = ref(null);
+const stripeElementError = ref('');
+const stripeLoading = ref(false);
+let stripeInstance = null;
+let stripeElements = null;
+let stripeCardElement = null;
+let stripeClientSecret = null;
 
 const linkedSchools = ref([]);
 const availableSchools = ref([]);
@@ -968,21 +1266,102 @@ const money = (cents) => {
   return `$${v.toFixed(2)}`;
 };
 
+const formatFeaturePricing = (feature) => {
+  const amount = Number(feature?.unitAmountCents || 0) / 100;
+  if (feature?.pricingModel === 'usage') return `$${amount.toFixed(2)} / ${feature?.unitLabel || 'unit'}`;
+  if (feature?.pricingModel === 'manual_quantity') return `$${amount.toFixed(2)} / ${feature?.unitLabel || 'unit'}`;
+  return `$${amount.toFixed(2)} / month`;
+};
+
 const merchantModeLabel = computed(() => subscriptionMerchantMode.value === 'platform_managed' ? 'Platform-managed' : 'Agency-managed');
+const subscriptionProviderLabel = computed(() => subscriptionPaymentProvider.value === 'STRIPE' ? 'Stripe' : 'QuickBooks');
 const clientPaymentsModeLabel = computed(() => {
   if (clientPaymentsMode.value === 'agency_managed') return 'Agency-owned setup';
   if (clientPaymentsMode.value === 'platform_managed') return 'Platform-assisted setup';
   return 'Not configured';
 });
 const agencyBillingConnectionLabel = computed(() => {
+  if (subscriptionPaymentProvider.value === 'STRIPE') {
+    return subscriptionMerchantMode.value === 'platform_managed' ? 'Platform Stripe' : 'Agency Stripe Connect';
+  }
   if (!qboStatus.value) return 'Not configured';
   return qboStatus.value.connectionOwnerType === 'platform' ? 'Platform QuickBooks' : 'Agency QuickBooks';
 });
+const billingRolloutActive = computed(() => billingRollout.value?.status === 'active');
+const canUseLiveBilling = computed(() => isSuperAdmin.value || billingRolloutActive.value);
+const usingStripeForSubscription = computed(() => subscriptionPaymentProvider.value === 'STRIPE');
+const visibleAgencyFeatures = computed(() => {
+  const rows = Array.isArray(agencyFeatureDrafts.value) ? agencyFeatureDrafts.value : [];
+  if (isSuperAdmin.value) return rows;
+  return rows.filter((row) => row.available || row.enabled || row.included);
+});
+const selectedFeatureCount = computed(() => visibleAgencyFeatures.value.filter((row) => row.enabled).length);
 
 const dollarsToCents = (v) => {
   const n = Number(v || 0);
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.round(n * 100);
+};
+
+const featureCatalogToDraftRows = (catalog, entitlements = {}) => {
+  const source = catalog && typeof catalog === 'object' ? catalog : {};
+  return Object.values(source).map((feature) => {
+    const entitlement = entitlements?.[feature.key] || {};
+    return {
+      key: feature.key,
+      label: feature.label || feature.key,
+      description: feature.description || '',
+      pricingModel: feature.pricingModel || 'flat_monthly',
+      unitAmountDollars: Number(feature.unitAmountCents || 0) / 100,
+      unitLabel: feature.unitLabel || 'month',
+      usageKey: feature.usageKey || null,
+      defaultAvailable: feature.defaultAvailable === true,
+      tenantSelfServe: feature.tenantSelfServe !== false,
+      available: entitlement.available === true,
+      enabled: entitlement.enabled === true,
+      included: entitlement.included === true,
+      locked: entitlement.locked === true,
+      quantity: entitlement.quantity != null ? Number(entitlement.quantity) : 0,
+      unitAmountOverrideDollars: entitlement.unitAmountCents != null ? Number(entitlement.unitAmountCents || 0) / 100 : null,
+      notes: entitlement.notes || ''
+    };
+  });
+};
+
+const buildFeatureCatalogPayload = (rows) => {
+  const payload = {};
+  for (const row of rows || []) {
+    if (!row?.key) continue;
+    payload[row.key] = {
+      key: row.key,
+      label: row.label || row.key,
+      description: row.description || '',
+      pricingModel: row.pricingModel || 'flat_monthly',
+      unitAmountCents: dollarsToCents(row.unitAmountDollars),
+      unitLabel: row.unitLabel || 'month',
+      usageKey: row.usageKey || null,
+      defaultAvailable: row.defaultAvailable === true,
+      tenantSelfServe: row.tenantSelfServe !== false
+    };
+  }
+  return payload;
+};
+
+const buildFeatureEntitlementsPayload = (rows, { adminView = false } = {}) => {
+  const payload = {};
+  for (const row of rows || []) {
+    if (!row?.key) continue;
+    payload[row.key] = {
+      available: adminView ? row.available === true : undefined,
+      enabled: row.enabled === true,
+      included: adminView ? row.included === true : undefined,
+      locked: adminView ? row.locked === true : undefined,
+      quantity: row.pricingModel === 'manual_quantity' ? Math.max(0, Number(row.quantity || 0)) : undefined,
+      unitAmountCents: adminView && row.unitAmountOverrideDollars != null ? dollarsToCents(row.unitAmountOverrideDollars) : undefined,
+      notes: adminView ? (row.notes || '') : undefined
+    };
+  }
+  return payload;
 };
 
 const setDraftFromPricing = (draftRef, pricing) => {
@@ -1086,7 +1465,8 @@ const buildPricingPayloadFromDraft = (draft) => {
     addonsEnabled: {
       publicAvailability: Boolean(d.publicAvailabilityAddonEnabled),
       momentumList: Boolean(d.momentumListAddonEnabled)
-    }
+    },
+    featureCatalog: buildFeatureCatalogPayload(platformFeatureDrafts.value)
   };
 };
 
@@ -1127,6 +1507,7 @@ const loadPlatformPricing = async () => {
   try {
     const res = await api.get('/billing/pricing/default');
     setDraftFromPricing(platformDraft, res.data?.pricing || null);
+    platformFeatureDrafts.value = featureCatalogToDraftRows(res.data?.featureCatalog || res.data?.pricing?.featureCatalog || {});
   } catch (e) {
     pricingError.value = e?.response?.data?.error?.message || 'Failed to load platform pricing';
   } finally {
@@ -1157,6 +1538,7 @@ const loadAgencyPricing = async () => {
     const override = res.data?.pricingOverride ?? null;
     agencyOverrideEnabled.value = override != null;
     setDraftFromPricing(agencyDraft, (override != null ? override : res.data?.platformPricing) || null);
+    agencyFeatureDrafts.value = featureCatalogToDraftRows(res.data?.featureCatalog || {}, res.data?.featureEntitlements || {});
   } catch (e) {
     pricingError.value = e?.response?.data?.error?.message || 'Failed to load agency pricing';
   } finally {
@@ -1174,8 +1556,14 @@ const saveAgencyPricingOverride = async () => {
     if ((agencyDraft.value?.publicAvailabilityAddonEnabled || agencyDraft.value?.momentumListAddonEnabled) && !agencyOverrideEnabled.value) {
       agencyOverrideEnabled.value = true;
     }
-    const payload = agencyOverrideEnabled.value ? buildPricingPayloadFromDraft(agencyDraft.value) : null;
-    await api.put(`/billing/${currentAgencyId.value}/pricing`, { pricing: payload });
+    const payload = agencyOverrideEnabled.value ? {
+      ...buildPricingPayloadFromDraft(agencyDraft.value),
+      featureCatalog: undefined
+    } : null;
+    await api.put(`/billing/${currentAgencyId.value}/pricing`, {
+      pricing: payload,
+      featureEntitlements: buildFeatureEntitlementsPayload(agencyFeatureDrafts.value, { adminView: true })
+    });
     await Promise.all([loadAgencyPricing(), loadEstimate()]);
   } catch (e) {
     pricingError.value = e?.response?.data?.error?.message || 'Failed to save agency pricing override';
@@ -1213,7 +1601,11 @@ const loadSettings = async () => {
     billingEmail.value = res.data?.billingEmail || '';
     autopayEnabled.value = !!res.data?.autopayEnabled;
     subscriptionMerchantMode.value = res.data?.subscriptionMerchantMode || 'agency_managed';
+    subscriptionPaymentProvider.value = res.data?.subscriptionPaymentProvider || 'QUICKBOOKS';
     clientPaymentsMode.value = res.data?.clientPaymentsMode || 'not_configured';
+    billingRollout.value = res.data?.billingRollout || billingRollout.value;
+    billingProviderReadiness.value = res.data?.billingProviderReadiness || billingProviderReadiness.value;
+    subscriptionProviderStatus.value = res.data?.subscriptionProviderStatus || subscriptionProviderStatus.value;
     if (res.data?.quickBooksStatus) {
       qboStatus.value = res.data.quickBooksStatus;
     }
@@ -1231,6 +1623,7 @@ const saveBillingSettings = async () => {
       billingEmail: billingEmail.value || null,
       autopayEnabled: !!autopayEnabled.value,
       subscriptionMerchantMode: subscriptionMerchantMode.value,
+      subscriptionPaymentProvider: subscriptionPaymentProvider.value,
       clientPaymentsMode: clientPaymentsMode.value
     });
     await Promise.all([loadSettings(), loadQboStatus(), loadPaymentMethods()]);
@@ -1238,6 +1631,42 @@ const saveBillingSettings = async () => {
     manageError.value = e?.response?.data?.error?.message || 'Failed to update billing settings';
   } finally {
     savingSettings.value = false;
+  }
+};
+
+const saveBillingRollout = async () => {
+  manageError.value = '';
+  if (!currentAgencyId.value || !isSuperAdmin.value) return;
+  savingRollout.value = true;
+  try {
+    await api.put(`/billing/${currentAgencyId.value}/settings`, {
+      billingRollout: {
+        status: billingRollout.value?.status || 'coming_soon',
+        comingSoonMessage: billingRollout.value?.comingSoonMessage || '',
+        activationLabel: billingRollout.value?.activationLabel || null
+      }
+    });
+    await Promise.all([loadSettings(), loadEstimate()]);
+  } catch (e) {
+    manageError.value = e?.response?.data?.error?.message || 'Failed to update billing rollout';
+  } finally {
+    savingRollout.value = false;
+  }
+};
+
+const saveFeatureSelections = async () => {
+  manageError.value = '';
+  if (!currentAgencyId.value) return;
+  savingFeatureSelections.value = true;
+  try {
+    await api.put(`/billing/${currentAgencyId.value}/settings`, {
+      featureEntitlements: buildFeatureEntitlementsPayload(agencyFeatureDrafts.value, { adminView: false })
+    });
+    await Promise.all([loadAgencyPricing(), loadEstimate(), loadSettings()]);
+  } catch (e) {
+    manageError.value = e?.response?.data?.error?.message || 'Failed to update selected features';
+  } finally {
+    savingFeatureSelections.value = false;
   }
 };
 
@@ -1264,25 +1693,98 @@ const resetPaymentMethodDraft = () => {
   };
 };
 
+const destroyStripeCardElement = () => {
+  if (stripeCardElement) {
+    stripeCardElement.destroy();
+    stripeCardElement = null;
+  }
+  stripeElements = null;
+  stripeInstance = null;
+  stripeClientSecret = null;
+};
+
+const loadStripePaymentSetup = async () => {
+  stripeElementError.value = '';
+  destroyStripeCardElement();
+  if (!currentAgencyId.value || !usingStripeForSubscription.value || !canUseLiveBilling.value) return;
+  if (subscriptionProviderStatus.value?.provider !== 'STRIPE') return;
+  stripeLoading.value = true;
+  try {
+    const res = await api.get(`/billing/${currentAgencyId.value}/payment-methods/setup`);
+    const publishableKey = res.data?.publishableKey;
+    const connectedAccountId = res.data?.connectedAccountId || null;
+    stripeClientSecret = res.data?.clientSecret || null;
+    if (!publishableKey || !stripeClientSecret) {
+      throw new Error('Stripe setup is incomplete for this tenant.');
+    }
+    stripeInstance = connectedAccountId
+      ? await loadStripe(publishableKey, { stripeAccount: connectedAccountId })
+      : await loadStripe(publishableKey);
+    if (!stripeInstance) throw new Error('Stripe could not be initialized.');
+    await nextTick();
+    if (!stripeMountRef.value) throw new Error('Stripe card container is missing.');
+    stripeElements = stripeInstance.elements();
+    stripeCardElement = stripeElements.create('card', {
+      style: {
+        base: {
+          color: '#111827',
+          fontSize: '16px',
+          '::placeholder': { color: '#9ca3af' }
+        }
+      }
+    });
+    stripeCardElement.mount(stripeMountRef.value);
+    stripeCardElement.on('change', (event) => {
+      stripeElementError.value = event?.error?.message || '';
+    });
+  } catch (e) {
+    stripeElementError.value = e?.response?.data?.error?.message || e?.message || 'Failed to initialize Stripe billing card setup.';
+  } finally {
+    stripeLoading.value = false;
+  }
+};
+
 const addPaymentMethod = async () => {
   manageError.value = '';
   if (!currentAgencyId.value) return;
   addingPaymentMethod.value = true;
   try {
-    await api.post(`/billing/${currentAgencyId.value}/payment-methods`, {
-      card: {
-        name: paymentMethodDraft.value.name || null,
-        number: paymentMethodDraft.value.number || null,
-        expMonth: paymentMethodDraft.value.expMonth ? String(paymentMethodDraft.value.expMonth) : null,
-        expYear: paymentMethodDraft.value.expYear ? String(paymentMethodDraft.value.expYear) : null,
-        cvc: paymentMethodDraft.value.cvc || null,
-        address: {
-          postalCode: paymentMethodDraft.value.postalCode || null
+    if (usingStripeForSubscription.value) {
+      if (!stripeInstance || !stripeCardElement || !stripeClientSecret) {
+        throw new Error('Stripe billing form is not ready yet.');
+      }
+      if (!stripeCardholderName.value.trim()) {
+        throw new Error('Cardholder name is required.');
+      }
+      const { error, setupIntent } = await stripeInstance.confirmCardSetup(stripeClientSecret, {
+        payment_method: {
+          card: stripeCardElement,
+          billing_details: { name: stripeCardholderName.value.trim() }
         }
-      },
-      isDefault: !!paymentMethodDraft.value.isDefault
-    });
-    resetPaymentMethodDraft();
+      });
+      if (error) throw new Error(error.message || 'Stripe card could not be saved.');
+      await api.post(`/billing/${currentAgencyId.value}/payment-methods`, {
+        stripePaymentMethodId: setupIntent?.payment_method || null,
+        isDefault: true
+      });
+      stripeCardholderName.value = '';
+      await loadStripePaymentSetup();
+    } else {
+      await api.post(`/billing/${currentAgencyId.value}/payment-methods`, {
+        card: {
+          name: paymentMethodDraft.value.name || null,
+          number: paymentMethodDraft.value.number || null,
+          expMonth: paymentMethodDraft.value.expMonth ? String(paymentMethodDraft.value.expMonth) : null,
+          expYear: paymentMethodDraft.value.expYear ? String(paymentMethodDraft.value.expYear) : null,
+          cvc: paymentMethodDraft.value.cvc || null,
+          address: {
+            postalCode: paymentMethodDraft.value.postalCode || null
+          }
+        },
+        isDefault: !!paymentMethodDraft.value.isDefault
+      });
+      resetPaymentMethodDraft();
+    }
     await Promise.all([loadPaymentMethods(), loadQboStatus()]);
   } catch (e) {
     manageError.value = e?.response?.data?.error?.message || 'Failed to add payment method';
@@ -1563,6 +2065,7 @@ onMounted(async () => {
     loadAffiliationOutgoing(),
     ...(isSuperAdmin.value ? [loadPlatformQboStatus()] : [])
   ]);
+  await loadStripePaymentSetup();
 });
 
 watch(billingAgencies, () => {
@@ -1583,12 +2086,21 @@ watch(currentAgencyId, async (newId, oldId) => {
     loadAffiliationOutgoing(),
     ...(isSuperAdmin.value ? [loadPlatformQboStatus()] : [])
   ]);
+  await loadStripePaymentSetup();
 });
+
+watch([subscriptionPaymentProvider, currentAgencyId, canUseLiveBilling], async () => {
+  await loadStripePaymentSetup();
+}, { flush: 'post' });
 
 const onStripeStatusChanged = (newStatus) => {
   // Optionally reload settings to reflect new stripe connect status
   if (newStatus === 'active') loadSettings();
 };
+
+onBeforeUnmount(() => {
+  destroyStripeCardElement();
+});
 
 </script>
 
@@ -1735,11 +2247,133 @@ const onStripeStatusChanged = (newStatus) => {
   margin-top: 8px;
 }
 
+.rollout-card {
+  border-color: rgba(107, 114, 128, 0.28);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(59, 130, 246, 0.06));
+}
+
+.rollout-card-live {
+  border-color: rgba(16, 185, 129, 0.28);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.09), rgba(59, 130, 246, 0.05));
+}
+
+.rollout-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.rollout-editor {
+  margin-top: 16px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
 .pricing-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-top: 12px;
+}
+
+.feature-catalog-panel {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.feature-catalog-header h4 {
+  margin: 0 0 6px 0;
+}
+
+.feature-catalog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.feature-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.feature-item-admin {
+  align-items: flex-start;
+}
+
+.feature-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.feature-title {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.feature-key {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.feature-description {
+  margin-top: 6px;
+  color: var(--text-secondary);
+}
+
+.feature-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.feature-price-preview {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.feature-controls-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.feature-controls-inline {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.feature-qty {
+  min-width: 110px;
+}
+
+.stripe-card-panel {
+  margin-top: 8px;
+}
+
+.stripe-card-shell {
+  min-height: 44px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.stripe-card-mount {
+  min-height: 18px;
 }
 
 .form-group {
@@ -1752,11 +2386,30 @@ const onStripeStatusChanged = (newStatus) => {
   .pricing-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .feature-controls-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 700px) {
   .pricing-grid {
     grid-template-columns: 1fr;
+  }
+
+  .status-grid,
+  .manage-grid,
+  .row,
+  .rollout-editor,
+  .feature-item,
+  .feature-controls-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .feature-item,
+  .rollout-card-header,
+  .rollout-editor {
+    flex-direction: column;
   }
 }
 

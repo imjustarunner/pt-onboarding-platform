@@ -1,8 +1,9 @@
 import BillingUsageService from '../services/billingUsage.service.js';
-import { buildEstimate, getEffectiveBillingPricingForAgency } from '../services/billingPricing.service.js';
+import { buildEstimate, getEffectiveBillingPricingForAgency, resolveFeatureEntitlements } from '../services/billingPricing.service.js';
 import AgencyCommunicationBillingService from '../services/agencyCommunicationBilling.service.js';
 import BillingMerchantContextService from '../services/billingMerchantContext.service.js';
 import { formatPeriodLabel, getCurrentBillingPeriod } from '../utils/billingPeriod.js';
+import AgencyBillingAccount from '../models/AgencyBillingAccount.model.js';
 
 export const getAgencyAddons = async (req, res, next) => {
   try {
@@ -12,8 +13,15 @@ export const getAgencyAddons = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Invalid agencyId' } });
     }
     const pricingBundle = await getEffectiveBillingPricingForAgency(parsedAgencyId);
-    const addons = pricingBundle?.effective?.addonsEnabled || {};
-    const billingMomentumList = Boolean(addons.momentumList);
+    const account = await AgencyBillingAccount.getByAgencyId(parsedAgencyId);
+    const entitlements = resolveFeatureEntitlements({
+      pricingConfig: pricingBundle?.effective,
+      featureEntitlementsJson: account?.feature_entitlements_json || null
+    });
+    const billingMomentumList = Boolean(entitlements?.momentumList?.enabled);
+    const publicAvailability = Boolean(entitlements?.publicAvailability?.enabled);
+    const geminiNoteAid = Boolean(entitlements?.geminiNoteAid?.enabled);
+    const officeSchedulingPublishing = Boolean(entitlements?.officeSchedulingPublishing?.enabled);
 
     const Agency = (await import('../models/Agency.model.js')).default;
     const agency = await Agency.findById(parsedAgencyId);
@@ -24,7 +32,10 @@ export const getAgencyAddons = async (req, res, next) => {
 
     res.json({
       agencyId: parsedAgencyId,
-      momentumList: billingMomentumList || featureFlagMomentumList
+      momentumList: billingMomentumList || featureFlagMomentumList,
+      publicAvailability,
+      geminiNoteAid,
+      officeSchedulingPublishing
     });
   } catch (error) {
     next(error);
@@ -45,7 +56,10 @@ export const getAgencyBillingEstimate = async (req, res, next) => {
       periodEnd: period.periodEnd
     });
     const pricingBundle = await getEffectiveBillingPricingForAgency(parsedAgencyId);
-    const estimate = buildEstimate(usage, pricingBundle.effective);
+    const account = await AgencyBillingAccount.getByAgencyId(parsedAgencyId);
+    const estimate = buildEstimate(usage, pricingBundle.effective, {
+      featureEntitlements: account?.feature_entitlements_json || null
+    });
     const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(parsedAgencyId);
     const communicationSummary = await AgencyCommunicationBillingService.getAgencyPeriodSummary({
       agencyId: parsedAgencyId,
@@ -70,4 +84,3 @@ export const getAgencyBillingEstimate = async (req, res, next) => {
     next(error);
   }
 };
-

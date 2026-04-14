@@ -47,8 +47,10 @@ class BillingInvoiceService {
       periodStart,
       periodEnd
     });
-    const estimate = buildEstimate(usage, pricingBundle.effective);
     const account = await AgencyBillingAccount.getByAgencyId(parsedAgencyId);
+    const estimate = buildEstimate(usage, pricingBundle.effective, {
+      featureEntitlements: account?.feature_entitlements_json || null
+    });
     const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(parsedAgencyId);
     const invoiceDeliveryMode = account?.autopay_enabled ? 'autopay' : 'manual';
 
@@ -168,4 +170,3 @@ class BillingInvoiceService {
 }
 
 export default BillingInvoiceService;
-

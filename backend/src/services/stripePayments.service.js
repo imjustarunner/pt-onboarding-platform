@@ -116,9 +116,24 @@ class StripePaymentsService {
    * stay within that agency's Stripe account.
    */
   static async ensureCustomer({ guardianUserId, agencyId, email = null, name = null, connectedAccountId = null }) {
+    const customerKey = `guardian_${guardianUserId}_agency_${agencyId}`;
+    return this.ensureAppCustomer({
+      customerKey,
+      email,
+      name,
+      connectedAccountId,
+      metadata: {
+        guardian_user_id: String(guardianUserId),
+        agency_id: String(agencyId)
+      }
+    });
+  }
+
+  static async ensureAppCustomer({ customerKey, email = null, name = null, connectedAccountId = null, metadata = {} } = {}) {
     const stripe = getStripe();
     const opts = connectOpts(connectedAccountId);
-    const metaKey = `guardian_${guardianUserId}_agency_${agencyId}`;
+    const metaKey = String(customerKey || '').trim();
+    if (!metaKey) throw new Error('customerKey is required');
 
     // Search by metadata to avoid duplicates (search is supported on connected accounts)
     try {
@@ -137,8 +152,7 @@ class StripePaymentsService {
         name: name || undefined,
         metadata: {
           app_key: metaKey,
-          guardian_user_id: String(guardianUserId),
-          agency_id: String(agencyId)
+          ...metadata
         }
       },
       opts
@@ -246,6 +260,11 @@ class StripePaymentsService {
     }
 
     return stripe.paymentIntents.create(intentParams, opts);
+  }
+
+  static async retrievePaymentIntent(paymentIntentId, connectedAccountId = null) {
+    const stripe = getStripe();
+    return stripe.paymentIntents.retrieve(paymentIntentId, {}, connectOpts(connectedAccountId));
   }
 
   // ─────────────────────────────────────────────────────────────────────────

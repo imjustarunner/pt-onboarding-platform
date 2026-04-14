@@ -17,6 +17,7 @@ import { runBillingPaymentReconciliation, runMonthlyBilling } from '../controlle
 import { agencyPricingOverrideValidators, getAgencyPricing, getPlatformPricing, platformPricingValidators, updateAgencyPricingOverride, updatePlatformPricing } from '../controllers/billingPricing.controller.js';
 import {
   createAgencyBillingPaymentMethod,
+  getAgencyBillingPaymentMethodSetup,
   listAgencyBillingPaymentMethods,
   setAgencyBillingPaymentMethodDefault
 } from '../controllers/agencyBillingPaymentMethods.controller.js';
@@ -64,6 +65,7 @@ router.get('/:agencyId/estimate', authenticate, requireAgencyAccess, getAgencyBi
 // Billing settings
 router.get('/:agencyId/settings', authenticate, requireAgencyAccess, getBillingSettings);
 router.put('/:agencyId/settings', authenticate, requireAgencyAdmin, billingSettingsValidators, updateBillingSettings);
+router.get('/:agencyId/payment-methods/setup', authenticate, requireAgencyAdmin, getAgencyBillingPaymentMethodSetup);
 router.get('/:agencyId/payment-methods', authenticate, requireAgencyAccess, listAgencyBillingPaymentMethods);
 router.post('/:agencyId/payment-methods', authenticate, requireAgencyAdmin, createAgencyBillingPaymentMethod);
 router.post('/:agencyId/payment-methods/:paymentMethodId/default', authenticate, requireAgencyAdmin, setAgencyBillingPaymentMethodDefault);
@@ -91,4 +93,3 @@ router.get('/quickbooks/callback', quickBooksOAuthCallback);
 router.use('/:agencyId/stripe', stripeConnectRoutes);
 
 export default router;
-
