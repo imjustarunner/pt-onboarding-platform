@@ -1,9 +1,12 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
+import path from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
 const indexHtml = fileURLToPath(new URL('./index.html', import.meta.url));
+/** Git submodule at repo root: `games/` (https://github.com/imjustarunner/games.git) */
+const gamesRoot = path.resolve(rootDir, '..', 'games');
 
 export default defineConfig({
   // Always resolve root relative to this config file (works even when invoked from repo root).
@@ -11,7 +14,8 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@games': gamesRoot
     }
   },
   test: {
@@ -21,6 +25,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    fs: {
+      allow: [rootDir, gamesRoot]
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
