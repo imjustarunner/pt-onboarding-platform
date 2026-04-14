@@ -87,12 +87,44 @@ class ChallengeTeam {
     const id = toInt(teamId);
     if (!id) return [];
     const [rows] = await pool.execute(
-      `SELECT m.*, u.first_name, u.last_name, u.email
-       FROM challenge_team_members m
-       INNER JOIN users u ON u.id = m.provider_user_id
-       WHERE m.team_id = ?
-       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
-      [id]
+      `SELECT
+         combined.team_id,
+         combined.provider_user_id,
+         MAX(combined.joined_at) AS joined_at,
+         MAX(combined.is_team_captain) AS is_team_captain,
+         MAX(combined.first_name) AS first_name,
+         MAX(combined.last_name) AS last_name,
+         MAX(combined.email) AS email
+       FROM (
+         SELECT
+           m.team_id,
+           m.provider_user_id,
+           m.joined_at,
+           0 AS is_team_captain,
+           u.first_name,
+           u.last_name,
+           u.email
+         FROM challenge_team_members m
+         INNER JOIN users u ON u.id = m.provider_user_id
+         WHERE m.team_id = ?
+
+         UNION ALL
+
+         SELECT
+           t.id AS team_id,
+           t.team_manager_user_id AS provider_user_id,
+           NULL AS joined_at,
+           1 AS is_team_captain,
+           u.first_name,
+           u.last_name,
+           u.email
+         FROM challenge_teams t
+         INNER JOIN users u ON u.id = t.team_manager_user_id
+         WHERE t.id = ? AND t.team_manager_user_id IS NOT NULL
+       ) combined
+       GROUP BY combined.team_id, combined.provider_user_id
+       ORDER BY MAX(combined.last_name) ASC, MAX(combined.first_name) ASC, combined.provider_user_id ASC`,
+      [id, id]
     );
     return rows || [];
   }

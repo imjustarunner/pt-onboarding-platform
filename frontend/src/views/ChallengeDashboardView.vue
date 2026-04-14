@@ -992,6 +992,7 @@ import { useBrandingStore } from '../store/branding';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../utils/summitPlatformSlugs.js';
 import { useAffiliationClubAnnouncements } from '../composables/useAffiliationClubAnnouncements.js';
+import { useSeasonWeeks } from '../composables/useSeasonWeeks.js';
 import { toUploadsUrl } from '../utils/uploadsUrl.js';
 import { getWeekDeadline, getTodayDeadline, timeUntil, formatInTimezone, countdownUrgency } from '../utils/timezones.js';
 import ChallengeRules from '../components/challenge/ChallengeRules.vue';
@@ -1099,6 +1100,14 @@ const raceDivisionTab = ref('season');
 // Kudos stats
 const kudosStats = ref(null);
 const kudosStatsLoading = ref(false);
+
+const { weekStartDate: activeSeasonWeekStart } = useSeasonWeeks(
+  computed(() => challenge.value?.starts_at || challenge.value?.startsAt || null),
+  {
+    defaultToLatest: false,
+    seasonEndsAtRef: computed(() => challenge.value?.ends_at || challenge.value?.endsAt || null)
+  }
+);
 
 const challengeId = computed(() => route.params.id || route.params.challengeId);
 const organizationSlug = computed(() => route.params.organizationSlug || null);
@@ -1602,9 +1611,13 @@ const loadActivity = async () => {
 
 const loadWeeklyTaskOptions = async () => {
   const id = challengeId.value;
-  if (!id) return;
+  const week = activeSeasonWeekStart.value;
+  if (!id || !week) return;
   try {
-    const r = await api.get(`/learning-program-classes/${id}/weekly-tasks`, { skipGlobalLoading: true });
+    const r = await api.get(`/learning-program-classes/${id}/weekly-tasks`, {
+      params: { week },
+      skipGlobalLoading: true
+    });
     weeklyTaskOptions.value = Array.isArray(r.data?.tasks) ? r.data.tasks : [];
     const tp = r.data?.treadmillpocalypse;
     treadmillpocalypseWeek.value = (tp?.active === true) ? tp : null;
@@ -2130,6 +2143,11 @@ watch(challengeId, () => {
       Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions()]);
     }
   });
+});
+
+watch(activeSeasonWeekStart, (week) => {
+  if (!week || !challengeId.value || !challenge.value) return;
+  loadWeeklyTaskOptions();
 });
 
 // Auto-set isTreadmill when terrain = Treadmill is selected in workout form

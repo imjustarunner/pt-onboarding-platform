@@ -197,6 +197,19 @@ const hasByeDeclaredForWeek = computed(() =>
 
 const isOnMyTeam = computed(() => !!myTeam.value);
 
+const normalizeTeamRow = (team) => {
+  if (!team || typeof team !== 'object') return null;
+  const teamId = team.teamId ?? team.team_id ?? team.id ?? null;
+  const challengeId = team.challengeId ?? team.challenge_id ?? null;
+  if (!teamId || !challengeId) return null;
+  return {
+    ...team,
+    id: teamId,
+    teamId,
+    challengeId
+  };
+};
+
 function modeLabel(mode) {
   if (mode === 'full_team') return 'Full Team';
   if (mode === 'captain_assigns') return 'Captain Assigns';
@@ -337,15 +350,15 @@ const load = async () => {
     maxByeWeeks.value = Number(bye.maxByeWeeksPerParticipant ?? 1);
 
     // Find current user's team in this challenge
-    const allMyTeams = Array.isArray(myTeamsRes.data?.teams) ? myTeamsRes.data.teams : [];
-    const found = allMyTeams.find((t) => Number(t.challenge_id) === Number(props.challengeId));
+    const allMyTeams = Array.isArray(myTeamsRes.data?.teams) ? myTeamsRes.data.teams.map(normalizeTeamRow).filter(Boolean) : [];
+    const found = allMyTeams.find((t) => Number(t.challengeId) === Number(props.challengeId));
     myTeam.value = found || null;
 
     // Load team members for captain assignment + full-team display
-    if (myTeam.value?.team_id) {
+    if (myTeam.value?.id) {
       try {
         const membRes = await api.get(
-          `/learning-program-classes/${props.challengeId}/teams/${myTeam.value.team_id}/members`,
+          `/learning-program-classes/${props.challengeId}/teams/${myTeam.value.id}/members`,
           { skipGlobalLoading: true }
         );
         myTeamMembers.value = Array.isArray(membRes.data?.members) ? membRes.data.members : [];
@@ -358,7 +371,7 @@ const load = async () => {
         try {
           const wRes = await api.get(
             `/learning-program-classes/${props.challengeId}/workouts`,
-            { params: { week: weekStart.value, teamId: myTeam.value.team_id, hasTask: true }, skipGlobalLoading: true }
+            { params: { week: weekStart.value, teamId: myTeam.value.id, hasTask: true }, skipGlobalLoading: true }
           ).catch(() => ({ data: { workouts: [] } }));
           taggedWorkouts.value = Array.isArray(wRes.data?.workouts) ? wRes.data.workouts : [];
         } catch {
