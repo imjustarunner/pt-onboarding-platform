@@ -250,9 +250,9 @@ async function bootstrap() {
 
   const setBrandingChrome = () => {
     setTitle();
-    // Use the same logo the UI uses (already cache-busted by store).
-    const logo = brandingStore.displayLogoUrl;
-    if (logo) setFavicon(logo);
+    // Favicon: organization master icon when set, else full logo (cache-busted in store).
+    const mark = brandingStore.displayChromeIconUrl || brandingStore.displayLogoUrl;
+    if (mark) setFavicon(mark);
   };
 
   watchEffect(setBrandingChrome);

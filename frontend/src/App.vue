@@ -1413,6 +1413,8 @@ const LOADER_MIN_MS = 250;
 // Prefer the selected agency icon for the loader even before authStore hydrates.
 // Falls back through: club logo → portal-agency logo (e.g. SSTC org icon) → platform branding logo.
 const loaderLogoUrl = computed(() => {
+  const chrome = brandingStore.displayChromeIconUrl;
+  if (chrome) return chrome;
   const a = agencyStore.currentAgency;
   if (a?.logo_path) return toUploadsUrl(a.logo_path);
   if (a?.icon_file_path) return toUploadsUrl(a.icon_file_path);
@@ -1430,6 +1432,8 @@ const loaderLogoUrl = computed(() => {
 // Top-left logo: club logo first, then the portal-agency logo (SSTC org icon when at /sstc/…),
 // then platform branding.  Keeps the navbar always showing something meaningful.
 const navBrandLogoUrl = computed(() => {
+  const chrome = brandingStore.displayChromeIconUrl;
+  if (chrome) return chrome;
   const resolved = brandingStore.displayLogoUrl;
   if (resolved) return resolved;
   const portalLogo = brandingStore.portalAgency?.logoUrl;
@@ -1463,8 +1467,8 @@ const sstcAffiliationNavLogoUrl = computed(() => {
   if (!a?.id) return null;
   const t = String(a.organization_type || a.organizationType || '').toLowerCase();
   if (t !== 'affiliation') return null;
-  if (a.logo_path) return toUploadsUrl(a.logo_path);
   if (a.icon_file_path) return toUploadsUrl(a.icon_file_path);
+  if (a.logo_path) return toUploadsUrl(a.logo_path);
   if (a.logo_url && /^https?:\/\//i.test(String(a.logo_url))) return String(a.logo_url);
   return null;
 });

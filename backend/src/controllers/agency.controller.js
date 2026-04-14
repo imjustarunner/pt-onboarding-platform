@@ -1340,12 +1340,20 @@ export const getThemeByPortalUrl = async (req, res, next) => {
       logoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : brandingOrg.logo_url;
     }
 
+    const resolveIconUrl = (row) => {
+      if (!row?.icon_file_path) return null;
+      const cleaned = normalizeUploadsPath(row.icon_file_path);
+      return cleaned ? `${baseUrl}/uploads/${cleaned}` : null;
+    };
+    const iconUrl = resolveIconUrl(brandingOrg);
+
     // Return theme data for frontend
     res.json({
       brandingAgencyId: brandingOrg.id,
       portalOrganizationId: agency.id,
       colorPalette: colorPalette || {},
       logoUrl,
+      iconUrl: iconUrl || null,
       themeSettings: themeSettings || {},
       terminologySettings: terminologySettings || {},
       agencyName: brandingOrg.name,
@@ -1454,6 +1462,12 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
       return row.logo_url || null;
     };
 
+    const resolveIconUrl = (row) => {
+      if (!row?.icon_file_path) return null;
+      const cleaned = normalizeUploadsPath(row.icon_file_path);
+      return cleaned ? `${baseUrl}/uploads/${cleaned}` : null;
+    };
+
     const parentBrandingLogoUrl = resolveLogoUrl(brandingOrg);
 
     // Child portals (school/program/learning): login page shows the portal org identity (e.g. "Rudy")
@@ -1462,14 +1476,17 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
     const portalChildTypes = ['school', 'program', 'learning'];
     const isChildPortal = portalChildTypes.includes(orgType);
     const portalOrgLogoUrl = isChildPortal ? resolveLogoUrl(agency) : null;
+    const portalOrgIconUrl = isChildPortal ? resolveIconUrl(agency) : null;
     const loginLogoUrl = portalOrgLogoUrl || parentBrandingLogoUrl;
+    const loginIconUrl = portalOrgIconUrl || resolveIconUrl(brandingOrg);
     const loginDisplayName = isChildPortal ? agency.name || brandingOrg.name : brandingOrg.name;
 
     const parentBranding =
       isChildPortal && linkedParentForChild && Number(linkedParentForChild.id) !== Number(agency.id)
         ? {
             name: String(linkedParentForChild.name || '').trim() || null,
-            logoUrl: resolveLogoUrl(linkedParentForChild)
+            logoUrl: resolveLogoUrl(linkedParentForChild),
+            iconUrl: resolveIconUrl(linkedParentForChild)
           }
         : null;
 
@@ -1511,6 +1528,7 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
         showClubLinks,
         canonicalLoginSlug: canonicalLoginSlug || undefined,
         logoUrl: loginLogoUrl,
+        iconUrl: loginIconUrl || null,
         colorPalette: colorPalette || {},
         themeSettings: themeSettings || {},
         ...(parentBranding ? { parentBranding } : {})

@@ -60,7 +60,9 @@ const title = computed(() => {
   return 'Legal Document';
 });
 
-const displayLogoUrl = computed(() => brandingStore.displayLogoUrl || null);
+const displayLogoUrl = computed(
+  () => brandingStore.displayChromeIconUrl || brandingStore.displayLogoUrl || null
+);
 const displayBrandName = computed(() => {
   const portalName = String(brandingStore.portalAgency?.name || '').trim();
   if (portalName) return portalName;

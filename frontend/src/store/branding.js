@@ -141,6 +141,7 @@ export const useBrandingStore = defineStore('branding', () => {
    */
   const _palettesBySlug = reactive({});  // slug → colorPalette
   const _logosBySlug = reactive({});     // slug → logoUrl
+  const _iconsBySlug = reactive({});     // slug → organization icon URL (favicon / nav mark)
   const _themeSettingsBySlug = reactive({}); // slug → themeSettings (parallel to slug theme fetch)
 
   /**
@@ -296,6 +297,7 @@ export const useBrandingStore = defineStore('branding', () => {
       name: data.agencyName,
       colorPalette: data.colorPalette || {},
       logoUrl: data.logoUrl,
+      iconUrl: data.iconUrl || null,
       themeSettings: data.themeSettings || {},
       terminologySettings: data.terminologySettings || {},
       slug: String(portalUrl || '').trim().toLowerCase()
@@ -313,6 +315,11 @@ export const useBrandingStore = defineStore('branding', () => {
       }
       if (data.logoUrl) {
         _logosBySlug[slugKey] = data.logoUrl;
+      }
+      if (data.iconUrl) {
+        _iconsBySlug[slugKey] = data.iconUrl;
+      } else {
+        delete _iconsBySlug[slugKey];
       }
       _themeSettingsBySlug[slugKey] = data.themeSettings && typeof data.themeSettings === 'object'
         ? data.themeSettings
@@ -352,6 +359,7 @@ export const useBrandingStore = defineStore('branding', () => {
         name: response.data.agencyName,
         colorPalette: response.data.colorPalette || {},
         logoUrl: response.data.logoUrl,
+        iconUrl: response.data.iconUrl || null,
         themeSettings: response.data.themeSettings || {},
         terminologySettings: response.data.terminologySettings || {}
       };
@@ -503,6 +511,7 @@ export const useBrandingStore = defineStore('branding', () => {
       name: themeData.agencyName || themeData.name || portalAgency.value?.name || null,
       colorPalette: themeData.colorPalette || {},
       logoUrl: themeData.logoUrl || null,
+      iconUrl: themeData.iconUrl || null,
       themeSettings: themeData.themeSettings || {},
       terminologySettings: themeData.terminologySettings || {},
       slug: portalAgency.value?.slug || portalHostPortalUrl.value || null
@@ -518,6 +527,7 @@ export const useBrandingStore = defineStore('branding', () => {
       agencyName: loginTheme.agency.name,
       colorPalette: loginTheme.agency.colorPalette || {},
       logoUrl: loginTheme.agency.logoUrl || null,
+      iconUrl: loginTheme.agency.iconUrl || null,
       themeSettings: loginTheme.agency.themeSettings || {},
       terminologySettings: loginTheme.agency.terminologySettings || {}
     });
@@ -949,6 +959,40 @@ export const useBrandingStore = defineStore('branding', () => {
     }
     return null;
   });
+
+  /** Master organization icon for compact chrome (nav, favicon) — prefers icon over wide logo. */
+  const displayChromeIconUrl = computed(() => {
+    const routeSlug = activeRouteSlug.value;
+    if (routeSlug) {
+      const cachedIcon = _iconsBySlug[routeSlug];
+      if (cachedIcon) return addCacheBuster(cachedIcon);
+      const pSlug = String(portalAgency.value?.slug || '').trim().toLowerCase();
+      if (pSlug === routeSlug && portalAgency.value?.iconUrl) {
+        return addCacheBuster(portalAgency.value.iconUrl);
+      }
+    } else if (portalAgency.value?.iconUrl) {
+      return addCacheBuster(portalAgency.value.iconUrl);
+    }
+    const agency = agencyStore.currentAgency;
+    if (agency?.icon_file_path) {
+      return addCacheBuster(toUploadsUrl(agency.icon_file_path));
+    }
+    const iconId = agency?.icon_id ?? agency?.iconId;
+    if (iconId) {
+      const u = iconUrlById(iconId);
+      if (u) return addCacheBuster(u);
+    }
+    if (isSuperAdmin.value || !authStore.isAuthenticated) {
+      if (platformBranding.value?.organization_logo_icon_path) {
+        return addCacheBuster(toUploadsUrl(String(platformBranding.value.organization_logo_icon_path)));
+      }
+      if (platformBranding.value?.organization_logo_icon_id) {
+        const url = iconUrlById(platformBranding.value.organization_logo_icon_id);
+        if (url) return addCacheBuster(url);
+      }
+    }
+    return null;
+  });
   
   // Get theme settings (fonts, login background, etc.)
   const themeSettings = computed(() => {
@@ -1377,6 +1421,7 @@ export const useBrandingStore = defineStore('branding', () => {
     textMutedColor,
     logoUrl,
     displayLogoUrl,
+    displayChromeIconUrl,
     plotTwistCoLogoUrl,
     agencyName,
     displayName,
