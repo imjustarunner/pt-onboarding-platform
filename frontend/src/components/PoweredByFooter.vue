@@ -12,6 +12,8 @@
       <span v-if="platformOrgName" class="powered-by-name">{{ platformOrgName }}</span>
     </div>
     <div v-if="includeLegal && legalLinksToRender.length" class="legal-links">
+      <span v-if="legalTitleToRender" class="legal-title">{{ legalTitleToRender }}</span>
+      <span v-if="legalTitleToRender" class="legal-sep">|</span>
       <template v-for="(item, i) in legalLinksToRender" :key="'legal-' + i">
         <a
           v-if="isExternalLegalHref(item.href)"
@@ -49,6 +51,21 @@ const props = defineProps({
   includeLegal: {
     type: Boolean,
     default: true
+  },
+  /** Optional title shown before legal links (e.g., "Program Docs"). */
+  legalTitle: {
+    type: String,
+    default: ''
+  },
+  /** Replace default legal links entirely when provided. */
+  legalLinksOverride: {
+    type: Array,
+    default: null
+  },
+  /** Add extra legal links after defaults (or override links). */
+  extraLegalLinks: {
+    type: Array,
+    default: () => []
   }
 });
 
@@ -97,11 +114,41 @@ const defaultLegalLinks = computed(() => {
   return rows;
 });
 
+function normalizeCustomLegalLinks(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((x) => ({
+      label: String(x?.label || '').trim(),
+      href: String(x?.href || x?.url || '').trim()
+    }))
+    .filter((x) => x.label && x.href)
+    .slice(0, 12);
+}
+
+const legalTitleToRender = computed(() => String(props.legalTitle || '').trim());
+
+const customOverrideLinks = computed(() => normalizeCustomLegalLinks(props.legalLinksOverride));
+const customExtraLinks = computed(() => normalizeCustomLegalLinks(props.extraLegalLinks));
+
 const legalLinksToRender = computed(() => {
-  if (isSummitStatsChrome.value && parsedSscFooterLinks.value.length) {
-    return parsedSscFooterLinks.value;
+  let baseLinks = [];
+  if (customOverrideLinks.value.length) {
+    baseLinks = customOverrideLinks.value;
+  } else if (isSummitStatsChrome.value && parsedSscFooterLinks.value.length) {
+    baseLinks = parsedSscFooterLinks.value;
+  } else {
+    baseLinks = defaultLegalLinks.value;
   }
-  return defaultLegalLinks.value;
+  if (!customExtraLinks.value.length) return baseLinks;
+  const merged = [...baseLinks];
+  const seen = new Set(baseLinks.map((x) => `${x.label}__${x.href}`.toLowerCase()));
+  for (const link of customExtraLinks.value) {
+    const key = `${link.label}__${link.href}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(link);
+  }
+  return merged;
 });
 
 function isExternalLegalHref(href) {
@@ -190,6 +237,11 @@ const handleLogoError = (event) => {
 .legal-links {
   margin-top: 8px;
   font-size: 12px;
+}
+
+.legal-title {
+  color: var(--text-secondary, #64748b);
+  font-weight: 600;
 }
 
 .legal-links:first-child {

@@ -278,6 +278,22 @@
       </div>
 
       <div class="field">
+        <span>Footer legal links (public page override)</span>
+        <p class="muted small">
+          Leave blank to use platform docs by default. When set, this page uses your custom title and links at the bottom.
+        </p>
+        <input v-model="form.footerLegalTitle" type="text" placeholder="Program legal documents" />
+        <div v-for="(row, li) in legalFooterLinkRows" :key="`ll-${li}`" class="pmp-row-grid">
+          <input v-model="row.label" type="text" placeholder="Label (e.g. Program Privacy Policy)" />
+          <input v-model="row.href" type="text" placeholder="https://… or /privacypolicy" class="mono" />
+          <button type="button" class="btn btn-danger btn-sm" @click="removeLegalFooterLink(li)">×</button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="legalFooterLinkRows.push({ label: '', href: '' })">
+          Add legal link
+        </button>
+      </div>
+
+      <div class="field">
         <span>Eligibility / “school site” block (Medicaid messaging)</span>
         <p class="muted small">
           The red-accent card (“Interested in learning more?”, “Choose your school site”, etc.). Override copy in Advanced branding
@@ -474,6 +490,7 @@ const form = ref({
   logoUrl: '',
   partnerLine: '',
   parentIntro: '',
+  footerLegalTitle: '',
   metricsProfile: '',
   brandingJsonText: '{}',
   sources: []
@@ -502,6 +519,7 @@ function placeholdersUsingGalleryRow(gi) {
   return nums;
 }
 const navRows = ref([{ label: '', href: '' }]);
+const legalFooterLinkRows = ref([{ label: '', href: '' }]);
 const contentPages = ref([{ slug: '', title: '', body: '' }]);
 /** CTA (Medicaid / school site) placement — merged into branding.ctaSection on save. */
 const ctaEmbedInOfferExpanded = ref(true);
@@ -596,6 +614,16 @@ function mergeBrandingPayload() {
   if (subs.length) out.contentPages = subs;
   else delete out.contentPages;
 
+  const legalTitle = String(form.value.footerLegalTitle || '').trim();
+  if (legalTitle) out.legalFooterTitle = legalTitle;
+  else delete out.legalFooterTitle;
+
+  const legalLinks = legalFooterLinkRows.value
+    .map((r) => ({ label: String(r.label || '').trim(), href: String(r.href || '').trim() }))
+    .filter((r) => r.label && r.href);
+  if (legalLinks.length) out.legalFooterLinks = legalLinks;
+  else delete out.legalFooterLinks;
+
   const pl = String(form.value.partnerLine || '').trim();
   if (pl) out.partnerLine = pl;
   else delete out.partnerLine;
@@ -648,6 +676,7 @@ function hydrateStructuredFromBranding(b) {
   form.value.parentIntro = String(branding.parentIntro || '').trim();
   form.value.logoUrl = String(branding.logoUrl || '').trim();
   form.value.heroVideoUrl = String(branding.heroVideoUrl || '').trim();
+  form.value.footerLegalTitle = String(branding.legalFooterTitle || '').trim();
   const parsed = parseHubGalleryFromBranding(branding.gallery);
   galleryEntries.value = parsed.length
     ? parsed.map((e) => ({ url: e.url, showInGallery: e.showInGallery !== false }))
@@ -656,6 +685,11 @@ function hydrateStructuredFromBranding(b) {
   const nav = Array.isArray(branding.primaryNav) ? branding.primaryNav : [];
   navRows.value = nav.length
     ? nav.map((r) => ({ label: String(r.label || ''), href: String(r.href || '') }))
+    : [{ label: '', href: '' }];
+
+  const legal = Array.isArray(branding.legalFooterLinks) ? branding.legalFooterLinks : [];
+  legalFooterLinkRows.value = legal.length
+    ? legal.map((r) => ({ label: String(r.label || ''), href: String(r.href || '') }))
     : [{ label: '', href: '' }];
 
   const cp = Array.isArray(branding.contentPages) ? branding.contentPages : [];
@@ -770,6 +804,11 @@ function removeNav(idx) {
   if (!navRows.value.length) navRows.value = [{ label: '', href: '' }];
 }
 
+function removeLegalFooterLink(idx) {
+  legalFooterLinkRows.value.splice(idx, 1);
+  if (!legalFooterLinkRows.value.length) legalFooterLinkRows.value = [{ label: '', href: '' }];
+}
+
 function removeOfferExpandedLink(idx) {
   offerExpandedLinkRows.value.splice(idx, 1);
   if (!offerExpandedLinkRows.value.length) offerExpandedLinkRows.value = [{ title: '', href: '' }];
@@ -793,6 +832,7 @@ function resetForm() {
     logoUrl: '',
     partnerLine: '',
     parentIntro: '',
+    footerLegalTitle: '',
     metricsProfile: '',
     brandingJsonText: '{}',
     sources: []
@@ -800,6 +840,7 @@ function resetForm() {
   galleryEntries.value = [{ url: '', showInGallery: true }];
   offerBlockImages.value = ['', '', '', ''];
   navRows.value = [{ label: '', href: '' }];
+  legalFooterLinkRows.value = [{ label: '', href: '' }];
   contentPages.value = [{ slug: '', title: '', body: '' }];
   ctaEmbedInOfferExpanded.value = true;
   ctaHideStandaloneBand.value = true;
@@ -853,6 +894,8 @@ function edit(p) {
   delete advanced.gallery;
   delete advanced.primaryNav;
   delete advanced.contentPages;
+  delete advanced.legalFooterTitle;
+  delete advanced.legalFooterLinks;
   delete advanced.partnerLine;
   delete advanced.parentIntro;
   delete advanced.heroVideoUrl;
@@ -895,6 +938,7 @@ function edit(p) {
     logoUrl: '',
     partnerLine: '',
     parentIntro: '',
+    footerLegalTitle: '',
     metricsProfile: p.metricsProfile || '',
     brandingJsonText: JSON.stringify(advanced, null, 2),
     sources: (p.sources || []).map((s) => ({

@@ -566,7 +566,12 @@
         <div class="pmh-footer-tail">
           <PoweredByFooter variant="embedded" :include-legal="false" class="pmh-footer-powered-slot" />
           <div class="pmh-footer-legal-centered">
-            <PoweredByFooter variant="embedded" :include-powered-by="false" />
+            <PoweredByFooter
+              variant="embedded"
+              :include-powered-by="false"
+              :legal-title="hubLegalTitle"
+              :legal-links-override="hubLegalLinksOverride"
+            />
           </div>
         </div>
       </div>
@@ -706,6 +711,16 @@ const presetLocationQuery = computed(() => (
 const presetSessionLabel = computed(() => '');
 
 const hubBranding = computed(() => pageMeta.value?.branding || {});
+
+const hubLegalTitle = computed(() => String(hubBranding.value.legalFooterTitle || '').trim());
+const hubLegalLinksOverride = computed(() => {
+  const raw = hubBranding.value.legalFooterLinks;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((r) => ({ label: String(r?.label || '').trim(), href: String(r?.href || r?.url || '').trim() }))
+    .filter((r) => r.label && r.href)
+    .slice(0, 12);
+});
 
 const partnerLine = computed(() => String(hubBranding.value.partnerLine || '').trim());
 

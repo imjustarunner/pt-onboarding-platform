@@ -325,7 +325,11 @@ export const inboundSmsWebhook = async (req, res, next) => {
         userId: ownerUser?.id || assignedUserId || null,
         metadata: { clientId, numberId, messageLogId: inboundLog?.id || null }
       });
-      const msg = await getRuleMessage(numberId, 'opt_out', 'You have been opted out. Reply START to rejoin.');
+      const msg = await getRuleMessage(
+        numberId,
+        'opt_out',
+        'You have been opted out. No further messages will be sent. Text START to opt in again. Message and data rates may apply.'
+      );
       // Vonage does not need TwiML; send reply programmatically if needed.
       if (number?.phone_number && fromNorm) {
         try {
@@ -342,7 +346,11 @@ export const inboundSmsWebhook = async (req, res, next) => {
         userId: ownerUser?.id || assignedUserId || null,
         metadata: { clientId, numberId, messageLogId: inboundLog?.id || null }
       });
-      const msg = await getRuleMessage(numberId, 'opt_in', 'You are opted in. Reply STOP to unsubscribe.');
+      const msg = await getRuleMessage(
+        numberId,
+        'opt_in',
+        'You are opted in. Message and data rates may apply. Message frequency varies. Text HELP for help. Text STOP to opt-out. Carriers are not liable for delayed or undelivered messages.'
+      );
       if (number?.phone_number && fromNorm) {
         try {
           await VonageService.sendSms({ to: fromNorm, from: toNorm, body: msg });
@@ -353,7 +361,11 @@ export const inboundSmsWebhook = async (req, res, next) => {
       return res.status(200).json({ ok: true });
     }
     if (keyword === 'HELP' && numberId) {
-      const msg = await getRuleMessage(numberId, 'help', 'Reply STOP to opt out. Reply START to opt in.');
+      const msg = await getRuleMessage(
+        numberId,
+        'help',
+        'Text HELP for help. Text STOP to opt-out. Message and data rates may apply. Message frequency varies.'
+      );
       if (number?.phone_number && fromNorm) {
         try {
           await VonageService.sendSms({ to: fromNorm, from: toNorm, body: msg });

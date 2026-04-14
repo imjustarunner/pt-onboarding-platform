@@ -274,6 +274,13 @@
         <span v-if="footerHomeSlug" class="pel-footer-dot" aria-hidden="true">·</span>
         <span class="pel-footer-note">Secure registration powered by your provider</span>
       </div>
+      <PoweredByFooter
+        variant="embedded"
+        :include-powered-by="false"
+        :legal-title="footerLegalTitle"
+        :legal-links-override="footerLegalLinksOverride"
+        :extra-legal-links="footerExtraLegalLinks"
+      />
     </footer>
   </div>
 </template>
@@ -285,6 +292,7 @@ import { RouterLink } from 'vue-router';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import api from '../../services/api';
 import { useBrandingStore } from '../../store/branding';
+import PoweredByFooter from '../PoweredByFooter.vue';
 
 const props = defineProps({
   pageTitle: { type: String, default: 'Upcoming events' },
@@ -322,7 +330,13 @@ const props = defineProps({
   hidePelHeader: { type: Boolean, default: false },
   /** Optional link to program enroll hub (shown on events-only pages). */
   enrollCrossLinkHref: { type: String, default: '' },
-  enrollCrossLinkLabel: { type: String, default: '' }
+  enrollCrossLinkLabel: { type: String, default: '' },
+  /** Optional title shown before legal links in the footer row. */
+  footerLegalTitle: { type: String, default: '' },
+  /** Optional replacement links for footer legal docs. */
+  footerLegalLinksOverride: { type: Array, default: null },
+  /** Optional additional legal links appended after default footer docs. */
+  footerExtraLegalLinks: { type: Array, default: () => [] }
 });
 
 const brandingStore = useBrandingStore();

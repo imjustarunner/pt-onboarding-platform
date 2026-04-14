@@ -12,6 +12,8 @@
     :footer-home-slug="portalSlug"
     :enroll-cross-link-href="programEnrollHubPath"
     enroll-cross-link-label="Need individual program enrollment? Open the full enroll page (enrollments + events)"
+    :footer-legal-title="programLegalTitle"
+    :footer-extra-legal-links="programLegalLinks"
     show-public-shell
   />
 </template>
@@ -44,6 +46,8 @@ const events = ref([]);
 const agencyName = ref('');
 /** Slug of the parent agency (for nearest-event API), from list response. */
 const nearestAgencySlug = ref('');
+const programLegalTitle = ref('');
+const programLegalLinks = ref([]);
 
 const pageTitle = computed(() => {
   if (agencyName.value && programSlug.value) {
@@ -78,11 +82,22 @@ async function load() {
     events.value = Array.isArray(res.data?.events) ? res.data.events : [];
     agencyName.value = String(res.data?.agencyName || '').trim();
     nearestAgencySlug.value = String(res.data?.agencySlug || '').trim().toLowerCase();
+    programLegalTitle.value = String(res.data?.programLegalLinks?.title || '').trim();
+    programLegalLinks.value = Array.isArray(res.data?.programLegalLinks?.links)
+      ? res.data.programLegalLinks.links
+          .map((row) => ({
+            label: String(row?.label || '').trim(),
+            href: String(row?.href || '').trim()
+          }))
+          .filter((row) => row.label && row.href)
+      : [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load';
     events.value = [];
     agencyName.value = '';
     nearestAgencySlug.value = '';
+    programLegalTitle.value = '';
+    programLegalLinks.value = [];
   } finally {
     loading.value = false;
   }

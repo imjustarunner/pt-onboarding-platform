@@ -14,6 +14,50 @@ import {
 } from '../services/skillBuildersSkillsGroup.service.js';
 import { loadPublicProgramEnrollmentRows } from '../services/skillBuildersPublicEnrollments.service.js';
 
+function normalizePublicUrl(raw) {
+  const v = String(raw || '').trim();
+  if (!v) return '';
+  if (/^https?:\/\//i.test(v)) return v;
+  if (v.startsWith('/')) return v;
+  return '';
+}
+
+async function loadProgramLegalLinks(conn, programOrgId) {
+  const id = Number(programOrgId);
+  if (!Number.isFinite(id) || id <= 0) {
+    return null;
+  }
+  const [rows] = await conn.execute(
+    `SELECT theme_settings
+     FROM agencies
+     WHERE id = ?
+     LIMIT 1`,
+    [id]
+  );
+  const row = rows?.[0];
+  if (!row) return null;
+  const theme = (() => {
+    if (!row.theme_settings) return {};
+    if (typeof row.theme_settings === 'object') return row.theme_settings;
+    try {
+      return JSON.parse(row.theme_settings);
+    } catch {
+      return {};
+    }
+  })();
+  const privacyHref = normalizePublicUrl(theme?.programPrivacyPolicyUrl);
+  const termsHref = normalizePublicUrl(theme?.programTermsUrl);
+  const links = [];
+  if (privacyHref) links.push({ label: 'Program Privacy Policy', href: privacyHref });
+  if (termsHref) links.push({ label: 'Program Terms of Service', href: termsHref });
+  if (!links.length) return null;
+  const title = String(theme?.programFooterLegalTitle || '').trim();
+  return {
+    title: title || null,
+    links
+  };
+}
+
 /**
  * Shared resolver for GET/POST `/portal/:portalSlug/programs/:programSlug/...`.
  * When the portal slug is a program organization, events are merged across all affiliated parent agencies.
@@ -56,6 +100,7 @@ async function resolvePortalProgramPublicListing(conn, portalSlug, programSlug) 
       };
     }
     const events = await loadPublicProgramEventRows(conn, agencyId, programOrgId);
+    const programLegalLinks = await loadProgramLegalLinks(conn, programOrgId);
     return {
       ok: true,
       payload: {
@@ -65,6 +110,7 @@ async function resolvePortalProgramPublicListing(conn, portalSlug, programSlug) 
         agencySlug: agencySlugOut,
         organizationId: programOrgId,
         programSlug: prSlug,
+        programLegalLinks,
         events
       }
     };
@@ -126,6 +172,7 @@ async function resolvePortalProgramPublicListing(conn, portalSlug, programSlug) 
   }
 
   const events = await loadPublicProgramEventRowsMerged(conn, programOrgId);
+  const programLegalLinks = await loadProgramLegalLinks(conn, programOrgId);
   const payload = {
     ok: true,
     agencyId: parentAgencyId,
@@ -133,6 +180,7 @@ async function resolvePortalProgramPublicListing(conn, portalSlug, programSlug) 
     agencySlug: agencySlugOut,
     organizationId: programOrgId,
     programSlug: prSlug,
+    programLegalLinks,
     events
   };
   if (parents.length > 1 && prSlug === ps && programOrgId === portalProgramOrgId) {
@@ -210,6 +258,7 @@ export const listPublicProgramEnrollHubByProgramSlug = async (req, res, next) =>
       }
       const events = await loadPublicProgramEventRows(conn, agencyId, programOrgId);
       const enrollments = await loadPublicProgramEnrollmentRows(conn, programOrgId);
+      const programLegalLinks = await loadProgramLegalLinks(conn, programOrgId);
       res.json({
         ok: true,
         agencyId,
@@ -217,6 +266,7 @@ export const listPublicProgramEnrollHubByProgramSlug = async (req, res, next) =>
         agencySlug: agencySlugOut,
         organizationId: programOrgId,
         programSlug,
+        programLegalLinks,
         enrollments,
         events
       });
@@ -366,6 +416,7 @@ export const listPublicProgramEventsByProgramSlug = async (req, res, next) => {
         });
       }
       const events = await loadPublicProgramEventRows(conn, agencyId, programOrgId);
+      const programLegalLinks = await loadProgramLegalLinks(conn, programOrgId);
       res.json({
         ok: true,
         agencyId,
@@ -373,6 +424,7 @@ export const listPublicProgramEventsByProgramSlug = async (req, res, next) => {
         agencySlug: agencySlugOut,
         organizationId: programOrgId,
         programSlug,
+        programLegalLinks,
         events
       });
     } finally {

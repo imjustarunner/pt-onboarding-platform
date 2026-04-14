@@ -14,7 +14,11 @@
     <footer v-if="!error && !loading" class="pmh-sub-foot">
       <div class="pmh-sub-foot-inner">
         <router-link class="pmh-sub-foot-login" to="/login">Staff login</router-link>
-        <PoweredByFooter variant="embedded" />
+        <PoweredByFooter
+          variant="embedded"
+          :legal-title="hubLegalTitle"
+          :legal-links-override="hubLegalLinksOverride"
+        />
       </div>
     </footer>
   </div>
@@ -40,6 +44,15 @@ const error = ref('');
 const pageMeta = ref(null);
 
 const hubTitle = computed(() => pageMeta.value?.heroTitle || pageMeta.value?.title || 'Hub');
+const hubLegalTitle = computed(() => String(pageMeta.value?.branding?.legalFooterTitle || '').trim());
+const hubLegalLinksOverride = computed(() => {
+  const raw = pageMeta.value?.branding?.legalFooterLinks;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((r) => ({ label: String(r?.label || '').trim(), href: String(r?.href || r?.url || '').trim() }))
+    .filter((r) => r.label && r.href)
+    .slice(0, 12);
+});
 
 const subPage = computed(() => {
   const pages = pageMeta.value?.branding?.contentPages;

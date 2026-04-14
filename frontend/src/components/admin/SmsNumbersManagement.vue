@@ -23,6 +23,15 @@
 
       <div class="card">
         <h3>Agency SMS Settings</h3>
+        <div class="compliance-note">
+          <strong>Vonage / carrier compliance reminder</strong>
+          <p class="muted">
+            Include this exact legal verbiage in all consent mechanisms (forms, flyers, scripts):
+            <em>"Message and data rates may apply. Message frequency varies. Text HELP for help. Text STOP to opt-out."</em>
+            For one-time/2FA flows, use <em>"One message per request"</em> for frequency.
+            Add <em>"Carriers are not liable for delayed or undelivered messages"</em> when carrier disclaimer applies.
+          </p>
+        </div>
         <div v-if="settingsError" class="error">{{ settingsError }}</div>
         <div class="grid">
           <div class="form-group">
@@ -488,11 +497,15 @@ const newExtNumberId = ref(null);
 const addingExt = ref(false);
 
 const selectedNumber = ref(null);
+const DEFAULT_OPT_IN_MESSAGE = 'You are opted in. Message and data rates may apply. Message frequency varies. Text HELP for help. Text STOP to opt-out. Carriers are not liable for delayed or undelivered messages.';
+const DEFAULT_OPT_OUT_MESSAGE = 'You have been opted out. No further messages will be sent. Text START to opt in again. Message and data rates may apply.';
+const DEFAULT_HELP_MESSAGE = 'Text HELP for help. Text STOP to opt-out. Message and data rates may apply. Message frequency varies.';
+
 const ruleDraft = ref({
   after_hours: { rule_type: 'after_hours', auto_reply_text: '', enabled: true },
-  opt_in: { rule_type: 'opt_in', auto_reply_text: '', enabled: true },
-  opt_out: { rule_type: 'opt_out', auto_reply_text: '', enabled: true },
-  help: { rule_type: 'help', auto_reply_text: '', enabled: true },
+  opt_in: { rule_type: 'opt_in', auto_reply_text: DEFAULT_OPT_IN_MESSAGE, enabled: true },
+  opt_out: { rule_type: 'opt_out', auto_reply_text: DEFAULT_OPT_OUT_MESSAGE, enabled: true },
+  help: { rule_type: 'help', auto_reply_text: DEFAULT_HELP_MESSAGE, enabled: true },
   emergency_forward: { rule_type: 'emergency_forward', forward_to_user_id: null, forward_to_phone: '', enabled: false },
   forward_inbound: { rule_type: 'forward_inbound', auto_reply_text: '', forward_to_user_id: null, forward_to_phone: '', enabled: false },
   ivr_menu: {
@@ -904,6 +917,21 @@ onMounted(async () => {
   border-radius: 12px;
   padding: 14px;
   margin-bottom: 14px;
+}
+.compliance-note {
+  margin: 0 0 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary, #f8fafc);
+}
+.compliance-note strong {
+  display: block;
+  margin-bottom: 4px;
+}
+.compliance-note p {
+  margin: 0;
+  line-height: 1.45;
 }
 .grid {
   display: grid;

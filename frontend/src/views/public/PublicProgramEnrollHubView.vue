@@ -74,9 +74,17 @@
     </template>
 
     <footer v-if="showPublicShell" class="peh-footer">
-      <RouterLink v-if="portalSlug" class="peh-footer-link" :to="homePath">Portal home</RouterLink>
-      <span v-if="portalSlug" class="peh-footer-dot">·</span>
-      <span class="peh-footer-note">Secure enrollment powered by your provider</span>
+      <div>
+        <RouterLink v-if="portalSlug" class="peh-footer-link" :to="homePath">Portal home</RouterLink>
+        <span v-if="portalSlug" class="peh-footer-dot">·</span>
+        <span class="peh-footer-note">Secure enrollment powered by your provider</span>
+      </div>
+      <PoweredByFooter
+        variant="embedded"
+        :include-powered-by="false"
+        :legal-title="programLegalTitle"
+        :extra-legal-links="programLegalLinks"
+      />
     </footer>
   </div>
 </template>
@@ -88,6 +96,7 @@ import api from '../../services/api';
 import { useBrandingStore } from '../../store/branding';
 import PublicEventsListing from '../../components/public/PublicEventsListing.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import PoweredByFooter from '../../components/PoweredByFooter.vue';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
@@ -104,6 +113,8 @@ const enrollments = ref([]);
 const events = ref([]);
 const agencyName = ref('');
 const nearestAgencySlug = ref('');
+const programLegalTitle = ref('');
+const programLegalLinks = ref([]);
 
 const showPublicShell = computed(() => true);
 
@@ -180,12 +191,23 @@ async function load() {
     events.value = Array.isArray(res.data?.events) ? res.data.events : [];
     agencyName.value = String(res.data?.agencyName || '').trim();
     nearestAgencySlug.value = String(res.data?.agencySlug || '').trim().toLowerCase();
+    programLegalTitle.value = String(res.data?.programLegalLinks?.title || '').trim();
+    programLegalLinks.value = Array.isArray(res.data?.programLegalLinks?.links)
+      ? res.data.programLegalLinks.links
+          .map((row) => ({
+            label: String(row?.label || '').trim(),
+            href: String(row?.href || '').trim()
+          }))
+          .filter((row) => row.label && row.href)
+      : [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load';
     enrollments.value = [];
     events.value = [];
     agencyName.value = '';
     nearestAgencySlug.value = '';
+    programLegalTitle.value = '';
+    programLegalLinks.value = [];
   } finally {
     loading.value = false;
   }

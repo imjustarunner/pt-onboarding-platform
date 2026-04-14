@@ -109,10 +109,10 @@
         <div class="pref-tenant-disclosures">
           <div v-for="tenant in campaign4Tenants" :key="tenant.key" class="pref-tenant-block">
             <p class="pref-muted pref-tenant-disclosure">
-              By opting in, you agree to receive SMS/text messages from {{ tenant.name }} through PlotTwistHQ for
+              By opting in, you agree to receive recurring SMS/text messages from {{ tenant.name }} through PlotTwistHQ for
               operational notifications and reminders, internal announcements, and optional polls/voting related to your participation
-              on the platform. Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time.
-              Reply HELP for help.
+              on the platform. Message frequency varies. Message and data rates may apply. Text HELP for help. Text STOP to opt-out.
+              Carriers are not liable for delayed or undelivered messages.
             </p>
             <div class="pref-radio-group pref-radio-group-tenant">
               <label class="pref-radio-row">
