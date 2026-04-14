@@ -536,6 +536,17 @@ const uploadsHandler = async (req, res, next) => {
 app.use('/uploads', uploadsHandler);
 app.use('/api/uploads', uploadsHandler);
 
+// Static HTML/JS/CSS games from git submodule `games/` (repo root relative to backend/src)
+const gamesContentRoot = path.resolve(__dirname, '../../games');
+app.use(
+  '/games-content',
+  express.static(gamesContentRoot, {
+    etag: true,
+    maxAge: 300000,
+    fallthrough: false
+  })
+);
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });

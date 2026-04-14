@@ -1322,6 +1322,14 @@
               When off, public registration catalogs via active intake links are disabled for this tenant.
             </small>
 
+            <div v-if="userRole === 'super_admin'" class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Games (mental health games platform)</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.gamesPlatformEnabled" compact />
+            </div>
+            <small v-if="userRole === 'super_admin'" class="hint">
+              When on, users in this tenant see the Games menu with titles you have enabled (e.g. Test Game). Super admins always see Games for testing.
+            </small>
+
             <div v-if="isFeatureAvailable('momentumListEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Momentum List</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.momentumListEnabled" compact />
@@ -3933,7 +3941,8 @@ const TENANT_FEATURE_PROFILES = {
       workspaceProvisioningEnabled: false,
       smsAutoProvisionOnPrehire: false,
       platformSharedMarketingEnabled: true,
-      platformPublicRegistrationEnabled: true
+      platformPublicRegistrationEnabled: true,
+      gamesPlatformEnabled: false
     }
   },
   standard_healthcare: {
@@ -3962,7 +3971,8 @@ const TENANT_FEATURE_PROFILES = {
       workspaceProvisioningEnabled: false,
       smsAutoProvisionOnPrehire: false,
       platformSharedMarketingEnabled: true,
-      platformPublicRegistrationEnabled: true
+      platformPublicRegistrationEnabled: true,
+      gamesPlatformEnabled: false
     }
   },
   learning_programs: {
@@ -3991,7 +4001,8 @@ const TENANT_FEATURE_PROFILES = {
       workspaceProvisioningEnabled: false,
       smsAutoProvisionOnPrehire: false,
       platformSharedMarketingEnabled: true,
-      platformPublicRegistrationEnabled: true
+      platformPublicRegistrationEnabled: true,
+      gamesPlatformEnabled: false
     }
   }
 };
@@ -6227,7 +6238,9 @@ const defaultAgencyForm = () => ({
 
     // Tenant-level marketing controls (super admin)
     platformSharedMarketingEnabled: true,
-    platformPublicRegistrationEnabled: true
+    platformPublicRegistrationEnabled: true,
+
+    gamesPlatformEnabled: false
   },
   // Notification icon fields
   statusExpiredIconId: null,
@@ -7576,7 +7589,8 @@ const editAgency = async (agency) => {
       smsAutoProvisionOnPrehire: featureFlags.smsAutoProvisionOnPrehire === true,
       tenantFeatureProfileKey: String(featureFlags.tenantFeatureProfileKey || 'essential_baseline').trim().toLowerCase() || 'essential_baseline',
       platformSharedMarketingEnabled: featureFlags.platformSharedMarketingEnabled !== false,
-      platformPublicRegistrationEnabled: featureFlags.platformPublicRegistrationEnabled !== false
+      platformPublicRegistrationEnabled: featureFlags.platformPublicRegistrationEnabled !== false,
+      gamesPlatformEnabled: featureFlags.gamesPlatformEnabled === true
     },
     // Notification icon fields
     statusExpiredIconId: agency.status_expired_icon_id ?? null,

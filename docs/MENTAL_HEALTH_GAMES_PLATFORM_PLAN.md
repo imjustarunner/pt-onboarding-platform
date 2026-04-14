@@ -52,7 +52,7 @@ The platform already stores **per-agency JSON feature flags** (`feature_flags` o
 
 **Guidance:**
 
-- Add a explicit flag (e.g. `mentalHealthGamesEnabled` or similar) when games are ready to gate, and enforce it in **API routes** that serve game metadata, sessions, or scores—not only in the UI.
+- Add a explicit flag (implemented as `gamesPlatformEnabled` on `agencies.feature_flags`) when games are ready to gate, and enforce it in **API routes** that serve game metadata, sessions, or scores—not only in the UI.
 - Keep flag semantics documented in one place (this file + a short backend comment or shared constant) so super-admin tooling and billing stay aligned later.
 
 ---

@@ -54,6 +54,10 @@ Today the games repo only contains documentation. As implementation lands, stand
 
 ---
 
+## 2b. Serving static games from the API
+
+The backend serves the submodule folder at **`GET /games-content/*`** (see `backend/src/server.js`), e.g. `http://localhost:3000/games-content/test-game/index.html`. The SPA opens games in a new window using the same host as `VITE_API_URL` (with `/api` stripped).
+
 ## 3. Frontend configuration (already prepared)
 
 `frontend/vite.config.js` defines:
@@ -77,7 +81,7 @@ Aligned with `MENTAL_HEALTH_GAMES_PLATFORM_PLAN.md`:
 
 ### 4.1 Feature enablement
 
-- Add a dedicated key on `agencies.feature_flags`, e.g. `mentalHealthGamesEnabled`.
+- Tenant flag: `agencies.feature_flags.gamesPlatformEnabled` (toggle in Organization → Features; super admin only). Super admins always see the Games menu for testing.
 - **Backend:** guard any games metadata, session, or score endpoints with auth + organization access + this flag.
 - **Frontend:** hide nav entries and routes when the current org’s flags (or effective org context) do not include games.
 

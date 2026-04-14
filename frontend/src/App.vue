@@ -538,6 +538,21 @@
                   </div>
                 </div>
               </template>
+
+                <div v-if="canSeeGamesNav" class="nav-dropdown" @click.stop>
+                  <button
+                    type="button"
+                    class="nav-dropdown-trigger"
+                    title="Games"
+                    :aria-expanded="gamesMenuOpen ? 'true' : 'false'"
+                    @click.stop="toggleGamesMenu"
+                  >
+                    <span class="nav-dropdown-label">Games</span> <span class="brand-caret">▾</span>
+                  </button>
+                  <div v-if="gamesMenuOpen" class="nav-dropdown-menu">
+                    <a href="#" role="menuitem" @click.prevent="openTestGameWindow">Test Game</a>
+                  </div>
+                </div>
               
               <div v-if="showGlobalAvailabilityToggle" class="nav-availability" @click.stop>
                 <div class="nav-availability-label">Global availability</div>
@@ -792,6 +807,13 @@
               @click="closeMobileMenu"
               class="mobile-nav-link"
             >Office</router-link>
+
+            <button
+              v-if="canSeeGamesNav"
+              type="button"
+              class="mobile-nav-link mobile-nav-button"
+              @click="openTestGameWindow(); closeMobileMenu()"
+            >Games — Test Game</button>
 
             <template v-if="canSeePortalNav && canSeeFullPortalNav">
               <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
@@ -1539,6 +1561,7 @@ const directoryPublicLinksData = ref({
   publicEventPages: []
 });
 const managementMenuOpen = ref(false);
+const gamesMenuOpen = ref(false);
 const clubManagementMenuOpen = ref(false);
 const mobileClubMgmtExpanded = ref(false);
 const engagementMenuOpen = ref(false);
@@ -1548,7 +1571,8 @@ const navDropdownOpen = computed(() => {
     peopleOpsMenuOpen.value ||
     directoryMenuOpen.value ||
     managementMenuOpen.value ||
-    engagementMenuOpen.value
+    engagementMenuOpen.value ||
+    gamesMenuOpen.value
   );
 });
 
@@ -1558,6 +1582,7 @@ const closeAllNavMenus = () => {
   directoryMenuOpen.value = false;
   managementMenuOpen.value = false;
   engagementMenuOpen.value = false;
+  gamesMenuOpen.value = false;
 };
 
 const onDocumentClick = () => closeAllNavMenus();
@@ -1670,6 +1695,24 @@ const toggleEngagementMenu = () => {
   const next = !engagementMenuOpen.value;
   closeAllNavMenus();
   engagementMenuOpen.value = next;
+};
+
+const toggleGamesMenu = () => {
+  const next = !gamesMenuOpen.value;
+  closeAllNavMenus();
+  gamesMenuOpen.value = next;
+};
+
+const gamesStaticOrigin = computed(() => {
+  const base = String(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').trim();
+  const stripped = base.replace(/\/?api\/?$/i, '');
+  return stripped || 'http://localhost:3000';
+});
+
+const openTestGameWindow = () => {
+  gamesMenuOpen.value = false;
+  const url = `${gamesStaticOrigin.value}/games-content/test-game/index.html`;
+  window.open(url, 'PlotTwistTestGame', 'noopener,noreferrer,width=800,height=680');
 };
 
 const pushWithSlug = (slug) => {
@@ -2039,6 +2082,17 @@ const isTruthyFlag = (v) => {
 const currentAgencyFeatureFlags = computed(() => {
   const a = agencyStore.currentAgency;
   return parseFeatureFlags(a?.feature_flags);
+});
+
+/** Super admins always see Games (testing). Other roles see Games when the tenant flag is on. */
+const canSeeGamesNav = computed(() => {
+  if (!authStore.isAuthenticated) return false;
+  if (hideGlobalNavForSchoolStaff.value) return false;
+  if (isSummitStatsChallengeChrome.value) return false;
+  if (isSscSstcTenant.value) return false;
+  const role = String(user.value?.role || '').toLowerCase();
+  if (role === 'super_admin') return true;
+  return isTruthyFlag(currentAgencyFeatureFlags.value?.gamesPlatformEnabled);
 });
 
 const showBookClubPortalLink = computed(() => {
@@ -4878,6 +4932,15 @@ onUnmounted(() => {
 .mobile-nav-link.router-link-active {
   background-color: rgba(255, 255, 255, 0.1);
   border-left-color: white;
+}
+
+.mobile-nav-button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  font: inherit;
+  cursor: pointer;
 }
 
 /* ── Active-season quick-access link (mobile sidebar) ─────────── */
