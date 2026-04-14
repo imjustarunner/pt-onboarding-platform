@@ -9,7 +9,7 @@ import ChallengeWorkout from '../models/ChallengeWorkout.model.js';
 import ChallengeWeeklyTask from '../models/ChallengeWeeklyTask.model.js';
 import ChallengeWeeklyAssignment from '../models/ChallengeWeeklyAssignment.model.js';
 import ChallengeElimination from '../models/ChallengeElimination.model.js';
-import { getWeekStartDate, getWeekDateTimeRange, getSeasonWeekPhase, getSeasonWeekMileGoals } from '../utils/challengeWeekUtils.js';
+import { getWeekStartDate, getWeekDateTimeRange, getSeasonWeekPhase, getSeasonWeekMileGoals, getWeekScheduledDateTime } from '../utils/challengeWeekUtils.js';
 import { canAccessChallenge } from '../utils/challengeAccess.js';
 import { ensureChallengeParticipationAgreementAccepted } from '../utils/challengeParticipationAgreement.js';
 import { normalizeRecognitionCategories } from './learningProgramClasses.controller.js';
@@ -45,6 +45,8 @@ const parseJsonObject = (raw, fallback = {}) => {
   return fallback;
 };
 
+const isApprovedAssignment = (assignment) => !!assignment;
+
 const deriveSummaryLimits = (klass) => {
   const s = parseJsonObject(klass?.season_settings_json || {});
   const rec = parseJsonObject(s.recognition || {});
@@ -78,6 +80,53 @@ const getWeekTimeZone = (klass) => {
   } catch {
     return 'UTC';
   }
+};
+
+const getChallengePublishSettings = (klass) => {
+  const settings = parseJsonObject(klass?.season_settings_json || {});
+  const publish = parseJsonObject(settings.challengePublish || {});
+  const schedule = parseJsonObject(settings.schedule || {});
+  const weekdayRaw = String(publish.publishWeekday || schedule.weekStartsOn || 'monday').trim().toLowerCase();
+  const weekday = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].includes(weekdayRaw)
+    ? weekdayRaw
+    : 'monday';
+  const publishTime = /^\d{1,2}:\d{2}$/.test(String(publish.publishTime || '').trim())
+    ? String(publish.publishTime).trim()
+    : '06:00';
+  const publishTimeZone = (() => {
+    const tz = String(publish.publishTimeZone || schedule.weekTimeZone || 'UTC').trim();
+    try {
+      Intl.DateTimeFormat('en-US', { timeZone: tz }).format(new Date());
+      return tz;
+    } catch {
+      return 'UTC';
+    }
+  })();
+  return {
+    aiDraftEnabled: publish.aiDraftEnabled !== false,
+    requiresManagerPublish: publish.requiresManagerPublish !== false,
+    tasksPerWeek: Math.min(7, Math.max(1, Number.parseInt(publish.tasksPerWeek, 10) || 3)),
+    publishLeadHours: Math.max(0, Number.parseInt(publish.publishLeadHours, 10) || 24),
+    publishWeekday: weekday,
+    publishTime,
+    publishTimeZone,
+    showWeeklySplash: publish.showWeeklySplash !== false
+  };
+};
+
+const getWeeklyChallengeRevealMeta = (klass, weekStartDate) => {
+  const publish = getChallengePublishSettings(klass);
+  const revealAt = getWeekScheduledDateTime(String(weekStartDate || '').slice(0, 10), {
+    weekday: publish.publishWeekday,
+    time: publish.publishTime,
+    timeZone: publish.publishTimeZone
+  });
+  const isVisible = !revealAt || Date.now() >= revealAt.getTime();
+  return {
+    publish,
+    publishAt: revealAt ? revealAt.toISOString() : null,
+    isVisible
+  };
 };
 
 const getRunRuckProgression = ({ klass, weekStart, fallbackMemberCount = 0 }) => {
@@ -295,7 +344,11 @@ export const listWeeklyTasks = async (req, res, next) => {
     }
 
     const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
-    const tasks = await ChallengeWeeklyTask.listByWeek(classId, weekStart);
+    const canManage = await canManageChallenge({ user: req.user, classId });
+    const reveal = getWeeklyChallengeRevealMeta(access.class, weekStart);
+    const tasks = (canManage || reveal.isVisible)
+      ? await ChallengeWeeklyTask.listByWeek(classId, weekStart)
+      : [];
     const weekPhase = getSeasonWeekPhase({ klass: access.class, weekStartDate: weekStart, cutoffTime: weekCutoffTime, timeZone: weekTimeZone });
     const tpSettings = parseJsonObject(parseJsonObject(access.class?.season_settings_json || {})?.treadmillpocalypse || {});
     const treadmillpocalypse = tpSettings.enabled === true && tpSettings.startsAtWeek
@@ -305,7 +358,16 @@ export const listWeeklyTasks = async (req, res, next) => {
           startsAtWeek: tpSettings.startsAtWeek
         }
       : null;
-    return res.json({ weekStartDate: weekStart, weekPhase, tasks, treadmillpocalypse });
+    return res.json({
+      weekStartDate: weekStart,
+      weekPhase,
+      tasks,
+      treadmillpocalypse,
+      publishAt: reveal.publishAt,
+      isPublishedForMembers: reveal.isVisible,
+      showWeeklySplash: reveal.publish.showWeeklySplash,
+      publishSettings: reveal.publish
+    });
   } catch (e) {
     next(e);
   }
@@ -416,8 +478,17 @@ export const listWeeklyAssignments = async (req, res, next) => {
     const weekCutoffTime = getWeekCutoffTime(access.class);
     const weekTimeZone = getWeekTimeZone(access.class);
     const weekStart = weekParam ? String(weekParam).slice(0, 10) : getWeekStartDate(new Date(), weekCutoffTime, weekTimeZone);
-    const assignments = await ChallengeWeeklyAssignment.listByWeek(classId, weekStart);
-    return res.json({ weekStartDate: weekStart, assignments });
+    const canManage = await canManageChallenge({ user: req.user, classId });
+    const reveal = getWeeklyChallengeRevealMeta(access.class, weekStart);
+    const assignments = (canManage || reveal.isVisible)
+      ? await ChallengeWeeklyAssignment.listByWeek(classId, weekStart)
+      : [];
+    return res.json({
+      weekStartDate: weekStart,
+      assignments,
+      publishAt: reveal.publishAt,
+      isPublishedForMembers: reveal.isVisible
+    });
   } catch (e) {
     next(e);
   }
@@ -672,13 +743,23 @@ export const getWeeklyTaskDetail = async (req, res, next) => {
     let fullTeamMembers = [];
     if (task.mode === 'full_team') {
       const [memberRows] = await pool.execute(
-        `SELECT u.id AS user_id, u.first_name, u.last_name, tm.team_id, t.team_name,
-                (SELECT 1 FROM challenge_workouts w WHERE w.user_id = u.id AND w.learning_class_id = ? AND w.weekly_task_id = ? LIMIT 1) AS has_tagged
-         FROM challenge_team_members tm
-         INNER JOIN challenge_teams t ON t.id = tm.team_id AND t.learning_class_id = ?
-         INNER JOIN users u ON u.id = tm.provider_user_id
-         ORDER BY t.team_name, u.last_name, u.first_name`,
-        [classId, taskId, classId]
+        `SELECT roster.user_id, roster.first_name, roster.last_name, roster.team_id, roster.team_name,
+                (SELECT 1 FROM challenge_workouts w WHERE w.user_id = roster.user_id AND w.learning_class_id = ? AND w.weekly_task_id = ? LIMIT 1) AS has_tagged
+         FROM (
+           SELECT u.id AS user_id, u.first_name, u.last_name, tm.team_id, t.team_name
+           FROM challenge_team_members tm
+           INNER JOIN challenge_teams t ON t.id = tm.team_id AND t.learning_class_id = ?
+           INNER JOIN users u ON u.id = tm.provider_user_id
+
+           UNION
+
+           SELECT u.id AS user_id, u.first_name, u.last_name, t.id AS team_id, t.team_name
+           FROM challenge_teams t
+           INNER JOIN users u ON u.id = t.team_manager_user_id
+           WHERE t.learning_class_id = ? AND t.team_manager_user_id IS NOT NULL
+         ) roster
+         ORDER BY roster.team_name, roster.last_name, roster.first_name`,
+        [classId, taskId, classId, classId]
       );
       fullTeamMembers = (memberRows || []).map(r => ({ ...r, has_tagged: !!r.has_tagged }));
     }
@@ -692,7 +773,7 @@ export const getWeeklyTaskDetail = async (req, res, next) => {
           const [wRows] = await pool.execute(
             `SELECT w.id, w.activity_type, w.distance_value, w.duration_minutes, w.calories_burned,
                     w.points, w.completed_at, w.screenshot_file_path,
-                    w.strava_activity_id, w.strava_activity_name, w.is_treadmill
+                    w.strava_activity_id, w.is_treadmill
              FROM challenge_workouts w
              WHERE w.learning_class_id = ? AND w.user_id = ? AND w.weekly_task_id = ?
              ORDER BY w.completed_at DESC LIMIT 1`,
@@ -707,7 +788,10 @@ export const getWeeklyTaskDetail = async (req, res, next) => {
           assigneeId: Number(a.provider_user_id),
           assigneeFirstName: a.provider_first_name,
           assigneeLastName: a.provider_last_name,
+          assignedByUserId: a.assigned_by_user_id ? Number(a.assigned_by_user_id) : null,
           volunteered: !!a.volunteered,
+          isPendingApproval: false,
+          isApprovedAssignment: true,
           isCompleted,
           completedAt: a.completed_at || null,
           completionNotes: a.completion_notes || null,
@@ -738,23 +822,37 @@ export const upsertWeeklyAssignment = async (req, res, next) => {
     if (!team || Number(team.learning_class_id) !== Number(classId)) {
       return res.status(404).json({ error: { message: 'Team not found' } });
     }
+    const canManage = await canManageChallenge({ user: req.user, classId });
     const isCaptain = team.team_manager_user_id && Number(team.team_manager_user_id) === Number(req.user.id);
     const isSelf = Number(providerUserId) === Number(req.user.id);
+    const isVolunteerRequest = volunteered === true;
+    const existing = await ChallengeWeeklyAssignment.findByTaskAndTeam(taskId, teamId);
 
     // Captains can only assign members of their own team
-    if (isCaptain && !isSelf && !(await canManageChallenge({ user: req.user, classId }))) {
-      const [memberCheck] = await pool.execute(
-        `SELECT 1 FROM challenge_team_members WHERE team_id = ? AND provider_user_id = ? LIMIT 1`,
-        [asInt(teamId), asInt(providerUserId)]
-      );
-      if (!memberCheck?.length) {
+    if ((isCaptain || canManage) && !isSelf) {
+      const members = await ChallengeTeam.listMembers(teamId);
+      const isOnTeam = members.some((member) => Number(member.provider_user_id) === Number(providerUserId));
+      if (!isOnTeam) {
         return res.status(403).json({ error: { message: 'You can only assign members of your own team' } });
       }
     }
 
-    if (!(await canManageChallenge({ user: req.user, classId })) && !isCaptain && !(isSelf && volunteered)) {
-      return res.status(403).json({ error: { message: 'Only captain can assign; you can volunteer for yourself' } });
+    if (!canManage && !isCaptain) {
+      if (!(isSelf && isVolunteerRequest && String(task.mode || '') === 'volunteer_or_elect')) {
+        return res.status(403).json({ error: { message: 'Only captains can assign members. Team members can volunteer for volunteer-based challenges.' } });
+      }
+      if (existing && Number(existing.provider_user_id) !== Number(req.user.id)) {
+        return res.status(409).json({ error: { message: 'Someone on your team already claimed this challenge.' } });
+      }
+      if (existing && isApprovedAssignment(existing)) {
+        return res.status(400).json({ error: { message: 'You already claimed this weekly challenge.' } });
+      }
     }
+
+    if ((isCaptain || canManage) && isVolunteerRequest && String(task.mode || '') !== 'volunteer_or_elect') {
+      return res.status(400).json({ error: { message: 'Volunteer requests are only available for volunteer-based challenges.' } });
+    }
+
     const access = await getAccess(req, classId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     if (Number(providerUserId) === Number(req.user.id)) {
@@ -766,12 +864,18 @@ export const upsertWeeklyAssignment = async (req, res, next) => {
         return res.status(participationAcceptance.status).json({ error: { message: participationAcceptance.message } });
       }
     }
+    const assignedByUserId = (isCaptain || canManage || (isSelf && isVolunteerRequest)) ? req.user.id : null;
+    const volunteeredFlag = existing
+      && Number(existing.provider_user_id) === Number(providerUserId)
+      && !!existing.volunteered
+      ? true
+      : !!isVolunteerRequest;
     const assignment = await ChallengeWeeklyAssignment.assign({
       taskId,
       teamId,
       providerUserId,
-      assignedByUserId: isCaptain || (await canManageChallenge({ user: req.user, classId })) ? req.user.id : null,
-      volunteered: !!volunteered
+      assignedByUserId,
+      volunteered: volunteeredFlag
     });
     return res.json({ assignment });
   } catch (e) {

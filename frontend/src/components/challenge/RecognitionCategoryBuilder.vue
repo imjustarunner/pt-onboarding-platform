@@ -294,6 +294,7 @@
               <option value="distance_miles">Miles</option>
               <option value="duration_minutes">Duration (min)</option>
               <option value="activities_count">Activity count</option>
+              <option value="challenge_completions">Challenges completed</option>
               <option value="kudos_received">Kudos received</option>
             </select>
           </div>

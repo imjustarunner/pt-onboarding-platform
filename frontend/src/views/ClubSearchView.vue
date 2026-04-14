@@ -36,6 +36,9 @@
             <div v-if="c.primaryManagerName" class="club-manager-line">
               Managed by {{ c.primaryManagerName }}
             </div>
+            <div v-if="hasPendingApplication(c.id)" class="club-application-note">
+              Your application to this club is pending review.
+            </div>
           </div>
           <div class="club-actions-row">
             <button type="button" class="btn btn-ghost btn-sm" @click="viewClub(c)">View</button>
@@ -50,6 +53,7 @@
             </button>
             <div v-else-if="c.primaryManagerUserId && isManagedByCurrentUser(c)" class="club-badge">Managed by you</div>
             <div v-if="isMember(c.id)" class="club-badge">Member</div>
+            <div v-else-if="hasPendingApplication(c.id)" class="club-badge club-badge--pending">Application Pending</div>
             <button
               v-else
               type="button"
@@ -100,6 +104,7 @@ const loading = ref(true);
 const error = ref('');
 const search = ref('');
 const stateFilter = ref('');
+const myApplications = ref([]);
 const applyingId = ref(null);
 const contactingId = ref(null);
 let searchTimeout = null;
@@ -127,9 +132,16 @@ const myAgencyIds = computed(() => {
   return new Set((Array.isArray(list) ? list : []).map((a) => Number(a?.id)).filter(Boolean));
 });
 const currentUserId = computed(() => Number(authStore.user?.id || 0));
+const pendingClubIds = computed(() => new Set(
+  (myApplications.value || [])
+    .filter((app) => String(app?.status || '').toLowerCase() === 'pending')
+    .map((app) => Number(app?.clubId || 0))
+    .filter(Boolean)
+));
 
 const isMember = (clubId) => myAgencyIds.value.has(Number(clubId));
 const isManagedByCurrentUser = (club) => Number(club?.primaryManagerUserId || 0) === currentUserId.value;
+const hasPendingApplication = (clubId) => pendingClubIds.value.has(Number(clubId));
 
 const fetchClubs = async () => {
   loading.value = true;
@@ -210,6 +222,19 @@ const viewClub = (club) => {
   router.push({ path: `/${orgSlug.value}/clubs/${club.id}` });
 };
 
+const loadMyApplications = async () => {
+  if (!authStore.isAuthenticated) {
+    myApplications.value = [];
+    return;
+  }
+  try {
+    const { data } = await api.get('/summit-stats/my-applications', { skipGlobalLoading: true });
+    myApplications.value = Array.isArray(data?.applications) ? data.applications : [];
+  } catch {
+    myApplications.value = [];
+  }
+};
+
 const fetchLoginTheme = async (portalUrl) => {
   try {
     const r = await api.get(`/agencies/portal/${portalUrl}/login-theme`, { skipGlobalLoading: true });
@@ -224,12 +249,31 @@ onMounted(async () => {
   if (orgSlug.value) await fetchLoginTheme(orgSlug.value);
   else if (!brandingStore.portalHostPortalUrl) brandingStore.clearPortalTheme();
   await fetchClubs();
-  if (authStore.isAuthenticated) await agencyStore.fetchUserAgencies();
+  if (authStore.isAuthenticated) {
+    await Promise.all([
+      agencyStore.fetchUserAgencies(),
+      loadMyApplications()
+    ]);
+  }
 });
 
 watch(orgSlug, (newSlug) => {
   if (newSlug) fetchLoginTheme(newSlug);
 });
+
+watch(
+  () => authStore.isAuthenticated,
+  async (isAuthed) => {
+    if (isAuthed) {
+      await Promise.all([
+        agencyStore.fetchUserAgencies(),
+        loadMyApplications()
+      ]);
+    } else {
+      myApplications.value = [];
+    }
+  }
+);
 </script>
 
 <style scoped>
@@ -293,6 +337,12 @@ watch(orgSlug, (newSlug) => {
   margin-top: 6px;
   color: var(--text-secondary, #526072);
   font-size: 0.9rem;
+}
+.club-application-note {
+  margin-top: 8px;
+  color: #1d4ed8;
+  font-size: 0.92rem;
+  font-weight: 600;
 }
 .btn-secondary {
   background: var(--bg, #f5f5f5);
@@ -362,6 +412,10 @@ watch(orgSlug, (newSlug) => {
   border-radius: 6px;
   font-size: 0.85em;
   font-weight: 500;
+}
+.club-badge--pending {
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 .btn {
   padding: 8px 16px;

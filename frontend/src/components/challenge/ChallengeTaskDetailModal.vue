@@ -85,7 +85,7 @@
                   </td>
                   <td>
                     <span :class="a.isCompleted ? 'status-done' : 'status-pending'">
-                      {{ a.isCompleted ? 'Done ✓' : 'Pending' }}
+                      {{ a.isCompleted ? 'Done ✓' : 'Assigned' }}
                     </span>
                   </td>
                   <!-- Workout stats -->
@@ -138,6 +138,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import api from '../../services/api';
+import { challengeProofPolicyLabel } from '../../utils/challengeProofPolicies.js';
 
 const props = defineProps({
   challengeId: { type: [String, Number], required: true },
@@ -164,9 +165,7 @@ function modeBadgeClass(mode) {
 }
 
 function proofPolicyLabel(policy) {
-  if (policy === 'photo_required') return 'Photo/screenshot proof required';
-  if (policy === 'gps_required_no_treadmill') return 'GPS activity required — no treadmill';
-  return policy;
+  return challengeProofPolicyLabel(policy);
 }
 
 function formatDistance(val) {

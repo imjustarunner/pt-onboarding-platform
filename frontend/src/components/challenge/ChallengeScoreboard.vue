@@ -180,7 +180,7 @@ const normalizedRecognition = computed(() => {
 });
 
 function metricUnit(metric) {
-  const map = { points: 'pts', distance_miles: 'mi', duration_minutes: 'min', activities_count: 'activities' };
+  const map = { points: 'pts', distance_miles: 'mi', duration_minutes: 'min', activities_count: 'activities', challenge_completions: 'challenges' };
   return map[metric] || 'pts';
 }
 

@@ -194,9 +194,25 @@ export async function getPlatformAgencyId() {
     const id = parseInt(envId, 10);
     if (Number.isFinite(id) && id > 0) return id;
   }
-  const slug = process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc';
-  const agency = await Agency.findBySlug(slug);
-  return agency?.id || null;
+  const envSlug = String(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc').trim().toLowerCase();
+  const slugCandidates = Array.from(new Set([envSlug, 'ssc', 'sstc', 'summit-stats'].filter(Boolean)));
+
+  if (slugCandidates.length) {
+    const placeholders = slugCandidates.map(() => '?').join(', ');
+    const [rows] = await pool.execute(
+      `SELECT id, LOWER(COALESCE(slug, '')) AS slug_key
+       FROM agencies
+       WHERE LOWER(COALESCE(slug, '')) IN (${placeholders})`,
+      slugCandidates
+    );
+    const bySlug = new Map((rows || []).map((row) => [String(row.slug_key || '').toLowerCase(), Number(row.id)]));
+    for (const slug of slugCandidates) {
+      const agencyId = bySlug.get(slug);
+      if (Number.isFinite(agencyId) && agencyId > 0) return agencyId;
+    }
+  }
+
+  return null;
 }
 
 export async function getPlatformAgencyIds(platformSlug = null) {

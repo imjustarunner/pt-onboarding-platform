@@ -394,6 +394,30 @@
                 <input v-model.number="challengeForm.publishLeadHours" type="number" min="0" />
               </div>
               <div class="form-group">
+                <label>Weekly challenge reveal day</label>
+                <select v-model="challengeForm.publishWeekday">
+                  <option value="sunday">Sunday</option>
+                  <option value="monday">Monday</option>
+                  <option value="tuesday">Tuesday</option>
+                  <option value="wednesday">Wednesday</option>
+                  <option value="thursday">Thursday</option>
+                  <option value="friday">Friday</option>
+                  <option value="saturday">Saturday</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Weekly challenge reveal time</label>
+                <input v-model="challengeForm.publishTime" type="time" />
+              </div>
+              <div class="form-group">
+                <label>Reveal timezone</label>
+                <select v-model="challengeForm.publishTimeZone">
+                  <optgroup v-for="grp in TIMEZONE_GROUPS" :key="grp.label" :label="grp.label">
+                    <option v-for="tz in grp.zones" :key="tz.value" :value="tz.value">{{ tz.label }}</option>
+                  </optgroup>
+                </select>
+              </div>
+              <div class="form-group">
                 <label>Week ends {{ weekEndDayName }} at {{ weekDeadlineTimeDisplay }} <span class="hint-inline">(one minute before next week starts)</span></label>
                 <input v-model="challengeForm.weekEndsSundayAt" type="time" />
                 <span class="field-hint">Set the time the new week begins each {{ weekEndDayName }}. The deadline to log workouts is one minute before.</span>
@@ -406,6 +430,10 @@
                   </optgroup>
                 </select>
               </div>
+              <label class="checkbox-inline">
+                <input v-model="challengeForm.showWeeklyChallengeSplash" type="checkbox" />
+                Show a weekly challenge splash to season participants after reveal
+              </label>
             </div>
           </div>
           <div class="form-group">
@@ -1221,10 +1249,7 @@
                   <option value="full_team">Full Team</option>
                 </select>
                 <select v-model="t.proofPolicy" style="flex:1;min-width:160px;">
-                  <option value="none">No proof required</option>
-                  <option value="photo_required">Photo required</option>
-                  <option value="gps_or_photo">GPS or photo proof</option>
-                  <option value="gps_required_no_treadmill">GPS required (no treadmill)</option>
+                  <option v-for="option in CHALLENGE_PROOF_POLICY_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
               </div>
 
@@ -1567,6 +1592,7 @@ import {
 } from '../../utils/seasonParticipationAgreement.js';
 import { useAuthStore } from '../../store/auth';
 import { isSummitPlatformRouteSlug } from '../../utils/summitPlatformSlugs.js';
+import { CHALLENGE_PROOF_POLICY_OPTIONS } from '../../utils/challengeProofPolicies.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 
 const router = useRouter();
@@ -1950,6 +1976,10 @@ const challengeForm = ref({
   weekTimeZone: 'UTC',
   tasksPerWeek: 3,
   publishLeadHours: 24,
+  publishWeekday: 'monday',
+  publishTime: '06:00',
+  publishTimeZone: 'UTC',
+  showWeeklyChallengeSplash: true,
   weightRun: 1,
   weightRide: 1,
   weightWorkout: 1,
@@ -2638,6 +2668,10 @@ const openCreateModal = () => {
     weekTimeZone: 'UTC',
     tasksPerWeek: 3,
     publishLeadHours: 24,
+    publishWeekday: 'monday',
+    publishTime: '06:00',
+    publishTimeZone: 'UTC',
+    showWeeklyChallengeSplash: true,
     weightRun: 1,
     weightRide: 1,
     weightWorkout: 1,
@@ -2751,6 +2785,10 @@ const openEditModal = async (c) => {
     weekTimeZone: scheduleSettings.weekTimeZone || 'UTC',
     tasksPerWeek: publishSettings.tasksPerWeek || 3,
     publishLeadHours: publishSettings.publishLeadHours ?? 24,
+    publishWeekday: publishSettings.publishWeekday || scheduleSettings.weekStartsOn || 'monday',
+    publishTime: publishSettings.publishTime || '06:00',
+    publishTimeZone: publishSettings.publishTimeZone || scheduleSettings.weekTimeZone || 'UTC',
+    showWeeklyChallengeSplash: publishSettings.showWeeklySplash !== false,
     weightRun: scoringSettings?.activityWeights?.run ?? 1,
     weightRide: scoringSettings?.activityWeights?.ride ?? 1,
     weightWorkout: scoringSettings?.activityWeights?.workout ?? 1,
@@ -2976,6 +3014,10 @@ const saveChallenge = async () => {
         challengePublish: {
           tasksPerWeek: Number(challengeForm.value.tasksPerWeek ?? 3),
           publishLeadHours: Number(challengeForm.value.publishLeadHours ?? 24),
+          publishWeekday: challengeForm.value.publishWeekday || challengeForm.value.weekStartsOn || 'monday',
+          publishTime: challengeForm.value.publishTime || '06:00',
+          publishTimeZone: challengeForm.value.publishTimeZone || challengeForm.value.weekTimeZone || 'UTC',
+          showWeeklySplash: challengeForm.value.showWeeklyChallengeSplash !== false,
           aiDraftEnabled: true,
           requiresManagerPublish: true
         },

@@ -195,7 +195,7 @@
             :is-manager="isChallengeManager"
             :activity-type-options="activityTypeOptions"
             :club-id="challenge?.organization_id"
-            :weekly-task-options="weeklyTaskOptions"
+            :weekly-task-options="taggableWeeklyTaskOptions"
             :moderation-mode="challenge?.season_settings_json?.workoutModeration?.mode || 'treadmill_only'"
             @media-uploaded="refreshAfterActivityAction"
           />
@@ -507,7 +507,15 @@
           </div>
         </div>
         <div id="section-weekly-challenges" class="challenge-section">
-          <ChallengeWeeklyTasks :challenge-id="challengeId" :my-user-id="authStore.user?.id" :is-captain="isTeamCaptain" :season-starts-at="challenge?.starts_at || challenge?.startsAt" :season-ends-at="challenge?.ends_at || challenge?.endsAt" />
+          <ChallengeWeeklyTasks
+            :challenge-id="challengeId"
+            :my-user-id="authStore.user?.id"
+            :is-captain="isTeamCaptain"
+            :is-manager="isChallengeManager"
+            :season-starts-at="challenge?.starts_at || challenge?.startsAt"
+            :season-ends-at="challenge?.ends_at || challenge?.endsAt"
+            @tag-task="openWorkoutTagging"
+          />
         </div>
 
         <!-- Captain Applications — manager view + member apply UI -->
@@ -588,51 +596,6 @@
             </div>
           </template>
         </section>
-
-        <!-- Weekly Challenges Display -->
-        <section v-if="weeklyTaskOptions.length" class="challenge-section">
-          <h2>This Week's Challenges</h2>
-          <div class="weekly-task-cards">
-            <div
-              v-for="task in weeklyTaskOptions"
-              :key="`task-card-${task.id}`"
-              class="weekly-task-display-card"
-              :class="{ 'task-season-long': Number(task.is_season_long) === 1 }"
-            >
-              <div class="task-display-header">
-                <strong class="task-display-name">{{ task.name }}</strong>
-                <span v-if="Number(task.is_season_long) === 1" class="task-badge task-badge-season">Season Challenge</span>
-                <span v-else class="task-badge task-badge-week">Week</span>
-              </div>
-              <p v-if="task.description" class="task-display-desc">{{ task.description }}</p>
-
-              <!-- Criteria summary chips -->
-              <div v-if="taskCriteriaSummary(task).length" class="task-criteria-chips">
-                <span v-for="chip in taskCriteriaSummary(task)" :key="chip" class="criteria-chip">{{ chip }}</span>
-              </div>
-
-              <!-- Split-run progress -->
-              <div v-if="splitRunProgress(task)" class="split-run-progress">
-                {{ splitRunProgress(task).logged }} of {{ splitRunProgress(task).required }} logged
-                <span class="split-run-checks">
-                  <span v-for="n in splitRunProgress(task).required" :key="n" :class="n <= splitRunProgress(task).logged ? 'split-check done' : 'split-check pending'">
-                    {{ n <= splitRunProgress(task).logged ? '✓' : '○' }}
-                  </span>
-                </span>
-              </div>
-
-              <!-- Tag to workout button shortcut -->
-              <button
-                class="btn btn-sm btn-secondary task-tag-btn"
-                @click="workoutForm.weeklyTaskId = task.id"
-                :class="{ 'task-tag-active': Number(workoutForm.weeklyTaskId) === Number(task.id) }"
-              >
-                {{ Number(workoutForm.weeklyTaskId) === Number(task.id) ? '✓ Tagged to Log Workout' : 'Tag to Workout' }}
-              </button>
-            </div>
-          </div>
-        </section>
-
 
         <!-- Season Rules — pinned to the bottom, reachable via nav anchor -->
         <div id="section-rules" class="challenge-section">
@@ -740,7 +703,7 @@
                 <label>Weekly challenge tag</label>
                 <select v-model="workoutForm.weeklyTaskId">
                   <option :value="null">None</option>
-                  <option v-for="t in weeklyTaskOptions" :key="`weekly-task-option-${t.id}`" :value="t.id">{{ t.name }}</option>
+                  <option v-for="t in taggableWeeklyTaskOptions" :key="`weekly-task-option-${t.id}`" :value="t.id">{{ t.name }}</option>
                 </select>
                 <small class="hint" v-if="selectedTaskProofPolicyLabel">Proof policy: {{ selectedTaskProofPolicyLabel }}</small>
               </div>
@@ -993,6 +956,7 @@ import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBrandi
 import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../utils/summitPlatformSlugs.js';
 import { useAffiliationClubAnnouncements } from '../composables/useAffiliationClubAnnouncements.js';
 import { useSeasonWeeks } from '../composables/useSeasonWeeks.js';
+import { challengeProofPolicyLabel } from '../utils/challengeProofPolicies.js';
 import { toUploadsUrl } from '../utils/uploadsUrl.js';
 import { getWeekDeadline, getTodayDeadline, timeUntil, formatInTimezone, countdownUrgency } from '../utils/timezones.js';
 import ChallengeRules from '../components/challenge/ChallengeRules.vue';
@@ -1085,6 +1049,7 @@ const captainApplyText = ref('');
 const captainApplySubmitting = ref(false);
 const captainApplyError = ref('');
 const weeklyTaskOptions = ref([]);
+const currentWeekAssignments = ref([]);
 const treadmillpocalypseWeek = ref(null);
 const treadmillpocalypseIconUrl = ref(null);
 const seasonSummary = ref(null);
@@ -1325,6 +1290,17 @@ const myTeamMateUserIds = computed(() => {
   return ids;
 });
 
+const taggableWeeklyTaskOptions = computed(() => {
+  const myId = Number(authStore.user?.id || 0);
+  return (weeklyTaskOptions.value || []).filter((task) => {
+    if (String(task?.mode || '') === 'full_team') return true;
+    const assignment = (currentWeekAssignments.value || []).find((row) =>
+      Number(row.task_id) === Number(task.id) && Number(row.provider_user_id) === myId
+    );
+    return !!assignment;
+  });
+});
+
 const myChatMentionSlugs = computed(() => {
   const u = authStore.user;
   if (!u) return [];
@@ -1447,49 +1423,8 @@ const selectedTaskProofPolicyLabel = computed(() => {
   const id = Number(workoutForm.value.weeklyTaskId || 0);
   if (!id) return '';
   const t = (weeklyTaskOptions.value || []).find((x) => Number(x.id) === id);
-  const policy = String(t?.proof_policy || '').toLowerCase();
-  if (policy === 'photo_required') return 'Photo required';
-  if (policy === 'gps_or_photo') return 'GPS or photo required';
-  if (policy === 'gps_required_no_treadmill') return 'GPS required and treadmill not allowed';
-  return policy ? policy : 'No proof required';
+  return challengeProofPolicyLabel(t?.proof_policy || 'none');
 });
-
-// Criteria summary chips for a weekly task
-const taskCriteriaSummary = (task) => {
-  const chips = [];
-  const raw = task?.criteria_json;
-  if (!raw) return chips;
-  const c = typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
-  if (!c) return chips;
-  if (c.challengeType) chips.push(c.challengeType.replace('_', ' '));
-  if (c.activityTypes?.length) chips.push(c.activityTypes.slice(0, 3).join(' / '));
-  if (c.terrain?.length) chips.push(c.terrain.join(' / '));
-  if (c.distance?.minMiles) chips.push(`${c.distance.minMiles}+ mi`);
-  if (c.duration?.minMinutes) chips.push(`${c.duration.minMinutes}+ min`);
-  if (c.pace?.maxSecondsPerMile) {
-    const m = Math.floor(c.pace.maxSecondsPerMile / 60);
-    const s = String(c.pace.maxSecondsPerMile % 60).padStart(2, '0');
-    chips.push(`≤ ${m}:${s}/mi`);
-  }
-  if (c.timeOfDay?.start && c.timeOfDay?.end) chips.push(`${c.timeOfDay.start}–${c.timeOfDay.end}`);
-  if (c.splitRuns?.count > 1) chips.push(`${c.splitRuns.count} runs/day`);
-  return chips;
-};
-
-// Split-run progress for the current day
-const splitRunProgress = (task) => {
-  const raw = task?.criteria_json;
-  if (!raw) return null;
-  const c = typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
-  if (!c?.splitRuns?.count || c.splitRuns.count < 2) return null;
-  // Count today's workouts in the activity feed tagged to this task
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const tagged = (activity.value || []).filter((w) => {
-    return Number(w.weekly_task_id) === Number(task.id)
-      && String(w.completed_at || w.created_at || '').slice(0, 10) === todayStr;
-  });
-  return { logged: tagged.length, required: c.splitRuns.count };
-};
 
 const resolveSeasonAssetUrl = (path, type = 'banner') => {
   if (!path) return '';
@@ -1635,6 +1570,21 @@ const loadWeeklyTaskOptions = async () => {
   } catch {
     weeklyTaskOptions.value = [];
     treadmillpocalypseWeek.value = null;
+  }
+};
+
+const loadCurrentWeekAssignments = async () => {
+  const id = challengeId.value;
+  const week = activeSeasonWeekStart.value;
+  if (!id || !week) return;
+  try {
+    const r = await api.get(`/learning-program-classes/${id}/weekly-assignments`, {
+      params: { week },
+      skipGlobalLoading: true
+    });
+    currentWeekAssignments.value = Array.isArray(r.data?.assignments) ? r.data.assignments : [];
+  } catch {
+    currentWeekAssignments.value = [];
   }
 };
 
@@ -1953,7 +1903,7 @@ const submitWorkout = async () => {
     visionExtracted.value = false;
     visionError.value = null;
     showLogWorkoutModal.value = false;
-    await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
+    await Promise.all([loadLeaderboard(), loadActivity(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
   } catch (e) {
     if (Number(e?.response?.status || 0) === 428) {
       await loadChallenge();
@@ -1970,7 +1920,13 @@ const scrollToSection = (id) => {
 };
 
 const refreshAfterActivityAction = async () => {
-  await Promise.all([loadActivity(), loadLeaderboard(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
+  await Promise.all([loadActivity(), loadLeaderboard(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
+};
+
+const openWorkoutTagging = (task) => {
+  if (!task?.id) return;
+  workoutForm.value.weeklyTaskId = Number(task.id);
+  showLogWorkoutModal.value = true;
 };
 
 const formatDates = (c) => {
@@ -2086,7 +2042,7 @@ const importSelectedStrava = async () => {
       return;
     }
     closeStravaImportModal();
-    await Promise.all([loadLeaderboard(), loadActivity(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
+    await Promise.all([loadLeaderboard(), loadActivity(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions(), loadKudosStats()]);
     if (skipped > 0) {
       stravaDuplicateMessage.value = `${skipped === 1 ? '1 activity was' : `${skipped} activities were`} already uploaded and not imported again.`;
     }
@@ -2107,6 +2063,7 @@ onMounted(async () => {
       loadCaptainApplications(),
       loadDraftSessionStatus(),
       loadWeeklyTaskOptions(),
+      loadCurrentWeekAssignments(),
       loadSeasonSummary(),
       loadRecordBoards(),
       loadRaceDivisions(),
@@ -2140,14 +2097,14 @@ onUnmounted(() => {
 watch(challengeId, () => {
   loadChallenge().then(() => {
     if (challenge.value) {
-      Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions()]);
+      Promise.all([loadLeaderboard(), loadTeams(), loadActivity(), loadCaptainApplications(), loadWeeklyTaskOptions(), loadCurrentWeekAssignments(), loadSeasonSummary(), loadRecordBoards(), loadRaceDivisions()]);
     }
   });
 });
 
 watch(activeSeasonWeekStart, (week) => {
   if (!week || !challengeId.value || !challenge.value) return;
-  loadWeeklyTaskOptions();
+  Promise.all([loadWeeklyTaskOptions(), loadCurrentWeekAssignments()]);
 });
 
 // Auto-set isTreadmill when terrain = Treadmill is selected in workout form

@@ -52,6 +52,8 @@ const parseJsonObject = (raw, fallback = {}) => {
   return fallback;
 };
 
+const isApprovedWeeklyAssignment = (assignment) => !!assignment;
+
 const canManageChallengeRole = (role) => {
   const r = String(role || '').toLowerCase();
   return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
@@ -836,7 +838,7 @@ export const submitWorkout = async (req, res, next) => {
       if (weeklyTask.mode !== 'full_team') {
         const assignment = await ChallengeWeeklyAssignment.findByTaskAndUser(weeklyTask.id, req.user.id);
         if (!assignment) {
-          return res.status(403).json({ error: { message: 'You are not assigned to this weekly challenge.' } });
+          return res.status(403).json({ error: { message: 'You must be assigned to this weekly challenge before tagging a workout.' } });
         }
       }
     }
@@ -856,8 +858,14 @@ export const submitWorkout = async (req, res, next) => {
     if (taskProofPolicy === 'photo_required' && !hasProofImage) {
       return res.status(400).json({ error: { message: 'This weekly challenge requires photo proof upload.' } });
     }
+    if (taskProofPolicy === 'screenshot' && !screenshotFilePath) {
+      return res.status(400).json({ error: { message: 'This weekly challenge requires a workout screenshot upload.' } });
+    }
     if (taskProofPolicy === 'gps_required_no_treadmill' && isTreadmill) {
       return res.status(400).json({ error: { message: 'This weekly challenge does not allow treadmill workouts.' } });
+    }
+    if (taskProofPolicy === 'manager_approval') {
+      proofStatus = 'pending';
     }
     if (isTreadmill && !treadmillProofFilePath) {
       return res.status(400).json({ error: { message: 'Treadmill entries require a treadmill screen photo upload.' } });
@@ -975,6 +983,14 @@ export const submitWorkout = async (req, res, next) => {
       proofStatus
     });
     if (workout?.id) {
+      if (weeklyTaskId && weeklyTask?.mode !== 'full_team') {
+        const assignment = await ChallengeWeeklyAssignment.findByTaskAndUser(weeklyTaskId, req.user.id);
+        if (isApprovedWeeklyAssignment(assignment)) {
+          await ChallengeWeeklyAssignment.markCompleted(assignment.id, {
+            completedAt: completedAt.toISOString().slice(0, 19).replace('T', ' ')
+          });
+        }
+      }
       // Save treadmill proof and map image as separate media records
       if (treadmillProofFilePath) {
         ChallengeWorkoutMedia.create({
@@ -1507,6 +1523,7 @@ export const patchRaceInfo = async (req, res, next) => {
 
     const updates = [];
     const params = [];
+    let weeklyTask = null;
 
     const isRace = req.body.isRace === true || req.body.isRace === 'true' || req.body.isRace === 1 || req.body.isRace === '1';
     updates.push('is_race = ?');
@@ -1522,6 +1539,18 @@ export const patchRaceInfo = async (req, res, next) => {
 
     if (req.body.weeklyTaskId !== undefined) {
       const wt = req.body.weeklyTaskId ? asInt(req.body.weeklyTaskId) : null;
+      if (wt) {
+        weeklyTask = await ChallengeWeeklyTask.findById(wt);
+        if (!weeklyTask || Number(weeklyTask.learning_class_id) !== Number(classId)) {
+          return res.status(400).json({ error: { message: 'Invalid weekly challenge tag' } });
+        }
+        if (String(weeklyTask.mode || '') !== 'full_team') {
+          const assignment = await ChallengeWeeklyAssignment.findByTaskAndUser(wt, req.user.id);
+          if (!assignment) {
+            return res.status(403).json({ error: { message: 'You must be assigned to this weekly challenge before tagging a workout.' } });
+          }
+        }
+      }
       updates.push('weekly_task_id = ?');
       params.push(wt);
     }
@@ -1532,6 +1561,14 @@ export const patchRaceInfo = async (req, res, next) => {
       params
     );
     const updated = await ChallengeWorkout.findById(workoutId);
+    if (weeklyTask && String(weeklyTask.mode || '') !== 'full_team') {
+      const assignment = await ChallengeWeeklyAssignment.findByTaskAndUser(weeklyTask.id, req.user.id);
+      if (isApprovedWeeklyAssignment(assignment)) {
+        await ChallengeWeeklyAssignment.markCompleted(assignment.id, {
+          completedAt: updated?.completed_at || null
+        });
+      }
+    }
     return res.json({ workout: updated });
   } catch (e) {
     next(e);

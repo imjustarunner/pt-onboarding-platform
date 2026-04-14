@@ -1,150 +1,229 @@
 <template>
-  <section class="challenge-weekly-tasks">
-    <div class="tasks-header">
-      <h2>Weekly Challenges</h2>
-      <div class="tasks-week-selector">
-        <label>Week</label>
-        <select v-model="selectedWeekIdx" class="week-select">
-          <option v-for="(w, i) in seasonWeeks" :key="w.date" :value="i">{{ w.label }}</option>
-          <option v-if="!seasonWeeks.length" :value="0" disabled>No weeks available</option>
-        </select>
+  <section class="weekly-challenges-shell">
+    <div class="weekly-hero">
+      <div>
+        <p class="weekly-eyebrow">This Week's Mission Board</p>
+        <h2>Weekly Challenges</h2>
+        <p class="weekly-subtitle">
+          Fresh challenge drops for every season participant. Claim one for yourself, or assign one if you're leading your team.
+        </p>
+      </div>
+
+      <div class="weekly-controls">
+        <label class="week-picker">
+          <span>Week</span>
+          <select v-model="selectedWeekIdx" class="week-select">
+            <option v-for="(w, i) in seasonWeeks" :key="w.date" :value="i">{{ w.label }}</option>
+            <option v-if="!seasonWeeks.length" :value="0" disabled>No weeks available</option>
+          </select>
+        </label>
+
         <button
           v-if="byeWeekAllowed"
           type="button"
-          class="btn btn-secondary btn-sm"
+          class="btn btn-secondary"
           :disabled="declaringBye || hasByeDeclaredForWeek"
           @click="declareByeWeek"
         >
-          {{ declaringBye ? 'Declaring…' : hasByeDeclaredForWeek ? 'Bye Week Declared' : 'Declare Bye Week' }}
+          {{ declaringBye ? 'Declaring…' : hasByeDeclaredForWeek ? 'Bye week declared' : 'Declare Bye Week' }}
         </button>
       </div>
     </div>
 
-    <div v-if="byeWeekAllowed" class="hint" style="margin-bottom: 8px;">
-      You can use up to {{ maxByeWeeks }} bye week(s). Declared so far: {{ byeWeeks.length }}.
+    <div v-if="byeWeekAllowed" class="bye-banner">
+      <strong>Bye weeks:</strong> {{ byeWeeks.length }} of {{ maxByeWeeks }} used.
     </div>
 
-    <div v-if="loading" class="loading-inline">Loading…</div>
-    <div v-else class="tasks-content">
-      <div v-if="tasks.length" class="tasks-list">
-        <div
-          v-for="t in tasks"
-          :key="t.id"
-          class="task-card"
-          @click="openDetail(t)"
+    <div v-if="loading" class="weekly-state-card">
+      Loading weekly challenges…
+    </div>
+
+    <template v-else>
+      <div v-if="props.isManager && tasks.length && !isPublishedForMembers" class="publish-banner">
+        Members will see this challenge drop on <strong>{{ publishAtLabel }}</strong>.
+      </div>
+
+      <div v-if="!tasks.length && !isPublishedForMembers && publishAtLabel" class="weekly-state-card">
+        <strong>Challenge drop scheduled.</strong>
+        <span>These weekly challenges unlock for members on {{ publishAtLabel }}.</span>
+      </div>
+
+      <div v-else-if="!tasks.length" class="weekly-state-card">
+        No weekly challenges have been posted for this week yet.
+      </div>
+
+      <div v-else class="weekly-grid">
+        <article
+          v-for="task in tasks"
+          :key="task.id"
+          class="challenge-card"
+          :style="cardTheme(task)"
         >
-          <!-- Header row: name + mode badge -->
-          <div class="task-card-header">
-            <h4>{{ t.name }}</h4>
-            <span :class="['mode-badge', modeBadgeClass(t.mode)]">{{ modeLabel(t.mode) }}</span>
-          </div>
+          <div class="challenge-card-glow"></div>
 
-          <p v-if="t.description" class="task-desc">{{ t.description }}</p>
+          <div class="challenge-card-main">
+            <div class="challenge-icon-shell" :style="iconTheme(task)">
+              <img v-if="resolvedIconUrl(task.icon)" :src="resolvedIconUrl(task.icon)" class="challenge-icon-img" alt="" />
+              <span v-else class="challenge-icon-emoji">{{ emojiIcon(task) }}</span>
+            </div>
 
-          <!-- Full-team: show member completion grid -->
-          <template v-if="t.mode === 'full_team'">
-            <div class="full-team-members">
-              <div
-                v-for="m in myTeamMembers"
-                :key="m.provider_user_id"
-                class="member-pill"
-                :class="{ 'member-done': hasTaggedWorkout(t.id, m.provider_user_id) }"
-              >
-                <span class="pill-check">{{ hasTaggedWorkout(t.id, m.provider_user_id) ? '✓' : '○' }}</span>
-                {{ m.first_name }} {{ m.last_name }}
+            <div class="challenge-copy">
+              <div class="challenge-topline">
+                <div>
+                  <div class="challenge-kicker">{{ sectionLabel(task) }}</div>
+                  <h3>{{ task.name }}</h3>
+                </div>
+                <span :class="['mode-pill', `mode-pill--${modeClass(task.mode)}`]">{{ modeLabel(task.mode) }}</span>
               </div>
-              <div v-if="!myTeamMembers.length" class="hint-sm">Team members will appear here once assigned to a team.</div>
-            </div>
-            <!-- Current user can tag their workout to this task -->
-            <div class="task-actions" @click.stop>
-              <button
-                v-if="isOnMyTeam && !hasTaggedWorkout(t.id, myUserId)"
-                class="btn btn-primary btn-sm"
-                @click="promptTagWorkout(t)"
-              >
-                Tag My Workout
-              </button>
-              <span v-else-if="hasTaggedWorkout(t.id, myUserId)" class="badge-done">You've tagged a workout ✓</span>
-            </div>
-          </template>
 
-          <!-- Volunteer / Captain-assigns modes -->
-          <template v-else>
-            <div v-if="myTeamAssignment(t.id)" class="task-assignment" @click.stop>
-              <div class="assignee-row">
-                <span class="assignee-label">Assigned to:</span>
-                <span class="assignee-name">{{ assigneeName(myTeamAssignment(t.id)) }}</span>
-                <span v-if="myTeamAssignment(t.id).is_completed" class="badge-done">Done ✓</span>
-                <span v-else-if="myTeamAssignment(t.id).volunteered" class="badge-volunteered">Volunteered</span>
+              <p v-if="task.description" class="challenge-description">{{ task.description }}</p>
+
+              <div class="challenge-chips">
+                <span v-for="chip in taskChips(task)" :key="`${task.id}-${chip}`" class="challenge-chip">
+                  {{ chip }}
+                </span>
               </div>
-              <!-- The assigned person marks it complete -->
-              <button
-                v-if="isMyAssignment(myTeamAssignment(t.id)) && !myTeamAssignment(t.id).is_completed"
-                class="btn btn-primary btn-sm"
-                @click="openCompleteModal(myTeamAssignment(t.id))"
-              >
-                Mark Complete
-              </button>
-            </div>
-            <div v-else class="task-unassigned" @click.stop>
-              <span class="unassigned-label">No one assigned yet</span>
-              <div class="assign-actions">
-                <!-- Volunteer button for any member -->
-                <button
-                  v-if="t.mode === 'volunteer_or_elect' && isOnMyTeam"
-                  class="btn btn-outline btn-sm"
-                  :disabled="volunteering[t.id]"
-                  @click="volunteer(t)"
-                >
-                  {{ volunteering[t.id] ? 'Volunteering…' : 'Volunteer' }}
-                </button>
-                <!-- Captain assignment dropdown -->
-                <template v-if="isCaptain && myTeam">
-                  <select v-model="captainPick[t.id]" class="captain-select" @click.stop>
-                    <option value="">— Assign a member —</option>
-                    <option v-for="m in myTeamMembers" :key="m.provider_user_id" :value="m.provider_user_id">
-                      {{ m.first_name }} {{ m.last_name }}
-                    </option>
-                  </select>
-                  <button
-                    class="btn btn-secondary btn-sm"
-                    :disabled="!captainPick[t.id] || assigning[t.id]"
-                    @click="captainAssign(t)"
-                  >
-                    {{ assigning[t.id] ? 'Assigning…' : 'Assign' }}
-                  </button>
+
+              <div class="challenge-status-row">
+                <template v-if="task.mode === 'full_team'">
+                  <div class="challenge-status-card">
+                    <span class="status-label">Team progress</span>
+                    <strong>{{ fullTeamTaggedCount(task.id) }}/{{ Math.max(myTeamMembers.length, 1) }} tagged</strong>
+                    <span>{{ fullTeamStatusCopy }}</span>
+                  </div>
                 </template>
+
+                <template v-else-if="myTeamAssignment(task.id)">
+                  <div class="challenge-status-card">
+                    <span class="status-label">{{ myTeamAssignment(task.id)?.volunteered ? 'Claimed by' : 'Assigned to' }}</span>
+                    <strong>{{ assigneeName(myTeamAssignment(task.id)) }}</strong>
+                    <span v-if="isMyAssignment(myTeamAssignment(task.id))">You're cleared to tag a qualifying workout.</span>
+                    <span v-else>One member handles this challenge for your team.</span>
+                  </div>
+                </template>
+
+                <template v-else>
+                  <div class="challenge-status-card">
+                    <span class="status-label">Status</span>
+                    <strong>No one assigned yet</strong>
+                    <span>{{ unassignedCopy(task) }}</span>
+                  </div>
+                </template>
+
+                <div v-if="showCaptainAssign(task)" class="captain-assign-panel">
+                  <label class="captain-assign-label">Captain assign</label>
+                  <div class="captain-assign-row">
+                    <select v-model="captainPick[task.id]" class="captain-select">
+                      <option value="">Choose a teammate</option>
+                      <option
+                        v-for="member in myTeamMembers"
+                        :key="member.provider_user_id"
+                        :value="String(member.provider_user_id)"
+                      >
+                        {{ member.first_name }} {{ member.last_name }}
+                      </option>
+                    </select>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="!captainPick[task.id] || assigning[task.id]"
+                      @click="captainAssign(task)"
+                    >
+                      {{ assigning[task.id] ? 'Saving…' : myTeamAssignment(task.id) ? 'Reassign' : 'Assign' }}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
-          </template>
+          </div>
 
-          <div class="task-card-footer" @click.stop>
-            <button class="btn-link" @click="openDetail(t)">View details →</button>
+          <div class="challenge-card-actions">
+            <button
+              v-if="canClaimTask(task)"
+              type="button"
+              class="claim-btn"
+              :disabled="volunteering[task.id]"
+              @click="claimTask(task)"
+            >
+              {{ volunteering[task.id] ? 'Claiming…' : 'Claim This Challenge' }}
+            </button>
+
+            <button
+              v-else-if="canTagTask(task)"
+              type="button"
+              class="tag-btn"
+              @click="emitTagTask(task)"
+            >
+              Tag Qualifying Workout
+            </button>
+
+            <span v-else-if="task.mode === 'captain_assigns' && !showCaptainAssign(task)" class="action-hint">
+              Your captain will assign one teammate for this challenge.
+            </span>
+            <span v-else-if="task.mode === 'volunteer_or_elect' && myTeamAssignment(task.id) && !isMyAssignment(myTeamAssignment(task.id))" class="action-hint">
+              This one has already been claimed for your team.
+            </span>
+            <span v-else-if="!isOnMyTeam" class="action-hint">
+              Join a team to participate in weekly challenges.
+            </span>
+
+            <button type="button" class="btn-link" @click="openDetail(task)">View details</button>
+          </div>
+        </article>
+      </div>
+    </template>
+
+    <div
+      v-if="showSplashModal && splashTasks.length"
+      class="weekly-splash-overlay"
+      @click.self="dismissWeeklySplash"
+    >
+      <div class="weekly-splash-card">
+        <div class="weekly-splash-header">
+          <div>
+            <span class="weekly-splash-kicker">Challenge Drop</span>
+            <h3>New weekly challenges are live</h3>
+            <p>{{ selectedWeekLabel }}</p>
+          </div>
+          <button type="button" class="weekly-splash-close" @click="dismissWeeklySplash">×</button>
+        </div>
+
+        <div class="weekly-splash-grid">
+          <div
+            v-for="task in splashTasks"
+            :key="`splash-${task.id}`"
+            class="weekly-splash-task"
+            :style="cardTheme(task)"
+          >
+            <div class="weekly-splash-task-head">
+              <div class="challenge-icon-shell challenge-icon-shell--sm" :style="iconTheme(task)">
+                <img v-if="resolvedIconUrl(task.icon)" :src="resolvedIconUrl(task.icon)" class="challenge-icon-img" alt="" />
+                <span v-else class="challenge-icon-emoji">{{ emojiIcon(task) }}</span>
+              </div>
+              <div>
+                <strong>{{ task.name }}</strong>
+                <div class="weekly-splash-type">{{ modeLabel(task.mode) }}</div>
+              </div>
+            </div>
+            <p class="weekly-splash-desc">{{ task.description || 'Ready for your team this week.' }}</p>
+            <button
+              v-if="canClaimTask(task)"
+              type="button"
+              class="claim-btn claim-btn--compact"
+              :disabled="volunteering[task.id]"
+              @click="claimTask(task)"
+            >
+              {{ volunteering[task.id] ? 'Claiming…' : 'Claim It' }}
+            </button>
           </div>
         </div>
-      </div>
-      <div v-else class="empty-hint">No weekly challenges set for this week. The program manager will add them shortly.</div>
-    </div>
 
-    <!-- Mark Complete modal -->
-    <div v-if="showCompleteModal" class="modal-overlay" @click.self="showCompleteModal = false">
-      <div class="modal-content">
-        <h3>Mark Challenge Complete</h3>
-        <p v-if="completingAssignment">{{ completingAssignment.task_name }}</p>
-        <div class="form-group">
-          <label>Notes (optional)</label>
-          <textarea v-model="completeNotes" rows="3" placeholder="Add any notes or proof link…" />
-        </div>
-        <div class="form-actions">
-          <button type="button" class="btn btn-secondary" @click="showCompleteModal = false">Cancel</button>
-          <button type="button" class="btn btn-primary" :disabled="completing" @click="submitComplete">
-            {{ completing ? 'Saving…' : 'Mark Complete' }}
-          </button>
+        <div class="weekly-splash-actions">
+          <button type="button" class="btn btn-secondary" @click="dismissWeeklySplash">Dismiss</button>
         </div>
       </div>
     </div>
 
-    <!-- Task Detail Modal -->
     <ChallengeTaskDetailModal
       v-if="detailTask"
       :challenge-id="challengeId"
@@ -155,29 +234,35 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import ChallengeTaskDetailModal from './ChallengeTaskDetailModal.vue';
 import { useSeasonWeeks } from '../../composables/useSeasonWeeks.js';
+import { challengeProofPolicyLabel } from '../../utils/challengeProofPolicies.js';
+import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 
 const props = defineProps({
   challengeId: { type: [String, Number], required: true },
   myUserId: { type: [String, Number], default: null },
   isCaptain: { type: Boolean, default: false },
+  isManager: { type: Boolean, default: false },
   seasonStartsAt: { type: [String, Date], default: null },
   seasonEndsAt: { type: [String, Date], default: null }
 });
+
+const emit = defineEmits(['tag-task']);
 
 const { seasonWeeks, selectedWeekIdx, weekStartDate: weekStart } = useSeasonWeeks(
   computed(() => props.seasonStartsAt),
   { defaultToLatest: false, seasonEndsAtRef: computed(() => props.seasonEndsAt) }
 );
+
 const loading = ref(false);
 const tasks = ref([]);
 const assignments = ref([]);
 const myTeam = ref(null);
 const myTeamMembers = ref([]);
-const taggedWorkouts = ref([]); // workouts for current week (for full-team tag detection)
+const taggedWorkouts = ref([]);
 const byeWeekAllowed = ref(false);
 const maxByeWeeks = ref(1);
 const byeWeeks = ref([]);
@@ -185,17 +270,49 @@ const declaringBye = ref(false);
 const volunteering = ref({});
 const assigning = ref({});
 const captainPick = ref({});
-const showCompleteModal = ref(false);
-const completingAssignment = ref(null);
-const completeNotes = ref('');
-const completing = ref(false);
 const detailTask = ref(null);
+const publishAt = ref('');
+const isPublishedForMembers = ref(true);
+const showWeeklySplash = ref(false);
+const showSplashModal = ref(false);
+const iconUrlCache = ref({});
 
 const hasByeDeclaredForWeek = computed(() =>
   (byeWeeks.value || []).some((b) => String(b.week_start_date || '').slice(0, 10) === String(weekStart.value || '').slice(0, 10))
 );
 
 const isOnMyTeam = computed(() => !!myTeam.value);
+
+const publishAtLabel = computed(() => {
+  if (!publishAt.value) return '';
+  const dt = new Date(publishAt.value);
+  if (!Number.isFinite(dt.getTime())) return '';
+  return dt.toLocaleString(undefined, {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+});
+
+const selectedWeekLabel = computed(() => seasonWeeks.value[selectedWeekIdx.value]?.label || 'This week');
+
+const fullTeamStatusCopy = computed(() => (
+  isOnMyTeam.value
+    ? 'Any teammate can tag a qualifying workout.'
+    : 'Once you join a team, your card will track team-wide progress.'
+));
+
+const splashStorageKey = computed(() => {
+  const uid = Number(props.myUserId || 0);
+  const cid = Number(props.challengeId || 0);
+  const wk = String(weekStart.value || '').slice(0, 10);
+  const published = String(publishAt.value || '').slice(0, 19);
+  return `sstc-weekly-splash:${cid}:${uid}:${wk}:${published}`;
+});
+
+const splashTasks = computed(() => (tasks.value || []).slice(0, 3));
 
 const normalizeTeamRow = (team) => {
   if (!team || typeof team !== 'object') return null;
@@ -204,73 +321,208 @@ const normalizeTeamRow = (team) => {
   if (!teamId || !challengeId) return null;
   return {
     ...team,
-    id: teamId,
-    teamId,
-    challengeId
+    id: Number(teamId),
+    teamId: Number(teamId),
+    challengeId: Number(challengeId)
   };
 };
 
 function modeLabel(mode) {
   if (mode === 'full_team') return 'Full Team';
   if (mode === 'captain_assigns') return 'Captain Assigns';
-  return 'Volunteer';
+  return 'Self-Claim';
 }
 
-function modeBadgeClass(mode) {
-  if (mode === 'full_team') return 'badge-full-team';
-  if (mode === 'captain_assigns') return 'badge-captain';
-  return 'badge-volunteer';
+function modeClass(mode) {
+  if (mode === 'full_team') return 'team';
+  if (mode === 'captain_assigns') return 'captain';
+  return 'claim';
 }
 
-const myTeamAssignment = (taskId) =>
-  assignments.value.find(
+function sectionLabel(task) {
+  if (task.mode === 'full_team') return 'Team-wide challenge';
+  if (task.mode === 'captain_assigns') return 'Captain-led challenge';
+  return 'Self-elect challenge';
+}
+
+function emojiIcon(task) {
+  const icon = String(task?.icon || '').trim();
+  if (icon && !icon.startsWith('icon:')) return icon;
+  const activity = String(task?.activity_type || task?.activityType || '').toLowerCase();
+  if (activity.includes('ruck')) return '🥾';
+  if (activity.includes('run')) return '🏃';
+  if (activity.includes('walk')) return '🚶';
+  if (activity.includes('bike')) return '🚴';
+  if (activity.includes('fitness')) return '💪';
+  return '🎯';
+}
+
+function activityTheme(task) {
+  const activity = String(task?.activity_type || task?.activityType || '').toLowerCase();
+  if (activity.includes('ruck')) return { accent: '#7c4d1d', soft: '#f8ede1', glow: 'rgba(124, 77, 29, 0.18)' };
+  if (activity.includes('run')) return { accent: '#d94841', soft: '#fff0eb', glow: 'rgba(217, 72, 65, 0.18)' };
+  if (activity.includes('walk')) return { accent: '#168a72', soft: '#e9fbf7', glow: 'rgba(22, 138, 114, 0.18)' };
+  if (activity.includes('bike')) return { accent: '#0f6cc5', soft: '#edf5ff', glow: 'rgba(15, 108, 197, 0.18)' };
+  if (activity.includes('fitness')) return { accent: '#6a42d8', soft: '#f1edff', glow: 'rgba(106, 66, 216, 0.18)' };
+  return { accent: '#ef7f1a', soft: '#fff5e8', glow: 'rgba(239, 127, 26, 0.18)' };
+}
+
+function cardTheme(task) {
+  const theme = activityTheme(task);
+  return {
+    '--challenge-accent': theme.accent,
+    '--challenge-soft': theme.soft,
+    '--challenge-glow': theme.glow
+  };
+}
+
+function iconTheme(task) {
+  const theme = activityTheme(task);
+  return {
+    background: `linear-gradient(145deg, ${theme.accent} 0%, ${theme.accent}cc 100%)`,
+    boxShadow: `0 18px 40px ${theme.glow}`
+  };
+}
+
+function modeCopy(task) {
+  if (task.mode === 'full_team') return 'Everyone on the team can contribute.';
+  if (task.mode === 'captain_assigns') return 'One teammate gets selected by the captain.';
+  return 'The first teammate to volunteer claims the spot.';
+}
+
+function proofChip(task) {
+  return challengeProofPolicyLabel(task?.proof_policy || 'none', { short: true });
+}
+
+function criteriaObject(task) {
+  const raw = task?.criteria_json ?? task?.criteriaJson;
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function taskChips(task) {
+  const chips = [];
+  const activity = String(task?.activity_type || task?.activityType || '').trim();
+  if (activity) chips.push(activity);
+  const criteria = criteriaObject(task);
+  if (criteria?.distance?.minMiles) chips.push(`${criteria.distance.minMiles}+ mi`);
+  if (criteria?.duration?.minMinutes) chips.push(`${criteria.duration.minMinutes}+ min`);
+  if (criteria?.timeOfDay?.start && criteria?.timeOfDay?.end) chips.push(`${criteria.timeOfDay.start}–${criteria.timeOfDay.end}`);
+  if (criteria?.splitRuns?.count) chips.push(`${criteria.splitRuns.count} runs/day`);
+  chips.push(proofChip(task));
+  return chips.filter(Boolean).slice(0, 5);
+}
+
+function myTeamAssignment(taskId) {
+  return assignments.value.find(
     (a) => Number(a.task_id) === Number(taskId) && myTeam.value && Number(a.team_id) === Number(myTeam.value.id)
   ) || null;
+}
 
-const assigneeName = (a) =>
-  a ? `${a.provider_first_name || ''} ${a.provider_last_name || ''}`.trim() || '—' : '—';
+function assigneeName(assignment) {
+  if (!assignment) return '—';
+  return `${assignment.provider_first_name || ''} ${assignment.provider_last_name || ''}`.trim() || '—';
+}
 
-const isMyAssignment = (a) => a && Number(a.provider_user_id) === Number(props.myUserId);
+function isMyAssignment(assignment) {
+  return !!assignment && Number(assignment.provider_user_id) === Number(props.myUserId);
+}
 
-const hasTaggedWorkout = (taskId, userId) =>
-  taggedWorkouts.value.some(
-    (w) => Number(w.weekly_task_id) === Number(taskId) && Number(w.user_id) === Number(userId)
-  );
+function fullTeamTaggedCount(taskId) {
+  return taggedWorkouts.value.filter((w) => Number(w.weekly_task_id) === Number(taskId)).length;
+}
 
-const openCompleteModal = (a) => {
-  completingAssignment.value = a;
-  completeNotes.value = '';
-  showCompleteModal.value = true;
-};
+function canClaimTask(task) {
+  return isOnMyTeam.value
+    && task.mode === 'volunteer_or_elect'
+    && !myTeamAssignment(task.id);
+}
 
-const openDetail = (t) => {
-  detailTask.value = t;
-};
+function showCaptainAssign(task) {
+  return !!(props.isCaptain && myTeam.value && task.mode !== 'full_team');
+}
 
-const promptTagWorkout = (t) => {
-  detailTask.value = t;
-};
+function canTagTask(task) {
+  if (!isOnMyTeam.value) return false;
+  if (task.mode === 'full_team') return true;
+  return isMyAssignment(myTeamAssignment(task.id));
+}
 
-const submitComplete = async () => {
-  if (!completingAssignment.value || !props.challengeId) return;
-  completing.value = true;
-  try {
-    await api.post(
-      `/learning-program-classes/${props.challengeId}/weekly-assignments/${completingAssignment.value.id}/complete`,
-      { notes: completeNotes.value }
-    );
-    showCompleteModal.value = false;
-    completingAssignment.value = null;
-    await load();
-  } catch (e) {
-    alert(e?.response?.data?.error?.message || 'Failed to mark complete');
-  } finally {
-    completing.value = false;
+function unassignedCopy(task) {
+  if (!isOnMyTeam.value) return 'Join a team to take part.';
+  return modeCopy(task);
+}
+
+function openDetail(task) {
+  detailTask.value = task;
+}
+
+function emitTagTask(task) {
+  emit('tag-task', task);
+}
+
+function isIconRef(icon) {
+  return typeof icon === 'string' && icon.startsWith('icon:');
+}
+
+function queueIconResolve(iconRef) {
+  if (!isIconRef(iconRef)) return;
+  const id = Number.parseInt(String(iconRef).replace('icon:', ''), 10);
+  if (!id || iconUrlCache.value[id]) return;
+  api.get(`/icons/${id}`, { skipGlobalLoading: true }).then(({ data }) => {
+    const raw = data?.url || data?.file_path || null;
+    if (raw) {
+      iconUrlCache.value = {
+        ...iconUrlCache.value,
+        [id]: toUploadsUrl(raw) || raw
+      };
+    }
+  }).catch(() => {});
+}
+
+function resolvedIconUrl(iconRef) {
+  if (!isIconRef(iconRef)) return null;
+  const id = Number.parseInt(String(iconRef).replace('icon:', ''), 10);
+  if (!id) return null;
+  if (!iconUrlCache.value[id]) queueIconResolve(iconRef);
+  return iconUrlCache.value[id] || null;
+}
+
+function maybeShowSplash() {
+  if (props.isManager) {
+    showSplashModal.value = false;
+    return;
   }
-};
+  if (!showWeeklySplash.value || !isPublishedForMembers.value || !tasks.value.length) {
+    showSplashModal.value = false;
+    return;
+  }
+  try {
+    showSplashModal.value = localStorage.getItem(splashStorageKey.value) !== 'dismissed';
+  } catch {
+    showSplashModal.value = true;
+  }
+}
 
-const volunteer = async (task) => {
-  if (!myTeam.value) return alert('You are not on a team yet.');
+function dismissWeeklySplash() {
+  showSplashModal.value = false;
+  try {
+    localStorage.setItem(splashStorageKey.value, 'dismissed');
+  } catch {
+    // ignore localStorage failures
+  }
+}
+
+async function claimTask(task) {
+  if (!myTeam.value) {
+    window.alert('You need to join a team before claiming a weekly challenge.');
+    return;
+  }
   volunteering.value = { ...volunteering.value, [task.id]: true };
   try {
     await api.post(`/learning-program-classes/${props.challengeId}/weekly-assignments`, {
@@ -279,16 +531,17 @@ const volunteer = async (task) => {
       providerUserId: props.myUserId,
       volunteered: true
     });
+    dismissWeeklySplash();
     await load();
-  } catch (e) {
-    alert(e?.response?.data?.error?.message || 'Failed to volunteer');
+  } catch (err) {
+    window.alert(err?.response?.data?.error?.message || 'Failed to claim challenge');
   } finally {
     volunteering.value = { ...volunteering.value, [task.id]: false };
   }
-};
+}
 
-const captainAssign = async (task) => {
-  const memberId = captainPick.value[task.id];
+async function captainAssign(task) {
+  const memberId = Number(captainPick.value[task.id] || 0);
   if (!memberId || !myTeam.value) return;
   assigning.value = { ...assigning.value, [task.id]: true };
   try {
@@ -300,14 +553,14 @@ const captainAssign = async (task) => {
     });
     captainPick.value = { ...captainPick.value, [task.id]: '' };
     await load();
-  } catch (e) {
-    alert(e?.response?.data?.error?.message || 'Failed to assign member');
+  } catch (err) {
+    window.alert(err?.response?.data?.error?.message || 'Failed to assign challenge');
   } finally {
     assigning.value = { ...assigning.value, [task.id]: false };
   }
-};
+}
 
-const declareByeWeek = async () => {
+async function declareByeWeek() {
   if (!props.challengeId || !byeWeekAllowed.value) return;
   declaringBye.value = true;
   try {
@@ -315,23 +568,25 @@ const declareByeWeek = async () => {
       week: weekStart.value
     });
     await load();
-  } catch (e) {
-    alert(e?.response?.data?.error?.message || 'Failed to declare bye week');
+  } catch (err) {
+    window.alert(err?.response?.data?.error?.message || 'Failed to declare bye week');
   } finally {
     declaringBye.value = false;
   }
-};
+}
 
-const load = async () => {
+async function load() {
   if (!props.challengeId) return;
   loading.value = true;
   try {
     const [tasksRes, assignRes, classRes, byeRes, myTeamsRes] = await Promise.all([
       api.get(`/learning-program-classes/${props.challengeId}/weekly-tasks`, {
-        params: { week: weekStart.value }, skipGlobalLoading: true
+        params: { week: weekStart.value },
+        skipGlobalLoading: true
       }),
       api.get(`/learning-program-classes/${props.challengeId}/weekly-assignments`, {
-        params: { week: weekStart.value }, skipGlobalLoading: true
+        params: { week: weekStart.value },
+        skipGlobalLoading: true
       }),
       api.get(`/learning-program-classes/${props.challengeId}`, { skipGlobalLoading: true }),
       api.get(`/learning-program-classes/${props.challengeId}/bye-weeks/my`, { skipGlobalLoading: true }),
@@ -341,6 +596,13 @@ const load = async () => {
     tasks.value = Array.isArray(tasksRes.data?.tasks) ? tasksRes.data.tasks : [];
     assignments.value = Array.isArray(assignRes.data?.assignments) ? assignRes.data.assignments : [];
     byeWeeks.value = Array.isArray(byeRes.data?.byeWeeks) ? byeRes.data.byeWeeks : [];
+    publishAt.value = String(tasksRes.data?.publishAt || assignRes.data?.publishAt || '');
+    isPublishedForMembers.value = tasksRes.data?.isPublishedForMembers !== false;
+    showWeeklySplash.value = tasksRes.data?.showWeeklySplash !== false;
+
+    for (const task of tasks.value) {
+      if (isIconRef(task?.icon)) queueIconResolve(task.icon);
+    }
 
     const settings = classRes.data?.class?.season_settings_json && typeof classRes.data.class.season_settings_json === 'object'
       ? classRes.data.class.season_settings_json
@@ -349,12 +611,11 @@ const load = async () => {
     byeWeekAllowed.value = bye.allowByeWeek === true;
     maxByeWeeks.value = Number(bye.maxByeWeeksPerParticipant ?? 1);
 
-    // Find current user's team in this challenge
-    const allMyTeams = Array.isArray(myTeamsRes.data?.teams) ? myTeamsRes.data.teams.map(normalizeTeamRow).filter(Boolean) : [];
-    const found = allMyTeams.find((t) => Number(t.challengeId) === Number(props.challengeId));
-    myTeam.value = found || null;
+    const allMyTeams = Array.isArray(myTeamsRes.data?.teams)
+      ? myTeamsRes.data.teams.map(normalizeTeamRow).filter(Boolean)
+      : [];
+    myTeam.value = allMyTeams.find((team) => Number(team.challengeId) === Number(props.challengeId)) || null;
 
-    // Load team members for captain assignment + full-team display
     if (myTeam.value?.id) {
       try {
         const membRes = await api.get(
@@ -366,168 +627,522 @@ const load = async () => {
         myTeamMembers.value = [];
       }
 
-      // For full-team tasks, load tagged workouts for the week
-      if (tasks.value.some((t) => t.mode === 'full_team')) {
+      if (tasks.value.some((task) => task.mode === 'full_team')) {
         try {
-          const wRes = await api.get(
+          const workoutRes = await api.get(
             `/learning-program-classes/${props.challengeId}/workouts`,
             { params: { week: weekStart.value, teamId: myTeam.value.id, hasTask: true }, skipGlobalLoading: true }
-          ).catch(() => ({ data: { workouts: [] } }));
-          taggedWorkouts.value = Array.isArray(wRes.data?.workouts) ? wRes.data.workouts : [];
+          );
+          taggedWorkouts.value = Array.isArray(workoutRes.data?.workouts) ? workoutRes.data.workouts : [];
         } catch {
           taggedWorkouts.value = [];
         }
+      } else {
+        taggedWorkouts.value = [];
       }
     } else {
       myTeamMembers.value = [];
       taggedWorkouts.value = [];
     }
+
+    maybeShowSplash();
   } catch {
     tasks.value = [];
     assignments.value = [];
+    myTeam.value = null;
+    myTeamMembers.value = [];
+    taggedWorkouts.value = [];
     byeWeeks.value = [];
     byeWeekAllowed.value = false;
+    publishAt.value = '';
+    isPublishedForMembers.value = true;
+    showSplashModal.value = false;
   } finally {
     loading.value = false;
   }
-};
+}
 
 watch(() => props.challengeId, load, { immediate: true });
 watch(() => props.isCaptain, load);
 watch(weekStart, load);
+watch([showWeeklySplash, isPublishedForMembers, tasks, splashStorageKey], maybeShowSplash);
 
 defineExpose({ load });
 </script>
 
 <style scoped>
-.challenge-weekly-tasks { }
-
-.tasks-header {
+.weekly-challenges-shell {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.weekly-hero {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 18px;
+  padding: 28px;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 148, 58, 0.20), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(38, 119, 214, 0.12), transparent 26%),
+    linear-gradient(135deg, #ffffff 0%, #fffaf2 100%);
+  border: 1px solid rgba(234, 120, 35, 0.12);
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.07);
 }
-.tasks-header h2 { margin: 0; font-size: 1.1em; }
 
-.tasks-week-selector { display: flex; align-items: center; gap: 8px; }
-.week-select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 10px; font-size: 0.88em; background: #fff; cursor: pointer; }
-
-.tasks-list { display: flex; flex-direction: column; gap: 14px; }
-
-.task-card {
-  padding: 14px 16px;
-  border: 1px solid var(--border, #e0e0e0);
-  border-radius: 10px;
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
-  background: var(--surface, #fff);
+.weekly-eyebrow {
+  margin: 0 0 8px;
+  font-size: 0.76rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #ef7f1a;
+  font-weight: 800;
 }
-.task-card:hover { border-color: var(--primary, #1976d2); box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
 
-.task-card-header {
+.weekly-hero h2 {
+  margin: 0;
+  font-size: clamp(1.8rem, 3vw, 2.5rem);
+  line-height: 1.04;
+  color: #1f2742;
+}
+
+.weekly-subtitle {
+  max-width: 700px;
+  margin: 10px 0 0;
+  color: #66738f;
+  line-height: 1.6;
+}
+
+.weekly-controls {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 4px;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
 }
-.task-card-header h4 { margin: 0; font-size: 1em; flex: 1; }
 
-.mode-badge {
-  font-size: 0.72em;
+.week-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 250px;
+}
+
+.week-picker span {
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #78839d;
+}
+
+.week-select,
+.captain-select {
+  width: 100%;
+  min-height: 46px;
+  border-radius: 16px;
+  border: 1px solid #d6deea;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 0 16px;
   font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 10px;
-  white-space: nowrap;
-  letter-spacing: 0.02em;
+  color: #2a3353;
 }
-.badge-full-team { background: #fff3e0; color: #e65100; }
-.badge-captain { background: #e3f2fd; color: #1565c0; }
-.badge-volunteer { background: #e8f5e9; color: #2e7d32; }
 
-.task-desc { margin: 4px 0 10px 0; font-size: 0.88em; color: var(--text-muted, #666); }
+.bye-banner,
+.publish-banner,
+.weekly-state-card {
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid #e7edf5;
+  color: #5f6c87;
+}
 
-/* Full-team member grid */
-.full-team-members {
+.bye-banner {
+  background: linear-gradient(135deg, #f6fbff 0%, #eef6ff 100%);
+}
+
+.publish-banner {
+  background: linear-gradient(135deg, #fff7eb 0%, #fff1dc 100%);
+  color: #8a5313;
+  border-color: rgba(239, 127, 26, 0.18);
+}
+
+.weekly-state-card {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
-  margin-bottom: 10px;
 }
-.member-pill {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  border-radius: 20px;
-  font-size: 0.83em;
-  background: #f5f5f5;
-  border: 1px solid #ddd;
-  color: var(--text-secondary, #555);
-}
-.member-pill.member-done { background: #e8f5e9; border-color: #a5d6a7; color: #2e7d32; }
-.pill-check { font-size: 0.85em; }
-.hint-sm { font-size: 0.82em; color: var(--text-muted, #888); }
 
-/* Volunteer / assigned */
-.task-assignment { }
-.assignee-row {
+.weekly-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 18px;
+}
+
+.challenge-card {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 100%;
+  padding: 22px;
+  border-radius: 26px;
+  border: 1px solid color-mix(in srgb, var(--challenge-accent) 22%, #ffffff);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.96)),
+    linear-gradient(135deg, var(--challenge-soft), #ffffff);
+  box-shadow: 0 18px 50px var(--challenge-glow);
+}
+
+.challenge-card-glow {
+  position: absolute;
+  inset: auto -50px -60px auto;
+  width: 180px;
+  height: 180px;
+  border-radius: 999px;
+  background: var(--challenge-glow);
+  filter: blur(28px);
+  pointer-events: none;
+}
+
+.challenge-card-main {
+  position: relative;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.challenge-icon-shell {
+  width: 96px;
+  height: 96px;
+  border-radius: 28px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  color: #fff;
+  border: 4px solid rgba(255, 255, 255, 0.7);
+}
+
+.challenge-icon-shell--sm {
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+}
+
+.challenge-icon-img {
+  width: 76%;
+  height: 76%;
+  object-fit: contain;
+}
+
+.challenge-icon-emoji {
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
+.challenge-copy {
+  min-width: 0;
+}
+
+.challenge-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.challenge-kicker {
+  margin-bottom: 6px;
+  color: var(--challenge-accent);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.challenge-topline h3 {
+  margin: 0;
+  color: #1f2742;
+  font-size: 1.5rem;
+  line-height: 1.08;
+}
+
+.mode-pill {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mode-pill--claim {
+  background: #ecf8ee;
+  color: #2f8f4d;
+}
+
+.mode-pill--captain {
+  background: #edf5ff;
+  color: #2066be;
+}
+
+.mode-pill--team {
+  background: #fff0e5;
+  color: #d16b1d;
+}
+
+.challenge-description {
+  margin: 12px 0 0;
+  color: #63708b;
+  line-height: 1.65;
+}
+
+.challenge-chips {
+  display: flex;
   flex-wrap: wrap;
-  margin-bottom: 8px;
+  gap: 10px;
+  margin-top: 16px;
 }
-.assignee-label { font-size: 0.82em; color: var(--text-muted, #777); }
-.assignee-name { font-weight: 600; font-size: 0.92em; }
-.badge-done { background: #e8f5e9; color: #2e7d32; padding: 2px 8px; border-radius: 4px; font-size: 0.82em; }
-.badge-volunteered { background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 4px; font-size: 0.82em; }
 
-.task-unassigned { }
-.unassigned-label { font-size: 0.88em; color: var(--text-muted, #888); display: block; margin-bottom: 8px; }
-.assign-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.captain-select { padding: 5px 8px; border: 1px solid var(--border, #ccc); border-radius: 4px; font-size: 0.88em; }
-
-.task-actions { margin-top: 8px; }
-
-.task-card-footer {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-light, #f0f0f0);
+.challenge-chip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #f5f7fb;
+  border: 1px solid #e2e8f2;
+  color: #51607d;
+  font-size: 0.88rem;
+  font-weight: 600;
 }
-.btn-link {
-  background: none;
+
+.challenge-status-row {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.challenge-status-card,
+.captain-assign-panel {
+  position: relative;
+  z-index: 1;
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--challenge-soft) 60%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--challenge-accent) 18%, #ffffff);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.status-label,
+.captain-assign-label {
+  color: #74819c;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.challenge-status-card strong {
+  color: #1f2742;
+  font-size: 1.06rem;
+}
+
+.captain-assign-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.challenge-card-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.claim-btn,
+.tag-btn {
+  min-height: 48px;
+  padding: 0 20px;
   border: none;
-  color: var(--primary, #1976d2);
-  font-size: 0.82em;
+  border-radius: 16px;
+  font-weight: 800;
+  font-size: 0.94rem;
   cursor: pointer;
-  padding: 0;
 }
-.btn-link:hover { text-decoration: underline; }
-.btn-outline {
+
+.claim-btn {
+  color: #fff;
+  background: linear-gradient(135deg, var(--challenge-accent), color-mix(in srgb, var(--challenge-accent) 68%, #000000));
+  box-shadow: 0 16px 26px var(--challenge-glow);
+}
+
+.claim-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.claim-btn--compact {
+  min-height: 40px;
+  width: 100%;
+  justify-content: center;
+}
+
+.tag-btn {
+  background: #1f2742;
+  color: #fff;
+}
+
+.action-hint {
+  color: #70809b;
+  font-size: 0.92rem;
+}
+
+.btn-link {
+  border: none;
   background: transparent;
-  border: 1px solid var(--primary, #1976d2);
-  color: var(--primary, #1976d2);
-  border-radius: 4px;
-  padding: 4px 12px;
-  font-size: 0.85em;
+  padding: 0;
+  color: var(--challenge-accent);
+  font-weight: 800;
   cursor: pointer;
-  transition: background 0.15s;
 }
-.btn-outline:hover { background: rgba(25, 118, 210, 0.07); }
-.btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.empty-hint, .loading-inline { padding: 12px; color: var(--text-muted, #666); font-size: 0.9em; }
-.hint { font-size: 0.85em; color: var(--text-muted, #777); }
+.weekly-splash-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(10px);
+}
 
-/* Complete modal */
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-content { background: var(--surface, #fff); border-radius: 10px; padding: 24px; min-width: 320px; max-width: 480px; width: 90%; }
-.modal-content h3 { margin: 0 0 12px 0; }
-.modal-content .form-group { margin-bottom: 16px; }
-.modal-content label { display: block; font-size: 0.88em; margin-bottom: 4px; }
-.modal-content textarea { width: 100%; padding: 8px; border: 1px solid var(--border, #ccc); border-radius: 4px; resize: vertical; }
-.form-actions { display: flex; gap: 12px; margin-top: 16px; justify-content: flex-end; }
+.weekly-splash-card {
+  width: min(980px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  border-radius: 28px;
+  padding: 26px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 148, 58, 0.18), transparent 28%),
+    linear-gradient(135deg, #ffffff 0%, #f7fbff 100%);
+  box-shadow: 0 26px 80px rgba(15, 23, 42, 0.28);
+}
+
+.weekly-splash-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.weekly-splash-kicker {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: #ef7f1a;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.weekly-splash-header h3 {
+  margin: 0;
+  font-size: 2rem;
+  color: #1f2742;
+}
+
+.weekly-splash-header p {
+  margin: 8px 0 0;
+  color: #61708a;
+}
+
+.weekly-splash-close {
+  border: none;
+  background: transparent;
+  font-size: 2rem;
+  line-height: 1;
+  color: #8b96aa;
+  cursor: pointer;
+}
+
+.weekly-splash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.weekly-splash-task {
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--challenge-accent) 18%, #ffffff);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.weekly-splash-task-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.weekly-splash-type {
+  margin-top: 4px;
+  color: var(--challenge-accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.weekly-splash-desc {
+  color: #627089;
+  line-height: 1.55;
+  min-height: 72px;
+}
+
+.weekly-splash-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+@media (max-width: 820px) {
+  .weekly-hero,
+  .challenge-card-main {
+    grid-template-columns: 1fr;
+  }
+
+  .weekly-hero {
+    padding: 22px;
+  }
+
+  .challenge-icon-shell {
+    width: 84px;
+    height: 84px;
+  }
+
+  .captain-assign-row {
+    grid-template-columns: 1fr;
+  }
+
+  .challenge-card-actions {
+    align-items: stretch;
+  }
+
+  .claim-btn,
+  .tag-btn {
+    width: 100%;
+  }
+}
 </style>

@@ -9,6 +9,18 @@ const toInt = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
+const normalizeAssignment = (row) => {
+  if (!row) return null;
+  const volunteered = !!row.volunteered;
+  return {
+    ...row,
+    volunteered,
+    is_completed: !!row.is_completed,
+    is_pending_approval: false,
+    is_approved_assignment: true
+  };
+};
+
 class ChallengeWeeklyAssignment {
   static async findById(id) {
     const [rows] = await pool.execute(
@@ -19,10 +31,10 @@ class ChallengeWeeklyAssignment {
        INNER JOIN challenge_weekly_tasks t ON t.id = a.task_id
        INNER JOIN users u ON u.id = a.provider_user_id
        INNER JOIN challenge_teams t2 ON t2.id = a.team_id
-       WHERE a.id = ? LIMIT 1`,
+      WHERE a.id = ? LIMIT 1`,
       [toInt(id)]
     );
-    return rows?.[0] || null;
+    return normalizeAssignment(rows?.[0] || null);
   }
 
   /** Find assignment by task and user (used for tagging enforcement). */
@@ -34,10 +46,10 @@ class ChallengeWeeklyAssignment {
       `SELECT a.*, t.mode AS task_mode
        FROM challenge_weekly_assignments a
        INNER JOIN challenge_weekly_tasks t ON t.id = a.task_id
-       WHERE a.task_id = ? AND a.provider_user_id = ? LIMIT 1`,
+      WHERE a.task_id = ? AND a.provider_user_id = ? LIMIT 1`,
       [tId, uId]
     );
-    return rows?.[0] || null;
+    return normalizeAssignment(rows?.[0] || null);
   }
 
   /** Find assignment by task and team (used to check existing assignment before captain assigns). */
@@ -49,10 +61,10 @@ class ChallengeWeeklyAssignment {
       `SELECT a.*, u.first_name AS provider_first_name, u.last_name AS provider_last_name
        FROM challenge_weekly_assignments a
        INNER JOIN users u ON u.id = a.provider_user_id
-       WHERE a.task_id = ? AND a.team_id = ? LIMIT 1`,
+      WHERE a.task_id = ? AND a.team_id = ? LIMIT 1`,
       [tId, tmId]
     );
-    return rows?.[0] || null;
+    return normalizeAssignment(rows?.[0] || null);
   }
 
   static async listByWeek(learningClassId, weekStartDate) {
@@ -71,7 +83,7 @@ class ChallengeWeeklyAssignment {
        ORDER BY t2.team_name, t.task_index`,
       [classId, week]
     );
-    return (rows || []).map((r) => ({ ...r, is_completed: !!r.is_completed }));
+    return (rows || []).map((r) => normalizeAssignment({ ...r, is_completed: !!r.is_completed }));
   }
 
   static async assign({ taskId, teamId, providerUserId, assignedByUserId = null, volunteered = false }) {

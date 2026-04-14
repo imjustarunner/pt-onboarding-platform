@@ -635,12 +635,14 @@ class ChallengeWorkout {
       points:           'w.points',
       distance_miles:   'w.distance_value',
       duration_minutes: 'w.duration_minutes',
-      activities_count: null  // special: COUNT
+      activities_count: null,
+      challenge_completions: null
     };
     const metricCol = metricColMap[metric] ?? 'w.points';
 
     function buildMetricExpr(agg) {
       if (metric === 'activities_count') return 'COUNT(w.id)';
+      if (metric === 'challenge_completions') return 'COUNT(DISTINCT w.weekly_task_id)';
       switch (agg) {
         case 'average':     return `AVG(${metricCol})`;
         case 'best_single': return `MAX(${metricCol})`;
@@ -824,7 +826,11 @@ class ChallengeWorkout {
       let sql;
       const milestoneThreshold = Number(cat.milestoneThreshold);
       if (aggregation === 'best_day') {
-        const dayMetric = metric === 'activities_count' ? 'COUNT(w.id)' : `SUM(${metricCol})`;
+        const dayMetric = metric === 'activities_count'
+          ? 'COUNT(w.id)'
+          : metric === 'challenge_completions'
+            ? 'COUNT(DISTINCT w.weekly_task_id)'
+            : `SUM(${metricCol})`;
         sql = `
           SELECT d.user_id, d.first_name, d.last_name, d.profile_photo_path, d.team_id, d.team_name,
                  MAX(d.day_total) AS metric_value

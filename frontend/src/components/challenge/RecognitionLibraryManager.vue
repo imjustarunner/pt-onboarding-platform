@@ -112,6 +112,7 @@
                 <option value="points">Points</option>
                 <option value="duration_minutes">Duration (min)</option>
                 <option value="activities_count">Activity count</option>
+                <option value="challenge_completions">Challenges completed</option>
               </select>
             </div>
             <div v-if="tenantAwardForm.period !== 'challenge'" class="rlm-field">
@@ -416,6 +417,7 @@
                 <option value="points">Points</option>
                 <option value="duration_minutes">Duration (min)</option>
                 <option value="activities_count">Activity count</option>
+                <option value="challenge_completions">Challenges completed</option>
               </select>
             </div>
             <div v-if="awardForm.period !== 'challenge'" class="rlm-field">
@@ -930,7 +932,7 @@ async function executeDelete() {
 
 // ── Display helpers ────────────────────────────────────────────────
 function periodLabel(p) { return { weekly: 'Weekly', monthly: 'Monthly', season: 'Full Season', challenge: 'Challenge' }[p] || p; }
-function metricLabel(m) { return { distance_miles: 'Miles', points: 'Points', duration_minutes: 'Duration', activities_count: 'Activity count' }[m] || m; }
+function metricLabel(m) { return { distance_miles: 'Miles', points: 'Points', duration_minutes: 'Duration', activities_count: 'Activity count', challenge_completions: 'Challenges completed' }[m] || m; }
 function aggregationLabel(a) { return { most: 'Most total', least: 'Least total', average: 'Avg/entry', best_single: 'Best workout', best_day: 'Best day', milestone: 'Milestone' }[a] || a; }
 function groupFilterLabel(gf) {
   if (!gf) return 'Everyone';

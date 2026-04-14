@@ -35,11 +35,23 @@
                 }} strong
               </p>
               <p v-if="viewer.isMember" class="hero-member-note hero-member-note--hero">You're a member of this club.</p>
+              <p v-else-if="pendingApplicationForClub" class="hero-member-note hero-member-note--hero">Your club application is pending review.</p>
             </div>
           </div>
           <div v-if="!viewer.isMember" class="hero-actions">
-            <button type="button" class="btn-hero-join" @click="goJoin">Join Our Club</button>
-            <router-link :to="loginTo" class="btn-hero-join btn-hero-join--secondary">Login Now</router-link>
+            <template v-if="pendingApplicationForClub">
+              <div class="hero-pending-pill">Application Pending</div>
+              <div class="hero-pending-copy">
+                Applied {{ formatDate(pendingApplicationForClub.appliedAt) }}. We’ll notify you once the manager reviews it.
+              </div>
+              <button type="button" class="btn-hero-join" :disabled="contactingManager" @click="contactManager">
+                {{ contactingManager ? 'Opening chat…' : 'Message Club Manager' }}
+              </button>
+            </template>
+            <template v-else>
+              <button type="button" class="btn-hero-join" @click="goJoin">Join Our Club</button>
+              <router-link v-if="!isSignedIn" :to="loginTo" class="btn-hero-join btn-hero-join--secondary">Login Now</router-link>
+            </template>
           </div>
         </div>
       </div>
@@ -140,6 +152,20 @@
 
       <!-- ── Main content ────────────────────────────────────── -->
       <div class="pub-content">
+        <div v-if="pendingApplicationForClub" class="pub-card pub-pending-card">
+          <div class="card-label">Application pending</div>
+          <div class="pub-pending-card-row">
+            <div>
+              <h3>We’ve got your request for {{ clubData.club.name }}</h3>
+              <p>Your application was submitted on {{ formatDate(pendingApplicationForClub.appliedAt) }} and is waiting on manager approval.</p>
+            </div>
+            <button type="button" class="btn-hero-join btn-hero-join--compact" :disabled="contactingManager" @click="contactManager">
+              {{ contactingManager ? 'Opening chat…' : 'Message Club Manager' }}
+            </button>
+          </div>
+          <p v-if="contactManagerError" class="pub-pending-error">{{ contactManagerError }}</p>
+        </div>
+
 
         <!-- Club feed (members see full feed; guests see public items when manager enables) -->
         <div v-if="showClubFeedBlock" class="pub-feed-card-wrap">
@@ -375,7 +401,7 @@
         </div>
 
         <!-- CTA (guests only) -->
-        <div v-if="!viewer.isMember" class="pub-cta-card">
+        <div v-if="!viewer.isMember && !pendingApplicationForClub" class="pub-cta-card">
           <div class="cta-inner">
             <div class="cta-text">
               <div class="cta-eyebrow">Join the team</div>
@@ -439,6 +465,9 @@ const clubData = ref(null);
 const configuredStats = ref([]);
 const albumSlideIndex = ref(0);
 const joinBusy = ref(false);
+const myApplications = ref([]);
+const contactingManager = ref(false);
+const contactManagerError = ref('');
 let albumAutoplayTimer = null;
 /** Avoid duplicate fetch when route updates after canonical slug redirect. */
 const lastLoadedRouteKey = ref('');
@@ -449,11 +478,20 @@ const clubRef = computed(() => route.params.clubId);
 const viewer = computed(() => {
   const v = clubData.value?.viewer;
   if (v) return v;
-  return { isAuthenticated: false, isMember: false, clubRole: null, isManager: false, seasonMembershipByClassId: {}, pendingSeasonJoinRequest: null };
+  return { isAuthenticated: false, isMember: false, clubRole: null, isManager: false, seasonMembershipByClassId: {}, pendingSeasonJoinRequest: null, pendingApplication: null };
 });
 
 /** Client-side session (Pinia + localStorage user). Public API may not see HttpOnly cookies on cross-origin calls, so `viewer.isMember` is unreliable for UI chrome. */
 const isSignedIn = computed(() => authStore.isAuthenticated);
+const pendingApplicationForClub = computed(() => {
+  const viewerPending = viewer.value?.pendingApplication;
+  if (viewerPending?.id) return viewerPending;
+  const clubId = Number(clubData.value?.club?.id || 0);
+  if (!clubId) return null;
+  return (myApplications.value || []).find(
+    (app) => Number(app?.clubId || 0) === clubId && String(app?.status || '').toLowerCase() === 'pending'
+  ) || null;
+});
 
 const membersDirectoryTo = computed(() => {
   const ref =
@@ -473,6 +511,44 @@ const goJoin = () => {
   const numericClubId = Number(clubData.value?.club?.id || 0);
   if (!numericClubId) return;
   router.push({ path: `/${orgSlug.value}/join`, query: { club: numericClubId } });
+};
+
+const loadMyApplications = async () => {
+  if (!authStore.isAuthenticated) {
+    myApplications.value = [];
+    return;
+  }
+  try {
+    const { data } = await api.get('/summit-stats/my-applications', { skipGlobalLoading: true });
+    myApplications.value = Array.isArray(data?.applications) ? data.applications : [];
+  } catch {
+    myApplications.value = [];
+  }
+};
+
+const contactManager = async () => {
+  const clubId = Number(clubData.value?.club?.id || 0);
+  if (!clubId) return;
+  if (!authStore.isAuthenticated) {
+    router.push({ path: `/${orgSlug.value}/login`, query: { redirect: route.fullPath } });
+    return;
+  }
+  contactingManager.value = true;
+  contactManagerError.value = '';
+  try {
+    const { data } = await api.post(`/summit-stats/clubs/${clubId}/contact-manager`);
+    router.push({
+      path: `/${orgSlug.value}/messages`,
+      query: {
+        agencyId: String(data?.agencyId || ''),
+        threadId: String(data?.threadId || '')
+      }
+    });
+  } catch (e) {
+    contactManagerError.value = e?.response?.data?.error?.message || 'Failed to open the club manager chat.';
+  } finally {
+    contactingManager.value = false;
+  }
 };
 
 const scrollToClubRecords = () => {
@@ -569,6 +645,7 @@ const requestSeasonJoinAfterDeadline = async () => {
 const reloadPublic = async () => {
   const pubRes = await api.get(`/summit-stats/clubs/${clubRef.value}/public`, { skipAuthRedirect: true });
   clubData.value = pubRes?.data || null;
+  await loadMyApplications();
 };
 
 const loadClubPage = async () => {
@@ -585,6 +662,7 @@ const loadClubPage = async () => {
     return;
   }
   error.value = '';
+  contactManagerError.value = '';
   try {
     const pubRes = await api.get(`/summit-stats/clubs/${clubRef.value}/public`, { skipAuthRedirect: true });
     clubData.value = pubRes?.data || null;
@@ -614,6 +692,7 @@ const loadClubPage = async () => {
         // Stats endpoint may require auth in some contexts; public page still renders without it.
       }
     }
+    await loadMyApplications();
     albumSlideIndex.value = 0;
     startAlbumAutoplay();
   } catch (e) {
@@ -734,6 +813,13 @@ watch(
     if (newKey === oldKey) return;
     loading.value = true;
     await loadClubPage();
+  }
+);
+
+watch(
+  () => authStore.isAuthenticated,
+  async () => {
+    await loadMyApplications();
   }
 );
 
@@ -860,6 +946,23 @@ onBeforeUnmount(() => {
   gap: 10px;
   width: min(100%, 320px);
 }
+.hero-pending-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(219, 234, 254, 0.92);
+  color: #1d4ed8;
+  font-weight: 800;
+}
+.hero-pending-copy {
+  width: 100%;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.95rem;
+  line-height: 1.45;
+  text-align: right;
+}
 .btn-hero-join {
   display: inline-flex;
   align-items: center;
@@ -917,6 +1020,11 @@ onBeforeUnmount(() => {
 }
 .btn-hero-join--secondary:hover {
   background: rgba(255,255,255,.28);
+}
+.btn-hero-join--compact {
+  width: auto;
+  min-width: 220px;
+  padding: 12px 22px;
 }
 
 /* ─── Quick action bar ───────────────────────────────────────── */
@@ -1033,6 +1141,30 @@ onBeforeUnmount(() => {
 .pub-stats-wrap--compact {
   max-width: 640px;
   margin-top: -14px;
+}
+.pub-pending-card {
+  border: 1px solid #bfdbfe;
+  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 78%);
+}
+.pub-pending-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.pub-pending-card-row h3 {
+  margin: 0 0 6px;
+  font-size: 1.2rem;
+  color: #0f172a;
+}
+.pub-pending-card-row p {
+  margin: 0;
+  color: #475569;
+}
+.pub-pending-error {
+  margin: 14px 0 0;
+  color: #b91c1c;
+  font-weight: 600;
 }
 .pub-stats-bar {
   display: flex;
@@ -1582,6 +1714,9 @@ onBeforeUnmount(() => {
     width: auto;
     flex-shrink: 0;
   }
+  .hero-pending-copy {
+    text-align: center;
+  }
   .cta-inner {
     padding: 24px 16px;
   }
@@ -1589,6 +1724,10 @@ onBeforeUnmount(() => {
   .cta-actions {
     min-width: 0;
     width: 100%;
+  }
+  .pub-pending-card-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 

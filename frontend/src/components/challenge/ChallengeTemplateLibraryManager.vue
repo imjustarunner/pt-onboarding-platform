@@ -156,12 +156,7 @@
             <div class="ctlm-field">
               <label class="ctlm-label">Proof</label>
               <select v-model="templateForm.proofPolicy" class="ctlm-select">
-                <option value="none">No proof required</option>
-                <option value="photo_required">Photo required</option>
-                <option value="gps_or_photo">GPS or photo proof</option>
-                <option value="gps_required_no_treadmill">GPS required (no treadmill)</option>
-                <option value="screenshot">Screenshot</option>
-                <option value="manager_approval">Manager approval</option>
+                <option v-for="option in CHALLENGE_PROOF_POLICY_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
             </div>
           </div>
@@ -235,6 +230,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import IconSelector from '../admin/IconSelector.vue';
+import { CHALLENGE_PROOF_POLICY_OPTIONS, challengeProofPolicyLabel } from '../../utils/challengeProofPolicies.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 
 const props = defineProps({
@@ -341,14 +337,7 @@ function modeLabel(mode) {
 }
 
 function proofLabel(proof) {
-  return ({
-    none: 'No proof',
-    photo_required: 'Photo required',
-    gps_or_photo: 'GPS or photo',
-    gps_required_no_treadmill: 'GPS only',
-    screenshot: 'Screenshot',
-    manager_approval: 'Manager approval'
-  })[String(proof || '')] || 'No proof';
+  return challengeProofPolicyLabel(proof, { short: true });
 }
 
 function templateMeta(tpl) {

@@ -164,6 +164,41 @@ export function getWeekDateTimeRange(weekStartDate, cutoffTime = '00:00', timeZo
   return { start: toSql(start), end: toSql(end) };
 }
 
+export function getWeekScheduledDateTime(weekStartDate, {
+  weekday = 'sunday',
+  time = '00:00',
+  timeZone = 'UTC'
+} = {}) {
+  const tz = normalizeTimeZone(timeZone, 'UTC');
+  const weekdayMap = {
+    sunday: 0,
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5,
+    saturday: 6
+  };
+  const targetOffset = weekdayMap[String(weekday || '').trim().toLowerCase()] ?? 0;
+  const [yRaw, mRaw, dRaw] = String(weekStartDate || '').slice(0, 10).split('-');
+  const y = Number(yRaw);
+  const m = Number(mRaw);
+  const d = Number(dRaw);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  const { hours, minutes } = parseCutoffTime(time);
+  const baseCal = new Date(Date.UTC(y, m - 1, d));
+  baseCal.setUTCDate(baseCal.getUTCDate() + targetOffset);
+  return zonedTimeToUtcDate({
+    year: baseCal.getUTCFullYear(),
+    month: baseCal.getUTCMonth() + 1,
+    day: baseCal.getUTCDate(),
+    hour: hours,
+    minute: minutes,
+    second: 0,
+    timeZone: tz
+  });
+}
+
 export function getSeasonWeekPhase({
   klass,
   weekStartDate,

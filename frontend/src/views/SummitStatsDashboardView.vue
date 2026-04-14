@@ -1,5 +1,64 @@
 <template>
   <div class="sstc-dashboard">
+    <section v-if="pendingApplications.length" class="card dash-section dash-section--pending-applications">
+      <div class="section-header">
+        <div>
+          <h2>Club Application Pending</h2>
+          <p>Your join request is in review. You can message the club manager or open the club page while you wait.</p>
+        </div>
+      </div>
+      <div class="stack-list">
+        <article v-for="application in pendingApplications" :key="application.id" class="application-card application-card--hero">
+          <div
+            class="application-card-banner"
+            :style="applicationBannerStyle(application)"
+          >
+            <div class="application-card-banner-overlay">
+              <div class="application-card-brand">
+                <img
+                  v-if="application.logoUrl"
+                  :src="toUploadsUrl(application.logoUrl) || application.logoUrl"
+                  class="application-card-logo"
+                  alt=""
+                />
+                <div>
+                  <p class="application-card-eyebrow">{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }}</p>
+                  <h3>{{ application.clubName }}</h3>
+                  <p class="application-card-subtitle">
+                    Applied {{ formatDate(application.appliedAt) }}
+                    <span v-if="application.managerName"> • Managed by {{ application.managerName }}</span>
+                  </p>
+                </div>
+              </div>
+              <span class="pill pill--pending-application">Pending</span>
+            </div>
+          </div>
+          <div class="application-card-body">
+            <p class="application-card-copy">
+              We’ve saved your application and it’s waiting on club review.
+            </p>
+            <div class="membership-actions">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="contactingApplicationId === application.id"
+                @click="contactClubManagerFromApplication(application)"
+              >
+                {{ contactingApplicationId === application.id ? 'Opening chat…' : 'Message Club Manager' }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="openPendingApplicationClub(application)"
+              >
+                View Club
+              </button>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
     <section class="dashboard-hero card dash-section dash-section--hero">
       <div>
         <p class="eyebrow">{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }}</p>
@@ -669,29 +728,8 @@
       </div>
     </section>
 
-    <section class="grid-two dash-section dash-section--applications">
+    <section v-if="managedClubs.length" class="dash-section dash-section--applications">
       <article class="card">
-        <div class="section-header">
-          <div>
-            <h2>Applications</h2>
-            <p>Pending club join requests. When a manager approves you, the club appears under Club Access.</p>
-          </div>
-        </div>
-        <div v-if="pendingApplications.length" class="stack-list">
-          <div v-for="application in pendingApplications" :key="application.id" class="application-card">
-            <div class="membership-top">
-              <strong>{{ application.clubName }}</strong>
-              <span class="pill" :class="pillClass(application.status)">{{ application.status }}</span>
-            </div>
-            <div class="muted">Applied {{ formatDate(application.appliedAt) }}</div>
-          </div>
-        </div>
-        <div v-else class="empty-state">
-          <p>No open applications right now.</p>
-        </div>
-      </article>
-
-      <article v-if="managedClubs.length" class="card">
         <div class="section-header">
           <div>
             <h2>Manager Tools</h2>
@@ -791,6 +829,7 @@ const dashboardError = ref('');
 const summary = ref(null);
 const applications = ref([]);
 const clubContext = ref(null);
+const contactingApplicationId = ref(null);
 
 // Biometric login state
 const biometricSupported = ref(false);
@@ -1205,6 +1244,47 @@ const loadDashboard = async () => {
       error?.response?.data?.error?.message || `Failed to load your ${SUMMIT_STATS_TEAM_CHALLENGE_NAME} dashboard.`;
   } finally {
     loading.value = false;
+  }
+};
+
+const applicationBannerStyle = (application) => {
+  const raw = String(application?.bannerImageUrl || '').trim();
+  const bannerUrl = raw ? (toUploadsUrl(raw) || raw) : '';
+  if (!bannerUrl) {
+    return {
+      background: 'linear-gradient(135deg, #0f3d7a 0%, #1d4ed8 48%, #f97316 100%)'
+    };
+  }
+  return {
+    backgroundImage: `linear-gradient(rgba(15, 23, 42, 0.58), rgba(15, 23, 42, 0.58)), url(${bannerUrl})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center'
+  };
+};
+
+const openPendingApplicationClub = (application) => {
+  const clubRef = application?.publicClubRef || application?.clubSlug || application?.clubId;
+  if (!clubRef) return;
+  router.push(`/${orgSlug.value}/clubs/${clubRef}`);
+};
+
+const contactClubManagerFromApplication = async (application) => {
+  const clubId = Number(application?.clubId || 0);
+  if (!clubId) return;
+  contactingApplicationId.value = Number(application.id || 0) || clubId;
+  try {
+    const { data } = await api.post(`/summit-stats/clubs/${clubId}/contact-manager`);
+    router.push({
+      path: `/${orgSlug.value}/messages`,
+      query: {
+        agencyId: String(data?.agencyId || ''),
+        threadId: String(data?.threadId || '')
+      }
+    });
+  } catch (error) {
+    window.alert(error?.response?.data?.error?.message || 'Failed to open the club manager chat.');
+  } finally {
+    contactingApplicationId.value = null;
   }
 };
 
@@ -1728,6 +1808,84 @@ watch(
   border-radius: 18px;
   padding: 16px;
   background: #fbfdff;
+}
+
+.application-card--hero {
+  padding: 0;
+  overflow: hidden;
+  border-radius: 22px;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.10);
+}
+
+.application-card-banner {
+  min-height: 180px;
+  display: flex;
+  align-items: flex-end;
+  background: linear-gradient(135deg, #0f3d7a 0%, #1d4ed8 48%, #f97316 100%);
+}
+
+.application-card-banner-overlay {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px;
+  color: #fff;
+  background: linear-gradient(to top, rgba(15, 23, 42, 0.68), rgba(15, 23, 42, 0.20));
+}
+
+.application-card-brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.application-card-logo {
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 8px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+}
+
+.application-card-brand h3 {
+  margin: 0;
+  font-size: 1.7rem;
+  line-height: 1.1;
+}
+
+.application-card-eyebrow {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.application-card-subtitle {
+  margin: 8px 0 0;
+  font-size: 0.98rem;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.application-card-body {
+  padding: 20px 22px 22px;
+}
+
+.application-card-copy {
+  margin: 0;
+  color: #526071;
+}
+
+.pill--pending-application {
+  background: rgba(255, 255, 255, 0.92);
+  color: #1d4ed8;
+  font-weight: 800;
 }
 
 .season-card--rich {
@@ -2383,6 +2541,17 @@ watch(
   .season-history-row {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .application-card-banner-overlay,
+  .application-card-brand {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .application-card-logo {
+    width: 60px;
+    height: 60px;
   }
 
   /* Season card: ensure everything fits within screen width */

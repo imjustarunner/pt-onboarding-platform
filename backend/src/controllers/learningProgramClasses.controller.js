@@ -321,7 +321,11 @@ const normalizeSeasonSettings = (input = {}) => {
       aiDraftEnabled: asBool(publish.aiDraftEnabled, true),
       requiresManagerPublish: asBool(publish.requiresManagerPublish, true),
       tasksPerWeek: Math.min(7, Math.max(1, numOr(publish.tasksPerWeek, 3))),
-      publishLeadHours: Math.max(0, numOr(publish.publishLeadHours, 24))
+      publishLeadHours: Math.max(0, numOr(publish.publishLeadHours, 24)),
+      publishWeekday: toWeekday(publish.publishWeekday, toWeekday(schedule.weekStartsOn, 'monday')),
+      publishTime: toTimeHHMM(publish.publishTime, '06:00'),
+      publishTimeZone: toTimeZone(publish.publishTimeZone, toTimeZone(schedule.weekTimeZone, 'UTC')),
+      showWeeklySplash: asBool(publish.showWeeklySplash, true)
     },
     recognition: {
       weeklyTopAthletesCount: Math.max(1, numOr(recognition.weeklyTopAthletesCount, 5)),

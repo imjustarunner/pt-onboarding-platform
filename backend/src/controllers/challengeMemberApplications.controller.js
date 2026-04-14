@@ -21,6 +21,8 @@ import { callGeminiText } from '../services/geminiText.service.js';
 import Notification from '../models/Notification.model.js';
 import {
   canUserManageClub,
+  formatClubManagerDisplayName,
+  getPrimaryClubManager,
   getUserClubMembership,
   getClubPlatformTenantAgencyId,
   getClubManagerNotificationRecipientUserIds,
@@ -610,7 +612,8 @@ export const getPublicClubStats = async (req, res, next) => {
       isAuthenticated: false,
       isMember: false,
       clubRole: null,
-      isManager: false
+      isManager: false,
+      pendingApplication: null
     };
     if (req.user?.id) {
       viewer.isAuthenticated = true;
@@ -620,6 +623,28 @@ export const getPublicClubStats = async (req, res, next) => {
         viewer.clubRole = m.club_role || 'member';
         const cr = String(m.club_role || '').toLowerCase();
         viewer.isManager = cr === 'manager' || cr === 'assistant_manager';
+      } else {
+        const userEmail = String(req.user?.email || '').trim().toLowerCase();
+        const pendingParams = userEmail ? [clubId, req.user.id, userEmail] : [clubId, req.user.id];
+        const pendingEmailClause = userEmail ? ' OR LOWER(TRIM(email)) = ?' : '';
+        const [pendingRows] = await pool.execute(
+          `SELECT id, status, applied_at
+           FROM challenge_member_applications
+           WHERE agency_id = ?
+             AND status = 'pending'
+             AND (user_id = ?${pendingEmailClause})
+           ORDER BY applied_at DESC, id DESC
+           LIMIT 1`,
+          pendingParams
+        );
+        const pending = pendingRows?.[0];
+        if (pending) {
+          viewer.pendingApplication = {
+            id: Number(pending.id),
+            status: 'pending',
+            appliedAt: pending.applied_at || null
+          };
+        }
       }
     }
 
@@ -3784,7 +3809,8 @@ export const getMyApplications = async (req, res, next) => {
     const emailOrClause = userEmail ? ' OR LOWER(TRIM(cma.email)) = ?' : '';
     const [rows] = await pool.execute(
       `SELECT cma.id, cma.status, cma.applied_at, cma.reviewed_at,
-              a.id AS club_id, a.name AS club_name, a.logo_url, a.logo_path
+              a.id AS club_id, a.name AS club_name, a.slug AS club_slug,
+              a.logo_url, a.logo_path, a.store_config_json
        FROM challenge_member_applications cma
        JOIN agencies a ON a.id = cma.agency_id
        WHERE cma.user_id = ?${emailOrClause}
@@ -3794,19 +3820,26 @@ export const getMyApplications = async (req, res, next) => {
     );
 
     const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
-    const applications = (rows || []).map((r) => {
+    const applications = await Promise.all((rows || []).map(async (r) => {
       let logoUrl = r.logo_url || null;
       if (r.logo_path) logoUrl = `${baseUrl}/uploads/${String(r.logo_path).replace(/^uploads\//, '')}`;
+      const publicPageConfig = buildPublicPageConfig(r.store_config_json);
+      const manager = await getPrimaryClubManager(Number(r.club_id));
       return {
         id: Number(r.id),
         status: String(r.status || 'pending'),
         clubId: Number(r.club_id),
         clubName: r.club_name || '',
+        clubSlug: String(r.club_slug || '').trim() || null,
+        publicClubRef: publicPageConfig.publicSlug || String(r.club_id),
         logoUrl,
+        bannerImageUrl: publicPageConfig.bannerImageUrl || null,
+        managerName: formatClubManagerDisplayName(manager) || null,
+        managerUserId: Number(manager?.userId || 0) || null,
         appliedAt: r.applied_at || null,
         reviewedAt: r.reviewed_at || null
       };
-    });
+    }));
 
     return res.json({ applications });
   } catch (e) { next(e); }

@@ -346,7 +346,7 @@ export const createRecognitionAward = async (req, res, next) => {
     const icon          = String(req.body?.icon || '🏆').slice(0, 64);
     const period        = ['weekly', 'monthly', 'season', 'challenge'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
-    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
+    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count', 'challenge_completions'].includes(req.body?.metric) ? req.body.metric : 'points';
     const resolvedAgg   = resolveAwardAggregation(req.body);
     if (resolvedAgg.error) return res.status(400).json({ error: { message: resolvedAgg.error } });
     const { aggregation, milestoneThreshold } = resolvedAgg;
@@ -377,7 +377,7 @@ export const updateRecognitionAward = async (req, res, next) => {
     const icon          = String(req.body?.icon || '🏆').slice(0, 64);
     const period        = ['weekly', 'monthly', 'season', 'challenge'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
-    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
+    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count', 'challenge_completions'].includes(req.body?.metric) ? req.body.metric : 'points';
     const resolvedAgg   = resolveAwardAggregation(req.body);
     if (resolvedAgg.error) return res.status(400).json({ error: { message: resolvedAgg.error } });
     const { aggregation, milestoneThreshold } = resolvedAgg;
@@ -537,7 +537,7 @@ export const createTenantAward = async (req, res, next) => {
     const icon          = String(req.body?.icon || '🏆').slice(0, 64);
     const period        = ['weekly', 'monthly', 'season', 'challenge'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
-    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
+    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count', 'challenge_completions'].includes(req.body?.metric) ? req.body.metric : 'points';
     const resolvedAgg   = resolveAwardAggregation(req.body);
     if (resolvedAgg.error) return res.status(400).json({ error: { message: resolvedAgg.error } });
     const { aggregation, milestoneThreshold } = resolvedAgg;
@@ -577,7 +577,7 @@ export const updateTenantAward = async (req, res, next) => {
     const icon          = String(req.body?.icon || '🏆').slice(0, 64);
     const period        = ['weekly', 'monthly', 'season', 'challenge'].includes(req.body?.period) ? req.body.period : 'weekly';
     const activityType  = String(req.body?.activityType || '').trim().slice(0, 64);
-    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count'].includes(req.body?.metric) ? req.body.metric : 'points';
+    const metric        = ['points', 'distance_miles', 'duration_minutes', 'activities_count', 'challenge_completions'].includes(req.body?.metric) ? req.body.metric : 'points';
     const resolvedAgg   = resolveAwardAggregation(req.body);
     if (resolvedAgg.error) return res.status(400).json({ error: { message: resolvedAgg.error } });
     const { aggregation, milestoneThreshold } = resolvedAgg;
