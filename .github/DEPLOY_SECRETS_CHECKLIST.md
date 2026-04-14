@@ -34,6 +34,9 @@ Each secret is only used if it exists (non-empty). Missing optional secrets = fe
 - `RECAPTCHA_ENTERPRISE_API_KEY`
 - `RECAPTCHA_ENTERPRISE_PROJECT_ID`
 
+### Summit Stats Team Challenge (SSTC) — invite-only launch
+- `SSTC_INVITE_ONLY_MEMBER_SIGNUP` — set to `true` (or `1` / `yes`) so new athletes **cannot** use `POST /auth/register-participant` or apply to a club without a valid `challenge_member_invites` token. Club managers still create invites (`POST /summit-stats/clubs/:id/invites`); share the `joinUrl` (e.g. `https://…/sstc/join?invite=…`). Leave unset or `false` for open signup + public apply-by-club-id.
+
 ### Google Workspace / OAuth
 - `GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64`
 - `GOOGLE_WORKSPACE_IMPERSONATE_USER`

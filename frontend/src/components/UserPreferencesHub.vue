@@ -856,6 +856,9 @@
         <p class="section-description">These actions are permanent or have significant consequences. Proceed carefully.</p>
       </div>
       <div class="section-content">
+        <div v-if="deleteAccountScopedSuccess" class="success-banner" style="margin-bottom:16px;padding:12px 14px;border-radius:8px;background:#ecfdf5;color:#065f46;font-size:14px;">
+          {{ deleteAccountScopedSuccess }}
+        </div>
         <div class="danger-zone-card">
 
           <!-- Start a New Club -->
@@ -863,8 +866,11 @@
             <div class="danger-zone-item-info">
               <strong>Start a New Club</strong>
               <p>Create and manage your own club. 3 months free, then subject to future platform fees.</p>
+              <p v-if="clubSummitContext && !clubSummitContext.emailVerified" class="danger-zone-hint">
+                Your email must be verified before you can create a club. Use the button below, then check your inbox.
+              </p>
             </div>
-            <button type="button" class="btn-danger-outline" @click="startClubStep = 1">Start a New Club</button>
+            <button type="button" class="btn-danger-outline" @click="openStartClubModal">Start a New Club</button>
           </div>
 
           <div class="danger-zone-divider"></div>
@@ -873,9 +879,15 @@
           <div class="danger-zone-item">
             <div class="danger-zone-item-info">
               <strong>Delete My Account</strong>
-              <p>Permanently remove your account and all associated data. This cannot be undone.</p>
+              <p>
+                If you only use Summit / club challenge features, this archives your login and removes your profile data.
+                If you also belong to other organizations on this platform, only your Summit challenge clubs and workout data
+                are removed here — your account stays active elsewhere.
+              </p>
             </div>
-            <button type="button" class="btn-danger" @click="deleteAccountStep = 1">Delete My Account</button>
+            <button type="button" class="btn-danger" @click="deleteAccountStep = 1; deleteAccountScopedSuccess = ''">
+              Delete My Account
+            </button>
           </div>
         </div>
       </div>
@@ -887,6 +899,18 @@
         <!-- Step 1: Info + form -->
         <div v-if="startClubStep === 1">
           <h2>Start a New Club</h2>
+          <div v-if="clubSummitContext && !clubSummitContext.emailVerified" class="modal-verify-banner">
+            <p><strong>Email verification required.</strong> Creating a club is only available after you verify your email (same rule as a new club manager signup).</p>
+            <button
+              type="button"
+              class="btn-danger-outline btn-sm"
+              :disabled="resendVerifySubmitting"
+              @click="resendClubVerification"
+            >
+              {{ resendVerifySubmitting ? 'Sending…' : 'Resend verification email' }}
+            </button>
+            <p v-if="resendVerifyMessage" class="modal-body-text" style="margin-top:10px;">{{ resendVerifyMessage }}</p>
+          </div>
           <p class="modal-body-text">
             As the founder, you become the <strong>club manager</strong> of the new club.
             All new clubs begin with <strong>3 months of free, unlimited access</strong>.
@@ -913,7 +937,12 @@
           <div v-if="startClubError" class="modal-error">{{ startClubError }}</div>
           <div class="modal-actions">
             <button type="button" class="btn-neutral" @click="startClubStep = 0; startClubError = ''">Cancel</button>
-            <button type="button" class="btn-danger-outline" @click="startClubStep = 2" :disabled="!startClubForm.name.trim()">Continue</button>
+            <button
+              type="button"
+              class="btn-danger-outline"
+              @click="startClubStep = 2"
+              :disabled="!startClubForm.name.trim() || (clubSummitContext && !clubSummitContext.canCreateClub)"
+            >Continue</button>
           </div>
         </div>
 
@@ -941,13 +970,23 @@
         <!-- Step 1: Warning -->
         <div v-if="deleteAccountStep === 1">
           <h2>Delete Your Account</h2>
-          <p class="modal-body-text"><strong>This action is permanent and cannot be undone.</strong> Deleting your account will:</p>
+          <p class="modal-body-text"><strong>This action is permanent for Summit / club challenge data.</strong> What happens:</p>
           <ul class="modal-list">
-            <li>Remove your access to all tenants and clubs</li>
-            <li>Archive all your data — workouts, records, memberships</li>
-            <li>Sign you out immediately</li>
+            <li>Remove your Summit challenge workouts and club memberships (club totals stay the same via non-identifying aggregates)</li>
+            <li>
+              <strong>If you have other organizations on this platform</strong>, your login, email, and profile stay the same
+              and you remain signed in — only your Summit program presence is removed
+            </li>
+            <li>
+              <strong>If Summit clubs are your only affiliation here</strong>, your account is archived, your name and email
+              are cleared from your profile, and you are signed out
+            </li>
           </ul>
-          <p class="modal-body-text">If you manage a club, please transfer ownership or contact support before deleting.</p>
+          <p class="modal-body-text">
+            Club-facing views may show "Anonymous" or similar where you had previously anonymized workouts.
+            Manual club record boards may still list a name until a manager edits that entry.
+          </p>
+          <p class="modal-body-text">If you manage a club, please transfer another manager or contact support before deleting.</p>
           <div class="modal-actions">
             <button type="button" class="btn-neutral" @click="deleteAccountStep = 0">Cancel</button>
             <button type="button" class="btn-danger" @click="deleteAccountStep = 2">I understand, continue</button>
@@ -977,8 +1016,9 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
+import { useAgencyStore } from '../store/agency';
 import { useUserPreferencesStore } from '../store/userPreferences';
 import api from '../services/api';
 import { refetchSessionLockConfig } from '../utils/activityTracker';
@@ -1003,6 +1043,7 @@ const props = defineProps({
 });
 
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 const userPrefsStore = useUserPreferencesStore();
 
 const loading = ref(true);
@@ -1591,7 +1632,25 @@ const identityOrganizations = computed(() => {
   return orgs.map((o) => o.name).join(', ');
 });
 
-onMounted(load);
+const route = useRoute();
+const clubSummitContext = ref(null);
+const resendVerifySubmitting = ref(false);
+const resendVerifyMessage = ref('');
+
+const loadClubSummitContext = async () => {
+  if (Number(props.userId) !== Number(authStore.user?.id)) return;
+  try {
+    const { data } = await api.get('/summit-stats/club-manager-context', { skipGlobalLoading: true });
+    clubSummitContext.value = data;
+  } catch {
+    clubSummitContext.value = null;
+  }
+};
+
+onMounted(async () => {
+  await load();
+  await loadClubSummitContext();
+});
 
 // --- Danger Zone: Start a New Club ---
 const router = useRouter();
@@ -1600,6 +1659,34 @@ const startClubConfirm = ref('');
 const startClubSubmitting = ref(false);
 const startClubError = ref('');
 const startClubForm = reactive({ name: '', city: '', state: '', purpose: '' });
+
+const openStartClubModal = async () => {
+  startClubError.value = '';
+  resendVerifyMessage.value = '';
+  await loadClubSummitContext();
+  startClubStep.value = 1;
+};
+
+const resendClubVerification = async () => {
+  resendVerifyMessage.value = '';
+  resendVerifySubmitting.value = true;
+  try {
+    const portalSlug = String(route.params?.organizationSlug || '').replace(/[^a-z0-9-]/gi, '') || 'sstc';
+    const { data } = await api.post('/auth/resend-club-manager-verification', { portalSlug });
+    if (data?.alreadyVerified) {
+      resendVerifyMessage.value = 'Email is already verified. You can create your club.';
+      await loadClubSummitContext();
+    } else if (data?.verifyUrl) {
+      resendVerifyMessage.value = `Open this link to verify: ${data.verifyUrl}`;
+    } else {
+      resendVerifyMessage.value = data?.message || 'Check your email for the verification link.';
+    }
+  } catch (e) {
+    resendVerifyMessage.value = e?.response?.data?.error?.message || 'Could not send verification.';
+  } finally {
+    resendVerifySubmitting.value = false;
+  }
+};
 
 const submitStartClub = async () => {
   startClubError.value = '';
@@ -1616,11 +1703,17 @@ const submitStartClub = async () => {
     startClubForm.city = '';
     startClubForm.state = '';
     startClubForm.purpose = '';
+    await loadClubSummitContext();
     if (data?.slug) {
       router.push(`/${data.slug}/club/seasons`);
     }
   } catch (e) {
-    startClubError.value = e?.response?.data?.error?.message || 'Failed to create your club. Please try again.';
+    const code = e?.response?.data?.error?.code;
+    const msg = e?.response?.data?.error?.message || 'Failed to create your club. Please try again.';
+    startClubError.value = msg;
+    if (code === 'EMAIL_VERIFICATION_REQUIRED') {
+      await loadClubSummitContext();
+    }
     startClubStep.value = 1;
   } finally {
     startClubSubmitting.value = false;
@@ -1632,12 +1725,30 @@ const deleteAccountStep = ref(0);
 const deleteAccountConfirm = ref('');
 const deleteAccountSubmitting = ref(false);
 const deleteAccountError = ref('');
+const deleteAccountScopedSuccess = ref('');
 
 const submitDeleteAccount = async () => {
   deleteAccountError.value = '';
   deleteAccountSubmitting.value = true;
   try {
-    await api.delete('/users/me', { data: { confirmPhrase: 'DELETE' } });
+    const { data } = await api.delete('/users/me', { data: { confirmPhrase: 'DELETE' } });
+    deleteAccountConfirm.value = '';
+    deleteAccountStep.value = 0;
+
+    if (data?.removedSummitOnly) {
+      deleteAccountScopedSuccess.value =
+        data?.message ||
+        'Your Summit challenge data was removed. Your account remains active for your other organizations.';
+      if (typeof authStore.refreshUser === 'function') {
+        await authStore.refreshUser();
+      }
+      if (typeof agencyStore.fetchUserAgencies === 'function') {
+        await agencyStore.fetchUserAgencies();
+      }
+      return;
+    }
+
+    deleteAccountScopedSuccess.value = '';
     authStore.logout?.();
     localStorage.clear();
     router.push('/login');
@@ -2017,6 +2128,25 @@ input, select {
   border-radius: 6px;
   color: #b91c1c;
   font-size: 0.85rem;
+}
+.danger-zone-hint {
+  margin: 8px 0 0;
+  font-size: 0.88rem;
+  color: #92400e;
+  max-width: 520px;
+}
+.modal-verify-banner {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  font-size: 0.92rem;
+}
+.modal-verify-banner .btn-sm {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  padding: 6px 12px;
 }
 </style>
 

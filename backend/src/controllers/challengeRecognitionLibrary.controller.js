@@ -4,6 +4,7 @@
  */
 import pool from '../config/database.js';
 import Icon from '../models/Icon.model.js';
+import { loadRetainedTotalsForClub } from '../utils/summitClubErasureRetainedTotals.js';
 import { parseFeatureFlags } from '../utils/bookClub.js';
 import { canUserManageClub, getClubPlatformTenantAgencyId } from '../utils/sscClubAccess.js';
 
@@ -753,6 +754,25 @@ export const computeLiveStats = async (clubId) => {
     [clubId]
   );
   live.marathon_count = Number(mRows?.[0]?.cnt || 0);
+
+  try {
+    const retained = await loadRetainedTotalsForClub(clubId);
+    const rr = retained.rec || {};
+    live.total_miles = Number(live.total_miles || 0) + Number(rr.distance || 0);
+    live.total_points = Number(live.total_points || 0) + Number(rr.points || 0);
+    live.total_minutes = Number(live.total_minutes || 0) + Number(rr.durationMinutes || 0);
+    live.total_workouts = Number(live.total_workouts || 0) + Number(rr.workoutCount || 0);
+    live.total_calories = Number(live.total_calories || 0) + Number(rr.calories || 0);
+    live.total_runs = Number(live.total_runs || 0) + Number(rr.runCount || 0);
+    live.total_rucks = Number(live.total_rucks || 0) + Number(rr.ruckCount || 0);
+    live.total_walks = Number(live.total_walks || 0) + Number(rr.walkCount || 0);
+    live.run_miles = Number(live.run_miles || 0) + Number(rr.runMiles || 0);
+    live.ruck_miles = Number(live.ruck_miles || 0) + Number(rr.ruckMiles || 0);
+    live.walk_miles = Number(live.walk_miles || 0) + Number(rr.walkMiles || 0);
+  } catch (re) {
+    if (re?.code !== 'ER_NO_SUCH_TABLE') throw re;
+  }
+
   return live;
 };
 

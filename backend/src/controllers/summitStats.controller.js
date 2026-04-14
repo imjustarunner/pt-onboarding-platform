@@ -11,7 +11,13 @@ import {
 } from '../utils/sscClubAccess.js';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import { sqlAffiliationUnderSummitPlatform } from '../utils/summitPlatformClubs.js';
+import {
+  isSstcInviteOnlyMemberSignup,
+  getActiveInviteForTokenAndClub,
+  inviteEmailMatchesInviteRow
+} from '../utils/sstcInviteOnly.js';
 import { estimateCalories } from '../utils/calorieUtils.js';
+import { loadRetainedTotalsForClub } from '../utils/summitClubErasureRetainedTotals.js';
 
 function slugify(name) {
   let s = String(name || '').trim();
@@ -473,7 +479,11 @@ export const listClubs = async (req, res, next) => {
       };
     }));
 
-    res.json({ clubs, total });
+    res.json({
+      clubs,
+      total,
+      inviteOnlyMemberSignup: isSstcInviteOnlyMemberSignup()
+    });
   } catch (error) {
     next(error);
   }
@@ -514,7 +524,39 @@ export const applyToClub = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'You are already a member of this club' } });
     }
 
+    let inviteForJoin = null;
+    if (isSstcInviteOnlyMemberSignup()) {
+      const token = String(req.body?.inviteToken || '').trim();
+      if (!token) {
+        return res.status(403).json({
+          error: {
+            message: 'A valid club invite is required to join. Open the invitation link from your club, or ask your club leader for one.',
+            code: 'INVITE_REQUIRED'
+          }
+        });
+      }
+      inviteForJoin = await getActiveInviteForTokenAndClub(token, clubId);
+      if (!inviteForJoin) {
+        return res.status(403).json({
+          error: {
+            message: 'That invite is invalid, expired, or already used.',
+            code: 'INVITE_INVALID'
+          }
+        });
+      }
+      const userEmail = String(user.email || '').trim().toLowerCase();
+      if (!inviteEmailMatchesInviteRow(inviteForJoin, userEmail)) {
+        return res.status(400).json({
+          error: { message: 'This invite was issued for a different email address than your signed-in account.' }
+        });
+      }
+    }
+
     await User.assignToAgency(user.id, clubId, { clubRole: 'member', isActive: true });
+
+    if (inviteForJoin) {
+      await pool.execute('UPDATE challenge_member_invites SET used_at = NOW() WHERE id = ?', [inviteForJoin.id]);
+    }
 
     const club = await Agency.findById(clubId);
     res.status(201).json({
@@ -776,11 +818,27 @@ export const getClubSpecs = async (req, res, next) => {
         else if (at.includes('step') || at.includes('stair'))           am.steps   += dist;
         else                                                             am.other   += dist;
       }
+      try {
+        const retained = await loadRetainedTotalsForClub(agencyId);
+        const rq = retained.qual || {};
+        result.totalWorkouts += Number(rq.workoutCount || 0);
+        result.totalPoints += Number(rq.points || 0);
+        result.totalMiles += Number(rq.distance || 0);
+        totalCal += Number(rq.calories || 0);
+        const ram = rq.activityMiles || {};
+        for (const key of Object.keys(am)) {
+          am[key] += Number(ram[key] || 0);
+        }
+      } catch (re) {
+        if (re?.code !== 'ER_NO_SUCH_TABLE') throw re;
+      }
+
       result.estimatedCalories = Math.round(totalCal);
       // Round to 2 decimals and drop zero buckets (frontend decides what to show)
       for (const key of Object.keys(am)) {
         am[key] = Math.round(am[key] * 100) / 100;
       }
+      result.totalMiles = Math.round(Number(result.totalMiles || 0) * 100) / 100;
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
     }
@@ -878,6 +936,228 @@ export const getClubManagerContext = async (req, res, next) => {
       emailVerified,
       canCreateClub: !!emailVerified,
       summitStatsScopedAdmin
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/summit-stats/me/leave-club
+ * Member leaves a Summit club (removes membership, season enrollments, team rows).
+ * Does NOT delete challenge_workouts — club aggregate miles/points (summed by organization_id) are unchanged.
+ */
+export const leaveSummitClubMembership = async (req, res, next) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+
+    const userId = Number(req.user?.id);
+    if (!userId) {
+      return res.status(401).json({ error: { message: 'Sign in required' } });
+    }
+    const clubId = parseInt(req.body?.clubId, 10);
+    if (!Number.isFinite(clubId) || clubId < 1) {
+      return res.status(400).json({ error: { message: 'clubId is required' } });
+    }
+
+    const platformId = await getPlatformAgencyId();
+    if (platformId && clubId === platformId) {
+      return res.status(400).json({ error: { message: 'You cannot leave the platform organization this way.' } });
+    }
+
+    const platformIds = await getPlatformAgencyIds(null);
+    const plat = sqlAffiliationUnderSummitPlatform('a', platformIds);
+    const [clubRows] = await conn.execute(
+      `SELECT id FROM agencies a WHERE id = ? AND LOWER(COALESCE(organization_type,'')) = 'affiliation'${plat.sql}`,
+      [clubId, ...plat.params]
+    );
+    if (!clubRows?.length) {
+      return res.status(404).json({ error: { message: 'Club not found or not available to leave.' } });
+    }
+
+    const [uaRows] = await conn.execute(
+      `SELECT COALESCE(club_role,'member') AS club_role FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      [userId, clubId]
+    );
+    if (!uaRows?.length) {
+      return res.status(404).json({ error: { message: 'You are not a member of this club.' } });
+    }
+
+    const cr = String(uaRows[0].club_role || 'member').toLowerCase();
+    if (cr === 'manager') {
+      const [mc] = await conn.execute(
+        `SELECT COUNT(*) AS n FROM user_agencies
+         WHERE agency_id = ? AND COALESCE(is_active,1) = 1 AND LOWER(COALESCE(club_role,'member')) = 'manager'`,
+        [clubId]
+      );
+      if (Number(mc[0]?.n) <= 1) {
+        return res.status(403).json({
+          error: {
+            message:
+              'You are the only club manager. Assign another manager in club settings before leaving, or contact support.',
+            code: 'SOLE_MANAGER'
+          }
+        });
+      }
+    }
+
+    await conn.beginTransaction();
+    try {
+      await conn.execute(
+        `DELETE tm FROM challenge_team_members tm
+         INNER JOIN challenge_teams t ON t.id = tm.team_id
+         INNER JOIN learning_program_classes c ON c.id = t.learning_class_id
+         WHERE tm.provider_user_id = ? AND c.organization_id = ?`,
+        [userId, clubId]
+      );
+      await conn.execute(
+        `DELETE m FROM learning_class_provider_memberships m
+         INNER JOIN learning_program_classes c ON c.id = m.learning_class_id
+         WHERE m.provider_user_id = ? AND c.organization_id = ?`,
+        [userId, clubId]
+      );
+      await conn.execute('DELETE FROM user_agencies WHERE user_id = ? AND agency_id = ?', [userId, clubId]);
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    }
+
+    return res.json({ ok: true, clubId, message: 'You have left this club.' });
+  } catch (error) {
+    next(error);
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
+/**
+ * GET /api/summit-stats/me/data-export
+ * JSON export of profile identifiers + challenge workouts (self-service).
+ */
+export const exportMySummitChallengeData = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.id);
+    if (!userId) return res.status(401).json({ error: { message: 'Sign in required' } });
+
+    const [userRows] = await pool.execute(
+      `SELECT id, email, first_name, last_name, role, status, timezone, created_at, personal_phone, phone
+       FROM users WHERE id = ? LIMIT 1`,
+      [userId]
+    );
+    const profile = userRows?.[0] || null;
+
+    let workouts = [];
+    try {
+      const [wRows] = await pool.execute(
+        `SELECT w.id, w.learning_class_id, w.team_id, w.activity_type, w.distance_value, w.duration_minutes,
+                w.points, w.completed_at, w.created_at, w.contributor_anonymized_at,
+                c.organization_id AS club_id, c.class_name
+         FROM challenge_workouts w
+         INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+         WHERE w.user_id = ?
+         ORDER BY w.completed_at DESC, w.id DESC`,
+        [userId]
+      );
+      workouts = wRows || [];
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [wRows] = await pool.execute(
+        `SELECT w.id, w.learning_class_id, w.team_id, w.activity_type, w.distance_value, w.duration_minutes,
+                w.points, w.completed_at, w.created_at,
+                c.organization_id AS club_id, c.class_name
+         FROM challenge_workouts w
+         INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+         WHERE w.user_id = ?
+         ORDER BY w.completed_at DESC, w.id DESC`,
+        [userId]
+      );
+      workouts = wRows || [];
+    }
+
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="my-summit-challenge-data.json"');
+    return res.send(
+      JSON.stringify(
+        {
+          exportedAt: new Date().toISOString(),
+          profile,
+          workouts
+        },
+        null,
+        2
+      )
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/summit-stats/me/anonymize-club-contributions
+ * Body: { clubId } — marks existing workouts in that club as anonymous in club-facing views (miles/points unchanged).
+ */
+export const anonymizeMyContributionsInClub = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.id);
+    if (!userId) return res.status(401).json({ error: { message: 'Sign in required' } });
+    const clubId = parseInt(req.body?.clubId, 10);
+    if (!Number.isFinite(clubId) || clubId < 1) {
+      return res.status(400).json({ error: { message: 'clubId is required' } });
+    }
+
+    const platformIds = await getPlatformAgencyIds(null);
+    const plat = sqlAffiliationUnderSummitPlatform('a', platformIds);
+    const [clubRows] = await pool.execute(
+      `SELECT id FROM agencies a WHERE id = ? AND LOWER(COALESCE(organization_type,'')) = 'affiliation'${plat.sql}`,
+      [clubId, ...plat.params]
+    );
+    if (!clubRows?.length) {
+      return res.status(404).json({ error: { message: 'Club not found.' } });
+    }
+
+    const [mem] = await pool.execute(
+      `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      [userId, clubId]
+    );
+    const [hasWork] = await pool.execute(
+      `SELECT 1 FROM challenge_workouts w
+       INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+       WHERE w.user_id = ? AND c.organization_id = ?
+       LIMIT 1`,
+      [userId, clubId]
+    );
+    if (!mem?.length && !hasWork?.length) {
+      return res.status(403).json({
+        error: { message: 'No membership or workout history found for this club.' }
+      });
+    }
+
+    let result;
+    try {
+      [result] = await pool.execute(
+        `UPDATE challenge_workouts w
+         INNER JOIN learning_program_classes c ON c.id = w.learning_class_id
+         SET w.contributor_anonymized_at = UTC_TIMESTAMP()
+         WHERE w.user_id = ? AND c.organization_id = ?`,
+        [userId, clubId]
+      );
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') {
+        return res.status(503).json({
+          error: { message: 'Anonymization is not available until the database migration for contributor anonymity is applied.' }
+        });
+      }
+      throw e;
+    }
+
+    return res.json({
+      ok: true,
+      clubId,
+      workoutsUpdated: Number(result?.affectedRows ?? 0),
+      message:
+        "Only your name on this club's leaderboards (and similar ranked views) will read as anonymous. Other members are unchanged. Miles and points are still stored on your existing workout rows — we did not create a second copy. Manager-edited record boards are unchanged unless they update them."
     });
   } catch (error) {
     next(error);

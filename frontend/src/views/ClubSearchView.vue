@@ -5,7 +5,7 @@
         <img :src="displayLogoUrl" alt="Logo" class="logo-image" @error="logoError = true" />
       </div>
       <h1>Find a Club</h1>
-      <p class="subtitle">Browse clubs and start an application to join.</p>
+      <p class="subtitle">{{ clubsPageSubtitle }}</p>
 
       <div class="search-filters">
         <input
@@ -61,7 +61,13 @@
               :disabled="applyingId === c.id"
               @click="applyToClub(c)"
             >
-              {{ applyingId === c.id ? 'Joining…' : (isSscSstcSlug ? 'Apply to Join' : (authStore.isAuthenticated ? 'Apply to Join' : 'Sign in to Join')) }}
+              {{
+                applyingId === c.id
+                  ? 'Joining…'
+                  : isSscSstcSlug
+                    ? (inviteOnlyMemberSignup ? 'Request invite' : 'Apply to Join')
+                    : (authStore.isAuthenticated ? 'Apply to Join' : 'Sign in to Join')
+              }}
             </button>
           </div>
         </div>
@@ -107,6 +113,7 @@ const stateFilter = ref('');
 const myApplications = ref([]);
 const applyingId = ref(null);
 const contactingId = ref(null);
+const inviteOnlyMemberSignup = ref(false);
 let searchTimeout = null;
 
 const usStates = [
@@ -157,6 +164,7 @@ const fetchClubs = async () => {
       skipAuthRedirect: true
     });
     clubs.value = r.data?.clubs || [];
+    inviteOnlyMemberSignup.value = r.data?.inviteOnlyMemberSignup === true;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load clubs';
     clubs.value = [];
@@ -173,6 +181,13 @@ const debouncedSearch = () => {
 const isSscSstcSlug = computed(() => {
   const s = String(orgSlug.value || '').toLowerCase();
   return s === 'ssc' || s === 'sstc';
+});
+
+const clubsPageSubtitle = computed(() => {
+  if (isSscSstcSlug.value && inviteOnlyMemberSignup.value) {
+    return 'Browse clubs and request an invitation, or use a personal link from your club if you already have one.';
+  }
+  return 'Browse clubs and start an application to join.';
 });
 
 const applyToClub = async (club) => {

@@ -394,6 +394,7 @@ export const buildRecordMetricMap = async ({ classId, organizationId, selectedMe
          w.duration_minutes,
          w.points,
          w.completed_at,
+         w.contributor_anonymized_at,
          u.first_name,
          u.last_name,
          t.team_name,
@@ -411,11 +412,14 @@ export const buildRecordMetricMap = async ({ classId, organizationId, selectedMe
     );
     const row = rows?.[0];
     if (!row) return null;
+    const holderName = row.contributor_anonymized_at
+      ? 'Anonymous participant'
+      : `${row.first_name || ''} ${row.last_name || ''}`.trim();
     return {
       metricKey: metric.key,
       label: metric.label,
       holderUserId: Number(row.user_id),
-      holderName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
+      holderName,
       teamName: row.team_name || null,
       seasonName: row.class_name || null,
       valueText: metric.valueText(row),

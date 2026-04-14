@@ -33,6 +33,12 @@ import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import StorageService from '../services/storage.service.js';
 import multer from 'multer';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import {
+  isSstcInviteOnlyMemberSignup,
+  getActiveInviteForTokenAndClub,
+  inviteEmailMatchesInviteRow
+} from '../utils/sstcInviteOnly.js';
+import { loadRetainedTotalsForClub } from '../utils/summitClubErasureRetainedTotals.js';
 
 /** Multer for club feed image attachments (memory). */
 export const clubFeedImageUpload = multer({
@@ -537,6 +543,17 @@ export const getPublicClubStats = async (req, res, next) => {
     );
     const stats = statRows?.[0] || {};
 
+    try {
+      const retained = await loadRetainedTotalsForClub(clubId);
+      const a = retained.all || {};
+      stats.total_miles = Number(stats.total_miles || 0) + Number(a.distance || 0);
+      stats.total_points = Number(stats.total_points || 0) + Number(a.points || 0);
+      stats.total_minutes = Number(stats.total_minutes || 0) + Number(a.durationMinutes || 0);
+      stats.total_workouts = Number(stats.total_workouts || 0) + Number(a.workoutCount || 0);
+    } catch (re) {
+      if (re?.code !== 'ER_NO_SUCH_TABLE') throw re;
+    }
+
     // Season count
     const [seasonCountRows] = await pool.execute(
       `SELECT COUNT(*) AS cnt FROM learning_program_classes WHERE organization_id = ?`,
@@ -890,7 +907,8 @@ export const getPublicClubStats = async (req, res, next) => {
       featuredWorkout,
       albumSlides,
       publicStore,
-      recaptcha: getSscRecaptchaConfig()
+      recaptcha: getSscRecaptchaConfig(),
+      memberJoinRequiresInvite: isSstcInviteOnlyMemberSignup()
     });
   } catch (e) { next(e); }
 };
@@ -1152,6 +1170,130 @@ const notifyClubManagersOfPendingMemberApplication = async ({
   }
 };
 
+const notifyClubManagersOfInviteRequest = async ({
+  clubId,
+  requestId,
+  firstName,
+  lastName,
+  email
+}) => {
+  const requesterLabel = `${String(firstName || '').trim()} ${String(lastName || '').trim()}`.trim() || String(email || '').trim();
+  let recipientIds = [];
+  try {
+    recipientIds = await getClubManagerNotificationRecipientUserIds(clubId);
+  } catch (e) {
+    console.error('notifyClubManagersOfInviteRequest:', e);
+    return;
+  }
+  if (!recipientIds.length) return;
+  const title = `${requesterLabel} requested a club invitation`;
+  const message = `Someone asked to join via the app without an invite link. Email: ${String(email || '').trim()}. Create and send them an invite when you are ready.`;
+  for (const userId of recipientIds) {
+    try {
+      await Notification.create({
+        type: 'sstc_club_invite_request',
+        severity: 'info',
+        title,
+        message,
+        userId,
+        agencyId: clubId,
+        relatedEntityType: 'summit_stats_invite_request',
+        relatedEntityId: requestId
+      });
+    } catch (e) {
+      console.error('notifyClubManagersOfInviteRequest create:', e);
+    }
+  }
+};
+
+/**
+ * POST /summit-stats/clubs/:id/request-invite
+ * Public — when invite-only mode is on, lets store users ask club managers for an invitation.
+ */
+export const requestMemberInvite = async (req, res, next) => {
+  try {
+    if (!isSstcInviteOnlyMemberSignup()) {
+      return res.status(404).json({ error: { message: 'Not available' } });
+    }
+
+    const clubId = toInt(req.params.id);
+    const club = await resolveClub(clubId);
+    if (!club) return res.status(404).json({ error: { message: 'Club not found' } });
+
+    const { firstName, lastName, email, message } = req.body;
+    if (!firstName || !lastName) {
+      return res.status(400).json({ error: { message: 'First and last name are required' } });
+    }
+    if (!email) {
+      return res.status(400).json({ error: { message: 'Email is required' } });
+    }
+
+    const captchaResult = await verifySscApplicationCaptcha(req);
+    if (!captchaResult.ok) {
+      return res.status(captchaResult.status || 400).json({ error: { message: captchaResult.message } });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const msg = normalizeLongText(message, 2000);
+
+    const existingUser = await User.findByEmail(normalizedEmail);
+    if (existingUser?.id) {
+      const agencies = await User.getAgencies(existingUser.id);
+      const alreadyMember = (agencies || []).some((a) => Number(a?.id) === Number(clubId));
+      if (alreadyMember) {
+        return res.status(409).json({ error: { message: 'This email is already a member of this club' } });
+      }
+    }
+
+    const [dupRows] = await pool.execute(
+      `SELECT id FROM summit_stats_invite_requests
+       WHERE agency_id = ? AND LOWER(TRIM(email)) = ? AND status = 'pending'
+         AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+       LIMIT 1`,
+      [clubId, normalizedEmail]
+    );
+    if (dupRows?.length) {
+      return res.status(429).json({
+        error: {
+          message: 'You already have a pending invitation request for this club. Please wait for the club manager to respond.'
+        }
+      });
+    }
+
+    const [insertResult] = await pool.execute(
+      `INSERT INTO summit_stats_invite_requests
+        (agency_id, first_name, last_name, email, message, status, request_ip, user_agent)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      [
+        clubId,
+        String(firstName || '').trim().slice(0, 100),
+        String(lastName || '').trim().slice(0, 100),
+        normalizedEmail,
+        msg,
+        getRequestIp(req),
+        normalizeShortText(req.get('user-agent'), 255)
+      ]
+    );
+    const requestId = insertResult.insertId;
+
+    await notifyClubManagersOfInviteRequest({
+      clubId,
+      requestId,
+      firstName,
+      lastName,
+      email: normalizedEmail
+    });
+
+    return res.status(201).json({
+      ok: true,
+      message:
+        'Your request was sent. When a club manager sends you an invitation, open that link (from email or text) to finish signing up.'
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 /** Create a new user account for an applicant. */
 const createUserForApplication = async ({ firstName, lastName, email, phone, username, password }) => {
   const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -1269,7 +1411,8 @@ export const getApplicationEmailStatus = async (req, res, next) => {
  * POST /summit-stats/clubs/:id/apply-form
  * Public — submit a member application (from public page or referral link).
  * Body: { firstName, lastName, email, password, phone?, gender?, dateOfBirth?,
- *         weightLbs?, heightInches?, timezone?, customFields?, referralCode? }
+ *         weightLbs?, heightInches?, timezone?, customFields?, referralCode?, inviteToken? }
+ * When SSTC_INVITE_ONLY_MEMBER_SIGNUP is set, inviteToken is required and must match this club.
  */
 export const submitApplication = async (req, res, next) => {
   try {
@@ -1302,14 +1445,45 @@ export const submitApplication = async (req, res, next) => {
       return res.status(captchaResult.status || 400).json({ error: { message: captchaResult.message } });
     }
 
-    const existingApplication = await findLatestApplicationForClubEmail({ clubId, email });
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    let inviteForApply = null;
+    if (isSstcInviteOnlyMemberSignup()) {
+      const token = String(req.body?.inviteToken || '').trim();
+      if (!token) {
+        return res.status(403).json({
+          error: {
+            message: 'A club invitation link is required to apply. Ask your club leader for an invite.',
+            code: 'INVITE_REQUIRED'
+          }
+        });
+      }
+      inviteForApply = await getActiveInviteForTokenAndClub(token, clubId);
+      if (!inviteForApply) {
+        return res.status(403).json({
+          error: {
+            message: 'That invite is invalid, expired, or already used. Ask your club for a new link.',
+            code: 'INVITE_INVALID'
+          }
+        });
+      }
+      if (!inviteEmailMatchesInviteRow(inviteForApply, normalizedEmail)) {
+        return res.status(400).json({
+          error: {
+            message:
+              'This invite was issued for a different email address. Use the email your club sent the invite to, or ask for a new invite.'
+          }
+        });
+      }
+    }
+
+    const existingApplication = await findLatestApplicationForClubEmail({ clubId, email: normalizedEmail });
     if (existingApplication?.status === 'approved') {
       return res.status(409).json({ error: { message: 'An account with this email is already a member of this club' } });
     }
     if (existingApplication?.status === 'pending') {
       return res.status(409).json({ error: { message: 'An application for this email is already pending review' } });
     }
-    const normalizedEmail = String(email).trim().toLowerCase();
     const [clubConfigRows] = await pool.execute(
       `SELECT store_config_json FROM agencies WHERE id = ? LIMIT 1`,
       [clubId]
@@ -1351,7 +1525,10 @@ export const submitApplication = async (req, res, next) => {
     }
 
     const appId = await createApplicationRow({
-      clubId, referrerUserId, userId,
+      clubId,
+      inviteId: inviteForApply?.id ?? null,
+      referrerUserId,
+      userId,
       firstName, lastName, email: normalizedEmail, phone, username,
       gender, pronouns: normalizedPronouns, dateOfBirth, weightLbs, heightInches, timezone,
       customFields,
@@ -1366,6 +1543,23 @@ export const submitApplication = async (req, res, next) => {
       waiverIpAddress: getRequestIp(req),
       waiverUserAgent: normalizeShortText(req.get('user-agent'), 255)
     });
+
+    if (inviteForApply) {
+      await pool.execute('UPDATE challenge_member_invites SET used_at = NOW() WHERE id = ?', [inviteForApply.id]);
+      if (inviteForApply.auto_approve && !verification.required) {
+        await _approveApplication(appId, null, 'Auto-approved via invite link');
+        return res.status(201).json({
+          ok: true,
+          applicationId: appId,
+          verificationRequired: !!verification.required,
+          verificationSent: !!verification.verificationSent,
+          verifyUrl: verification.verifyUrl || null,
+          message: verification.required
+            ? 'Application submitted and club access is ready once you verify your email.'
+            : 'Welcome! You have been added to the club automatically.'
+        });
+      }
+    }
 
     await notifyClubManagersOfPendingMemberApplication({
       clubId,

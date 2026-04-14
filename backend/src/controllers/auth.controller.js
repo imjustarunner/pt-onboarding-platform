@@ -21,6 +21,7 @@ import ChallengeParticipantProfile from '../models/ChallengeParticipantProfile.m
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import { SUPPORT_TICKET_SOURCE_KEYS, normalizeSupportTicketSourceKey } from '../constants/supportTicketSources.js';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
+import { isSstcInviteOnlyMemberSignup } from '../utils/sstcInviteOnly.js';
 
 async function buildPayrollCaps(user) {
   const [payrollAgencyIds, departmentAgencyIds, credentialingAgencyIds] = user?.id
@@ -3789,6 +3790,16 @@ export const registerParticipant = async (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    if (isSstcInviteOnlyMemberSignup()) {
+      return res.status(403).json({
+        error: {
+          message:
+            'New athlete accounts must be created using your club’s invitation link. Ask your club leader for an invite, then open that link on your phone or computer.',
+          code: 'INVITE_REQUIRED'
+        }
+      });
     }
 
     const { email, password, firstName, lastName, portalSlug, weightLbs, heightInches, gender, dateOfBirth, timezone, clubId, challengeClassId } = req.body;

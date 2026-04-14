@@ -10,9 +10,9 @@
       <div class="expectation-card">
         <h2>What happens next</h2>
         <ul>
-          <li>Your account starts as a free SSTC member account.</li>
-          <li>You can browse clubs, apply to join, and manage your profile right away.</li>
-          <li>Most competition features unlock once a club accepts you or you start your own club.</li>
+          <li>If your club sent you an invitation link, open that link first — that is how you create your athlete account and apply in one step.</li>
+          <li>You can install the mobile app from the App Store or Google Play anytime; you still need the club’s invite link to register.</li>
+          <li>Starting your own club uses the separate “Create a club” flow after club-manager signup.</li>
         </ul>
       </div>
 
@@ -122,7 +122,7 @@ const displayLogoUrl = computed(() => {
 
 const displaySubtitle = computed(() => {
   const name = orgSlug.value && loginTheme.value?.agency?.name ? loginTheme.value.agency.name : SUMMIT_STATS_TEAM_CHALLENGE_NAME;
-  return `Join ${name} with a personal athlete account, then apply to the club that fits you best.`;
+  return `Join ${name} using your club’s invitation link. This page is only for accounts when your organization allows open signup.`;
 });
 
 const loginBackground = computed(() => {
@@ -185,7 +185,13 @@ const submit = async () => {
       success.value += '\n\nClick "Browse Clubs" to find and join a club.';
     }
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Signup failed. Please try again.';
+    const err = e?.response?.data?.error;
+    if (err?.code === 'INVITE_REQUIRED') {
+      error.value =
+        `${err?.message || 'An invitation link is required.'} If you already have a link, open it in this browser or paste it into your phone — it will look like …/join?invite=…`;
+    } else {
+      error.value = err?.message || 'Signup failed. Please try again.';
+    }
   } finally {
     loading.value = false;
   }

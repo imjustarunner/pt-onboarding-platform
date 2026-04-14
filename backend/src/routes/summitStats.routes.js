@@ -1,10 +1,14 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate, authenticateOptional } from '../middleware/auth.middleware.js';
+import { signupLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
   createClub,
   getClubBillingStatus,
   getClubManagerContext,
+  leaveSummitClubMembership,
+  exportMySummitChallengeData,
+  anonymizeMyContributionsInClub,
   getClubSpecs,
   listClubs,
   applyToClub,
@@ -71,6 +75,7 @@ import {
   resolveInviteToken,
   submitApplication,
   submitInviteApplication,
+  requestMemberInvite,
   listApplications,
   reviewApplication,
   createInvite,
@@ -117,6 +122,7 @@ router.get('/clubs/:id/feed/public', getClubFeedPublic);
 router.get('/clubs/invite/:token', resolveInviteToken);
 router.post('/application-email-status', getApplicationEmailStatus);
 router.post('/clubs/:id/apply-form', submitApplication);
+router.post('/clubs/:id/request-invite', signupLimiter, requestMemberInvite);
 router.post('/clubs/invite/:token/apply', submitInviteApplication);
 
 router.use(authenticate);
@@ -129,6 +135,9 @@ router.get('/clubs/:id/members/:userId/profile', getClubMemberProfile);
 
 router.get('/me/dashboard', getMyDashboardSummary);
 router.put('/me/account-snapshot', putMyAccountSnapshot);
+router.post('/me/leave-club', leaveSummitClubMembership);
+router.get('/me/data-export', exportMySummitChallengeData);
+router.post('/me/anonymize-club-contributions', anonymizeMyContributionsInClub);
 router.get('/my-applications', getMyApplications);
 router.get('/club-specs', getClubSpecs);
 router.get('/club-manager-context', getClubManagerContext);

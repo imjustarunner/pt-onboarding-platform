@@ -470,6 +470,65 @@
           </div>
         </div>
 
+        <!-- ── Clubs, export, privacy (SSTC) ─────────────────────────── -->
+        <div v-if="isSsc" class="card compact-card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin: 0;">My clubs &amp; data</h3>
+          </div>
+          <p class="hint" style="margin-top: 8px; line-height: 1.55;">
+            Leave a club anytime. Your past workouts are <strong>not</strong> deleted, so the club's <strong>all-time miles, points, and workout counts stay the same</strong> (only the live member roster drops you).
+            Leaderboards stay <strong>named for everyone by default</strong>. The optional &quot;Hide my name&quot; button only
+            changes how <em>your</em> name appears on those ranked lists for that club; other members are unchanged. Club-wide
+            totals (miles, points, etc.) are still summed from workout data in the database — there is not a separate shadow
+            copy of every run. Download your history as JSON anytime.
+            <strong>Starting a new club</strong> requires a verified email — open
+            <router-link :to="prefsLink">My dashboard → Preferences</router-link>
+            (Danger zone → Start a new club).
+          </p>
+          <div v-if="summitMembershipMsg" class="hint" style="margin-top: 10px; color: var(--success, #16a34a);">
+            {{ summitMembershipMsg }}
+          </div>
+          <div v-if="summitMembershipErr" class="error" style="margin-top: 8px;">{{ summitMembershipErr }}</div>
+          <div v-if="clubSummitLoading" class="hint" style="margin-top: 10px;">Loading clubs…</div>
+          <div v-else-if="!summitAffiliations.length" class="hint" style="margin-top: 10px;">You are not in any Summit clubs yet.</div>
+          <ul v-else class="sstc-club-self-list">
+            <li v-for="c in summitAffiliations" :key="c.id" class="sstc-club-self-row">
+              <div class="sstc-club-self-main">
+                <strong>{{ c.name }}</strong>
+                <span v-if="formatClubRole(c)" class="hint"> — {{ formatClubRole(c) }}</span>
+              </div>
+              <div class="sstc-club-self-actions">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-compact"
+                  :disabled="summitActionBusy"
+                  @click="anonymizeClubContributions(c)"
+                >
+                  Hide my name on leaderboards
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-danger-outline btn-compact"
+                  :disabled="summitActionBusy"
+                  @click="leaveSummitClub(c)"
+                >
+                  Leave club
+                </button>
+              </div>
+            </li>
+          </ul>
+          <div style="margin-top: 14px;">
+            <button
+              type="button"
+              class="btn btn-primary btn-compact"
+              :disabled="summitExportBusy"
+              @click="downloadSummitChallengeExport"
+            >
+              {{ summitExportBusy ? 'Preparing…' : 'Download my workout data (JSON)' }}
+            </button>
+          </div>
+        </div>
+
         <!-- ── Invite a Friend / Referral Link (SSTC members) ─────────── -->
         <div v-if="isSsc" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
@@ -899,7 +958,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import api from '../services/api';
 import { TIMEZONE_GROUPS, detectLocalTimezone } from '../utils/timezones.js';
 import { useAuthStore } from '../store/auth';
@@ -915,7 +974,14 @@ import {
 } from '../utils/biometricAuth';
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
+const orgSlug = computed(() => route.params?.organizationSlug || 'sstc');
+const prefsLink = computed(() => ({
+  path: `/${orgSlug.value}/dashboard`,
+  query: { tab: 'my', my: 'preferences' }
+}));
+
 const agencyStore = useAgencyStore();
 const isClubContext = computed(() => {
   const t = String(agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || '').toLowerCase();
@@ -923,6 +989,114 @@ const isClubContext = computed(() => {
 });
 const isSsc = useSummitStatsChallengeChrome();
 const userId = computed(() => authStore.user?.id);
+
+const clubSummitContext = ref(null);
+const clubSummitLoading = ref(false);
+const summitMembershipMsg = ref('');
+const summitMembershipErr = ref('');
+const summitActionBusy = ref(false);
+const summitExportBusy = ref(false);
+
+const summitAffiliations = computed(() => {
+  const raw = clubSummitContext.value?.clubs;
+  return Array.isArray(raw) ? raw : [];
+});
+
+const formatClubRole = (c) => {
+  const r = String(c?.club_role || c?.clubRole || '').toLowerCase();
+  if (!r || r === 'member') return '';
+  if (r === 'manager') return 'Manager';
+  if (r === 'assistant_manager') return 'Assistant manager';
+  return r.replace(/_/g, ' ');
+};
+
+const loadClubSummitContext = async () => {
+  if (!isSsc.value || !userId.value) return;
+  clubSummitLoading.value = true;
+  summitMembershipErr.value = '';
+  try {
+    const { data } = await api.get('/summit-stats/club-manager-context', { skipGlobalLoading: true });
+    clubSummitContext.value = data;
+  } catch (e) {
+    clubSummitContext.value = null;
+    summitMembershipErr.value = e?.response?.data?.error?.message || 'Could not load club list.';
+  } finally {
+    clubSummitLoading.value = false;
+  }
+};
+
+const leaveSummitClub = async (c) => {
+  const id = Number(c?.id);
+  if (!id) return;
+  if (
+    !window.confirm(
+      `Leave "${c.name}"? Your logged miles and points stay in this club's totals — they are not subtracted. You can join again later if the club invites you or allows applications.`
+    )
+  ) {
+    return;
+  }
+  summitActionBusy.value = true;
+  summitMembershipMsg.value = '';
+  summitMembershipErr.value = '';
+  try {
+    await api.post('/summit-stats/me/leave-club', { clubId: id });
+    summitMembershipMsg.value = 'You have left the club.';
+    await loadClubSummitContext();
+    if (typeof agencyStore.fetchUserAgencies === 'function') {
+      await agencyStore.fetchUserAgencies();
+    }
+  } catch (e) {
+    summitMembershipErr.value = e?.response?.data?.error?.message || 'Could not leave this club.';
+  } finally {
+    summitActionBusy.value = false;
+  }
+};
+
+const anonymizeClubContributions = async (c) => {
+  const id = Number(c?.id);
+  if (!id) return;
+  if (
+    !window.confirm(
+      `Only YOUR name on this club's leaderboards will be hidden (everyone else stays the same). Miles, points, and totals stay in the database on your existing workout rows — nothing is duplicated. Manual record entries a manager typed in are separate. Continue?`
+    )
+  ) {
+    return;
+  }
+  summitActionBusy.value = true;
+  summitMembershipMsg.value = '';
+  summitMembershipErr.value = '';
+  try {
+    const { data } = await api.post('/summit-stats/me/anonymize-club-contributions', { clubId: id });
+    summitMembershipMsg.value = data?.message || 'Updated.';
+  } catch (e) {
+    summitMembershipErr.value = e?.response?.data?.error?.message || 'Could not update anonymity.';
+  } finally {
+    summitActionBusy.value = false;
+  }
+};
+
+const downloadSummitChallengeExport = async () => {
+  summitExportBusy.value = true;
+  summitMembershipErr.value = '';
+  try {
+    const response = await api.get('/summit-stats/me/data-export', {
+      responseType: 'blob',
+      skipGlobalLoading: true
+    });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `my-summit-challenge-data-${Date.now()}.json`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (e) {
+    summitMembershipErr.value = e?.response?.data?.error?.message || 'Download failed.';
+  } finally {
+    summitExportBusy.value = false;
+  }
+};
 const profilePhotoUrl = computed(() => {
   // `GET /users/me` returns `profile_photo_url` which is typically a backend-relative `/uploads/...` path.
   // Always convert to absolute backend URL so it works in production where frontend and backend are on different origins.
@@ -1899,6 +2073,7 @@ onMounted(() => {
     fetchProviderPublicProfile();
     fetchAutoImportSettings();
     fetchAutoImportSeasonEnabled();
+    loadClubSummitContext();
   }
   loadBiometricStatus();
 });
@@ -1953,6 +2128,31 @@ onMounted(() => {
   border-radius: 12px;
   padding: 32px;
   box-shadow: var(--shadow);
+}
+
+.sstc-club-self-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sstc-club-self-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--surface-2, #f8fafc);
+}
+.sstc-club-self-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .info-section {

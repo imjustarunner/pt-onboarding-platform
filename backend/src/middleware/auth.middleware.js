@@ -110,6 +110,9 @@ export const authenticate = async (req, res, next) => {
     if (req.method === 'POST' && /^\/api\/summit-stats\/clubs\/invite\/[^/]+\/apply\/?$/.test(requestPath)) {
       return next();
     }
+    if (req.method === 'POST' && /^\/api\/summit-stats\/clubs\/[^/]+\/request-invite\/?$/.test(requestPath)) {
+      return next();
+    }
     // Fonts are used on public login/portal pages.
     if (requestPath.startsWith('/api/fonts/public') || requestPath.startsWith('/api/fonts/families')) {
       return next();

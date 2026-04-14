@@ -209,14 +209,20 @@ class ChallengeWorkout {
     // even if their workouts are still pending proof review.
     // total_points = only counts approved/not-required proof; total_miles = all non-disqualified.
     const [rows] = await pool.execute(
-      `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path,
+      `SELECT w.user_id,
+              CASE WHEN SUM(CASE WHEN w.contributor_anonymized_at IS NULL THEN 1 ELSE 0 END) = 0
+                   THEN 'Anonymous' ELSE MAX(u.first_name) END AS first_name,
+              CASE WHEN SUM(CASE WHEN w.contributor_anonymized_at IS NULL THEN 1 ELSE 0 END) = 0
+                   THEN '' ELSE MAX(u.last_name) END AS last_name,
+              CASE WHEN SUM(CASE WHEN w.contributor_anonymized_at IS NULL THEN 1 ELSE 0 END) = 0
+                   THEN NULL ELSE MAX(u.profile_photo_path) END AS profile_photo_path,
               COALESCE(SUM(CASE WHEN (w.proof_status IS NULL OR w.proof_status IN ('not_required', 'approved'))
                                THEN w.points ELSE 0 END), 0) AS total_points,
               COALESCE(SUM(w.distance_value), 0) AS total_miles
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
        WHERE w.learning_class_id = ? AND (w.is_disqualified IS NULL OR w.is_disqualified = 0)
-       GROUP BY w.user_id, u.first_name, u.last_name, u.profile_photo_path
+       GROUP BY w.user_id
        ORDER BY total_points DESC, total_miles DESC
        LIMIT ${lim}`,
       [classId]
@@ -248,13 +254,20 @@ class ChallengeWorkout {
     if (!range) return [];
     const lim = Math.min(Math.max(toInt(limit) || 50, 1), 500);
     const [rows] = await pool.execute(
-      `SELECT w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name, SUM(w.points) AS total_points
+      `SELECT w.user_id,
+              CASE WHEN SUM(CASE WHEN w.contributor_anonymized_at IS NULL THEN 1 ELSE 0 END) = 0
+                   THEN 'Anonymous' ELSE MAX(u.first_name) END AS first_name,
+              CASE WHEN SUM(CASE WHEN w.contributor_anonymized_at IS NULL THEN 1 ELSE 0 END) = 0
+                   THEN '' ELSE MAX(u.last_name) END AS last_name,
+              CASE WHEN SUM(CASE WHEN w.contributor_anonymized_at IS NULL THEN 1 ELSE 0 END) = 0
+                   THEN NULL ELSE MAX(u.profile_photo_path) END AS profile_photo_path,
+              w.team_id, t.team_name, SUM(w.points) AS total_points
        FROM challenge_workouts w
        INNER JOIN users u ON u.id = w.user_id
        LEFT JOIN challenge_teams t ON t.id = w.team_id
        WHERE w.learning_class_id = ? AND ${this._qualifiedClause('w')}
          AND w.completed_at >= ? AND w.completed_at < ?
-       GROUP BY w.user_id, u.first_name, u.last_name, u.profile_photo_path, w.team_id, t.team_name
+       GROUP BY w.user_id, w.team_id, t.team_name
        ORDER BY total_points DESC
        LIMIT ${lim}`,
       [classId, range.start, range.end]

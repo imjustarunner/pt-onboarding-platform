@@ -52,6 +52,111 @@
       </p>
     </div>
 
+    <!-- Invite-only: submitted request for an invitation -->
+    <div v-else-if="showInviteOnlyGate && inviteRequestSubmitted" class="reg-success">
+      <div class="success-icon">✉️</div>
+      <h1>Request sent</h1>
+      <p class="success-sub">{{ inviteRequestMessage }}</p>
+      <p class="success-sub subtle">
+        Watch your email (and spam folder). Your club will send a personal link when they are ready.
+      </p>
+      <router-link :to="`/${orgSlug}/clubs`" class="btn btn-secondary">Browse other clubs</router-link>
+      <router-link :to="`/${orgSlug}/login`" class="btn btn-primary">Sign in</router-link>
+    </div>
+
+    <!-- Invite-only: ask club managers for an invitation link -->
+    <div v-else-if="showInviteOnlyGate" class="reg-shell">
+      <div class="reg-hero" :style="heroStyle">
+        <div class="reg-hero-overlay"></div>
+        <div class="reg-hero-platform-bar">
+          <img
+            v-if="platformLogoUrl"
+            :src="platformLogoUrl"
+            class="platform-bar-logo"
+            alt="Platform logo"
+          />
+          <span class="platform-bar-name">{{ platformName || SUMMIT_STATS_TEAM_CHALLENGE_NAME }}</span>
+        </div>
+        <div class="reg-hero-club">
+          <img
+            v-if="clubLogoUrl"
+            :src="clubLogoUrl"
+            class="club-hero-logo"
+            alt="Club logo"
+          />
+          <div class="club-hero-text">
+            <div class="hero-eyebrow">Request access to</div>
+            <h1 class="hero-club-name">{{ clubDisplayName }}</h1>
+          </div>
+        </div>
+      </div>
+      <div class="reg-card">
+        <p class="invite-gate-lead">
+          This club only adds new members through a personal invitation. If you installed the app from the store and do not have a link yet,
+          send a short request to the club managers. They can email or text you an invite when they are ready.
+        </p>
+        <form class="reg-form" @submit.prevent="handleInviteRequestSubmit" novalidate>
+          <section class="form-section">
+            <h2 class="section-title">Your details</h2>
+            <div class="field-row">
+              <label class="field">
+                <span class="field-label">First name</span>
+                <input v-model.trim="inviteRequestForm.firstName" type="text" autocomplete="given-name" required class="field-input" />
+              </label>
+              <label class="field">
+                <span class="field-label">Last name</span>
+                <input v-model.trim="inviteRequestForm.lastName" type="text" autocomplete="family-name" required class="field-input" />
+              </label>
+            </div>
+            <label class="field">
+              <span class="field-label">Email</span>
+              <input
+                v-model.trim="inviteRequestForm.email"
+                type="email"
+                autocomplete="email"
+                required
+                class="field-input"
+              />
+            </label>
+            <label class="field">
+              <span class="field-label">Message <span class="optional">(optional)</span></span>
+              <textarea
+                v-model.trim="inviteRequestForm.message"
+                class="field-input"
+                rows="3"
+                maxlength="2000"
+                placeholder="e.g. how you heard about the club"
+              />
+            </label>
+          </section>
+          <section v-if="requiresCaptcha" class="form-section">
+            <h2 class="section-title">Human check</h2>
+            <div class="captcha-card">
+              <p class="field-hint captcha-intro">Protected by reCAPTCHA.</p>
+              <div ref="recaptchaWidgetEl" class="recaptcha-widget-shell"></div>
+              <p v-if="captchaWidgetFailed" class="form-error captcha-inline-error">Verification widget failed to load. Refresh the page and try again.</p>
+              <p v-else-if="captchaError" class="form-error captcha-inline-error">{{ captchaError }}</p>
+            </div>
+          </section>
+          <div v-if="inviteRequestError" class="form-error" role="alert">{{ inviteRequestError }}</div>
+          <div class="form-actions">
+            <button
+              type="submit"
+              class="btn btn-primary btn-lg"
+              :disabled="inviteRequestSubmitting || (requiresCaptcha && (!captchaToken || captchaWidgetFailed))"
+            >
+              {{ inviteRequestSubmitting ? 'Sending…' : 'Request invitation' }}
+            </button>
+            <p class="form-legal">
+              When you get an invite, open that link from email or text to finish signing up.
+              <span class="sep">·</span>
+              <a :href="`/${orgSlug}/clubs`">Find another club</a>
+            </p>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Success -->
     <div v-else-if="submitted" class="reg-success">
       <div class="success-icon">🎉</div>
@@ -358,6 +463,14 @@
                 captains, volunteers, event organizers, and the platform from claims arising from ordinary participation to the
                 fullest extent allowed by law.
               </p>
+              <p class="waiver-copy" style="margin-top: 12px;">
+                You understand that workout distances, points, and participation totals help the club run seasons and reports.
+                Those numbers usually stay in one place in the database (your workout rows); the app does not create a second
+                copy of every run just for the club. If you later choose to hide your name on leaderboards, or delete your
+                account, the club can still keep the same totals, but your name on ranked lists may be replaced with a generic
+                label for <em>your</em> rows only. Official record boards that a manager sets or edits separately are club
+                content, not your live profile data.
+              </p>
               <label class="waiver-check">
                 <input v-model="form.waiverAccepted" type="checkbox" />
                 <span>I have read and agree to the participation waiver and community expectations above.</span>
@@ -449,6 +562,17 @@ const LOCALHOST_TEST_RECAPTCHA_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZ
 // ── Page state ──────────────────────────────────────────────────────────────
 const pageLoading  = ref(true);
 const pageError    = ref('');
+const showInviteOnlyGate = ref(false);
+const inviteRequestSubmitted = ref(false);
+const inviteRequestMessage = ref('');
+const inviteRequestError = ref('');
+const inviteRequestSubmitting = ref(false);
+const inviteRequestForm = reactive({
+  firstName: '',
+  lastName: '',
+  email: '',
+  message: ''
+});
 const submitted    = ref(false);
 const submitting   = ref(false);
 const submitError  = ref('');
@@ -650,6 +774,9 @@ onMounted(async () => {
         const cfRes = await api.get(`/summit-stats/clubs/${clubIdParam.value}/custom-fields`, { skipAuthRedirect: true });
         customFields.value = cfRes.data?.fields || [];
       } catch { /* non-fatal */ }
+      if (data.memberJoinRequiresInvite === true && !inviteToken.value) {
+        showInviteOnlyGate.value = true;
+      }
     } else {
       pageError.value = 'No club specified. Please use a valid invite or join link.';
     }
@@ -894,10 +1021,60 @@ const handleEmailInput = () => {
   }, 300);
 };
 
-watch([requiresCaptcha, activeRecaptchaSiteKey], ([enabled, siteKey]) => {
+watch([requiresCaptcha, activeRecaptchaSiteKey, showInviteOnlyGate], ([enabled, siteKey]) => {
   if (!enabled || !siteKey || pageLoading.value) return;
   void maybeInitRecaptcha();
 });
+
+const handleInviteRequestSubmit = async () => {
+  inviteRequestError.value = '';
+  const cid = clubInfo.value?.id || clubIdParam.value;
+  if (!cid) {
+    inviteRequestError.value = 'Club not identified. Go back to the club list and try again.';
+    return;
+  }
+  if (!inviteRequestForm.firstName.trim() || !inviteRequestForm.lastName.trim()) {
+    inviteRequestError.value = 'First and last name are required.';
+    return;
+  }
+  if (!inviteRequestForm.email.trim()) {
+    inviteRequestError.value = 'Email is required.';
+    return;
+  }
+  if (requiresCaptcha.value) {
+    if (captchaWidgetFailed.value) {
+      inviteRequestError.value = 'Captcha failed to load. Please refresh the page and try again.';
+      return;
+    }
+    if (!captchaToken.value) {
+      inviteRequestError.value = 'Please complete the captcha verification before submitting.';
+      return;
+    }
+  }
+
+  inviteRequestSubmitting.value = true;
+  try {
+    const { data } = await api.post(
+      `/summit-stats/clubs/${cid}/request-invite`,
+      {
+        firstName: inviteRequestForm.firstName.trim(),
+        lastName: inviteRequestForm.lastName.trim(),
+        email: inviteRequestForm.email.trim().toLowerCase(),
+        message: inviteRequestForm.message.trim() || null,
+        captchaToken: captchaToken.value || null,
+        portalSlug: orgSlug.value || 'sstc'
+      },
+      { skipAuthRedirect: true }
+    );
+    inviteRequestMessage.value = data?.message || 'Your request was sent.';
+    await resetRecaptchaWidget();
+    inviteRequestSubmitted.value = true;
+  } catch (e) {
+    inviteRequestError.value = e?.response?.data?.error?.message || 'Something went wrong. Please try again.';
+  } finally {
+    inviteRequestSubmitting.value = false;
+  }
+};
 
 // ── Submit ──────────────────────────────────────────────────────────────────
 const handleSubmit = async () => {
@@ -958,7 +1135,8 @@ const handleSubmit = async () => {
     customFields: form.customFields,
     referralCode: referralCode.value || null,
     captchaToken: captchaToken.value || null,
-    portalSlug: orgSlug.value || 'sstc'
+    portalSlug: orgSlug.value || 'sstc',
+    ...(inviteToken.value ? { inviteToken: inviteToken.value } : {})
   };
 
   submitting.value = true;
@@ -1087,6 +1265,9 @@ const handleSubmit = async () => {
 @keyframes spin { to { transform: rotate(360deg); } }
 .error-icon, .success-icon { font-size: 52px; margin-bottom: 12px; }
 .success-sub { color: #64748b; margin: 8px 0 16px; line-height: 1.6; }
+.success-sub.subtle { font-size: 0.95rem; margin-top: 0; }
+.invite-gate-lead { color: #475569; line-height: 1.65; margin: 0 0 20px; font-size: 1rem; }
+.field-label .optional { font-weight: 400; color: #94a3b8; }
 .success-verify { color: #1e3a8a; margin: 0 0 14px; line-height: 1.6; }
 .success-auto { margin: 16px 0; padding: 12px 16px; background: #f0fdf4; border-radius: 8px; border: 1px solid #bbf7d0; color: #166534; font-size: 14px; }
 

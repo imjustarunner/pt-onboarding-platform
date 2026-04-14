@@ -24,6 +24,7 @@ import ClientGuardian from '../models/ClientGuardian.model.js';
 import pool from '../config/database.js';
 import { canUserManageClub } from '../utils/sscClubAccess.js';
 import { detachUserFromOrganization, detachUserGlobalLinks } from '../services/userStaffDetach.service.js';
+import { runSummitStrictErasureForAccountDeletion } from '../services/summitStrictErasure.service.js';
 import { syncProgramMembershipForSkillBuilderEligibleUser } from '../services/skillBuildersProgramAffiliation.service.js';
 import { isStravaRolloutEnabledForEmail } from '../utils/stravaRollout.js';
 
@@ -1675,16 +1676,72 @@ export const deleteMe = async (req, res, next) => {
     }
 
     const pool = (await import('../config/database.js')).default;
+
+    let erasedClubCount = 0;
+    try {
+      const erasureResult = await runSummitStrictErasureForAccountDeletion(pool, user.id);
+      erasedClubCount = Number(erasureResult?.erasedClubCount || 0);
+    } catch (erasureErr) {
+      const code = erasureErr?.code;
+      const statusCode = Number(erasureErr?.statusCode);
+      if (code === 'SOLE_MANAGER' || code === 'RETAINED_TOTALS_MIGRATION') {
+        return res.status(Number.isFinite(statusCode) ? statusCode : 403).json({
+          error: { message: erasureErr.message || 'Cannot delete account.', code }
+        });
+      }
+      throw erasureErr;
+    }
+
+    const [remainRows] = await pool.execute(
+      `SELECT COUNT(*) AS n FROM user_agencies WHERE user_id = ?`,
+      [user.id]
+    );
+    const remainingAgencyMemberships = Number(remainRows?.[0]?.n || 0);
+
+    if (remainingAgencyMemberships > 0) {
+      return res.json({
+        message:
+          erasedClubCount > 0
+            ? 'Your Summit challenge data and club memberships in this program have been removed. Your login and profile stay the same for your other organizations.'
+            : 'You still have access through other organizations in this system. No Summit club data was linked to your account to remove.',
+        removedSummitOnly: true,
+        erasedClubCount
+      });
+    }
+
     await pool.execute(
       `UPDATE users SET status = 'ARCHIVED', is_archived = TRUE, archived_at = NOW() WHERE id = ?`,
       [user.id]
     );
 
+    // Scrub direct identifiers while keeping the user row for referential integrity and audit trails.
+    const closedEmail = `account-closed-u${user.id}-${Date.now()}@invalid.invalid`;
+    try {
+      await pool.execute(
+        `UPDATE users SET
+           first_name = 'Former',
+           last_name = 'Member',
+           email = ?,
+           personal_email = NULL,
+           phone = NULL,
+           personal_phone = NULL,
+           username = NULL,
+           profile_photo_path = NULL,
+           password_hash = '',
+           temporary_password_hash = NULL,
+           temporary_password_expires_at = NULL
+         WHERE id = ?`,
+        [closedEmail, user.id]
+      );
+    } catch (scrubErr) {
+      console.error('deleteMe: PII scrub failed (account still archived):', scrubErr?.message || scrubErr);
+    }
+
     const config = (await import('../config/index.js')).default;
     const clearCookieOptions = config.authCookie.clear();
     res.clearCookie('authToken', clearCookieOptions);
 
-    res.json({ message: 'Your account has been deleted.' });
+    res.json({ message: 'Your account has been deleted.', removedSummitOnly: false });
   } catch (error) {
     next(error);
   }
