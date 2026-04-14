@@ -240,7 +240,7 @@
     <div class="settings-section">
       <h3>Available Agency Features</h3>
       <p class="section-description">
-        Control which feature toggles agencies can see in Company Profile → Features. When a feature is unchecked here, agencies will not see that toggle at all—they cannot enable it. Super Admin always has full control.
+        Default visibility for all tenants: which feature toggles appear in Company Profile → Features. When a feature is unchecked here, agencies will not see that toggle unless a per-tenant override allows it (that organization’s Overview in Settings). Super Admin always has full control.
       </p>
       <div class="available-features-grid">
         <label
@@ -316,6 +316,7 @@
 import { ref, computed, onMounted } from 'vue';
 import api from '../../services/api';
 import { useBrandingStore } from '../../store/branding';
+import { AVAILABLE_AGENCY_FEATURE_KEYS } from '../../config/availableAgencyFeatureKeys.js';
 
 const brandingStore = useBrandingStore();
 
@@ -336,25 +337,7 @@ const savingSessionLock = ref(false);
 const savingBetaFeedback = ref(false);
 const savingAvailableFeatures = ref(false);
 
-// Available agency features: which toggles agencies can see in Company Profile → Features
-const AVAILABLE_FEATURES_KEYS = [
-  { key: 'budgetManagementEnabled', label: 'Budget Management' },
-  { key: 'payrollEnabled', label: 'Payroll' },
-  { key: 'hiringEnabled', label: 'Hiring Process' },
-  { key: 'noteAidEnabled', label: 'Note Aid' },
-  { key: 'clinicalNoteGeneratorEnabled', label: 'Clinical Note Generator' },
-  { key: 'publicProviderFinderEnabled', label: 'Public Provider Finder' },
-  { key: 'aiProviderSearchEnabled', label: 'AI Provider Search' },
-  { key: 'shiftProgramsEnabled', label: 'Shift Programs' },
-  { key: 'presenceEnabled', label: 'Presence / Team Board' },
-  { key: 'kudosEnabled', label: 'Kudos' },
-  { key: 'momentumListEnabled', label: 'Momentum List' },
-  { key: 'medcancelEnabled', label: 'Med Cancel' },
-  { key: 'inSchoolSubmissionsEnabled', label: 'In-School Submissions' },
-  { key: 'googleSsoEnabled', label: 'Google Workspace SSO' },
-  { key: 'workspaceProvisioningEnabled', label: 'Workspace Provisioning' }
-];
-
+const AVAILABLE_FEATURES_KEYS = AVAILABLE_AGENCY_FEATURE_KEYS;
 const availableAgencyFeaturesList = AVAILABLE_FEATURES_KEYS;
 const availableAgencyFeatures = ref({});
 const sessionLockPlatformMax = ref(30);

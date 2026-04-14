@@ -2317,6 +2317,11 @@ router.beforeEach(async (to, from, next) => {
     brandingStore.setActiveRouteSlug('');
   }
 
+  // Settings modal: tenant picker (and Platform chip) must drive nav chrome, not the URL prefix slug.
+  brandingStore.setSettingsTenantPickerBrandingActive(
+    to.name === 'Settings' || to.name === 'OrganizationSettings'
+  );
+
   // Prevent stale org branding “flash” when leaving a branded portal.
   if (!to.meta.organizationSlug && from.meta.organizationSlug) {
     // On custom-domain portals, /login should remain branded (portalHostPortalUrl is set at boot).

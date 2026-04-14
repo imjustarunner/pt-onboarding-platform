@@ -499,7 +499,8 @@ export const updateAgency = async (req, res, next) => {
     const { name, slug, officialName, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, sessionSettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageClientsIconId, schoolOverviewIconId, programOverviewIconId, providerAvailabilityDashboardIconId, executiveReportIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, dashboardNotificationsIconId, dashboardCommunicationsIconId, dashboardChatsIconId, dashboardPayrollIconId, dashboardBillingIconId, externalCalendarAuditIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, myDashboardChecklistIconId, myDashboardMomentumListIconId, myDashboardMomentumStickiesIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId, schoolPortalPublicDocumentsIconId, schoolPortalAnnouncementsIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId,
       clubAddMemberIconId, clubAddSeasonIconId, clubSettingsIconId,
-      reviewPromptConfig, companyCarDefaultReason
+      reviewPromptConfig, companyCarDefaultReason,
+      tenantAvailableAgencyFeaturesJson
     } = req.body;
     
     // Validate Google Docs URL if provided
@@ -574,6 +575,21 @@ export const updateAgency = async (req, res, next) => {
         formattedFeatureFlags = null;
       }
     }
+
+    let formattedTenantAvailableAgencyFeatures = undefined;
+    if (tenantAvailableAgencyFeaturesJson !== undefined) {
+      if (typeof tenantAvailableAgencyFeaturesJson === 'object' && tenantAvailableAgencyFeaturesJson !== null) {
+        formattedTenantAvailableAgencyFeatures = tenantAvailableAgencyFeaturesJson;
+      } else if (typeof tenantAvailableAgencyFeaturesJson === 'string' && tenantAvailableAgencyFeaturesJson.trim()) {
+        try {
+          formattedTenantAvailableAgencyFeatures = JSON.parse(tenantAvailableAgencyFeaturesJson);
+        } catch (e) {
+          formattedTenantAvailableAgencyFeatures = null;
+        }
+      } else {
+        formattedTenantAvailableAgencyFeatures = null;
+      }
+    }
     
     const formattedRetentionPolicy = intakeRetentionPolicy !== undefined
       ? parseJsonField(intakeRetentionPolicy)
@@ -590,6 +606,10 @@ export const updateAgency = async (req, res, next) => {
     const isSuperAdmin = req.user?.role === 'super_admin';
     const effectiveIsActive = isSuperAdmin ? isActive : undefined;
     const effectiveSlug = isSuperAdmin ? slug : undefined;
+    const effectiveTenantAvailableFeatures =
+      isSuperAdmin && formattedTenantAvailableAgencyFeatures !== undefined
+        ? formattedTenantAvailableAgencyFeatures
+        : undefined;
 
     const agency = await Agency.update(id, { 
       name, 
@@ -667,6 +687,7 @@ export const updateAgency = async (req, res, next) => {
       customParameters: formattedCustomParameters,
       reviewPromptConfig: formattedReviewPromptConfig,
       featureFlags: formattedFeatureFlags,
+      tenantAvailableAgencyFeaturesJson: effectiveTenantAvailableFeatures,
       publicAvailabilityEnabled,
       organizationType,
       tierSystemEnabled,

@@ -231,6 +231,20 @@ const validateCreateAgency = [
     return false;
   }).withMessage('Feature flags must be a valid JSON object')
   ,
+  body('tenantAvailableAgencyFeaturesJson').optional().custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    if (typeof value === 'object') return true;
+    if (typeof value === 'string') {
+      try {
+        JSON.parse(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }).withMessage('tenantAvailableAgencyFeaturesJson must be a valid JSON object')
+  ,
   body('intakeRetentionPolicy').optional().custom((value) => {
     if (value === null || value === undefined || value === '') return true;
     if (typeof value === 'object') return true;
@@ -412,6 +426,20 @@ const validateUpdateAgency = [
     }
     return false;
   }).withMessage('Feature flags must be a valid JSON object')
+  ,
+  body('tenantAvailableAgencyFeaturesJson').optional().custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    if (typeof value === 'object') return true;
+    if (typeof value === 'string') {
+      try {
+        JSON.parse(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }).withMessage('tenantAvailableAgencyFeaturesJson must be a valid JSON object')
   ,
   body('intakeRetentionPolicy').optional().custom((value) => {
     if (value === null || value === undefined || value === '') return true;

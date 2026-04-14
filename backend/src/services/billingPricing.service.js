@@ -8,6 +8,12 @@ import AgencyBillingAccount from '../models/AgencyBillingAccount.model.js';
 import PlatformBillingPricing from '../models/PlatformBillingPricing.model.js';
 import { getCommunicationRateCards } from './agencyCommunicationBilling.service.js';
 
+/**
+ * Phase B (optional): add catalog entries for remaining Company Profile feature_flags keys
+ * (e.g. clinicalNoteGeneratorEnabled, publicProviderFinderEnabled) so subscription line items
+ * and Tenant overview can show unified pricing. The superadmin hub maps a subset of flags
+ * to these keys on the frontend until then.
+ */
 const DEFAULT_FEATURE_CATALOG = {
   publicAvailability: {
     key: 'publicAvailability',

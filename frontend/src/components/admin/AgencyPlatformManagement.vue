@@ -1,21 +1,21 @@
 <template>
   <div class="agency-platform-management">
-    <div class="section-header">
-      <h2>Agency (Platform)</h2>
+    <div v-if="!embedInHub" class="section-header">
+      <h2>{{ pageTitle }}</h2>
       <p class="section-description">
-        Platform-controlled settings for agencies. These cannot be edited by the agency themselves—only by the platform (Super Admin).
+        {{ pageDescription }}
       </p>
     </div>
 
     <div v-if="!agencyStore.currentAgency" class="empty-state">
-      <p>Select an agency above to manage its platform settings.</p>
+      <p>{{ emptyMessage }}</p>
     </div>
 
     <template v-else>
       <div class="settings-section">
         <h3>Status & Identity</h3>
         <p class="section-description">
-          Control agency status and URL identity. Agencies cannot change these.
+          Active flag, portal slug, and affiliation. Tenant admins cannot change these—only superadmin.
         </p>
         <form @submit.prevent="save" class="platform-form">
           <div class="form-grid">
@@ -58,16 +58,16 @@
 
           <div class="form-actions">
             <button type="submit" class="btn btn-primary" :disabled="saving">
-              {{ saving ? 'Saving...' : 'Save Platform Settings' }}
+              {{ saving ? 'Saving...' : saveIdentityLabel }}
             </button>
           </div>
         </form>
       </div>
 
       <div class="settings-section">
-        <h3>Platform feature flags</h3>
+        <h3>{{ managedFlagsHeading }}</h3>
         <p class="section-description">
-          Features the platform enables or disables for this agency. Agencies can toggle some features in Company Profile; these are platform-controlled.
+          Superadmin-only toggles for <strong>this tenant</strong>. Everything else is in Company Profile or the feature tables on this organization’s Overview.
         </p>
         <div class="form-grid">
           <div class="form-group checkbox">
@@ -91,7 +91,7 @@
         </div>
         <div class="form-actions">
           <button type="button" class="btn btn-primary" @click="save" :disabled="saving">
-            {{ saving ? 'Saving...' : 'Save Feature Flags' }}
+            {{ saving ? 'Saving...' : saveFlagsLabel }}
           </button>
         </div>
       </div>
@@ -100,11 +100,33 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch, onMounted, computed } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 
+const props = defineProps({
+  /** When true, outer title/description is omitted (e.g. wrapped by organization Overview hub). */
+  embedInHub: { type: Boolean, default: false }
+});
+
 const agencyStore = useAgencyStore();
+
+const pageTitle = computed(() => 'Tenant identity (superadmin)');
+
+const pageDescription = computed(
+  () =>
+    'These apply to the tenant selected in Settings. Tenant admins cannot edit them—only superadmin.'
+);
+
+const emptyMessage = computed(() =>
+  props.embedInHub
+    ? 'Select a tenant in Tenant context at the top of Settings.'
+    : 'Select a tenant above to edit identity and managed flags.'
+);
+
+const saveIdentityLabel = computed(() => 'Save identity & URL');
+const saveFlagsLabel = computed(() => 'Save managed flags');
+const managedFlagsHeading = computed(() => 'Superadmin-managed flags');
 
 const form = ref({
   isActive: true,
@@ -182,7 +204,7 @@ const save = async () => {
     if (agencyStore.currentAgency?.id === agency.id) {
       agencyStore.setCurrentAgency({ ...agencyStore.currentAgency, is_active: form.value.isActive, slug: form.value.slug });
     }
-    alert('Platform settings saved.');
+    alert('Tenant identity and flags saved.');
   } catch (err) {
     const msg = err?.response?.data?.error?.message || err?.message || 'Failed to save';
     alert(msg);

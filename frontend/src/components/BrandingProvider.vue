@@ -34,6 +34,12 @@ const isOnDifferentOrgRoute = () => {
   return !!(agSlug && agSlug !== routeSlug);
 };
 
+/** Settings uses the tenant picker; selected tenant should drive :root colors/fonts even on /itsco/admin/settings. */
+const isAdminSettingsBrandingRoute = computed(() => {
+  const n = route.name;
+  return n === 'Settings' || n === 'OrganizationSettings';
+});
+
 // Track dark mode so we don't override its CSS variables with agency branding
 const isDarkMode = ref(document.documentElement.getAttribute('data-theme') === 'dark');
 const themeObserver = new MutationObserver(() => {
@@ -66,12 +72,13 @@ onMounted(async () => {
       await agencyStore.fetchUserAgencies();
     }
     // Best-effort: full agency row + :root CSS vars when a selection already exists (e.g. persisted currentAgency).
-    // SKIP when we're already on a different org's slug route (e.g. superadmin on /nlu/... while
-    // currentAgency is still ITSCO from localStorage) — the route guard already applied the correct theme.
-    if (agencyStore.currentAgency?.id && !isOnDifferentOrgRoute()) {
+    // SKIP when we're already on a different org's slug route — except Settings, where the picker is authoritative.
+    if (agencyStore.currentAgency?.id && (!isOnDifferentOrgRoute() || isAdminSettingsBrandingRoute.value)) {
       try {
         await agencyStore.hydrateAgencyById(agencyStore.currentAgency.id);
-        brandingStore.syncDocumentThemeFromSelectedAgency();
+        brandingStore.syncDocumentThemeFromSelectedAgency({
+          skipRouteSlugGuard: isAdminSettingsBrandingRoute.value
+        });
         // syncDocumentThemeFromSelectedAgency bails when the club slug (e.g. "yss") doesn't match
         // the platform route slug (e.g. "ssc"). For affiliation-type agencies (SSC clubs), apply
         // the theme directly so colors and custom fonts load on the first visit — not just after
@@ -100,6 +107,15 @@ onMounted(async () => {
       } catch {
         // ignore
       }
+    } else if (!agencyStore.currentAgency?.id && agencyStore.platformMode) {
+      try {
+        await brandingStore.syncDocumentThemeFromPlatformBranding();
+        if (brandingStore.platformBranding) {
+          await loadAndApplyPlatformFonts(brandingStore.platformBranding);
+        }
+      } catch {
+        // ignore
+      }
     }
   } else if (!authStore.isAuthenticated) {
     // Clear currentAgency on login page to ensure platform branding is used
@@ -116,40 +132,74 @@ watch(() => brandingStore.platformBranding, async (newBranding) => {
   }
 }, { deep: true });
 
-// Watch for agency switches: hydrate full row (palette on list payloads is often missing), then sync :root + fonts.
-// SKIP when on a different org's slug route so we never clobber the route's portal theme.
+// Agency selected → tenant colors; Platform chip (no agency + platformMode) → platform colors on :root.
+// IMPORTANT: watch a stable primitive string, not `[id, platformMode]` (new array each run).
+// Include agencyStore.brandingContextGeneration so re-selecting the same tenant (NLU→ITSCO→NLU) still re-runs —
+// otherwise Vue skips the callback when id+platformMode match the previous cycle.
 watch(
-  () => agencyStore.currentAgency?.id,
-  async (newId) => {
-    if (!authStore.isAuthenticated || !newId) return;
-    if (isOnDifferentOrgRoute()) return;
-    try {
-      await agencyStore.hydrateAgencyById(newId);
-      brandingStore.syncDocumentThemeFromSelectedAgency();
-      // Same affiliation-club direct-apply fallback as in onMounted.
-      const a = agencyStore.currentAgency;
-      const orgType = String(a?.organization_type || '').toLowerCase();
-      if ((orgType === 'affiliation' || orgType === 'clubwebapp') && a?.id) {
-        try {
-          const cp = typeof a.color_palette === 'string'
-            ? JSON.parse(a.color_palette || '{}')
-            : (a.color_palette || {});
-          if (cp && (cp.fontFamily || cp.primary)) {
-            const parentTenantId = Number(a.affiliated_agency_id || 0) || null;
-            const fontBrandingAgencyId = (orgType === 'affiliation' || orgType === 'clubwebapp') && parentTenantId ? parentTenantId : a.id;
-            brandingStore.applyTheme({
-              colorPalette: cp,
-              themeSettings: typeof a.theme_settings === 'string'
-                ? JSON.parse(a.theme_settings || '{}')
-                : (a.theme_settings || {}),
-              brandingAgencyId: fontBrandingAgencyId,
-              agencyId: a.id
-            });
-          }
-        } catch { /* ignore parse errors */ }
+  () => {
+    const rawId = agencyStore.currentAgency?.id;
+    const n = rawId != null && rawId !== '' ? Number(rawId) : NaN;
+    const idKey = Number.isFinite(n) && n > 0 ? String(Math.trunc(n)) : '';
+    const gen = agencyStore.brandingContextGeneration;
+    return `${idKey}:${agencyStore.platformMode ? 1 : 0}:${gen}`;
+  },
+  async (key) => {
+    if (!authStore.isAuthenticated) return;
+    /** If brandingContextGeneration changes while we await, a newer pick started — don’t clobber :root. */
+    const myGen = agencyStore.brandingContextGeneration;
+    const parts = String(key || '').split(':');
+    const idPart = parts[0] || '';
+    const pmPart = parts[1] || '0';
+    const newId = idPart ? Number(idPart, 10) : null;
+    const platformMode = pmPart === '1';
+
+    if (newId) {
+      if (isOnDifferentOrgRoute() && !isAdminSettingsBrandingRoute.value) return;
+      try {
+        await agencyStore.hydrateAgencyById(newId);
+        if (agencyStore.brandingContextGeneration !== myGen) return;
+        brandingStore.syncDocumentThemeFromSelectedAgency({
+          skipRouteSlugGuard: isAdminSettingsBrandingRoute.value
+        });
+        if (agencyStore.brandingContextGeneration !== myGen) return;
+        const a = agencyStore.currentAgency;
+        const orgType = String(a?.organization_type || '').toLowerCase();
+        if ((orgType === 'affiliation' || orgType === 'clubwebapp') && a?.id) {
+          try {
+            const cp = typeof a.color_palette === 'string'
+              ? JSON.parse(a.color_palette || '{}')
+              : (a.color_palette || {});
+            if (cp && (cp.fontFamily || cp.primary)) {
+              const parentTenantId = Number(a.affiliated_agency_id || 0) || null;
+              const fontBrandingAgencyId = (orgType === 'affiliation' || orgType === 'clubwebapp') && parentTenantId ? parentTenantId : a.id;
+              brandingStore.applyTheme({
+                colorPalette: cp,
+                themeSettings: typeof a.theme_settings === 'string'
+                  ? JSON.parse(a.theme_settings || '{}')
+                  : (a.theme_settings || {}),
+                brandingAgencyId: fontBrandingAgencyId,
+                agencyId: a.id
+              });
+            }
+          } catch { /* ignore parse errors */ }
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
+      return;
+    }
+
+    if (platformMode && !newId) {
+      try {
+        await brandingStore.syncDocumentThemeFromPlatformBranding();
+        if (agencyStore.brandingContextGeneration !== myGen) return;
+        if (brandingStore.platformBranding) {
+          await loadAndApplyPlatformFonts(brandingStore.platformBranding);
+        }
+      } catch {
+        // ignore
+      }
     }
   }
 );

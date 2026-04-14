@@ -10,7 +10,13 @@
     >
       <aside v-if="!embeddedSingleOrg" class="nav-pane">
         <div class="section-header" :class="{ collapsed: navCollapsed }">
-          <h2 v-if="!navCollapsed">Organization Management</h2>
+          <h2 v-if="!navCollapsed">
+            {{
+              organizationDirectoryLocked
+                ? `Organizations — ${organizationDirectoryTenantName}`
+                : 'Organization Management'
+            }}
+          </h2>
           <div v-else class="section-header-collapsed-title">Orgs</div>
 
           <div class="section-header-actions">
@@ -35,12 +41,20 @@
 
             <div class="filters-group">
               <label class="filters-label">{{ userRole === 'super_admin' ? 'Tenant' : 'Agency' }}</label>
-              <select v-model="selectedAgencyFilterId" class="filters-select" @change="handleAgencyFilterChange">
+              <select
+                v-model="selectedAgencyFilterId"
+                class="filters-select"
+                :disabled="organizationDirectoryLocked"
+                @change="handleAgencyFilterChange"
+              >
                 <option value="">{{ userRole === 'super_admin' ? 'All tenants' : 'All agencies' }}</option>
                 <option v-for="a in parentAgencies" :key="a.id" :value="String(a.id)">
                   {{ a.name }}
                 </option>
               </select>
+              <small v-if="organizationDirectoryLocked" class="hint">
+                List is scoped to the tenant selected in Settings (parent + affiliated schools, programs, etc.).
+              </small>
             </div>
 
             <div class="filters-group">
@@ -74,7 +88,14 @@
             <strong>{{ userRole === 'super_admin' ? 'Tenant' : 'Agency' }} selected:</strong> {{ selectedAgencyForList?.name || '—' }}
             <span v-if="String(typeFilter || '') === 'agencies'">• Showing {{ userRole === 'super_admin' ? 'tenant' : 'agency' }} + affiliated organizations.</span>
             <span v-else>• Showing affiliated organizations (filtered by view).</span>
-            <button class="btn-link" type="button" @click="clearAgencyFilter">Clear</button>
+            <button
+              v-if="!organizationDirectoryLocked"
+              class="btn-link"
+              type="button"
+              @click="clearAgencyFilter"
+            >
+              Clear
+            </button>
           </div>
     </div>
     
@@ -3747,7 +3768,12 @@
     </div>
 
     <div v-if="!showCreateModal && !editingAgency" class="empty-hint">
-      Select an organization to edit settings. Use filters above the list to switch between Agencies and Organizations.
+      <template v-if="organizationDirectoryLocked">
+        Select an organization in the list to edit its settings. Search and view filters apply to this tenant’s tree only.
+      </template>
+      <template v-else>
+        Select an organization to edit settings. Use filters above the list to switch between Agencies and Organizations.
+      </template>
     </div>
     
     <!-- Assign Admin Modal -->
@@ -3882,6 +3908,7 @@ import { getBackendBaseUrl, toUploadsUrl } from '../../utils/uploadsUrl';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
+import { isFeatureKeyAvailableAfterMerge } from '../../utils/mergeAvailableAgencyFeatures.js';
 import IconSelector from './IconSelector.vue';
 import DashboardPreviewModal from './DashboardPreviewModal.vue';
 import IconTemplateModal from './IconTemplateModal.vue';
@@ -3944,7 +3971,9 @@ const props = defineProps({
   // Embedded single-organization mode (used by School Portal settings).
   // When set, the UI loads and opens ONLY this organization (no left list).
   embeddedOrgId: { type: [Number, String], default: null },
-  embeddedTab: { type: String, default: 'general' } // 'general' | 'branding' | 'features' | ...
+  embeddedTab: { type: String, default: 'general' }, // 'general' | 'branding' | 'features' | ...
+  /** When set (e.g. Settings → Tenant organizations), lock the list to this tenant + affiliated orgs only. */
+  organizationDirectoryTenantId: { type: [Number, String], default: null }
 });
 
 const embeddedSingleOrg = computed(() => {
@@ -3952,13 +3981,12 @@ const embeddedSingleOrg = computed(() => {
   return Number.isFinite(id) && id > 0;
 });
 
-// Platform-level: which feature toggles agencies can see (SuperAdmin controls in Platform Settings)
+// Platform default + optional per-tenant override (superadmin organization Overview / API)
 const isFeatureAvailable = (key) => {
   const pb = brandingStore.platformBranding;
   const raw = pb?.available_agency_features_json;
-  if (raw == null || (typeof raw === 'object' && Object.keys(raw).length === 0)) return true; // backward compat: all available
-  const parsed = typeof raw === 'object' ? raw : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return {}; } })() : {});
-  return parsed[key] !== false; // only explicitly false hides the toggle
+  const tenantRaw = editingAgency.value?.tenant_available_agency_features_json;
+  return isFeatureKeyAvailableAfterMerge(raw, tenantRaw, key);
 };
 
 const TENANT_FEATURE_PROFILES = {
@@ -6655,6 +6683,18 @@ const parentAgencies = computed(() => {
   return sortByNameAsc((src || []).filter(a => String(a.organization_type || 'agency').toLowerCase() === 'agency'));
 });
 
+const organizationDirectoryLocked = computed(() => {
+  const id = parseInt(String(props.organizationDirectoryTenantId || ''), 10);
+  return Number.isFinite(id) && id > 0;
+});
+
+const organizationDirectoryTenantName = computed(() => {
+  if (!organizationDirectoryLocked.value) return '';
+  const id = parseInt(String(props.organizationDirectoryTenantId), 10);
+  const a = parentAgencies.value.find((x) => Number(x.id) === id);
+  return a?.name || `Tenant #${id}`;
+});
+
 const affiliableAgencies = computed(() => parentAgencies.value);
 
 const selectedAgencyForList = computed(() => {
@@ -6955,6 +6995,7 @@ const saveIconTemplate = async ({ name, description, iconData }) => {
 };
 
 const clearAgencyFilter = () => {
+  if (organizationDirectoryLocked.value) return;
   selectedAgencyFilterId.value = '';
   affiliatedOrganizations.value = [];
   // Return list to default "all agencies" mode
@@ -6968,6 +7009,18 @@ watch(
     if (view === 'organizations' && selectedAgencyFilterId.value) {
       await loadAffiliatedForSelectedAgency();
     }
+  }
+);
+
+watch(
+  () => props.organizationDirectoryTenantId,
+  async (raw) => {
+    if (embeddedSingleOrg.value) return;
+    const id = parseInt(String(raw || ''), 10);
+    if (!Number.isFinite(id) || id < 1) return;
+    selectedAgencyFilterId.value = String(id);
+    navCollapsed.value = false;
+    await loadAffiliatedForSelectedAgency();
   }
 );
 
@@ -8939,7 +8992,13 @@ onMounted(async () => {
       loading.value = false;
     }
   } else {
-  await fetchAgencies();
+    if (organizationDirectoryLocked.value) {
+      const tid = parseInt(String(props.organizationDirectoryTenantId), 10);
+      if (Number.isFinite(tid) && tid > 0) {
+        selectedAgencyFilterId.value = String(tid);
+      }
+    }
+    await fetchAgencies();
   }
   if (userRole.value === 'super_admin') {
     await fetchUsers();

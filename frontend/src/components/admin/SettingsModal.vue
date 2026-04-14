@@ -6,8 +6,124 @@
         <button @click="closeModal" class="btn-close" aria-label="Close settings">×</button>
       </div>
       
-      <div class="modal-body">
-        <div class="settings-sidebar">
+      <div v-if="showTenantEntryGate" class="settings-tenant-entry-gate">
+        <div class="tenant-entry-gate-header">
+          <h2 class="tenant-entry-title">Choose a tenant</h2>
+          <p class="tenant-entry-subtitle">
+            Pick a top-level agency to work in. You can switch anytime from the bar below. Or continue to platform-only tools (no tenant).
+          </p>
+          <input
+            v-model="tenantPickerSearch"
+            type="search"
+            class="tenant-picker-search tenant-picker-search-wide"
+            placeholder="Search tenants by name or slug…"
+            aria-label="Search tenants"
+          />
+        </div>
+        <div class="tenant-logo-grid" role="list">
+          <button
+            type="button"
+            class="tenant-logo-card tenant-logo-card-platform"
+            role="listitem"
+            @click="enterPlatformToolsOnly"
+          >
+            <div class="tenant-logo-wrap tenant-logo-fallback">⚙</div>
+            <span class="tenant-logo-name">Platform tools</span>
+            <span class="tenant-logo-slug muted">No tenant — global settings</span>
+          </button>
+          <button
+            v-for="a in filteredTopLevelTenants"
+            :key="a.id"
+            type="button"
+            class="tenant-logo-card"
+            :class="{ 'tenant-logo-card-active': isPickerTenantActive(a) }"
+            role="listitem"
+            @click="selectTenantFromPicker(a)"
+          >
+            <div class="tenant-logo-wrap">
+              <img v-if="tenantLogoUrl(a)" :src="tenantLogoUrl(a)" :alt="''" class="tenant-logo-img" />
+              <span v-else class="tenant-logo-initials">{{ tenantInitials(a) }}</span>
+            </div>
+            <span class="tenant-logo-name">{{ a.name }}</span>
+            <span class="tenant-logo-slug muted">{{ a.slug || '—' }}</span>
+          </button>
+        </div>
+      </div>
+
+      <div
+        v-else
+        class="modal-body"
+        :class="{ 'modal-body-with-tenant-shell': showTenantPickerShell }"
+      >
+        <div v-if="showTenantPickerShell" class="settings-tenant-picker-shell">
+          <div class="tenant-picker-shell-head">
+            <div class="tenant-picker-shell-title">
+              {{ isSuperAdmin ? 'Tenant' : 'Agency' }} context
+            </div>
+            <input
+              v-model="tenantPickerSearch"
+              type="search"
+              class="tenant-picker-search"
+              placeholder="Search tenants…"
+              aria-label="Search tenants"
+            />
+            <div v-if="agencyStore.currentAgency" class="tenant-picker-active-pill">
+              <div class="tenant-picker-active-logo">
+                <img
+                  v-if="tenantLogoUrl(agencyStore.currentAgency)"
+                  :src="tenantLogoUrl(agencyStore.currentAgency)"
+                  alt=""
+                  class="tenant-logo-img-sm"
+                />
+                <span v-else class="tenant-logo-initials-sm">{{ tenantInitials(agencyStore.currentAgency) }}</span>
+              </div>
+              <div class="tenant-picker-active-text">
+                <span class="tenant-picker-active-name">{{ agencyStore.currentAgency.name }}</span>
+                <span class="tenant-picker-active-meta muted">{{ agencyStore.currentAgency.slug }}</span>
+              </div>
+            </div>
+            <p v-else-if="isSuperAdmin && agencyStore.platformMode" class="tenant-picker-hint muted">
+              Platform mode — tenant-scoped items will ask you to select a tenant first.
+            </p>
+            <p v-else-if="!agencyStore.currentAgency" class="tenant-picker-hint muted">
+              Select a tenant below for Company Profile, billing, and other tenant settings.
+            </p>
+          </div>
+          <div class="tenant-logo-scroller" role="list">
+            <button
+              v-if="isSuperAdmin"
+              type="button"
+              class="tenant-logo-chip"
+              :class="{ 'tenant-logo-chip-active': agencyStore.platformMode && !agencyStore.currentAgency }"
+              role="listitem"
+              @click="enterPlatformToolsOnly"
+            >
+              <div class="tenant-logo-wrap tenant-logo-wrap-sm tenant-logo-fallback">⚙</div>
+              <span class="tenant-chip-label">Platform</span>
+            </button>
+            <button
+              v-for="a in filteredTopLevelTenants"
+              :key="`chip-${a.id}`"
+              type="button"
+              class="tenant-logo-chip"
+              :class="{ 'tenant-logo-chip-active': isPickerTenantActive(a) }"
+              role="listitem"
+              @click="selectTenantFromPicker(a)"
+            >
+              <div class="tenant-logo-wrap tenant-logo-wrap-sm">
+                <img v-if="tenantLogoUrl(a)" :src="tenantLogoUrl(a)" :alt="''" class="tenant-logo-img" />
+                <span v-else class="tenant-logo-initials-sm">{{ tenantInitials(a) }}</span>
+              </div>
+              <span class="tenant-chip-label">{{ a.name }}</span>
+            </button>
+          </div>
+        </div>
+
+        <div
+          class="settings-main-row"
+          :class="{ 'settings-main-row--solo-hub': platformSettingsCardHubActive }"
+        >
+        <div v-if="!platformSettingsCardHubActive" class="settings-sidebar">
           <div
             v-for="category in visibleCategories"
             :key="category.id"
@@ -45,9 +161,22 @@
           </div>
         </div>
         
-        <div class="settings-content">
+        <div class="settings-content" :class="{ 'settings-content--solo-hub': platformSettingsCardHubActive }">
+          <div v-if="tenantHubDrillInActive" class="tenant-hub-back-row">
+            <button type="button" class="btn btn-link tenant-hub-back-btn" @click="selectItem('platform', 'tenant-ws-home')">
+              ← Tenant home
+            </button>
+          </div>
+          <div v-if="platformHubDrillInActive" class="tenant-hub-back-row">
+            <button type="button" class="btn btn-link tenant-hub-back-btn" @click="selectItem('platform', 'platform-ws-home')">
+              ← Platform home
+            </button>
+          </div>
           <div v-if="selectedComponent" class="component-wrapper">
-            <div v-if="selectedItemRequiresAgency" class="agency-context-bar">
+            <div
+              v-if="selectedItemRequiresAgency && (!showTenantContextUi || isChallengeManagement || !showTenantPickerShell)"
+              class="agency-context-bar"
+            >
               <div class="agency-context-left">
                 <label class="agency-context-label">{{ agencyContextLabel }}</label>
 
@@ -94,6 +223,7 @@
             <p>Select a setting category to get started</p>
           </div>
         </div>
+        </div>
       </div>
     </div>
   </div>
@@ -120,6 +250,9 @@ import EmailTemplateManagement from './EmailTemplateManagement.vue';
 import EmailSettingsPanel from './EmailSettingsPanel.vue';
 import PlatformSettings from './PlatformSettings.vue';
 import AgencyPlatformManagement from './AgencyPlatformManagement.vue';
+import SuperadminTenantHub from './SuperadminTenantHub.vue';
+import TenantSettingsCardHub from './TenantSettingsCardHub.vue';
+import PlatformSettingsCardHub from './PlatformSettingsCardHub.vue';
 import UserInfoFieldManagement from './UserInfoFieldManagement.vue';
 import AgencyUserInfoFields from './AgencyUserInfoFields.vue';
 import CustomChecklistItemManagement from './CustomChecklistItemManagement.vue';
@@ -158,7 +291,9 @@ const props = defineProps({
   // Prevent route query syncing (important for embedded usage inside other pages).
   disableRouteSync: { type: Boolean, default: false },
   // Optional school id (used by School Settings to preselect a school).
-  initialSchoolId: { type: [String, Number], default: null }
+  initialSchoolId: { type: [String, Number], default: null },
+  // null = follow `embedded` (hide tenant shell when embedded). true = show logo picker + URL sync even in embedded page layout (e.g. /admin/settings).
+  showTenantContext: { type: Boolean, default: null }
 });
 
 const route = useRoute();
@@ -166,6 +301,13 @@ const router = useRouter();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
+
+const showTenantContextUi = computed(() => {
+  if (props.lockAgencyContext) return false;
+  if (props.showTenantContext === true) return true;
+  if (props.showTenantContext === false) return false;
+  return !props.embedded;
+});
 
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
@@ -185,6 +327,7 @@ const isTruthyFlag = (v) => {
 const selectedCategory = ref(null);
 const selectedItem = ref(null);
 const selectedAgencyId = ref(agencyStore.currentAgency?.id ? String(agencyStore.currentAgency.id) : '');
+const tenantPickerSearch = ref('');
 
 // Sidebar accordion state
 const expandedCategoryIds = ref(new Set());
@@ -210,6 +353,42 @@ const allCategories = [
     label: 'PLATFORM',
     items: [
       {
+        id: 'platform-ws-home',
+        label: 'Platform home',
+        icon: '🏠',
+        component: 'PlatformSettingsCardHub',
+        roles: ['super_admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'tenant-ws-home',
+        label: 'Tenant home',
+        icon: '🏠',
+        component: 'TenantSettingsCardHub',
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'tenant-ws-org-directory',
+        label: 'Tenant organizations',
+        icon: '📂',
+        component: 'AgencyManagement',
+        roles: ['super_admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'tenant-ws-global-platform',
+        label: 'Platform-wide defaults',
+        icon: '🔐',
+        component: 'PlatformSettings',
+        roles: ['super_admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
         id: 'platform-settings',
         label: 'Platform Settings',
         icon: '🔐',
@@ -219,10 +398,29 @@ const allCategories = [
         excludeSupervisor: true
       },
       {
+        id: 'platform-all-agencies',
+        label: 'All organizations',
+        icon: '🗂️',
+        component: 'AgencyManagement',
+        roles: ['super_admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
         id: 'agency-platform',
-        label: 'Tenant (Platform)',
+        label: 'Tenant identity',
         icon: '🏛️',
         component: 'AgencyPlatformManagement',
+        roles: ['super_admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true,
+        requiresAgency: true
+      },
+      {
+        id: 'tenant-overview',
+        label: 'Overview',
+        icon: '📋',
+        component: 'SuperadminTenantHub',
         roles: ['super_admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true,
@@ -553,8 +751,10 @@ const allCategories = [
   }
 ];
 
-// Filter categories and items based on user role
-const visibleCategories = computed(() => {
+const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
+
+/** Full sidebar tree for the signed-in user; tenant workspace hub items are excluded here so they only appear in the slim hub sidebar. */
+const roleFilteredCategories = computed(() => {
   const userRole = authStore.user?.role;
   const userRoleNorm = String(userRole || '').toLowerCase();
   const isUserSupervisor = isSupervisor(authStore.user);
@@ -564,66 +764,226 @@ const visibleCategories = computed(() => {
   const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags);
   const noteAidEnabled = isTruthyFlag(flags?.noteAidEnabled);
   const shiftProgramsEnabled = isTruthyFlag(flags?.shiftProgramsEnabled);
-  
-  return allCategories.map(category => ({
-    ...category,
-    items: category.items
-      .filter(item => {
-        // Check role inclusion
-        if (item.roles && !item.roles.includes(userRole)) {
-          return false;
-        }
-        
-        // Check role exclusion
-        if (item.excludeRoles && item.excludeRoles.includes(userRole)) {
-          return false;
-        }
-        
-        // Supervisor capability is additive. Only apply supervisor exclusions
-        // when the primary role itself is supervisor-like.
-        if (item.excludeSupervisor && shouldApplySupervisorExclusion) {
-          return false;
-        }
-        
-        // Special handling for support users
-        if (userRole === 'support') {
-          // Support users can only see specific items
-          const supportAllowedItems = ['packages', 'checklist-items-agency', 'communications', 'sms-numbers'];
-          if (!supportAllowedItems.includes(item.id)) {
+
+  return allCategories
+    .map((category) => ({
+      ...category,
+      items: category.items
+        .filter((item) => {
+          if (String(item.id || '').startsWith('tenant-ws-')) return false;
+          if (String(item.id || '').startsWith('platform-ws-')) return false;
+          if (item.id === 'platform-all-agencies') return false;
+
+          if (item.roles && !item.roles.includes(userRole)) {
             return false;
           }
-          // Update props for support users
-          if (item.id === 'packages' || item.id === 'communications') {
-            item.props = { readOnly: true };
+
+          if (item.excludeRoles && item.excludeRoles.includes(userRole)) {
+            return false;
           }
-          if (item.id === 'checklist-items-agency') {
-            item.props = { assignOnly: true };
+
+          if (item.excludeSupervisor && shouldApplySupervisorExclusion) {
+            return false;
           }
-        }
-        
-        if (item.requiresNoteAidEnabled && !noteAidEnabled) {
-          return false;
-        }
-        if (item.requiresShiftProgramsEnabled && !shiftProgramsEnabled) {
-          return false;
-        }
-        if (item.requiresBudgetManagementEnabled) {
-          const budgetEnabled = isTruthyFlag(flags?.budgetManagementEnabled);
-          if (!budgetEnabled) return false;
-        }
-        return true;
-      })
-      .map(item => ({
-        ...item,
-        visible: true
+
+          if (userRole === 'support') {
+            const supportAllowedItems = ['packages', 'checklist-items-agency', 'communications', 'sms-numbers'];
+            if (!supportAllowedItems.includes(item.id)) {
+              return false;
+            }
+            if (item.id === 'packages' || item.id === 'communications') {
+              item.props = { readOnly: true };
+            }
+            if (item.id === 'checklist-items-agency') {
+              item.props = { assignOnly: true };
+            }
+          }
+
+          if (item.requiresNoteAidEnabled && !noteAidEnabled) {
+            return false;
+          }
+          if (item.requiresShiftProgramsEnabled && !shiftProgramsEnabled) {
+            return false;
+          }
+          if (item.requiresBudgetManagementEnabled) {
+            const budgetEnabled = isTruthyFlag(flags?.budgetManagementEnabled);
+            if (!budgetEnabled) return false;
+          }
+          if (
+            item.id === 'platform-settings' &&
+            userRoleNorm === 'super_admin' &&
+            agencyStore.currentAgency
+          ) {
+            return false;
+          }
+          return true;
+        })
+        .map((item) => {
+          let label = item.label;
+          if (item.id === 'tenant-overview' && agencyStore.currentAgency?.name) {
+            label = `${agencyStore.currentAgency.name} Overview`;
+          }
+          return { ...item, label, visible: true };
+        })
+    }))
+    .filter((category) => category.items.length > 0);
+});
+
+/** Card hub + slim sidebar for super_admin and admin when a tenant is selected (not Platform chip). */
+const tenantSettingsCardHubActive = computed(() => {
+  if (!showTenantContextUi.value) return false;
+  if (agencyStore.platformMode) return false;
+  if (!agencyStore.currentAgency?.id) return false;
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return r === 'super_admin' || r === 'admin';
+});
+
+const tenantHubSidebarCategory = computed(() => {
+  const cat = allCategories.find((c) => c.id === 'platform');
+  const pick = (id) => cat?.items?.find((i) => i.id === id);
+  const items = [];
+  const home = pick('tenant-ws-home');
+  if (home) items.push({ ...home, visible: true });
+  if (isSuperAdmin.value) {
+    const dir = pick('tenant-ws-org-directory');
+    const glob = pick('tenant-ws-global-platform');
+    if (dir) items.push({ ...dir, visible: true });
+    if (glob) items.push({ ...glob, visible: true });
+  }
+  return {
+    id: 'platform',
+    label: isSuperAdmin.value ? 'PLATFORM' : 'HOME',
+    items
+  };
+});
+
+const tenantHubSecondaryBlocks = computed(() => {
+  if (!tenantSettingsCardHubActive.value) return [];
+  const blocks = [];
+  const pushBlock = (title, catId) => {
+    const c = roleFilteredCategories.value.find((x) => x.id === catId);
+    if (!c?.items?.length) return;
+    blocks.push({
+      title,
+      items: c.items.map((i) => ({
+        category: c.id,
+        item: i.id,
+        label: i.label,
+        icon: i.icon
       }))
-  })).filter(category => category.items.length > 0);
+    });
+  };
+  pushBlock('Workflow', 'workflow');
+  pushBlock('Theming', 'theming');
+  pushBlock('AI tools', 'ai');
+  pushBlock('System & communications', 'system');
+  return blocks;
+});
+
+/** Card-only layout for superadmin in Platform mode (no tenant) — replaces the left settings rail. */
+const platformSettingsCardHubActive = computed(() => {
+  if (!showTenantContextUi.value) return false;
+  if (!isSuperAdmin.value) return false;
+  if (!agencyStore.platformMode) return false;
+  if (agencyStore.currentAgency?.id) return false;
+  return true;
+});
+
+const PLATFORM_HUB_CARD_DESC = {
+  'client-settings': 'Programs, paths, and client catalog — pick a tenant first.',
+  'school-settings': 'School catalog and portal links — tenant-scoped.',
+  'provider-settings': 'Provider records and catalog — tenant-scoped.',
+  'provider-scheduling': 'Scheduling templates and rules — tenant-scoped.',
+  'availability-intake': 'Provider availability and intake — agency tenants.',
+  'shift-programs': 'Shift programs and publishing — needs tenant + feature flag.',
+  'payroll-schedule': 'Pay schedules and payroll — agency tenants.',
+  'departments': 'Org departments — tenant with budget management.',
+  packages: 'Onboarding packages and template libraries.',
+  'digital-forms': 'Intake and digital form links.',
+  'challenge-management': 'Seasons and challenges — Learning or Affiliation orgs.',
+  'checklist-items': 'Global checklist templates (superadmin).',
+  'field-definitions': 'Global profile field definitions.',
+  'branding-config': 'Colors, fonts, logos — usually edited per tenant.',
+  'branding-templates': 'Email and document templates.',
+  assets: 'Icons, fonts, and shared creative assets.',
+  'note-aid-kb': 'Note Aid knowledge base — tenant with Note Aid enabled.',
+  communications: 'Transactional email templates.',
+  'sms-numbers': 'Texting numbers — tenant-scoped.',
+  'email-settings': 'SMTP and platform email defaults.',
+  integrations: 'Third-party connections and API-related settings.',
+  'management-team-config': 'Executive visibility — agency tenants.',
+  archive: 'Soft-deleted records and restore tools.'
+};
+
+const platformHubSecondaryBlocks = computed(() => {
+  if (!platformSettingsCardHubActive.value) return [];
+  const blocks = [];
+  const pushBlock = (title, hint, catId, excludeIds = []) => {
+    const c = roleFilteredCategories.value.find((x) => x.id === catId);
+    if (!c?.items?.length) return;
+    const items = c.items
+      .filter((i) => !excludeIds.includes(i.id))
+      .map((i) => ({
+        category: c.id,
+        item: i.id,
+        label: i.label,
+        icon: i.icon,
+        description: PLATFORM_HUB_CARD_DESC[i.id] || ''
+      }));
+    if (!items.length) return;
+    blocks.push({ title, hint, items });
+  };
+  pushBlock(
+    'Workflow',
+    'Most tools here need an active tenant — select one above, or use the selector inside the screen.',
+    'workflow'
+  );
+  pushBlock(
+    'Theming & assets',
+    'Brand and creative assets are applied per tenant after you choose one above.',
+    'theming'
+  );
+  pushBlock('AI tools', 'Options appear when platform and tenant flags allow Note Aid and related features.', 'ai');
+  pushBlock(
+    'System & communications',
+    'Email, texting, integrations, and archive. Audit and viewport live under Platform home.',
+    'system',
+    ['audit-center', 'viewport-preview']
+  );
+  return blocks;
+});
+
+const visibleCategories = computed(() => {
+  if (platformSettingsCardHubActive.value) {
+    return [];
+  }
+  if (tenantSettingsCardHubActive.value) {
+    return [tenantHubSidebarCategory.value];
+  }
+  return roleFilteredCategories.value;
+});
+
+const tenantHubDrillInActive = computed(() => {
+  if (!tenantSettingsCardHubActive.value) return false;
+  const id = selectedItem.value;
+  if (!id) return false;
+  return !['tenant-ws-home', 'tenant-ws-org-directory', 'tenant-ws-global-platform'].includes(id);
+});
+
+const platformHubDrillInActive = computed(() => {
+  if (!platformSettingsCardHubActive.value) return false;
+  const id = selectedItem.value;
+  if (!id) return false;
+  return id !== 'platform-ws-home';
 });
 
 // Component mapping
 const componentMap = {
   AgencyManagement,
   AgencyPlatformManagement,
+  SuperadminTenantHub,
+  TenantSettingsCardHub,
+  PlatformSettingsCardHub,
   AgencyManagementTeamConfig,
   BrandingConfig,
   BrandingTemplatesManagement,
@@ -670,8 +1030,6 @@ const selectedComponent = computed(() => {
   return componentMap[item.component] || null;
 });
 
-const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
-
 const isAgencyOrg = (o) => String(o?.organization_type || 'agency').toLowerCase() === 'agency';
 
 const selectableAgencies = computed(() => {
@@ -712,8 +1070,35 @@ const componentProps = computed(() => {
   if (selectedCategory.value === 'workflow' && selectedItem.value === 'school-settings' && props.initialSchoolId) {
     return { ...base, initialSchoolId: props.initialSchoolId };
   }
+  if (selectedCategory.value === 'platform' && selectedItem.value === 'platform-ws-home') {
+    return {
+      ...base,
+      secondaryBlocks: platformHubSecondaryBlocks.value,
+      onOpenArea: openPlatformHubArea
+    };
+  }
+  if (selectedCategory.value === 'platform' && selectedItem.value === 'tenant-ws-home') {
+    return {
+      ...base,
+      isSuperAdmin: isSuperAdmin.value,
+      secondaryBlocks: tenantHubSecondaryBlocks.value,
+      onOpenArea: openTenantHubArea
+    };
+  }
+  if (selectedCategory.value === 'platform' && selectedItem.value === 'tenant-ws-org-directory') {
+    const tid = agencyStore.currentAgency?.id;
+    return {
+      ...base,
+      embeddedOrgId: null,
+      embeddedTab: 'general',
+      organizationDirectoryTenantId: tid != null && tid !== '' ? tid : null
+    };
+  }
   if (selectedCategory.value === 'general' && selectedItem.value === 'company-profile') {
-    const agencyId = route.query.agencyId;
+    const agencyId =
+      tenantSettingsCardHubActive.value && agencyStore.currentAgency?.id
+        ? String(agencyStore.currentAgency.id)
+        : route.query.agencyId;
     const agencyTab = route.query.agencyTab || 'general';
     if (agencyId) {
       return { ...base, embeddedOrgId: agencyId, embeddedTab: agencyTab };
@@ -743,6 +1128,9 @@ const agencyContextPlaceholder = computed(() => {
 
 const agencyContextEmptyMessage = computed(() => {
   if (isChallengeManagement.value) return 'Select a Learning or Affiliation organization to manage seasons and weekly challenges.';
+  if (isSuperAdmin.value && !agencyStore.currentAgency && agencyStore.platformMode) {
+    return 'Select a tenant from the logo bar above to use this screen.';
+  }
   return isSuperAdmin.value ? 'Select a tenant to continue.' : 'Select an agency to continue.';
 });
 
@@ -751,15 +1139,197 @@ const selectedAgencyIsAgencyOrg = computed(() => {
   return isAgencyOrg(cur);
 });
 
-const handleAgencySelection = () => {
-  const id = selectedAgencyId.value ? parseInt(selectedAgencyId.value, 10) : null;
-  const agency = selectableAgencies.value.find(a => a.id === id);
+const topLevelTenantsForPicker = computed(() => {
+  const list = isSuperAdmin.value
+    ? (agencyStore.agencies || [])
+    : (agencyStore.userAgencies || agencyStore.agencies || []);
+  const filtered = (list || []).filter(isAgencyOrg);
+  const byId = new Map();
+  for (const a of filtered) {
+    if (a?.id != null) byId.set(Number(a.id), a);
+  }
+  return [...byId.values()].sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+});
+
+const isMultiTenantAdmin = computed(
+  () => String(authStore.user?.role || '').toLowerCase() === 'admin' && topLevelTenantsForPicker.value.length > 1
+);
+
+const filteredTopLevelTenants = computed(() => {
+  const q = String(tenantPickerSearch.value || '').trim().toLowerCase();
+  const list = topLevelTenantsForPicker.value;
+  if (!q) return list;
+  return list.filter((a) => {
+    const hay = `${String(a?.name || '').toLowerCase()} ${String(a?.slug || '').toLowerCase()} ${String(
+      a?.official_name || a?.officialName || ''
+    ).toLowerCase()}`;
+    return hay.includes(q);
+  });
+});
+
+const showTenantPickerShell = computed(() => {
+  if (!showTenantContextUi.value) return false;
+  if (isSuperAdmin.value) return true;
+  return isMultiTenantAdmin.value;
+});
+
+const showTenantEntryGate = computed(() => {
+  if (!showTenantContextUi.value) return false;
+  if (!isSuperAdmin.value) return false;
+  if (agencyStore.currentAgency) return false;
+  if (agencyStore.platformMode) return false;
+  if (route.query.agencyId) return false;
+  return true;
+});
+
+const tenantLogoUrl = (a) => {
+  if (!a) return null;
+  const logo = a.logo_url ?? a.logoUrl;
+  if (logo && String(logo).trim()) {
+    const s = String(logo).trim();
+    if (s.startsWith('http://') || s.startsWith('https://')) return s;
+    return toUploadsUrl(s);
+  }
+  const iconId = a.icon_id ?? a.iconId;
+  if (iconId) {
+    const u = brandingStore.iconUrlById(iconId);
+    if (u) return u;
+  }
+  return null;
+};
+
+const tenantInitials = (a) => {
+  const name = String(a?.name || 'T').trim();
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase().slice(0, 2);
+  return name.slice(0, 2).toUpperCase() || 'T';
+};
+
+const isPickerTenantActive = (a) => Number(agencyStore.currentAgency?.id) === Number(a?.id);
+
+const syncAgencyIdToRoute = () => {
+  if (props.disableRouteSync || !showTenantContextUi.value) return;
+  const q = { ...route.query };
+  const raw = String(selectedAgencyId.value || '').trim();
+  if (raw) q.agencyId = raw;
+  else delete q.agencyId;
+  router.replace({ query: q });
+};
+
+/** After picking a tenant, leave global Platform Settings and open the card hub (superadmin + admin). */
+const navigateToTenantWorkspaceAfterPick = () => {
+  if (agencyStore.platformMode || !agencyStore.currentAgency) return;
+  if (!showTenantContextUi.value) return;
+  const r = String(authStore.user?.role || '').toLowerCase();
+  if (r !== 'super_admin' && r !== 'admin') return;
+  if (selectedCategory.value === 'platform' && selectedItem.value === 'platform-settings') {
+    nextTick(() => selectItem('platform', 'tenant-ws-home'));
+  }
+};
+
+const selectTenantFromPicker = (a) => {
+  if (!a?.id) return;
+  const pickId = Number(a.id);
+  /** True when re-selecting the tenant that was already active before this handler runs. */
+  const wasAlreadyThisTenant = Number(agencyStore.currentAgency?.id) === pickId;
+
+  agencyStore.setCurrentAgency(a);
+  selectedAgencyId.value = String(a.id);
+  const r = String(authStore.user?.role || '').toLowerCase();
+  if (showTenantContextUi.value && (r === 'super_admin' || r === 'admin')) {
+    const nextQuery = {
+      ...route.query,
+      agencyId: String(a.id),
+      category: 'platform',
+      item: 'tenant-ws-home'
+    };
+    if (!props.disableRouteSync) {
+      router.replace({ query: nextQuery });
+    }
+
+    const refsOnTenantHub =
+      selectedCategory.value === 'platform' && selectedItem.value === 'tenant-ws-home';
+
+    // Second click same chip: don’t call selectItem again — its two-phase null reset races with this path
+    // and can leave category/item null → empty pane + broken branding until refresh.
+    if (wasAlreadyThisTenant && refsOnTenantHub) {
+      return;
+    }
+
+    // Same tenant again but pane is empty (refs cleared mid-flight or desynced from route).
+    if (wasAlreadyThisTenant && (!selectedCategory.value || !selectedItem.value)) {
+      selectedCategory.value = 'platform';
+      selectedItem.value = 'tenant-ws-home';
+      expandedCategoryIds.value = new Set(['platform']);
+      return;
+    }
+
+    nextTick(() => selectItem('platform', 'tenant-ws-home'));
+    return;
+  }
+  syncAgencyIdToRoute();
+  navigateToTenantWorkspaceAfterPick();
+};
+
+const enterPlatformToolsOnly = () => {
+  agencyStore.setPlatformMode();
+  selectedAgencyId.value = '';
+  const q = buildSettingsReplaceQuery('platform', 'platform-ws-home');
+  if (!props.disableRouteSync && showTenantContextUi.value) {
+    router.replace({ query: q });
+  } else {
+    syncAgencyIdToRoute();
+  }
+  // Avoid selectItem’s second replace racing with a stale route.query that still had agencyId.
+  selectedCategory.value = null;
+  selectedItem.value = null;
+  nextTick(() => {
+    selectedCategory.value = 'platform';
+    selectedItem.value = 'platform-ws-home';
+    expandedCategoryIds.value = new Set(['platform']);
+  });
+};
+
+const applySelectedAgencyFromIdString = async (raw) => {
+  const id = raw ? parseInt(String(raw), 10) : NaN;
+  if (!Number.isFinite(id) || id < 1) {
+    if (isSuperAdmin.value) agencyStore.setPlatformMode();
+    return;
+  }
+  let agency =
+    selectableAgencies.value.find((a) => a.id === id) ||
+    (agencyStore.agencies || []).find((a) => a.id === id) ||
+    (agencyStore.userAgencies || []).find((a) => a.id === id);
   if (agency) {
     agencyStore.setCurrentAgency(agency);
-  } else if (isSuperAdmin.value) {
-    // allow placeholder "no selection" for super_admin
-    agencyStore.setCurrentAgency(null);
+    return;
   }
+  if (isSuperAdmin.value) {
+    const hydrated = await agencyStore.hydrateAgencyById(id);
+    if (hydrated) agencyStore.setCurrentAgency(hydrated);
+  }
+};
+
+const handleAgencySelection = async () => {
+  await applySelectedAgencyFromIdString(selectedAgencyId.value);
+  if (!props.disableRouteSync && showTenantContextUi.value && (isSuperAdmin.value || showTenantPickerShell.value)) {
+    syncAgencyIdToRoute();
+  }
+};
+
+/** Platform settings screens that are never scoped to a tenant — URL must not carry agencyId or the route watch will restore the tenant and break platform mode + branding. */
+const PLATFORM_SOLO_ROUTE_ITEMS = new Set(['platform-ws-home', 'platform-settings', 'platform-all-agencies']);
+
+const buildSettingsReplaceQuery = (categoryId, itemId) => {
+  const q = { ...route.query, category: categoryId, item: itemId };
+  if (categoryId === 'platform' && PLATFORM_SOLO_ROUTE_ITEMS.has(itemId)) {
+    delete q.agencyId;
+  }
+  // After choosing Platform chip, route.query can still contain agencyId for a tick — always strip while platform-only.
+  if (isSuperAdmin.value && agencyStore.platformMode && !agencyStore.currentAgency?.id) {
+    delete q.agencyId;
+  }
+  return q;
 };
 
 const selectItem = (categoryId, itemId) => {
@@ -776,16 +1346,36 @@ const selectItem = (categoryId, itemId) => {
     selectedCategory.value = categoryId;
     selectedItem.value = itemId;
     expandedCategoryIds.value = new Set([String(categoryId)]);
-    if (!props.disableRouteSync && !props.embedded) {
+    if (!props.disableRouteSync && showTenantContextUi.value) {
       router.replace({
-        query: {
-          ...route.query,
-          category: categoryId,
-          item: itemId
-        }
+        query: buildSettingsReplaceQuery(categoryId, itemId)
       });
     }
   });
+};
+
+const openTenantHubArea = ({ category, item, agencyTab }) => {
+  const id = agencyStore.currentAgency?.id;
+  if (!id) return;
+  const q = { ...route.query, category, item, agencyId: String(id) };
+  if (agencyTab) q.agencyTab = agencyTab;
+  else delete q.agencyTab;
+  if (!props.disableRouteSync && showTenantContextUi.value) {
+    router.replace({ query: q });
+  }
+  selectItem(category, item);
+};
+
+/** Platform hub navigation: no tenant in context — clear agencyId from the URL when jumping between areas. */
+const openPlatformHubArea = ({ category, item, agencyTab }) => {
+  const q = { ...route.query, category, item };
+  delete q.agencyId;
+  if (agencyTab) q.agencyTab = agencyTab;
+  else delete q.agencyTab;
+  if (!props.disableRouteSync && showTenantContextUi.value) {
+    router.replace({ query: q });
+  }
+  selectItem(category, item);
 };
 
 const closeModal = () => {
@@ -845,14 +1435,20 @@ onMounted(async () => {
   }
 
   // Optional deep-link agency selection (used by other pages/modals)
-  if (!props.disableRouteSync && !props.embedded) {
+  if (!props.disableRouteSync && showTenantContextUi.value) {
     const agencyIdParam = route.query.agencyId;
     if (agencyIdParam) {
       const id = parseInt(String(agencyIdParam), 10);
       if (!Number.isNaN(id)) {
-        const target = selectableAgencies.value.find((a) => Number(a?.id) === Number(id));
+        const target =
+          selectableAgencies.value.find((a) => Number(a?.id) === Number(id)) ||
+          (agencyStore.agencies || []).find((a) => Number(a?.id) === Number(id)) ||
+          (agencyStore.userAgencies || []).find((a) => Number(a?.id) === Number(id));
         if (target) {
           agencyStore.setCurrentAgency(target);
+        } else if (isSuperAdmin.value) {
+          const hydrated = await agencyStore.hydrateAgencyById(id);
+          if (hydrated) agencyStore.setCurrentAgency(hydrated);
         }
       }
     }
@@ -866,10 +1462,23 @@ onMounted(async () => {
   // Initial selection: props > route query (when route sync is enabled) > default
   const trySetSelection = (categoryId, itemId) => {
     if (!categoryId || !itemId) return false;
-    const category = visibleCategories.value.find((c) => c.id === categoryId);
-    if (!category) return false;
-    const item = category.items.find((i) => i.id === itemId);
-    if (!item) return false;
+    const cat = allCategories.find((c) => c.id === categoryId);
+    const itemMeta = cat?.items?.find((i) => i.id === itemId);
+    if (!itemMeta) return false;
+    const hubIds = ['tenant-ws-home', 'tenant-ws-org-directory', 'tenant-ws-global-platform'];
+    const hubOk =
+      tenantSettingsCardHubActive.value && categoryId === 'platform' && hubIds.includes(itemId);
+    const platformHubOk =
+      platformSettingsCardHubActive.value &&
+      categoryId === 'platform' &&
+      (itemId === 'platform-ws-home' ||
+        itemId === 'platform-all-agencies' ||
+        itemId === 'platform-settings' ||
+        itemId === 'tenant-ws-global-platform');
+    const navOk = roleFilteredCategories.value.some(
+      (c) => c.id === categoryId && c.items.some((i) => i.id === itemId)
+    );
+    if (!hubOk && !navOk && !platformHubOk) return false;
     selectedCategory.value = categoryId;
     selectedItem.value = itemId;
     expandedCategoryIds.value = new Set([String(categoryId)]);
@@ -878,7 +1487,7 @@ onMounted(async () => {
 
   if (trySetSelection(props.initialCategoryId, props.initialItemId)) {
     // selection set
-  } else if (!props.disableRouteSync && !props.embedded) {
+  } else if (!props.disableRouteSync && showTenantContextUi.value) {
     const categoryParam = route.query.category;
     const itemParam = route.query.item;
     if (categoryParam && itemParam && trySetSelection(categoryParam, itemParam)) {
@@ -888,7 +1497,11 @@ onMounted(async () => {
   
   // Default to first visible category and item (only if no selection was established)
   if (!selectedCategory.value || !selectedItem.value) {
-    if (visibleCategories.value.length > 0) {
+    if (platformSettingsCardHubActive.value) {
+      selectedCategory.value = 'platform';
+      selectedItem.value = 'platform-ws-home';
+      expandedCategoryIds.value = new Set(['platform']);
+    } else if (visibleCategories.value.length > 0) {
       const firstCategory = visibleCategories.value[0];
       if (firstCategory.items.length > 0) {
         selectedCategory.value = firstCategory.id;
@@ -898,39 +1511,128 @@ onMounted(async () => {
     }
   }
 
+  if (
+    isSuperAdmin.value &&
+    agencyStore.currentAgency?.id &&
+    selectedCategory.value === 'platform' &&
+    selectedItem.value === 'platform-settings'
+  ) {
+    nextTick(() => selectItem('platform', 'tenant-ws-home'));
+  }
+
   // Ensure icon IDs referenced by agency/platform can be resolved and preloaded.
   await trackPromise(prefetchSettingsSidebarIcons(), 'Loading…');
 });
 
-watch(() => agencyStore.currentAgency, async (a) => {
+watch(() => agencyStore.currentAgency, (a) => {
   selectedAgencyId.value = a?.id ? String(a.id) : '';
-  // When switching agencies, the sidebar icon overrides can change — keep the global loader up until icons are ready.
-  await trackPromise(prefetchSettingsSidebarIcons(), 'Loading…');
+  // Prefetch in background only: awaiting + trackPromise here ran the global loader and image preloads
+  // on every chip click, so rapid tenant switches felt stuck until the last slow prefetch finished.
+  void prefetchSettingsSidebarIcons();
+  const r = String(authStore.user?.role || '').toLowerCase();
+  if (
+    (r === 'super_admin' || r === 'admin') &&
+    a?.id &&
+    selectedCategory.value === 'platform' &&
+    selectedItem.value === 'platform-settings'
+  ) {
+    nextTick(() => selectItem('platform', 'tenant-ws-home'));
+  }
 });
 
 // Watch for route changes (for browser back/forward)
 watch(() => route.query, (newQuery) => {
-  if (props.disableRouteSync || props.embedded) return;
+  if (props.disableRouteSync || !showTenantContextUi.value) return;
+
+  // Stale agencyId + platform-only item would re-hydrate a tenant, clear platformMode, and break theme + branding.
+  if (
+    isSuperAdmin.value &&
+    newQuery.category === 'platform' &&
+    PLATFORM_SOLO_ROUTE_ITEMS.has(String(newQuery.item || '')) &&
+    newQuery.agencyId
+  ) {
+    agencyStore.setPlatformMode();
+    const q = { ...newQuery };
+    delete q.agencyId;
+    router.replace({ query: q });
+    return;
+  }
+
+  if (
+    tenantSettingsCardHubActive.value &&
+    newQuery.category === 'platform' &&
+    newQuery.item === 'platform-settings' &&
+    newQuery.agencyId
+  ) {
+    router.replace({
+      query: { ...newQuery, category: 'platform', item: 'tenant-ws-home' }
+    });
+    return;
+  }
   if (newQuery.category && newQuery.item) {
-    const category = visibleCategories.value.find(c => c.id === newQuery.category);
-    if (category) {
-      const item = category.items.find(i => i.id === newQuery.item);
-      if (item) {
-        selectedCategory.value = newQuery.category;
-        selectedItem.value = newQuery.item;
-      }
+    if (
+      platformSettingsCardHubActive.value &&
+      newQuery.category === 'platform' &&
+      ['tenant-ws-home', 'tenant-ws-org-directory', 'agency-platform', 'tenant-overview'].includes(
+        newQuery.item
+      )
+    ) {
+      const q = { ...newQuery, category: 'platform', item: 'platform-ws-home' };
+      delete q.agencyId;
+      router.replace({ query: q });
+      return;
+    }
+    const hubIds = ['tenant-ws-home', 'tenant-ws-org-directory', 'tenant-ws-global-platform'];
+    const inHubSidebar =
+      tenantSettingsCardHubActive.value &&
+      newQuery.category === 'platform' &&
+      hubIds.includes(newQuery.item);
+    const inFullNav = roleFilteredCategories.value.some(
+      (c) => c.id === newQuery.category && c.items.some((i) => i.id === newQuery.item)
+    );
+    const inPlatformHubHome =
+      platformSettingsCardHubActive.value &&
+      newQuery.category === 'platform' &&
+      ['platform-ws-home', 'platform-all-agencies', 'platform-settings', 'tenant-ws-global-platform'].includes(
+        newQuery.item
+      );
+    const category = visibleCategories.value.find((c) => c.id === newQuery.category);
+    const itemFromVisible = category?.items?.find((i) => i.id === newQuery.item);
+    if (inHubSidebar || inFullNav || itemFromVisible || inPlatformHubHome) {
+      selectedCategory.value = newQuery.category;
+      selectedItem.value = newQuery.item;
+      expandedCategoryIds.value = new Set([String(newQuery.category)]);
     }
   }
 
-  // Support deep-linking to an agency context
+  // Support deep-linking to an agency context (skip if URL already matches store — avoids double setCurrentAgency + duplicate work per chip click)
   if (newQuery.agencyId) {
     const id = parseInt(String(newQuery.agencyId), 10);
-    if (!Number.isNaN(id)) {
-      const target = selectableAgencies.value.find((a) => Number(a?.id) === Number(id));
-      if (target) agencyStore.setCurrentAgency(target);
+    if (!Number.isNaN(id) && Number(agencyStore.currentAgency?.id) !== id) {
+      const target =
+        selectableAgencies.value.find((a) => Number(a?.id) === Number(id)) ||
+        (agencyStore.agencies || []).find((a) => Number(a?.id) === Number(id)) ||
+        (agencyStore.userAgencies || []).find((a) => Number(a?.id) === Number(id));
+      if (target) {
+        agencyStore.setCurrentAgency(target);
+      } else if (isSuperAdmin.value) {
+        agencyStore.hydrateAgencyById(id).then((h) => {
+          if (h) agencyStore.setCurrentAgency(h);
+        });
+      }
     }
   }
 }, { immediate: true });
+
+watch(
+  () => [selectedCategory.value, selectedItem.value],
+  ([cat, item]) => {
+    if (cat !== 'platform' || item !== 'tenant-ws-global-platform') return;
+    if (!isSuperAdmin.value) return;
+    enterPlatformToolsOnly();
+    nextTick(() => selectItem('platform', 'platform-settings'));
+  }
+);
 
 // Map settings item IDs to platform branding icon field names
 const settingsIconMap = {
@@ -979,7 +1681,11 @@ const getSettingsIconUrl = (itemId) => {
   return null;
 };
 
+/** Bumped on each prefetch start; stale async work exits early so rapid tenant switches don’t queue. */
+let settingsSidebarPrefetchGeneration = 0;
+
 const prefetchSettingsSidebarIcons = async () => {
+  const gen = ++settingsSidebarPrefetchGeneration;
   const pb = brandingStore.platformBranding || null;
   const a = agencyStore.currentAgency || null;
   const ids = [];
@@ -989,10 +1695,13 @@ const prefetchSettingsSidebarIcons = async () => {
     if (pb?.[meta.idField]) ids.push(pb[meta.idField]);
   }
   await brandingStore.prefetchIconIds(ids);
+  if (gen !== settingsSidebarPrefetchGeneration) return;
 
   // Preload the images for the visible sidebar entries so the page feels "done" when the loader disappears.
   const urls = [];
-  for (const cat of visibleCategories.value || []) {
+  const preloadCats =
+    platformSettingsCardHubActive.value ? roleFilteredCategories.value : visibleCategories.value;
+  for (const cat of preloadCats || []) {
     for (const item of cat.items || []) {
       const u = getSettingsIconUrl(item.id);
       if (u) urls.push(u);
@@ -1127,6 +1836,291 @@ const prefetchSettingsSidebarIcons = async () => {
   display: flex;
   flex: 1;
   overflow: hidden;
+}
+
+.modal-body-with-tenant-shell {
+  flex-direction: column;
+}
+
+.settings-main-row {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.settings-main-row--solo-hub .settings-content {
+  background: var(--bg-alt, #f8fafc);
+}
+
+.settings-tenant-entry-gate {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 28px 32px 40px;
+  background: var(--bg-alt);
+}
+
+.tenant-entry-gate-header {
+  max-width: 720px;
+  margin-bottom: 24px;
+}
+
+.tenant-entry-title {
+  margin: 0 0 8px 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.tenant-entry-subtitle {
+  margin: 0 0 16px 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.tenant-logo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+  max-width: 1100px;
+}
+
+.tenant-logo-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 16px 12px;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s;
+  font: inherit;
+  color: inherit;
+}
+
+.tenant-logo-card:hover {
+  border-color: var(--text-secondary);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+
+.tenant-logo-card-active {
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.06);
+}
+
+.tenant-logo-card-platform {
+  background: linear-gradient(180deg, #fff 0%, var(--bg-alt) 100%);
+}
+
+.tenant-logo-wrap {
+  width: 72px;
+  height: 72px;
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  font-size: 28px;
+}
+
+.tenant-logo-wrap-sm {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  font-size: 18px;
+}
+
+.tenant-logo-fallback {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.tenant-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tenant-logo-img-sm {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tenant-logo-initials {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.tenant-logo-initials-sm {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.tenant-logo-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tenant-logo-slug {
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.settings-tenant-picker-shell {
+  flex-shrink: 0;
+  border-bottom: 2px solid var(--border);
+  background: var(--bg-alt);
+  padding: 14px 20px 16px;
+}
+
+.tenant-picker-shell-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-bottom: 12px;
+}
+
+.tenant-picker-shell-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+.tenant-picker-search {
+  min-width: 160px;
+  flex: 1 1 220px;
+  max-width: 320px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.tenant-picker-search-wide {
+  max-width: none;
+  width: 100%;
+}
+
+.tenant-picker-active-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.tenant-picker-active-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-alt);
+  flex-shrink: 0;
+}
+
+.tenant-picker-active-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tenant-picker-active-name {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tenant-picker-active-meta {
+  font-size: 12px;
+}
+
+.tenant-picker-hint {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.tenant-picker-hint.muted {
+  color: var(--text-secondary);
+}
+
+.tenant-logo-scroller {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tenant-logo-chip {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 88px;
+  padding: 8px 6px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.tenant-logo-chip:hover {
+  border-color: var(--text-secondary);
+}
+
+.tenant-logo-chip-active {
+  border-color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.tenant-chip-label {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 100%;
+}
+
+.muted {
+  color: var(--text-secondary);
 }
 
 .settings-sidebar {
@@ -1265,6 +2259,19 @@ const prefetchSettingsSidebarIcons = async () => {
   overflow-y: auto;
   padding: 32px;
   background: white;
+}
+
+.settings-content--solo-hub {
+  padding: 28px 32px 36px;
+}
+
+.tenant-hub-back-row {
+  margin: -8px 0 16px 0;
+}
+
+.tenant-hub-back-btn {
+  padding: 0;
+  font-weight: 600;
 }
 
 .agency-context-bar {

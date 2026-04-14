@@ -12,7 +12,7 @@
 
     <!-- Reuse the existing SettingsModal content, but in page mode -->
     <div class="settings-page-body">
-      <SettingsModal :embedded="true" />
+      <SettingsModal :embedded="true" :show-tenant-context="true" />
     </div>
   </div>
 </template>

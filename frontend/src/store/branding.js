@@ -15,6 +15,10 @@ const _themeInflight = new Map();  // cacheKey → Promise
 const _themeCache    = new Map();  // cacheKey → { data, ts }
 const THEME_CACHE_TTL_MS = 5000;
 
+/** Dedupe /fonts/public XHR: applyTheme can run often; same agency+family only needs one fetch per session. */
+const _fontPublicLoadedKeys = new Set();
+const _fontPublicInflight = new Map();
+
 export const useBrandingStore = defineStore('branding', () => {
   const agencyStore = useAgencyStore();
   const authStore = useAuthStore();
@@ -130,6 +134,16 @@ export const useBrandingStore = defineStore('branding', () => {
   const activeRouteSlug = ref('');
   const setActiveRouteSlug = (slug) => {
     activeRouteSlug.value = String(slug || '').trim().toLowerCase();
+  };
+
+  /**
+   * When true (Settings / OrganizationSettings routes), nav colors + logos follow
+   * agencyStore.currentAgency or platform template — not _palettesBySlug[URL slug].
+   * Otherwise superadmin on /itsco/admin/settings who picks NLU still sees ITSCO chrome from the path.
+   */
+  const settingsTenantPickerBrandingActive = ref(false);
+  const setSettingsTenantPickerBrandingActive = (on) => {
+    settingsTenantPickerBrandingActive.value = !!on;
   };
 
   /**
@@ -425,19 +439,31 @@ export const useBrandingStore = defineStore('branding', () => {
 
       const familyName = extractFamily(resolvedFont);
       if (familyName) {
-        api
-          .get('/fonts/public', {
-            params: { agencyId: brandingAgencyId || undefined, familyName },
-            skipAuthRedirect: true
-          })
-          .then((res) => {
-            const fonts = res.data || [];
-            if (Array.isArray(fonts) && fonts.length > 0) {
-              // Load first available face for this family.
-              loadFont(fonts[0]).catch(() => {});
-            }
-          })
-          .catch(() => {});
+        const dedupeKey = `${String(brandingAgencyId ?? '')}:${familyName}`;
+        if (!_fontPublicLoadedKeys.has(dedupeKey)) {
+          const existing = _fontPublicInflight.get(dedupeKey);
+          if (existing) {
+            existing.catch(() => {});
+          } else {
+            const req = api
+              .get('/fonts/public', {
+                params: { agencyId: brandingAgencyId || undefined, familyName },
+                skipAuthRedirect: true
+              })
+              .then((res) => {
+                const fonts = res.data || [];
+                if (Array.isArray(fonts) && fonts.length > 0) {
+                  loadFont(fonts[0]).catch(() => {});
+                }
+                _fontPublicLoadedKeys.add(dedupeKey);
+              })
+              .catch(() => {})
+              .finally(() => {
+                _fontPublicInflight.delete(dedupeKey);
+              });
+            _fontPublicInflight.set(dedupeKey, req);
+          }
+        }
       }
     }
   };
@@ -445,23 +471,28 @@ export const useBrandingStore = defineStore('branding', () => {
   /**
    * Push selected agency palette to documentElement so :root --agency-* / --primary match store computeds.
    * Call after hydrate when switching orgs (dropdown) or after route theme when slug matches currentAgency.
+   * @param {{ skipRouteSlugGuard?: boolean }} [options] - When true (e.g. /admin/settings tenant picker), apply
+   *   currentAgency theme even if URL slug is a different org — otherwise ITSCO URL + PlotTwist picker stays ITSCO-colored.
    */
-  const syncDocumentThemeFromSelectedAgency = () => {
+  const syncDocumentThemeFromSelectedAgency = (options = {}) => {
+    const skipRouteSlugGuard = options.skipRouteSlugGuard === true;
     if (!authStore.isAuthenticated) return;
     const a = agencyStore.currentAgency;
     if (!a?.id) return;
-    // Guard: if we're on a slug-prefixed route for a DIFFERENT org (e.g. superadmin on
-    // /nlu/admin/... while currentAgency is still ITSCO), do NOT clobber the route's theme.
-    const routeSlug = activeRouteSlug.value;
-    if (routeSlug) {
-      const agSlug = String(a.slug || a.portal_url || a.portalUrl || '').trim().toLowerCase();
-      if (agSlug && agSlug !== routeSlug) return;
-    }
-    // Legacy guard: also check portalAgency.slug mismatch.
-    if (portalAgency.value?.slug) {
-      const agSlug = String(a.slug || a.portal_url || a.portalUrl || '').trim().toLowerCase();
-      const pSlug = String(portalAgency.value.slug).trim().toLowerCase();
-      if (agSlug && pSlug && agSlug !== pSlug) return;
+    if (!skipRouteSlugGuard) {
+      // Guard: if we're on a slug-prefixed route for a DIFFERENT org (e.g. superadmin on
+      // /nlu/admin/... while currentAgency is still ITSCO), do NOT clobber the route's theme.
+      const routeSlug = activeRouteSlug.value;
+      if (routeSlug) {
+        const agSlug = String(a.slug || a.portal_url || a.portalUrl || '').trim().toLowerCase();
+        if (agSlug && agSlug !== routeSlug) return;
+      }
+      // Legacy guard: also check portalAgency.slug mismatch.
+      if (portalAgency.value?.slug) {
+        const agSlug = String(a.slug || a.portal_url || a.portalUrl || '').trim().toLowerCase();
+        const pSlug = String(portalAgency.value.slug).trim().toLowerCase();
+        if (agSlug && pSlug && agSlug !== pSlug) return;
+      }
     }
     let colorPalette = {};
     let themeSettings = {};
@@ -502,6 +533,31 @@ export const useBrandingStore = defineStore('branding', () => {
       brandingAgencyId: fontBrandingAgencyId,
       agencyId: a.id
     });
+  };
+
+  /** Re-apply platform default colors to :root when superadmin leaves a tenant (Platform chip). */
+  const syncDocumentThemeFromPlatformBranding = async () => {
+    if (!authStore.isAuthenticated) return;
+    if (!platformBranding.value) {
+      await fetchPlatformBranding(false);
+    }
+    const pb = platformBranding.value;
+    if (!pb) return;
+    applyTheme({
+      colorPalette: {
+        primary: pb.primary_color || '#C69A2B',
+        secondary: pb.secondary_color || '#1D2633',
+        accent: pb.accent_color || pb.primary_color || '#3A4C6B'
+      },
+      themeSettings: {},
+      brandingAgencyId: null,
+      agencyId: null
+    });
+    try {
+      document.documentElement.style.removeProperty('--agency-font-family');
+    } catch {
+      // ignore
+    }
   };
 
   const setPortalThemeData = (themeData) => {
@@ -639,7 +695,37 @@ export const useBrandingStore = defineStore('branding', () => {
    *   3. platformBranding fallback
    * This ensures /nlu/... always shows NLU colors even when currentAgency is ITSCO.
    */
+  const _parseAgencyColorPalette = (agency) => {
+    if (!agency?.id) return null;
+    const raw = agency.color_palette ?? agency.colorPalette;
+    if (!raw) return null;
+    try {
+      const p = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (p && typeof p === 'object' && Object.keys(p).length > 0) return p;
+    } catch {
+      /* ignore */
+    }
+    return null;
+  };
+
   const _resolveActivePalette = () => {
+    if (settingsTenantPickerBrandingActive.value) {
+      const fromAgency = _parseAgencyColorPalette(agencyStore.currentAgency);
+      if (fromAgency) return { palette: fromAgency, source: 'currentAgency' };
+      const pb = platformBranding.value;
+      if (pb) {
+        return {
+          palette: {
+            primary: pb.primary_color || '#C69A2B',
+            secondary: pb.secondary_color || '#1D2633',
+            accent: pb.accent_color || pb.primary_color || '#3A4C6B'
+          },
+          source: 'platform'
+        };
+      }
+      return { palette: null, source: 'platform' };
+    }
+
     const routeSlug = activeRouteSlug.value;
 
     // 1. Route-slug cached palette — reactive because _palettesBySlug is reactive().
@@ -654,17 +740,8 @@ export const useBrandingStore = defineStore('branding', () => {
     // 2. currentAgency palette — available immediately after selectAgencyBrand hydrates.
     //    API may return color_palette (snake) OR colorPalette (camel) depending on endpoint.
     const agency = agencyStore.currentAgency;
-    if (agency) {
-      const raw = agency.color_palette ?? agency.colorPalette;
-      if (raw) {
-        try {
-          const p = typeof raw === 'string' ? JSON.parse(raw) : raw;
-          if (p && typeof p === 'object' && Object.keys(p).length > 0) {
-            return { palette: p, source: 'currentAgency' };
-          }
-        } catch { /* ignore */ }
-      }
-    }
+    const pAg = _parseAgencyColorPalette(agency);
+    if (pAg) return { palette: pAg, source: 'currentAgency' };
 
     return { palette: null, source: 'platform' };
   };
@@ -674,6 +751,20 @@ export const useBrandingStore = defineStore('branding', () => {
    * Used for flags like useExtendedBrandingColors without extra fetches.
    */
   const _resolveActiveThemeSettings = () => {
+    if (settingsTenantPickerBrandingActive.value) {
+      const agency = agencyStore.currentAgency;
+      if (agency?.id) {
+        const raw = agency.theme_settings ?? agency.themeSettings;
+        if (raw) {
+          try {
+            return typeof raw === 'string' ? JSON.parse(raw) : raw;
+          } catch {
+            return {};
+          }
+        }
+      }
+      return {};
+    }
     const routeSlug = activeRouteSlug.value;
     if (routeSlug) {
       const cached = _themeSettingsBySlug[routeSlug];
@@ -899,6 +990,37 @@ export const useBrandingStore = defineStore('branding', () => {
 
   // Display logo URL (portal → selected org → platform template / login)
   const displayLogoUrl = computed(() => {
+    if (settingsTenantPickerBrandingActive.value) {
+      const agency = agencyStore.currentAgency;
+      if (agency?.logo_path) {
+        return addCacheBuster(toUploadsUrl(agency.logo_path));
+      }
+      if (agency?.icon_file_path) {
+        return addCacheBuster(toUploadsUrl(agency.icon_file_path));
+      }
+      if (agency?.logo_url) {
+        if (agency.logo_url.startsWith('http://') || agency.logo_url.startsWith('https://')) {
+          return addCacheBuster(agency.logo_url);
+        }
+        const apiBase = getBackendBaseUrl();
+        const fullUrl = `${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`;
+        return addCacheBuster(fullUrl);
+      }
+      const pb = platformBranding.value;
+      if (pb?.organization_logo_url) return addCacheBuster(pb.organization_logo_url);
+      if (pb?.organization_logo_path) {
+        const u = toUploadsUrl(pb.organization_logo_path);
+        if (u) return addCacheBuster(u);
+      }
+      if (pb?.organization_logo_icon_path) {
+        return addCacheBuster(toUploadsUrl(String(pb.organization_logo_icon_path)));
+      }
+      if (pb?.organization_logo_icon_id) {
+        const url = iconUrlById(pb.organization_logo_icon_id);
+        if (url) return addCacheBuster(url);
+      }
+      return null;
+    }
     const routeSlug = activeRouteSlug.value;
     // _logosBySlug is reactive() so reading [routeSlug] here creates a dep automatically.
     if (routeSlug && _logosBySlug[routeSlug]) {
@@ -962,6 +1084,30 @@ export const useBrandingStore = defineStore('branding', () => {
 
   /** Master organization icon for compact chrome (nav, favicon) — prefers icon over wide logo. */
   const displayChromeIconUrl = computed(() => {
+    if (settingsTenantPickerBrandingActive.value) {
+      const agency = agencyStore.currentAgency;
+      if (agency?.icon_file_path) {
+        return addCacheBuster(toUploadsUrl(agency.icon_file_path));
+      }
+      const iconId = agency?.icon_id ?? agency?.iconId;
+      if (iconId) {
+        const u = iconUrlById(iconId);
+        if (u) return addCacheBuster(u);
+      }
+      if (agency?.logo_path) {
+        return addCacheBuster(toUploadsUrl(agency.logo_path));
+      }
+      const pb = platformBranding.value;
+      if (pb?.organization_logo_icon_path) {
+        return addCacheBuster(toUploadsUrl(String(pb.organization_logo_icon_path)));
+      }
+      if (pb?.organization_logo_icon_id) {
+        const url = iconUrlById(pb.organization_logo_icon_id);
+        if (url) return addCacheBuster(url);
+      }
+      if (pb?.organization_logo_url) return addCacheBuster(pb.organization_logo_url);
+      return null;
+    }
     const routeSlug = activeRouteSlug.value;
     if (routeSlug) {
       const cachedIcon = _iconsBySlug[routeSlug];
@@ -996,6 +1142,9 @@ export const useBrandingStore = defineStore('branding', () => {
   
   // Get theme settings (fonts, login background, etc.)
   const themeSettings = computed(() => {
+    if (settingsTenantPickerBrandingActive.value) {
+      return _resolveActiveThemeSettings();
+    }
     if (shouldApplyPortalAgencyThemeFirst() && portalAgency.value?.themeSettings) {
       return portalAgency.value.themeSettings;
     }
@@ -1442,6 +1591,7 @@ export const useBrandingStore = defineStore('branding', () => {
     initializePortalTheme,
     applyTheme,
     syncDocumentThemeFromSelectedAgency,
+    syncDocumentThemeFromPlatformBranding,
     setPortalThemeData,
     setPortalThemeFromLoginTheme,
     clearPortalTheme,
@@ -1458,7 +1608,8 @@ export const useBrandingStore = defineStore('branding', () => {
     setPlatformBrandingFromResponse,
     // Route-scoped branding (set by router guard on every navigation)
     activeRouteSlug,
-    setActiveRouteSlug
+    setActiveRouteSlug,
+    setSettingsTenantPickerBrandingActive
   };
 });
 

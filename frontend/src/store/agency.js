@@ -26,6 +26,16 @@ export const useAgencyStore = defineStore('agency', () => {
    */
   const platformMode = ref(sessionStorage.getItem('__pt_platform_mode__') === '1');
 
+  /**
+   * Bumped on every explicit tenant / Platform selection so BrandingProvider’s watch re-runs even when
+   * the user returns to the same agency id (e.g. NLU → ITSCO → NLU). Vue skips the watcher when the
+   * watched string is unchanged — without this, :root theme stops updating after a few clicks.
+   */
+  const brandingContextGeneration = ref(0);
+  const bumpBrandingContextGeneration = () => {
+    brandingContextGeneration.value += 1;
+  };
+
   const hydrateAgencyById = async (agencyId) => {
     const id = Number(agencyId);
     if (!Number.isInteger(id) || id < 1) return null;
@@ -87,6 +97,7 @@ export const useAgencyStore = defineStore('agency', () => {
   const setCurrentAgency = (agency) => {
     currentAgency.value = agency;
     localStorage.setItem('currentAgency', JSON.stringify(agency));
+    bumpBrandingContextGeneration();
     if (agency?.id) {
       // Switching to a specific tenant clears explicit platform mode.
       platformMode.value = false;
@@ -101,6 +112,7 @@ export const useAgencyStore = defineStore('agency', () => {
     sessionStorage.setItem('__pt_platform_mode__', '1');
     currentAgency.value = null;
     localStorage.setItem('currentAgency', JSON.stringify(null));
+    bumpBrandingContextGeneration();
   };
 
   const fetchAgencies = async (userId = null) => {
@@ -370,6 +382,7 @@ export const useAgencyStore = defineStore('agency', () => {
     tracks,
     currentAgency,
     platformMode,
+    brandingContextGeneration,
     getAgencyTracks,
     setCurrentAgency,
     setPlatformMode,

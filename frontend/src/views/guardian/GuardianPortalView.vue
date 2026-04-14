@@ -2,304 +2,203 @@
   <div class="guardian-dashboard">
     <div class="header">
       <div class="title">
-        <div class="name">My Dashboard</div>
+        <div class="name">Guardian portal</div>
         <div class="subtitle">
-          Access your enrolled program(s), documents, and your child’s information.
+          A family-facing space for registrations, paperwork, billing, and day-to-day program updates.
         </div>
       </div>
 
-      <div class="header-actions">
-        <GuardianProgramSelector :programs="programs" />
-        <button class="btn btn-secondary btn-sm" type="button" @click="refreshAll" :disabled="loading">
-          Refresh
-        </button>
+      <div v-if="currentAgencyName" class="header-actions">
+        <span class="guardian-header-badge">{{ currentAgencyName }}</span>
       </div>
     </div>
 
     <div v-if="error" class="error">{{ error }}</div>
     <div v-else-if="loading" class="loading">Loading your dashboard…</div>
 
-    <div v-else class="layout">
-      <div class="top-cards">
-        <div class="top-card">
-          <div class="top-card-title">Skill Builders</div>
-          <div v-if="sbLoading" class="top-card-desc">Loading events…</div>
-          <div v-else-if="sbError" class="error" style="font-size: 13px;">{{ sbError }}</div>
-          <template v-else-if="sbGrouped.length">
-            <p class="top-card-desc" style="margin-bottom: 10px;">
-              Events your children are enrolled in (Skills program). Tap for schedule, providers, and chat.
-            </p>
-            <div class="sb-g-cards">
-              <button
-                v-for="g in sbUpcomingGrouped"
-                :key="g.companyEventId"
-                type="button"
-                class="sb-g-card"
-                :class="{ 'sb-g-card--pulse': sbCardShouldPulse(g) }"
-                @click="openInlineSkillBuilderEvent(g)"
-              >
-                <div class="sb-g-title">{{ g.title }}</div>
-                <div class="sb-g-meta muted">{{ formatSbCardWhen(g) }}</div>
-                <div class="sb-g-meta muted">{{ g.schoolName || 'School' }} · {{ childLabels(g) }}</div>
-              </button>
-            </div>
-            <label class="sb-g-past-toggle">
-              <input v-model="showPastSbEvents" type="checkbox" />
-              Show past events
-            </label>
-            <div v-if="showPastSbEvents && sbPastGrouped.length" class="sb-g-cards sb-g-past">
-              <button
-                v-for="g in sbPastGrouped"
-                :key="`p-${g.companyEventId}`"
-                type="button"
-                class="sb-g-card sb-g-card-past"
-                @click="openInlineSkillBuilderEvent(g)"
-              >
-                <div class="sb-g-title">{{ g.title }}</div>
-                <div class="sb-g-meta muted">{{ formatSbCardWhen(g) }}</div>
-                <div class="sb-g-meta muted">{{ childLabels(g) }}</div>
-              </button>
-            </div>
-          </template>
-          <div v-else class="top-card-desc">
-            When your children are marked for Skill Builders and assigned to program events, those events will appear here.
-          </div>
-        </div>
-        <div class="top-card">
-          <div class="top-card-title">My Programs</div>
-          <div v-if="genLoading" class="top-card-desc">Loading…</div>
-          <div v-else-if="genError" class="error" style="font-size:13px;">{{ genError }}</div>
-          <template v-else-if="genEvents.length">
-            <p class="top-card-desc" style="margin-bottom:10px;">
-              Events your children are enrolled in. Tap to view details, sessions, and materials.
-            </p>
-            <div class="sb-g-cards">
-              <button
-                v-for="g in genEvents"
-                :key="`ge-${g.companyEventId}`"
-                type="button"
-                class="sb-g-card"
-                @click="openInlineProgramEvent(g)"
-              >
-                <div class="sb-g-title">{{ g.title }}</div>
-                <div class="sb-g-meta muted">{{ g.programName || g.agencyName || 'Program' }}</div>
-                <div class="sb-g-meta muted">
-                  {{ (g.myClients || []).map(c => c.initials || c.fullName || `#${c.clientId}`).join(', ') }}
-                </div>
-              </button>
-            </div>
-          </template>
-          <div v-else class="top-card-desc">
-            When you register your children for program events they will appear here.
-          </div>
-        </div>
-        <div v-if="sbUpcomingGrouped.length" class="top-card top-card--full">
-          <div class="top-card-title">Your event registrations</div>
-          <p class="top-card-desc" style="margin-bottom: 12px;">
-            Skill Builders programs your children are enrolled in — same events as the cards above, with registration dates.
+    <div v-else class="layout guardian-layout">
+      <section class="guardian-hero">
+        <div class="guardian-hero-copy">
+          <div class="guardian-eyebrow">Guardian Portal</div>
+          <h1 class="guardian-hero-title">Family dashboard</h1>
+          <p class="guardian-hero-subtitle">
+            Keep registrations, child details, billing, paperwork, and program updates in one clear place.
           </p>
-          <ul class="reg-events-summary">
-            <li v-for="g in sbUpcomingGrouped" :key="`sum-${g.companyEventId}`" class="reg-events-summary-item">
-              <button type="button" class="reg-events-summary-link" @click="openInlineSkillBuilderEvent(g)">
-                <span class="re-title">{{ g.title }}</span>
-                <span class="re-meta muted">{{ g.schoolName || 'School' }} · {{ childLabels(g) }}</span>
-                <span v-if="g.enrolledAt" class="re-enrolled muted small">Registered {{ formatEnrolledAt(g.enrolledAt) }}</span>
-              </button>
-            </li>
-          </ul>
-        </div>
-      </div>
 
-      <div v-if="currentAgencyId" class="reg-catalog-card">
-        <div class="reg-catalog-head">
-          <div>
-            <div class="reg-catalog-title">Register for programs</div>
-            <p class="reg-catalog-sub muted">
-              Open Skill Builders events and program enrollments (learning classes) your organization marked for guardian registration.
-              Your provider may also share a public <strong>enroll</strong> page that lists enrollments and events together.
-            </p>
-          </div>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="regCatalogLoading" @click="fetchRegistrationCatalog">
-            {{ regCatalogLoading ? 'Loading…' : 'Refresh' }}
-          </button>
-        </div>
-        <div v-if="regCatalogError" class="error" style="font-size: 13px;">{{ regCatalogError }}</div>
-        <ul v-else-if="regCatalogItems.length" class="reg-catalog-list">
-          <li v-for="item in regCatalogItems" :key="`${item.kind}-${item.id}`" class="reg-catalog-row">
-            <div class="reg-catalog-meta">
-              <div class="reg-catalog-item-title">{{ item.title }}</div>
-              <div class="muted small">{{ registrationKindLabel(item.kind) }} · {{ formatRegistrationWhen(item) }}</div>
-              <div v-if="item.medicaidEligible || item.cashEligible" class="muted small">
-                {{ registrationPayerLine(item) }}
-              </div>
+          <div class="guardian-stat-grid">
+            <div class="guardian-stat-card">
+              <div class="guardian-stat-value">{{ children.length }}</div>
+              <div class="guardian-stat-label">Dependents</div>
             </div>
-            <div class="reg-catalog-actions">
-              <button type="button" class="btn btn-primary btn-sm" @click="openRegistrationEnroll(item)">Register</button>
+            <div class="guardian-stat-card">
+              <div class="guardian-stat-value">{{ programs.length }}</div>
+              <div class="guardian-stat-label">Programs</div>
+            </div>
+            <div class="guardian-stat-card">
+              <div class="guardian-stat-value">{{ totalEnrolledEventCount }}</div>
+              <div class="guardian-stat-label">Enrolled events</div>
+            </div>
+            <div class="guardian-stat-card guardian-stat-card--accent">
+              <div class="guardian-stat-value">{{ upcomingRegistrationCount }}</div>
+              <div class="guardian-stat-label">Open registrations</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="guardian-hero-side">
+          <div class="guardian-toolbar">
+            <GuardianProgramSelector :programs="programs" />
+            <button class="btn btn-secondary btn-sm" type="button" @click="refreshAll" :disabled="loading">
+              Refresh
+            </button>
+          </div>
+
+          <div class="guardian-spotlight-card">
+            <div class="guardian-spotlight-head">
+              <div>
+                <div class="guardian-spotlight-kicker">Selected child</div>
+                <div class="guardian-spotlight-title">
+                  {{ selectedChild ? childDisplayName(selectedChild) : 'Choose a child to get started' }}
+                </div>
+              </div>
+              <span v-if="selectedChild" :class="['guardian-tone-pill', docStatusTone(selectedChild.document_status)]">
+                {{ formatDocStatus(selectedChild.document_status) }}
+              </span>
+            </div>
+            <p class="guardian-spotlight-copy">
+              <template v-if="selectedChild">
+                {{ selectedChild.organization_name }} · {{ selectedChild.relationship_title || 'Guardian' }}
+              </template>
+              <template v-else>
+                Your dashboard is ready. Pick a dependent to jump into waivers, notes, and documents.
+              </template>
+            </p>
+            <div class="guardian-hero-actions">
               <button
-                v-if="item.kind === 'learning_class' && String(item.deliveryMode || 'group').toLowerCase() === 'group'"
+                v-if="selectedChild"
+                type="button"
+                class="btn btn-primary btn-sm"
+                @click="activePanel = 'child'"
+              >
+                Open child details
+              </button>
+              <button
                 type="button"
                 class="btn btn-secondary btn-sm"
-                @click="openLearningClassWorkspace(item)"
+                @click="activePanel = 'registrations'"
               >
-                Join class
+                View registrations
+              </button>
+              <router-link
+                v-if="selectedChild && !selectedChild.guardian_portal_locked"
+                class="btn btn-secondary btn-sm"
+                :to="guardianWaiversLink"
+              >
+                Waivers &amp; safety
+              </router-link>
+              <button
+                v-if="learningBillingVisible && selectedChild && !selectedChild.guardian_portal_locked"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="activePanel = 'billing'"
+              >
+                Billing
               </button>
             </div>
-          </li>
-        </ul>
-        <p v-else-if="!regCatalogLoading" class="hint" style="margin: 0;">Nothing is open for registration for this program right now.</p>
-        <div class="reg-self-stub">
-          <div class="reg-self-title">Register myself</div>
-          <p class="hint" style="margin: 4px 0 0;">
-            Adult self-registration in the guardian portal is not available yet. Use an intake link from your organization or ask staff to send one.
-          </p>
+          </div>
         </div>
-      </div>
+      </section>
+
+      <section class="guardian-alert-grid">
+        <button type="button" class="guardian-alert-card guardian-alert-card--warm" @click="activePanel = 'registrations'">
+          <div class="guardian-alert-label">Action center</div>
+          <div class="guardian-alert-title">
+            {{ upcomingRegistrationCount ? `${upcomingRegistrationCount} registration${upcomingRegistrationCount === 1 ? '' : 's'} open now` : 'No open registrations right now' }}
+          </div>
+          <div class="guardian-alert-copy">
+            Review available enrollments and claim spots directly from your dashboard.
+          </div>
+        </button>
+
+        <button
+          type="button"
+          class="guardian-alert-card guardian-alert-card--cool"
+          :disabled="!selectedChild"
+          @click="selectedChild ? activePanel = 'child' : null"
+        >
+          <div class="guardian-alert-label">Child snapshot</div>
+          <div class="guardian-alert-title">
+            {{ selectedChild ? formatClientStatus(selectedChild.status) : 'Select a child' }}
+          </div>
+          <div class="guardian-alert-copy">
+            {{ selectedChild
+              ? `${childDisplayName(selectedChild)} · ${formatDocStatus(selectedChild.document_status)} documents`
+              : 'Choose a dependent to review notes, paperwork, and progress.' }}
+          </div>
+        </button>
+
+        <button
+          type="button"
+          class="guardian-alert-card guardian-alert-card--ink"
+          :disabled="!totalEnrolledEventCount"
+          @click="activePanel = 'overview'"
+        >
+          <div class="guardian-alert-label">Enrolled programs</div>
+          <div class="guardian-alert-title">
+            {{ totalEnrolledEventCount ? `${totalEnrolledEventCount} active event${totalEnrolledEventCount === 1 ? '' : 's'}` : 'No active events yet' }}
+          </div>
+          <div class="guardian-alert-copy">
+            Open schedules, event details, and program workspaces from the overview below.
+          </div>
+        </button>
+      </section>
 
       <div v-if="programs.length === 0 && children.length === 0" class="empty-state">
         <p>No children or programs are linked to this guardian account yet.</p>
         <p class="hint">Ask your organization to add you as a guardian on the child’s record.</p>
       </div>
 
-      <div v-else class="main">
-        <div class="rail">
-          <div class="rail-section">
-            <div class="rail-heading">Programs</div>
-            <button
-              v-for="p in programs"
-              :key="p.id"
-              type="button"
-              class="rail-card"
-              :class="{ active: isActiveProgram(p) }"
-              @click="openProgramWorkspace(p)"
-            >
-              <div class="rail-card-title">{{ p.name || 'Program' }}</div>
-              <div class="rail-card-sub">
-                <span class="pill">{{ formatOrgType(p.organization_type) }}</span>
-                <span v-if="(p.children || []).length > 0" class="pill pill-muted">
-                  Child: {{ (p.children || []).map((c) => c.initials).filter(Boolean).join(', ') }}
-                </span>
-              </div>
-            </button>
-          </div>
+      <template v-else>
+        <div class="guardian-workspace-tabs">
+          <button
+            v-for="tab in dashboardTabs"
+            :key="tab.key"
+            type="button"
+            class="guardian-tab"
+            :class="{ active: activePanel === tab.key }"
+            @click="activePanel = tab.key"
+          >
+            <span class="guardian-tab-label">{{ tab.label }}</span>
+            <span class="guardian-tab-meta">{{ tab.meta }}</span>
+          </button>
 
-          <div class="rail-section">
-            <div class="rail-heading">Children</div>
-            <button
-              v-for="c in children"
-              :key="c.client_id"
-              type="button"
-              class="rail-card"
-              :class="{
-                active: activePanel === 'child' && Number(selectedChildId) === Number(c.client_id),
-                'rail-card--locked': c.guardian_portal_locked
-              }"
-              @click="openChild(c)"
-            >
-              <div class="rail-card-title">{{ childDisplayName(c) }}</div>
-              <div class="rail-card-sub">
-                <span v-if="c.initials" class="pill">{{ c.initials }}</span>
-                <span class="pill pill-muted">{{ c.organization_name }}</span>
-              </div>
-            </button>
-          </div>
+          <router-link
+            v-if="selectedChild && !selectedChild.guardian_portal_locked"
+            class="guardian-tab guardian-tab-link"
+            :to="guardianWaiversLink"
+          >
+            <span class="guardian-tab-label">Waivers &amp; safety</span>
+            <span class="guardian-tab-meta">Forms and pickup details</span>
+          </router-link>
 
-          <div class="rail-section">
-            <div class="rail-heading">My Dashboard</div>
-            <button type="button" class="rail-card" :class="{ active: activePanel === 'documents' }" @click="activePanel = 'documents'">
-              <div class="rail-card-title">Documents</div>
-              <div class="rail-card-sub">Forms and signatures</div>
-            </button>
-            <button
-              type="button"
-              class="rail-card"
-              :class="{ active: activePanel === 'registrations', 'rail-card--pulse': upcomingRegistrationCount > 0 }"
-              @click="activePanel = 'registrations'"
-            >
-              <div class="rail-card-title">Upcoming registrations</div>
-              <div class="rail-card-sub">{{ upcomingRegistrationRailSubtitle }}</div>
-            </button>
-            <router-link
-              v-if="!selectedChild?.guardian_portal_locked"
-              class="rail-card"
-              :to="guardianWaiversLink"
-            >
-              <div class="rail-card-title">Waivers &amp; safety</div>
-              <div class="rail-card-sub">Pickup, emergencies, allergies, meals</div>
-            </router-link>
-            <div v-else class="rail-card rail-card--locked" title="Not available for adults 18+">
-              <div class="rail-card-title">Waivers &amp; safety</div>
-              <div class="rail-card-sub">Unavailable (18+)</div>
-            </div>
-            <button
-              v-if="learningBillingVisible"
-              type="button"
-              class="rail-card"
-              :class="{ active: activePanel === 'billing' }"
-              @click="activePanel = 'billing'"
-            >
-              <div class="rail-card-title">Billing</div>
-              <div class="rail-card-sub">Learning program charges</div>
-            </button>
-            <button type="button" class="rail-card" :class="{ active: activePanel === 'dependents' }" @click="activePanel = 'dependents'">
-              <div class="rail-card-title">Dependents</div>
-              <div class="rail-card-sub">Emergency contacts &amp; health info</div>
-            </button>
-            <button type="button" class="rail-card" :class="{ active: activePanel === 'payment_methods' }" @click="activePanel = 'payment_methods'">
-              <div class="rail-card-title">Payment &amp; Insurance</div>
-              <div class="rail-card-sub">Saved cards &amp; insurance info</div>
-            </button>
-            <button type="button" class="rail-card" :class="{ active: activePanel === 'messages' }" @click="activePanel = 'messages'">
-              <div class="rail-card-title">Messages</div>
-              <div class="rail-card-sub">Coming soon</div>
-            </button>
-            <button type="button" class="rail-card" :class="{ active: activePanel === 'notifications' }" @click="activePanel = 'notifications'">
-              <div class="rail-card-title">Notifications</div>
-              <div class="rail-card-sub">Coming soon</div>
-            </button>
-            <button type="button" class="rail-card" :class="{ active: activePanel === 'account' }" @click="activePanel = 'account'">
-              <div class="rail-card-title">Your Account</div>
-              <div class="rail-card-sub">Profile and security</div>
-            </button>
-            <button type="button" class="rail-card" :class="{ active: activePanel === 'policy' }" @click="activePanel = 'policy'">
-              <div class="rail-card-title">Policy & Procedures</div>
-              <div class="rail-card-sub">Coming soon</div>
-            </button>
-          </div>
-
-          <div class="rail-section">
-            <div class="rail-heading">Coming soon</div>
-            <button type="button" class="rail-card rail-card-coming-soon" @click="openComingSoon('contact')">
-              <div class="rail-card-title">Contact</div>
-              <div class="rail-card-sub">Providers and support team</div>
-            </button>
-            <button type="button" class="rail-card rail-card-coming-soon" @click="openComingSoon('booking')">
-              <div class="rail-card-title">Booking</div>
-              <div class="rail-card-sub">Request / manage sessions</div>
-            </button>
-            <button type="button" class="rail-card rail-card-coming-soon" @click="openComingSoon('add_child')">
-              <div class="rail-card-title">Add child</div>
-              <div class="rail-card-sub">Link another child to your account</div>
-            </button>
-            <button type="button" class="rail-card rail-card-coming-soon" @click="openComingSoon('additional_programs')">
-              <div class="rail-card-title">Additional programs</div>
-              <div class="rail-card-sub">Enroll in another program</div>
-            </button>
-          </div>
+          <button type="button" class="guardian-tab guardian-tab-subtle" @click="openComingSoon('contact')">
+            <span class="guardian-tab-label">Contact</span>
+            <span class="guardian-tab-meta">Coming soon</span>
+          </button>
         </div>
 
-        <div class="detail">
-          <div class="panel">
-            <template v-if="activePanel === 'program_overview'">
+        <div class="detail guardian-detail">
+          <div class="panel guardian-panel">
+            <template v-if="activePanel === 'overview'">
               <div class="panel-head">
-                <div class="panel-title">Programs &amp; Events</div>
-                <div class="panel-subtitle">
-                  {{ currentProgramSummary }}
-                </div>
+                <div class="panel-title">Family overview</div>
+                <div class="panel-subtitle">{{ currentProgramSummary }}</div>
               </div>
+
               <template v-if="selectedInlineEvent">
                 <div class="panel-inline-actions">
                   <button type="button" class="btn btn-secondary btn-sm" @click="selectedInlineEvent = null">
-                    Back to program cards
+                    Back to dashboard
                   </button>
                 </div>
                 <GuardianSkillBuildersEventView
@@ -309,21 +208,176 @@
                   :hide-actions="true"
                 />
               </template>
+
               <template v-else>
-                <div v-if="programOverviewEvents.length" class="sb-g-cards">
-                  <button
-                    v-for="evt in programOverviewEvents"
-                    :key="evt.key"
-                    type="button"
-                    class="sb-g-card"
-                    @click="openInlineEventFromWorkspace(evt)"
-                  >
-                    <div class="sb-g-title">{{ evt.title }}</div>
-                    <div class="sb-g-meta muted">{{ evt.metaPrimary }}</div>
-                    <div class="sb-g-meta muted">{{ evt.metaSecondary }}</div>
-                  </button>
+                <div class="overview-grid">
+                  <section class="overview-card overview-card--feature">
+                    <div class="overview-card-head">
+                      <div>
+                        <div class="overview-card-kicker">Quick actions</div>
+                        <h3>Everything a guardian needs, right here</h3>
+                      </div>
+                    </div>
+                    <div class="quick-actions-grid">
+                      <button type="button" class="quick-action-card" @click="activePanel = 'registrations'">
+                        <div class="quick-action-title">Register for programs</div>
+                        <div class="quick-action-copy">{{ upcomingRegistrationRailSubtitle }}</div>
+                      </button>
+                      <button type="button" class="quick-action-card" @click="activePanel = 'documents'">
+                        <div class="quick-action-title">Documents</div>
+                        <div class="quick-action-copy">Forms, signatures, and required paperwork.</div>
+                      </button>
+                      <button type="button" class="quick-action-card" @click="activePanel = 'dependents'">
+                        <div class="quick-action-title">Dependents</div>
+                        <div class="quick-action-copy">Emergency contacts, allergies, and health info.</div>
+                      </button>
+                      <button type="button" class="quick-action-card" @click="activePanel = 'payment_methods'">
+                        <div class="quick-action-title">Payment &amp; insurance</div>
+                        <div class="quick-action-copy">Saved cards and insurance details on file.</div>
+                      </button>
+                    </div>
+                  </section>
+
+                  <section class="overview-card">
+                    <div class="overview-card-kicker">At a glance</div>
+                    <h3>What needs attention</h3>
+                    <ul class="guardian-insight-list">
+                      <li>
+                        <strong>{{ pendingDocumentCount }}</strong>
+                        <span>dependent{{ pendingDocumentCount === 1 ? '' : 's' }} not fully approved</span>
+                      </li>
+                      <li>
+                        <strong>{{ sbUpcomingGrouped.length }}</strong>
+                        <span>Skill Builders event{{ sbUpcomingGrouped.length === 1 ? '' : 's' }} upcoming</span>
+                      </li>
+                      <li>
+                        <strong>{{ genCurrentEvents.length }}</strong>
+                        <span>general program event{{ genCurrentEvents.length === 1 ? '' : 's' }} active</span>
+                      </li>
+                    </ul>
+                  </section>
                 </div>
-                <p v-else class="hint">No active or upcoming enrolled events right now.</p>
+
+                <section class="overview-section">
+                  <div class="overview-section-head">
+                    <div>
+                      <div class="overview-card-kicker">Dependents</div>
+                      <h3>Your family roster</h3>
+                    </div>
+                  </div>
+                  <div class="family-card-grid">
+                    <button
+                      v-for="c in children"
+                      :key="`family-${c.client_id}`"
+                      type="button"
+                      class="family-card"
+                      :class="{ 'family-card--selected': Number(selectedChildId) === Number(c.client_id) }"
+                      @click="openChild(c)"
+                    >
+                      <div class="family-card-head">
+                        <div>
+                          <div class="family-card-title">{{ childDisplayName(c) }}</div>
+                          <div class="family-card-sub">{{ c.organization_name }}</div>
+                        </div>
+                        <span :class="['guardian-tone-pill', c.guardian_portal_locked ? 'tone-muted' : docStatusTone(c.document_status)]">
+                          {{ c.guardian_portal_locked ? '18+ locked' : formatDocStatus(c.document_status) }}
+                        </span>
+                      </div>
+                      <div class="family-card-meta">
+                        <span class="guardian-chip">{{ c.relationship_title || 'Guardian' }}</span>
+                        <span class="guardian-chip guardian-chip-muted">{{ formatClientStatus(c.status) }}</span>
+                        <span v-if="c.initials" class="guardian-chip guardian-chip-muted">{{ c.initials }}</span>
+                      </div>
+                      <div class="family-card-actions">
+                        <span class="family-card-link">Open details</span>
+                        <span v-if="!c.guardian_portal_locked" class="family-card-link family-card-link-muted">Waivers available</span>
+                      </div>
+                    </button>
+                  </div>
+                </section>
+
+                <section class="overview-section">
+                  <div class="overview-section-head">
+                    <div>
+                      <div class="overview-card-kicker">Programs</div>
+                      <h3>Current programs</h3>
+                    </div>
+                  </div>
+                  <div class="program-card-grid">
+                    <button
+                      v-for="p in programs"
+                      :key="`program-${p.id}`"
+                      type="button"
+                      class="program-card"
+                      :class="{ 'program-card--active': isActiveProgram(p) }"
+                      @click="openProgramWorkspace(p)"
+                    >
+                      <div class="program-card-head">
+                        <div class="program-card-title">{{ p.name || 'Program' }}</div>
+                        <span class="guardian-chip">{{ formatOrgType(p.organization_type) }}</span>
+                      </div>
+                      <div class="program-card-copy">
+                        {{ programChildrenLine(p) || 'Select this program to focus your dashboard.' }}
+                      </div>
+                    </button>
+                  </div>
+                </section>
+
+                <section class="overview-section">
+                  <div class="overview-section-head">
+                    <div>
+                      <div class="overview-card-kicker">Enrolled events</div>
+                      <h3>Programs and sessions you can open</h3>
+                    </div>
+                  </div>
+                  <div v-if="programOverviewEvents.length" class="event-card-grid">
+                    <button
+                      v-for="evt in programOverviewEvents"
+                      :key="evt.key"
+                      type="button"
+                      class="event-overview-card"
+                      @click="openInlineEventFromWorkspace(evt)"
+                    >
+                      <div class="event-overview-card-head">
+                        <div class="event-overview-title">{{ evt.title }}</div>
+                        <span class="guardian-chip guardian-chip-muted">
+                          {{ evt.programMode ? 'Program event' : 'Skill Builders' }}
+                        </span>
+                      </div>
+                      <div class="event-overview-meta">{{ evt.metaPrimary }}</div>
+                      <div class="event-overview-meta muted">{{ evt.metaSecondary }}</div>
+                    </button>
+                  </div>
+                  <p v-else class="hint">No active or upcoming enrolled events right now.</p>
+                </section>
+
+                <section v-if="currentAgencyId" class="overview-section overview-section--catalog">
+                  <div class="overview-section-head">
+                    <div>
+                      <div class="overview-card-kicker">Registration spotlight</div>
+                      <h3>Register for upcoming programs</h3>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" :disabled="regCatalogLoading" @click="fetchRegistrationCatalog">
+                      {{ regCatalogLoading ? 'Loading…' : 'Refresh' }}
+                    </button>
+                  </div>
+                  <div v-if="regCatalogError" class="error" style="font-size: 13px;">{{ regCatalogError }}</div>
+                  <ul v-else-if="registrationPreviewItems.length" class="reg-catalog-list">
+                    <li v-for="item in registrationPreviewItems" :key="`${item.kind}-${item.id}`" class="reg-catalog-row">
+                      <div class="reg-catalog-meta">
+                        <div class="reg-catalog-item-title">{{ item.title }}</div>
+                        <div class="muted small">{{ registrationKindLabel(item.kind) }} · {{ formatRegistrationWhen(item) }}</div>
+                        <div v-if="item.medicaidEligible || item.cashEligible" class="muted small">
+                          {{ registrationPayerLine(item) }}
+                        </div>
+                      </div>
+                      <div class="reg-catalog-actions">
+                        <button type="button" class="btn btn-primary btn-sm" @click="openRegistrationEnroll(item)">Register</button>
+                      </div>
+                    </li>
+                  </ul>
+                  <div v-else class="hint">Nothing is open for registration right now.</div>
+                </section>
               </template>
             </template>
             <template v-else-if="activePanel === 'registrations'">
@@ -515,7 +569,7 @@
                   <div v-else-if="guardianNoteDate" class="hint">No notes for this date.</div>
                 </div>
               </div>
-              <div v-else class="hint">Select a child from the left rail.</div>
+              <div v-else class="hint">Select a child from the overview above.</div>
             </template>
 
             <template v-else-if="activePanel === 'account'">
@@ -583,8 +637,8 @@
             </template>
           </div>
         </div>
+      </template>
       </div>
-    </div>
 
     <div v-if="comingSoonKey" class="modal-overlay" @click.self="closeComingSoon">
       <div class="modal">
@@ -693,7 +747,7 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref('program_overview');
+const activePanel = ref('overview');
 const selectedChildId = ref(null);
 const comingSoonKey = ref('');
 const selectedInlineEvent = ref(null); // { eventId:number, programMode:boolean } | null
@@ -729,6 +783,11 @@ const formatOrgType = (t) => {
 const programs = computed(() => Array.isArray(overview.value?.programs) ? overview.value.programs : []);
 const children = computed(() => Array.isArray(overview.value?.children) ? overview.value.children : []);
 const currentAgencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
+const totalEnrolledEventCount = computed(() => sbUpcomingGrouped.value.length + genCurrentEvents.value.length);
+const pendingDocumentCount = computed(() => {
+  return (children.value || []).filter((child) => String(child?.document_status || '').toUpperCase() !== 'APPROVED').length;
+});
+const registrationPreviewItems = computed(() => (regCatalogItems.value || []).slice(0, 3));
 const learningBillingVisible = computed(() => {
   const orgType = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
   if (orgType !== 'learning') return false;
@@ -766,11 +825,45 @@ const selectedChildFullName = computed(() => {
   return n || '';
 });
 
+const currentAgencyName = computed(() => String(agencyStore.currentAgency?.name || '').trim() || '');
+
+const dashboardTabs = computed(() => {
+  const tabs = [
+    { key: 'overview', label: 'Overview', meta: 'Home base' },
+    { key: 'registrations', label: 'Registrations', meta: upcomingRegistrationRailSubtitle.value },
+    { key: 'documents', label: 'Documents', meta: 'Forms and signatures' }
+  ];
+  if (selectedChild.value) {
+    tabs.push({
+      key: 'child',
+      label: 'Child details',
+      meta: childDisplayName(selectedChild.value)
+    });
+  }
+  if (learningBillingVisible.value) {
+    tabs.push({ key: 'billing', label: 'Billing', meta: 'Learning program charges' });
+  }
+  tabs.push(
+    { key: 'dependents', label: 'Dependents', meta: 'Health and emergency info' },
+    { key: 'payment_methods', label: 'Payment & insurance', meta: 'Cards and coverage' },
+    { key: 'account', label: 'Account', meta: 'Profile and security' }
+  );
+  return tabs;
+});
+
 const registrationPayerChoiceNeeded = computed(() => {
   const t = registrationEnrollTarget.value;
   if (!t) return false;
   return !!(t.medicaidEligible && t.cashEligible);
 });
+
+const docStatusTone = (status) => {
+  const normalized = String(status || '').trim().toUpperCase();
+  if (normalized === 'APPROVED') return 'tone-good';
+  if (normalized === 'REJECTED') return 'tone-bad';
+  if (!normalized || normalized === 'NONE') return 'tone-muted';
+  return 'tone-warn';
+};
 
 const userName = computed(() => {
   const u = authStore.user || {};
@@ -985,6 +1078,7 @@ async function openLearningClassWorkspace(item) {
 }
 
 const panelTitle = computed(() => {
+  if (activePanel.value === 'overview') return 'Family overview';
   if (activePanel.value === 'billing') return 'Billing';
   if (activePanel.value === 'messages') return 'Messages';
   if (activePanel.value === 'notifications') return 'Notifications';
@@ -1028,21 +1122,21 @@ const programOverviewEvents = computed(() => {
 function openInlineSkillBuilderEvent(g) {
   const id = Number(g?.companyEventId || 0);
   if (!id) return;
-  activePanel.value = 'program_overview';
+  activePanel.value = 'overview';
   selectedInlineEvent.value = { eventId: id, programMode: false };
 }
 
 function openInlineProgramEvent(g) {
   const id = Number(g?.companyEventId || 0);
   if (!id) return;
-  activePanel.value = 'program_overview';
+  activePanel.value = 'overview';
   selectedInlineEvent.value = { eventId: id, programMode: true };
 }
 
 function openInlineEventFromWorkspace(evt) {
   const id = Number(evt?.eventId || 0);
   if (!id) return;
-  activePanel.value = 'program_overview';
+  activePanel.value = 'overview';
   selectedInlineEvent.value = { eventId: id, programMode: !!evt?.programMode };
 }
 
@@ -1081,7 +1175,7 @@ const selectProgram = async (program) => {
 
 const openProgramWorkspace = async (program) => {
   await selectProgram(program);
-  activePanel.value = 'program_overview';
+  activePanel.value = 'overview';
   selectedInlineEvent.value = null;
 };
 
@@ -1243,8 +1337,14 @@ const fetchOverview = async () => {
     error.value = '';
     const resp = await api.get('/guardian-portal/overview');
     overview.value = resp.data || { children: [], programs: [] };
+    const firstChildId = Number(overview.value?.children?.[0]?.client_id || 0) || null;
+    const currentChildStillExists = (overview.value?.children || []).some((child) => Number(child?.client_id) === Number(selectedChildId.value || 0));
+    if (!currentChildStillExists) {
+      selectedChildId.value = firstChildId;
+    }
     await initProgramContext();
     await fetchSkillBuilderEvents();
+    await fetchRegistrationCatalog();
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load guardian dashboard';
     overview.value = { children: [], programs: [] };
@@ -1268,11 +1368,7 @@ watch(
 
 const openChild = (c) => {
   selectedChildId.value = Number(c?.client_id) || null;
-  if (learningBillingVisible.value && !c?.guardian_portal_locked) {
-    activePanel.value = 'billing';
-  } else {
-    activePanel.value = 'child';
-  }
+  activePanel.value = 'child';
 };
 
 const intakeSignedDocs = ref([]);
@@ -1482,6 +1578,406 @@ watch(
   gap: 14px;
 }
 
+.guardian-header-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(244, 114, 65, 0.16);
+  color: #7c2d12;
+  font-weight: 700;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+.guardian-layout {
+  gap: 18px;
+}
+
+.guardian-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  gap: 18px;
+  padding: 28px;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.95), transparent 40%),
+    linear-gradient(135deg, #fff4e8 0%, #ffe1dc 42%, #eef6ff 100%);
+  border: 1px solid rgba(244, 114, 65, 0.16);
+  box-shadow: 0 28px 50px rgba(15, 23, 42, 0.09);
+}
+
+.guardian-eyebrow,
+.overview-card-kicker,
+.guardian-alert-label,
+.guardian-spotlight-kicker {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: #c2410c;
+}
+
+.guardian-hero-title {
+  margin: 10px 0 8px;
+  font-size: clamp(2rem, 3vw, 3rem);
+  line-height: 1;
+  color: #1f2a44;
+}
+
+.guardian-hero-subtitle {
+  max-width: 620px;
+  margin: 0;
+  color: #52607a;
+  font-size: 15px;
+}
+
+.guardian-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.guardian-stat-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.guardian-stat-card--accent {
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.16), rgba(255, 255, 255, 0.92));
+  border-color: rgba(249, 115, 22, 0.22);
+}
+
+.guardian-stat-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: #1f2a44;
+}
+
+.guardian-stat-label {
+  margin-top: 6px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.guardian-hero-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.guardian-toolbar,
+.guardian-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.guardian-spotlight-card,
+.overview-card,
+.overview-section,
+.guardian-alert-card {
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
+}
+
+.guardian-spotlight-card {
+  padding: 20px;
+}
+
+.guardian-spotlight-head,
+.overview-card-head,
+.overview-section-head,
+.family-card-head,
+.program-card-head,
+.event-overview-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.guardian-spotlight-title,
+.overview-section h3,
+.overview-card h3 {
+  margin: 6px 0 0;
+  color: #1f2a44;
+  font-size: 22px;
+}
+
+.guardian-spotlight-copy {
+  margin: 10px 0 0;
+  color: #52607a;
+}
+
+.guardian-alert-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.guardian-alert-card {
+  padding: 18px;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.guardian-alert-card:hover,
+.quick-action-card:hover,
+.family-card:hover,
+.program-card:hover,
+.event-overview-card:hover,
+.guardian-tab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 34px rgba(15, 23, 42, 0.1);
+}
+
+.guardian-alert-card--warm {
+  background: linear-gradient(135deg, rgba(255, 237, 213, 0.95), rgba(255, 255, 255, 0.98));
+}
+
+.guardian-alert-card--cool {
+  background: linear-gradient(135deg, rgba(224, 242, 254, 0.95), rgba(255, 255, 255, 0.98));
+}
+
+.guardian-alert-card--ink {
+  background: linear-gradient(135deg, rgba(238, 242, 255, 0.96), rgba(255, 255, 255, 0.98));
+}
+
+.guardian-alert-title {
+  margin-top: 10px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #1f2a44;
+}
+
+.guardian-alert-copy {
+  margin-top: 8px;
+  color: #52607a;
+  font-size: 14px;
+}
+
+.guardian-workspace-tabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.guardian-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.88);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.guardian-tab.active {
+  border-color: rgba(59, 130, 246, 0.3);
+  background: linear-gradient(135deg, rgba(219, 234, 254, 0.92), rgba(255, 255, 255, 0.96));
+}
+
+.guardian-tab-subtle {
+  background: rgba(248, 250, 252, 0.9);
+}
+
+.guardian-tab-label {
+  font-weight: 800;
+  color: #1f2a44;
+}
+
+.guardian-tab-meta {
+  font-size: 12px;
+  color: #667085;
+}
+
+.guardian-detail,
+.guardian-panel {
+  width: 100%;
+}
+
+.guardian-panel {
+  padding: 22px;
+  border-radius: 26px;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  gap: 14px;
+}
+
+.overview-card,
+.overview-section {
+  padding: 18px;
+}
+
+.quick-actions-grid,
+.family-card-grid,
+.program-card-grid,
+.event-card-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.quick-actions-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 14px;
+}
+
+.family-card-grid,
+.program-card-grid,
+.event-card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.quick-action-card,
+.family-card,
+.program-card,
+.event-overview-card {
+  width: 100%;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(248, 250, 252, 0.94);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.quick-action-title,
+.family-card-title,
+.program-card-title,
+.event-overview-title {
+  font-weight: 800;
+  color: #1f2a44;
+}
+
+.quick-action-copy,
+.family-card-sub,
+.program-card-copy,
+.event-overview-meta {
+  margin-top: 6px;
+  color: #52607a;
+  font-size: 14px;
+}
+
+.family-card--selected,
+.program-card--active {
+  border-color: rgba(59, 130, 246, 0.35);
+  background: linear-gradient(135deg, rgba(219, 234, 254, 0.88), rgba(255, 255, 255, 0.96));
+}
+
+.family-card-meta,
+.family-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.family-card-link {
+  font-size: 13px;
+  font-weight: 700;
+  color: #2563eb;
+}
+
+.family-card-link-muted {
+  color: #667085;
+}
+
+.guardian-chip,
+.guardian-tone-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.guardian-chip {
+  background: rgba(241, 245, 249, 0.92);
+  color: #475467;
+}
+
+.guardian-chip-muted {
+  background: rgba(248, 250, 252, 1);
+  color: #667085;
+}
+
+.guardian-tone-pill {
+  border: 1px solid transparent;
+}
+
+.tone-good {
+  background: rgba(220, 252, 231, 0.95);
+  color: #166534;
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.tone-warn {
+  background: rgba(254, 243, 199, 0.96);
+  color: #92400e;
+  border-color: rgba(245, 158, 11, 0.2);
+}
+
+.tone-bad {
+  background: rgba(254, 226, 226, 0.96);
+  color: #b91c1c;
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.tone-muted {
+  background: rgba(241, 245, 249, 0.95);
+  color: #667085;
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.guardian-insight-list {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.guardian-insight-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.guardian-insight-list strong {
+  font-size: 22px;
+  color: #1f2a44;
+}
+
+.overview-section {
+  margin-top: 14px;
+}
+
 .empty-state {
   color: var(--text-secondary);
   background: white;
@@ -1660,7 +2156,40 @@ button.sb-g-card {
   color: var(--text-secondary);
 }
 @media (max-width: 900px) {
+  .guardian-hero,
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .guardian-stat-grid,
+  .guardian-alert-grid,
+  .quick-actions-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .top-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .guardian-dashboard {
+    padding: 14px;
+  }
+
+  .header {
+    align-items: flex-start;
+  }
+
+  .guardian-hero {
+    padding: 20px;
+    border-radius: 22px;
+  }
+
+  .guardian-stat-grid,
+  .guardian-alert-grid,
+  .quick-actions-grid,
+  .guardian-workspace-tabs {
     grid-template-columns: 1fr;
   }
 }
@@ -2056,4 +2585,3 @@ a.rail-card {
   }
 }
 </style>
-
