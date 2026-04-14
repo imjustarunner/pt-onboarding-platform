@@ -720,6 +720,11 @@ async function enforceTargetPeriodDeadline({
     return { ok: false };
   }
 
+  if (isEffectivelyPostedOrFinalized(target)) {
+    res.status(409).json({ error: { message: 'Target pay period is posted/finalized' } });
+    return { ok: false };
+  }
+
   if (overrideDeadline) return { ok: true, overrideDeadline: true, timeZone, target };
 
   // If payroll has not been run yet for the target period, allow adding the claim

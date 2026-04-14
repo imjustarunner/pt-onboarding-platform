@@ -2540,7 +2540,7 @@
 
             <div class="card" style="margin-top: 12px;">
               <h3 class="card-title" style="margin: 0 0 6px 0;">Time Claims (Pending)</h3>
-              <div class="hint">Meeting/training, excess time, service corrections, overtime evaluations, and holiday pay.</div>
+              <div class="hint">Meeting/training, excess time, service corrections, overtime evaluations, holiday pay, and other employee-submitted extra pay. Late submissions can still be added to this payroll if payroll chooses to approve with an override.</div>
               <div v-if="pendingTimeError" class="warn-box" style="margin-top: 8px;">{{ pendingTimeError }}</div>
               <div v-if="pendingTimeLoading" class="muted" style="margin-top: 8px;">Loading pending submissions…</div>
               <div v-else-if="!pendingTimeClaims.length" class="muted" style="margin-top: 8px;">No pending time claims for this pay period.</div>
@@ -2596,9 +2596,18 @@
                         />
                       </td>
                       <td class="right">
-                        <select v-model="timeTargetPeriodByClaimId[c.id]" :disabled="approvingTimeClaimId === c.id">
-                          <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
-                        </select>
+                        <div>
+                          <select v-model="timeTargetPeriodByClaimId[c.id]" :disabled="approvingTimeClaimId === c.id">
+                            <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                          </select>
+                          <div
+                            v-if="timeClaimNeedsLateOverrideWarning(c)"
+                            class="hint"
+                            style="margin-top: 4px; color: #b45309;"
+                          >
+                            Submitted after cutoff. Adding to this earlier pay period will require payroll override.
+                          </div>
+                        </div>
                       </td>
                       <td class="right">
                         <div class="actions" style="justify-content: flex-end; margin: 0;">
@@ -7397,6 +7406,18 @@ const timeTypeLabel = (c) => {
 
 const timeClaimPayload = (c) => (c && typeof c.payload === 'object' && c.payload) ? c.payload : {};
 
+const timeClaimNeedsLateOverrideWarning = (c) => {
+  const suggestedId = Number(c?.suggested_payroll_period_id || 0);
+  const targetId = Number(timeTargetPeriodByClaimId.value?.[c?.id] || 0);
+  if (!suggestedId || !targetId || suggestedId === targetId) return false;
+  const suggested = (periods.value || []).find((p) => Number(p?.id || 0) === suggestedId) || null;
+  const target = (periods.value || []).find((p) => Number(p?.id || 0) === targetId) || null;
+  const suggestedStart = String(suggested?.period_start || '').slice(0, 10);
+  const targetStart = String(target?.period_start || '').slice(0, 10);
+  if (suggestedStart && targetStart) return targetStart < suggestedStart;
+  return false;
+};
+
 const timeClaimMinutes = (c) => {
   const payload = timeClaimPayload(c);
   const explicit = Number(payload?.totalMinutes);
@@ -8050,13 +8071,38 @@ const approveTimeClaim = async (c) => {
   try {
     approvingTimeClaimId.value = c.id;
     pendingTimeError.value = '';
-    await api.patch(`/payroll/time-claims/${c.id}`, {
-      action: 'approve',
-      targetPayrollPeriodId,
-      bucket,
-      creditsHours,
-      appliedAmount
-    });
+    try {
+      await api.patch(`/payroll/time-claims/${c.id}`, {
+        action: 'approve',
+        targetPayrollPeriodId,
+        bucket,
+        creditsHours,
+        appliedAmount
+      });
+    } catch (e) {
+      const status = e.response?.status || 0;
+      const msg = e.response?.data?.error?.message || e.message || '';
+      const looksLikeDeadline =
+        String(msg).toLowerCase().includes('deadline') ||
+        String(msg).toLowerCase().includes('submitted after') ||
+        String(msg).toLowerCase().includes('cannot be added to an earlier pay period');
+      if (status === 409 && looksLikeDeadline) {
+        const ok = window.confirm(
+          'This submission was entered after the cutoff for this pay period.\n\nAdd it to this payroll anyway using an admin override?'
+        );
+        if (!ok) throw e;
+        await api.patch(`/payroll/time-claims/${c.id}`, {
+          action: 'approve',
+          targetPayrollPeriodId,
+          bucket,
+          creditsHours,
+          appliedAmount,
+          overrideDeadline: true
+        });
+      } else {
+        throw e;
+      }
+    }
     await reloadPendingTimeClaims();
     await loadApprovedTimeClaimsList();
     await loadApprovedTimeClaimsAmount();
