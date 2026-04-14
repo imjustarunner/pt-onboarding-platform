@@ -4,6 +4,10 @@
       <div class="loading">Loading...</div>
     </div>
   </div>
+  <AgencyAdminDashboard
+    v-else-if="isSuperadminPreview"
+    :preview-mode="true"
+  />
   <SuperAdminDashboard v-else-if="user?.role === 'super_admin' || user?.role?.toLowerCase() === 'superadmin'" />
   <AgencyAdminDashboard v-else-if="user?.role === 'admin' || user?.role === 'support' || isSupervisor(user) || user?.role === 'clinical_practice_assistant' || user?.role === 'provider_plus' || user?.role === 'club_manager'" />
   <div v-else class="container">
@@ -13,8 +17,10 @@
 
 <script setup>
 import { computed, onMounted } from 'vue';
+import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { useSuperadminPlatformPreview } from '../../composables/useSuperadminPlatformPreview';
 import { isSupervisor } from '../../utils/helpers.js';
 import api from '../../services/api';
 import SuperAdminDashboard from './SuperAdminDashboard.vue';
@@ -22,7 +28,9 @@ import AgencyAdminDashboard from './AgencyAdminDashboard.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const route = useRoute();
 const user = computed(() => authStore.user);
+const { isSuperadminPreview } = useSuperadminPlatformPreview({ route, authStore, agencyStore });
 
 onMounted(() => {
   const role = String(user.value?.role || '').toLowerCase();
@@ -34,4 +42,3 @@ onMounted(() => {
   }).catch(() => {});
 });
 </script>
-

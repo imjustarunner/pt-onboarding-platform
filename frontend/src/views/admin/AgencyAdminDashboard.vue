@@ -1,5 +1,10 @@
 <template>
   <div class="container">
+    <PlatformPreviewBanner
+      v-if="previewMode"
+      :title="`Previewing ${currentAgency?.name || 'tenant'} admin dashboard`"
+      subtitle="Platform preview keeps the tenant shell visible while write actions stay disabled."
+    />
     <div class="dashboard-header" :class="{ 'dashboard-header--compact': isSummitStatsContext }">
       <div class="header-content">
         <BrandingLogo 
@@ -217,6 +222,7 @@ import { useBrandingStore } from '../../store/branding';
 import { useAuthStore } from '../../store/auth';
 import { isSupervisor } from '../../utils/helpers.js';
 import NotificationCards from '../../components/admin/NotificationCards.vue';
+import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
 import ClubQuickActions from '../../components/club/ClubQuickActions.vue';
 import ClubAddMemberModal from '../../components/club/ClubAddMemberModal.vue';
@@ -542,7 +548,9 @@ const fetchStats = async () => {
       }
       stats.value = next;
     }
-    myAgencies.value = [{ id: 1, name: 'Preview Agency', is_active: true }];
+    myAgencies.value = currentAgency.value
+      ? [{ id: currentAgency.value.id, name: currentAgency.value.name, is_active: currentAgency.value.is_active !== false }]
+      : [{ id: 1, name: 'Preview Agency', is_active: true }];
     loading.value = false;
     return;
   }

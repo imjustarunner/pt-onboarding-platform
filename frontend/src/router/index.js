@@ -2871,6 +2871,15 @@ router.beforeEach(async (to, from, next) => {
       return;
     }
     
+    const isSuperadminGuardianPreview =
+      userRoleNorm === 'super_admin' &&
+      String(to.query?.previewMode || '').trim().toLowerCase() === 'superadmin' &&
+      (
+        String(to.path || '') === '/guardian' ||
+        String(to.path || '').endsWith('/guardian') ||
+        String(to.path || '').includes('/guardian/')
+      );
+
     const hasRequiredRole = requiredRoles.some((role) => {
       // Backoffice admin routes: true admins/support only.
       if (role === 'admin') {
@@ -2897,6 +2906,10 @@ router.beforeEach(async (to, from, next) => {
 
       if (role === 'clinical_practice_assistant') {
         return userRoleNorm === 'clinical_practice_assistant' || userRoleNorm === 'provider_plus';
+      }
+
+      if (role === 'client_guardian' && isSuperadminGuardianPreview) {
+        return true;
       }
 
       return userRoleNorm === role;

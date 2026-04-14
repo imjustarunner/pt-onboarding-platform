@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { fetchSkillBuildersGroupProvidersForPortal } from '../services/skillBuildersEventProviders.service.js';
+import Agency from '../models/Agency.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import User from '../models/User.model.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
@@ -41,6 +42,28 @@ function enrichGuardianClientRow(c) {
   };
 }
 
+function isSuperadminGuardianPreview(req) {
+  return req.guardianPreviewMode === true && String(req.user?.role || '').trim().toLowerCase() === 'super_admin';
+}
+
+function resolvePreviewAgencyId(req) {
+  return parsePositiveInt(req.query?.previewAgencyId || req.headers['x-agency-id']);
+}
+
+async function buildGuardianPreviewPrograms(agencyId) {
+  const parsedAgencyId = Number(agencyId || 0);
+  if (!parsedAgencyId) return [];
+  const agency = await Agency.findById(parsedAgencyId);
+  if (!agency) return [];
+  return [{
+    id: parsedAgencyId,
+    name: agency.name || null,
+    slug: getOrgSlug(agency),
+    organization_type: normOrgType(agency.organization_type),
+    children: []
+  }];
+}
+
 /**
  * GET /api/guardian-portal/overview
  *
@@ -52,6 +75,22 @@ export const getGuardianPortalOverview = async (req, res, next) => {
   try {
     const uid = req.user?.id;
     if (!uid) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    if (isSuperadminGuardianPreview(req)) {
+      const previewAgencyId = resolvePreviewAgencyId(req);
+      const programs = await buildGuardianPreviewPrograms(previewAgencyId);
+      return res.json({
+        refreshedAt: new Date().toISOString(),
+        previewMode: 'superadmin',
+        me: null,
+        dependents: [],
+        children: [],
+        programs,
+        enrollments: {
+          skillBuilderEvents: [],
+          programEvents: []
+        }
+      });
+    }
 
     const [linkedClients, explicitOrgsRaw] = await Promise.all([
       ClientGuardian.listClientsForGuardian({ guardianUserId: uid }),
@@ -329,6 +368,9 @@ export const listGuardianSkillBuilderEvents = async (req, res, next) => {
   try {
     const uid = req.user?.id;
     if (!uid) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    if (isSuperadminGuardianPreview(req)) {
+      return res.json({ ok: true, previewMode: 'superadmin', events: [] });
+    }
     const agencyId = parsePositiveInt(req.query.agencyId);
 
     const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid });
@@ -709,6 +751,9 @@ export const listGuardianDependentsForAgency = async (req, res, next) => {
     const uid = req.user?.id;
     const agencyId = parsePositiveInt(req.query.agencyId);
     if (!uid || !agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (isSuperadminGuardianPreview(req)) {
+      return res.json({ ok: true, previewMode: 'superadmin', dependents: [] });
+    }
     if (!(await assertGuardianHasAgencyAccess(uid, agencyId))) {
       return res.status(403).json({ error: { message: 'No linked dependents for this agency' } });
     }
@@ -737,6 +782,13 @@ export const listGuardianRegistrationCatalog = async (req, res, next) => {
     const uid = req.user?.id;
     const agencyId = parsePositiveInt(req.query.agencyId);
     if (!uid) return res.status(400).json({ error: { message: 'Unauthorized' } });
+    if (isSuperadminGuardianPreview(req)) {
+      const previewAgencyId = agencyId || resolvePreviewAgencyId(req);
+      if (!previewAgencyId) return res.json({ ok: true, previewMode: 'superadmin', items: [] });
+      const rows = await fetchRegistrationCatalogItems(previewAgencyId);
+      const items = (rows || []).map((row) => ({ ...row, agencyId: previewAgencyId }));
+      return res.json({ ok: true, previewMode: 'superadmin', items });
+    }
 
     let agencyIds = [];
     if (agencyId) {
@@ -1019,6 +1071,9 @@ export const listGuardianCompanyEvents = async (req, res, next) => {
   try {
     const uid = req.user?.id;
     if (!uid) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    if (isSuperadminGuardianPreview(req)) {
+      return res.json({ ok: true, previewMode: 'superadmin', events: [] });
+    }
 
     const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid });
     const ids = (linked || []).map((c) => Number(c.client_id)).filter((n) => n > 0);
@@ -1203,4 +1258,3 @@ export const getGuardianCompanyEventDetail = async (req, res, next) => {
     next(e);
   }
 };
-

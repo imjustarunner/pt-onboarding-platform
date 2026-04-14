@@ -1,5 +1,10 @@
 <template>
   <div class="school-portal">
+    <PlatformPreviewBanner
+      v-if="props.previewMode"
+      :title="`Previewing ${organizationDisplayName} portal`"
+      subtitle="This platform preview shows the tenant portal shell without acting like a live school staff session."
+    />
     <div class="portal-header">
       <div class="portal-header-row">
         <div class="portal-header-left">
@@ -69,7 +74,7 @@
       </div>
     </div>
 
-    <SurveyPromptCard v-if="authStore.user?.id" :splash="true" />
+    <SurveyPromptCard v-if="authStore.user?.id && !props.previewMode" :splash="true" />
 
     <div class="portal-content">
       <div class="top-row">
@@ -137,7 +142,7 @@
             </div>
           </div>
           <button
-            v-if="authStore.user?.id"
+            v-if="authStore.user?.id && !props.previewMode"
             class="btn btn-secondary btn-sm"
             type="button"
             @click="openAnnouncementModal"
@@ -160,9 +165,9 @@
           >
             Display weekly splash
           </button>
-          <button class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact admin</button>
+          <button v-if="!props.previewMode" class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact admin</button>
           <button
-            v-if="isSchoolStaff"
+            v-if="isSchoolStaff && !props.previewMode"
             class="btn btn-secondary btn-sm"
             type="button"
             @click="authStore.logout()"
@@ -1293,6 +1298,7 @@ import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import OrganizationSettingsModal from '../../components/school/OrganizationSettingsModal.vue';
 import QuickChecklistModal from '../../components/school/QuickChecklistModal.vue';
 import SurveyPromptCard from '../../components/dashboard/SurveyPromptCard.vue';
+import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
@@ -1302,6 +1308,13 @@ import { isSupervisor } from '../../utils/helpers';
 import { setDarkMode, getStoredDarkMode } from '../../utils/darkMode';
 import { getSchoolStaffWaiverStatus as getSchoolStaffWaiverStatusForGate } from '../../utils/schoolStaffWaiverGate';
 import QRCode from 'qrcode';
+
+const props = defineProps({
+  previewMode: {
+    type: Boolean,
+    default: false
+  }
+});
 
 const route = useRoute();
 const router = useRouter();

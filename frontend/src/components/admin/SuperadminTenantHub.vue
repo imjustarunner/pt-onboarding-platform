@@ -21,6 +21,55 @@
       </div>
 
       <div class="settings-section">
+        <h3>Platform dashboards</h3>
+        <p class="section-description">
+          Open tenant-facing dashboards without leaving superadmin tools. Guardian opens in a safe preview mode, while the other options open the real tenant dashboard shell for the selected portal slug.
+        </p>
+        <div class="dashboard-launcher">
+          <div class="dashboard-launcher-grid">
+            <div class="form-field">
+              <label>Portal slug</label>
+              <input
+                v-model.trim="dashboardPortalSlug"
+                class="input"
+                type="text"
+                placeholder="tenant portal slug"
+              />
+            </div>
+            <div class="form-field">
+              <label>Dashboard type</label>
+              <select v-model="dashboardPreviewType" class="select">
+                <option v-for="opt in dashboardPreviewOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>{{ dashboardTargetLabel }}</label>
+              <input
+                v-model.trim="dashboardTargetId"
+                class="input"
+                type="text"
+                :placeholder="dashboardTargetPlaceholder"
+                :disabled="!dashboardRequiresTarget"
+              />
+            </div>
+          </div>
+          <div class="dashboard-launcher-preview">
+            <div class="mono small">{{ resolvedDashboardPreviewHref || 'Choose a portal slug to generate a preview link.' }}</div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-primary" :disabled="!resolvedDashboardPreviewHref" @click="openDashboardPreviewSameTab">
+              Open here
+            </button>
+            <button type="button" class="btn btn-secondary" :disabled="!resolvedDashboardPreviewHref" @click="openDashboardPreviewWindow">
+              Open in new window
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <h3>Tenant identity & superadmin locks</h3>
         <p class="section-description">
           URL slug, active status, affiliation, and a few flags only superadmin can change for
@@ -157,6 +206,9 @@ const loadError = ref('');
 const billingError = ref('');
 const invoicesError = ref('');
 const savingOverrides = ref(false);
+const dashboardPreviewType = ref('admin_dashboard');
+const dashboardPortalSlug = ref('');
+const dashboardTargetId = ref('');
 
 const agencyDetail = ref(null);
 const pricingPayload = ref(null);
@@ -259,6 +311,100 @@ const money = (cents) => {
   return `$${n.toFixed(2)}`;
 };
 
+const dashboardPreviewOptions = [
+  { value: 'admin_dashboard', label: 'Admin dashboard' },
+  { value: 'organization_dashboard', label: 'Organization dashboard' },
+  { value: 'guardian_dashboard', label: 'Guardian dashboard preview' },
+  { value: 'summit_dashboard', label: 'Summit member dashboard' },
+  { value: 'operations_dashboard', label: 'Operations dashboard' },
+  { value: 'season_dashboard', label: 'Season dashboard' },
+  { value: 'learning_class_workspace', label: 'Learning class workspace' }
+];
+
+const dashboardRequiresTarget = computed(() => {
+  return ['season_dashboard', 'learning_class_workspace', 'operations_dashboard'].includes(dashboardPreviewType.value);
+});
+
+const dashboardTargetLabel = computed(() => {
+  if (dashboardPreviewType.value === 'season_dashboard') return 'Season ID';
+  if (dashboardPreviewType.value === 'learning_class_workspace') return 'Class ID';
+  if (dashboardPreviewType.value === 'operations_dashboard') return 'Program ID';
+  return 'Target ID';
+});
+
+const dashboardTargetPlaceholder = computed(() => {
+  if (dashboardPreviewType.value === 'season_dashboard') return 'season id';
+  if (dashboardPreviewType.value === 'learning_class_workspace') return 'class id';
+  if (dashboardPreviewType.value === 'operations_dashboard') return 'optional program id';
+  return 'not needed for this dashboard';
+});
+
+const syncDashboardLauncherDefaults = () => {
+  const slug = String(
+    agencyDetail.value?.portal_url ||
+    agencyDetail.value?.slug ||
+    agencyStore.currentAgency?.portal_url ||
+    agencyStore.currentAgency?.slug ||
+    ''
+  ).trim();
+  dashboardPortalSlug.value = slug;
+  dashboardTargetId.value = '';
+};
+
+const resolvedDashboardPreviewHref = computed(() => {
+  const slug = String(dashboardPortalSlug.value || '').trim().replace(/^\/+|\/+$/g, '');
+  if (!slug) return '';
+  const tenantId = Number(agencyStore.currentAgency?.id || 0) || null;
+  const targetId = String(dashboardTargetId.value || '').trim();
+  const previewQuery = {
+    previewMode: 'superadmin',
+    ...(tenantId ? { previewAgencyId: String(tenantId) } : {})
+  };
+  let routeLocation = null;
+
+  if (dashboardPreviewType.value === 'admin_dashboard') {
+    routeLocation = { path: `/${slug}/admin`, query: previewQuery };
+  } else if (dashboardPreviewType.value === 'organization_dashboard') {
+    routeLocation = { path: `/${slug}/dashboard`, query: previewQuery };
+  } else if (dashboardPreviewType.value === 'guardian_dashboard') {
+    routeLocation = {
+      path: `/${slug}/guardian`,
+      query: previewQuery
+    };
+  } else if (dashboardPreviewType.value === 'summit_dashboard') {
+    routeLocation = { path: `/${slug}/my_club_dashboard`, query: previewQuery };
+  } else if (dashboardPreviewType.value === 'operations_dashboard') {
+    routeLocation = {
+      path: `/${slug}/operations-dashboard`,
+      query: {
+        ...previewQuery,
+        ...(targetId ? { programId: targetId, previewProgramId: targetId } : {})
+      }
+    };
+  } else if (dashboardPreviewType.value === 'season_dashboard') {
+    if (!targetId) return '';
+    routeLocation = {
+      path: `/${slug}/season/${targetId}`,
+      query: {
+        ...previewQuery,
+        previewTargetId: targetId
+      }
+    };
+  } else if (dashboardPreviewType.value === 'learning_class_workspace') {
+    if (!targetId) return '';
+    routeLocation = {
+      path: `/${slug}/learning/classes/${targetId}`,
+      query: {
+        ...previewQuery,
+        previewTargetId: targetId
+      }
+    };
+  }
+
+  if (!routeLocation) return '';
+  return router.resolve(routeLocation).href;
+});
+
 const initOverrideModes = () => {
   const tenant = parseFlags(agencyDetail.value?.tenant_available_agency_features_json);
   const next = {};
@@ -277,6 +423,7 @@ const loadAgencyDetail = async () => {
     const res = await api.get(`/agencies/${id}`);
     agencyDetail.value = res.data;
     initOverrideModes();
+    syncDashboardLauncherDefaults();
   } catch (e) {
     loadError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load agency';
   }
@@ -381,6 +528,16 @@ const goBilling = () => {
     }
   });
 };
+
+const openDashboardPreviewSameTab = async () => {
+  if (!resolvedDashboardPreviewHref.value) return;
+  await router.push(resolvedDashboardPreviewHref.value);
+};
+
+const openDashboardPreviewWindow = () => {
+  if (!resolvedDashboardPreviewHref.value) return;
+  window.open(resolvedDashboardPreviewHref.value, '_blank', 'noopener,noreferrer');
+};
 </script>
 
 <style scoped>
@@ -426,6 +583,39 @@ const goBilling = () => {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 16px;
+}
+
+.dashboard-launcher {
+  max-width: 960px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(255, 247, 237, 0.9), rgba(239, 246, 255, 0.9));
+}
+
+.dashboard-launcher-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-launcher-preview {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-field label {
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .override-grid {
@@ -513,5 +703,11 @@ const goBilling = () => {
 
 .empty-state {
   padding: 24px 0;
+}
+
+@media (max-width: 900px) {
+  .dashboard-launcher-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

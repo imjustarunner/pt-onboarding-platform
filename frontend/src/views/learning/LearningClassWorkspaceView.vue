@@ -1,5 +1,10 @@
 <template>
   <div class="learning-workspace">
+    <PlatformPreviewBanner
+      v-if="isSuperadminPreview"
+      :title="`Previewing ${classTitle}`"
+      subtitle="This platform preview opens the learning workspace in a read-only shell."
+    />
     <header class="workspace-header">
       <div>
         <h1>{{ classTitle }}</h1>
@@ -9,7 +14,7 @@
         <button class="btn btn-secondary btn-sm" :disabled="loading" @click="loadWorkspace">
           {{ loading ? 'Loading…' : 'Refresh' }}
         </button>
-        <button v-if="canManageSessions" class="btn btn-primary btn-sm" :disabled="createBusy" @click="createSession">
+        <button v-if="canManageSessions && !isSuperadminPreview" class="btn btn-primary btn-sm" :disabled="createBusy" @click="createSession">
           {{ createBusy ? 'Creating…' : 'New group session' }}
         </button>
       </div>
@@ -48,12 +53,15 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.vue';
+import { useSuperadminPlatformPreview } from '../../composables/useSuperadminPlatformPreview';
 import GroupClassSessionRoom from '../../components/learning/GroupClassSessionRoom.vue';
 import { useAuthStore } from '../../store/auth';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { isSuperadminPreview } = useSuperadminPlatformPreview({ route });
 
 const loading = ref(false);
 const createBusy = ref(false);
@@ -86,7 +94,7 @@ async function loadWorkspace() {
     ]);
     classInfo.value = klassRes.data?.class || null;
     sessions.value = Array.isArray(sessionsRes.data?.sessions) ? sessionsRes.data.sessions : [];
-    canManageSessions.value = ['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus', 'clinical_practice_assistant']
+    canManageSessions.value = !isSuperadminPreview.value && ['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus', 'clinical_practice_assistant']
       .includes(String(authStore.user?.role || '').toLowerCase());
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load learning workspace';

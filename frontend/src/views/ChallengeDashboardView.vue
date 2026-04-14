@@ -4,6 +4,12 @@
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else-if="!challenge" class="empty-state">Season not found.</div>
     <div v-else class="challenge-detail">
+      <PlatformPreviewBanner
+        v-if="isSuperadminPreview"
+        :title="`Previewing ${challenge.class_name || challenge.className || 'season'} dashboard`"
+        subtitle="This platform preview keeps the season experience visible while workout and enrollment actions stay read-only."
+        tone="warm"
+      />
       <div
         v-if="clubDashboardBannerTexts.length"
         class="sstc-announcement-banner"
@@ -60,7 +66,7 @@
         <div class="challenge-overview-top">
           <router-link :to="backRoute" class="back-link">← Back to My Dashboard</router-link>
           <router-link
-            v-if="isChallengeManager && organizationSlug"
+            v-if="isChallengeManager && organizationSlug && !isSuperadminPreview"
             :to="`/${isSummitPlatformRouteSlug(organizationSlug) ? organizationSlug : NATIVE_APP_ORG_SLUG}/club/seasons?manageSeason=${challenge.id}`"
             class="btn btn-secondary btn-sm manage-season-btn"
           >⚙ Manage Season</router-link>
@@ -135,7 +141,7 @@
       </div>
 
       <!-- Not-enrolled call-to-action — shown at the top so visitors immediately see it -->
-      <div v-if="!canParticipateInSeason && !requiresParticipationAcceptance" class="join-season-top-bar">
+      <div v-if="!isSuperadminPreview && !canParticipateInSeason && !requiresParticipationAcceptance" class="join-season-top-bar">
         <div class="join-season-top-content">
           <span class="join-season-top-msg">👀 You're viewing this season in read-only mode.</span>
           <button
@@ -149,7 +155,7 @@
         </div>
         <p v-if="joinSeasonError" class="error-inline" style="margin-top:6px; text-align:center;">{{ joinSeasonError }}</p>
       </div>
-      <div v-else-if="!canParticipateInSeason && requiresParticipationAcceptance" class="join-season-top-bar">
+      <div v-else-if="!isSuperadminPreview && !canParticipateInSeason && requiresParticipationAcceptance" class="join-season-top-bar">
         <div class="join-season-top-content">
           <span class="join-season-top-msg">📋 Accept the participation agreement to start logging workouts.</span>
         </div>
@@ -162,7 +168,7 @@
       </div>
 
       <!-- Quick-action bar -->
-      <div v-if="canParticipateInSeason" class="season-action-bar">
+      <div v-if="canParticipateInSeason && !isSuperadminPreview" class="season-action-bar">
         <button type="button" class="season-action-btn season-action-btn--primary" @click="showLogWorkoutModal = true">
           <span class="season-action-icon">+</span> Log Workout
         </button>
@@ -956,9 +962,11 @@ import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBrandi
 import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../utils/summitPlatformSlugs.js';
 import { useAffiliationClubAnnouncements } from '../composables/useAffiliationClubAnnouncements.js';
 import { useSeasonWeeks } from '../composables/useSeasonWeeks.js';
+import { useSuperadminPlatformPreview } from '../composables/useSuperadminPlatformPreview.js';
 import { challengeProofPolicyLabel } from '../utils/challengeProofPolicies.js';
 import { toUploadsUrl } from '../utils/uploadsUrl.js';
 import { getWeekDeadline, getTodayDeadline, timeUntil, formatInTimezone, countdownUrgency } from '../utils/timezones.js';
+import PlatformPreviewBanner from '../components/admin/PlatformPreviewBanner.vue';
 import ChallengeRules from '../components/challenge/ChallengeRules.vue';
 import ChallengeTeamList from '../components/challenge/ChallengeTeamList.vue';
 import ChallengeLeaderboard from '../components/challenge/ChallengeLeaderboard.vue';
@@ -974,6 +982,7 @@ import ChallengeParticipationAgreementModal from '../components/challenge/Challe
 const route = useRoute();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
+const { isSuperadminPreview, appendPreviewQueryToRoute } = useSuperadminPlatformPreview({ route, authStore });
 const challenge = ref(null);
 const providerMembers = ref([]);
 const seasonBannerDismissed = ref(false);
@@ -1084,10 +1093,12 @@ const SSC_HOME_SLUGS = new Set(
 const backRoute = computed(() => {
   const slug = organizationSlug.value;
   if (slug) {
-    if (SSC_HOME_SLUGS.has(String(slug).toLowerCase())) return `/${slug}/my_club_dashboard`;
-    return `/${slug}/dashboard`;
+    if (SSC_HOME_SLUGS.has(String(slug).toLowerCase())) {
+      return appendPreviewQueryToRoute(`/${slug}/my_club_dashboard`);
+    }
+    return appendPreviewQueryToRoute(`/${slug}/dashboard`);
   }
-  return '/dashboard';
+  return appendPreviewQueryToRoute('/dashboard');
 });
 
 const announcementClubId = computed(() => {

@@ -31,7 +31,10 @@ router.use(authenticate);
 // Guard: only guardian portal accounts
 router.use((req, res, next) => {
   const role = String(req.user?.role || '').trim().toLowerCase();
-  if (role !== 'client_guardian') {
+  const previewMode = String(req.query?.previewMode || '').trim().toLowerCase();
+  const isSuperadminPreview = role === 'super_admin' && previewMode === 'superadmin';
+  req.guardianPreviewMode = isSuperadminPreview;
+  if (role !== 'client_guardian' && !isSuperadminPreview) {
     return res.status(403).json({ error: { message: 'Guardian access required' } });
   }
   next();
@@ -63,4 +66,3 @@ router.put('/waivers/clients/:clientId/sections/:sectionKey', putMyClientWaiverS
 router.post('/waivers/clients/:clientId/sections/:sectionKey/revoke', postMyClientWaiverSectionRevoke);
 
 export default router;
-

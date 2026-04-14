@@ -1,10 +1,17 @@
 <template>
   <div class="guardian-dashboard">
+    <PlatformPreviewBanner
+      v-if="isSuperadminPreview"
+      :title="`Previewing ${currentAgencyName || 'tenant'} guardian portal`"
+      subtitle="This platform preview keeps guardian-linked private data hidden while preserving the tenant portal shell."
+    />
     <div class="header">
       <div class="title">
-        <div class="name">Guardian portal</div>
+        <div class="name">{{ isSuperadminPreview ? 'Guardian portal preview' : 'Guardian portal' }}</div>
         <div class="subtitle">
-          A family-facing space for registrations, paperwork, billing, and day-to-day program updates.
+          {{ isSuperadminPreview
+            ? 'Superadmin preview for the guardian experience. Family-linked data is intentionally hidden.'
+            : 'A family-facing space for registrations, paperwork, billing, and day-to-day program updates.' }}
         </div>
       </div>
 
@@ -51,6 +58,7 @@
             <button class="btn btn-secondary btn-sm" type="button" @click="refreshAll" :disabled="loading">
               Refresh
             </button>
+            <span v-if="isSuperadminPreview" class="guardian-preview-pill">Platform preview</span>
           </div>
 
           <div class="guardian-spotlight-card">
@@ -90,7 +98,7 @@
                 View registrations
               </button>
               <router-link
-                v-if="selectedChild && !selectedChild.guardian_portal_locked"
+                v-if="selectedChild && !selectedChild.guardian_portal_locked && !isSuperadminPreview"
                 class="btn btn-secondary btn-sm"
                 :to="guardianWaiversLink"
               >
@@ -173,7 +181,7 @@
           </button>
 
           <router-link
-            v-if="selectedChild && !selectedChild.guardian_portal_locked"
+            v-if="selectedChild && !selectedChild.guardian_portal_locked && !isSuperadminPreview"
             class="guardian-tab guardian-tab-link"
             :to="guardianWaiversLink"
           >
@@ -223,17 +231,21 @@
                         <div class="quick-action-title">Register for programs</div>
                         <div class="quick-action-copy">{{ upcomingRegistrationRailSubtitle }}</div>
                       </button>
-                      <button type="button" class="quick-action-card" @click="activePanel = 'documents'">
+                      <button v-if="!isSuperadminPreview" type="button" class="quick-action-card" @click="activePanel = 'documents'">
                         <div class="quick-action-title">Documents</div>
                         <div class="quick-action-copy">Forms, signatures, and required paperwork.</div>
                       </button>
-                      <button type="button" class="quick-action-card" @click="activePanel = 'dependents'">
+                      <button v-if="!isSuperadminPreview" type="button" class="quick-action-card" @click="activePanel = 'dependents'">
                         <div class="quick-action-title">Dependents</div>
                         <div class="quick-action-copy">Emergency contacts, allergies, and health info.</div>
                       </button>
-                      <button type="button" class="quick-action-card" @click="activePanel = 'payment_methods'">
+                      <button v-if="!isSuperadminPreview" type="button" class="quick-action-card" @click="activePanel = 'payment_methods'">
                         <div class="quick-action-title">Payment &amp; insurance</div>
                         <div class="quick-action-copy">Saved cards and insurance details on file.</div>
+                      </button>
+                      <button v-if="isSuperadminPreview" type="button" class="quick-action-card" @click="activePanel = 'account'">
+                        <div class="quick-action-title">Preview notes</div>
+                        <div class="quick-action-copy">This preview hides family-linked data while keeping the tenant dashboard shell visible.</div>
                       </button>
                     </div>
                   </section>
@@ -713,6 +725,7 @@ import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.vue';
 import GuardianProgramSelector from '../../components/GuardianProgramSelector.vue';
+import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.vue';
 import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue';
 import GuardianPaymentInsuranceTab from '../../components/guardian/GuardianPaymentInsuranceTab.vue';
 import GuardianDependentsTab from '../../components/guardian/GuardianDependentsTab.vue';
@@ -722,6 +735,20 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const route = useRoute();
 const router = useRouter();
+const isSuperadminPreview = computed(() => {
+  return String(authStore.user?.role || '').trim().toLowerCase() === 'super_admin' &&
+    String(route.query?.previewMode || '').trim().toLowerCase() === 'superadmin';
+});
+const previewAgencyId = computed(() => {
+  return Number(route.query?.previewAgencyId || agencyStore.currentAgency?.id || 0) || null;
+});
+const previewParams = computed(() => {
+  if (!isSuperadminPreview.value) return {};
+  return {
+    previewMode: 'superadmin',
+    ...(previewAgencyId.value ? { previewAgencyId: previewAgencyId.value } : {})
+  };
+});
 
 const loading = ref(false);
 const error = ref('');
@@ -783,6 +810,7 @@ const formatOrgType = (t) => {
 const programs = computed(() => Array.isArray(overview.value?.programs) ? overview.value.programs : []);
 const children = computed(() => Array.isArray(overview.value?.children) ? overview.value.children : []);
 const currentAgencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
+const dashboardAgencyId = computed(() => previewAgencyId.value || currentAgencyId.value || null);
 const totalEnrolledEventCount = computed(() => sbUpcomingGrouped.value.length + genCurrentEvents.value.length);
 const pendingDocumentCount = computed(() => {
   return (children.value || []).filter((child) => String(child?.document_status || '').toUpperCase() !== 'APPROVED').length;
@@ -828,6 +856,14 @@ const selectedChildFullName = computed(() => {
 const currentAgencyName = computed(() => String(agencyStore.currentAgency?.name || '').trim() || '');
 
 const dashboardTabs = computed(() => {
+  if (isSuperadminPreview.value) {
+    const previewTabs = [
+      { key: 'overview', label: 'Overview', meta: 'Preview shell' },
+      { key: 'registrations', label: 'Registrations', meta: upcomingRegistrationRailSubtitle.value }
+    ];
+    previewTabs.push({ key: 'account', label: 'Account', meta: 'Profile and security shell' });
+    return previewTabs;
+  }
   const tabs = [
     { key: 'overview', label: 'Overview', meta: 'Home base' },
     { key: 'registrations', label: 'Registrations', meta: upcomingRegistrationRailSubtitle.value },
@@ -1199,7 +1235,8 @@ const initProgramContext = async () => {
 
 const fetchSkillBuilderEvents = async () => {
   const aid = Number(agencyStore.currentAgency?.id || 0);
-  if (!aid) {
+  const effectiveAgencyId = Number(dashboardAgencyId.value || 0);
+  if (!effectiveAgencyId) {
     sbEvents.value = [];
     return;
   }
@@ -1207,7 +1244,7 @@ const fetchSkillBuilderEvents = async () => {
   sbError.value = '';
   try {
     const resp = await api.get('/guardian-portal/skill-builders/events', {
-      params: { agencyId: aid },
+      params: { agencyId: effectiveAgencyId, ...previewParams.value },
       skipGlobalLoading: true
     });
     sbEvents.value = Array.isArray(resp.data?.events) ? resp.data.events : [];
@@ -1223,7 +1260,10 @@ const fetchGenEvents = async () => {
   genLoading.value = true;
   genError.value = '';
   try {
-    const resp = await api.get('/guardian-portal/company-events', { skipGlobalLoading: true });
+    const resp = await api.get('/guardian-portal/company-events', {
+      params: previewParams.value,
+      skipGlobalLoading: true
+    });
     genEvents.value = Array.isArray(resp.data?.events) ? resp.data.events : [];
   } catch (err) {
     genError.value = err.response?.data?.error?.message || 'Could not load enrolled events';
@@ -1234,14 +1274,20 @@ const fetchGenEvents = async () => {
 };
 
 const fetchRegistrationCatalog = async () => {
-  if (!(programs.value || []).length) {
+  if (!(programs.value || []).length && !dashboardAgencyId.value) {
     regCatalogItems.value = [];
     return;
   }
   regCatalogLoading.value = true;
   regCatalogError.value = '';
   try {
-    const resp = await api.get('/guardian-portal/registration/catalog', { skipGlobalLoading: true });
+    const resp = await api.get('/guardian-portal/registration/catalog', {
+      params: {
+        ...(dashboardAgencyId.value ? { agencyId: dashboardAgencyId.value } : {}),
+        ...previewParams.value
+      },
+      skipGlobalLoading: true
+    });
     regCatalogItems.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
   } catch (err) {
     regCatalogError.value = err.response?.data?.error?.message || 'Could not load registration catalog';
@@ -1266,11 +1312,11 @@ const openRegistrationEnroll = async (item) => {
   registrationEnrollSelected.value = [];
   registrationEnrollPayerType.value = '';
   registrationEnrollError.value = '';
-  const aid = Number(item?.agencyId || agencyStore.currentAgency?.id || 0);
+  const aid = Number(item?.agencyId || dashboardAgencyId.value || 0);
   if (!aid) return;
   try {
     const resp = await api.get('/guardian-portal/dependents', {
-      params: { agencyId: aid },
+      params: { agencyId: aid, ...previewParams.value },
       skipGlobalLoading: true
     });
     registrationEnrollDependents.value = Array.isArray(resp.data?.dependents) ? resp.data.dependents : [];
@@ -1335,7 +1381,9 @@ const fetchOverview = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get('/guardian-portal/overview');
+    const resp = await api.get('/guardian-portal/overview', {
+      params: previewParams.value
+    });
     overview.value = resp.data || { children: [], programs: [] };
     const firstChildId = Number(overview.value?.children?.[0]?.client_id || 0) || null;
     const currentChildStillExists = (overview.value?.children || []).some((child) => Number(child?.client_id) === Number(selectedChildId.value || 0));
@@ -1511,6 +1559,17 @@ watch(selectedChildId, (id) => {
     guardianDailyNotes.value = [];
   }
 }, { immediate: true });
+
+watch(
+  dashboardTabs,
+  (tabs) => {
+    const allowedKeys = new Set((tabs || []).map((tab) => String(tab?.key || '')));
+    if (!allowedKeys.has(activePanel.value)) {
+      activePanel.value = 'overview';
+    }
+  },
+  { immediate: true }
+);
 
 const openComingSoon = (key) => {
   comingSoonKey.value = String(key || '');

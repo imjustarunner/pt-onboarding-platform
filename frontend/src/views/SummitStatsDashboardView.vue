@@ -1,5 +1,11 @@
 <template>
   <div class="sstc-dashboard">
+    <PlatformPreviewBanner
+      v-if="isSuperadminPreview"
+      :title="`Previewing ${agencyStore.currentAgency?.name || 'tenant'} member dashboard`"
+      subtitle="This preview keeps the club dashboard visible while member-specific actions stay read-only."
+      tone="warm"
+    />
     <section v-if="pendingApplications.length" class="card dash-section dash-section--pending-applications">
       <div class="section-header">
         <div>
@@ -193,12 +199,12 @@
                 Open Season
               </button>
               <button
-                v-if="season.bucket !== 'upcoming'"
+                v-if="season.bucket !== 'upcoming' && !isSuperadminPreview"
                 type="button"
                 class="btn btn-upload btn-sm"
                 @click="router.push({ path: `/${navSlug}/season/${season.classId}`, query: { openUpload: '1' } })"
               >⬆ Log Workout</button>
-              <template v-if="isManagedClub(season.clubId)">
+              <template v-if="isManagedClub(season.clubId) && !isSuperadminPreview">
                 <router-link
                   :to="`/${navSlug}/club/seasons?manageSeason=${season.classId}`"
                   class="btn btn-secondary btn-sm"
@@ -805,6 +811,8 @@ import {
 import { TIMEZONE_GROUPS, ALL_TIMEZONES } from '../utils/timezones.js';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { setDarkMode } from '../utils/darkMode.js';
+import PlatformPreviewBanner from '../components/admin/PlatformPreviewBanner.vue';
+import { useSuperadminPlatformPreview } from '../composables/useSuperadminPlatformPreview.js';
 import {
   isNativePlatform,
   checkBiometricAvailability,
@@ -819,6 +827,7 @@ const route = useRoute();
 const router = useRouter();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const { isSuperadminPreview, appendPreviewQueryToRoute } = useSuperadminPlatformPreview({ route, authStore, agencyStore });
 
 const orgSlug = computed(() => String(route.params?.organizationSlug || 'sstc').toLowerCase());
 // Always use the platform slug for season/dashboard navigation so the long club slug never leaks
@@ -1354,23 +1363,23 @@ const switchToClubContext = async (clubId, target = 'dashboard') => {
     agencyStore.setCurrentAgency(match);
   }
   if (target === 'settings') {
-    await router.push(`/${navSlug.value}/club/settings`);
+    await router.push(appendPreviewQueryToRoute(`/${navSlug.value}/club/settings`));
     return;
   }
   if (target === 'seasons') {
-    await router.push(`/${navSlug.value}/club/seasons`);
+    await router.push(appendPreviewQueryToRoute(`/${navSlug.value}/club/seasons`));
     return;
   }
   if (target === 'club_manager_dashboard') {
-    await router.push(`/${navSlug.value}/club_manager_dashboard`);
+    await router.push(appendPreviewQueryToRoute(`/${navSlug.value}/club_manager_dashboard`));
     return;
   }
-  await router.push(`/${navSlug.value}/my_club_dashboard`);
+  await router.push(appendPreviewQueryToRoute(`/${navSlug.value}/my_club_dashboard`));
 };
 
 const openSeason = async (season) => {
   if (!season?.classId) return;
-  await router.push(`/${navSlug.value}/season/${season.classId}`);
+  await router.push(appendPreviewQueryToRoute(`/${navSlug.value}/season/${season.classId}`, { previewTargetId: String(season.classId) }));
 };
 
 const joinAndOpenSeason = async (season) => {
@@ -1378,7 +1387,7 @@ const joinAndOpenSeason = async (season) => {
   joiningSeasonId.value = season.classId;
   try {
     await api.post(`/learning-program-classes/${season.classId}/join`);
-    await router.push(`/${navSlug.value}/season/${season.classId}`);
+    await router.push(appendPreviewQueryToRoute(`/${navSlug.value}/season/${season.classId}`, { previewTargetId: String(season.classId) }));
   } catch (err) {
     alert(err?.response?.data?.error?.message || 'Could not join season. Please try again.');
     joiningSeasonId.value = null;

@@ -1,5 +1,10 @@
 <template>
   <div class="provider-plus-dashboard">
+    <PlatformPreviewBanner
+      v-if="isSuperadminPreview"
+      :title="`Previewing ${agencyStore.currentAgency?.name || 'tenant'} operations dashboard`"
+      subtitle="Navigation stays visible here so you can inspect the dashboard shell without acting like a live operations user."
+    />
     <header class="page-header">
       <h1>Operations Dashboard</h1>
       <p class="subtitle">
@@ -11,7 +16,7 @@
       <router-link
         v-for="card in cards"
         :key="card.id"
-        :to="card.to"
+        :to="resolveCardTo(card)"
         class="action-card"
       >
         <div class="action-icon-wrap">
@@ -31,10 +36,10 @@
       </router-link>
     </section>
 
-    <SurveyPromptCard />
+    <SurveyPromptCard v-if="!isSuperadminPreview" />
 
     <!-- Personal momentum list / checklist below cards -->
-    <section v-if="currentAgencyId" class="momentum-section" aria-label="Your focus">
+    <section v-if="currentAgencyId && !isSuperadminPreview" class="momentum-section" aria-label="Your focus">
       <h2 class="momentum-section-title">{{ momentumListEnabled ? 'Your Momentum List' : 'Your Checklist' }}</h2>
       <MomentumListTab
         v-if="momentumListEnabled"
@@ -56,7 +61,9 @@ import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
+import PlatformPreviewBanner from '../components/admin/PlatformPreviewBanner.vue';
 import { useMomentumListAddon } from '../composables/useMomentumListAddon';
+import { useSuperadminPlatformPreview } from '../composables/useSuperadminPlatformPreview';
 import MomentumListTab from '../components/dashboard/MomentumListTab.vue';
 import UnifiedChecklistTab from '../components/dashboard/UnifiedChecklistTab.vue';
 import SurveyPromptCard from '../components/dashboard/SurveyPromptCard.vue';
@@ -64,6 +71,7 @@ import SurveyPromptCard from '../components/dashboard/SurveyPromptCard.vue';
 const route = useRoute();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
+const { isSuperadminPreview, appendPreviewQueryToRoute } = useSuperadminPlatformPreview({ route, agencyStore });
 
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id ?? null);
 const { momentumListEnabled } = useMomentumListAddon(currentAgencyId);
@@ -107,6 +115,8 @@ const getCardIconUrl = (card) => {
 const onIconError = (cardId) => {
   failedIconIds.value = new Set([...failedIconIds.value, cardId]);
 };
+
+const resolveCardTo = (card) => appendPreviewQueryToRoute(card?.to);
 
 const cards = computed(() => [
   {
