@@ -542,7 +542,7 @@ app.use(
   '/games-content',
   express.static(gamesContentRoot, {
     etag: true,
-    maxAge: 300000,
+    maxAge: 0,
     fallthrough: false
   })
 );
