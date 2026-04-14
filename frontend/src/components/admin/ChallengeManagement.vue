@@ -1035,29 +1035,117 @@
         </div>
 
         <div v-show="manageTab === 'weekly'" class="manage-panel">
-          <!-- Library picker -->
-          <div v-if="templateLibrary.length || globalTemplateLibrary.length" class="library-picker-bar">
-            <label class="library-picker-label">📚 Add from library</label>
-            <select v-model="libraryPickerSelected" class="library-picker-select">
-              <option value="">— pick a challenge —</option>
-              <optgroup v-if="globalTemplateLibrary.length" label="SSTC Library">
-                <option v-for="tpl in globalTemplateLibrary" :key="`g-${tpl.id}`" :value="tpl.id">
-                  {{ tpl.name }}{{ templateUsedLabel(tpl) ? ' ' + templateUsedLabel(tpl) : '' }}
-                </option>
-              </optgroup>
-              <optgroup v-if="templateLibrary.length" label="Club Library">
-                <option v-for="tpl in templateLibrary" :key="`c-${tpl.id}`" :value="tpl.id">
-                  {{ tpl.name }}{{ templateUsedLabel(tpl) ? ' ' + templateUsedLabel(tpl) : '' }}
-                </option>
-              </optgroup>
-            </select>
-            <select v-if="libraryPickerSelected" v-model="libraryPickerSlot" class="library-picker-select">
-              <option value="">— slot —</option>
-              <option value="0">Weekly challenge 1</option>
-              <option value="1">Weekly challenge 2</option>
-              <option value="2">Weekly challenge 3</option>
-            </select>
-            <button class="btn btn-secondary btn-sm" @click="applyLibraryTemplate" :disabled="!libraryPickerSelected || libraryPickerSlot === ''">Apply</button>
+          <div class="weekly-tools-grid">
+            <div v-if="templateLibrary.length || tenantTemplateLibrary.length" class="library-picker-panel">
+              <div class="library-picker-head">
+                <div>
+                  <label class="library-picker-label">Challenge library</label>
+                  <p class="library-picker-copy">Pick a saved template, drop it into one of the three weekly slots, and then tweak anything you want.</p>
+                </div>
+              </div>
+              <div class="library-picker-bar">
+                <select v-model="libraryPickerSelected" class="library-picker-select">
+                  <option value="">— pick a challenge —</option>
+                  <optgroup v-if="tenantTemplateLibrary.length" label="Summit Stats Library">
+                    <option v-for="tpl in tenantTemplateLibrary" :key="`t-${tpl.id}`" :value="tpl.id">
+                      {{ tpl.name }}{{ templateUsedLabel(tpl) ? ' ' + templateUsedLabel(tpl) : '' }}
+                    </option>
+                  </optgroup>
+                  <optgroup v-if="templateLibrary.length" label="Club Library">
+                    <option v-for="tpl in templateLibrary" :key="`c-${tpl.id}`" :value="tpl.id">
+                      {{ tpl.name }}{{ templateUsedLabel(tpl) ? ' ' + templateUsedLabel(tpl) : '' }}
+                    </option>
+                  </optgroup>
+                </select>
+                <select v-if="libraryPickerSelected" v-model="libraryPickerSlot" class="library-picker-select">
+                  <option value="">— slot —</option>
+                  <option value="0">Weekly challenge 1</option>
+                  <option value="1">Weekly challenge 2</option>
+                  <option value="2">Weekly challenge 3</option>
+                </select>
+                <button class="btn btn-secondary btn-sm" @click="applyLibraryTemplate" :disabled="!libraryPickerSelected || libraryPickerSlot === ''">Apply</button>
+              </div>
+            </div>
+
+            <div class="guided-draft-panel">
+              <div class="guided-draft-head">
+                <div>
+                  <strong>Guided draft helper</strong>
+                  <p>Keep the full AI draft button for a fresh 3-pack. This helper is for when you already know the icon, title, and activity and want a matching example workout fast.</p>
+                </div>
+              </div>
+              <div class="guided-draft-fields">
+                <select v-model="weeklyGuidedDraft.slot" class="library-picker-select">
+                  <option value="0">Weekly challenge 1</option>
+                  <option value="1">Weekly challenge 2</option>
+                  <option value="2">Weekly challenge 3</option>
+                </select>
+                <select v-model="weeklyGuidedDraft.activityType" class="library-picker-select">
+                  <option v-for="opt in activityTypeOptions" :key="opt" :value="opt">{{ opt }}</option>
+                  <option value="Fitness">Fitness</option>
+                </select>
+                <input v-model="weeklyGuidedDraft.name" type="text" class="task-input guided-draft-name" placeholder="Challenge title" />
+              </div>
+              <div class="guided-draft-fields">
+                <div class="guided-icon-mode">
+                  <label><input v-model="weeklyGuidedDraft.useLibraryIcon" :value="false" type="radio" /> Emoji</label>
+                  <label><input v-model="weeklyGuidedDraft.useLibraryIcon" :value="true" type="radio" /> Library icon</label>
+                </div>
+                <select v-if="!weeklyGuidedDraft.useLibraryIcon" v-model="weeklyGuidedDraft.icon" class="library-picker-select">
+                  <option value="🏃">🏃 Run</option>
+                  <option value="🥾">🥾 Ruck</option>
+                  <option value="🌲">🌲 Trail</option>
+                  <option value="👟">👟 Walk</option>
+                  <option value="🚴">🚴 Bike</option>
+                  <option value="🌊">🌊 Swim</option>
+                  <option value="💪">💪 Fitness</option>
+                  <option value="🔥">🔥 Effort</option>
+                </select>
+                <div v-else class="guided-icon-selector">
+                  <IconSelector
+                    :modelValue="weeklyGuidedDraft.libraryIconId"
+                    :summitStatsClubId="organizationId"
+                    context="weekly-guided-draft"
+                    @update:modelValue="weeklyGuidedDraft.libraryIconId = $event"
+                  />
+                </div>
+                <button class="btn btn-secondary btn-sm" @click="applyGuidedDraft">Generate example</button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="allAvailableTemplates.length" class="template-browser">
+            <div class="template-browser-head">
+              <strong>Pick from the library</strong>
+              <span class="hint">These are the templates your season can pull from right now.</span>
+            </div>
+            <div class="template-browser-grid">
+              <div v-for="tpl in allAvailableTemplates" :key="`${tpl.scope}-${tpl.id}`" class="template-browser-card">
+                <div class="template-browser-card-top">
+                  <span class="template-browser-icon">
+                    <img v-if="String(tpl.icon || '').startsWith('icon:') && weeklyTemplateIconUrl(tpl.icon)" :src="weeklyTemplateIconUrl(tpl.icon)" alt="" class="template-browser-icon-img" />
+                    <span v-else>{{ weeklyTemplateIcon(tpl) }}</span>
+                  </span>
+                  <div>
+                    <div class="template-browser-title">{{ tpl.name }}</div>
+                    <div class="template-browser-meta">
+                      {{ tpl.scope === 'tenant' ? 'Summit Stats Library' : 'Club Library' }}
+                      <template v-if="tpl.activityType"> · {{ tpl.activityType }}</template>
+                      <template v-if="tpl.isSeasonLong"> · Season-long</template>
+                    </div>
+                  </div>
+                </div>
+                <p v-if="tpl.description" class="template-browser-description">{{ tpl.description }}</p>
+                <div class="template-browser-footer">
+                  <span class="template-browser-used">{{ templateUsedLabel(tpl) || 'Not used this season yet' }}</span>
+                  <div class="template-browser-actions">
+                    <button class="btn btn-secondary btn-xs" @click="libraryPickerSelected = String(tpl.id); libraryPickerSlot = '0'; applyLibraryTemplate()">Use in slot 1</button>
+                    <button class="btn btn-secondary btn-xs" @click="libraryPickerSelected = String(tpl.id); libraryPickerSlot = '1'; applyLibraryTemplate()">Use in slot 2</button>
+                    <button class="btn btn-secondary btn-xs" @click="libraryPickerSelected = String(tpl.id); libraryPickerSlot = '2'; applyLibraryTemplate()">Use in slot 3</button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="panel-actions">
@@ -1101,6 +1189,28 @@
                     💾 Save to library
                   </button>
                 </div>
+              </div>
+              <div class="weekly-task-identity">
+                <div class="weekly-task-icon">
+                  <img v-if="String(t.icon || '').startsWith('icon:') && weeklyTemplateIconUrl(t.icon)" :src="weeklyTemplateIconUrl(t.icon)" alt="" class="weekly-task-icon-img" />
+                  <span v-else>{{ t.icon || weeklyTemplateIcon(t) }}</span>
+                </div>
+                <select v-model="t.icon" class="weekly-task-icon-select">
+                  <option v-if="String(t.icon || '').startsWith('icon:')" :value="t.icon">Library icon</option>
+                  <option value="🏃">🏃 Run</option>
+                  <option value="🥾">🥾 Ruck</option>
+                  <option value="🌲">🌲 Trail</option>
+                  <option value="👟">👟 Walk</option>
+                  <option value="🚴">🚴 Bike</option>
+                  <option value="🌊">🌊 Swim</option>
+                  <option value="💪">💪 Fitness</option>
+                  <option value="🔥">🔥 Effort</option>
+                </select>
+                <select v-model="t.activityType" class="weekly-task-activity-select">
+                  <option value="">Activity</option>
+                  <option v-for="opt in activityTypeOptions" :key="opt" :value="opt">{{ opt }}</option>
+                  <option value="Fitness">Fitness</option>
+                </select>
               </div>
               <input v-model="t.name" type="text" placeholder="e.g., Run 5 miles" class="task-input" />
               <textarea v-model="t.description" rows="2" placeholder="Optional description" class="task-input" />
@@ -1338,20 +1448,51 @@
       />
     </div>
 
-    <!-- Recognition Awards & Groups Library -->
-    <div v-if="organizationId" class="panel" style="margin-top: 24px;">
-      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <div v-if="organizationId" class="panel library-workspace-panel" style="margin-top: 24px;">
+      <div class="library-workspace-header">
         <div>
-          <h2 style="margin:0;font-size:1.1em;">Recognition Library</h2>
-          <p style="margin:4px 0 0;font-size:12px;color:var(--text-secondary);">Manage reusable awards and eligibility groups that can be selected when configuring any season.</p>
+          <span class="library-workspace-kicker">Reusable Libraries</span>
+          <h2 class="library-workspace-title">Keep the season tools organized</h2>
+          <p class="library-workspace-copy">
+            Challenges come first, recognition awards come second, and icons stay here for now as their own shared utility section.
+          </p>
+        </div>
+        <div class="library-workspace-pills">
+          <span class="library-workspace-pill">Challenges</span>
+          <span class="library-workspace-pill">Recognition Awards</span>
+          <span class="library-workspace-pill">Icons</span>
         </div>
       </div>
-      <div v-if="canManageTenantLibraries" class="tenant-write-toggle-bar">
+
+      <div v-if="canManageTenantLibraries" class="tenant-write-toggle-bar" style="margin-bottom:0;">
         <label class="tenant-write-label">
           <input type="checkbox" v-model="tenantWriteEnabled" />
           Temporarily enable Summit Stats Library write access
         </label>
-        <span class="tenant-write-hint">When on, club managers can add or edit Summit Stats Library awards and shared icons from this screen. Turn off when finished.</span>
+        <span class="tenant-write-hint">When on, club managers can add or edit Summit Stats Library challenges, awards, and shared icons from this screen. Turn off when finished.</span>
+      </div>
+    </div>
+
+    <div v-if="organizationId" class="panel library-section-panel" style="margin-top: 24px;">
+      <div class="library-section-head">
+        <div>
+          <h2 class="library-section-title">Challenges</h2>
+          <p class="library-section-copy">Build the reusable challenge library here, then apply these templates from a list inside Manage Season → Weekly challenges.</p>
+        </div>
+      </div>
+      <ChallengeTemplateLibraryManager
+        :club-id="organizationId"
+        :user-role="currentUserRole"
+        :tenant-write-enabled="tenantWriteEnabled"
+      />
+    </div>
+
+    <div v-if="organizationId" class="panel library-section-panel" style="margin-top: 24px;">
+      <div class="library-section-head">
+        <div>
+          <h2 class="library-section-title">Recognition Awards</h2>
+          <p class="library-section-copy">Manage reusable awards and eligibility groups for any season. Challenge-linked awards live here too, so they’re easier to find and reuse.</p>
+        </div>
       </div>
       <RecognitionLibraryManager
         ref="libraryManagerRef"
@@ -1364,47 +1505,18 @@
       />
     </div>
 
-    <!-- Summit Stats (organization) icon library -->
-    <div v-if="organizationId && canManageTenantLibraries" class="panel" style="margin-top: 24px;">
-      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+    <div v-if="organizationId && canManageTenantLibraries" class="panel library-section-panel" style="margin-top: 24px;">
+      <div class="library-section-head">
         <div>
-          <h2 style="margin:0;font-size:1.1em;">Summit Stats Library — Icons</h2>
-          <p style="margin:4px 0 0;font-size:12px;color:var(--text-secondary);">Organization-wide icons. All clubs in your Summit Stats tenant can use these.</p>
+          <h2 class="library-section-title">Icons</h2>
+          <p class="library-section-copy">Shared icon management stays here for now so challenge and award libraries can both reference the same style set.</p>
         </div>
         <button type="button" class="btn btn-secondary btn-sm" @click="showTenantIconLibrary = !showTenantIconLibrary">
-          {{ showTenantIconLibrary ? 'Hide' : 'Manage Icons' }}
+          {{ showTenantIconLibrary ? 'Hide Icons' : 'Manage Icons' }}
         </button>
       </div>
-      <div v-if="showTenantIconLibrary">
+      <div v-if="showTenantIconLibrary" class="library-icons-wrap">
         <IconLibraryView :preferred-club-id="organizationId" />
-      </div>
-    </div>
-
-    <!-- Member Photo Moderation -->
-    <div v-if="organizationId" class="panel" style="margin-top: 24px;">
-      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-        <h2 style="margin:0;font-size:1.1em;">Member Photos — Moderation</h2>
-        <button class="btn btn-secondary btn-compact" @click="loadFlaggedPhotos" :disabled="flaggedLoading">
-          {{ flaggedLoading ? 'Loading…' : 'Refresh' }}
-        </button>
-      </div>
-      <div v-if="flaggedError" class="error" style="margin-bottom:10px;">{{ flaggedError }}</div>
-      <div v-if="flaggedLoading" class="hint">Loading flagged photos…</div>
-      <div v-else-if="!flaggedPhotos.length" class="hint">
-        No flagged photos right now. Use the "Flag" button on a member's photo to surface it here.
-      </div>
-      <div v-else class="flagged-photo-grid">
-        <div v-for="p in flaggedPhotos" :key="p.id" class="flagged-photo-card">
-          <img :src="p.url" alt="" class="flagged-photo-img" />
-          <div class="flagged-photo-meta">
-            <div class="flagged-user">{{ p.userFirstName }} {{ p.userLastName }}</div>
-            <div v-if="p.flaggedReason" class="flagged-reason">{{ p.flaggedReason }}</div>
-            <div class="flagged-actions">
-              <button class="btn btn-sm btn-danger" @click="moderateRemove(p)">Remove Photo</button>
-              <button class="btn btn-sm btn-secondary" @click="unflagPhoto(p)">Unflag</button>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -1438,6 +1550,7 @@ import { useRouter, useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import RecognitionCategoryBuilder from '../challenge/RecognitionCategoryBuilder.vue';
+import ChallengeTemplateLibraryManager from '../challenge/ChallengeTemplateLibraryManager.vue';
 import RecognitionLibraryManager from '../challenge/RecognitionLibraryManager.vue';
 import ClubCustomFields from '../club/ClubCustomFields.vue';
 import IconSelector from '../admin/IconSelector.vue';
@@ -1957,7 +2070,7 @@ const defaultCriteria = () => ({
   _splitRunEnabled: false
 });
 const defaultTask = () => ({
-  name: '', description: '', proofPolicy: 'none', mode: 'volunteer_or_elect',
+  name: '', description: '', icon: '🏃', activityType: '', proofPolicy: 'none', mode: 'volunteer_or_elect',
   confidenceScore: null, isSeasonLong: false, criteriaJson: defaultCriteria()
 });
 
@@ -1976,10 +2089,19 @@ const terrainOptions = ['Road', 'Trail', 'Track', 'Treadmill', 'Race', 'Other'];
 
 // Template library state
 const templateLibrary = ref([]);         // club-specific templates
-const globalTemplateLibrary = ref([]);   // SSTC global templates
+const tenantTemplateLibrary = ref([]);   // Summit Stats tenant templates
 const taskHistory = ref([]);             // { week_start_date, name } for all weeks used
 const libraryPickerSelected = ref('');
 const libraryPickerSlot = ref('');
+const weeklyGuidedDraft = ref({
+  slot: '0',
+  icon: '🏃',
+  activityType: 'Run',
+  name: '',
+  useLibraryIcon: false,
+  libraryIconId: null
+});
+const weeklyTemplateIconCache = ref({});
 
 // Map: templateName (lowercased) → array of week labels where it was used
 const usedTemplateWeeks = computed(() => {
@@ -2003,34 +2125,68 @@ const templateUsedLabel = (tpl) => {
   return weeks?.length ? `(used: ${weeks.join(', ')})` : '';
 };
 
+const weeklyTemplateIcon = (tpl) => {
+  if (tpl?.icon && !String(tpl.icon).startsWith('icon:')) return tpl.icon;
+  const activity = String(tpl?.activityType || tpl?.criteriaJson?.activityTypes?.[0] || '').toLowerCase();
+  if (activity.includes('ruck')) return '🥾';
+  if (activity.includes('trail')) return '🌲';
+  if (activity.includes('walk')) return '👟';
+  if (activity.includes('bike')) return '🚴';
+  if (activity.includes('swim')) return '🌊';
+  if (activity.includes('fit')) return '💪';
+  return '🏃';
+};
+
+const weeklyTemplateIconUrl = (iconRef) => {
+  if (typeof iconRef !== 'string' || !iconRef.startsWith('icon:')) return null;
+  const id = Number.parseInt(iconRef.replace('icon:', ''), 10);
+  if (!id) return null;
+  if (weeklyTemplateIconCache.value[id]) return weeklyTemplateIconCache.value[id];
+  api.get(`/icons/${id}`, { skipGlobalLoading: true }).then(({ data }) => {
+    const raw = data?.url || data?.file_path || null;
+    if (raw) weeklyTemplateIconCache.value[id] = toUploadsUrl(raw) || raw;
+  }).catch(() => {});
+  return null;
+};
+
+const allAvailableTemplates = computed(() => [
+  ...tenantTemplateLibrary.value.map((tpl) => ({ ...tpl, scope: 'tenant' })),
+  ...templateLibrary.value.map((tpl) => ({ ...tpl, scope: 'club' }))
+]);
+
+const weeklyGuidedIconLabel = computed(() => {
+  if (weeklyGuidedDraft.value.useLibraryIcon && weeklyGuidedDraft.value.libraryIconId) return `icon:${weeklyGuidedDraft.value.libraryIconId}`;
+  return weeklyGuidedDraft.value.icon || '🏃';
+});
+
 const loadTemplateLibrary = async () => {
   const clubId = managingChallenge.value?.organization_id;
   const classId = managingChallenge.value?.id;
   if (!clubId) return;
   try {
-    const [clubRes, globalRes, historyRes] = await Promise.allSettled([
+    const [clubRes, tenantRes, historyRes] = await Promise.allSettled([
       api.get(`/summit-stats/clubs/${clubId}/challenge-templates`),
-      api.get(`/summit-stats/challenge-templates/global`),
+      api.get(`/summit-stats/clubs/${clubId}/tenant-challenge-templates`),
       classId ? api.get(`/learning-program-classes/${classId}/weekly-tasks`, { params: { allWeeks: 'true' } }) : Promise.resolve(null)
     ]);
     templateLibrary.value = clubRes.status === 'fulfilled'
       ? (Array.isArray(clubRes.value?.data?.templates) ? clubRes.value.data.templates : [])
       : [];
-    globalTemplateLibrary.value = globalRes.status === 'fulfilled'
-      ? (Array.isArray(globalRes.value?.data?.templates) ? globalRes.value.data.templates : [])
+    tenantTemplateLibrary.value = tenantRes.status === 'fulfilled'
+      ? (Array.isArray(tenantRes.value?.data?.templates) ? tenantRes.value.data.templates : [])
       : [];
     taskHistory.value = historyRes.status === 'fulfilled' && historyRes.value
       ? (Array.isArray(historyRes.value?.data?.allTaskHistory) ? historyRes.value.data.allTaskHistory : [])
       : [];
   } catch {
     templateLibrary.value = [];
-    globalTemplateLibrary.value = [];
+    tenantTemplateLibrary.value = [];
     taskHistory.value = [];
   }
 };
 
 const applyLibraryTemplate = () => {
-  const allLibrary = [...templateLibrary.value, ...globalTemplateLibrary.value];
+  const allLibrary = [...templateLibrary.value, ...tenantTemplateLibrary.value];
   const tpl = allLibrary.find((t) => String(t.id) === String(libraryPickerSelected.value));
   const slot = parseInt(libraryPickerSlot.value, 10);
   if (!tpl || isNaN(slot)) return;
@@ -2044,6 +2200,8 @@ const applyLibraryTemplate = () => {
   weeklyTasksForm.value[slot] = {
     name: tpl.name,
     description: tpl.description || '',
+    icon: tpl.icon || weeklyTemplateIcon(tpl),
+    activityType: tpl.activityType || tpl.criteriaJson?.activityTypes?.[0] || '',
     proofPolicy: tpl.proofPolicy || 'none',
     mode: tpl.mode || 'volunteer_or_elect',
     confidenceScore: null,
@@ -2060,6 +2218,8 @@ const saveTaskToLibrary = async (t) => {
   const payload = {
     name: t.name.trim(),
     description: t.description || null,
+    icon: t.icon || null,
+    activityType: t.activityType || null,
     proofPolicy: t.proofPolicy || 'none',
     mode: t.mode || 'volunteer_or_elect',
     isSeasonLong: t.isSeasonLong || false,
@@ -2086,6 +2246,80 @@ const buildCriteriaPayload = (c) => {
   if (c.pace?.maxSecondsPerMile) out.pace = { maxSecondsPerMile: Number(c.pace.maxSecondsPerMile) };
   if (c._splitRunEnabled && c.splitRuns?.count > 1) out.splitRuns = c.splitRuns;
   return Object.keys(out).length ? out : null;
+};
+
+const weeklyGuidedDescriptions = {
+  run: [
+    (name) => `Complete "${name}" with one steady run that locks into race pace for the middle third, then finish with a controlled push.`,
+    (name) => `Use "${name}" as a benchmark workout: log one quality run and keep your pacing smooth from the first mile to the last.`,
+    (name) => `Make "${name}" your featured workout of the week with a purposeful run that builds effort instead of starting too fast.`
+  ],
+  'trail run': [
+    (name) => `Turn "${name}" into a trail mission: choose rolling terrain, stay relaxed on climbs, and finish with clean footing on the descent.`,
+    (name) => `Use "${name}" for one trail-focused workout that balances climbing strength, control, and steady aerobic effort.`,
+    (name) => `Log "${name}" on dirt if possible and aim for a strong, even effort that rewards patience over the first half.`
+  ],
+  ruck: [
+    (name) => `Treat "${name}" as a focused ruck session with strong posture, consistent pace, and a finish that still feels repeatable.`,
+    (name) => `Build "${name}" around one quality ruck: maintain steady movement, keep transitions clean, and close out the final segment with intent.`,
+    (name) => `Use "${name}" for a purposeful ruck workout that emphasizes consistency and disciplined effort instead of surges.`
+  ],
+  walk: [
+    (name) => `Use "${name}" for an intentional walk that keeps cadence up, posture tall, and effort honest for the full session.`,
+    (name) => `Make "${name}" a brisk movement session with smooth pacing and a strong finish over the last few minutes.`,
+    (name) => `Complete "${name}" with one purposeful walk that feels active the whole way instead of drifting into recovery pace.`
+  ],
+  bike: [
+    (name) => `Build "${name}" around a bike session with one sustained working block and a smooth cooldown to finish.`,
+    (name) => `Use "${name}" for a ride that starts controlled, settles into tempo, and closes with one final push.`,
+    (name) => `Make "${name}" the week’s featured ride by keeping pressure on the pedals without blowing up early.`
+  ],
+  swim: [
+    (name) => `Turn "${name}" into a swim set with clean form, measured pacing, and one confident finish effort near the end.`,
+    (name) => `Use "${name}" as a technique-first swim workout that still asks for one solid sustained segment.`,
+    (name) => `Complete "${name}" with a smooth swim session that emphasizes rhythm, breathing control, and a composed final set.`
+  ],
+  fitness: [
+    (name) => `Build "${name}" around one focused fitness session with clear work intervals, short recovery, and a finish that feels earned.`,
+    (name) => `Use "${name}" as a circuit-style workout that stacks quality reps, steady effort, and one hard closing round.`,
+    (name) => `Make "${name}" your featured fitness challenge this week with controlled intensity and strong form all the way through.`
+  ],
+  other: [
+    (name) => `Use "${name}" for one signature workout this week and make the effort specific, repeatable, and easy for captains to explain.`,
+    (name) => `Turn "${name}" into a clean example workout with a clear objective, strong pacing, and a finish that matches the title.`,
+    (name) => `Make "${name}" a standout challenge by pairing the title with one realistic workout people can picture immediately.`
+  ]
+};
+
+const guidedDraftProofPolicy = (activityType) => {
+  const key = String(activityType || '').toLowerCase();
+  if (key.includes('run') || key.includes('ruck') || key.includes('walk')) return 'gps_or_photo';
+  if (key.includes('bike') || key.includes('swim') || key.includes('fit')) return 'photo_required';
+  return 'none';
+};
+
+const applyGuidedDraft = () => {
+  const slot = Number.parseInt(weeklyGuidedDraft.value.slot, 10);
+  const activityType = String(weeklyGuidedDraft.value.activityType || 'Run').trim();
+  const title = String(weeklyGuidedDraft.value.name || '').trim() || `${activityType} Builder`;
+  if (!Number.isFinite(slot) || slot < 0 || slot > 2) return;
+  const key = activityType.toLowerCase();
+  const options = weeklyGuidedDescriptions[key] || weeklyGuidedDescriptions.other;
+  const descriptionFactory = options[Math.floor(Math.random() * options.length)] || weeklyGuidedDescriptions.other[0];
+  const current = weeklyTasksForm.value[slot] || defaultTask();
+  const crit = { ...defaultCriteria(), ...(current.criteriaJson || {}) };
+  crit.activityTypes = activityType ? [activityType] : [];
+  if (!crit.distance) crit.distance = { minMiles: null };
+  if (!crit.duration) crit.duration = { minMinutes: null };
+  weeklyTasksForm.value[slot] = {
+    ...current,
+    name: title,
+    description: descriptionFactory(title),
+    icon: weeklyGuidedIconLabel.value,
+    activityType,
+    proofPolicy: guidedDraftProofPolicy(activityType),
+    criteriaJson: crit
+  };
 };
 const closeWeekSaving = ref(false);
 const weeklyAiDraftLoading = ref(false);
@@ -3378,6 +3612,8 @@ const loadWeeklyTasks = async () => {
       return {
         name: task?.name || '',
         description: task?.description || '',
+        icon: task?.icon || weeklyTemplateIcon(task),
+        activityType: task?.activity_type || '',
         proofPolicy: task?.proof_policy || 'none',
         mode: task?.mode || 'volunteer_or_elect',
         confidenceScore: task?.confidence_score ?? null,
@@ -3533,6 +3769,8 @@ const saveWeeklyTasks = async () => {
         .map((t) => ({
           name: t.name,
           description: t.description || null,
+          icon: t.icon || null,
+          activityType: t.activityType || null,
           proofPolicy: t.proofPolicy || 'none',
           mode: t.mode || 'volunteer_or_elect',
           isSeasonLong: t.isSeasonLong || false,
@@ -3564,7 +3802,17 @@ const generateWeeklyAiDraft = async () => {
       if (!crit.pace) crit.pace = { maxSecondsPerMile: null };
       if (!crit.splitRuns) crit.splitRuns = { count: 2, minSeparationMinutes: 60 };
       crit._splitRunEnabled = !!(crit.splitRuns?.count && crit.splitRuns.count > 1);
-      return { name: t?.name || '', description: t?.description || '', proofPolicy: t?.proofPolicy || 'none', mode: t?.mode || 'volunteer_or_elect', confidenceScore: t?.confidenceScore ?? null, isSeasonLong: false, criteriaJson: crit };
+      return {
+        name: t?.name || '',
+        description: t?.description || '',
+        icon: t?.icon || weeklyTemplateIcon(t),
+        activityType: t?.activityType || '',
+        proofPolicy: t?.proofPolicy || 'none',
+        mode: t?.mode || 'volunteer_or_elect',
+        confidenceScore: t?.confidenceScore ?? null,
+        isSeasonLong: false,
+        criteriaJson: crit
+      };
     };
     weeklyTasksForm.value = [toAiTask(tasks[0]), toAiTask(tasks[1]), toAiTask(tasks[2])];
   } catch (e) {
@@ -3585,6 +3833,8 @@ const publishWeeklyDraft = async () => {
         .map((t) => ({
           name: t.name,
           description: t.description || null,
+          icon: t.icon || null,
+          activityType: t.activityType || null,
           proofPolicy: t.proofPolicy || 'none',
           mode: t.mode || 'volunteer_or_elect',
           isSeasonLong: t.isSeasonLong || false,
@@ -3773,47 +4023,9 @@ const saveAwardToLibrary = async (award) => {
   }
 };
 
-// ── Photo moderation ──────────────────────────────────────
-const flaggedPhotos = ref([]);
-const flaggedLoading = ref(false);
-const flaggedError = ref('');
-
-const loadFlaggedPhotos = async () => {
-  if (!organizationId.value) return;
-  flaggedLoading.value = true;
-  flaggedError.value = '';
-  try {
-    const { data } = await api.get('/users/photos/flagged', { params: { agencyId: organizationId.value } });
-    flaggedPhotos.value = data.flagged || [];
-  } catch (e) {
-    flaggedError.value = e.response?.data?.error?.message || 'Failed to load flagged photos';
-  } finally {
-    flaggedLoading.value = false;
-  }
-};
-
-const moderateRemove = async (photo) => {
-  if (!confirm(`Remove this photo from ${photo.userFirstName} ${photo.userLastName}?`)) return;
-  try {
-    await api.delete(`/users/${photo.userId}/photos/${photo.id}/moderate`);
-    flaggedPhotos.value = flaggedPhotos.value.filter((p) => p.id !== photo.id);
-  } catch (e) {
-    flaggedError.value = e.response?.data?.error?.message || 'Failed to remove photo';
-  }
-};
-
-const unflagPhoto = async (photo) => {
-  try {
-    await api.delete(`/users/${photo.userId}/photos/${photo.id}/flag`);
-    flaggedPhotos.value = flaggedPhotos.value.filter((p) => p.id !== photo.id);
-  } catch (e) {
-    flaggedError.value = e.response?.data?.error?.message || 'Failed to unflag photo';
-  }
-};
-
 watch(organizationId, () => {
-  if (organizationId.value) { loadChallenges(); loadCustomFields(); loadFlaggedPhotos(); }
-  else { challenges.value = []; challengeCustomFields.value = []; flaggedPhotos.value = []; }
+  if (organizationId.value) { loadChallenges(); loadCustomFields(); }
+  else { challenges.value = []; challengeCustomFields.value = []; }
 });
 
 watch(
@@ -3895,6 +4107,73 @@ onMounted(async () => {
   font-size: 0.8rem;
   color: #b45309;
   padding-left: 22px;
+}
+.library-workspace-panel {
+  background:
+    radial-gradient(circle at top right, rgba(191, 219, 254, 0.55), transparent 32%),
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+.library-workspace-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.library-workspace-kicker {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0369a1;
+}
+.library-workspace-title {
+  margin: 6px 0 8px;
+  font-size: 1.35rem;
+  color: #0f172a;
+}
+.library-workspace-copy {
+  margin: 0;
+  max-width: 760px;
+  color: #475569;
+}
+.library-workspace-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.library-workspace-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.library-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.library-section-title {
+  margin: 0 0 4px;
+  font-size: 1.12rem;
+  color: #0f172a;
+}
+.library-section-copy {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+.library-icons-wrap {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 16px;
 }
 .challenge-management {
   padding: 0;
@@ -4475,6 +4754,61 @@ onMounted(async () => {
   flex-direction: column;
   gap: 16px;
 }
+.weekly-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.library-picker-panel,
+.guided-draft-panel {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(180deg, #fffdf7 0%, #ffffff 100%);
+}
+.guided-draft-panel {
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+  border-color: #cfe2ff;
+}
+.library-picker-head,
+.guided-draft-head {
+  margin-bottom: 10px;
+}
+.library-picker-copy,
+.guided-draft-head p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+.guided-draft-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.guided-draft-name {
+  flex: 1;
+  min-width: 180px;
+}
+.guided-icon-mode {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.83rem;
+  color: #475569;
+}
+.guided-icon-mode label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.guided-icon-selector {
+  min-width: 220px;
+  flex: 1;
+}
 .weekly-task-card {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -4499,6 +4833,37 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.weekly-task-identity {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.weekly-task-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border: 1px solid #bfdbfe;
+  font-size: 1.15rem;
+  overflow: hidden;
+}
+.weekly-task-icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.weekly-task-icon-select,
+.weekly-task-activity-select {
+  padding: 7px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  background: #fff;
 }
 .task-input {
   width: 100%;
@@ -4623,16 +4988,12 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 10px 14px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-radius: 8px;
-  margin-bottom: 12px;
 }
 .library-picker-label {
-  font-size: 0.85em;
-  font-weight: 600;
-  color: #92400e;
+  font-size: 0.9em;
+  font-weight: 700;
+  color: #0f172a;
+  display: block;
 }
 .library-picker-select {
   padding: 5px 8px;
@@ -4640,6 +5001,81 @@ onMounted(async () => {
   border-radius: 6px;
   font-size: 0.85em;
   background: #fff;
+}
+.template-browser {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
+  margin-bottom: 16px;
+}
+.template-browser-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.template-browser-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.template-browser-card {
+  border: 1px solid #dbe3ef;
+  border-radius: 14px;
+  padding: 12px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.template-browser-card-top {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.template-browser-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid #bfdbfe;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.template-browser-icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.template-browser-title {
+  font-weight: 700;
+  color: #0f172a;
+}
+.template-browser-meta,
+.template-browser-used {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+.template-browser-description {
+  margin: 0;
+  color: #334155;
+  font-size: 0.88rem;
+}
+.template-browser-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.template-browser-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .weekly-assignments {
   margin-top: 20px;
@@ -4698,41 +5134,17 @@ onMounted(async () => {
   flex: 1;
 }
 
-/* Photo moderation */
-.flagged-photo-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 16px;
-}
-.flagged-photo-card {
-  border: 2px solid #e63946;
-  border-radius: 10px;
-  overflow: hidden;
-  background: #fff;
-}
-.flagged-photo-img {
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  object-fit: cover;
-  display: block;
-}
-.flagged-photo-meta {
-  padding: 10px;
-}
-.flagged-user {
-  font-weight: 600;
-  font-size: 0.9em;
-  margin-bottom: 4px;
-}
-.flagged-reason {
-  font-size: 0.8em;
-  color: #666;
-  margin-bottom: 8px;
-}
-.flagged-actions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+@media (max-width: 900px) {
+  .library-workspace-header,
+  .library-section-head,
+  .template-browser-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .weekly-tools-grid,
+  .template-browser-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ── Season Branding ── */

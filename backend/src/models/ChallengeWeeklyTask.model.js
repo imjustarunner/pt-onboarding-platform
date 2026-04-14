@@ -49,6 +49,8 @@ class ChallengeWeeklyTask {
     taskIndex,
     name,
     description = null,
+    icon = null,
+    activityType = null,
     proofPolicy = 'none',
     mode = 'volunteer_or_elect',
     confidenceScore = null,
@@ -66,8 +68,8 @@ class ChallengeWeeklyTask {
       : null;
     const [result] = await pool.execute(
       `INSERT INTO challenge_weekly_tasks
-       (learning_class_id, week_start_date, task_index, mode, name, description, proof_policy, confidence_score, confidence_notes, criteria_json, is_season_long)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (learning_class_id, week_start_date, task_index, mode, name, description, icon, activity_type, proof_policy, confidence_score, confidence_notes, criteria_json, is_season_long)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         classId,
         week,
@@ -75,6 +77,8 @@ class ChallengeWeeklyTask {
         normalizeMode(mode),
         taskName,
         description ? String(description).trim() : null,
+        icon ? String(icon).slice(0, 64) : null,
+        activityType ? String(activityType).slice(0, 64) : null,
         String(proofPolicy || 'none').slice(0, 32),
         confidenceScore != null ? Number(confidenceScore) : null,
         confidenceNotes ? String(confidenceNotes).slice(0, 255) : null,
@@ -95,6 +99,8 @@ class ChallengeWeeklyTask {
         taskIndex: i + 1,
         name: t?.name || t?.title || `Challenge ${i + 1}`,
         description: t?.description || null,
+        icon: t?.icon || null,
+        activityType: t?.activityType || t?.activity_type || null,
         mode: t?.mode || 'volunteer_or_elect',
         proofPolicy: t?.proofPolicy || t?.proof_policy || 'none',
         confidenceScore: t?.confidenceScore ?? t?.confidence_score ?? null,

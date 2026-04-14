@@ -116,6 +116,17 @@ const buildAiWeeklyTaskDraft = ({ klass, weekStart }) => {
   const cleverFitnessNames = ['Calorie Crush Circuit', 'Engine Ignite Session', 'Pulse Peak Builder', 'Sweat Equity Stack'];
   const nameSet = eventCategory === 'fitness' ? cleverFitnessNames : cleverRunRuckNames;
   const proofPolicyDefault = eventCategory === 'run_ruck' ? 'gps_or_photo' : 'photo_required';
+  const activityPresets = eventCategory === 'fitness'
+    ? [
+        { icon: '💪', activityType: 'Fitness' },
+        { icon: '🔥', activityType: 'Fitness' },
+        { icon: '⚡', activityType: 'Fitness' }
+      ]
+    : [
+        { icon: '🏃', activityType: 'Run' },
+        { icon: '🥾', activityType: 'Ruck' },
+        { icon: '🌲', activityType: 'Trail Run' }
+      ];
   const confidenceBase = (() => {
     let base = 62;
     if (minimum > 0) base += 10;
@@ -137,6 +148,8 @@ const buildAiWeeklyTaskDraft = ({ klass, weekStart }) => {
       description: eventCategory === 'fitness'
         ? `Log fitness sessions and target calories that convert to points, pacing toward ${minimum} minimum points.`
         : `Log run/ruck mileage and stay on pace for ${minimum} minimum points this week.`,
+      icon: activityPresets[0].icon,
+      activityType: activityPresets[0].activityType,
       proofPolicy: proofPolicyDefault,
       confidenceScore: confidenceBase,
       confidenceNotes: 'Aligned to event type and weekly minimum pacing.',
@@ -147,6 +160,8 @@ const buildAiWeeklyTaskDraft = ({ klass, weekStart }) => {
     {
       name: nameSet[1],
       description: `Coordinate with your team to collectively push toward ${teamTarget || 100} points this week.`,
+      icon: activityPresets[1].icon,
+      activityType: activityPresets[1].activityType,
       proofPolicy: 'none',
       confidenceScore: Math.max(55, confidenceBase - 6),
       confidenceNotes: 'High team-level engagement potential.',
@@ -161,6 +176,8 @@ const buildAiWeeklyTaskDraft = ({ klass, weekStart }) => {
         ? `Spotlight: ${metrics[0]}`
         : nameSet[2],
       description: `Each team should ${challengeMode.includes('elect') ? 'elect' : 'volunteer'} one participant per challenge and complete assignments for week ${wk}.`,
+      icon: activityPresets[2].icon,
+      activityType: activityPresets[2].activityType,
       proofPolicy: proofPolicyDefault,
       confidenceScore: Math.max(50, confidenceBase - 10),
       confidenceNotes: 'Depends on consistent captain/team assignment execution.',
