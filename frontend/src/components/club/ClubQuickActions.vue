@@ -163,30 +163,102 @@
         No {{ appsStatusFilter === 'all' ? '' : appsStatusFilter }} applications.
       </div>
       <div v-else class="member-apps-list">
-        <div v-for="app in allApps" :key="app.id" class="member-app-row">
-          <div class="member-app-avatar">
-            {{ initials(app) }}
+        <article v-for="app in allApps" :key="app.id" class="member-app-card">
+          <div class="member-app-row">
+            <div
+              class="member-app-avatar"
+              :class="{ 'member-app-avatar--photo': !!applicantPhotoSrc(app) }"
+            >
+              <img
+                v-if="applicantPhotoSrc(app)"
+                :src="applicantPhotoSrc(app)"
+                alt=""
+              />
+              <template v-else>{{ initials(app) }}</template>
+            </div>
+            <div class="member-app-info">
+              <span class="member-app-name">{{ app.first_name }} {{ app.last_name }}</span>
+              <span class="member-app-email">{{ app.email }}</span>
+            </div>
+            <div class="member-app-meta">
+              <span class="member-app-date">{{ formatAppDate(app.applied_at || app.created_at) }}</span>
+              <span v-if="app.status === 'pending'" class="member-app-status member-app-status--pending">Pending</span>
+              <span v-else-if="app.status === 'approved'" class="member-app-status member-app-status--approved">Approved</span>
+              <span v-else-if="app.status === 'denied'" class="member-app-status member-app-status--denied">Denied</span>
+            </div>
+            <div v-if="app.status === 'pending'" class="member-app-actions">
+              <button class="btn-app-approve" :disabled="reviewingApp === app.id" @click="reviewApp(app.id, 'approved')">
+                {{ reviewingApp === app.id ? '…' : 'Approve' }}
+              </button>
+              <button class="btn-app-deny" :disabled="reviewingApp === app.id" @click="reviewApp(app.id, 'denied')">
+                Deny
+              </button>
+            </div>
           </div>
-          <div class="member-app-info">
-            <span class="member-app-name">{{ app.first_name }} {{ app.last_name }}</span>
-            <span class="member-app-email">{{ app.email }}</span>
+
+          <div class="member-app-body">
+            <div
+              class="member-app-heard"
+              :class="{ 'member-app-heard--empty': !String(app.heard_about_club || '').trim() }"
+            >
+              <div class="member-app-heard-label">How they heard about this club</div>
+              <p class="member-app-heard-text">
+                {{ String(app.heard_about_club || '').trim() || 'Not provided on the application.' }}
+              </p>
+            </div>
+
+            <div v-if="applicationProfileLine(app)" class="member-app-profile-line">
+              {{ applicationProfileLine(app) }}
+            </div>
+            <div class="member-app-source-line">
+              <span v-if="app.invite_label" class="member-app-tag">Invite: {{ app.invite_label }}</span>
+              <span v-else-if="app.referrer_name" class="member-app-tag member-app-tag--ref">Referred by {{ app.referrer_name }}</span>
+              <span v-else class="member-app-tag member-app-tag--direct">Direct</span>
+            </div>
+            <p v-if="app.running_fitness_background" class="member-app-answer">
+              <strong>Running / fitness background:</strong> {{ app.running_fitness_background }}
+            </p>
+            <p v-if="trainingLoadLine(app)" class="member-app-answer">
+              <strong>Current training load:</strong> {{ trainingLoadLine(app) }}
+            </p>
+            <p v-if="app.current_fitness_activities" class="member-app-answer">
+              <strong>Current activities:</strong> {{ app.current_fitness_activities }}
+            </p>
+            <p v-if="waiverLine(app)" class="member-app-answer member-app-answer--muted">
+              <strong>Waiver:</strong> {{ waiverLine(app) }}
+            </p>
+            <div v-if="customFieldEntries(app).length" class="member-app-custom">
+              <p v-for="(row, idx) in customFieldEntries(app)" :key="idx" class="member-app-answer">
+                <strong>{{ row.label }}:</strong> {{ row.value }}
+              </p>
+            </div>
+
+            <div class="member-app-messages">
+              <div class="member-app-messages-row">
+                <router-link
+                  v-if="applicantMessagesTo(app)"
+                  class="member-app-msg-link"
+                  :to="applicantMessagesTo(app)"
+                >
+                  Open chat with applicant
+                  <span v-if="Number(app.applicant_chat_unread_count || 0) > 0" class="member-app-msg-badge">
+                    {{ app.applicant_chat_unread_count }} new
+                  </span>
+                </router-link>
+                <span
+                  v-else-if="app.status === 'pending' && app.user_id"
+                  class="member-app-msg-hint"
+                >No chat thread with you yet. Applicants can use “Message club manager” on the public club page (the thread is usually with the primary manager).</span>
+                <span v-else-if="app.status === 'pending' && !app.user_id" class="member-app-msg-hint">Applicant is not linked to a user account in this list yet.</span>
+              </div>
+              <p v-if="app.applicant_chat_last_preview" class="member-app-msg-preview">
+                Last message: {{ app.applicant_chat_last_preview }}
+              </p>
+            </div>
+
+            <p v-if="reviewAppErrors[app.id]" class="member-app-error">{{ reviewAppErrors[app.id] }}</p>
           </div>
-          <div class="member-app-meta">
-            <span class="member-app-date">{{ formatAppDate(app.created_at) }}</span>
-            <span v-if="app.status === 'pending'" class="member-app-status member-app-status--pending">Pending</span>
-            <span v-else-if="app.status === 'approved'" class="member-app-status member-app-status--approved">Approved</span>
-            <span v-else-if="app.status === 'denied'" class="member-app-status member-app-status--denied">Denied</span>
-          </div>
-          <div v-if="app.status === 'pending'" class="member-app-actions">
-            <button class="btn-app-approve" :disabled="reviewingApp === app.id" @click="reviewApp(app.id, 'approved')">
-              {{ reviewingApp === app.id ? '…' : 'Approve' }}
-            </button>
-            <button class="btn-app-deny" :disabled="reviewingApp === app.id" @click="reviewApp(app.id, 'denied')">
-              Deny
-            </button>
-            <span v-if="reviewAppErrors[app.id]" class="member-app-error">{{ reviewAppErrors[app.id] }}</span>
-          </div>
-        </div>
+        </article>
       </div>
     </div>
   </div>
@@ -385,11 +457,111 @@ const initials = (app) => {
   return f + l || '?';
 };
 
+const applicantPhotoSrc = (app) => toUploadsUrl(app?.applicant_photo_url || null);
+
 const MONTHS_APP = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const formatAppDate = (d) => {
   if (!d) return '';
   const dt = new Date(d);
   return `${MONTHS_APP[dt.getMonth()]} ${dt.getDate()}`;
+};
+
+const formatAppDateFull = (d) => {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return String(d);
+  }
+};
+
+const formatDob = (raw) => {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const day = Number(m[3]);
+    if (y && mo >= 1 && mo <= 12 && day >= 1 && day <= 31) {
+      return new Date(y, mo - 1, day).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+  const t = new Date(s);
+  return Number.isNaN(t.getTime()) ? s : t.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const formatHeightInches = (inches) => {
+  if (inches == null || inches === '') return '';
+  const ft = Math.floor(Number(inches) / 12);
+  const ins = Math.round(Number(inches) % 12);
+  return `${ft}'${ins}"`;
+};
+
+const formatDecimal = (value, digits = 1) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '';
+  return Number.isInteger(n) ? String(n) : n.toFixed(digits);
+};
+
+const trainingLoadLine = (app) => {
+  const parts = [];
+  if (app?.average_miles_per_week != null && app.average_miles_per_week !== '') {
+    parts.push(`${formatDecimal(app.average_miles_per_week)} mi/week`);
+  }
+  if (app?.average_hours_per_week != null && app.average_hours_per_week !== '') {
+    parts.push(`${formatDecimal(app.average_hours_per_week)} hr/week`);
+  }
+  return parts.join(' · ');
+};
+
+const waiverLine = (app) => {
+  const signedName = String(app?.waiver_signature_name || '').trim();
+  const signedAt = app?.waiver_agreed_at ? formatAppDateFull(app.waiver_agreed_at) : '';
+  if (!signedName && !signedAt) return '';
+  if (signedName && signedAt) return `Signed by ${signedName} on ${signedAt}`;
+  if (signedName) return `Signed by ${signedName}`;
+  return `Signed on ${signedAt}`;
+};
+
+const applicationProfileLine = (app) => {
+  const parts = [];
+  if (app?.phone) parts.push(app.phone);
+  if (app?.gender) parts.push(app.gender);
+  if (app?.pronouns) parts.push(app.pronouns);
+  if (app?.date_of_birth) parts.push(`DOB ${formatDob(app.date_of_birth)}`);
+  if (app?.weight_lbs != null && app.weight_lbs !== '') parts.push(`${app.weight_lbs} lbs`);
+  const h = formatHeightInches(app?.height_inches);
+  if (h) parts.push(h);
+  if (app?.timezone) parts.push(`TZ: ${app.timezone}`);
+  return parts.join(' · ');
+};
+
+const customFieldEntries = (app) => {
+  let raw = app?.custom_fields;
+  if (raw == null) return [];
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+  return Object.entries(raw)
+    .filter(([, v]) => v != null && String(v).trim() !== '')
+    .map(([k, v]) => ({ label: `Profile field ${k}`, value: String(v) }));
+};
+
+const applicantMessagesTo = (app) => {
+  const slug = String(props.orgSlug || '').trim();
+  const tid = Number(app?.applicant_chat_thread_id || 0);
+  const aid = Number(app?.applicant_chat_agency_id || 0);
+  if (!slug || !tid || !aid) return null;
+  return {
+    path: `/${slug}/messages`,
+    query: { agencyId: String(aid), threadId: String(tid) }
+  };
 };
 
 const loadInlineApps = async () => {
@@ -897,19 +1069,98 @@ watch(() => props.agency?.id, () => {
 .member-apps-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 12px;
+}
+.member-app-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fafafa;
 }
 .member-app-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid #f1f5f9;
+  padding: 0;
 }
-.member-app-row:last-child { border-bottom: none; }
+.member-app-body {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  font-size: 0.82rem;
+  color: #334155;
+  line-height: 1.45;
+}
+.member-app-profile-line {
+  font-size: 0.8rem;
+  color: #475569;
+  margin-bottom: 8px;
+}
+.member-app-source-line {
+  margin-bottom: 8px;
+}
+.member-app-tag {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #475569;
+  margin-right: 6px;
+}
+.member-app-tag--ref { background: #e0f2fe; color: #0369a1; }
+.member-app-tag--direct { background: #f1f5f9; color: #64748b; }
+.member-app-answer {
+  margin: 0 0 8px 0;
+}
+.member-app-answer--muted {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+.member-app-messages {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #cbd5e1;
+}
+.member-app-messages-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.member-app-msg-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--primary-color, #2563eb);
+  text-decoration: none;
+}
+.member-app-msg-link:hover { text-decoration: underline; }
+.member-app-msg-badge {
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.member-app-msg-hint {
+  font-size: 0.76rem;
+  color: #64748b;
+  font-style: italic;
+  max-width: 42rem;
+}
+.member-app-msg-preview {
+  margin: 6px 0 0 0;
+  font-size: 0.76rem;
+  color: #475569;
+}
 .member-app-avatar {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: #e0f2fe;
   color: #0369a1;
@@ -919,6 +1170,50 @@ watch(() => props.agency?.id, () => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
+}
+.member-app-avatar--photo {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+}
+.member-app-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.member-app-heard {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+}
+.member-app-heard--empty {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+.member-app-heard-label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #1e40af;
+  margin-bottom: 4px;
+}
+.member-app-heard--empty .member-app-heard-label {
+  color: #92400e;
+}
+.member-app-heard-text {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #1e3a8a;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.member-app-heard--empty .member-app-heard-text {
+  color: #78350f;
+  font-style: italic;
 }
 .member-app-info {
   display: flex;

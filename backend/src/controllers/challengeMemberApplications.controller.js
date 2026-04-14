@@ -1815,6 +1815,77 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
   return { userId };
 };
 
+/**
+ * Club applicant ↔ manager direct thread (Summit platform `agency_id` + `organization_id` = club).
+ * Returns unread count for the viewing manager and last message preview for the inline applications UI.
+ */
+async function getApplicantManagerThreadEnrichment({ platformAgencyId, clubId, managerUserId, applicantUserId }) {
+  const empty = {
+    applicant_chat_thread_id: null,
+    applicant_chat_agency_id: null,
+    applicant_chat_unread_count: 0,
+    applicant_chat_last_preview: null
+  };
+  const pid = Number(platformAgencyId);
+  const cid = Number(clubId);
+  const mid = Number(managerUserId);
+  const aid = Number(applicantUserId);
+  if (!pid || !cid || !mid || !aid || aid === mid) return empty;
+
+  const [threadRows] = await pool.execute(
+    `SELECT t.id AS thread_id
+     FROM chat_threads t
+     INNER JOIN chat_thread_participants tp1 ON tp1.thread_id = t.id AND tp1.user_id = ?
+     INNER JOIN chat_thread_participants tp2 ON tp2.thread_id = t.id AND tp2.user_id = ?
+     WHERE t.agency_id = ?
+       AND (t.organization_id <=> ?)
+       AND t.thread_type = 'direct'
+     LIMIT 1`,
+    [mid, aid, pid, cid]
+  );
+  const threadId = Number(threadRows?.[0]?.thread_id || 0) || null;
+  if (!threadId) return empty;
+
+  const [readRows] = await pool.execute(
+    `SELECT last_read_message_id FROM chat_thread_reads WHERE thread_id = ? AND user_id = ? LIMIT 1`,
+    [threadId, mid]
+  );
+  const lr = readRows?.[0]?.last_read_message_id != null ? Number(readRows[0].last_read_message_id) : null;
+
+  const [unreadRows] = await pool.execute(
+    `SELECT COUNT(*) AS cnt
+     FROM chat_messages m2
+     WHERE m2.thread_id = ?
+       AND ((? IS NULL) OR (m2.id > ?))
+       AND m2.sender_user_id <> ?
+       AND NOT EXISTS (
+         SELECT 1 FROM chat_message_deletes d2
+         WHERE d2.user_id = ? AND d2.message_id = m2.id
+       )`,
+    [threadId, lr, lr, mid, mid]
+  );
+  const unread = Number(unreadRows?.[0]?.cnt || 0);
+
+  const [lmRows] = await pool.execute(
+    `SELECT m.body
+     FROM chat_messages m
+     LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
+     WHERE m.thread_id = ? AND d.message_id IS NULL
+     ORDER BY m.id DESC
+     LIMIT 1`,
+    [mid, threadId]
+  );
+  const lastBody = lmRows?.[0]?.body != null ? String(lmRows[0].body).trim() : '';
+  const preview = lastBody.length > 140 ? `${lastBody.slice(0, 137)}…` : lastBody;
+
+  return {
+    applicant_chat_thread_id: threadId,
+    applicant_chat_agency_id: pid,
+    applicant_chat_unread_count: unread,
+    applicant_chat_last_preview: preview || null
+  };
+}
+
 // ── MANAGER: LIST / REVIEW APPLICATIONS ───────────────────────────────────
 
 /**
@@ -1835,17 +1906,52 @@ export const listApplications = async (req, res, next) => {
       `SELECT a.*,
               CONCAT(ru.first_name, ' ', ru.last_name) AS referrer_name,
               i.label AS invite_label, i.token AS invite_token,
-              rb.first_name AS reviewed_by_first, rb.last_name AS reviewed_by_last
+              rb.first_name AS reviewed_by_first, rb.last_name AS reviewed_by_last,
+              u_applicant.profile_photo_path AS applicant_profile_photo_path
        FROM challenge_member_applications a
        LEFT JOIN users ru ON ru.id = a.referrer_user_id
        LEFT JOIN challenge_member_invites i ON i.id = a.invite_id
        LEFT JOIN users rb ON rb.id = a.reviewed_by
+       LEFT JOIN users u_applicant ON u_applicant.id = a.user_id
        WHERE a.agency_id = ? ${whereStatus}
        ORDER BY a.applied_at DESC`,
       params
     );
 
-    return res.json({ applications: rows || [] });
+    const baseChat = {
+      applicant_chat_thread_id: null,
+      applicant_chat_agency_id: null,
+      applicant_chat_unread_count: 0,
+      applicant_chat_last_preview: null
+    };
+    let applications = (rows || []).map((row) => {
+      const { applicant_profile_photo_path, ...rest } = row;
+      return {
+        ...rest,
+        applicant_photo_url: publicUploadsUrlFromStoredPath(applicant_profile_photo_path || null) || null,
+        ...baseChat
+      };
+    });
+
+    const managerUserId = req.user?.id;
+    const platformAgencyId = await getPlatformAgencyId();
+    if (platformAgencyId && managerUserId && applications.length) {
+      applications = await Promise.all(
+        applications.map(async (row) => {
+          const uid = row.user_id != null ? Number(row.user_id) : null;
+          if (!uid) return row;
+          const extra = await getApplicantManagerThreadEnrichment({
+            platformAgencyId,
+            clubId,
+            managerUserId,
+            applicantUserId: uid
+          });
+          return { ...row, ...extra };
+        })
+      );
+    }
+
+    return res.json({ applications });
   } catch (e) { next(e); }
 };
 

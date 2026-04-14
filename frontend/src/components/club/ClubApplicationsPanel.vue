@@ -81,12 +81,20 @@
         class="cap-app-row"
         :class="`cap-app-row--${app.status}`"
       >
+        <div
+          class="cap-app-photo"
+          :class="{ 'cap-app-photo--empty': !applicantPhotoSrc(app) }"
+        >
+          <img v-if="applicantPhotoSrc(app)" :src="applicantPhotoSrc(app)" alt="" />
+          <span v-else class="cap-app-photo-initials">{{ applicantInitials(app) }}</span>
+        </div>
         <div class="cap-app-main">
           <div class="cap-app-name">{{ app.first_name }} {{ app.last_name }}</div>
           <div class="cap-app-meta">
             <span>{{ app.email }}</span>
             <span v-if="app.phone"> · {{ app.phone }}</span>
             <span v-if="app.gender"> · {{ app.gender }}</span>
+            <span v-if="app.pronouns"> · {{ app.pronouns }}</span>
             <span v-if="app.date_of_birth"> · DOB {{ formatDob(app.date_of_birth) }}</span>
             <span v-if="app.weight_lbs"> · {{ app.weight_lbs }} lbs</span>
             <span v-if="app.height_inches"> · {{ formatHeight(app.height_inches) }}</span>
@@ -97,11 +105,31 @@
             <span v-else class="cap-tag cap-tag--direct">Direct</span>
             <span class="cap-app-date">Applied {{ formatDate(app.applied_at) }}</span>
           </div>
-          <p v-if="app.heard_about_club" class="cap-app-answer"><strong>How they heard:</strong> {{ app.heard_about_club }}</p>
+          <div
+            class="cap-app-heard"
+            :class="{ 'cap-app-heard--empty': !String(app.heard_about_club || '').trim() }"
+          >
+            <div class="cap-app-heard-label">How they heard about this club</div>
+            <p class="cap-app-heard-text">
+              {{ String(app.heard_about_club || '').trim() || 'Not provided on the application.' }}
+            </p>
+          </div>
           <p v-if="app.running_fitness_background" class="cap-app-answer"><strong>Background:</strong> {{ app.running_fitness_background }}</p>
           <p v-if="trainingLoadLine(app)" class="cap-app-answer"><strong>Current load:</strong> {{ trainingLoadLine(app) }}</p>
           <p v-if="app.current_fitness_activities" class="cap-app-answer"><strong>Current activities:</strong> {{ app.current_fitness_activities }}</p>
           <p v-if="waiverLine(app)" class="cap-app-answer"><strong>Waiver:</strong> {{ waiverLine(app) }}</p>
+          <div v-if="applicantMessagesRouting(app) || (app.status === 'pending' && app.user_id)" class="cap-app-messages">
+            <router-link
+              v-if="applicantMessagesRouting(app)"
+              class="cap-msg-link"
+              :to="applicantMessagesRouting(app)"
+            >
+              Open chat with applicant
+              <span v-if="Number(app.applicant_chat_unread_count || 0) > 0" class="cap-msg-badge">{{ app.applicant_chat_unread_count }} new</span>
+            </router-link>
+            <span v-else class="cap-msg-hint">No chat thread with you yet. Applicants can message from the public club page (often with the primary manager).</span>
+            <p v-if="app.applicant_chat_last_preview" class="cap-msg-preview">Last: {{ app.applicant_chat_last_preview }}</p>
+          </div>
         </div>
 
         <!-- Status badge -->
@@ -141,6 +169,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import api from '../../services/api';
+import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 
 const props = defineProps({
   clubId:  { type: [Number, String], required: true },
@@ -303,6 +332,24 @@ const waiverLine = (app) => {
   return `Signed on ${signedAt}`;
 };
 
+const applicantMessagesRouting = (app) => {
+  const slug = String(props.orgSlug || '').trim();
+  const tid = Number(app?.applicant_chat_thread_id || 0);
+  const aid = Number(app?.applicant_chat_agency_id || 0);
+  if (!slug || !tid || !aid) return null;
+  return {
+    path: `/${slug}/messages`,
+    query: { agencyId: String(aid), threadId: String(tid) }
+  };
+};
+
+const applicantPhotoSrc = (app) => toUploadsUrl(app?.applicant_photo_url || null);
+const applicantInitials = (app) => {
+  const f = String(app?.first_name || '').charAt(0).toUpperCase();
+  const l = String(app?.last_name || '').charAt(0).toUpperCase();
+  return f + l || '?';
+};
+
 onMounted(async () => {
   await Promise.all([loadApplications(), loadPendingCount(), loadInvites()]);
 });
@@ -392,9 +439,65 @@ onMounted(async () => {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 14px;
   padding: 14px 0;
   border-bottom: 1px solid var(--border-subtle, #f0f4f8);
+}
+.cap-app-photo {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--surface-2, #f1f5f9);
+  border: 1px solid var(--border, #e2e8f0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cap-app-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.cap-app-photo-initials {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-secondary, #64748b);
+}
+.cap-app-heard {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+}
+.cap-app-heard--empty {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+.cap-app-heard-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #1e40af;
+  margin-bottom: 4px;
+}
+.cap-app-heard--empty .cap-app-heard-label {
+  color: #92400e;
+}
+.cap-app-heard-text {
+  margin: 0;
+  font-size: 13px;
+  color: #1e3a8a;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.cap-app-heard--empty .cap-app-heard-text {
+  color: #78350f;
+  font-style: italic;
 }
 
 .cap-panel--compact .cap-app-row {
@@ -418,6 +521,39 @@ onMounted(async () => {
   line-height: 1.5;
   color: var(--text, #334155);
   white-space: pre-wrap;
+}
+.cap-app-messages {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border, #e2e8f0);
+}
+.cap-msg-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary, #1d4ed8);
+  text-decoration: none;
+}
+.cap-msg-link:hover { text-decoration: underline; }
+.cap-msg-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.cap-msg-hint {
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  font-style: italic;
+}
+.cap-msg-preview {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
 }
 .cap-app-right { flex-shrink: 0; }
 
