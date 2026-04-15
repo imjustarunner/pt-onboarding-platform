@@ -855,31 +855,6 @@ onMounted(async () => {
     router.replace({ path: route.path, query: rest });
   }
 
-  // Platform /login only: jump straight to remembered portal slug so school staff see /{portal}/login
-  // (branded) instead of a flash of generic login. Same storage as "Remember username" + identify snap.
-  if (
-    !isOrgLogin.value &&
-    !String(route.query?.u || '').trim() &&
-    !route.query?.error &&
-    route.query?.verified !== '1'
-  ) {
-    let rememberedPortal = getRememberedLogin();
-    if (!rememberedPortal?.username || !rememberedPortal?.orgSlug) {
-      rememberedPortal = getRememberedSchoolStaffPasswordLogin();
-    }
-    const uMem = String(rememberedPortal?.username || '').trim();
-    const slugMem = String(rememberedPortal?.orgSlug || '').trim().toLowerCase();
-    if (uMem && slugMem) {
-      const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
-      const parentMem = rememberedPortal.parentOrgSlug || hostImplied || null;
-      await router.replace({
-        path: buildOrgLoginPath(slugMem, parentMem, hostImplied),
-        query: { ...route.query, u: uMem }
-      });
-      return;
-    }
-  }
-
   // Partner hub at /:partner/login (e.g. /itsco/login): remembered nested school portal is /partner/school/login.
   // Without this, isOrgLogin is true here so the platform /login shortcut above never runs, and return visits
   // would stay on the hub instead of opening the school login with username prefilled + verify.
@@ -970,15 +945,13 @@ onMounted(async () => {
     }
   }
 
-  // Platform login convenience: if they opted-in to remember brand+username, auto-verify to route to the right branded login.
+  // Platform login convenience: restore the remembered username, but do not auto-route away from
+  // the generic platform login. That auto-jump can trap users on a stale remembered org slug.
   if (!isOrgLogin.value) {
     const remembered = getRememberedLogin();
     if (remembered?.username && !String(username.value || '').trim()) {
       username.value = remembered.username;
       rememberLogin.value = true;
-    }
-    if (remembered?.orgSlug && remembered?.username) {
-      await verifyUsername({ orgSlugOverride: remembered.orgSlug, reason: 'remembered' });
     }
   }
 
@@ -1197,21 +1170,10 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     needsOrgChoice.value = false;
     orgOptions.value = [];
 
-    // Only apply remembered orgSlug when it matches this username.
-    // Otherwise, one user's remembered org can incorrectly bias a different user's verification.
-    const remembered = getRememberedLogin();
-    const rememberedU = String(remembered?.username || '').trim().toLowerCase();
-    const normalizedU = String(u || '').trim().toLowerCase();
-    const rememberedSlug =
-      rememberedU && normalizedU && rememberedU === normalizedU
-        ? String(remembered?.orgSlug || '').trim().toLowerCase() || null
-        : null;
-
     const slug =
       orgSlugOverride ||
       (isOrgLogin.value && loginSlug.value ? String(loginSlug.value).trim().toLowerCase() : null) ||
-      (selectedOrgSlug.value ? String(selectedOrgSlug.value).trim().toLowerCase() : null) ||
-      rememberedSlug;
+      (selectedOrgSlug.value ? String(selectedOrgSlug.value).trim().toLowerCase() : null);
 
     const resp = await api.post(
       '/auth/identify',
