@@ -3,7 +3,11 @@
     <div class="section-header">
       <h2>Branding Configuration</h2>
       <p v-if="authStore.user?.role === 'super_admin'" class="section-description">
-        Configure platform-wide branding settings. Agencies can override these settings.
+        {{
+          selectedBrandingScope.startsWith('agency-')
+            ? 'Configure branding for this tenant. Settings override platform defaults.'
+            : 'Configure platform-wide branding settings. Individual tenants can override these defaults.'
+        }}
       </p>
       <p v-else class="section-description">
         Configure your agency's branding. These settings override the platform defaults.
@@ -2724,6 +2728,14 @@ const accentColor = computed(() => {
 });
 
 watch(currentAgency, async (agency) => {
+  if (authStore.user?.role === 'super_admin') {
+    // Keep the scope dropdown in sync when the tenant changes from the Settings picker.
+    const expected = agency?.id ? `agency-${agency.id}` : 'platform';
+    if (selectedBrandingScope.value !== expected) {
+      selectedBrandingScope.value = expected;
+    }
+    return;
+  }
   if (agency) {
     // Fetch fresh agency data to ensure we have all fields including icon IDs
     try {
@@ -4301,6 +4313,12 @@ onMounted(async () => {
       // After loading branding, detect which template is currently applied
       await detectCurrentlyAppliedTemplate();
     }
+
+    // If a tenant is already selected in the Settings picker, auto-scope to it.
+    // The watch on selectedBrandingScope will call onBrandingScopeChange to load agency data.
+    if (agencyStore.currentAgency?.id) {
+      selectedBrandingScope.value = `agency-${agencyStore.currentAgency.id}`;
+    }
   }
 });
 
@@ -4309,6 +4327,16 @@ onActivated(async () => {
   if (authStore.user?.role === 'super_admin') {
     await brandingStore.fetchPlatformBranding();
     await fetchAvailableTemplates();
+
+    // Re-sync scope to match the current tenant selection (may have changed while component was cached).
+    if (agencyStore.currentAgency?.id) {
+      const expectedScope = `agency-${agencyStore.currentAgency.id}`;
+      if (selectedBrandingScope.value !== expectedScope) {
+        selectedBrandingScope.value = expectedScope;
+      }
+    } else if (selectedBrandingScope.value !== 'platform') {
+      selectedBrandingScope.value = 'platform';
+    }
     if (brandingStore.platformBranding) {
       // Update icon IDs from store
       platformForm.value.platformSettingsIconId = brandingStore.platformBranding.platform_settings_icon_id ?? null;
