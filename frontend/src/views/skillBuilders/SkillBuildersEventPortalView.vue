@@ -52,8 +52,8 @@
               <p class="sbep-hub-eyebrow">Event workspace</p>
               <h2 id="sbep-hub-hero-title" class="sbep-hub-hero-title">Pick where to work next</h2>
               <p class="sbep-hub-hero-sub">
-                Same tools as before, organized like a dashboard: open a section below, then use the slim rail to hop
-                between areas without hunting for icons.
+                Same tools as before: use the tabs under this banner for a quick jump, the cards below for context, or the
+                slim rail after you open a section.
               </p>
               <div v-if="hubQuickStats.length" class="sbep-hub-stats" role="list">
                 <div v-for="s in hubQuickStats" :key="s.label" class="sbep-hub-stat" role="listitem">
@@ -62,6 +62,24 @@
                 </div>
               </div>
             </section>
+            <nav
+              v-if="eventRailItems.length"
+              class="sbep-event-tabs sbep-event-tabs--hub"
+              aria-label="Event sections (tabs)"
+            >
+              <div class="sbep-event-tabs-scroll">
+                <button
+                  v-for="item in eventRailItems"
+                  :key="`hub-tab-${item.id}`"
+                  type="button"
+                  class="sbep-event-tab"
+                  @click="selectRailSection(item.id)"
+                >
+                  <span class="sbep-event-tab-label">{{ item.shortLabel }}</span>
+                  <span class="sbep-event-tab-meta">{{ tabMetaLine(item.id) }}</span>
+                </button>
+              </div>
+            </nav>
             <p class="sbep-hub-section-label">Sections</p>
             <div class="sbep-hub-panels" role="navigation" aria-label="Event sections">
               <button
@@ -80,6 +98,27 @@
               </button>
             </div>
           </div>
+
+          <nav
+            v-show="detail && eventRailItems.length && !dashHubMode"
+            class="sbep-event-tabs sbep-event-tabs--dash"
+            aria-label="Event sections (tabs)"
+          >
+            <div class="sbep-event-tabs-scroll">
+              <button
+                v-for="item in eventRailItems"
+                :key="`dash-tab-${item.id}`"
+                type="button"
+                class="sbep-event-tab"
+                :class="{ active: railActive === item.id }"
+                :aria-current="railActive === item.id ? 'page' : undefined"
+                @click="selectRailSection(item.id)"
+              >
+                <span class="sbep-event-tab-label">{{ item.shortLabel }}</span>
+                <span class="sbep-event-tab-meta">{{ tabMetaLine(item.id) }}</span>
+              </button>
+            </div>
+          </nav>
 
           <div v-show="!dashHubMode" class="sbep-dash-layout">
             <div class="sbep-rail-column">
@@ -112,8 +151,8 @@
               icon-url=""
             >
               <p class="muted small sbep-card-lead">
-                Overview of this program event. Use the section rail on the left to move between schedule, roster, materials,
-                and the rest of the workspace.
+                Overview of this program event. Use the tabs above the workspace or the rail on the left to switch between
+                schedule, roster, materials, and the rest of the event.
               </p>
               <ul v-if="detail.skillsGroup" class="sbep-list muted small sbep-home-meta">
                 <li>
@@ -1553,6 +1592,12 @@ function sectionTeaser(sectionId) {
     'event-chat': 'Discussion and updates scoped to this event.'
   };
   return lines[sectionId] || 'Open this part of the workspace.';
+}
+
+function tabMetaLine(sectionId) {
+  const t = sectionTeaser(sectionId);
+  if (t.length <= 44) return t;
+  return `${t.slice(0, 41)}…`;
 }
 
 function railTextMark(shortLabel) {
@@ -3274,6 +3319,80 @@ watch(
   text-transform: uppercase;
   color: #64748b;
 }
+
+.sbep-event-tabs {
+  width: 100%;
+}
+.sbep-event-tabs-scroll {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 4px 2px 8px;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.sbep-event-tab {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  min-width: 118px;
+  max-width: 220px;
+  padding: 11px 14px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.96);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease,
+    transform 0.12s ease;
+}
+.sbep-event-tab:hover {
+  border-color: rgba(249, 115, 22, 0.4);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+  transform: translateY(-1px);
+}
+.sbep-event-tab.active {
+  border-color: rgba(234, 88, 12, 0.55);
+  background: #fff;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+  transform: none;
+}
+.sbep-event-tab-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #c2410c;
+  line-height: 1.2;
+}
+.sbep-event-tab-meta {
+  display: block;
+  margin-top: 5px;
+  font-size: 0.65rem;
+  line-height: 1.35;
+  font-weight: 600;
+  color: #64748b;
+}
+.sbep-event-tabs--hub .sbep-event-tabs-scroll {
+  padding-bottom: 4px;
+}
+.sbep-event-tabs--dash {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  max-width: 1080px;
+  margin: 0 auto 12px;
+  padding: 10px 0 12px;
+  background: linear-gradient(180deg, rgba(255, 252, 248, 0.97) 0%, rgba(255, 252, 248, 0.92) 70%, transparent 100%);
+  border-bottom: 1px solid rgba(244, 114, 65, 0.12);
+  backdrop-filter: blur(10px);
+}
+
 .sbep-hub-section-label {
   margin: 0;
   font-size: 0.72rem;
