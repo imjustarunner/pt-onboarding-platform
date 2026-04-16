@@ -1,3 +1,11 @@
+import { AVAILABLE_AGENCY_FEATURE_KEYS } from '../config/availableAgencyFeatureKeys.js';
+
+function globalDefaultAvailabilityForKey(key) {
+  const entry = AVAILABLE_AGENCY_FEATURE_KEYS.find((f) => f.key === key);
+  if (entry && entry.defaultAvailable === false) return false;
+  return true;
+}
+
 /**
  * Merge platform-wide available_agency_features_json with per-tenant overrides (for display matrices).
  * Tenant explicit true/false wins; missing tenant keys inherit global per-key rules.
@@ -27,8 +35,9 @@ export function mergeAvailableAgencyFeatures(globalJson, tenantOverrideJson) {
 }
 
 /**
- * Same semantics as legacy Company Profile gating: empty global JSON => all visible;
- * otherwise only explicit false on global hides; tenant override wins when present.
+ * Company Profile eligibility: tenant override wins when present.
+ * Otherwise, explicit platform JSON per key; when a key is absent from platform JSON,
+ * known opt-in keys (see `defaultAvailable: false` in availableAgencyFeatureKeys) default off.
  */
 export function isFeatureKeyAvailableAfterMerge(globalJson, tenantOverrideJson, key) {
   if (!key) return true;
@@ -51,10 +60,9 @@ export function isFeatureKeyAvailableAfterMerge(globalJson, tenantOverrideJson, 
     return tenant[key] !== false;
   }
 
-  const raw = globalJson;
-  if (raw == null || (typeof raw === 'object' && Object.keys(raw).length === 0)) {
-    return true;
-  }
   const parsed = parse(globalJson);
-  return parsed[key] !== false;
+  if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+    return parsed[key] !== false;
+  }
+  return globalDefaultAvailabilityForKey(key);
 }

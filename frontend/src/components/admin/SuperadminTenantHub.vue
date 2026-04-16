@@ -4,7 +4,7 @@
       <h2>{{ overviewHeading }}</h2>
       <p class="section-description">
         One place to see feature eligibility (platform default plus optional per-tenant overrides), what this tenant has enabled,
-        billing catalog pricing where it exists, and quick links into Company Profile and full billing.
+        billing catalog pricing where it exists, and quick links into the focused Features page and full billing.
       </p>
     </div>
 
@@ -14,8 +14,8 @@
 
     <template v-else>
       <div class="hub-actions">
-        <button type="button" class="btn btn-secondary" @click="goCompanyProfileFeatures">
-          Edit feature toggles (Company Profile)
+        <button type="button" class="btn btn-secondary" @click="goTenantFeatures">
+          Open features
         </button>
         <button type="button" class="btn btn-secondary" @click="goBilling">Open billing</button>
       </div>
@@ -198,6 +198,7 @@ const FLAG_KEY_TO_BILLING_CATALOG = {
   momentumListEnabled: 'momentumList',
   noteAidEnabled: 'geminiNoteAid',
   payrollEnabled: 'payrollWorkspace',
+  onboardingTrainingEnabled: 'onboardingTraining',
   shiftProgramsEnabled: 'officeSchedulingPublishing',
   publicProviderFinderEnabled: 'publicAvailability'
 };
@@ -505,16 +506,15 @@ const clearVisibilityOverrides = async () => {
   await saveVisibilityOverrides();
 };
 
-const goCompanyProfileFeatures = () => {
+const goTenantFeatures = () => {
   const id = agencyStore.currentAgency?.id;
   if (!id) return;
   router.replace({
     query: {
       ...route.query,
       category: 'general',
-      item: 'company-profile',
-      agencyId: String(id),
-      agencyTab: 'features'
+      item: 'tenant-features',
+      agencyId: String(id)
     }
   });
 };

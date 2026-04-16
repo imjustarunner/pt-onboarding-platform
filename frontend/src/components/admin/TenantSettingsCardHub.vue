@@ -5,25 +5,33 @@
       <p class="hub-subtitle">
         {{
           isSuperAdmin
-            ? 'Pick an area below. Home, organizations, and platform defaults stay in the slim nav; everything else opens here.'
+            ? 'Pick an area below. Use Hub home and the quick links above for directory and platform-wide defaults.'
             : 'Pick an area below. Use the agency bar at the top if you manage more than one tenant.'
         }}
       </p>
     </header>
 
+    <TenantPeopleSnapshot :agency-id="agencyStore.currentAgency?.id" />
+
     <section v-if="isSuperAdmin" class="hub-section">
       <h3 class="hub-section-title">Superadmin only</h3>
       <p class="hub-section-hint">Governance, eligibility, and identity for this tenant.</p>
       <div class="hub-cards">
-        <button type="button" class="hub-card" @click="openArea('platform', 'tenant-overview')">
-          <span class="hub-card-icon" aria-hidden="true">📋</span>
+        <button type="button" class="hub-card hub-card--superadmin-only" @click="openArea('platform', 'tenant-overview')">
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('tenant-overview')" :src="iconFor('tenant-overview')" alt="" class="hub-card-icon-img" />
+            <span v-else>📋</span>
+          </span>
           <span class="hub-card-body">
             <span class="hub-card-label">{{ tenantOverviewCardLabel }}</span>
             <span class="hub-card-desc">Feature matrix, visibility overrides, billing snapshot, invoices.</span>
           </span>
         </button>
-        <button type="button" class="hub-card" @click="openArea('platform', 'agency-platform')">
-          <span class="hub-card-icon" aria-hidden="true">🏛️</span>
+        <button type="button" class="hub-card hub-card--superadmin-only" @click="openArea('platform', 'agency-platform')">
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('agency-platform')" :src="iconFor('agency-platform')" alt="" class="hub-card-icon-img" />
+            <span v-else>🏛️</span>
+          </span>
           <span class="hub-card-body">
             <span class="hub-card-label">Tenant identity & locks</span>
             <span class="hub-card-desc">Slug, active status, affiliation, superadmin-managed flags.</span>
@@ -37,21 +45,30 @@
       <p class="hub-section-hint">Day-to-day tenant configuration (admins see the same screens with role limits).</p>
       <div class="hub-cards">
         <button type="button" class="hub-card" @click="openArea('general', 'company-profile')">
-          <span class="hub-card-icon" aria-hidden="true">🏢</span>
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('company-profile')" :src="iconFor('company-profile')" alt="" class="hub-card-icon-img" />
+            <span v-else>🏢</span>
+          </span>
           <span class="hub-card-body">
             <span class="hub-card-label">Company profile</span>
             <span class="hub-card-desc">Branding, features, terminology, org structure for this tenant.</span>
           </span>
         </button>
-        <button type="button" class="hub-card" @click="openArea('general', 'company-profile', 'features')">
-          <span class="hub-card-icon" aria-hidden="true">🎛️</span>
+        <button type="button" class="hub-card" @click="openArea('general', 'tenant-features')">
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('company-profile')" :src="iconFor('company-profile')" alt="" class="hub-card-icon-img" />
+            <span v-else>🎛️</span>
+          </span>
           <span class="hub-card-body">
-            <span class="hub-card-label">Feature toggles</span>
-            <span class="hub-card-desc">Opens the Features tab (superadmin sets eligibility from Overview).</span>
+            <span class="hub-card-label">Features</span>
+            <span class="hub-card-desc">Scoped feature availability, pricing, and a-la-carte controls for this tenant.</span>
           </span>
         </button>
         <button type="button" class="hub-card" @click="openArea('general', 'team-roles')">
-          <span class="hub-card-icon" aria-hidden="true">👥</span>
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('team-roles')" :src="iconFor('team-roles')" alt="" class="hub-card-icon-img" />
+            <span v-else>👥</span>
+          </span>
           <span class="hub-card-body">
             <span class="hub-card-label">Team & roles</span>
             <span class="hub-card-desc">Who can access what inside this tenant.</span>
@@ -61,18 +78,20 @@
     </section>
 
     <section class="hub-section">
-      <h3 class="hub-section-title">Mixed: billing & subscriptions</h3>
+      <h3 class="hub-section-title">Billing account</h3>
       <p class="hub-section-hint">
-        Superadmin often owns catalog and entitlements; tenant admins handle invoices and payment methods where
-        permitted.
+        Charges, invoices, receipts, payment methods, and merchant setup for this tenant.
       </p>
       <div class="hub-cards hub-cards-single">
         <button type="button" class="hub-card" @click="openArea('general', 'billing')">
-          <span class="hub-card-icon" aria-hidden="true">💳</span>
-          <span class="hub-card-body">
-            <span class="hub-card-label">Billing</span>
-            <span class="hub-card-desc">Plans, line items, and billing history for this tenant.</span>
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('billing')" :src="iconFor('billing')" alt="" class="hub-card-icon-img" />
+            <span v-else>💳</span>
           </span>
+            <span class="hub-card-body">
+              <span class="hub-card-label">Billing</span>
+            <span class="hub-card-desc">Charges, invoices, receipts, payment methods, and billing history for this tenant.</span>
+            </span>
         </button>
       </div>
     </section>
@@ -85,9 +104,13 @@
           :key="`${row.category}-${row.item}`"
           type="button"
           class="hub-card"
+          :class="{ 'hub-card--superadmin-only': row.superadminOnly }"
           @click="openArea(row.category, row.item)"
         >
-          <span class="hub-card-icon" aria-hidden="true">{{ row.icon || '⚙️' }}</span>
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor(row.item)" :src="iconFor(row.item)" alt="" class="hub-card-icon-img" />
+            <span v-else>{{ row.icon || '⚙️' }}</span>
+          </span>
           <span class="hub-card-body">
             <span class="hub-card-label">{{ row.label }}</span>
             <span v-if="row.description" class="hub-card-desc">{{ row.description }}</span>
@@ -101,12 +124,14 @@
 <script setup>
 import { computed } from 'vue';
 import { useAgencyStore } from '../../store/agency';
+import TenantPeopleSnapshot from './TenantPeopleSnapshot.vue';
 
 const props = defineProps({
   isSuperAdmin: { type: Boolean, default: false },
   /** { title: string, items: { category, item, label, icon?, description? }[] }[] */
   secondaryBlocks: { type: Array, default: () => [] },
-  onOpenArea: { type: Function, required: true }
+  onOpenArea: { type: Function, required: true },
+  resolveItemIcon: { type: Function, default: null }
 });
 
 const agencyStore = useAgencyStore();
@@ -120,6 +145,12 @@ const tenantOverviewCardLabel = computed(() => {
 
 const openArea = (category, item, agencyTab) => {
   props.onOpenArea({ category, item, agencyTab });
+};
+
+const iconFor = (itemId) => {
+  const fn = props.resolveItemIcon;
+  if (typeof fn !== 'function') return null;
+  return fn(itemId) || null;
 };
 </script>
 
@@ -225,5 +256,17 @@ const openArea = (category, item, agencyTab) => {
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.4;
+}
+
+.hub-card--superadmin-only {
+  border-color: color-mix(in srgb, var(--accent, var(--primary)) 50%, var(--border));
+  background: color-mix(in srgb, var(--accent, var(--primary)) 8%, var(--bg-alt, #f9fafb));
+}
+
+.hub-card-icon-img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  display: block;
 }
 </style>

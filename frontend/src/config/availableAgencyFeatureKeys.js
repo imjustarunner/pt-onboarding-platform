@@ -1,6 +1,12 @@
 /** Keys aligned with Platform Settings → Available Agency Features and Company Profile toggles. */
 export const AVAILABLE_AGENCY_FEATURE_KEYS = [
   { key: 'budgetManagementEnabled', label: 'Budget Management' },
+  {
+    key: 'onboardingTrainingEnabled',
+    label: 'Onboarding & Training',
+    /** When absent from platform JSON, treat as off until superadmin explicitly enables (opt-in module). */
+    defaultAvailable: false
+  },
   { key: 'payrollEnabled', label: 'Payroll' },
   { key: 'hiringEnabled', label: 'Hiring Process' },
   { key: 'noteAidEnabled', label: 'Note Aid' },

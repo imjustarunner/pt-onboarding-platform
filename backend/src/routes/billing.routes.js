@@ -12,7 +12,7 @@ import {
   quickBooksOAuthCallback
 } from '../controllers/quickbooks.controller.js';
 import { downloadInvoicePdf, generateAgencyInvoice, listAgencyInvoices, retryAgencyInvoicePayment, sendAgencyInvoice } from '../controllers/billingInvoices.controller.js';
-import { billingSettingsValidators, getBillingSettings, updateBillingSettings } from '../controllers/billingSettings.controller.js';
+import { billingSettingsValidators, getBillingSettings, getPlatformStripeStatus, updateBillingSettings } from '../controllers/billingSettings.controller.js';
 import { runBillingPaymentReconciliation, runMonthlyBilling } from '../controllers/billingJobs.controller.js';
 import { agencyPricingOverrideValidators, getAgencyPricing, getPlatformPricing, platformPricingValidators, updateAgencyPricingOverride, updatePlatformPricing } from '../controllers/billingPricing.controller.js';
 import {
@@ -55,6 +55,7 @@ router.put('/pricing/default', authenticate, requireSuperAdmin, platformPricingV
 router.get('/platform/quickbooks/connect', authenticate, requireSuperAdmin, getPlatformQuickBooksConnectUrl);
 router.get('/platform/quickbooks/status', authenticate, requireSuperAdmin, getPlatformQuickBooksStatus);
 router.post('/platform/quickbooks/disconnect', authenticate, requireSuperAdmin, disconnectPlatformQuickBooks);
+router.get('/platform/stripe/status', authenticate, requireSuperAdmin, getPlatformStripeStatus);
 
 // Billing addon status (for feature gating)
 router.get('/:agencyId/addons', authenticate, requireAgencyAccess, getAgencyAddons);

@@ -1,6 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, deleteAgencyHard, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations, resolvePortalByHost } from '../controllers/agency.controller.js';
+import { getTenantPeopleSnapshot } from '../controllers/agencyTenantPeopleSnapshot.controller.js';
 import {
   getAgencyAnnouncements,
   updateAgencyAnnouncements,
@@ -490,6 +491,7 @@ router.get('/archived', authenticate, requireSuperAdmin, getArchivedAgencies);
 router.get('/management-team/eligible-users', authenticate, requireSuperAdmin, listEligibleUsers);
 router.get('/management-team/role-types', authenticate, getRoleTypes);
 router.get('/:id/affiliated-organizations', authenticate, requireBackofficeAdmin, listAffiliatedOrganizations);
+router.get('/:id/settings-people-snapshot', authenticate, requireBackofficeAdmin, getTenantPeopleSnapshot);
 router.get('/:id', authenticate, getAgencyById);
 
 // School Staff admin (school orgs only). Includes staff role support.

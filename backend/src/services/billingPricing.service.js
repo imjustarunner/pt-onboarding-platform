@@ -14,73 +14,184 @@ import { getCommunicationRateCards } from './agencyCommunicationBilling.service.
  * and Tenant overview can show unified pricing. The superadmin hub maps a subset of flags
  * to these keys on the frontend until then.
  */
+function createFeatureCatalogEntry(key, label, description, options = {}) {
+  const pricingModel = String(options.pricingModel || 'flat_monthly');
+  return {
+    key,
+    label,
+    description,
+    pricingModel,
+    unitAmountCents: Number(options.unitAmountCents || 0),
+    unitLabel: options.unitLabel || (pricingModel === 'manual_quantity' ? 'unit' : 'month'),
+    usageKey: options.usageKey || null,
+    defaultAvailable: options.defaultAvailable === true,
+    tenantSelfServe: options.tenantSelfServe !== false,
+    featureFlagKey: options.featureFlagKey ? String(options.featureFlagKey) : null
+  };
+}
+
 const DEFAULT_FEATURE_CATALOG = {
-  publicAvailability: {
-    key: 'publicAvailability',
-    label: 'Provider availability publishing',
-    description: 'Public provider availability pages and scheduling-intake publishing.',
-    pricingModel: 'flat_monthly',
-    unitAmountCents: 0,
-    unitLabel: 'month',
-    usageKey: null,
-    defaultAvailable: false,
-    tenantSelfServe: true
-  },
-  momentumList: {
-    key: 'momentumList',
-    label: 'Momentum List',
-    description: 'Momentum Stickies, digest, and focus assistant billed per active employee.',
-    pricingModel: 'usage',
-    unitAmountCents: 500,
-    unitLabel: 'active employee',
-    usageKey: 'momentumListUsersUsed',
-    defaultAvailable: false,
-    tenantSelfServe: true
-  },
-  geminiNoteAid: {
-    key: 'geminiNoteAid',
-    label: 'Gemini Note Aid',
-    description: 'AI note helper access billed per active employee when this feature is ready.',
-    pricingModel: 'usage',
-    unitAmountCents: 0,
-    unitLabel: 'active employee',
-    usageKey: 'activeEmployeesUsed',
-    defaultAvailable: false,
-    tenantSelfServe: true
-  },
-  officeSchedulingPublishing: {
-    key: 'officeSchedulingPublishing',
-    label: 'Office scheduling + public availability',
-    description: 'Office scheduling workflows plus public provider availability publishing.',
-    pricingModel: 'flat_monthly',
-    unitAmountCents: 0,
-    unitLabel: 'month',
-    usageKey: null,
-    defaultAvailable: false,
-    tenantSelfServe: true
-  },
-  payrollWorkspace: {
-    key: 'payrollWorkspace',
-    label: 'Payroll workspace',
-    description: 'Payroll management tools and related admin workflows.',
-    pricingModel: 'flat_monthly',
-    unitAmountCents: 0,
-    unitLabel: 'month',
-    usageKey: null,
-    defaultAvailable: false,
-    tenantSelfServe: true
-  },
-  summerProgramManagement: {
-    key: 'summerProgramManagement',
-    label: 'Summer program management',
-    description: 'Custom project billing for registration, kiosk check-ins, staffing, and operational setup.',
-    pricingModel: 'manual_quantity',
-    unitAmountCents: 150000,
-    unitLabel: 'session',
-    usageKey: null,
-    defaultAvailable: false,
-    tenantSelfServe: false
-  }
+  publicAvailability: createFeatureCatalogEntry(
+    'publicAvailability',
+    'Public Provider Finder',
+    'External/public provider availability pages and provider finder publishing.',
+    { featureFlagKey: 'publicProviderFinderEnabled' }
+  ),
+  momentumList: createFeatureCatalogEntry(
+    'momentumList',
+    'Momentum List',
+    'Momentum Stickies, digest, and focus assistant billed per active employee.',
+    {
+      pricingModel: 'usage',
+      unitAmountCents: 500,
+      unitLabel: 'active employee',
+      usageKey: 'momentumListUsersUsed',
+      featureFlagKey: 'momentumListEnabled'
+    }
+  ),
+  geminiNoteAid: createFeatureCatalogEntry(
+    'geminiNoteAid',
+    'Gemini Note Aid',
+    'AI note helper access billed per active employee when this feature is ready.',
+    {
+      pricingModel: 'usage',
+      unitAmountCents: 0,
+      unitLabel: 'active employee',
+      usageKey: 'activeEmployeesUsed',
+      featureFlagKey: 'noteAidEnabled'
+    }
+  ),
+  officeSchedulingPublishing: createFeatureCatalogEntry(
+    'officeSchedulingPublishing',
+    'Shift Programs',
+    'Shift-based programs, scheduling workflows, and related operational publishing.',
+    { featureFlagKey: 'shiftProgramsEnabled' }
+  ),
+  payrollWorkspace: createFeatureCatalogEntry(
+    'payrollWorkspace',
+    'Payroll workspace',
+    'Payroll management tools and related admin workflows.',
+    { featureFlagKey: 'payrollEnabled' }
+  ),
+  onboardingTraining: createFeatureCatalogEntry(
+    'onboardingTraining',
+    'Onboarding & Training',
+    'Onboarding packages, checklist templates, intake forms, and related tenant workflows.',
+    { featureFlagKey: 'onboardingTrainingEnabled' }
+  ),
+  budgetManagementEnabled: createFeatureCatalogEntry(
+    'budgetManagementEnabled',
+    'Budget Management',
+    'Budget planning, fiscal year tracking, expense management, and related finance workflows.',
+    { featureFlagKey: 'budgetManagementEnabled' }
+  ),
+  hiringEnabled: createFeatureCatalogEntry(
+    'hiringEnabled',
+    'Hiring Process',
+    'Applicant tracking, candidate pipelines, and hiring workflow management.',
+    { featureFlagKey: 'hiringEnabled' }
+  ),
+  clinicalNoteGeneratorEnabled: createFeatureCatalogEntry(
+    'clinicalNoteGeneratorEnabled',
+    'Clinical Note Generator',
+    'Clinical note generation tools surfaced in provider workflows.',
+    { featureFlagKey: 'clinicalNoteGeneratorEnabled' }
+  ),
+  aiProviderSearchEnabled: createFeatureCatalogEntry(
+    'aiProviderSearchEnabled',
+    'AI Provider Search',
+    'Gemini-powered provider search and smart directory filtering.',
+    { featureFlagKey: 'aiProviderSearchEnabled' }
+  ),
+  presenceEnabled: createFeatureCatalogEntry(
+    'presenceEnabled',
+    'Presence / Team Board',
+    'Presence statuses, team board visibility, and availability signaling for staff.',
+    { featureFlagKey: 'presenceEnabled' }
+  ),
+  kudosEnabled: createFeatureCatalogEntry(
+    'kudosEnabled',
+    'Kudos',
+    'Peer recognition, points, and reward-oriented appreciation tools.',
+    { featureFlagKey: 'kudosEnabled' }
+  ),
+  medcancelEnabled: createFeatureCatalogEntry(
+    'medcancelEnabled',
+    'Med Cancel',
+    'Medication cancellation claim submissions and related notifications.',
+    { featureFlagKey: 'medcancelEnabled' }
+  ),
+  inSchoolSubmissionsEnabled: createFeatureCatalogEntry(
+    'inSchoolSubmissionsEnabled',
+    'In-School Submissions',
+    'School mileage and other in-school claims submission workflows.',
+    { featureFlagKey: 'inSchoolSubmissionsEnabled' }
+  ),
+  googleSsoEnabled: createFeatureCatalogEntry(
+    'googleSsoEnabled',
+    'Google Workspace SSO',
+    'Google sign-in rules and enforced Workspace login for selected roles.',
+    { tenantSelfServe: false, featureFlagKey: 'googleSsoEnabled' }
+  ),
+  workspaceProvisioningEnabled: createFeatureCatalogEntry(
+    'workspaceProvisioningEnabled',
+    'Workspace Provisioning',
+    'Provision Google Workspace accounts and related pre-hire automation.',
+    { tenantSelfServe: false, featureFlagKey: 'workspaceProvisioningEnabled' }
+  ),
+  bookClubEnabled: createFeatureCatalogEntry(
+    'bookClubEnabled',
+    'Book Club',
+    'Tenant-wide book club, voting, meetings, and public preview experiences.',
+    { featureFlagKey: 'bookClubEnabled' }
+  ),
+  standardsLearningEnabled: createFeatureCatalogEntry(
+    'standardsLearningEnabled',
+    'Standards-Aligned Learning',
+    'Learning standards, goals, and progress tracking workflows.',
+    { featureFlagKey: 'standardsLearningEnabled' }
+  ),
+  groupClassSessionsEnabled: createFeatureCatalogEntry(
+    'groupClassSessionsEnabled',
+    'Group Class Sessions',
+    'Learning class sessions, moderation tools, and live class telemetry.',
+    { featureFlagKey: 'groupClassSessionsEnabled' }
+  ),
+  guardianWaiversEnabled: createFeatureCatalogEntry(
+    'guardianWaiversEnabled',
+    'Guardian Waivers',
+    'Guardian waivers and kiosk check-in eligibility gating.',
+    { featureFlagKey: 'guardianWaiversEnabled' }
+  ),
+  platformSharedMarketingEnabled: createFeatureCatalogEntry(
+    'platformSharedMarketingEnabled',
+    'Shared Marketing',
+    'Inclusion in platform-shared marketing and event promotion surfaces.',
+    { tenantSelfServe: false, featureFlagKey: 'platformSharedMarketingEnabled' }
+  ),
+  platformPublicRegistrationEnabled: createFeatureCatalogEntry(
+    'platformPublicRegistrationEnabled',
+    'Public Registration Links',
+    'Public registration catalogs and marketing enrollment links for this tenant.',
+    { tenantSelfServe: false, featureFlagKey: 'platformPublicRegistrationEnabled' }
+  ),
+  gamesPlatformEnabled: createFeatureCatalogEntry(
+    'gamesPlatformEnabled',
+    'Games Platform',
+    'Access to the mental health games platform and enabled game titles.',
+    { featureFlagKey: 'gamesPlatformEnabled' }
+  ),
+  summerProgramManagement: createFeatureCatalogEntry(
+    'summerProgramManagement',
+    'Summer program management',
+    'Custom project billing for registration, kiosk check-ins, staffing, and operational setup.',
+    {
+      pricingModel: 'manual_quantity',
+      unitAmountCents: 150000,
+      unitLabel: 'session',
+      tenantSelfServe: false
+    }
+  )
 };
 
 const FALLBACK_PRICING = {
@@ -273,7 +384,8 @@ function normalizeFeatureCatalogEntry(key, value, fallback = {}) {
     unitLabel: String(merged.unitLabel || 'month'),
     usageKey: merged.usageKey ? String(merged.usageKey) : null,
     defaultAvailable: merged.defaultAvailable === true,
-    tenantSelfServe: merged.tenantSelfServe !== false
+    tenantSelfServe: merged.tenantSelfServe !== false,
+    featureFlagKey: merged.featureFlagKey ? String(merged.featureFlagKey) : null
   };
 }
 

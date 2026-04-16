@@ -3,7 +3,7 @@
     <div class="section-header">
       <h2>Billing</h2>
       <p class="section-description">
-        Transparent billing breakdown with tenant-level QuickBooks or Stripe controls.
+        Subscription account, charges, invoices, receipts, and merchant controls for this tenant.
       </p>
     </div>
     
@@ -31,7 +31,7 @@
 
       <div v-if="isSuperAdmin" class="card" style="margin-top: 16px; text-align: left;">
         <h3>Platform Billing Merchant</h3>
-        <p class="muted">Configure the platform-level merchant connections that tenant billing can inherit. Tenants can now use either QuickBooks Payments or Stripe for subscription billing, depending on their billing settings.</p>
+        <p class="muted">Configure the platform-level merchant connection that tenants can inherit. Stripe is ready to be your primary subscription path, and QuickBooks can stay available for accounting workflows when you want it.</p>
         <div class="status-grid">
           <div>
             <div class="label">Connection</div>
@@ -68,194 +68,6 @@
         </div>
       </div>
 
-      <div v-if="isSuperAdmin" class="card" style="margin-top: 16px; text-align: left;">
-        <h3>Platform Default Pricing (Super Admin)</h3>
-        <p class="muted">These defaults apply to all agencies unless overridden per agency. Feature catalog entries below are what tenants can eventually add onto their plan.</p>
-
-        <div v-if="pricingError" class="error">{{ pricingError }}</div>
-
-        <div class="pricing-grid">
-          <div class="form-group">
-            <div class="label">Base Fee ($/month)</div>
-            <input v-model.number="platformDraft.baseFeeDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-
-          <div class="form-group">
-            <div class="label">Included Schools</div>
-            <input v-model.number="platformDraft.includedSchools" class="input" type="number" step="1" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Included Programs</div>
-            <input v-model.number="platformDraft.includedPrograms" class="input" type="number" step="1" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Included Admins</div>
-            <input v-model.number="platformDraft.includedAdmins" class="input" type="number" step="1" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Included Active Candidates</div>
-            <input v-model.number="platformDraft.includedActiveOnboardees" class="input" type="number" step="1" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-
-          <div class="form-group">
-            <div class="label">Unit Cost: School ($/mo)</div>
-            <input v-model.number="platformDraft.unitSchoolDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Unit Cost: Program ($/mo)</div>
-            <input v-model.number="platformDraft.unitProgramDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Unit Cost: Admin ($/mo)</div>
-            <input v-model.number="platformDraft.unitAdminDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Unit Cost: Active Candidate ($/mo)</div>
-            <input v-model.number="platformDraft.unitOnboardeeDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Unit Cost: Phone Number ($/mo)</div>
-            <input v-model.number="platformDraft.unitPhoneNumberDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-
-          <div class="form-group">
-            <div class="label">SMS Cost: Outbound to Clients ($/msg)</div>
-            <input v-model.number="platformDraft.smsOutboundClientDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">SMS Cost: Inbound from Clients ($/msg)</div>
-            <input v-model.number="platformDraft.smsInboundClientDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">SMS Cost: Notification SMS ($/msg)</div>
-            <input v-model.number="platformDraft.smsNotificationDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Vonage Cost: SMS Outbound ($/msg)</div>
-            <input v-model.number="platformDraft.smsOutboundClientActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: SMS Outbound ($/msg)</div>
-            <input v-model.number="platformDraft.smsOutboundClientMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Vonage Cost: SMS Inbound ($/msg)</div>
-            <input v-model.number="platformDraft.smsInboundClientActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: SMS Inbound ($/msg)</div>
-            <input v-model.number="platformDraft.smsInboundClientMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Vonage Cost: Notification SMS ($/msg)</div>
-            <input v-model.number="platformDraft.smsNotificationActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: Notification SMS ($/msg)</div>
-            <input v-model.number="platformDraft.smsNotificationMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Vonage Cost: Phone Number ($/month)</div>
-            <input v-model.number="platformDraft.phoneNumberActualDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: Phone Number ($/month)</div>
-            <input v-model.number="platformDraft.phoneNumberMarkupDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Provider Cost: Voice Outbound ($/minute)</div>
-            <input v-model.number="platformDraft.voiceOutboundMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: Voice Outbound ($/minute)</div>
-            <input v-model.number="platformDraft.voiceOutboundMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Provider Cost: Voice Inbound ($/minute)</div>
-            <input v-model.number="platformDraft.voiceInboundMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: Voice Inbound ($/minute)</div>
-            <input v-model.number="platformDraft.voiceInboundMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Provider Cost: Video ($/participant minute)</div>
-            <input v-model.number="platformDraft.videoParticipantMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: Video ($/participant minute)</div>
-            <input v-model.number="platformDraft.videoParticipantMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-
-          <div class="form-group">
-            <div class="label">Add-on: Public Availability ($/month)</div>
-            <input v-model.number="platformDraft.publicAvailabilityAddonMonthlyDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Add-on: Momentum List ($/person/month)</div>
-            <input v-model.number="platformDraft.momentumListAddonUnitDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-          </div>
-        </div>
-
-        <div class="feature-catalog-panel">
-          <div class="feature-catalog-header">
-            <div>
-              <h4>Billable Feature Catalog</h4>
-              <p class="muted">Use this catalog to define self-serve add-ons and special billing lines like summer program management.</p>
-            </div>
-          </div>
-          <div class="feature-catalog-list">
-            <div v-for="feature in platformFeatureDrafts" :key="`platform-feature-${feature.key}`" class="feature-item feature-item-admin">
-              <div class="feature-copy">
-                <div class="feature-title">{{ feature.label }}</div>
-                <div class="feature-key">{{ feature.key }}</div>
-                <div class="feature-description">{{ feature.description }}</div>
-              </div>
-              <div class="feature-controls-grid">
-                <div class="form-group">
-                  <div class="label">Price</div>
-                  <input v-model.number="feature.unitAmountDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
-                </div>
-                <div class="form-group">
-                  <div class="label">Units</div>
-                  <input v-model="feature.unitLabel" class="input" type="text" :disabled="pricingLoading || pricingSaving" />
-                </div>
-                <div class="form-group">
-                  <div class="label">Pricing model</div>
-                  <select v-model="feature.pricingModel" class="select" :disabled="pricingLoading || pricingSaving">
-                    <option value="flat_monthly">Flat monthly</option>
-                    <option value="usage">Usage based</option>
-                    <option value="manual_quantity">Manual quantity</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <div class="label">Default availability</div>
-                  <select v-model="feature.defaultAvailable" class="select" :disabled="pricingLoading || pricingSaving">
-                    <option :value="false">Hidden by default</option>
-                    <option :value="true">Available by default</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <div class="label">Tenant self-serve</div>
-                  <select v-model="feature.tenantSelfServe" class="select" :disabled="pricingLoading || pricingSaving">
-                    <option :value="true">Tenant can add</option>
-                    <option :value="false">Super admin only</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div style="display:flex; gap: 10px; margin-top: 12px;">
-          <button class="btn" type="button" @click="savePlatformPricing" :disabled="pricingLoading || pricingSaving">
-            {{ pricingSaving ? 'Saving…' : 'Save platform pricing' }}
-          </button>
-          <button class="btn btn-secondary" type="button" @click="loadPlatformPricing" :disabled="pricingLoading || pricingSaving">
-            {{ pricingLoading ? 'Loading…' : 'Reload' }}
-          </button>
-        </div>
-      </div>
     </div>
 
     <div v-else class="content">
@@ -264,13 +76,32 @@
         <span>{{ banner.message }}</span>
       </div>
 
+      <div class="billing-toolbar">
+        <div>
+          <h3 class="billing-toolbar-title">{{ isSuperAdmin ? 'Tenant billing account' : 'Your billing account' }}</h3>
+          <p class="billing-toolbar-copy">Feature toggles and pricing now live in Features so billing can stay focused on charges, invoices, receipts, and payment collection.</p>
+        </div>
+        <div class="inline billing-toolbar-actions">
+          <button class="btn btn-secondary" type="button" @click="openFeaturesPage">Open features</button>
+          <button
+            v-if="isSuperAdmin"
+            class="btn"
+            type="button"
+            :disabled="generatingInvoice || !canUseLiveBilling"
+            @click="generateInvoice"
+          >
+            {{ generatingInvoice ? 'Generating…' : 'Generate invoice' }}
+          </button>
+        </div>
+      </div>
+
       <div class="card rollout-card" :class="{ 'rollout-card-live': billingRolloutActive }">
         <div class="rollout-card-header">
           <div>
             <h3>{{ billingRolloutActive ? 'Billing is live' : 'Billing coming soon' }}</h3>
             <p class="muted">
               {{ billingRolloutActive
-                ? 'Invoices, receipts, and self-serve feature billing are active for this tenant.'
+                ? 'Invoices, receipts, payment collection, and billing history are active for this tenant.'
                 : (billingRollout?.comingSoonMessage || 'Platform billing is coming soon for this tenant.') }}
             </p>
           </div>
@@ -317,8 +148,8 @@
       </div>
 
       <div v-if="isSuperAdmin" class="card">
-        <h3>Platform Billing</h3>
-        <p class="muted">This platform QuickBooks connection can be used by tenants that choose platform-managed QuickBooks billing. Stripe can also be selected per tenant for subscription billing when the platform or tenant Stripe setup is ready.</p>
+        <h3>Platform merchant connection</h3>
+        <p class="muted">QuickBooks can remain available for accounting workflows later, while Stripe can be chosen per tenant as the primary subscription and invoicing path.</p>
         <div class="status-grid">
           <div>
             <div class="label">Connection</div>
@@ -355,217 +186,9 @@
         </div>
       </div>
 
-      <div v-if="isSuperAdmin" class="card">
-        <h3>Pricing (Super Admin)</h3>
-        <p class="muted">Set global defaults and optionally override pricing for this agency. You can also decide which billable features this tenant is allowed to add.</p>
-
-        <div v-if="pricingError" class="error">{{ pricingError }}</div>
-
-        <div class="inline" style="align-items: end; margin-bottom: 12px;">
-          <div style="flex: 1;">
-            <div class="label">Agency override enabled</div>
-            <select v-model="agencyOverrideEnabled" class="select" :disabled="pricingLoading || pricingSaving">
-              <option :value="false">No (use platform defaults)</option>
-              <option :value="true">Yes (override for this agency)</option>
-            </select>
-          </div>
-          <button class="btn btn-secondary" type="button" @click="loadAgencyPricing" :disabled="pricingLoading || pricingSaving">
-            {{ pricingLoading ? 'Loading…' : 'Reload' }}
-          </button>
-        </div>
-
-        <div class="pricing-grid">
-          <div class="form-group">
-            <div class="label">Base Fee ($/month)</div>
-            <input v-model.number="agencyDraft.baseFeeDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-
-          <div class="form-group">
-            <div class="label">Included Schools</div>
-            <input v-model.number="agencyDraft.includedSchools" class="input" type="number" step="1" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Included Programs</div>
-            <input v-model.number="agencyDraft.includedPrograms" class="input" type="number" step="1" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Included Admins</div>
-            <input v-model.number="agencyDraft.includedAdmins" class="input" type="number" step="1" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Included Active Candidates</div>
-            <input v-model.number="agencyDraft.includedActiveOnboardees" class="input" type="number" step="1" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-
-          <div class="form-group">
-            <div class="label">Unit Cost: School ($/mo)</div>
-            <input v-model.number="agencyDraft.unitSchoolDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Unit Cost: Program ($/mo)</div>
-            <input v-model.number="agencyDraft.unitProgramDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Unit Cost: Admin ($/mo)</div>
-            <input v-model.number="agencyDraft.unitAdminDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Unit Cost: Active Candidate ($/mo)</div>
-            <input v-model.number="agencyDraft.unitOnboardeeDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Unit Cost: Phone Number ($/mo)</div>
-            <input v-model.number="agencyDraft.unitPhoneNumberDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-
-          <div class="form-group">
-            <div class="label">SMS Cost: Outbound to Clients ($/msg)</div>
-            <input v-model.number="agencyDraft.smsOutboundClientDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">SMS Cost: Inbound from Clients ($/msg)</div>
-            <input v-model.number="agencyDraft.smsInboundClientDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">SMS Cost: Notification SMS ($/msg)</div>
-            <input v-model.number="agencyDraft.smsNotificationDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Vonage Cost: SMS Outbound ($/msg)</div>
-            <input v-model.number="agencyDraft.smsOutboundClientActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: SMS Outbound ($/msg)</div>
-            <input v-model.number="agencyDraft.smsOutboundClientMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Vonage Cost: SMS Inbound ($/msg)</div>
-            <input v-model.number="agencyDraft.smsInboundClientActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: SMS Inbound ($/msg)</div>
-            <input v-model.number="agencyDraft.smsInboundClientMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Vonage Cost: Notification SMS ($/msg)</div>
-            <input v-model.number="agencyDraft.smsNotificationActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: Notification SMS ($/msg)</div>
-            <input v-model.number="agencyDraft.smsNotificationMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Vonage Cost: Phone Number ($/month)</div>
-            <input v-model.number="agencyDraft.phoneNumberActualDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: Phone Number ($/month)</div>
-            <input v-model.number="agencyDraft.phoneNumberMarkupDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Provider Cost: Voice Outbound ($/minute)</div>
-            <input v-model.number="agencyDraft.voiceOutboundMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: Voice Outbound ($/minute)</div>
-            <input v-model.number="agencyDraft.voiceOutboundMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Provider Cost: Voice Inbound ($/minute)</div>
-            <input v-model.number="agencyDraft.voiceInboundMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: Voice Inbound ($/minute)</div>
-            <input v-model.number="agencyDraft.voiceInboundMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Provider Cost: Video ($/participant minute)</div>
-            <input v-model.number="agencyDraft.videoParticipantMinuteActualDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-          <div class="form-group">
-            <div class="label">Markup: Video ($/participant minute)</div>
-            <input v-model.number="agencyDraft.videoParticipantMinuteMarkupDollars" class="input" type="number" step="0.0001" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
-          </div>
-
-          <div class="form-group">
-            <div class="label">Add-on: Public Availability</div>
-            <select v-model="agencyDraft.publicAvailabilityAddonEnabled" class="select" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving">
-              <option :value="false">Disabled</option>
-              <option :value="true">Enabled (billed monthly)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <div class="label">Add-on: Momentum List</div>
-            <select v-model="agencyDraft.momentumListAddonEnabled" class="select" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving">
-              <option :value="false">Disabled</option>
-              <option :value="true">Enabled ($5/person, active employees)</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="feature-catalog-panel" style="margin-top: 18px;">
-          <div class="feature-catalog-header">
-            <div>
-              <h4>Tenant Billable Features</h4>
-              <p class="muted">Make features available, pre-enable them, or lock them as special billing lines for this tenant.</p>
-            </div>
-          </div>
-          <div class="feature-catalog-list">
-            <div v-for="feature in agencyFeatureDrafts" :key="`agency-feature-${feature.key}`" class="feature-item feature-item-admin">
-              <div class="feature-copy">
-                <div class="feature-title">{{ feature.label }}</div>
-                <div class="feature-key">{{ feature.key }}</div>
-                <div class="feature-description">{{ feature.description }}</div>
-                <div class="feature-price-preview">{{ formatFeaturePricing({ unitAmountCents: feature.unitAmountOverrideDollars != null ? feature.unitAmountOverrideDollars * 100 : feature.unitAmountDollars * 100, pricingModel: feature.pricingModel, unitLabel: feature.unitLabel }) }}</div>
-              </div>
-              <div class="feature-controls-grid">
-                <div class="form-group">
-                  <div class="label">Available to tenant</div>
-                  <select v-model="feature.available" class="select" :disabled="pricingLoading || pricingSaving">
-                    <option :value="false">Hidden</option>
-                    <option :value="true">Available</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <div class="label">Selected now</div>
-                  <select v-model="feature.enabled" class="select" :disabled="pricingLoading || pricingSaving">
-                    <option :value="false">Not selected</option>
-                    <option :value="true">Selected</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <div class="label">Lock selection</div>
-                  <select v-model="feature.locked" class="select" :disabled="pricingLoading || pricingSaving">
-                    <option :value="false">Tenant can change</option>
-                    <option :value="true">Super admin only</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <div class="label">Price override</div>
-                  <input v-model.number="feature.unitAmountOverrideDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" placeholder="Use platform default" />
-                </div>
-                <div v-if="feature.pricingModel === 'manual_quantity'" class="form-group">
-                  <div class="label">Quantity</div>
-                  <input v-model.number="feature.quantity" class="input" type="number" step="1" min="0" :disabled="pricingLoading || pricingSaving" />
-                </div>
-                <div class="form-group">
-                  <div class="label">Notes</div>
-                  <input v-model="feature.notes" class="input" type="text" :disabled="pricingLoading || pricingSaving" placeholder="Optional internal note" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div style="display:flex; gap: 10px; margin-top: 12px;">
-          <button class="btn" type="button" @click="saveAgencyPricingOverride" :disabled="pricingLoading || pricingSaving">
-            {{ pricingSaving ? 'Saving…' : (agencyOverrideEnabled ? 'Save agency override + features' : 'Clear agency override + save features') }}
-          </button>
-        </div>
-      </div>
-
       <div class="card">
-        <h3>Current Plan Status</h3>
+        <h3>Current charges</h3>
+        <p class="muted">This page handles the money side of the relationship. Feature access and pricing controls now live in Features.</p>
         <div class="status-grid">
           <div>
             <div class="label">Current Bill (Estimated)</div>
@@ -600,60 +223,25 @@
             <div class="value">{{ billingRolloutActive ? 'Billing live' : 'Coming soon' }}</div>
           </div>
           <div>
-            <div class="label">Selected Features</div>
-            <div class="value">{{ selectedFeatureCount }}</div>
+            <div class="label">Billing contact</div>
+            <div class="value">{{ billingEmail || 'Not set yet' }}</div>
           </div>
         </div>
         <div v-if="estimateError" class="error">{{ estimateError }}</div>
       </div>
 
       <div class="card">
-        <h3>{{ isSuperAdmin ? 'Feature Selection Preview' : 'Available Platform Features' }}</h3>
-        <p class="muted">
-          {{ isSuperAdmin
-            ? 'These are the billable platform features this tenant can add to its subscription.'
-            : 'Once billing is active, available features can be added here and they will flow into the tenant invoice automatically.' }}
-        </p>
-        <div v-if="visibleAgencyFeatures.length === 0" class="empty">No billable features are configured for this tenant yet.</div>
-        <div v-else class="feature-catalog-list">
-          <div v-for="feature in visibleAgencyFeatures" :key="`feature-select-${feature.key}`" class="feature-item">
-            <div class="feature-copy">
-              <div class="feature-title">{{ feature.label }}</div>
-              <div class="feature-description">{{ feature.description }}</div>
-              <div class="feature-meta">
-                <span :class="['pill', feature.enabled ? 'pill-on' : 'pill-off']">
-                  {{ feature.enabled ? 'Selected' : (feature.available ? 'Available' : 'Hidden') }}
-                </span>
-                <span class="feature-price-preview">{{ formatFeaturePricing({ unitAmountCents: (feature.unitAmountOverrideDollars != null ? feature.unitAmountOverrideDollars : feature.unitAmountDollars) * 100, pricingModel: feature.pricingModel, unitLabel: feature.unitLabel }) }}</span>
-              </div>
-            </div>
-            <div class="feature-controls-inline">
-              <div v-if="feature.pricingModel === 'manual_quantity'" class="form-group">
-                <div class="label">Quantity</div>
-                <input v-model.number="feature.quantity" class="input feature-qty" type="number" step="1" min="0" :disabled="!canUseLiveBilling || !feature.available || feature.locked || !feature.tenantSelfServe || isSuperAdmin" />
-              </div>
-              <button
-                v-if="!isSuperAdmin"
-                class="btn"
-                :disabled="!canUseLiveBilling || !feature.available || feature.locked || !feature.tenantSelfServe"
-                @click="feature.enabled = !feature.enabled"
-              >
-                {{ feature.enabled ? 'Remove feature' : 'Add feature' }}
-              </button>
-              <span v-else class="muted">{{ feature.locked ? 'Locked to super admin' : (feature.tenantSelfServe ? 'Tenant can self-serve' : 'Super admin only') }}</span>
-            </div>
+        <div class="billing-features-handoff">
+          <div>
+            <h3>Features moved</h3>
+            <p class="muted">Use the dedicated Features page for enablement, pricing, overrides, and a-la-carte controls. Billing stays cleaner when it only shows charges, invoices, receipts, and collection settings.</p>
           </div>
-        </div>
-        <div v-if="!isSuperAdmin" style="display:flex; gap:10px; margin-top: 14px;">
-          <button class="btn" :disabled="savingFeatureSelections || !canUseLiveBilling" @click="saveFeatureSelections">
-            {{ savingFeatureSelections ? 'Saving…' : 'Save selected features' }}
-          </button>
-          <div v-if="!canUseLiveBilling" class="muted">Activate billing first to let the tenant add features.</div>
+          <button class="btn btn-secondary" type="button" @click="openFeaturesPage">Go to Features</button>
         </div>
       </div>
 
       <div class="card">
-        <h3>Usage Breakdown</h3>
+        <h3>Charges this cycle</h3>
         <p class="muted">Only “Active Candidates” (users in ONBOARDING) count toward active onboardee billing.</p>
 
         <table class="table">
@@ -692,15 +280,16 @@
         </table>
       </div>
 
-      <div v-if="canUseLiveBilling" class="card">
-        <h3>Management</h3>
+      <div class="card">
+        <h3>Billing setup & collections</h3>
+        <p class="muted">Stripe is the preferred subscription path here. QuickBooks can still be used when you want a QuickBooks-managed billing flow.</p>
         <div class="manage-grid">
           <div>
-            <div class="label">Subscription Merchant</div>
+            <div class="label">Who handles platform billing</div>
             <div class="inline">
               <select v-model="subscriptionMerchantMode" class="select">
-                <option value="agency_managed">Agency-managed merchant</option>
-                <option value="platform_managed">Platform-managed merchant</option>
+                <option value="platform_managed">Use platform billing (tenant pays you)</option>
+                <option value="agency_managed">Use tenant billing account</option>
               </select>
               <button class="btn" :disabled="savingSettings" @click="saveBillingSettings">
                 {{ savingSettings ? 'Saving…' : 'Save' }}
@@ -709,11 +298,11 @@
           </div>
 
           <div>
-            <div class="label">Payment Provider</div>
+            <div class="label">Platform billing provider</div>
             <div class="inline">
               <select v-model="subscriptionPaymentProvider" class="select">
-                <option value="QUICKBOOKS">QuickBooks Payments</option>
                 <option value="STRIPE">Stripe</option>
+                <option value="QUICKBOOKS">QuickBooks Payments</option>
               </select>
               <button class="btn" :disabled="savingSettings" @click="saveBillingSettings">
                 {{ savingSettings ? 'Saving…' : 'Save' }}
@@ -777,11 +366,26 @@
           <div>
             <div class="label">Invoices</div>
             <div class="inline">
-              <button class="btn" :disabled="generatingInvoice" @click="generateInvoice">
+              <button class="btn" :disabled="generatingInvoice || !canUseLiveBilling" @click="generateInvoice">
                 {{ generatingInvoice ? 'Generating…' : 'Generate Invoice' }}
               </button>
             </div>
           </div>
+        </div>
+
+        <div class="merchant-choice-callout">
+          <strong>{{ subscriptionMerchantMode === 'platform_managed' ? 'Use platform billing' : 'Use tenant billing account' }}</strong>
+          <span>
+            {{
+              subscriptionMerchantMode === 'platform_managed'
+                ? (usingStripeForSubscription
+                  ? 'This tenant will pay the platform through your platform Stripe account.'
+                  : 'This tenant will pay the platform through your platform QuickBooks merchant.')
+                : (usingStripeForSubscription
+                  ? 'This tenant will use its own Stripe-connected billing account to pay the platform.'
+                  : 'This tenant will use its own QuickBooks billing connection to pay the platform.')
+            }}
+          </span>
         </div>
 
         <div v-if="manageError" class="error">{{ manageError }}</div>
@@ -929,7 +533,7 @@
                 <button
                   v-if="inv.payment_status !== 'paid' && autopayEnabled"
                   class="btn btn-secondary"
-                  :disabled="retryingInvoiceId === inv.id || !subscriptionProviderStatus?.paymentsEnabled"
+                  :disabled="retryingInvoiceId === inv.id || !subscriptionProviderStatus?.paymentsEnabled || !canUseLiveBilling"
                   @click="retryInvoicePayment(inv.id)"
                 >
                   {{ retryingInvoiceId === inv.id ? 'Retrying…' : 'Retry Autopay' }}
@@ -937,7 +541,7 @@
                 <button
                   v-if="inv.payment_status !== 'paid'"
                   class="btn btn-secondary"
-                  :disabled="sendingInvoiceId === inv.id || !inv.qbo_invoice_id"
+                  :disabled="sendingInvoiceId === inv.id || !inv.qbo_invoice_id || !canUseLiveBilling"
                   @click="sendInvoice(inv.id)"
                 >
                   {{ sendingInvoiceId === inv.id ? 'Sending…' : 'Send Invoice' }}
@@ -949,11 +553,6 @@
             </tr>
           </tbody>
         </table>
-      </div>
-
-      <div v-else class="card">
-        <h3>Billing Preview</h3>
-        <p class="muted">This tenant is still in coming-soon mode. When you activate billing, this section will open up for invoice generation, payment methods, receipts, and live collection settings.</p>
       </div>
 
       <div v-if="canUseLiveBilling" class="card">
@@ -1055,7 +654,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { loadStripe } from '@stripe/stripe-js';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
@@ -1065,6 +664,7 @@ import AgencyStripeConnectSection from './AgencyStripeConnectSection.vue';
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const route = useRoute();
+const router = useRouter();
 
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id || null);
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
@@ -1087,6 +687,17 @@ const filteredBillingAgencies = computed(() => {
     return hay.includes(q);
   });
 });
+
+const openFeaturesPage = () => {
+  router.push({
+    path: route.path,
+    query: {
+      ...route.query,
+      category: 'general',
+      item: 'tenant-features'
+    }
+  });
+};
 
 const applyAgencySelection = async () => {
   const id = parseInt(selectedAgencyId.value, 10);
@@ -1706,7 +1317,7 @@ const destroyStripeCardElement = () => {
 const loadStripePaymentSetup = async () => {
   stripeElementError.value = '';
   destroyStripeCardElement();
-  if (!currentAgencyId.value || !usingStripeForSubscription.value || !canUseLiveBilling.value) return;
+  if (!currentAgencyId.value || !usingStripeForSubscription.value) return;
   if (subscriptionProviderStatus.value?.provider !== 'STRIPE') return;
   stripeLoading.value = true;
   try {
@@ -2178,6 +1789,33 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 
+.billing-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(16, 185, 129, 0.06));
+}
+
+.billing-toolbar-title {
+  margin: 0 0 6px 0;
+  color: var(--text-primary);
+}
+
+.billing-toolbar-copy {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.billing-toolbar-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .banner {
   display: flex;
   gap: 8px;
@@ -2269,6 +1907,24 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 12px;
   align-items: flex-end;
+}
+
+.billing-features-handoff {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.merchant-choice-callout {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .pricing-grid {
@@ -2408,7 +2064,9 @@ onBeforeUnmount(() => {
 
   .feature-item,
   .rollout-card-header,
-  .rollout-editor {
+  .rollout-editor,
+  .billing-toolbar,
+  .billing-features-handoff {
     flex-direction: column;
   }
 }

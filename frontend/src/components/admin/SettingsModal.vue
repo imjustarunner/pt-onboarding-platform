@@ -27,8 +27,16 @@
             role="listitem"
             @click="enterPlatformToolsOnly"
           >
-            <div class="tenant-logo-wrap tenant-logo-fallback">⚙</div>
-            <span class="tenant-logo-name">Platform tools</span>
+            <div class="tenant-logo-wrap tenant-logo-fallback">
+              <img
+                v-if="getSettingsIconUrl('platform-settings')"
+                :src="getSettingsIconUrl('platform-settings')"
+                alt=""
+                class="tenant-entry-platform-icon"
+              />
+              <span v-else aria-hidden="true">⚙</span>
+            </div>
+            <span class="tenant-logo-name">{{ globalToolsLabel }}</span>
             <span class="tenant-logo-slug muted">No tenant — global settings</span>
           </button>
           <button
@@ -38,11 +46,12 @@
             class="tenant-logo-card"
             :class="{ 'tenant-logo-card-active': isPickerTenantActive(a) }"
             role="listitem"
+            :style="{ '--tenant-chip-tint': `hsl(${tenantHueFromId(a.id)} 40% 44%)` }"
             @click="selectTenantFromPicker(a)"
           >
-            <div class="tenant-logo-wrap">
+            <div class="tenant-logo-wrap" :style="tenantLogoUrl(a) ? undefined : tenantAvatarWrapStyle(a)">
               <img v-if="tenantLogoUrl(a)" :src="tenantLogoUrl(a)" :alt="''" class="tenant-logo-img" />
-              <span v-else class="tenant-logo-initials">{{ tenantInitials(a) }}</span>
+              <span v-else class="tenant-logo-initials tenant-logo-initials-on-avatar">{{ tenantInitials(a) }}</span>
             </div>
             <span class="tenant-logo-name">{{ a.name }}</span>
             <span class="tenant-logo-slug muted">{{ a.slug || '—' }}</span>
@@ -68,14 +77,19 @@
               aria-label="Search tenants"
             />
             <div v-if="agencyStore.currentAgency" class="tenant-picker-active-pill">
-              <div class="tenant-picker-active-logo">
+              <div
+                class="tenant-picker-active-logo"
+                :style="tenantLogoUrl(agencyStore.currentAgency) ? undefined : tenantAvatarWrapStyle(agencyStore.currentAgency)"
+              >
                 <img
                   v-if="tenantLogoUrl(agencyStore.currentAgency)"
                   :src="tenantLogoUrl(agencyStore.currentAgency)"
                   alt=""
                   class="tenant-logo-img-sm"
                 />
-                <span v-else class="tenant-logo-initials-sm">{{ tenantInitials(agencyStore.currentAgency) }}</span>
+                <span v-else class="tenant-logo-initials-sm tenant-logo-initials-on-avatar">{{
+                  tenantInitials(agencyStore.currentAgency)
+                }}</span>
               </div>
               <div class="tenant-picker-active-text">
                 <span class="tenant-picker-active-name">{{ agencyStore.currentAgency.name }}</span>
@@ -89,6 +103,53 @@
               Select a tenant below for Company Profile, billing, and other tenant settings.
             </p>
           </div>
+          <div v-if="showTenantPickerShell && isSuperAdmin && !platformSettingsCardHubActive" class="tenant-mode-toggle-row" role="group" aria-label="Workspace mode">
+            <button
+              type="button"
+              class="tenant-mode-toggle-btn"
+              :class="{ 'tenant-mode-toggle-btn--active': agencyStore.platformMode && !agencyStore.currentAgency }"
+              @click="enterPlatformToolsOnly"
+            >
+              {{ globalToolsLabel }}
+            </button>
+            <button
+              type="button"
+              class="tenant-mode-toggle-btn"
+              :class="{ 'tenant-mode-toggle-btn--active': !!agencyStore.currentAgency }"
+              :disabled="!agencyStore.currentAgency"
+              @click="agencyStore.currentAgency && selectItem('platform', 'tenant-ws-home')"
+            >
+              {{
+                agencyStore.currentAgency
+                  ? `Tenant: ${agencyStore.currentAgency.name}`
+                  : 'Tenant workspace'
+              }}
+            </button>
+          </div>
+          <div
+            v-if="showTenantPickerShell && tenantSettingsCardHubActive"
+            class="tenant-workspace-quick-links"
+          >
+            <button type="button" class="btn btn-link tenant-quick-link" @click="selectItem('platform', 'tenant-ws-home')">
+              Hub home
+            </button>
+            <button
+              v-if="agencyStore.currentAgency"
+              type="button"
+              class="btn btn-link tenant-quick-link"
+              @click="selectItem('platform', 'tenant-ws-org-directory')"
+            >
+              Organizations / Affiliations / Programs / Schools
+            </button>
+            <button
+              v-if="isSuperAdmin && agencyStore.currentAgency"
+              type="button"
+              class="btn btn-link tenant-quick-link"
+              @click="selectItem('platform', 'tenant-ws-global-platform')"
+            >
+              Platform-wide defaults
+            </button>
+          </div>
           <div class="tenant-logo-scroller" role="list">
             <button
               v-if="isSuperAdmin"
@@ -98,8 +159,16 @@
               role="listitem"
               @click="enterPlatformToolsOnly"
             >
-              <div class="tenant-logo-wrap tenant-logo-wrap-sm tenant-logo-fallback">⚙</div>
-              <span class="tenant-chip-label">Platform</span>
+              <div class="tenant-logo-wrap tenant-logo-wrap-sm tenant-logo-fallback">
+                <img
+                  v-if="getSettingsIconUrl('platform-settings')"
+                  :src="getSettingsIconUrl('platform-settings')"
+                  alt=""
+                  class="tenant-chip-platform-icon"
+                />
+                <span v-else aria-hidden="true">⚙</span>
+              </div>
+              <span class="tenant-chip-label">{{ globalToolsLabel }}</span>
             </button>
             <button
               v-for="a in filteredTopLevelTenants"
@@ -108,11 +177,15 @@
               class="tenant-logo-chip"
               :class="{ 'tenant-logo-chip-active': isPickerTenantActive(a) }"
               role="listitem"
+              :style="{ '--tenant-chip-tint': `hsl(${tenantHueFromId(a.id)} 40% 44%)` }"
               @click="selectTenantFromPicker(a)"
             >
-              <div class="tenant-logo-wrap tenant-logo-wrap-sm">
+              <div
+                class="tenant-logo-wrap tenant-logo-wrap-sm"
+                :style="tenantLogoUrl(a) ? undefined : tenantAvatarWrapStyle(a)"
+              >
                 <img v-if="tenantLogoUrl(a)" :src="tenantLogoUrl(a)" :alt="''" class="tenant-logo-img" />
-                <span v-else class="tenant-logo-initials-sm">{{ tenantInitials(a) }}</span>
+                <span v-else class="tenant-logo-initials-sm tenant-logo-initials-on-avatar">{{ tenantInitials(a) }}</span>
               </div>
               <span class="tenant-chip-label">{{ a.name }}</span>
             </button>
@@ -121,9 +194,12 @@
 
         <div
           class="settings-main-row"
-          :class="{ 'settings-main-row--solo-hub': platformSettingsCardHubActive }"
+          :class="{
+            'settings-main-row--solo-hub': platformSettingsCardHubActive,
+            'settings-main-row--no-sidebar': tenantSettingsCardHubActive || platformSettingsCardHubActive
+          }"
         >
-        <div v-if="!platformSettingsCardHubActive" class="settings-sidebar">
+        <div v-if="!platformSettingsCardHubActive && !tenantSettingsCardHubActive" class="settings-sidebar">
           <div
             v-for="category in visibleCategories"
             :key="category.id"
@@ -235,6 +311,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import { useAgencyStore } from '../../store/agency';
+import { useOrganizationStore } from '../../store/organization';
 import { isSupervisor } from '../../utils/helpers.js';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
@@ -249,6 +326,7 @@ import BrandingTemplatesManagement from './BrandingTemplatesManagement.vue';
 import EmailTemplateManagement from './EmailTemplateManagement.vue';
 import EmailSettingsPanel from './EmailSettingsPanel.vue';
 import PlatformSettings from './PlatformSettings.vue';
+import PlatformBillingManagement from './PlatformBillingManagement.vue';
 import AgencyPlatformManagement from './AgencyPlatformManagement.vue';
 import SuperadminTenantHub from './SuperadminTenantHub.vue';
 import TenantSettingsCardHub from './TenantSettingsCardHub.vue';
@@ -278,6 +356,7 @@ import AuditCenterSettingsLink from './AuditCenterSettingsLink.vue';
 // Import placeholder components
 import TeamRolesManagement from './TeamRolesManagement.vue';
 import BillingManagement from './BillingManagement.vue';
+import TenantFeaturesManagement from './TenantFeaturesManagement.vue';
 import IntegrationsManagement from './IntegrationsManagement.vue';
 
 const props = defineProps({
@@ -301,6 +380,10 @@ const router = useRouter();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
+const organizationStore = useOrganizationStore();
+const normalizeSettingsSlug = (value) => String(value || '').trim().toLowerCase();
+const pickOrgSettingsSlug = (org) => normalizeSettingsSlug(org?.portal_url || org?.portalUrl || org?.slug || '');
+const currentRouteSettingsSlug = computed(() => normalizeSettingsSlug(route.params?.organizationSlug));
 
 const showTenantContextUi = computed(() => {
   if (props.lockAgencyContext) return false;
@@ -398,6 +481,15 @@ const allCategories = [
         excludeSupervisor: true
       },
       {
+        id: 'platform-billing',
+        label: 'Platform Billing',
+        icon: '💳',
+        component: 'PlatformBillingManagement',
+        roles: ['super_admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
         id: 'platform-all-agencies',
         label: 'All organizations',
         icon: '🗂️',
@@ -446,6 +538,15 @@ const allCategories = [
         label: 'Team & Roles',
         icon: '👥',
         component: 'TeamRolesManagement',
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'tenant-features',
+        label: 'Features',
+        icon: '🎛️',
+        component: 'TenantFeaturesManagement',
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
@@ -533,6 +634,7 @@ const allCategories = [
         component: 'PayrollScheduleSettings',
         agencyOnly: true,
         requiresAgency: true,
+        requiresPayrollEnabled: true,
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
@@ -554,6 +656,8 @@ const allCategories = [
         label: 'Packages',
         icon: '📦',
         component: 'OnboardingPackageManagement',
+        requiresAgency: true,
+        requiresOnboardingTrainingEnabled: true,
         roles: ['super_admin', 'admin', 'support'],
         excludeRoles: ['clinical_practice_assistant'],
         excludeSupervisor: true,
@@ -564,6 +668,8 @@ const allCategories = [
         label: 'Digital Forms',
         icon: '🔗',
         component: 'IntakeLinksView',
+        requiresAgency: true,
+        requiresOnboardingTrainingEnabled: true,
         roles: ['super_admin', 'admin', 'support', 'staff'],
         excludeRoles: ['clinical_practice_assistant'],
         excludeSupervisor: true
@@ -593,6 +699,7 @@ const allCategories = [
         label: 'Checklist Items',
         icon: '📋',
         component: 'AgencyCustomChecklistItems',
+        requiresOnboardingTrainingEnabled: true,
         roles: ['admin', 'support'],
         excludeRoles: ['clinical_practice_assistant'],
         excludeSupervisor: true,
@@ -612,6 +719,7 @@ const allCategories = [
         label: 'Field Definitions',
         icon: '📝',
         component: 'AgencyUserInfoFields',
+        requiresOnboardingTrainingEnabled: true,
         roles: ['admin'],
         excludeRoles: ['clinical_practice_assistant'],
         excludeSupervisor: true
@@ -764,6 +872,8 @@ const roleFilteredCategories = computed(() => {
   const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags);
   const noteAidEnabled = isTruthyFlag(flags?.noteAidEnabled);
   const shiftProgramsEnabled = isTruthyFlag(flags?.shiftProgramsEnabled);
+  const payrollEnabled = isTruthyFlag(flags?.payrollEnabled);
+  const onboardingTrainingEnabled = isTruthyFlag(flags?.onboardingTrainingEnabled);
 
   return allCategories
     .map((category) => ({
@@ -809,12 +919,26 @@ const roleFilteredCategories = computed(() => {
             const budgetEnabled = isTruthyFlag(flags?.budgetManagementEnabled);
             if (!budgetEnabled) return false;
           }
+          if (item.requiresPayrollEnabled && !payrollEnabled) {
+            return false;
+          }
+          if (item.requiresOnboardingTrainingEnabled && !onboardingTrainingEnabled) {
+            return false;
+          }
           if (
             item.id === 'platform-settings' &&
             userRoleNorm === 'super_admin' &&
             agencyStore.currentAgency
           ) {
             return false;
+          }
+          if (item.id === 'challenge-management') {
+            const a = agencyStore.currentAgency;
+            if (!a?.id) return false;
+            const ot = String(a.organization_type || a.organizationType || '').toLowerCase();
+            if (ot !== 'agency') return false;
+            const key = String(a.slug || a.portal_url || a.portalUrl || '').trim().toLowerCase();
+            if (key !== 'sstc') return false;
           }
           return true;
         })
@@ -836,6 +960,18 @@ const tenantSettingsCardHubActive = computed(() => {
   if (!agencyStore.currentAgency?.id) return false;
   const r = String(authStore.user?.role || '').toLowerCase();
   return r === 'super_admin' || r === 'admin';
+});
+
+/** When tenant card hub is active, embedded settings screens should lock to this agency id. */
+const settingsScopedAgencyId = computed(() => {
+  if (!tenantSettingsCardHubActive.value) return null;
+  const id = Number(agencyStore.currentAgency?.id || 0);
+  return Number.isFinite(id) && id > 0 ? id : null;
+});
+
+const globalToolsLabel = computed(() => {
+  const n = String(brandingStore.platformBranding?.organization_name || '').trim();
+  return n ? `Global (${n})` : 'Global tools';
 });
 
 const tenantHubSidebarCategory = computed(() => {
@@ -869,7 +1005,9 @@ const tenantHubSecondaryBlocks = computed(() => {
         category: c.id,
         item: i.id,
         label: i.label,
-        icon: i.icon
+        icon: i.icon,
+        description: PLATFORM_HUB_CARD_DESC[i.id] || '',
+        superadminOnly: !!(i.roles?.length === 1 && i.roles[0] === 'super_admin')
       }))
     });
   };
@@ -896,13 +1034,16 @@ const PLATFORM_HUB_CARD_DESC = {
   'provider-scheduling': 'Scheduling templates and rules — tenant-scoped.',
   'availability-intake': 'Provider availability and intake — agency tenants.',
   'shift-programs': 'Shift programs and publishing — needs tenant + feature flag.',
-  'payroll-schedule': 'Pay schedules and payroll — agency tenants.',
+  'payroll-schedule': 'Pay schedules and payroll — agency tenants with Payroll enabled.',
   'departments': 'Org departments — tenant with budget management.',
-  packages: 'Onboarding packages and template libraries.',
-  'digital-forms': 'Intake and digital form links.',
+  packages: 'Onboarding packages — requires Onboarding & Training for this tenant.',
+  'digital-forms': 'Intake and digital form links — requires Onboarding & Training.',
   'challenge-management': 'Seasons and challenges — Learning or Affiliation orgs.',
-  'checklist-items': 'Global checklist templates (superadmin).',
-  'field-definitions': 'Global profile field definitions.',
+  'checklist-items':
+    'Platform-wide checklist templates (superadmin). Affects defaults for all tenants unless a tenant overrides.',
+  'checklist-items-agency': 'Tenant checklist assignments — requires Onboarding & Training.',
+  'field-definitions':
+    'Platform-wide profile field catalog (superadmin). Shared field definitions across tenants.',
   'branding-config': 'Colors, fonts, logos — usually edited per tenant.',
   'branding-templates': 'Email and document templates.',
   assets: 'Icons, fonts, and shared creative assets.',
@@ -928,7 +1069,8 @@ const platformHubSecondaryBlocks = computed(() => {
         item: i.id,
         label: i.label,
         icon: i.icon,
-        description: PLATFORM_HUB_CARD_DESC[i.id] || ''
+        description: PLATFORM_HUB_CARD_DESC[i.id] || '',
+        superadminOnly: !!(i.roles?.length === 1 && i.roles[0] === 'super_admin')
       }));
     if (!items.length) return;
     blocks.push({ title, hint, items });
@@ -958,7 +1100,7 @@ const visibleCategories = computed(() => {
     return [];
   }
   if (tenantSettingsCardHubActive.value) {
-    return [tenantHubSidebarCategory.value];
+    return [];
   }
   return roleFilteredCategories.value;
 });
@@ -990,6 +1132,7 @@ const componentMap = {
   EmailTemplateManagement,
   EmailSettingsPanel,
   PlatformSettings,
+  PlatformBillingManagement,
   UserInfoFieldManagement,
   AgencyUserInfoFields,
   CustomChecklistItemManagement,
@@ -1010,6 +1153,7 @@ const componentMap = {
   SmsNumbersManagement,
   TeamRolesManagement,
   BillingManagement,
+  TenantFeaturesManagement,
   IntegrationsManagement,
   IntakeLinksView,
   ChallengeManagement,
@@ -1067,32 +1211,41 @@ const componentProps = computed(() => {
   if (!item) return {};
   
   const base = item.props || {};
+  const scopedId = settingsScopedAgencyId.value;
+  const withScoped = (obj) => {
+    if (!obj || typeof obj !== 'object') return scopedId != null ? { scopedAgencyId: scopedId } : {};
+    return scopedId != null ? { ...obj, scopedAgencyId: scopedId } : { ...obj };
+  };
+  const resolveItemIcon = (id) => getSettingsIconUrl(id);
+
   if (selectedCategory.value === 'workflow' && selectedItem.value === 'school-settings' && props.initialSchoolId) {
-    return { ...base, initialSchoolId: props.initialSchoolId };
+    return withScoped({ ...base, initialSchoolId: props.initialSchoolId });
   }
   if (selectedCategory.value === 'platform' && selectedItem.value === 'platform-ws-home') {
-    return {
+    return withScoped({
       ...base,
       secondaryBlocks: platformHubSecondaryBlocks.value,
-      onOpenArea: openPlatformHubArea
-    };
+      onOpenArea: openPlatformHubArea,
+      resolveItemIcon
+    });
   }
   if (selectedCategory.value === 'platform' && selectedItem.value === 'tenant-ws-home') {
-    return {
+    return withScoped({
       ...base,
       isSuperAdmin: isSuperAdmin.value,
       secondaryBlocks: tenantHubSecondaryBlocks.value,
-      onOpenArea: openTenantHubArea
-    };
+      onOpenArea: openTenantHubArea,
+      resolveItemIcon
+    });
   }
   if (selectedCategory.value === 'platform' && selectedItem.value === 'tenant-ws-org-directory') {
     const tid = agencyStore.currentAgency?.id;
-    return {
+    return withScoped({
       ...base,
       embeddedOrgId: null,
       embeddedTab: 'general',
       organizationDirectoryTenantId: tid != null && tid !== '' ? tid : null
-    };
+    });
   }
   if (selectedCategory.value === 'general' && selectedItem.value === 'company-profile') {
     const agencyId =
@@ -1101,10 +1254,10 @@ const componentProps = computed(() => {
         : route.query.agencyId;
     const agencyTab = route.query.agencyTab || 'general';
     if (agencyId) {
-      return { ...base, embeddedOrgId: agencyId, embeddedTab: agencyTab };
+      return withScoped({ ...base, embeddedOrgId: agencyId, embeddedTab: agencyTab });
     }
   }
-  return base;
+  return withScoped({ ...base });
 });
 
 const selectedItemAgencyOnly = computed(() => {
@@ -1182,14 +1335,37 @@ const showTenantEntryGate = computed(() => {
   return true;
 });
 
+const resolveTenantAssetUrl = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  if (s.startsWith('http://') || s.startsWith('https://')) return s;
+  return toUploadsUrl(s);
+};
+
 const tenantLogoUrl = (a) => {
   if (!a) return null;
-  const logo = a.logo_url ?? a.logoUrl;
-  if (logo && String(logo).trim()) {
-    const s = String(logo).trim();
-    if (s.startsWith('http://') || s.startsWith('https://')) return s;
-    return toUploadsUrl(s);
+
+  const fromLogoUrl = resolveTenantAssetUrl(a.logo_url ?? a.logoUrl);
+  if (fromLogoUrl) return fromLogoUrl;
+
+  const fromLogoPath = resolveTenantAssetUrl(a.logo_path ?? a.logoPath);
+  if (fromLogoPath) return fromLogoPath;
+
+  const fromOrgLogoUrl = resolveTenantAssetUrl(a.organization_logo_url ?? a.organizationLogoUrl);
+  if (fromOrgLogoUrl) return fromOrgLogoUrl;
+
+  const fromOrgLogoPath = resolveTenantAssetUrl(a.organization_logo_path ?? a.organizationLogoPath);
+  if (fromOrgLogoPath) return fromOrgLogoPath;
+
+  const orgLogoIconId = a.organization_logo_icon_id ?? a.organizationLogoIconId;
+  if (orgLogoIconId) {
+    const u = brandingStore.iconUrlById(orgLogoIconId);
+    if (u) return u;
   }
+
+  const fromIconFile = resolveTenantAssetUrl(a.icon_file_path ?? a.iconFilePath);
+  if (fromIconFile) return fromIconFile;
+
   const iconId = a.icon_id ?? a.iconId;
   if (iconId) {
     const u = brandingStore.iconUrlById(iconId);
@@ -1198,14 +1374,83 @@ const tenantLogoUrl = (a) => {
   return null;
 };
 
+/** Stable hue for tenant avatars / accents (0–359). */
+const tenantHueFromId = (rawId) => {
+  const id = Number(rawId);
+  const n = Number.isFinite(id) ? id : String(rawId || '').split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  return Math.abs((n * 7919 + n * 104729) % 360);
+};
+
+const tenantAvatarWrapStyle = (a) => {
+  if (!a) return {};
+  const h = tenantHueFromId(a.id);
+  const h2 = (h + 42) % 360;
+  return {
+    background: `linear-gradient(135deg, hsl(${h} 52% 42%) 0%, hsl(${h2} 48% 34%) 100%)`,
+    borderColor: `hsla(${h}, 40%, 20%, 0.4)`
+  };
+};
+
 const tenantInitials = (a) => {
-  const name = String(a?.name || 'T').trim();
-  const parts = name.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase().slice(0, 2);
-  return name.slice(0, 2).toUpperCase() || 'T';
+  const raw = String(a?.name || 'T').trim();
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  const firstLetter = (word) => {
+    const m = String(word || '').match(/[A-Za-z\u00C0-\u024F]/);
+    return m ? m[0] : '';
+  };
+  if (tokens.length >= 2) {
+    const a0 = firstLetter(tokens[0]);
+    const a1 = firstLetter(tokens[1]);
+    if (a0 && a1) return `${a0}${a1}`.toUpperCase().slice(0, 2);
+  }
+  const w0 = tokens[0] || raw;
+  let letters = '';
+  for (let i = 0; i < w0.length && letters.length < 2; i += 1) {
+    const ch = w0[i];
+    if (/[A-Za-z\u00C0-\u024F]/.test(ch)) letters += ch;
+  }
+  if (letters.length >= 2) return letters.toUpperCase().slice(0, 2);
+  if (letters.length === 1) return `${letters}${letters}`.toUpperCase().slice(0, 2);
+  const alnum = raw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  return (alnum.slice(0, 2) || 'T').slice(0, 2);
 };
 
 const isPickerTenantActive = (a) => Number(agencyStore.currentAgency?.id) === Number(a?.id);
+
+const findSelectableAgencyBySettingsSlug = (slug) => {
+  const target = normalizeSettingsSlug(slug);
+  if (!target) return null;
+  const sources = [
+    selectableAgencies?.value,
+    agencyStore.agencies,
+    agencyStore.userAgencies
+  ];
+  for (const list of sources) {
+    if (!Array.isArray(list)) continue;
+    const match = list.find((org) => pickOrgSettingsSlug(org) === target);
+    if (match) return match;
+  }
+  return null;
+};
+
+const buildSettingsLocation = ({ org = null, category = 'platform', item = null } = {}) => {
+  const slug = pickOrgSettingsSlug(org);
+  const path = slug ? `/${slug}/admin/settings` : '/admin/settings';
+  const params = new URLSearchParams();
+  if (category) params.set('category', String(category));
+  if (item) params.set('item', String(item));
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+};
+
+const navigateToSettingsLocation = ({ org = null, category = 'platform', item = null } = {}) => {
+  const target = buildSettingsLocation({ org, category, item });
+  if (typeof window !== 'undefined' && window.location?.assign) {
+    window.location.assign(target);
+    return;
+  }
+  router.push(target);
+};
 
 const syncAgencyIdToRoute = () => {
   if (props.disableRouteSync || !showTenantContextUi.value) return;
@@ -1214,6 +1459,31 @@ const syncAgencyIdToRoute = () => {
   if (raw) q.agencyId = raw;
   else delete q.agencyId;
   router.replace({ query: q });
+};
+
+const syncAgencyContextFromRouteSlug = async () => {
+  const routeSlug = currentRouteSettingsSlug.value;
+  if (!routeSlug) {
+    if (isSuperAdmin.value && showTenantContextUi.value && !route.query?.agencyId) {
+      agencyStore.setPlatformMode();
+      void brandingStore.syncDocumentThemeFromPlatformBranding();
+    }
+    return;
+  }
+
+  let target = findSelectableAgencyBySettingsSlug(routeSlug);
+  if (!target) {
+    target = await organizationStore.fetchBySlug(routeSlug);
+  }
+  if (!target?.id) return;
+
+  const currentId = Number(agencyStore.currentAgency?.id || 0);
+  const currentSlug = pickOrgSettingsSlug(agencyStore.currentAgency);
+  if (currentId !== Number(target.id) || currentSlug !== routeSlug) {
+    agencyStore.setCurrentAgency(target);
+  }
+  selectedAgencyId.value = String(target.id);
+  brandingStore.syncDocumentThemeFromSelectedAgency({ skipRouteSlugGuard: true });
 };
 
 /** After picking a tenant, leave global Platform Settings and open the card hub (superadmin + admin). */
@@ -1232,6 +1502,25 @@ const selectTenantFromPicker = (a) => {
   const pickId = Number(a.id);
   /** True when re-selecting the tenant that was already active before this handler runs. */
   const wasAlreadyThisTenant = Number(agencyStore.currentAgency?.id) === pickId;
+  const routeSlug = currentRouteSettingsSlug.value;
+  const targetSlug = pickOrgSettingsSlug(a);
+  const shouldHardNavigate =
+    showTenantContextUi.value &&
+    !props.disableRouteSync &&
+    ['super_admin', 'admin'].includes(String(authStore.user?.role || '').toLowerCase());
+
+  if (shouldHardNavigate) {
+    if (wasAlreadyThisTenant && routeSlug === targetSlug) {
+      const refsOnTenantHub =
+        selectedCategory.value === 'platform' && selectedItem.value === 'tenant-ws-home';
+      if (refsOnTenantHub) return;
+    }
+    agencyStore.setCurrentAgency(a);
+    selectedAgencyId.value = String(a.id);
+    brandingStore.syncDocumentThemeFromSelectedAgency({ skipRouteSlugGuard: true });
+    navigateToSettingsLocation({ org: a, category: 'platform', item: 'tenant-ws-home' });
+    return;
+  }
 
   agencyStore.setCurrentAgency(a);
   selectedAgencyId.value = String(a.id);
@@ -1271,10 +1560,21 @@ const selectTenantFromPicker = (a) => {
   navigateToTenantWorkspaceAfterPick();
 };
 
-const enterPlatformToolsOnly = () => {
+const enterPlatformToolsOnly = ({ item = 'platform-ws-home' } = {}) => {
+  const shouldHardNavigate =
+    showTenantContextUi.value &&
+    !props.disableRouteSync &&
+    isSuperAdmin.value;
+  if (shouldHardNavigate) {
+    agencyStore.setPlatformMode();
+    void brandingStore.syncDocumentThemeFromPlatformBranding();
+    navigateToSettingsLocation({ org: null, category: 'platform', item });
+    return;
+  }
+
   agencyStore.setPlatformMode();
   selectedAgencyId.value = '';
-  const q = buildSettingsReplaceQuery('platform', 'platform-ws-home');
+  const q = buildSettingsReplaceQuery('platform', item);
   if (!props.disableRouteSync && showTenantContextUi.value) {
     router.replace({ query: q });
   } else {
@@ -1285,7 +1585,7 @@ const enterPlatformToolsOnly = () => {
   selectedItem.value = null;
   nextTick(() => {
     selectedCategory.value = 'platform';
-    selectedItem.value = 'platform-ws-home';
+    selectedItem.value = item;
     expandedCategoryIds.value = new Set(['platform']);
   });
 };
@@ -1318,7 +1618,7 @@ const handleAgencySelection = async () => {
 };
 
 /** Platform settings screens that are never scoped to a tenant — URL must not carry agencyId or the route watch will restore the tenant and break platform mode + branding. */
-const PLATFORM_SOLO_ROUTE_ITEMS = new Set(['platform-ws-home', 'platform-settings', 'platform-all-agencies']);
+const PLATFORM_SOLO_ROUTE_ITEMS = new Set(['platform-ws-home', 'platform-settings', 'platform-billing', 'platform-all-agencies']);
 
 const buildSettingsReplaceQuery = (categoryId, itemId) => {
   const q = { ...route.query, category: categoryId, item: itemId };
@@ -1434,8 +1734,10 @@ onMounted(async () => {
     }
   }
 
+  await syncAgencyContextFromRouteSlug();
+
   // Optional deep-link agency selection (used by other pages/modals)
-  if (!props.disableRouteSync && showTenantContextUi.value) {
+  if (!props.disableRouteSync && showTenantContextUi.value && !currentRouteSettingsSlug.value) {
     const agencyIdParam = route.query.agencyId;
     if (agencyIdParam) {
       const id = parseInt(String(agencyIdParam), 10);
@@ -1472,6 +1774,7 @@ onMounted(async () => {
       platformSettingsCardHubActive.value &&
       categoryId === 'platform' &&
       (itemId === 'platform-ws-home' ||
+        itemId === 'platform-billing' ||
         itemId === 'platform-all-agencies' ||
         itemId === 'platform-settings' ||
         itemId === 'tenant-ws-global-platform');
@@ -1500,6 +1803,10 @@ onMounted(async () => {
     if (platformSettingsCardHubActive.value) {
       selectedCategory.value = 'platform';
       selectedItem.value = 'platform-ws-home';
+      expandedCategoryIds.value = new Set(['platform']);
+    } else if (tenantSettingsCardHubActive.value) {
+      selectedCategory.value = 'platform';
+      selectedItem.value = 'tenant-ws-home';
       expandedCategoryIds.value = new Set(['platform']);
     } else if (visibleCategories.value.length > 0) {
       const firstCategory = visibleCategories.value[0];
@@ -1593,12 +1900,12 @@ watch(() => route.query, (newQuery) => {
     const inPlatformHubHome =
       platformSettingsCardHubActive.value &&
       newQuery.category === 'platform' &&
-      ['platform-ws-home', 'platform-all-agencies', 'platform-settings', 'tenant-ws-global-platform'].includes(
+      ['platform-ws-home', 'platform-all-agencies', 'platform-settings', 'platform-billing', 'tenant-ws-global-platform'].includes(
         newQuery.item
       );
-    const category = visibleCategories.value.find((c) => c.id === newQuery.category);
-    const itemFromVisible = category?.items?.find((i) => i.id === newQuery.item);
-    if (inHubSidebar || inFullNav || itemFromVisible || inPlatformHubHome) {
+    const categoryFromNav = roleFilteredCategories.value.find((c) => c.id === newQuery.category);
+    const itemFromNav = categoryFromNav?.items?.find((i) => i.id === newQuery.item);
+    if (inHubSidebar || inFullNav || itemFromNav || inPlatformHubHome) {
       selectedCategory.value = newQuery.category;
       selectedItem.value = newQuery.item;
       expandedCategoryIds.value = new Set([String(newQuery.category)]);
@@ -1629,8 +1936,15 @@ watch(
   ([cat, item]) => {
     if (cat !== 'platform' || item !== 'tenant-ws-global-platform') return;
     if (!isSuperAdmin.value) return;
-    enterPlatformToolsOnly();
+    enterPlatformToolsOnly({ item: 'platform-settings' });
     nextTick(() => selectItem('platform', 'platform-settings'));
+  }
+);
+
+watch(
+  () => currentRouteSettingsSlug.value,
+  () => {
+    void syncAgencyContextFromRouteSlug();
   }
 );
 
@@ -1649,6 +1963,7 @@ const settingsIconMap = {
   'communications': { idField: 'communications_icon_id', pathField: 'communications_icon_path' },
   'integrations': { idField: 'integrations_icon_id', pathField: 'integrations_icon_path' },
   'platform-settings': { idField: 'platform_settings_icon_id', pathField: 'platform_settings_icon_path' },
+  'platform-billing': { idField: 'billing_icon_id', pathField: 'billing_icon_path' },
   'archive': { idField: 'archive_icon_id', pathField: 'archive_icon_path' }
 };
 
@@ -1700,7 +2015,9 @@ const prefetchSettingsSidebarIcons = async () => {
   // Preload the images for the visible sidebar entries so the page feels "done" when the loader disappears.
   const urls = [];
   const preloadCats =
-    platformSettingsCardHubActive.value ? roleFilteredCategories.value : visibleCategories.value;
+    platformSettingsCardHubActive.value || tenantSettingsCardHubActive.value
+      ? roleFilteredCategories.value
+      : visibleCategories.value;
   for (const cat of preloadCats || []) {
     for (const item of cat.items || []) {
       const u = getSettingsIconUrl(item.id);
@@ -1853,6 +2170,11 @@ const prefetchSettingsSidebarIcons = async () => {
   background: var(--bg-alt, #f8fafc);
 }
 
+.settings-main-row--no-sidebar .settings-content {
+  width: 100%;
+  max-width: none;
+}
+
 .settings-tenant-entry-gate {
   flex: 1;
   min-height: 0;
@@ -1894,7 +2216,7 @@ const prefetchSettingsSidebarIcons = async () => {
   text-align: center;
   gap: 8px;
   padding: 16px 12px;
-  border: 2px solid var(--border);
+  border: 2px solid var(--tenant-chip-tint, var(--border));
   border-radius: 14px;
   background: #fff;
   cursor: pointer;
@@ -1944,13 +2266,19 @@ const prefetchSettingsSidebarIcons = async () => {
 .tenant-logo-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
+  padding: 4px;
+  box-sizing: border-box;
 }
 
 .tenant-logo-img-sm {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
+  padding: 3px;
+  box-sizing: border-box;
 }
 
 .tenant-logo-initials {
@@ -1963,6 +2291,11 @@ const prefetchSettingsSidebarIcons = async () => {
   font-size: 14px;
   font-weight: 700;
   color: var(--text-secondary);
+}
+
+.tenant-logo-initials-on-avatar {
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
 }
 
 .tenant-logo-name {
@@ -2070,6 +2403,82 @@ const prefetchSettingsSidebarIcons = async () => {
   color: var(--text-secondary);
 }
 
+.tenant-mode-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0 6px 0;
+}
+
+.tenant-mode-toggle-btn {
+  flex: 1 1 160px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt, #f8fafc);
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: center;
+  color: var(--text-primary);
+}
+
+.tenant-mode-toggle-btn:hover:not(:disabled) {
+  border-color: var(--accent, var(--primary));
+}
+
+.tenant-mode-toggle-btn--active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+  background: #fff;
+}
+
+.tenant-mode-toggle-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.tenant-workspace-quick-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin: 6px 0 12px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tenant-quick-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 14px !important;
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, #ffffff 65%);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 6%, #ffffff 94%);
+  color: var(--primary) !important;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none !important;
+}
+
+.tenant-quick-link:hover,
+.tenant-quick-link:focus-visible {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, #ffffff 88%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 20%, #ffffff 80%);
+}
+
+.tenant-chip-platform-icon,
+.tenant-entry-platform-icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  display: block;
+}
+
 .tenant-logo-scroller {
   display: flex;
   flex-wrap: nowrap;
@@ -2089,7 +2498,7 @@ const prefetchSettingsSidebarIcons = async () => {
   gap: 6px;
   width: 88px;
   padding: 8px 6px;
-  border: 2px solid var(--border);
+  border: 2px solid var(--tenant-chip-tint, var(--border));
   border-radius: 12px;
   background: #fff;
   cursor: pointer;

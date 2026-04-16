@@ -14,8 +14,11 @@
         Defaults that apply to every tenant until overridden, plus compliance-oriented views.
       </p>
       <div class="hub-cards">
-        <button type="button" class="hub-card" @click="openArea('platform', 'platform-settings')">
-          <span class="hub-card-icon" aria-hidden="true">🔐</span>
+        <button type="button" class="hub-card hub-card--superadmin-only" @click="openArea('platform', 'platform-settings')">
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('platform-settings')" :src="iconFor('platform-settings')" alt="" class="hub-card-icon-img" />
+            <span v-else>🔐</span>
+          </span>
           <span class="hub-card-body">
             <span class="hub-card-label">Platform defaults</span>
             <span class="hub-card-desc">
@@ -24,8 +27,23 @@
             </span>
           </span>
         </button>
-        <button type="button" class="hub-card" @click="openArea('platform', 'platform-all-agencies')">
-          <span class="hub-card-icon" aria-hidden="true">🗂️</span>
+        <button type="button" class="hub-card hub-card--superadmin-only" @click="openArea('platform', 'platform-billing')">
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('platform-billing')" :src="iconFor('platform-billing')" alt="" class="hub-card-icon-img" />
+            <span v-else>💳</span>
+          </span>
+          <span class="hub-card-body">
+            <span class="hub-card-label">Platform billing</span>
+            <span class="hub-card-desc">
+              Stripe and QuickBooks readiness for tenants that should pay the platform through your merchant account.
+            </span>
+          </span>
+        </button>
+        <button type="button" class="hub-card hub-card--superadmin-only" @click="openArea('platform', 'platform-all-agencies')">
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('platform-all-agencies')" :src="iconFor('platform-all-agencies')" alt="" class="hub-card-icon-img" />
+            <span v-else>🗂️</span>
+          </span>
           <span class="hub-card-body">
             <span class="hub-card-label">All organizations</span>
             <span class="hub-card-desc">
@@ -34,14 +52,20 @@
           </span>
         </button>
         <button type="button" class="hub-card" @click="openArea('system', 'audit-center')">
-          <span class="hub-card-icon" aria-hidden="true">🛡️</span>
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('audit-center')" :src="iconFor('audit-center')" alt="" class="hub-card-icon-img" />
+            <span v-else>🛡️</span>
+          </span>
           <span class="hub-card-body">
             <span class="hub-card-label">Audit center</span>
             <span class="hub-card-desc">Review activity and access trails across the platform where enabled.</span>
           </span>
         </button>
         <button type="button" class="hub-card" @click="openArea('system', 'viewport-preview')">
-          <span class="hub-card-icon" aria-hidden="true">📱</span>
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('viewport-preview')" :src="iconFor('viewport-preview')" alt="" class="hub-card-icon-img" />
+            <span v-else>📱</span>
+          </span>
           <span class="hub-card-body">
             <span class="hub-card-label">Viewport preview</span>
             <span class="hub-card-desc">Device framing and preview defaults for portal experiences.</span>
@@ -58,24 +82,43 @@
       </p>
       <div class="hub-cards">
         <button type="button" class="hub-card" @click="openArea('general', 'company-profile')">
-          <span class="hub-card-icon" aria-hidden="true">🏢</span>
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('company-profile')" :src="iconFor('company-profile')" alt="" class="hub-card-icon-img" />
+            <span v-else>🏢</span>
+          </span>
           <span class="hub-card-body">
             <span class="hub-card-label">Company profile</span>
             <span class="hub-card-desc">Branding, features, terminology, structure — scoped once a tenant is chosen.</span>
           </span>
         </button>
         <button type="button" class="hub-card" @click="openArea('general', 'team-roles')">
-          <span class="hub-card-icon" aria-hidden="true">👥</span>
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('team-roles')" :src="iconFor('team-roles')" alt="" class="hub-card-icon-img" />
+            <span v-else>👥</span>
+          </span>
           <span class="hub-card-body">
             <span class="hub-card-label">Team &amp; roles</span>
             <span class="hub-card-desc">Who can access which areas inside a tenant.</span>
           </span>
         </button>
         <button type="button" class="hub-card" @click="openArea('general', 'billing')">
-          <span class="hub-card-icon" aria-hidden="true">💳</span>
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('billing')" :src="iconFor('billing')" alt="" class="hub-card-icon-img" />
+            <span v-else>💳</span>
+          </span>
           <span class="hub-card-body">
             <span class="hub-card-label">Billing</span>
-            <span class="hub-card-desc">Plans, catalog line items, invoices, and payment methods per tenant.</span>
+            <span class="hub-card-desc">Charges, invoices, receipts, payment methods, and billing history per tenant.</span>
+          </span>
+        </button>
+        <button type="button" class="hub-card" @click="openArea('general', 'tenant-features')">
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('company-profile')" :src="iconFor('company-profile')" alt="" class="hub-card-icon-img" />
+            <span v-else>🎛️</span>
+          </span>
+          <span class="hub-card-body">
+            <span class="hub-card-label">Features</span>
+            <span class="hub-card-desc">Open the dedicated feature matrix for enablement, pricing, and a-la-carte controls.</span>
           </span>
         </button>
       </div>
@@ -90,9 +133,13 @@
           :key="`${row.category}-${row.item}`"
           type="button"
           class="hub-card"
+          :class="{ 'hub-card--superadmin-only': row.superadminOnly }"
           @click="openArea(row.category, row.item)"
         >
-          <span class="hub-card-icon" aria-hidden="true">{{ row.icon || '⚙️' }}</span>
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor(row.item)" :src="iconFor(row.item)" alt="" class="hub-card-icon-img" />
+            <span v-else>{{ row.icon || '⚙️' }}</span>
+          </span>
           <span class="hub-card-body">
             <span class="hub-card-label">{{ row.label }}</span>
             <span v-if="row.description" class="hub-card-desc">{{ row.description }}</span>
@@ -104,14 +151,33 @@
 </template>
 
 <script setup>
+import { useBrandingStore } from '../../store/branding';
+
 const props = defineProps({
   /** { title: string, hint?: string, items: { category, item, label, icon?, description? }[] }[] */
   secondaryBlocks: { type: Array, default: () => [] },
-  onOpenArea: { type: Function, required: true }
+  onOpenArea: { type: Function, required: true },
+  /** (itemId) => url | null — from SettingsModal getSettingsIconUrl */
+  resolveItemIcon: { type: Function, default: null }
 });
+
+const brandingStore = useBrandingStore();
 
 const openArea = (category, item, agencyTab) => {
   props.onOpenArea({ category, item, agencyTab });
+};
+
+const iconFor = (itemId) => {
+  const fn = props.resolveItemIcon;
+  if (typeof fn === 'function') {
+    const u = fn(itemId);
+    if (u) return u;
+  }
+  if (itemId === 'platform-all-agencies') {
+    const u = brandingStore.getAdminQuickActionIconUrl('manage_agencies');
+    return u || null;
+  }
+  return null;
 };
 </script>
 
@@ -220,5 +286,17 @@ const openArea = (category, item, agencyTab) => {
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.45;
+}
+
+.hub-card--superadmin-only {
+  border-color: color-mix(in srgb, var(--accent, var(--primary)) 50%, var(--border));
+  background: color-mix(in srgb, var(--accent, var(--primary)) 8%, var(--bg-primary, #fff));
+}
+
+.hub-card-icon-img {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  display: block;
 }
 </style>

@@ -40,13 +40,41 @@ function buildRolloutResponse(raw) {
   };
 }
 
-function sanitizeAgencyFeatureSelections(requested, resolvedEntitlements, catalog) {
+function normalizeFeatureControls(raw) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  return {
+    allAlaCarteDisabled: value.allAlaCarteDisabled === true
+  };
+}
+
+function extractFeatureControls(featureEntitlementsJson) {
+  const raw = parseJsonMaybe(featureEntitlementsJson) || {};
+  return normalizeFeatureControls(raw.__settings);
+}
+
+function mergeFeatureSettings(featureEntitlementsJson, featureControls, nextEntitlements = null) {
+  const raw = parseJsonMaybe(featureEntitlementsJson) || {};
+  const merged = nextEntitlements && typeof nextEntitlements === 'object'
+    ? { ...raw, ...nextEntitlements }
+    : { ...raw };
+  const controls = normalizeFeatureControls(featureControls);
+  if (controls.allAlaCarteDisabled) merged.__settings = controls;
+  else delete merged.__settings;
+  return merged;
+}
+
+function sanitizeAgencyFeatureSelections(requested, resolvedEntitlements, catalog, featureControls = null) {
   const next = {};
   const payload = requested && typeof requested === 'object' ? requested : {};
+  const controls = normalizeFeatureControls(featureControls);
   for (const [key, entitlement] of Object.entries(resolvedEntitlements || {})) {
     const feature = catalog?.[key] || {};
     const incoming = payload?.[key] && typeof payload[key] === 'object' ? payload[key] : {};
-    const canSelfServe = feature.tenantSelfServe !== false && entitlement.available === true && entitlement.locked !== true;
+    const canSelfServe =
+      controls.allAlaCarteDisabled !== true &&
+      feature.tenantSelfServe !== false &&
+      entitlement.available === true &&
+      entitlement.locked !== true;
     next[key] = {
       ...entitlement,
       enabled: canSelfServe && incoming.enabled !== undefined ? incoming.enabled === true : entitlement.enabled === true,
@@ -96,6 +124,32 @@ function buildSubscriptionProviderStatus({ account, merchantMode, quickBooksStat
   };
 }
 
+function maskStripePublishableKey(key) {
+  const raw = String(key || '').trim();
+  if (!raw) return null;
+  if (raw.length <= 10) return raw;
+  return `${raw.slice(0, 7)}...${raw.slice(-4)}`;
+}
+
+export const getPlatformStripeStatus = async (req, res, next) => {
+  try {
+    const publishableKey = getStripePublishableKey();
+    const configured = isStripeConfigured() && !!publishableKey;
+    res.json({
+      configured,
+      mode: 'platform_managed',
+      provider: 'STRIPE',
+      publishableKeyPresent: !!publishableKey,
+      publishableKeyPreview: maskStripePublishableKey(publishableKey),
+      message: configured
+        ? 'Platform Stripe is ready for tenant subscription and feature billing.'
+        : 'Platform Stripe is not configured yet. Add STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY on the server.'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getBillingSettings = async (req, res, next) => {
   try {
     const { agencyId } = req.params;
@@ -134,7 +188,8 @@ export const getBillingSettings = async (req, res, next) => {
       stripeConnectStatus: stripeConnect.stripeConnectStatus,
       stripeConnectAccountId: stripeConnect.stripeConnectAccountId,
       featureCatalog,
-      featureEntitlements
+      featureEntitlements,
+      featureControls: extractFeatureControls(account?.feature_entitlements_json || null)
     });
   } catch (error) {
     next(error);
@@ -148,7 +203,16 @@ export const updateBillingSettings = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
     const { agencyId } = req.params;
-    const { billingEmail, autopayEnabled, subscriptionMerchantMode, subscriptionPaymentProvider, clientPaymentsMode, billingRollout, featureEntitlements } = req.body;
+    const {
+      billingEmail,
+      autopayEnabled,
+      subscriptionMerchantMode,
+      subscriptionPaymentProvider,
+      clientPaymentsMode,
+      billingRollout,
+      featureEntitlements,
+      featureControls
+    } = req.body;
     const parsedAgencyId = parseInt(agencyId, 10);
     const normalizedMerchantMode = subscriptionMerchantMode === undefined ? undefined : normalizeSubscriptionMerchantMode(subscriptionMerchantMode);
     const normalizedPaymentProvider = subscriptionPaymentProvider === undefined ? undefined : normalizeSubscriptionPaymentProvider(subscriptionPaymentProvider);
@@ -165,6 +229,9 @@ export const updateBillingSettings = async (req, res, next) => {
     const nextRollout = billingRollout === undefined ? existingRollout : normalizeRollout(billingRollout);
     if (billingRollout !== undefined && req.user?.role !== 'super_admin') {
       return res.status(403).json({ error: { message: 'Only super admins can activate tenant billing rollout.' } });
+    }
+    if (featureControls !== undefined && req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only super admins can change tenant feature controls.' } });
     }
     if ((merchantModeWillChange || paymentProviderWillChange) && effectiveAutopayEnabled) {
       return res.status(400).json({ error: { message: 'Turn off autopay before switching the subscription billing merchant or payment provider.' } });
@@ -241,15 +308,23 @@ export const updateBillingSettings = async (req, res, next) => {
           : null
       });
     }
-    if (featureEntitlements !== undefined) {
+    if (featureEntitlements !== undefined || featureControls !== undefined) {
       const pricingBundle = await getEffectiveBillingPricingForAgency(parsedAgencyId);
       const catalog = getFeatureCatalog(pricingBundle?.effective);
       const resolvedEntitlements = resolveFeatureEntitlements({
         pricingConfig: pricingBundle?.effective,
         featureEntitlementsJson: existingAccount?.feature_entitlements_json || null
       });
-      const nextEntitlements = sanitizeAgencyFeatureSelections(featureEntitlements, resolvedEntitlements, catalog);
-      await AgencyBillingAccount.updateFeatureEntitlements(parsedAgencyId, nextEntitlements);
+      const nextFeatureControls = featureControls === undefined
+        ? extractFeatureControls(existingAccount?.feature_entitlements_json || null)
+        : normalizeFeatureControls(featureControls);
+      const nextEntitlements = featureEntitlements !== undefined
+        ? sanitizeAgencyFeatureSelections(featureEntitlements, resolvedEntitlements, catalog, nextFeatureControls)
+        : null;
+      await AgencyBillingAccount.updateFeatureEntitlements(
+        parsedAgencyId,
+        mergeFeatureSettings(existingAccount?.feature_entitlements_json || null, nextFeatureControls, nextEntitlements)
+      );
     }
     const refreshedAccount = await AgencyBillingAccount.getByAgencyId(parsedAgencyId);
     const qboStatus = await BillingMerchantContextService.getQuickBooksStatusForAgencySubscription(agencyId);
@@ -282,6 +357,7 @@ export const updateBillingSettings = async (req, res, next) => {
       },
       featureCatalog: getFeatureCatalog(pricingBundle?.effective),
       featureEntitlements: resolvedEntitlements,
+      featureControls: extractFeatureControls(refreshedAccount?.feature_entitlements_json || null),
       quickBooksStatus: qboStatus,
       subscriptionProviderStatus: refreshedProviderStatus
     });
@@ -325,5 +401,13 @@ export const billingSettingsValidators = [
   body('featureEntitlements')
     .optional()
     .isObject()
-    .withMessage('featureEntitlements must be an object')
+    .withMessage('featureEntitlements must be an object'),
+  body('featureControls')
+    .optional()
+    .isObject()
+    .withMessage('featureControls must be an object'),
+  body('featureControls.allAlaCarteDisabled')
+    .optional()
+    .isBoolean()
+    .withMessage('featureControls.allAlaCarteDisabled must be true or false')
 ];
