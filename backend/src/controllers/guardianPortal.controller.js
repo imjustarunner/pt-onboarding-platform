@@ -55,11 +55,16 @@ async function buildGuardianPreviewPrograms(agencyId) {
   if (!parsedAgencyId) return [];
   const agency = await Agency.findById(parsedAgencyId);
   if (!agency) return [];
+  const logoUrl = agency.logo_url || agency.logoUrl || null;
   return [{
     id: parsedAgencyId,
     name: agency.name || null,
     slug: getOrgSlug(agency),
     organization_type: normOrgType(agency.organization_type),
+    logo_url: logoUrl,
+    billing_agency_id: parsedAgencyId,
+    billing_agency_name: agency.name || null,
+    billing_agency_logo_url: logoUrl,
     children: []
   }];
 }
@@ -123,6 +128,7 @@ export const getGuardianPortalOverview = async (req, res, next) => {
         name: o?.name || null,
         slug: getOrgSlug(o),
         organization_type: normOrgType(o?.organization_type),
+        logo_url: o?.logo_url || o?.logoUrl || null,
         children: []
       });
     }
@@ -137,11 +143,23 @@ export const getGuardianPortalOverview = async (req, res, next) => {
           name: c?.organization_name || null,
           slug: String(c?.organization_slug || '').trim() || null,
           organization_type: normOrgType(c?.organization_type),
+          logo_url: c?.organization_logo_url || null,
+          billing_agency_id: null,
+          billing_agency_name: null,
+          billing_agency_logo_url: null,
           children: []
         });
       }
 
       const target = byOrgId.get(orgId);
+      const orgLogo = c?.organization_logo_url || null;
+      if (orgLogo && !target.logo_url) target.logo_url = orgLogo;
+      const bid = Number(c?.agency_id);
+      if (bid && !target.billing_agency_id) {
+        target.billing_agency_id = bid;
+        target.billing_agency_name = c?.agency_name || null;
+        target.billing_agency_logo_url = c?.agency_logo_url || null;
+      }
       const meta = clientMetaById.get(Number(c?.client_id));
       target.children.push({
         client_id: Number(c?.client_id) || null,

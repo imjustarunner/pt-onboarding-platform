@@ -121,8 +121,10 @@ class ClientGuardian {
          o.name AS organization_name,
          o.organization_type AS organization_type,
          o.slug AS organization_slug,
+         o.logo_url AS organization_logo_url,
          a.name AS agency_name,
          a.slug AS agency_slug,
+         a.logo_url AS agency_logo_url,
          ${hasRelationshipType ? 'cg.relationship_type,' : "'guardian' AS relationship_type,"}
          cg.relationship_title
        FROM client_guardians cg

@@ -15,8 +15,44 @@
         </div>
       </div>
 
-      <div v-if="currentAgencyName" class="header-actions">
-        <span class="guardian-header-badge">{{ currentAgencyName }}</span>
+      <div v-if="currentAgencyName || tenantAgencyName" class="header-actions">
+        <div class="guardian-brand-cluster" aria-label="Program and agency branding">
+          <template v-if="dualBranding">
+            <div class="guardian-brand-unit" :title="tenantAgencyName || 'Agency'">
+              <img
+                v-if="tenantAgencyLogoUrl"
+                :src="tenantAgencyLogoUrl"
+                class="guardian-brand-logo"
+                alt=""
+              />
+              <span v-else class="guardian-brand-fallback">{{ tenantAgencyInitials }}</span>
+              <span class="guardian-brand-label">{{ tenantAgencyName }}</span>
+            </div>
+            <span class="guardian-brand-sep" aria-hidden="true" />
+            <div class="guardian-brand-unit" :title="currentAgencyName || 'Program'">
+              <img
+                v-if="programLogoUrl"
+                :src="programLogoUrl"
+                class="guardian-brand-logo"
+                alt=""
+              />
+              <span v-else class="guardian-brand-fallback">{{ programAgencyInitials }}</span>
+              <span class="guardian-brand-label">{{ currentAgencyName }}</span>
+            </div>
+          </template>
+          <template v-else>
+            <div class="guardian-brand-unit" :title="currentAgencyName || tenantAgencyName || 'Program'">
+              <img
+                v-if="programLogoUrl || tenantAgencyLogoUrl"
+                :src="programLogoUrl || tenantAgencyLogoUrl"
+                class="guardian-brand-logo"
+                alt=""
+              />
+              <span v-else class="guardian-brand-fallback">{{ programAgencyInitials || tenantAgencyInitials }}</span>
+              <span class="guardian-brand-label">{{ currentAgencyName || tenantAgencyName }}</span>
+            </div>
+          </template>
+        </div>
       </div>
     </div>
 
@@ -105,12 +141,15 @@
                 Waivers &amp; safety
               </router-link>
               <button
-                v-if="learningBillingVisible && selectedChild && !selectedChild.guardian_portal_locked"
+                v-if="isSuperadminPreview || (learningBillingVisible && (!selectedChild || !selectedChild.guardian_portal_locked))"
                 type="button"
                 class="btn btn-secondary btn-sm"
                 @click="activePanel = 'billing'"
               >
                 Billing
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="activePanel = 'payment_methods'">
+                Payment &amp; insurance
               </button>
             </div>
           </div>
@@ -231,21 +270,21 @@
                         <div class="quick-action-title">Register for programs</div>
                         <div class="quick-action-copy">{{ upcomingRegistrationRailSubtitle }}</div>
                       </button>
-                      <button v-if="!isSuperadminPreview" type="button" class="quick-action-card" @click="activePanel = 'documents'">
+                      <button type="button" class="quick-action-card" @click="activePanel = 'documents'">
                         <div class="quick-action-title">Documents</div>
                         <div class="quick-action-copy">Forms, signatures, and required paperwork.</div>
                       </button>
-                      <button v-if="!isSuperadminPreview" type="button" class="quick-action-card" @click="activePanel = 'dependents'">
+                      <button type="button" class="quick-action-card" @click="activePanel = 'dependents'">
                         <div class="quick-action-title">Dependents</div>
                         <div class="quick-action-copy">Emergency contacts, allergies, and health info.</div>
                       </button>
-                      <button v-if="!isSuperadminPreview" type="button" class="quick-action-card" @click="activePanel = 'payment_methods'">
+                      <button type="button" class="quick-action-card" @click="activePanel = 'payment_methods'">
                         <div class="quick-action-title">Payment &amp; insurance</div>
                         <div class="quick-action-copy">Saved cards and insurance details on file.</div>
                       </button>
                       <button v-if="isSuperadminPreview" type="button" class="quick-action-card" @click="activePanel = 'account'">
                         <div class="quick-action-title">Preview notes</div>
-                        <div class="quick-action-copy">This preview hides family-linked data while keeping the tenant dashboard shell visible.</div>
+                        <div class="quick-action-copy">Family-linked rows stay hidden; tabs above still show where billing and coverage live.</div>
                       </button>
                     </div>
                   </section>
@@ -433,7 +472,13 @@
                 <div class="panel-title">Documents</div>
                 <div class="panel-subtitle">Documents are scoped to your selected program.</div>
               </div>
-              <DocumentsTab />
+              <div v-if="isSuperadminPreview" class="guardian-preview-surface">
+                <p class="hint" style="margin: 0;">
+                  In the live guardian portal, this panel lists program-scoped documents and signatures. Platform preview does
+                  not load guardian document queues.
+                </p>
+              </div>
+              <DocumentsTab v-else />
             </template>
 
             <template v-else-if="activePanel === 'child'">
@@ -441,7 +486,14 @@
                 <div class="panel-title">Child</div>
                 <div class="panel-subtitle">Details and daily notes for the selected child.</div>
               </div>
-              <div v-if="selectedChild" class="child-panel-content">
+              <div v-if="!selectedChild" class="guardian-preview-surface">
+                <p class="hint" style="margin: 0;">
+                  {{ isSuperadminPreview
+                    ? 'Platform preview does not include linked children. In production, pick a dependent to open notes, intake PDFs, and learning progress.'
+                    : 'Select a child from the overview above to open this panel.' }}
+                </p>
+              </div>
+              <div v-else-if="selectedChild" class="child-panel-content">
                 <div v-if="selectedChild.guardian_portal_locked" class="locked-banner">
                   This client is 18 or older. Guardian-managed waivers, intake documents, and related guardian actions are
                   not available for privacy and compliance.
@@ -612,7 +664,14 @@
                 <div class="panel-title">Billing</div>
                 <div class="panel-subtitle">Learning-program-only billing for the selected child.</div>
               </div>
+              <div v-if="isSuperadminPreview" class="guardian-preview-surface">
+                <p class="hint" style="margin: 0;">
+                  Guardians with a selected child see session charges, balances, and learning billing here when the program has
+                  billing enabled. This preview does not load ledger data.
+                </p>
+              </div>
               <GuardianBillingTab
+                v-else
                 :agency-id="currentAgencyId"
                 :client-id="selectedChildId"
               />
@@ -623,7 +682,14 @@
                 <div class="panel-title">Dependents</div>
                 <div class="panel-subtitle">Health, allergy, and emergency contact information for each child on your account.</div>
               </div>
+              <div v-if="isSuperadminPreview" class="guardian-preview-surface">
+                <p class="hint" style="margin: 0;">
+                  Dependent health and emergency contacts load here for real guardian accounts. Preview keeps this area empty so
+                  tenant PHI is not shown.
+                </p>
+              </div>
               <GuardianDependentsTab
+                v-else
                 :agency-id="currentAgencyId"
                 :guardian-user-id="authStore.user?.id"
               />
@@ -634,7 +700,14 @@
                 <div class="panel-title">Payment &amp; Insurance</div>
                 <div class="panel-subtitle">Saved payment methods and insurance information on file.</div>
               </div>
+              <div v-if="isSuperadminPreview" class="guardian-preview-surface">
+                <p class="hint" style="margin: 0;">
+                  Saved cards (processor tokens) and insurance profiles from enrollment appear here for guardians. Preview does
+                  not query payment or coverage records.
+                </p>
+              </div>
               <GuardianPaymentInsuranceTab
+                v-else
                 :agency-id="currentAgencyId"
                 :guardian-user-id="authStore.user?.id"
               />
@@ -855,19 +928,51 @@ const selectedChildFullName = computed(() => {
 
 const currentAgencyName = computed(() => String(agencyStore.currentAgency?.name || '').trim() || '');
 
+const currentProgramRow = computed(() => {
+  const id = Number(agencyStore.currentAgency?.id || 0);
+  return (programs.value || []).find((p) => Number(p?.id) === id) || null;
+});
+
+const programLogoUrl = computed(() => {
+  const fromStore = String(agencyStore.currentAgency?.logo_url || agencyStore.currentAgency?.logoUrl || '').trim();
+  if (fromStore) return fromStore;
+  return String(currentProgramRow.value?.logo_url || '').trim() || null;
+});
+
+const tenantAgencyName = computed(() => String(currentProgramRow.value?.billing_agency_name || '').trim());
+
+const tenantAgencyLogoUrl = computed(() => String(currentProgramRow.value?.billing_agency_logo_url || '').trim() || null);
+
+function initialsFromLabel(name) {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return '';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  const a = parts[0][0] || '';
+  const b = parts[parts.length - 1][0] || '';
+  return `${a}${b}`.toUpperCase() || '?';
+}
+
+const tenantAgencyInitials = computed(() => initialsFromLabel(tenantAgencyName.value) || 'A');
+
+const programAgencyInitials = computed(() => initialsFromLabel(currentAgencyName.value) || 'P');
+
+const dualBranding = computed(() => {
+  const progId = Number(agencyStore.currentAgency?.id || 0);
+  const billId = Number(currentProgramRow.value?.billing_agency_id || 0);
+  return Boolean(progId && billId && billId !== progId);
+});
+
 const dashboardTabs = computed(() => {
-  if (isSuperadminPreview.value) {
-    const previewTabs = [
-      { key: 'overview', label: 'Overview', meta: 'Preview shell' },
-      { key: 'registrations', label: 'Registrations', meta: upcomingRegistrationRailSubtitle.value }
-    ];
-    previewTabs.push({ key: 'account', label: 'Account', meta: 'Profile and security shell' });
-    return previewTabs;
-  }
+  const preview = isSuperadminPreview.value;
+  const pm = (normal, shell) => (preview ? shell : normal);
+
   const tabs = [
-    { key: 'overview', label: 'Overview', meta: 'Home base' },
+    { key: 'overview', label: 'Overview', meta: pm('Home base', 'Preview shell') },
     { key: 'registrations', label: 'Registrations', meta: upcomingRegistrationRailSubtitle.value },
-    { key: 'documents', label: 'Documents', meta: 'Forms and signatures' }
+    { key: 'documents', label: 'Documents', meta: pm('Forms and signatures', 'Where forms live') }
   ];
   if (selectedChild.value) {
     tabs.push({
@@ -875,14 +980,24 @@ const dashboardTabs = computed(() => {
       label: 'Child details',
       meta: childDisplayName(selectedChild.value)
     });
+  } else if (preview) {
+    tabs.push({ key: 'child', label: 'Child details', meta: 'Hidden in preview' });
   }
-  if (learningBillingVisible.value) {
-    tabs.push({ key: 'billing', label: 'Billing', meta: 'Learning program charges' });
+  if (learningBillingVisible.value || preview) {
+    tabs.push({
+      key: 'billing',
+      label: 'Billing',
+      meta: pm('Learning program charges', 'Learning charges (live data)')
+    });
   }
   tabs.push(
-    { key: 'dependents', label: 'Dependents', meta: 'Health and emergency info' },
-    { key: 'payment_methods', label: 'Payment & insurance', meta: 'Cards and coverage' },
-    { key: 'account', label: 'Account', meta: 'Profile and security' }
+    { key: 'dependents', label: 'Dependents', meta: pm('Health and emergency info', 'Health shell (preview)') },
+    {
+      key: 'payment_methods',
+      label: 'Payment & insurance',
+      meta: pm('Cards and coverage', 'Cards & coverage (live data)')
+    },
+    { key: 'account', label: 'Account', meta: pm('Profile and security', 'Profile and security shell') }
   );
   return tabs;
 });
@@ -1621,6 +1736,74 @@ watch(
   display: flex;
   gap: 12px;
   align-items: flex-end;
+}
+
+.guardian-brand-cluster {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.guardian-brand-unit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(244, 114, 65, 0.16);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  max-width: min(320px, 100%);
+}
+
+.guardian-brand-logo {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.guardian-brand-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(249, 115, 22, 0.12);
+  color: #9a3412;
+  font-weight: 800;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.guardian-brand-label {
+  font-weight: 700;
+  font-size: 13px;
+  color: #7c2d12;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guardian-brand-sep {
+  width: 1px;
+  height: 28px;
+  background: rgba(148, 163, 184, 0.45);
+  flex-shrink: 0;
+}
+
+.guardian-preview-surface {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.25);
 }
 
 .loading {
