@@ -48,20 +48,35 @@
           </template>
 
           <div v-show="dashHubMode && hubRailItems.length" class="sbep-hub">
-            <p class="sbep-hub-tagline muted small">Choose a section — pick one to open the sidebar layout.</p>
-            <div class="sbep-hub-grid" role="navigation" aria-label="Event sections">
+            <section class="sbep-hub-hero" aria-labelledby="sbep-hub-hero-title">
+              <p class="sbep-hub-eyebrow">Event workspace</p>
+              <h2 id="sbep-hub-hero-title" class="sbep-hub-hero-title">Pick where to work next</h2>
+              <p class="sbep-hub-hero-sub">
+                Same tools as before, organized like a dashboard: open a section below, then use the slim rail to hop
+                between areas without hunting for icons.
+              </p>
+              <div v-if="hubQuickStats.length" class="sbep-hub-stats" role="list">
+                <div v-for="s in hubQuickStats" :key="s.label" class="sbep-hub-stat" role="listitem">
+                  <span class="sbep-hub-stat-val">{{ s.value }}</span>
+                  <span class="sbep-hub-stat-lbl">{{ s.label }}</span>
+                </div>
+              </div>
+            </section>
+            <p class="sbep-hub-section-label">Sections</p>
+            <div class="sbep-hub-panels" role="navigation" aria-label="Event sections">
               <button
                 v-for="item in hubRailItems"
                 :key="item.id"
                 type="button"
-                class="sbep-hub-card"
+                class="sbep-hub-panel"
                 @click="selectRailSection(item.id)"
               >
-                <span class="sbep-hub-ico-wrap">
-                  <img v-if="item.iconUrl" :src="item.iconUrl" alt="" class="sbep-hub-ico" />
+                <span class="sbep-hub-panel-top">
+                  <span class="sbep-hub-panel-title">{{ item.label }}</span>
+                  <span class="sbep-hub-panel-arrow" aria-hidden="true">→</span>
                 </span>
-                <span class="sbep-hub-card-title">{{ item.label }}</span>
-                <span class="sbep-hub-card-hint">Open <span aria-hidden="true">→</span></span>
+                <span class="sbep-hub-panel-teaser">{{ sectionTeaser(item.id) }}</span>
+                <span class="sbep-hub-panel-cta">Open workspace</span>
               </button>
             </div>
           </div>
@@ -82,9 +97,7 @@
                   :aria-current="railActive === item.id ? 'true' : undefined"
                   @click="selectRailSection(item.id)"
                 >
-                  <span class="sbep-rail-ico-wrap">
-                    <img v-if="item.iconUrl" :src="item.iconUrl" alt="" class="sbep-rail-ico" />
-                  </span>
+                  <span class="sbep-rail-mark" aria-hidden="true">{{ railTextMark(item.shortLabel) }}</span>
                   <span class="sbep-rail-lbl">{{ item.shortLabel }}</span>
                 </button>
               </nav>
@@ -96,11 +109,11 @@
               rail-mode
               section-id="home"
               title="Home"
-              :icon-url="sectionIconUrl('home')"
+              icon-url=""
             >
               <p class="muted small sbep-card-lead">
-                Overview of this Skill Builders program event. Use the icons on the left to jump to schedule, client
-                management, work schedule, and more.
+                Overview of this program event. Use the section rail on the left to move between schedule, roster, materials,
+                and the rest of the workspace.
               </p>
               <ul v-if="detail.skillsGroup" class="sbep-list muted small sbep-home-meta">
                 <li>
@@ -127,7 +140,7 @@
               rail-mode
               section-id="schedule"
               title="Schedule"
-              :icon-url="sectionIconUrl('schedule')"
+              icon-url=""
             >
               <div v-if="detail.calendar && (detail.calendar.googleCalendarUrl || detail.calendar.icsUrl)" class="sbep-sched-block">
                 <p class="sbep-subh">Add to calendar</p>
@@ -302,7 +315,7 @@
               rail-mode
               section-id="providers"
               title="Providers"
-              :icon-url="sectionIconUrl('providers')"
+              icon-url=""
               :badge="`${detail.providers?.length || 0} on roster`"
             >
               <p class="muted small sbep-card-lead">
@@ -322,7 +335,7 @@
               rail-mode
               section-id="clients"
               title="Client Management"
-              :icon-url="sectionIconUrl('clients')"
+              icon-url=""
               :badge="`${detail.clients?.length || 0}`"
             >
               <p class="muted small sbep-card-lead">
@@ -479,7 +492,7 @@
               rail-mode
               section-id="participants"
               title="Participants"
-              :icon-url="sectionIconUrl('participants')"
+              icon-url=""
               :badge="`${genericParticipants.length}`"
             >
               <p class="muted small sbep-card-lead">
@@ -565,7 +578,7 @@
               rail-mode
               section-id="materials"
               title="Materials"
-              :icon-url="sectionIconUrl('materials')"
+              icon-url=""
             >
               <SkillBuildersSessionCurriculumMaterials
                 v-if="eventBillingAgencyId && eventId"
@@ -586,7 +599,7 @@
               rail-mode
               section-id="clinical_notes"
               title="Clinical Aid"
-              :icon-url="sectionIconUrl('clinical_notes')"
+              icon-url=""
             >
               <p class="muted small sbep-card-lead">
                 H2014 copy-aid notes for this event (encrypted; expire after 14 days — warning in the last 2 days). Matches the
@@ -612,7 +625,7 @@
               rail-mode
               section-id="registrations"
               title="Registrations"
-              :icon-url="sectionIconUrl('registrations')"
+              icon-url=""
               badge="Open"
             >
               <p class="muted small sbep-card-lead">
@@ -712,7 +725,7 @@
               rail-mode
               section-id="work-schedule"
               title="Event Assignments"
-              :icon-url="sectionIconUrl('work-schedule')"
+              icon-url=""
             >
               <p class="muted small sbep-card-lead">
                 One row per program day that matches your week pattern. Assign expected staff per session; kiosk clock
@@ -935,7 +948,7 @@
               rail-mode
               section-id="my-work"
               title="My work schedule"
-              :icon-url="sectionIconUrl('my-work')"
+              icon-url=""
             >
               <p class="muted small sbep-card-lead">Your Skill Builder availability, group meetings, and assigned program events.</p>
               <SkillBuildersWorkSchedulePanel
@@ -952,7 +965,7 @@
               rail-mode
               section-id="attendance"
               title="Provider attendance"
-              :icon-url="sectionIconUrl('attendance')"
+              icon-url=""
             >
               <p v-if="viewerCaps.isAssignedProvider" class="muted small sbep-card-lead">Your kiosk punches for this event.</p>
               <p v-else class="muted small sbep-card-lead">Provider punches recorded for this event.</p>
@@ -971,7 +984,7 @@
               rail-mode
               section-id="kiosk"
               title="Kiosk / time"
-              :icon-url="sectionIconUrl('kiosk')"
+              icon-url=""
             >
               <p class="muted sbep-card-lead">
                 Direct hours: <strong>{{ detail.event?.skillBuilderDirectHours ?? '—' }}</strong>
@@ -1009,7 +1022,7 @@
               rail-mode
               section-id="learning"
               title="Learning"
-              :icon-url="sectionIconUrl('learning')"
+              icon-url=""
             >
               <p class="muted small sbep-card-lead">
                 Linked learning class ID <strong>{{ detail.event.learningProgramClassId }}</strong>. View standards-aligned
@@ -1177,7 +1190,7 @@
               rail-mode
               section-id="event-chat"
               title="Event chat"
-              :icon-url="sectionIconUrl('event-chat')"
+              icon-url=""
             >
               <p class="muted small sbep-card-lead">Linked to your agency chat. Everyone with event access can post here.</p>
               <div v-if="chatLoading" class="muted">Loading chat…</div>
@@ -1233,14 +1246,12 @@ import SkillBuildersSessionCurriculumMaterials from '../../components/skillBuild
 import SkillBuildersEventEditModal from '../../components/skillBuilders/SkillBuildersEventEditModal.vue';
 import SkillBuildersEventProvidersGrid from '../../components/skillBuilders/SkillBuildersEventProvidersGrid.vue';
 import SkillBuildersClinicalNotesHubPanel from '../../components/skillBuilders/SkillBuildersClinicalNotesHubPanel.vue';
-import { useBrandingStore } from '../../store/branding';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
 const route = useRoute();
 const router = useRouter();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
-const brandingStore = useBrandingStore();
 
 const loading = ref(false);
 const error = ref('');
@@ -1525,70 +1536,79 @@ const railActive = computed(() => {
   return items.some((i) => String(i.id) === String(q)) ? q : '';
 });
 
-/** Uses My Dashboard / School Portal icon keys (agency overrides in branding). */
-function sectionIconUrl(sectionKey) {
-  if (sectionKey === 'providers') {
-    const school = brandingStore.getSchoolPortalCardIconUrl('providers');
-    return school || brandingStore.getDashboardCardIconUrl('staff');
-  }
-  if (sectionKey === 'clinical_notes') {
-    return brandingStore.getDashboardCardIconUrl('supervision', eventBillingAgencyId.value);
-  }
-  const map = {
-    home: 'my',
-    schedule: 'my_schedule',
-    calendar: 'my_schedule',
-    clients: 'clients',
-    participants: 'clients',
-    materials: 'documents',
-    'session-details': 'my_schedule',
-    'session-virtual': 'communications',
-    details: 'checklist',
-    'work-schedule': 'momentum_list',
-    'my-work': 'my_schedule',
-    attendance: 'payroll',
-    kiosk: 'payroll',
-    'event-chat': 'chats',
-    learning: 'training',
-    registrations: 'submit'
+function sectionTeaser(sectionId) {
+  const lines = {
+    schedule: 'Calendar links, session grid, locations, and virtual join windows.',
+    providers: 'Staff roster and directory-style cards for this event.',
+    clients: 'Program roster, attendance, and coordinator tools.',
+    participants: 'Participant list for non–skills-group program events.',
+    clinical_notes: 'Session notes, H2014-style tools, and copy aids.',
+    materials: 'Documents, PDFs, and the shared program library.',
+    registrations: 'Enrollment, capacity, and registration-aware actions.',
+    'work-schedule': 'Assign providers to dates and roles for this event.',
+    'my-work': 'Your personal assignments and dates.',
+    attendance: 'Clock activity, hours, and attendance review.',
+    kiosk: 'Shared kiosk clock in/out for this event.',
+    learning: 'Learning class tools, goals, and insights when linked.',
+    'event-chat': 'Discussion and updates scoped to this event.'
   };
-  const id = map[sectionKey];
-  return id ? brandingStore.getDashboardCardIconUrl(id) : '';
+  return lines[sectionId] || 'Open this part of the workspace.';
 }
+
+function railTextMark(shortLabel) {
+  const s = String(shortLabel || '').trim();
+  if (!s) return '·';
+  const parts = s.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${(parts[0][0] || '').toUpperCase()}${(parts[parts.length - 1][0] || '').toUpperCase()}` || '·';
+}
+
+const hubQuickStats = computed(() => {
+  const d = detail.value;
+  if (!d) return [];
+  const stats = [];
+  const nMeet = (d.meetings || []).length;
+  if (nMeet) stats.push({ label: 'Weekly pattern rows', value: String(nMeet) });
+  const nProv = (d.providers || []).length;
+  stats.push({ label: 'Providers on roster', value: String(nProv) });
+  if (d.skillsGroup) {
+    const nCli = (d.clients || []).length;
+    stats.push({ label: 'Clients on roster', value: String(nCli) });
+  } else if (genericParticipants.value?.length) {
+    stats.push({ label: 'Participants', value: String(genericParticipants.value.length) });
+  }
+  const nSess = sessions.value.length;
+  if (nSess) stats.push({ label: 'Scheduled sessions', value: String(nSess) });
+  if (d.event?.registrationEligible) stats.push({ label: 'Registrations', value: 'On' });
+  return stats.slice(0, 5);
+});
 
 const eventRailItems = computed(() => {
   const d = detail.value;
   if (!d) return [];
   const v = viewerCaps.value;
   const items = [];
-  const push = (id, label, shortLabel, iconKey, ok) => {
+  const push = (id, label, shortLabel, ok) => {
     if (!ok) return;
     items.push({
       id,
       label,
-      shortLabel: shortLabel || label,
-      iconUrl: sectionIconUrl(iconKey)
+      shortLabel: shortLabel || label
     });
   };
 
-  push('home', 'Home', 'Home', 'home', true);
+  push('home', 'Home', 'Home', true);
 
   const cal = d.calendar;
   const hasCal = !!(cal && (cal.googleCalendarUrl || cal.icsUrl));
-  push('schedule', 'Schedule', 'Schedule', 'schedule', hasCal || !!d.skillsGroup);
+  push('schedule', 'Schedule', 'Schedule', hasCal || !!d.skillsGroup);
 
   const nProv = (d.providers || []).length;
-  push('providers', 'Providers', 'Providers', 'providers', nProv > 0 || !!v.canManageCompanyEvent);
+  push('providers', 'Providers', 'Providers', nProv > 0 || !!v.canManageCompanyEvent);
 
   const nCli = (d.clients || []).length;
-  push('clients', 'Client Management', 'Clients', 'clients', !!d.skillsGroup && nCli > 0);
-  push(
-    'participants',
-    'Participants',
-    'Participants',
-    'participants',
-    !d.skillsGroup && !!v.canManageCompanyEvent
-  );
+  push('clients', 'Client Management', 'Clients', !!d.skillsGroup && nCli > 0);
+  push('participants', 'Participants', 'Participants', !d.skillsGroup && !!v.canManageCompanyEvent);
 
   const role = String(authStore.user?.role || '').toLowerCase();
   const isGuardianPortalUser = role === 'guardian' || role === 'client_guardian';
@@ -1597,33 +1617,33 @@ const eventRailItems = computed(() => {
     clinicalNotesEnabled.value &&
     !!d.skillsGroup &&
     !!(v.isAssignedProvider || v.canManageTeamSchedules || v.canManageCompanyEvent);
-  push('clinical_notes', 'Clinical Aid', 'Aid', 'clinical_notes', showClinicalAidCard);
+  push('clinical_notes', 'Clinical Aid', 'Aid', showClinicalAidCard);
 
-  push('materials', 'Materials', 'Materials', 'materials', true);
+  push('materials', 'Materials', 'Materials', true);
 
   if (d.event?.registrationEligible) {
-    push('registrations', 'Registrations', 'Registrations', 'registrations', true);
+    push('registrations', 'Registrations', 'Registrations', true);
   }
 
   if (d.skillsGroup) {
-    push('work-schedule', 'Event Assignments', 'Assign', 'work-schedule', true);
+    push('work-schedule', 'Event Assignments', 'Assign', true);
   }
 
   if (v.isAssignedProvider && eventBillingAgencyId.value) {
-    push('my-work', 'My work schedule', 'My work', 'my-work', true);
+    push('my-work', 'My work schedule', 'My work', true);
   }
   if (v.isAssignedProvider || v.canManageTeamSchedules) {
-    push('attendance', 'Provider attendance', 'Attendance', 'attendance', true);
+    push('attendance', 'Provider attendance', 'Attendance', true);
   }
   if (d.showKioskClockActions) {
-    push('kiosk', 'Kiosk / time', 'Kiosk', 'kiosk', true);
+    push('kiosk', 'Kiosk / time', 'Kiosk', true);
   }
 
   if (d.event?.learningProgramClassId) {
-    push('learning', 'Learning', 'Learning', 'learning', true);
+    push('learning', 'Learning', 'Learning', true);
   }
 
-  push('event-chat', 'Event chat', 'Chat', 'event-chat', true);
+  push('event-chat', 'Event chat', 'Chat', true);
 
   return items;
 });
@@ -3187,76 +3207,146 @@ watch(
 }
 .sbep-hub {
   width: 100%;
-  max-width: 920px;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 8px 16px 32px;
-}
-.sbep-hub-tagline {
-  text-align: center;
-  margin: 0 0 16px;
-  max-width: 28rem;
-  margin-left: auto;
-  margin-right: auto;
-}
-.sbep-hub-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 14px;
-  justify-content: center;
-}
-.sbep-hub-card {
+  padding: 4px 0 40px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  text-align: center;
-  padding: 18px 14px 16px;
-  border: 1px solid var(--border, #e2e8f0);
+  gap: 22px;
+}
+.sbep-hub-hero {
+  border-radius: 28px;
+  padding: 26px 26px 24px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.98), transparent 45%),
+    linear-gradient(135deg, #fff4e8 0%, #ffe1dc 40%, #eef6ff 100%);
+  border: 1px solid rgba(244, 114, 65, 0.16);
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.08);
+}
+.sbep-hub-eyebrow {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #c2410c;
+}
+.sbep-hub-hero-title {
+  margin: 0 0 10px;
+  font-size: clamp(1.45rem, 2.6vw, 2rem);
+  font-weight: 800;
+  color: #1f2a44;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+.sbep-hub-hero-sub {
+  margin: 0;
+  max-width: 52rem;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: #52607a;
+}
+.sbep-hub-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+.sbep-hub-stat {
+  padding: 14px 14px 12px;
   border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+.sbep-hub-stat-val {
+  display: block;
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #1f2a44;
+  line-height: 1.1;
+}
+.sbep-hub-stat-lbl {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.sbep-hub-section-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.sbep-hub-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+.sbep-hub-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+  padding: 18px 18px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 18px;
   background: #fff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
   cursor: pointer;
   font: inherit;
-  color: var(--text-primary, #0f172a);
+  color: #0f172a;
   transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    transform 0.12s ease;
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.14s ease;
 }
-.sbep-hub-card:hover {
-  border-color: rgba(15, 118, 110, 0.45);
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+.sbep-hub-panel:hover {
+  border-color: rgba(249, 115, 22, 0.35);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.1);
   transform: translateY(-2px);
 }
-.sbep-hub-card:focus-visible {
-  outline: 2px solid var(--primary, #0f766e);
+.sbep-hub-panel:focus-visible {
+  outline: 2px solid #ea580c;
   outline-offset: 2px;
 }
-.sbep-hub-ico-wrap {
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  background: rgba(15, 118, 110, 0.08);
-  border: 1px solid var(--border, #e2e8f0);
+.sbep-hub-panel-top {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
 }
-.sbep-hub-ico {
-  width: 32px;
-  height: 32px;
-  object-fit: contain;
-}
-.sbep-hub-card-title {
+.sbep-hub-panel-title {
   font-weight: 800;
-  font-size: 0.88rem;
+  font-size: 1.02rem;
   line-height: 1.25;
-  color: var(--primary, #0f766e);
+  color: #c2410c;
 }
-.sbep-hub-card-hint {
+.sbep-hub-panel-arrow {
+  flex-shrink: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fb923c;
+  margin-top: 2px;
+}
+.sbep-hub-panel-teaser {
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: #64748b;
+}
+.sbep-hub-panel-cta {
+  margin-top: 4px;
   font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text-secondary, #64748b);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
 }
 .sbep-rail-column {
   flex: 0 0 auto;
@@ -3336,65 +3426,70 @@ watch(
   padding: 0 2px 24px;
 }
 .sbep-rail {
-  flex: 0 0 88px;
+  flex: 0 0 108px;
   position: sticky;
   top: 8px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 4px;
-  border-radius: 16px;
-  background: rgba(15, 118, 110, 0.08);
-  border: 1px solid var(--border, #e2e8f0);
+  align-items: stretch;
+  gap: 6px;
+  padding: 10px 8px;
+  border-radius: 18px;
+  background: rgba(255, 247, 237, 0.65);
+  border: 1px solid rgba(244, 114, 65, 0.14);
 }
 .sbep-rail-item {
   border: none;
   background: transparent;
-  padding: 0;
-  border-radius: 10px;
+  padding: 8px 6px;
+  border-radius: 12px;
   cursor: pointer;
-  display: grid;
-  gap: 4px;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   width: 100%;
-  color: var(--text-secondary, #64748b);
-  transition: color 0.15s ease, transform 0.12s ease;
+  color: #64748b;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    transform 0.12s ease;
 }
 .sbep-rail-item:hover {
-  color: var(--primary, #0f766e);
+  color: #c2410c;
+  background: rgba(255, 255, 255, 0.55);
   transform: translateY(-1px);
 }
 .sbep-rail-item.active {
-  color: var(--primary, #0f766e);
+  color: #9a3412;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
   transform: none;
 }
-.sbep-rail-ico-wrap {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  background: #fff;
-  border: 1px solid var(--border, #e2e8f0);
+.sbep-rail-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(251, 146, 60, 0.15);
+  border: 1px solid rgba(251, 146, 60, 0.25);
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #c2410c;
+  letter-spacing: 0.02em;
 }
-.sbep-rail-item.active .sbep-rail-ico-wrap {
-  border-color: rgba(15, 118, 110, 0.45);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
-}
-.sbep-rail-ico {
-  width: 30px;
-  height: 30px;
-  object-fit: contain;
+.sbep-rail-item.active .sbep-rail-mark {
+  background: rgba(251, 146, 60, 0.28);
+  border-color: rgba(234, 88, 12, 0.35);
 }
 .sbep-rail-lbl {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   font-weight: 700;
-  line-height: 1.15;
+  line-height: 1.2;
   text-align: center;
-  max-width: 84px;
+  max-width: 96px;
   padding: 0 2px;
 }
 .sbep-rail-content {
@@ -3420,8 +3515,11 @@ watch(
   }
 }
 @media (max-width: 560px) {
-  .sbep-hub-grid {
+  .sbep-hub-panels {
     grid-template-columns: 1fr;
+  }
+  .sbep-hub-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .sbep-dash-layout {
     flex-direction: column;

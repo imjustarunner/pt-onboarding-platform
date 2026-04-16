@@ -36,11 +36,14 @@ defineProps({
   width: 100%;
 }
 .sbep-layout-header {
-  background: linear-gradient(135deg, rgba(15, 118, 110, 0.08) 0%, rgba(255, 255, 255, 0.95) 60%);
-  border-bottom: 1px solid var(--border, #e2e8f0);
-  margin: 0 0 20px;
-  padding: 20px 0 18px;
-  border-radius: 0 0 16px 16px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.92), transparent 42%),
+    linear-gradient(135deg, rgba(255, 244, 232, 0.95) 0%, rgba(255, 225, 220, 0.55) 38%, rgba(238, 246, 255, 0.9) 100%);
+  border-bottom: 1px solid rgba(244, 114, 65, 0.12);
+  margin: 0 0 22px;
+  padding: 22px 0 20px;
+  border-radius: 0 0 20px 20px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
 }
 .sbep-layout-header-inner {
   max-width: 1100px;
@@ -65,20 +68,20 @@ defineProps({
   min-width: 0;
 }
 .sbep-layout-kicker {
-  margin: 0 0 4px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  margin: 0 0 6px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--primary, #0f766e);
-  opacity: 0.9;
+  color: #c2410c;
 }
 .sbep-layout-title {
   margin: 0;
-  font-size: clamp(1.25rem, 2.5vw, 1.65rem);
+  font-size: clamp(1.35rem, 2.8vw, 1.85rem);
   font-weight: 800;
-  color: var(--text-primary, #0f172a);
-  line-height: 1.2;
+  color: #1f2a44;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
 }
 .sbep-layout-sub {
   margin: 8px 0 0;
