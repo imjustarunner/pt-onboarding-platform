@@ -7,8 +7,8 @@
       </p>
     </div>
 
-    <!-- Super admin agency filter -->
-    <div v-if="authStore.user?.role === 'super_admin'" class="archive-filters">
+    <!-- Super admin agency filter (hidden when Settings locks to one tenant) -->
+    <div v-if="authStore.user?.role === 'super_admin' && !lockArchiveToScopedTenant" class="archive-filters">
       <label class="filter-label">Agency:</label>
       <select v-model="archiveAgencyFilter" class="filter-select">
         <option value="">All agencies</option>
@@ -16,6 +16,9 @@
           {{ a.name }}
         </option>
       </select>
+    </div>
+    <div v-else-if="authStore.user?.role === 'super_admin' && lockArchiveToScopedTenant" class="archive-filters archive-filters-locked muted">
+      Archive scope: {{ scopedTenantLabel }}
     </div>
 
     <div class="archive-tabs">
@@ -441,8 +444,23 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 
+const props = defineProps({
+  scopedAgencyId: { type: Number, default: null }
+});
+
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+
+const lockArchiveToScopedTenant = computed(() => {
+  const id = Number(props.scopedAgencyId || 0);
+  return Number.isFinite(id) && id > 0;
+});
+
+const scopedTenantLabel = computed(() => {
+  const id = Number(props.scopedAgencyId || 0);
+  const hit = (agencyStore.agencies || []).find((a) => Number(a?.id) === id);
+  return hit?.name ? `${hit.name} (#${id})` : `Agency #${id}`;
+});
 
 const activeTab = ref('training-focuses');
 const archivedTrainingFocuses = ref([]);
@@ -555,6 +573,8 @@ const clearSelection = (tabId) => {
 };
 
 const getSelectedArchivedByAgencyId = () => {
+  const scoped = Number(props.scopedAgencyId || 0);
+  if (Number.isFinite(scoped) && scoped > 0) return scoped;
   if (authStore.user?.role === 'super_admin') {
     const raw = String(archiveAgencyFilter.value || '').trim();
     const id = raw ? parseInt(raw, 10) : null;
@@ -1087,9 +1107,24 @@ onMounted(async () => {
   } else {
     await agencyStore.fetchUserAgencies();
   }
+  const sid = Number(props.scopedAgencyId || 0);
+  if (Number.isFinite(sid) && sid > 0) {
+    archiveAgencyFilter.value = String(sid);
+  }
   // Fetch archived items
   await fetchAllArchived();
 });
+
+watch(
+  () => props.scopedAgencyId,
+  (nid) => {
+    const sid = Number(nid || 0);
+    if (Number.isFinite(sid) && sid > 0) {
+      archiveAgencyFilter.value = String(sid);
+      fetchAllArchived();
+    }
+  }
+);
 </script>
 
 <style scoped>

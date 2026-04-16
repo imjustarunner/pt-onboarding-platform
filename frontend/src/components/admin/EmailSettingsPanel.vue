@@ -84,13 +84,14 @@
         <div class="settings-row">
           <div class="settings-label">Agency</div>
           <div class="settings-value">
-            <select v-model="senderAgencyId" class="form-select" :disabled="senderLoading">
-              <option v-if="canEditPlatform" value="">Platform (default)</option>
+            <select v-model="senderAgencyId" class="form-select" :disabled="senderLoading || lockToScopedTenant">
+              <option v-if="canEditPlatform && !lockToScopedTenant" value="">Platform (default)</option>
               <option v-for="agency in agencyRows" :key="agency.agencyId" :value="String(agency.agencyId)">
                 {{ agency.name }}
               </option>
             </select>
-            <small v-if="!canEditPlatform" class="hint">Sender identities are scoped to your agency.</small>
+            <small v-if="lockToScopedTenant" class="hint">Locked to the tenant selected in Settings.</small>
+            <small v-else-if="!canEditPlatform" class="hint">Sender identities are scoped to your agency.</small>
           </div>
         </div>
 
@@ -438,9 +439,20 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 
+const props = defineProps({
+  scopedAgencyId: { type: Number, default: null }
+});
+
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
+
+const lockToScopedTenant = computed(() => {
+  const id = Number(props.scopedAgencyId || 0);
+  return Number.isFinite(id) && id > 0;
+});
 
 const loading = ref(false);
 const saving = ref(false);
@@ -585,6 +597,30 @@ const loadSettings = async () => {
       aiMatchConfidenceThreshold: Number(a.aiMatchConfidenceThreshold ?? 0.75),
       aiAllowedSenderIdentityKeysCsv: toCsv(a.aiAllowedSenderIdentityKeys || [])
     }));
+    if (lockToScopedTenant.value) {
+      const sid = Number(props.scopedAgencyId || 0);
+      let filtered = agencyRows.value.filter((r) => Number(r.agencyId) === sid);
+      if (filtered.length === 0) {
+        const nm =
+          agencyStore.currentAgency && Number(agencyStore.currentAgency.id) === sid
+            ? agencyStore.currentAgency.name
+            : `Agency ${sid}`;
+        filtered = [
+          {
+            agencyId: sid,
+            name: nm,
+            notificationsEnabled: true,
+            aiDraftPolicyMode: 'human_only',
+            allowSchoolOverrides: true,
+            aiAllowedIntentClasses: ['school_status_request'],
+            aiMatchConfidenceThreshold: 0.75,
+            aiAllowedSenderIdentityKeysCsv: ''
+          }
+        ];
+      }
+      agencyRows.value = filtered;
+      senderAgencyId.value = String(sid);
+    }
     schoolOverridesByAgency.value = {};
     for (const agency of agencyRows.value) {
       const key = String(agency.agencyId);
@@ -914,6 +950,13 @@ onMounted(loadSettings);
 watch([senderAgencyId, includePlatformDefaults], () => {
   loadSenderIdentities();
 });
+
+watch(
+  () => props.scopedAgencyId,
+  () => {
+    loadSettings();
+  }
+);
 </script>
 
 <style scoped>

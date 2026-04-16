@@ -245,7 +245,7 @@
       <div class="form-grid">
         <div class="form-group">
           <label>Agency</label>
-          <select v-model.number="selectedAgencyId">
+          <select v-model.number="selectedAgencyId" :disabled="lockAgencyPicker">
             <option v-for="agency in agencyList" :key="agency.id" :value="agency.id">
               {{ agency.name }}
             </option>
@@ -335,7 +335,7 @@
             </div>
             <div v-if="form.formType === 'job_application'" class="form-group">
               <label>Agency</label>
-              <select v-model.number="form.organizationId" @change="fetchJobDescriptions">
+              <select v-model.number="form.organizationId" :disabled="lockAgencyPicker" @change="fetchJobDescriptions">
                 <option :value="null">Select agency</option>
                 <option v-for="a in agencyList" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
@@ -368,7 +368,7 @@
             </div>
             <div v-if="form.formType === 'medical_records_request'" class="form-group">
               <label>Agency</label>
-              <select v-model.number="form.organizationId">
+              <select v-model.number="form.organizationId" :disabled="lockAgencyPicker">
                 <option :value="null">Select agency</option>
                 <option v-for="a in agencyList" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
@@ -406,7 +406,7 @@
               <label>Agency (for company event picker)</label>
               <select
                 v-model.number="companyEventsPickerAgencyId"
-                :disabled="!agencyList.length"
+                :disabled="lockAgencyPicker || !agencyList.length"
                 @change="fetchCompanyEventsForPicker"
               >
                 <option :value="null">Select agency</option>
@@ -1903,8 +1903,18 @@ import PublicIntakePaymentStep from '../../components/public-intake/PublicIntake
 
 /** Stored on the intake link customMessages when the admin picks the built-in parent/class registration email preset. */
 const COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP = 'guardian_partnership';
+const props = defineProps({
+  /** When set (e.g. Settings tenant hub), lock digital forms to this agency id. */
+  scopedAgencyId: { type: Number, default: null }
+});
+
 const route = useRoute();
 const router = useRouter();
+
+const lockAgencyPicker = computed(() => {
+  const id = Number(props.scopedAgencyId || 0);
+  return Number.isFinite(id) && id > 0;
+});
 
 const loading = ref(false);
 const error = ref('');
@@ -2318,7 +2328,15 @@ const organizationsForQuickScope = computed(() => {
   return agencyList.value;
 });
 
-const agencyList = computed(() => organizations.value.filter((o) => String(o.organization_type || 'agency') === 'agency'));
+const agencyList = computed(() => {
+  const base = organizations.value.filter((o) => String(o.organization_type || 'agency') === 'agency');
+  const sid = Number(props.scopedAgencyId || 0);
+  if (Number.isFinite(sid) && sid > 0) {
+    const only = base.filter((o) => Number(o.id) === sid);
+    return only.length ? only : base;
+  }
+  return base;
+});
 const organizationLookup = computed(() => {
   const map = new Map();
   for (const org of organizations.value) {
@@ -2699,8 +2717,13 @@ const clearDraft = () => {
 const fetchData = async () => {
   try {
     loading.value = true;
+    const sid = Number(props.scopedAgencyId || 0);
+    const scopedLinks =
+      Number.isFinite(sid) && sid > 0
+        ? api.get('/intake-links', { params: { scopeType: 'agency', organizationId: sid } })
+        : api.get('/intake-links');
     const [linksResp, templatesResp, emailTemplatesResp, orgsResp] = await Promise.all([
-      api.get('/intake-links'),
+      scopedLinks,
       api.get('/document-templates', { params: { limit: 1000 } }),
       api.get('/email-templates'),
       api.get('/agencies')
@@ -2714,8 +2737,12 @@ const fetchData = async () => {
     templates.value = Array.isArray(rawTemplates) ? rawTemplates : [];
     emailTemplates.value = Array.isArray(emailTemplatesResp.data) ? emailTemplatesResp.data : [];
     organizations.value = Array.isArray(orgsResp.data) ? orgsResp.data : [];
-    const primaryAgency = agencyList.value[0]?.id || null;
-    selectedAgencyId.value = selectedAgencyId.value || primaryAgency;
+    if (Number.isFinite(sid) && sid > 0) {
+      selectedAgencyId.value = sid;
+    } else {
+      const primaryAgency = agencyList.value[0]?.id || null;
+      selectedAgencyId.value = selectedAgencyId.value || primaryAgency;
+    }
     if (selectedAgencyId.value) {
       const r = await api.get('/intake-field-templates', { params: { agencyId: selectedAgencyId.value } });
       fieldTemplates.value = r.data || [];
@@ -2733,6 +2760,13 @@ watch(selectedAgencyId, async (next) => {
   fieldTemplates.value = r.data || [];
   await loadQuestionSets();
 });
+
+watch(
+  () => props.scopedAgencyId,
+  () => {
+    fetchData();
+  }
+);
 
 watch(() => form.formType, (newVal) => {
   if (newVal === 'job_application') {
@@ -2808,6 +2842,12 @@ onBeforeUnmount(() => {
 
 const openCreate = () => {
   resetForm();
+  if (lockAgencyPicker.value) {
+    const id = Number(props.scopedAgencyId || 0);
+    form.scopeType = 'agency';
+    form.organizationId = id;
+    companyEventsPickerAgencyId.value = id;
+  }
   applyDefaultCompletionEmailCopy();
   showForm.value = true;
 };

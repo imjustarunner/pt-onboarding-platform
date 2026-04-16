@@ -444,8 +444,10 @@ const fetchAvailableAgencyFeatures = () => {
   const parsed = typeof raw === 'object' && raw !== null
     ? raw
     : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return {}; } })() : {});
-  // Default all to true when not set (backward compat)
-  const defaults = Object.fromEntries(AVAILABLE_FEATURES_KEYS.map((f) => [f.key, true]));
+  // Per-key defaults (most true for backward compat; opt-in keys use defaultAvailable: false in config)
+  const defaults = Object.fromEntries(
+    AVAILABLE_FEATURES_KEYS.map((f) => [f.key, f.defaultAvailable !== false])
+  );
   availableAgencyFeatures.value = { ...defaults, ...parsed };
 };
 

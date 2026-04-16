@@ -213,6 +213,10 @@
           </div>
           <small>Alternative: Select an icon from the Icon Library if you prefer to use an icon instead of a logo URL.</small>
         </div>
+        <div v-if="platformOrganizationMarkPreviewUrl" class="logo-preview" style="margin-top: 8px">
+          <p class="form-help">Effective mark (footer &amp; compact chrome): URL, then uploaded file, then icon.</p>
+          <img :src="platformOrganizationMarkPreviewUrl" alt="Organization mark preview" @error="handleLogoError" />
+        </div>
         <div class="form-group">
           <label>Privacy Policy URL</label>
           <input v-model="platformForm.privacyPolicyUrl" type="url" placeholder="https://example.com/privacy" />
@@ -3232,6 +3236,20 @@ const getLogoUrlFromPath = (logoPath) => {
   return toUploadsUrl(p);
 };
 
+/** Resolved preview: URL → uploaded path → icon library (matches footer resolution order). */
+const platformOrganizationMarkPreviewUrl = computed(() => {
+  const url = platformForm.value.organizationLogoUrl?.trim();
+  if (url) return url;
+  const path = platformForm.value.organizationLogoPath;
+  if (path) return getLogoUrlFromPath(path);
+  const iconId = platformForm.value.organizationLogoIconId;
+  if (iconId) {
+    const u = brandingStore.iconUrlById(iconId);
+    if (u) return u;
+  }
+  return null;
+});
+
 watch(() => brandingForm.value.logoUrl, () => {
   logoError.value = false;
 });
@@ -3537,6 +3555,8 @@ const applySelectedTemplate = async (event) => {
         if (platformForm.value.organizationLogoPath) {
           platformLogoInputMethod.value = 'upload';
         } else if (platformForm.value.organizationLogoUrl) {
+          platformLogoInputMethod.value = 'url';
+        } else if (platformForm.value.organizationLogoIconId) {
           platformLogoInputMethod.value = 'url';
         }
       }
@@ -3955,8 +3975,10 @@ const savePlatformBranding = async () => {
       betaFeedbackIconId: platformForm.value.betaFeedbackIconId ?? null,
       organizationName: platformForm.value.organizationName?.trim() || null,
       organizationLogoIconId: platformForm.value.organizationLogoIconId ?? null,
-      organizationLogoUrl: platformLogoInputMethod.value === 'url' ? (platformForm.value.organizationLogoUrl?.trim() || null) : null,
-      organizationLogoPath: platformLogoInputMethod.value === 'upload' ? (platformForm.value.organizationLogoPath || null) : null,
+      // Always send URL and path from the form. Tab only controls the editor UI; gating here previously
+      // nulled the inactive field and wiped uploads or URLs on save.
+      organizationLogoUrl: platformForm.value.organizationLogoUrl?.trim() || null,
+      organizationLogoPath: platformForm.value.organizationLogoPath || null,
       privacyPolicyUrl: platformForm.value.privacyPolicyUrl?.trim() || null,
       termsUrl: platformForm.value.termsUrl?.trim() || null,
       platformHipaaUrl: platformForm.value.platformHipaaUrl?.trim() || null,
@@ -4365,8 +4387,10 @@ onActivated(async () => {
         platformLogoInputMethod.value = 'upload';
       } else if (platformForm.value.organizationLogoUrl) {
         platformLogoInputMethod.value = 'url';
+      } else if (platformForm.value.organizationLogoIconId) {
+        platformLogoInputMethod.value = 'url';
       }
-      
+
       if (selectedBrandingScope.value === 'platform') {
         await detectCurrentlyAppliedTemplate();
       }

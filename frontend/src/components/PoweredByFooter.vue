@@ -168,21 +168,31 @@ const platformOrgName = computed(() => {
 });
 
 const platformLogoUrl = computed(() => {
+  const pb = brandingStore.platformBranding;
   // Priority 1: Platform organization_logo_url (if set)
-  if (brandingStore.platformBranding?.organization_logo_url) {
-    return brandingStore.platformBranding.organization_logo_url;
+  if (pb?.organization_logo_url) {
+    return pb.organization_logo_url;
   }
-  // Priority 2: Platform organization_logo_path (from icon library)
-  if (brandingStore.platformBranding?.organization_logo_path) {
-    let iconPath = brandingStore.platformBranding.organization_logo_path;
-    if (iconPath.startsWith('/uploads/')) {
-      iconPath = iconPath.substring('/uploads/'.length);
-    } else if (iconPath.startsWith('/')) {
-      iconPath = iconPath.substring(1);
+  // Priority 2: Uploaded file path (stored under organization_logo_path)
+  if (pb?.organization_logo_path) {
+    let p = String(pb.organization_logo_path);
+    if (p.startsWith('/uploads/')) {
+      p = p.substring('/uploads/'.length);
+    } else if (p.startsWith('/')) {
+      p = p.substring(1);
     }
-    return toUploadsUrl(iconPath);
+    return toUploadsUrl(p);
   }
-  // Priority 3: Fallback to PlotTwistCo logo (only if organization name is set)
+  // Priority 3: Icon library path joined from GET (when present)
+  if (pb?.organization_logo_icon_path) {
+    return toUploadsUrl(String(pb.organization_logo_icon_path));
+  }
+  // Priority 4: Icon library id (alternative mark — same as branding displayLogoUrl)
+  if (pb?.organization_logo_icon_id) {
+    const u = brandingStore.iconUrlById(pb.organization_logo_icon_id);
+    if (u) return u;
+  }
+  // Priority 5: Fallback to PlotTwistCo logo (only if organization name is set)
   if (platformOrgName.value) {
     return brandingStore.plotTwistCoLogoUrl;
   }

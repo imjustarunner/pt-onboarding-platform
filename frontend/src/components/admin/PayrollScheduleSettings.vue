@@ -191,8 +191,16 @@ import { computed, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 
+const props = defineProps({
+  scopedAgencyId: { type: Number, default: null }
+});
+
 const agencyStore = useAgencyStore();
-const agencyId = computed(() => agencyStore.currentAgency?.id || null);
+const agencyId = computed(() => {
+  const sid = Number(props.scopedAgencyId || 0);
+  if (Number.isFinite(sid) && sid > 0) return sid;
+  return agencyStore.currentAgency?.id || null;
+});
 
 const payrollTab = ref('schedule');
 

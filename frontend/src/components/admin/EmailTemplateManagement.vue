@@ -9,12 +9,13 @@
 
     <div class="template-scope-selector" v-if="authStore.user?.role === 'super_admin'">
       <label>Manage Templates For:</label>
-      <select v-model="selectedScope" @change="loadTemplates" class="form-select">
+      <select v-model="selectedScope" class="form-select" :disabled="lockToScopedTenant" @change="loadTemplates">
         <option value="platform">Platform (Default)</option>
         <option v-for="agency in (agencyStore.agencies || [])" :key="agency.id" :value="`agency-${agency.id}`">
           {{ agency.name }}
         </option>
       </select>
+      <small v-if="lockToScopedTenant" class="scope-locked-hint">Locked to the tenant selected in Settings.</small>
     </div>
 
     <div class="templates-list">
@@ -209,11 +210,17 @@ const props = defineProps({
   readOnly: {
     type: Boolean,
     default: false
-  }
+  },
+  scopedAgencyId: { type: Number, default: null }
 });
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+
+const lockToScopedTenant = computed(() => {
+  const id = Number(props.scopedAgencyId || 0);
+  return Number.isFinite(id) && id > 0;
+});
 
 const templates = ref([]);
 const loading = ref(false);
@@ -558,8 +565,23 @@ onMounted(async () => {
   if (authStore.user?.role === 'super_admin' && (!agencyStore.agencies || agencyStore.agencies.length === 0)) {
     await agencyStore.fetchAgencies();
   }
+  const sid = Number(props.scopedAgencyId || 0);
+  if (Number.isFinite(sid) && sid > 0) {
+    selectedScope.value = `agency-${sid}`;
+  }
   loadTemplates();
 });
+
+watch(
+  () => props.scopedAgencyId,
+  (nid) => {
+    const sid = Number(nid || 0);
+    if (Number.isFinite(sid) && sid > 0) {
+      selectedScope.value = `agency-${sid}`;
+      loadTemplates();
+    }
+  }
+);
 
 watch(
   () => sendForm.value.agencyId,
@@ -605,6 +627,13 @@ watch(
   display: block;
   margin-bottom: 8px;
   font-weight: 600;
+}
+
+.scope-locked-hint {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .templates-list {

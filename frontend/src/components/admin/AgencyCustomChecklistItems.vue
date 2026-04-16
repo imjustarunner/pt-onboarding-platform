@@ -12,11 +12,12 @@
       <!-- Agency Selection (if multiple agencies) -->
       <div v-if="agencies.length > 1" class="agency-selector">
         <label>Select Agency:</label>
-        <select v-model="selectedAgencyId" @change="fetchItems">
+        <select v-model="selectedAgencyId" :disabled="lockToScopedTenant" @change="fetchItems">
           <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
             {{ agency.name }}
           </option>
         </select>
+        <small v-if="lockToScopedTenant" class="scope-locked-hint">Locked to the tenant selected in Settings.</small>
       </div>
       
       <!-- Platform Templates Section -->
@@ -154,18 +155,26 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 
 const props = defineProps({
   assignOnly: {
     type: Boolean,
     default: false
-  }
+  },
+  scopedAgencyId: { type: Number, default: null }
 });
 
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
+
+const lockToScopedTenant = computed(() => {
+  const id = Number(props.scopedAgencyId || 0);
+  return Number.isFinite(id) && id > 0;
+});
 const loading = ref(true);
 const error = ref('');
 const platformTemplates = ref([]);
@@ -194,6 +203,18 @@ const itemForm = ref({
 });
 
 const fetchAgencies = async () => {
+  const sid = Number(props.scopedAgencyId || 0);
+  if (Number.isFinite(sid) && sid > 0) {
+    const cur = agencyStore.currentAgency;
+    if (cur && Number(cur.id) === sid) {
+      agencies.value = [{ id: cur.id, name: cur.name }];
+    } else {
+      agencies.value = [{ id: sid, name: `Agency ${sid}` }];
+    }
+    selectedAgencyId.value = sid;
+    await fetchItems();
+    return;
+  }
   try {
     const response = await api.get('/users/me/agencies');
     agencies.value = response.data;
@@ -429,6 +450,13 @@ onMounted(async () => {
   await fetchAgencies();
   await fetchTrainingFocuses();
 });
+
+watch(
+  () => props.scopedAgencyId,
+  () => {
+    fetchAgencies();
+  }
+);
 </script>
 
 <style scoped>
@@ -449,6 +477,13 @@ onMounted(async () => {
   padding: 16px;
   background: #f8f9fa;
   border-radius: 8px;
+}
+
+.scope-locked-hint {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .agency-selector label {

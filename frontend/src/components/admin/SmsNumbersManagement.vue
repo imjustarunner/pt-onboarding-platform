@@ -5,7 +5,7 @@
       <p class="muted">Manage phone numbers, assignments, and SMS compliance rules.</p>
     </div>
 
-    <div v-if="!agencyStore.currentAgency" class="empty-state">
+    <div v-if="!agencyId" class="empty-state">
       Select an agency to manage texting numbers.
     </div>
 
@@ -446,6 +446,10 @@ import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 
+const props = defineProps({
+  scopedAgencyId: { type: Number, default: null }
+});
+
 const agencyStore = useAgencyStore();
 
 const settings = ref({
@@ -517,7 +521,11 @@ const ruleDraft = ref({
 });
 const savingRules = ref(false);
 
-const agencyId = computed(() => agencyStore.currentAgency?.id || null);
+const agencyId = computed(() => {
+  const sid = Number(props.scopedAgencyId || 0);
+  if (Number.isFinite(sid) && sid > 0) return sid;
+  return agencyStore.currentAgency?.id || null;
+});
 const activeAgencyNumbers = computed(() => (numbers.value || []).filter((n) => n?.is_active && n?.status === 'active'));
 
 const autoReplyPreviewMessage = computed(() => {

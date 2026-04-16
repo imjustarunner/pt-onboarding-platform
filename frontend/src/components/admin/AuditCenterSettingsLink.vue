@@ -13,10 +13,17 @@
 
 <script setup>
 import { useRouter } from 'vue-router';
+import { useAgencyStore } from '../../store/agency';
 
 const router = useRouter();
+const agencyStore = useAgencyStore();
 
 const goAuditCenter = () => {
+  const id = agencyStore.currentAgency?.id;
+  if (id) {
+    router.push({ path: '/admin/audit-center', query: { agencyId: String(id) } });
+    return;
+  }
   router.push('/admin/audit-center');
 };
 </script>

@@ -92,7 +92,10 @@
           </div>
           <div class="form-group">
             <label>Agency</label>
-            <select v-model="packageForm.agencyId" :disabled="authStore.user?.role !== 'super_admin'">
+            <select
+              v-model="packageForm.agencyId"
+              :disabled="authStore.user?.role !== 'super_admin' || lockToScopedTenant"
+            >
               <option :value="null">Platform-Wide (Available to all agencies)</option>
               <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
                 {{ agency.name }}
@@ -381,7 +384,7 @@
         </div>
         <div class="form-group">
           <label>Agency *</label>
-          <select v-model="assignForm.agencyId" required>
+          <select v-model="assignForm.agencyId" required :disabled="lockToScopedTenant">
             <option value="">-- Select Agency --</option>
             <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
               {{ agency.name }}
@@ -414,11 +417,18 @@ const props = defineProps({
   readOnly: {
     type: Boolean,
     default: false
-  }
+  },
+  /** Settings tenant hub: restrict packages UI to this agency. */
+  scopedAgencyId: { type: Number, default: null }
 });
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+
+const lockToScopedTenant = computed(() => {
+  const id = Number(props.scopedAgencyId || 0);
+  return Number.isFinite(id) && id > 0;
+});
 
 const packages = ref([]);
 const loading = ref(true);
@@ -476,7 +486,9 @@ const assigning = ref(false);
 const assignError = ref('');
 
 const filteredPackages = computed(() => {
-  return packages.value;
+  const sid = Number(props.scopedAgencyId || 0);
+  if (!Number.isFinite(sid) || sid <= 0) return packages.value;
+  return packages.value.filter((p) => Number(p.agency_id) === sid);
 });
 
 const fetchPackages = async () => {
@@ -1086,7 +1098,23 @@ onMounted(async () => {
     fetchModules(),
     fetchDocuments()
   ]);
+  const sid = Number(props.scopedAgencyId || 0);
+  if (Number.isFinite(sid) && sid > 0) {
+    packageForm.value.agencyId = sid;
+    assignForm.value.agencyId = String(sid);
+  }
 });
+
+watch(
+  () => props.scopedAgencyId,
+  (nid) => {
+    const sid = Number(nid || 0);
+    if (Number.isFinite(sid) && sid > 0) {
+      packageForm.value.agencyId = sid;
+      assignForm.value.agencyId = String(sid);
+    }
+  }
+);
 </script>
 
 <style scoped>

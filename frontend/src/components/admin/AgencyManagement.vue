@@ -1416,6 +1416,14 @@
             </div>
             <small v-if="isFeatureAvailable('payrollEnabled')" class="hint">When enabled, users with Payroll access can manage payroll for this organization.</small>
 
+            <div v-if="isFeatureAvailable('onboardingTrainingEnabled')" class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Onboarding &amp; Training</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.onboardingTrainingEnabled" compact />
+            </div>
+            <small v-if="isFeatureAvailable('onboardingTrainingEnabled')" class="hint">
+              When enabled, Settings exposes onboarding packages, tenant checklist assignments, agency field definitions, and digital intake forms for this tenant. Platform-wide checklist and field catalogs remain under superadmin tools.
+            </small>
+
             <div v-if="isFeatureAvailable('hiringEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Hiring Process</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.hiringEnabled" compact />
@@ -4010,6 +4018,7 @@ const TENANT_FEATURE_PROFILES = {
       publicProviderFinderEnabled: false,
       momentumListEnabled: false,
       budgetManagementEnabled: false,
+      onboardingTrainingEnabled: false,
       payrollEnabled: false,
       hiringEnabled: false,
       googleSsoEnabled: false,
@@ -4040,6 +4049,7 @@ const TENANT_FEATURE_PROFILES = {
       publicProviderFinderEnabled: false,
       momentumListEnabled: true,
       budgetManagementEnabled: true,
+      onboardingTrainingEnabled: true,
       payrollEnabled: true,
       hiringEnabled: true,
       googleSsoEnabled: false,
@@ -4070,6 +4080,7 @@ const TENANT_FEATURE_PROFILES = {
       publicProviderFinderEnabled: false,
       momentumListEnabled: true,
       budgetManagementEnabled: true,
+      onboardingTrainingEnabled: true,
       payrollEnabled: true,
       hiringEnabled: true,
       googleSsoEnabled: false,
@@ -6299,6 +6310,8 @@ const defaultAgencyForm = () => ({
 
     // Payroll: when enabled, users with has_payroll_access can access Payroll (off by default)
     payrollEnabled: false,
+    // Onboarding packages, checklists, field defs, digital forms in Settings (off by default)
+    onboardingTrainingEnabled: false,
     // Hiring: when enabled, users with has_hiring_access can access Hiring (off by default)
     hiringEnabled: false,
 
@@ -7691,6 +7704,9 @@ const editAgency = async (agency) => {
       publicProviderFinderEnabled: featureFlags.publicProviderFinderEnabled === true,
       momentumListEnabled: featureFlags.momentumListEnabled === true,
       budgetManagementEnabled: featureFlags.budgetManagementEnabled === true,
+      payrollEnabled: featureFlags.payrollEnabled === true,
+      hiringEnabled: featureFlags.hiringEnabled === true,
+      onboardingTrainingEnabled: featureFlags.onboardingTrainingEnabled === true,
 
       googleSsoEnabled: featureFlags.googleSsoEnabled === true,
       googleSsoRequiredRoles: Array.isArray(featureFlags.googleSsoRequiredRoles)
