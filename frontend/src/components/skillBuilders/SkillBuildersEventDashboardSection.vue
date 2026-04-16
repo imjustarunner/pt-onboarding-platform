@@ -27,11 +27,15 @@
   </section>
   <section v-else class="sb-dash-section sb-dash-section-rail">
     <header class="sb-dash-rail-head">
-      <span v-if="iconUrl && !iconFailed" class="sb-dash-icon-wrap" aria-hidden="true">
-        <img class="sb-dash-icon" :src="iconUrl" alt="" @error="iconFailed = true" />
-      </span>
-      <h2 class="sb-dash-rail-title" :id="headingId">{{ title }}</h2>
-      <span v-if="badge" class="sb-dash-badge sb-dash-rail-badge">{{ badge }}</span>
+      <div class="sb-dash-rail-head-row">
+        <div class="sb-dash-rail-head-main">
+          <span v-if="iconUrl && !iconFailed" class="sb-dash-icon-wrap" aria-hidden="true">
+            <img class="sb-dash-icon" :src="iconUrl" alt="" @error="iconFailed = true" />
+          </span>
+          <h2 class="sb-dash-rail-title" :id="headingId">{{ title }}</h2>
+        </div>
+        <span v-if="badge" class="sb-dash-badge sb-dash-rail-badge">{{ badge }}</span>
+      </div>
     </header>
     <div class="sb-dash-body sb-dash-body-rail" role="region" :aria-labelledby="headingId">
       <slot />
@@ -169,30 +173,63 @@ const panelId = computed(() => `sb-dash-p-${props.sectionId}`);
 }
 .sb-dash-section-rail {
   margin-bottom: 0;
+  border: 1px solid rgba(244, 114, 65, 0.14);
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.07);
+  overflow: hidden;
 }
 .sb-dash-body-rail {
-  padding: 0 4px 8px;
+  padding: 18px 20px 22px;
   border-top: none;
+  background: linear-gradient(180deg, rgba(255, 251, 247, 0.55) 0%, #fff 38%);
 }
 .sb-dash-rail-head {
+  padding: 0;
+  margin: 0;
+  border-bottom: 1px solid rgba(244, 114, 65, 0.12);
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.98), transparent 48%),
+    linear-gradient(135deg, rgba(255, 244, 232, 0.95) 0%, rgba(255, 228, 220, 0.5) 45%, rgba(238, 246, 255, 0.75) 100%);
+}
+.sb-dash-rail-head-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   flex-wrap: wrap;
+  padding: 16px 18px 14px;
+  min-width: 0;
+}
+.sb-dash-rail-head-main {
+  display: flex;
+  align-items: center;
   gap: 10px;
-  padding: 4px 4px 14px;
-  margin-bottom: 2px;
-  border-bottom: 1px solid var(--border, #e2e8f0);
+  min-width: 0;
+  flex: 1;
 }
 .sb-dash-rail-title {
   margin: 0;
-  flex: 1;
   min-width: 0;
   font-weight: 800;
-  font-size: 1.12rem;
-  line-height: 1.25;
-  color: var(--primary, #0f766e);
+  font-size: clamp(1.08rem, 2vw, 1.35rem);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: #1f2a44;
 }
 .sb-dash-rail-badge {
   flex-shrink: 0;
+}
+.sb-dash-section-rail .sb-dash-rail-badge {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9a3412;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(251, 146, 60, 0.35);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.05);
 }
 </style>

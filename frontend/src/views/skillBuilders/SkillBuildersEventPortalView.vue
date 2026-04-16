@@ -667,31 +667,35 @@
               icon-url=""
               badge="Open"
             >
-              <p class="muted small sbep-card-lead">
-                This program is included in the <strong>guardian registration catalog</strong> when the window is open.
-                Families enroll eligible dependents from the guardian portal.
-              </p>
-              <p v-if="registrationPayerLines.length" class="muted small">
-                <strong>Payer options:</strong> {{ registrationPayerLines.join(' · ') }}
-              </p>
-              <p v-if="registrationRateLines.length" class="muted small">
-                <strong>Rates:</strong> {{ registrationRateLines.join(' · ') }}
-              </p>
-              <p v-else class="muted small">Set Medicaid / cash eligibility under <strong>Edit event</strong> (registration catalog).</p>
-              <p v-if="guardianPortalLink" class="muted small">
-                <router-link :to="guardianPortalLink">Open guardian portal</router-link>
-                <span> — Registration section</span>
-              </p>
+              <div class="sbep-section-intro">
+                <p class="muted small sbep-card-lead">
+                  This program is included in the <strong>guardian registration catalog</strong> when the window is open.
+                  Families enroll eligible dependents from the guardian portal.
+                </p>
+                <p v-if="registrationPayerLines.length" class="muted small">
+                  <strong>Payer options:</strong> {{ registrationPayerLines.join(' · ') }}
+                </p>
+                <p v-if="registrationRateLines.length" class="muted small">
+                  <strong>Rates:</strong> {{ registrationRateLines.join(' · ') }}
+                </p>
+                <p v-else class="muted small">Set Medicaid / cash eligibility under <strong>Edit event</strong> (registration catalog).</p>
+                <p v-if="guardianPortalLink" class="muted small sbep-guardian-portal-line">
+                  <router-link class="sbep-text-link" :to="guardianPortalLink">Open guardian portal</router-link>
+                  <span class="sbep-text-link-meta"> — Registration section</span>
+                </p>
+              </div>
               <div v-if="linkedIntakeForm" class="sbep-reg-intake-box">
-                <p class="muted small">
-                  <strong>Digital form:</strong>
-                  {{ linkedIntakeForm.title || 'Event registration form' }}
-                  <span v-if="linkedIntakeForm.formType"> · {{ linkedIntakeForm.formType }}</span>
-                  <span v-if="linkedIntakeForm.totalLinksForEvent > 1">
+                <p class="muted small sbep-reg-intake-title">
+                  <strong>Digital form</strong>
+                  <span class="sbep-reg-intake-name">
+                    {{ linkedIntakeForm.title || 'Event registration form' }}
+                  </span>
+                  <span v-if="linkedIntakeForm.formType" class="muted"> · {{ linkedIntakeForm.formType }}</span>
+                  <span v-if="linkedIntakeForm.totalLinksForEvent > 1" class="muted">
                     · {{ linkedIntakeForm.totalLinksForEvent }} linked (showing newest active)
                   </span>
                 </p>
-                <div class="sbep-inline-actions">
+                <div class="sbep-inline-actions sbep-action-toolbar">
                   <a
                     v-if="intakeFormUrl"
                     class="btn btn-secondary btn-sm"
@@ -706,7 +710,7 @@
                   </button>
                 </div>
               </div>
-              <div v-if="registrationShareHref || eventPublicPageHref" class="sbep-inline-actions" style="margin-top:8px;">
+              <div v-if="registrationShareHref || eventPublicPageHref" class="sbep-inline-actions sbep-action-toolbar sbep-action-toolbar--tight">
                 <router-link v-if="registrationShareHref && registrationShareHref.startsWith('/')" class="btn btn-secondary btn-sm" :to="registrationShareHref">
                   Open registration link
                 </router-link>
@@ -3698,6 +3702,59 @@ watch(
   margin: 0 0 12px;
   line-height: 1.45;
 }
+.sbep-section-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 4px;
+  max-width: 52rem;
+}
+.sbep-section-intro p {
+  margin: 0;
+}
+.sbep-text-link {
+  font-weight: 700;
+  color: #c2410c;
+  text-decoration: none;
+}
+.sbep-text-link:hover,
+.sbep-text-link:focus-visible {
+  text-decoration: underline;
+  color: #9a3412;
+}
+.sbep-text-link-meta {
+  color: #64748b;
+  font-weight: 500;
+}
+.sbep-guardian-portal-line {
+  padding-top: 4px;
+}
+.sbep-action-toolbar {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04);
+}
+.sbep-action-toolbar--tight {
+  margin-top: 12px;
+}
+.sbep-reg-intake-box {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 251, 247, 0.9) 100%);
+  border: 1px solid rgba(244, 114, 65, 0.14);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+}
+.sbep-reg-intake-title {
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+.sbep-reg-intake-name {
+  font-weight: 600;
+  color: #334155;
+}
 .sbep-inline-actions {
   display: flex;
   gap: 8px;
@@ -4027,9 +4084,16 @@ watch(
   max-width: min(100%, 420px);
 }
 .sbep-reg-enrolled-summary {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border, #e2e8f0);
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.98) 0%, rgba(255, 251, 245, 0.92) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+.sbep-reg-enrolled-summary p {
+  margin: 0;
+  line-height: 1.55;
 }
 .sbep-reg-jump-btn {
   padding: 0;
@@ -4128,10 +4192,25 @@ watch(
   opacity: 0.45;
 }
 .sbep-subh {
-  margin: 0 0 10px;
-  font-size: 0.92rem;
-  font-weight: 700;
-  color: var(--text-secondary, #64748b);
+  margin: 0 0 8px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.sbep-rail-content .sbep-sched-block {
+  border-top-color: rgba(148, 163, 184, 0.25);
+}
+.sbep-rail-content .sbep-sessions-table th {
+  color: #64748b;
+  border-bottom-color: rgba(148, 163, 184, 0.35);
+}
+.sbep-rail-content .sbep-sessions-table td {
+  border-bottom-color: rgba(241, 245, 249, 0.95);
+}
+.sbep-rail-content .sbep-join-li {
+  border-bottom-color: rgba(148, 163, 184, 0.18);
 }
 .muted {
   color: var(--text-secondary, #64748b);
