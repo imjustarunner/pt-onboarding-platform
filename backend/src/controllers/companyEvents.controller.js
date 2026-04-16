@@ -1474,7 +1474,22 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
       [agencyId]
     );
     const events = (rows || []).map((row) => mapEventRow(row, req));
-    const eventIds = events.map((event) => event.id);
+    const orgIds = [...new Set(events.map((e) => e.organizationId).filter((id) => Number(id) > 0))];
+    const slugByOrgId = new Map();
+    if (orgIds.length) {
+      const ph = orgIds.map(() => '?').join(',');
+      const [orgRows] = await pool.execute(`SELECT id, slug FROM agencies WHERE id IN (${ph})`, orgIds);
+      for (const r of orgRows || []) {
+        const sid = Number(r.id);
+        const slug = String(r.slug || '').trim().toLowerCase();
+        if (sid && slug) slugByOrgId.set(sid, slug);
+      }
+    }
+    const eventsWithProgramSlug = events.map((ev) => ({
+      ...ev,
+      programOrganizationSlug: ev.organizationId ? slugByOrgId.get(Number(ev.organizationId)) || null : null
+    }));
+    const eventIds = eventsWithProgramSlug.map((event) => event.id);
     const audienceMap = await fetchAudienceMap(eventIds);
     const summaries = new Map();
     const deliveries = new Map();
@@ -1482,7 +1497,7 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
       summaries.set(eventId, await listEventResponseSummary(eventId));
       deliveries.set(eventId, await getEventDeliverySummary(eventId));
     }
-    const withAudience = events.map((event) => ({
+    const withAudience = eventsWithProgramSlug.map((event) => ({
       ...event,
       audience: audienceMap.get(event.id) || { all: true, userIds: [], groupIds: [], roleKeys: [] },
       responseSummary: summaries.get(event.id) || [],
@@ -3832,13 +3847,20 @@ export const getCompanyEventPublic = async (req, res, next) => {
          ce.guest_policy, ce.family_provision_note, ce.organizer_providing_json,
          ce.event_image_url, ce.event_image_urls_json, ce.public_hero_image_url, ce.public_hero_focal_point,
          ce.registration_form_url, ce.potluck_enabled,
+         ce.organization_id,
          a.name AS agency_name,
+         a.slug AS billing_agency_slug,
          a.logo_path AS agency_logo_path,
          a.color_palette AS agency_color_palette,
          a.theme_settings AS agency_theme_settings,
-         a.portal_url AS agency_portal_url
+         a.portal_url AS agency_portal_url,
+         prog_ce.slug AS program_org_slug_from_ce,
+         prog_sg.slug AS program_org_slug_from_sg
        FROM company_events ce
        JOIN agencies a ON a.id = ce.agency_id
+       LEFT JOIN agencies prog_ce ON prog_ce.id = ce.organization_id
+       LEFT JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
+       LEFT JOIN agencies prog_sg ON prog_sg.id = sg.skill_builders_program_organization_id
        WHERE ce.id = ? AND ce.is_active = 1
        LIMIT 1`,
       [eventId]
@@ -3871,7 +3893,32 @@ export const getCompanyEventPublic = async (req, res, next) => {
       ? (logoRaw.startsWith('http') ? logoRaw : `${uploadsBase}/${logoRaw.replace(/^\//, '')}`)
       : '';
 
+    const eventTypeNorm = String(row.event_type || 'company_event').trim().toLowerCase();
+    const slugFromCe = String(row.program_org_slug_from_ce || '').trim().toLowerCase();
+    const slugFromSg = String(row.program_org_slug_from_sg || '').trim().toLowerCase();
+    const programPortalSlug = slugFromCe || slugFromSg || '';
+    const agencyPortalSlug = String(row.billing_agency_slug || '').trim().toLowerCase();
+    const isProgramStylePublicLandingEventType = (t) => {
+      if (t === 'skills_group') return true;
+      if (t === 'guardian_program_class') return true;
+      if (t.startsWith('program_')) return true;
+      return false;
+    };
+    const hasProgramLanding = !!(
+      agencyPortalSlug &&
+      programPortalSlug &&
+      isProgramStylePublicLandingEventType(eventTypeNorm)
+    );
+
     res.json({
+      publicRouting: {
+        agencyPortalSlug: agencyPortalSlug || null,
+        programPortalSlug: programPortalSlug || null,
+        hasProgramLanding,
+        programEventsPath: hasProgramLanding
+          ? `/${agencyPortalSlug}/programs/${programPortalSlug}/events`
+          : null
+      },
       event: {
         id: Number(row.id),
         title: row.title || '',

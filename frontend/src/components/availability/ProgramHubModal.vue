@@ -2,11 +2,44 @@
   <div :class="props.inline ? 'pch-inline-shell' : 'pch-overlay'" @click.self="onShellClick">
     <div class="pch-modal" :class="{ 'pch-modal-inline': props.inline }" role="dialog" :aria-modal="props.inline ? undefined : 'true'" :aria-labelledby="titleId">
       <div class="pch-header">
-        <div>
+        <div class="pch-header-text">
+          <p v-if="!activeSection" class="pch-eyebrow">Program workspace</p>
           <h2 :id="titleId" class="pch-title">{{ displayName }}</h2>
           <p class="pch-sub">{{ headerSubtitle }}</p>
         </div>
         <button v-if="!props.inline" type="button" class="pch-close" aria-label="Close" @click="$emit('close')">×</button>
+      </div>
+
+      <div
+        v-if="showPublicLinksStrip"
+        class="pch-public-strip"
+        role="region"
+        aria-label="Public registration pages for this program"
+      >
+        <div class="pch-public-strip-main">
+          <p class="pch-public-strip-eyebrow">Families &amp; community</p>
+          <p class="pch-public-strip-title">Public registration</p>
+          <p class="pch-public-strip-copy">
+            Share the <strong>events</strong> page for dated sessions (map, “Register now”), or the full
+            <strong>enroll</strong> hub for individual program enrollments plus events.
+          </p>
+        </div>
+        <div class="pch-public-strip-actions">
+          <RouterLink class="btn btn-primary btn-sm" :to="publicProgramEventsPath">Open public events</RouterLink>
+          <RouterLink v-if="publicProgramEnrollPath" class="btn btn-secondary btn-sm" :to="publicProgramEnrollPath">
+            Open enroll hub
+          </RouterLink>
+          <button type="button" class="btn btn-secondary btn-sm" @click="copyPublicProgramEventsUrl">Copy events link</button>
+          <button
+            v-if="publicProgramEnrollPath"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            @click="copyPublicProgramEnrollUrl"
+          >
+            Copy enroll link
+          </button>
+        </div>
+        <p v-if="publicLinkCopyHint" class="pch-public-strip-hint">{{ publicLinkCopyHint }}</p>
       </div>
 
       <!-- Hub: choose section -->
@@ -148,6 +181,23 @@
           </div>
 
           <div v-show="activeSection === 'events'" class="pch-panel pch-events">
+            <div v-if="mode === 'coordinator' && publicProgramEventsPath" class="pch-events-public-banner">
+              <div class="pch-events-public-banner-text">
+                <span class="pch-events-public-banner-title">Public family-facing listing</span>
+                <span class="pch-muted"> Same page families use to browse sessions and register.</span>
+              </div>
+              <div class="pch-events-public-banner-actions">
+                <RouterLink class="btn btn-primary btn-sm" :to="publicProgramEventsPath">Open public events</RouterLink>
+                <button type="button" class="btn btn-secondary btn-sm" @click="copyPublicProgramEventsUrl">Copy link</button>
+                <RouterLink
+                  v-if="publicProgramEnrollPath"
+                  class="btn btn-secondary btn-sm"
+                  :to="publicProgramEnrollPath"
+                >
+                  Enroll hub
+                </RouterLink>
+              </div>
+            </div>
             <div v-if="eventsLoading" class="pch-muted">Loading events…</div>
             <template v-else-if="mode === 'coordinator'">
               <div v-if="eventsError" class="pch-error pch-events-banner">{{ eventsError }}</div>
@@ -628,11 +678,66 @@ const agencyPortalSlugForIntake = computed(() => {
   if (!aid) return '';
   const list = agencyStore.agencies || [];
   const a = list.find((x) => Number(x?.id) === aid);
-  if (a) return String(a.slug || a.portal_url || '').trim();
+  if (a) return String(a.slug || a.portal_url || '').trim().toLowerCase();
   const cur = agencyStore.currentAgency;
-  if (cur && Number(cur.id) === aid) return String(cur.slug || cur.portal_url || '').trim();
+  if (cur && Number(cur.id) === aid) return String(cur.slug || cur.portal_url || '').trim().toLowerCase();
   return '';
 });
+
+/** Program org slug (URL segment) from dashboard — matches `/:agency/programs/:program/...`. */
+const programOrgSlugForPublic = computed(() => String(props.organizationPortalSlug || '').trim().toLowerCase());
+
+const publicProgramEventsPath = computed(() => {
+  const ag = agencyPortalSlugForIntake.value;
+  const pr = programOrgSlugForPublic.value;
+  if (!ag || !pr) return '';
+  return `/${ag}/programs/${pr}/events`;
+});
+
+const publicProgramEnrollPath = computed(() => {
+  const ag = agencyPortalSlugForIntake.value;
+  const pr = programOrgSlugForPublic.value;
+  if (!ag || !pr) return '';
+  return `/${ag}/programs/${pr}/enroll`;
+});
+
+const showPublicLinksStrip = computed(
+  () => props.mode === 'coordinator' && !activeSection.value && !!publicProgramEventsPath.value
+);
+
+const publicLinkCopyHint = ref('');
+let publicLinkCopyTimer = null;
+function flashPublicLinkHint(msg) {
+  publicLinkCopyHint.value = msg;
+  if (publicLinkCopyTimer) clearTimeout(publicLinkCopyTimer);
+  publicLinkCopyTimer = setTimeout(() => {
+    publicLinkCopyHint.value = '';
+  }, 2800);
+}
+
+async function copyPublicProgramEventsUrl() {
+  const path = publicProgramEventsPath.value;
+  if (!path || typeof window === 'undefined') return;
+  const url = `${String(window.location.origin || '').replace(/\/$/, '')}${path}`;
+  try {
+    await navigator.clipboard.writeText(url);
+    flashPublicLinkHint('Public events link copied to clipboard.');
+  } catch {
+    flashPublicLinkHint('Could not copy link.');
+  }
+}
+
+async function copyPublicProgramEnrollUrl() {
+  const path = publicProgramEnrollPath.value;
+  if (!path || typeof window === 'undefined') return;
+  const url = `${String(window.location.origin || '').replace(/\/$/, '')}${path}`;
+  try {
+    await navigator.clipboard.writeText(url);
+    flashPublicLinkHint('Enroll hub link copied to clipboard.');
+  } catch {
+    flashPublicLinkHint('Could not copy link.');
+  }
+}
 
 const sectionItems = computed(() => {
   const isSB = isSkillBuildersProgram.value;
@@ -1368,11 +1473,11 @@ watch(
   max-height: min(92vh, 900px);
   overflow: hidden;
   background: var(--pch-surface, #fff);
-  border-radius: 20px;
+  border-radius: 22px;
   border: 1px solid var(--border, #e2e8f0);
   box-shadow:
-    0 4px 6px -1px rgba(0, 0, 0, 0.06),
-    0 24px 48px -12px rgba(15, 23, 42, 0.18);
+    0 4px 6px -1px rgba(0, 0, 0, 0.05),
+    0 28px 56px -16px rgba(15, 23, 42, 0.2);
   display: flex;
   flex-direction: column;
 }
@@ -1385,17 +1490,43 @@ watch(
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 18px 22px 14px;
+  padding: 20px 22px 16px;
   border-bottom: 1px solid var(--border, #e2e8f0);
   gap: 12px;
-  background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 42%, #fff 100%);
+  border-radius: 22px 22px 0 0;
+  position: relative;
+}
+.pch-header::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: linear-gradient(180deg, var(--primary, #15803d), #0d9488);
+}
+.pch-header-text {
+  min-width: 0;
+  padding-left: 10px;
+}
+.pch-eyebrow {
+  margin: 0 0 4px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--primary, #15803d);
+  opacity: 0.9;
 }
 .pch-title {
   margin: 0;
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
   color: var(--text-primary, #0f172a);
+  line-height: 1.2;
 }
 .pch-sub {
   margin: 6px 0 0;
@@ -1421,6 +1552,86 @@ watch(
   background: #e2e8f0;
 }
 
+/* Public registration strip (coordinator hub home) */
+.pch-public-strip {
+  margin: 0;
+  padding: 16px 22px 18px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  background: linear-gradient(180deg, #ecfdf5 0%, #f0fdf4 38%, #f8fafc 100%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 14px 20px;
+}
+.pch-public-strip-main {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.pch-public-strip-eyebrow {
+  margin: 0 0 4px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #047857;
+}
+.pch-public-strip-title {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #064e3b;
+  letter-spacing: -0.02em;
+}
+.pch-public-strip-copy {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: #334155;
+  max-width: 36rem;
+}
+.pch-public-strip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.pch-public-strip-hint {
+  width: 100%;
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: #047857;
+  font-weight: 600;
+}
+
+.pch-events-public-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid #bbf7d0;
+  background: linear-gradient(135deg, #ecfdf5 0%, #f8fafc 100%);
+}
+.pch-events-public-banner-text {
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text-primary, #0f172a);
+  min-width: 0;
+}
+.pch-events-public-banner-title {
+  font-weight: 700;
+  color: #065f46;
+}
+.pch-events-public-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* Hub cards */
 .pch-hub {
   display: grid;
@@ -1434,9 +1645,9 @@ watch(
 .pch-hub-card {
   text-align: left;
   border: 1px solid var(--border, #e2e8f0);
-  border-radius: 16px;
+  border-radius: 18px;
   padding: 18px 18px 16px;
-  background: #fff;
+  background: linear-gradient(180deg, #fff 0%, #fafbfc 100%);
   cursor: pointer;
   transition:
     border-color 0.15s ease,
@@ -1446,11 +1657,14 @@ watch(
   flex-direction: column;
   gap: 8px;
   min-height: 132px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .pch-hub-card:hover {
-  border-color: var(--primary, #15803d);
-  box-shadow: 0 8px 24px -8px rgba(21, 128, 61, 0.25);
-  transform: translateY(-1px);
+  border-color: rgba(21, 128, 61, 0.35);
+  box-shadow:
+    0 10px 28px -10px rgba(21, 128, 61, 0.22),
+    0 4px 12px -4px rgba(15, 23, 42, 0.08);
+  transform: translateY(-2px);
 }
 .pch-hub-card:focus-visible {
   outline: 2px solid var(--primary, #15803d);
@@ -1504,7 +1718,7 @@ watch(
   gap: 12px;
   padding: 12px 18px;
   border-bottom: 1px solid var(--border, #e2e8f0);
-  background: #f8fafc;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
 }
 .pch-back-btn {
   display: inline-flex;

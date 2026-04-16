@@ -349,13 +349,14 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { useAuthStore } from '../../store/auth';
 
 const route = useRoute();
+const router = useRouter();
 const authStore = useAuthStore();
 const eventId = computed(() => Number(route.params.eventId) || 0);
 
@@ -636,6 +637,11 @@ const load = async () => {
   error.value = '';
   try {
     const resp = await api.get(`/company-events/public/${eventId.value}`, { skipAuthRedirect: true });
+    const pr = resp.data?.publicRouting;
+    if (pr?.hasProgramLanding && pr?.programEventsPath) {
+      await router.replace(pr.programEventsPath);
+      return;
+    }
     event.value = resp.data?.event || null;
     branding.value = resp.data?.branding || branding.value;
   } catch (e) {

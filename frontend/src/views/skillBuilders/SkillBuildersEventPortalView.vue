@@ -47,11 +47,11 @@
             <button type="button" class="btn btn-secondary btn-sm" @click="goBack">Back</button>
           </template>
 
-          <div v-show="dashHubMode && eventRailItems.length" class="sbep-hub">
+          <div v-show="dashHubMode && hubRailItems.length" class="sbep-hub">
             <p class="sbep-hub-tagline muted small">Choose a section — pick one to open the sidebar layout.</p>
             <div class="sbep-hub-grid" role="navigation" aria-label="Event sections">
               <button
-                v-for="item in eventRailItems"
+                v-for="item in hubRailItems"
                 :key="item.id"
                 type="button"
                 class="sbep-hub-card"
@@ -626,8 +626,8 @@
                 <strong>Rates:</strong> {{ registrationRateLines.join(' · ') }}
               </p>
               <p v-else class="muted small">Set Medicaid / cash eligibility under <strong>Edit event</strong> (registration catalog).</p>
-              <p v-if="guardianRegistrationHref" class="muted small">
-                <router-link :to="guardianRegistrationHref">Open guardian portal</router-link>
+              <p v-if="guardianPortalLink" class="muted small">
+                <router-link :to="guardianPortalLink">Open guardian portal</router-link>
                 <span> — Registration section</span>
               </p>
               <div v-if="linkedIntakeForm" class="sbep-reg-intake-box">
@@ -1310,15 +1310,19 @@ const programEnrollHubHref = computed(() => {
 });
 
 const eventPublicPageHref = computed(() => {
-  const id = Number(eventId.value || 0);
-  if (!id || typeof window === 'undefined') return '';
+  if (typeof window === 'undefined') return '';
   const origin = String(window.location.origin || '').replace(/\/$/, '');
+  if (programEventsHref.value) {
+    return `${origin}${programEventsHref.value}`;
+  }
+  const id = Number(eventId.value || 0);
+  if (!id) return '';
   return `${origin}/company-events/${id}`;
 });
 
 const registrationShareHref = computed(() => {
   if (programEnrollHubHref.value) return programEnrollHubHref.value;
-  if (guardianRegistrationHref.value) return guardianRegistrationHref.value;
+  if (programEventsHref.value) return programEventsHref.value;
   return eventPublicPageHref.value || '';
 });
 
@@ -1345,6 +1349,21 @@ const guardianRegistrationHref = computed(() => {
   const s = organizationSlug.value;
   if (!s) return null;
   return `/${s}/guardian`;
+});
+
+/** Guardian entry: superadmin preview, or login with redirect to guardian home. */
+const guardianPortalLink = computed(() => {
+  const s = organizationSlug.value;
+  if (!s) return null;
+  const role = String(authStore.user?.role || '').trim().toLowerCase();
+  const target = `/${s}/guardian`;
+  if (authStore.isAuthenticated && role === 'super_admin') {
+    const q = { previewMode: 'superadmin' };
+    const aid = eventBillingAgencyId.value;
+    if (aid) q.previewAgencyId = String(aid);
+    return { path: target, query: q };
+  }
+  return { path: `/${s}/login`, query: { redirect: target } };
 });
 
 const registrationPayerLines = computed(() => {
@@ -1609,9 +1628,14 @@ const eventRailItems = computed(() => {
   return items;
 });
 
+const hubRailItems = computed(() => eventRailItems.value.filter((item) => item.id !== 'home'));
+
 /** Keep the current path (params are already in it); only the query changes — avoids named-route param quirks. */
 function replaceEventPortalQuery(nextQuery) {
   return router.replace({ path: route.path, query: nextQuery });
+}
+function pushEventPortalQuery(nextQuery) {
+  return router.push({ path: route.path, query: nextQuery });
 }
 
 // When the address bar still has `?section=` but `route.query` lost it (org/bootstrap navigations, etc.), sync router state.
@@ -1644,7 +1668,7 @@ async function selectRailSection(id) {
   const section = String(id ?? '').trim();
   optimisticSection.value = section;
   try {
-    await replaceEventPortalQuery({ ...route.query, section });
+    await pushEventPortalQuery({ ...route.query, section });
   } catch (e) {
     if (!isNavigationFailure(e)) throw e;
   } finally {
@@ -2155,6 +2179,10 @@ const canEditEventInPortal = computed(
 const copyHint = ref('');
 
 function goBack() {
+  if (!dashHubMode.value) {
+    openDashHub();
+    return;
+  }
   if (typeof window !== 'undefined' && window.history.length > 1) {
     router.back();
     return;

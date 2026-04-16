@@ -103,7 +103,15 @@
               <div class="sbes-card-cta-row">
                 <span class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'Open portal' : 'Manage event' }}</span>
                 <a
-                  v-if="!isSkillsBuildersEvent(e)"
+                  v-if="!isSkillsBuildersEvent(e) && publicProgramEventsPageHref(e)"
+                  :href="publicProgramEventsPageHref(e)"
+                  target="_blank"
+                  class="sbes-card-view-link"
+                  title="View public program events listing"
+                  @click.stop
+                >View page ↗</a>
+                <a
+                  v-else-if="!isSkillsBuildersEvent(e)"
                   :href="`/company-events/${e.companyEventId}`"
                   target="_blank"
                   class="sbes-card-view-link"
@@ -334,6 +342,17 @@ function isServiceProgramEventType(e) {
   return t === 'guardian_program_class' || t === 'program_event' || t.startsWith('program_');
 }
 
+/** Public program events listing (same UX as enroll hub “events only” link). */
+function publicProgramEventsPageHref(e) {
+  const first = orgSlug();
+  const program = String(e?.programPortalSlug || '').trim().toLowerCase();
+  if (!first || !program) return '';
+  if (!isServiceProgramEventType(e)) return '';
+  if (typeof window === 'undefined') return '';
+  const origin = String(window.location.origin || '').replace(/\/$/, '');
+  return `${origin}/${first}/programs/${program}/events`;
+}
+
 function audienceLine(e) {
   if (isSkillsBuildersEvent(e)) return '';
   if (isServiceProgramEventType(e)) {
@@ -443,7 +462,11 @@ async function load() {
         schoolName: '',
         schoolLogoUrl: null,
         schoolLogoPath: null,
-        programPortalSlug: String(row?.organizationSlug || row?.portalSlug || '').trim().toLowerCase(),
+        programPortalSlug: String(
+          row?.programOrganizationSlug || row?.organizationSlug || row?.portalSlug || ''
+        )
+          .trim()
+          .toLowerCase(),
         startsAt,
         endsAt,
         isActive: !!row?.isActive,
