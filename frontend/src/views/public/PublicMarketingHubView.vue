@@ -3078,8 +3078,8 @@ watch(hubSlug, () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  max-width: 168px;
+  gap: 10px;
+  max-width: 200px;
   text-align: center;
 }
 
@@ -3103,8 +3103,8 @@ watch(hubSlug, () => {
 }
 
 .pmh-splash-tenant-logo-wrap {
-  width: 128px;
-  height: 128px;
+  width: 168px;
+  height: 168px;
   border: 1px solid var(--hub-border);
   border-radius: 14px;
   background: #fff;
@@ -3113,7 +3113,7 @@ watch(hubSlug, () => {
   justify-content: center;
   overflow: hidden;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.09);
-  padding: 10px;
+  padding: 12px;
 }
 
 .pmh-splash-tenant-logo {
@@ -3185,8 +3185,9 @@ watch(hubSlug, () => {
     justify-content: flex-start;
   }
   .pmh-splash-tenant-logo-wrap {
-    width: 96px;
-    height: 96px;
+    width: 132px;
+    height: 132px;
+    padding: 10px;
   }
 }
 
@@ -3275,22 +3276,24 @@ watch(hubSlug, () => {
 .pmh-agency-logo-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
+  gap: 20px;
   align-items: stretch;
+  justify-content: center;
 }
 
 .pmh-agency-filter-tile {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  width: 132px;
-  padding: 10px 8px 12px;
-  border-radius: 16px;
+  gap: 12px;
+  width: 212px;
+  max-width: min(212px, 100%);
+  padding: 14px 12px 16px;
+  border-radius: 18px;
   border: 1px solid var(--hub-border);
   background: #fff;
   cursor: pointer;
-  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
 }
 
 .pmh-agency-filter-tile:focus-visible {
@@ -3304,16 +3307,19 @@ watch(hubSlug, () => {
 }
 
 .pmh-agency-filter-tile-logo {
-  width: 96px;
-  height: 96px;
-  border-radius: 14px;
+  width: 176px;
+  height: 176px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  border-radius: 16px;
   border: 1px solid var(--hub-border);
   background: #f8fafc;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  padding: 8px;
+  padding: 14px;
+  box-sizing: border-box;
 }
 
 .pmh-agency-filter-tile-logo img {
@@ -3323,17 +3329,29 @@ watch(hubSlug, () => {
 }
 
 .pmh-agency-filter-tile-fallback {
-  font-size: 0.85rem;
+  font-size: 1rem;
   font-weight: 800;
   color: var(--hub-link-dark);
 }
 
 .pmh-agency-filter-tile-name {
-  font-size: 0.72rem;
+  font-size: 0.82rem;
   font-weight: 700;
   text-align: center;
   line-height: 1.25;
   color: var(--hub-text-muted);
+}
+
+@media (max-width: 520px) {
+  .pmh-agency-filter-tile {
+    width: 168px;
+    padding: 12px 10px 14px;
+  }
+  .pmh-agency-filter-tile-logo {
+    width: 140px;
+    height: 140px;
+    padding: 12px;
+  }
 }
 
 .pmh-chip-row {
