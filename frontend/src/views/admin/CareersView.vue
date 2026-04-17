@@ -315,7 +315,7 @@ const buildDefaultJobApplicationSteps = () => ([
     waivable: true,
     minReferences: 3,
     authorizationNotice:
-      'By submitting this information, you authorize [tenant] to contact the individuals listed and obtain information regarding your employment history, educational background, professional conduct, and qualifications for employment.'
+      'By submitting this information, you authorize [tenant] to contact the individuals listed and obtain information regarding your employment history, educational background, professional conduct, and qualifications for employment. If you do not waive references, you must provide a valid email for each required reference so we may send a confidential digital reference form if you are offered an interview or a job.'
   }
 ]);
 

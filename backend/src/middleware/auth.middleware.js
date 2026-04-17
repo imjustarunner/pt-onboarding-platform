@@ -355,7 +355,7 @@ export const requireGuardianListAccess = async (req, res, next) => {
 };
 
 export const requireSuperAdmin = (req, res, next) => {
-  if (req.user.role !== 'super_admin') {
+  if (normalizeAuthRole(req.user?.role) !== 'super_admin') {
     return res.status(403).json({ error: { message: 'Super admin access required' } });
   }
   next();

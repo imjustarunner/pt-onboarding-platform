@@ -77,9 +77,12 @@ class ActivityLogService {
       'login',
       'logout',
       'timeout',
+      'page_view',
+      'api_call',
       'module_start',
       'module_end',
       'module_complete',
+      'page_navigation',
       'password_change',
       'intake_approval',
       'public_intake_login_help',
@@ -92,7 +95,10 @@ class ActivityLogService {
       // AI / helper tools (do NOT log sensitive content in metadata)
       'note_aid_execute',
       'agent_assist',
-      'agent_tool_execute'
+      'agent_tool_execute',
+
+      // Hiring (metadata may include outbound email copy; keep access-controlled in UI)
+      'hiring_reference_event'
     ];
     
     if (data.actionType && !allowedActionTypes.includes(data.actionType)) {
@@ -212,8 +218,7 @@ class ActivityLogService {
         ) {
           console.error(
             '[ActivityLogService] user_activity_log.action_type rejected this value (ENUM out of date). ' +
-              'Apply migration 590_user_activity_log_expand_action_types.sql on the database this server uses ' +
-              '(from backend: npm run migrate-one -- --migration=590).'
+              'Apply migrations 590 and 708 (user_activity_log + hiring reference events) on this database.'
           );
         }
       }

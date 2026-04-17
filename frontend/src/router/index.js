@@ -199,6 +199,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/public/hiring/reference/:token',
+    name: 'HiringReferenceForm',
+    component: () => import('../views/public/HiringReferenceFormView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
     path: '/i/:publicKey',
     name: 'PublicIntakeSigningShort',
     component: () => import('../views/PublicIntakeSigningView.vue'),

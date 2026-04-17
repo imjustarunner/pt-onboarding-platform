@@ -78,7 +78,8 @@
         </div>
         <div class="hint">
           Key helper coverage currently includes:
-          <code>school_intake</code>, <code>intake</code>, <code>login_recovery</code>, <code>notifications</code>, <code>system</code>, <code>default</code>.
+          <code>school_intake</code>, <code>intake</code>, <code>login_recovery</code>, <code>notifications</code>,
+          <code>hiring_references</code>, <code>job_applications</code>, <code>system</code>, <code>default</code>.
         </div>
 
         <div class="settings-row">
@@ -233,6 +234,38 @@
             <button class="btn btn-primary" :disabled="senderSavingId === 'new'" @click="createIdentity">
               {{ senderSavingId === 'new' ? 'Creating…' : 'Create' }}
             </button>
+          </div>
+
+          <div v-if="senderAgencyId" class="hiring-ref-sender">
+            <h4>Hiring reference emails</h4>
+            <p class="hint">
+              Used for interview-triggered reference invitations, reminders, and related applicant notices. If unset, the backend tries
+              identity keys <code>hiring_references</code>, then <code>default_notifications</code> / <code>notifications</code>, then any active agency sender.
+            </p>
+            <div class="settings-row">
+              <div class="settings-label">Sender identity</div>
+              <div class="settings-value">
+                <select v-model="hiringRefSenderIdentityId" class="form-select">
+                  <option value="">Automatic (fallback as above)</option>
+                  <option
+                    v-for="ident in agencySenderIdentitiesForHiring"
+                    :key="`hiring-sender-${ident.id}`"
+                    :value="String(ident.id)"
+                  >
+                    {{ ident.display_name || ident.identity_key }} — {{ ident.from_email }} ({{ ident.identity_key }})
+                  </option>
+                </select>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  style="margin-top: 8px"
+                  :disabled="hiringRefSenderSaving || !canEditAgencies"
+                  @click="saveHiringRefSenderPreference"
+                >
+                  {{ hiringRefSenderSaving ? 'Saving…' : 'Save hiring sender' }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -489,11 +522,15 @@ const senderSavingId = ref(null);
 const senderUploadingId = ref(null);
 const includePlatformDefaults = ref(false);
 const testRecipient = ref('');
+const hiringRefSenderIdentityId = ref('');
+const hiringRefSenderSaving = ref(false);
 const SYSTEM_IDENTITY_KEYS = [
   { value: 'school_intake', label: 'School Intake (school packet + ROI sends)' },
   { value: 'intake', label: 'Intake (general intake sends)' },
   { value: 'login_recovery', label: 'Login Recovery (passwordless/reset help)' },
   { value: 'notifications', label: 'Notifications (general system notifications)' },
+  { value: 'hiring_references', label: 'Hiring references (reference forms + reminders)' },
+  { value: 'job_applications', label: 'Job applications (applicant confirmation email)' },
   { value: 'system', label: 'System (fallback sender)' },
   { value: 'default', label: 'Default (legacy fallback)' }
 ];
@@ -521,6 +558,14 @@ const IDENTITY_KEY_USAGE = {
   default: {
     usage: 'Legacy fallback key for older flows.',
     refs: 'Referenced in login-recovery fallback chains.'
+  },
+  hiring_references: {
+    usage: 'Sender for hiring reference invitations, reminders, and applicant notices tied to reference workflow.',
+    refs: 'Used when agencies.hiring_reference_sender_identity_id is not set (fallback after explicit agency selection).'
+  },
+  job_applications: {
+    usage: 'Sender for “application received” confirmation emails to job applicants.',
+    refs: 'Used by public job application intake when this key exists for the agency.'
   }
 };
 const newIdentity = ref({
@@ -578,6 +623,45 @@ const toCsv = (arr) => Array.isArray(arr) ? arr.join(', ') : '';
 const canEditPlatform = computed(() => authStore.user?.role === 'super_admin');
 const canEditAgencies = computed(() => ['super_admin', 'admin', 'staff', 'support'].includes(authStore.user?.role));
 const canEditAny = computed(() => canEditPlatform.value || canEditAgencies.value);
+
+const agencySenderIdentitiesForHiring = computed(() => {
+  const aid = Number(senderAgencyId.value);
+  if (!aid) return [];
+  return (senderIdentities.value || []).filter((x) => Number(x.agency_id) === aid);
+});
+
+const loadHiringRefSenderPreference = async () => {
+  const id = Number(senderAgencyId.value);
+  if (!id) {
+    hiringRefSenderIdentityId.value = '';
+    return;
+  }
+  try {
+    const resp = await api.get(`/agencies/${id}`);
+    const hid = resp.data?.hiring_reference_sender_identity_id;
+    hiringRefSenderIdentityId.value = hid != null && hid !== '' ? String(hid) : '';
+  } catch {
+    hiringRefSenderIdentityId.value = '';
+  }
+};
+
+const saveHiringRefSenderPreference = async () => {
+  const id = Number(senderAgencyId.value);
+  if (!id) return;
+  hiringRefSenderSaving.value = true;
+  senderError.value = '';
+  senderSuccess.value = '';
+  try {
+    await api.put(`/agencies/${id}`, {
+      hiringReferenceSenderIdentityId: hiringRefSenderIdentityId.value ? Number(hiringRefSenderIdentityId.value) : null
+    });
+    senderSuccess.value = 'Hiring reference sender saved.';
+  } catch (err) {
+    senderError.value = err?.response?.data?.error?.message || 'Failed to save hiring reference sender.';
+  } finally {
+    hiringRefSenderSaving.value = false;
+  }
+};
 
 const loadSettings = async () => {
   loading.value = true;
@@ -700,6 +784,7 @@ const loadSenderIdentities = async () => {
     senderError.value = err?.response?.data?.error?.message || 'Failed to load sender identities.';
   } finally {
     senderLoading.value = false;
+    await loadHiringRefSenderPreference();
   }
 };
 
@@ -945,6 +1030,10 @@ const overrideDraftForAgency = (agencyId) => {
   return newOverrideByAgency.value[key];
 };
 
+watch(senderAgencyId, () => {
+  void loadHiringRefSenderPreference();
+});
+
 onMounted(loadSettings);
 
 watch([senderAgencyId, includePlatformDefaults], () => {
@@ -1022,6 +1111,16 @@ watch(
   margin-top: 18px;
   padding-top: 12px;
   border-top: 1px dashed var(--border);
+}
+
+.hiring-ref-sender {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.hiring-ref-sender h4 {
+  margin: 0 0 8px 0;
 }
 
 @media (max-width: 900px) {

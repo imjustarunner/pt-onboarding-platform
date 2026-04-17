@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import Notification from '../models/Notification.model.js';
 import HiringProfile from '../models/HiringProfile.model.js';
 import HiringNote from '../models/HiringNote.model.js';
 import HiringResearchReport from '../models/HiringResearchReport.model.js';
@@ -17,6 +18,18 @@ import { extractResumeTextFromUpload } from '../services/resumeTextExtraction.se
 import { generateResumeSummaryJson } from '../services/resumeStructuring.service.js';
 import { extractResumePhotoPngFromPdf } from '../services/resumePhotoExtraction.service.js';
 import config from '../config/config.js';
+import {
+  listPendingInterviewSplashesForUser,
+  submitInterviewSplashAttendance,
+  submitInterviewSplashCapsule,
+  listPendingTimeCapsuleRevealsForUser,
+  openTimeCapsuleReveal,
+  acknowledgeTimeCapsuleReveal,
+  snoozeTimeCapsuleReveal
+} from '../services/hiringInterviewCapsule.service.js';
+import HiringReferenceRequest from '../models/HiringReferenceRequest.model.js';
+import UserActivityLog from '../models/UserActivityLog.model.js';
+import { createAndSendReferenceRequests } from '../services/hiringReferenceRequests.service.js';
 
 function parseIntParam(v) {
   const n = parseInt(v, 10);
@@ -74,6 +87,34 @@ function normalizeDateOnly(value) {
   return dt.toISOString().slice(0, 10);
 }
 
+function hiringStageLabel(stage) {
+  const s = String(stage || 'applied').trim().toLowerCase().replace(/\s+/g, '_');
+  if (s === 'not_hired') return 'Not hired';
+  if (s === 'hired') return 'Hired';
+  if (!s || s === 'applied') return 'Applied';
+  return s
+    .split('_')
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ''))
+    .join(' ');
+}
+
+async function markHiringCandidateViewed(agencyId, candidateUserId, viewerUserId) {
+  const a = parseIntParam(agencyId);
+  const c = parseIntParam(candidateUserId);
+  const v = parseIntParam(viewerUserId);
+  if (!a || !c || !v) return;
+  try {
+    await pool.execute(
+      `INSERT INTO hiring_candidate_views (agency_id, candidate_user_id, viewer_user_id, first_viewed_at)
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+       ON DUPLICATE KEY UPDATE first_viewed_at = hiring_candidate_views.first_viewed_at`,
+      [a, c, v]
+    );
+  } catch {
+    // Missing migration 705 or table — ignore
+  }
+}
+
 export const listCandidates = async (req, res, next) => {
   try {
     const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
@@ -92,7 +133,8 @@ export const listCandidates = async (req, res, next) => {
     //   and our User.create() will normalize to a fallback status.
     // To prevent "created then disappeared" behavior, we include any record that has a
     // hiring_profile and is not marked hired, when the caller asks for PROSPECTIVE.
-    const params = [agencyId];
+    const viewerId = parseIntParam(req.user?.id) || 0;
+    const params = [agencyId, viewerId];
     let whereSql = '';
     if (stageFilter === 'archived') {
       whereSql = `
@@ -117,15 +159,18 @@ export const listCandidates = async (req, res, next) => {
           AND hp.candidate_user_id IS NOT NULL
       `;
     } else if (statusNorm === 'PROSPECTIVE') {
+      // "Applicants" / default list: never show hired or not_hired, even when u.status is still PROSPECTIVE
+      // (the old OR allowed not_hired rows through the first branch).
       whereSql = `
         WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
           AND (
-          u.status = 'PROSPECTIVE'
-          OR (
-            hp.candidate_user_id IS NOT NULL
-            AND LOWER(COALESCE(hp.stage, 'applied')) NOT IN ('hired', 'not_hired')
+            u.status = 'PROSPECTIVE'
+            OR hp.candidate_user_id IS NOT NULL
           )
-        )
+          AND (
+            hp.id IS NULL
+            OR LOWER(COALESCE(hp.stage, 'applied')) NOT IN ('hired', 'not_hired')
+          )
       `;
     } else {
       whereSql = `WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL)) AND u.status = ?`;
@@ -147,8 +192,8 @@ export const listCandidates = async (req, res, next) => {
       params.push(jobDescriptionId);
     }
 
-    const [rows] = await pool.execute(
-      `SELECT
+    const selectCore = `
+      SELECT
         u.id,
         u.first_name,
         u.last_name,
@@ -165,6 +210,7 @@ export const listCandidates = async (req, res, next) => {
         COALESCE(email_dupe.cnt, 0) AS duplicate_application_count,
         hp.created_at AS hiring_created_at,
         hp.updated_at AS hiring_updated_at
+        __VIEW_COLS__
       FROM users u
       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
       LEFT JOIN hiring_profiles hp
@@ -176,6 +222,7 @@ export const listCandidates = async (req, res, next) => {
           LIMIT 1
         )
       LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id
+      __VIEW_JOIN__
       LEFT JOIN (
         SELECT
           ua2.agency_id,
@@ -197,13 +244,38 @@ export const listCandidates = async (req, res, next) => {
         ON email_dupe.agency_id = ua.agency_id
        AND email_dupe.email_key = LOWER(TRIM(COALESCE(NULLIF(u.personal_email, ''), u.email)))
       ${whereSql}
-      -- Note: users table does not consistently have updated_at; prefer created_at for stable ordering.
       ORDER BY COALESCE(hp.updated_at, hp.created_at, u.created_at) DESC, u.id DESC
-      LIMIT ${limit}`,
-      params
-    );
+      LIMIT ${limit}`;
 
-    res.json(rows || []);
+    let rows;
+    try {
+      const sql = selectCore
+        .replace('__VIEW_COLS__', `, (hcv.first_viewed_at IS NULL) AS is_new_for_me, hcv.first_viewed_at AS hiring_first_viewed_at`)
+        .replace(
+          '__VIEW_JOIN__',
+          `LEFT JOIN hiring_candidate_views hcv
+            ON hcv.agency_id = ua.agency_id AND hcv.candidate_user_id = u.id AND hcv.viewer_user_id = ?`
+        );
+      const exec = await pool.execute(sql, params);
+      rows = exec[0];
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE' && String(e?.message || '').includes('hiring_candidate_views')) {
+        const sqlLegacy = selectCore.replace('__VIEW_COLS__', '').replace('__VIEW_JOIN__', '');
+        const legacyParams = [agencyId, ...params.slice(2)];
+        const execLegacy = await pool.execute(sqlLegacy, legacyParams);
+        rows = execLegacy[0];
+      } else {
+        throw e;
+      }
+    }
+
+    res.json(
+      (rows || []).map((r) => ({
+        ...r,
+        stage_label: hiringStageLabel(r.stage),
+        is_new_for_me: !!(r.is_new_for_me === 1 || r.is_new_for_me === true)
+      }))
+    );
   } catch (e) {
     // Common deployment issue: DB migrations not run yet for hiring tables.
     if (e?.code === 'ER_NO_SUCH_TABLE' || String(e?.message || '').includes('hiring_profiles')) {
@@ -281,6 +353,108 @@ export const createCandidate = async (req, res, next) => {
   }
 };
 
+async function enrichHiringNotesWithEngagement(notesRows, viewerUserId) {
+  const notes = notesRows || [];
+  if (!notes.length) return [];
+  const ids = notes.map((n) => n.id).filter(Boolean);
+  if (!ids.length) return notes;
+  const placeholders = ids.map(() => '?').join(',');
+  try {
+    const [kudosRows] = await pool.execute(
+      `SELECT note_id, user_id FROM hiring_note_kudos WHERE note_id IN (${placeholders})`,
+      ids
+    );
+    const [rxRows] = await pool.execute(
+      `SELECT note_id, user_id, emoji FROM hiring_note_reactions WHERE note_id IN (${placeholders})`,
+      ids
+    );
+    const kudosByNote = new Map();
+    for (const k of kudosRows || []) {
+      if (!kudosByNote.has(k.note_id)) kudosByNote.set(k.note_id, []);
+      kudosByNote.get(k.note_id).push(Number(k.user_id));
+    }
+    const rxByNote = new Map();
+    for (const r of rxRows || []) {
+      if (!rxByNote.has(r.note_id)) rxByNote.set(r.note_id, []);
+      rxByNote.get(r.note_id).push({ userId: Number(r.user_id), emoji: String(r.emoji || '').trim() });
+    }
+    const vid = parseIntParam(viewerUserId);
+    return notes.map((n) => {
+      const givers = kudosByNote.get(n.id) || [];
+      const reactions = rxByNote.get(n.id) || [];
+      return {
+        ...n,
+        kudos_count: givers.length,
+        kudos_user_ids: givers,
+        my_kudos: !!(vid && givers.includes(vid)),
+        reactions,
+        my_reactions: reactions.filter((r) => vid && Number(r.userId) === vid)
+      };
+    });
+  } catch {
+    return notes.map((n) => ({
+      ...n,
+      kudos_count: 0,
+      kudos_user_ids: [],
+      my_kudos: false,
+      reactions: [],
+      my_reactions: []
+    }));
+  }
+}
+
+async function listHiringCandidateReviews(agencyId, candidateUserId) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT r.id, r.agency_id, r.candidate_user_id, r.author_user_id, r.rating, r.body, r.created_at,
+              u.first_name AS author_first_name,
+              u.last_name AS author_last_name,
+              u.email AS author_email
+       FROM hiring_candidate_reviews r
+       JOIN users u ON u.id = r.author_user_id
+       WHERE r.agency_id = ? AND r.candidate_user_id = ?
+       ORDER BY r.created_at DESC
+       LIMIT 200`,
+      [agencyId, candidateUserId]
+    );
+    return rows || [];
+  } catch {
+    return [];
+  }
+}
+
+async function listMySealedCapsulesForProfile(hiringProfileId, authorUserId) {
+  if (!hiringProfileId || !authorUserId) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id, horizon_months,
+         CASE WHEN splash_acknowledged_at IS NOT NULL THEN body_text ELSE NULL END AS body_text,
+         anchor_at, reveal_at, splash_acknowledged_at, created_at
+       FROM time_capsule_entries
+       WHERE subject_type = 'hiring_interview' AND subject_id = ? AND author_user_id = ?
+       ORDER BY horizon_months ASC`,
+      [hiringProfileId, authorUserId]
+    );
+    return rows || [];
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') {
+      try {
+        const [rows] = await pool.execute(
+          `SELECT id, horizon_months, NULL AS body_text, anchor_at, reveal_at, created_at
+           FROM time_capsule_entries
+           WHERE subject_type = 'hiring_interview' AND subject_id = ? AND author_user_id = ?
+           ORDER BY horizon_months ASC`,
+          [hiringProfileId, authorUserId]
+        );
+        return rows || [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+}
+
 export const getCandidate = async (req, res, next) => {
   try {
     const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
@@ -296,7 +470,9 @@ export const getCandidate = async (req, res, next) => {
     if (!user) return res.status(404).json({ error: { message: 'Candidate not found' } });
 
     const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
-    const notes = await HiringNote.listByCandidateUserId(candidateUserId, { limit: 200 });
+    const notesRaw = await HiringNote.listByCandidateUserId(candidateUserId, { limit: 200 });
+    const notes = await enrichHiringNotesWithEngagement(notesRaw, req.user?.id);
+    const reviews = await listHiringCandidateReviews(agencyId, candidateUserId);
     const latestResearch = await HiringResearchReport.findLatestByCandidateUserId(candidateUserId);
     const latestPreScreen = await HiringResearchReport.findLatestAiByCandidateUserId(candidateUserId);
 
@@ -306,7 +482,32 @@ export const getCandidate = async (req, res, next) => {
       if (jd && Number(jd.agency_id) === Number(agencyId)) jobDescription = jd;
     }
 
-    res.json({ user, profile, jobDescription, notes, latestResearch, latestPreScreen });
+    await markHiringCandidateViewed(agencyId, candidateUserId, req.user.id);
+
+    const hiringProfileId = profile?.id != null ? parseInt(profile.id, 10) : null;
+    const myTimeCapsules = await listMySealedCapsulesForProfile(hiringProfileId, req.user.id);
+
+    res.json({
+      user,
+      profile: profile
+        ? {
+            ...profile,
+            stage_label: hiringStageLabel(profile.stage),
+            interview_starts_at: profile.interview_starts_at ?? null,
+            interview_timezone: profile.interview_timezone ?? null,
+            interview_status: profile.interview_status ?? null,
+            interview_interviewer_user_ids: profile.interview_interviewer_user_ids ?? null,
+            interview_scheduled_by_user_id: profile.interview_scheduled_by_user_id ?? null,
+            interview_updated_at: profile.interview_updated_at ?? null
+          }
+        : profile,
+      jobDescription,
+      notes,
+      reviews,
+      myTimeCapsules,
+      latestResearch,
+      latestPreScreen
+    });
   } catch (e) {
     next(e);
   }
@@ -656,11 +857,13 @@ export const createCandidateNote = async (req, res, next) => {
       ? null
       : parseInt(ratingRaw, 10);
 
+    const parentNoteId = parseIntParam(req.body?.parentNoteId);
     const note = await HiringNote.create({
       candidateUserId,
       authorUserId: req.user.id,
       message,
-      rating: Number.isFinite(rating) ? rating : null
+      rating: Number.isFinite(rating) ? rating : null,
+      parentNoteId: parentNoteId || null
     });
 
     res.status(201).json(note);
@@ -1013,6 +1216,25 @@ export const createCandidateTask = async (req, res, next) => {
       targetUserId: assignedToUserId,
       metadata: { agencyId, candidateUserId, kind: kind || 'call' }
     });
+
+    try {
+      const assignee = await User.findById(assignedToUserId);
+      const candidate = await User.findById(candidateUserId);
+      const candName = [candidate?.first_name, candidate?.last_name].filter(Boolean).join(' ') || `User ${candidateUserId}`;
+      await Notification.create({
+        type: 'hiring_task_assigned',
+        severity: 'info',
+        title: 'Applicant task assigned',
+        message: `${title} — ${candName}`,
+        userId: assignedToUserId,
+        agencyId,
+        relatedEntityType: 'hiring_task',
+        relatedEntityId: task.id,
+        actorUserId: req.user.id
+      });
+    } catch {
+      // ignore notification failures
+    }
 
     res.status(201).json({ ...task, metadata });
   } catch (e) {
@@ -1639,6 +1861,29 @@ export const deleteCandidate = async (req, res, next) => {
 
     // Delete hiring records (best effort if tables not present).
     try {
+      const [pList] = await conn.execute(`SELECT id FROM hiring_profiles WHERE candidate_user_id = ?`, [candidateUserId]);
+      for (const p of pList || []) {
+        try {
+          await conn.execute(`DELETE FROM time_capsule_entries WHERE subject_type = 'hiring_interview' AND subject_id = ?`, [p.id]);
+        } catch {
+          /* ignore */
+        }
+        try {
+          await conn.execute(`DELETE FROM hiring_interview_splash_state WHERE hiring_profile_id = ?`, [p.id]);
+        } catch {
+          /* ignore */
+        }
+      }
+      try {
+        await conn.execute(`DELETE FROM hiring_candidate_views WHERE candidate_user_id = ?`, [candidateUserId]);
+      } catch {
+        /* ignore */
+      }
+      try {
+        await conn.execute(`DELETE FROM hiring_candidate_reviews WHERE candidate_user_id = ?`, [candidateUserId]);
+      } catch {
+        /* ignore */
+      }
       await conn.execute(`DELETE FROM hiring_notes WHERE candidate_user_id = ?`, [candidateUserId]);
       await conn.execute(`DELETE FROM hiring_research_reports WHERE candidate_user_id = ?`, [candidateUserId]);
       await conn.execute(`DELETE FROM hiring_profiles WHERE candidate_user_id = ?`, [candidateUserId]);
@@ -1689,6 +1934,540 @@ export const deleteCandidate = async (req, res, next) => {
         // ignore
       }
     }
+  }
+};
+
+export const patchCandidateInterview = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.body?.agencyId || req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const statusRaw = req.body?.interviewStatus !== undefined ? String(req.body.interviewStatus || '').trim().toLowerCase() : null;
+    const interviewStatus = statusRaw === 'cancelled' ? 'cancelled' : statusRaw === 'scheduled' ? 'scheduled' : null;
+
+    let interviewStartsAt = undefined;
+    if (req.body?.interviewStartsAt !== undefined) {
+      const raw = String(req.body.interviewStartsAt || '').trim();
+      if (!raw) interviewStartsAt = null;
+      else {
+        const d = new Date(raw);
+        if (!Number.isFinite(d.getTime())) {
+          return res.status(400).json({ error: { message: 'Invalid interviewStartsAt' } });
+        }
+        interviewStartsAt = d.toISOString().slice(0, 19).replace('T', ' ');
+      }
+    }
+
+    const interviewTimezone =
+      req.body?.interviewTimezone !== undefined ? String(req.body.interviewTimezone || '').trim().slice(0, 64) || null : undefined;
+
+    let interviewerIds = undefined;
+    if (req.body?.interviewerUserIds !== undefined) {
+      const arr = Array.isArray(req.body.interviewerUserIds) ? req.body.interviewerUserIds : [];
+      const cleaned = [...new Set(arr.map((x) => parseIntParam(x)).filter((n) => n))];
+      for (const uid of cleaned) {
+        if (req.user?.role !== 'super_admin') {
+          const ags = await User.getAgencies(uid);
+          const ok = (ags || []).some((a) => Number(a.id) === Number(agencyId));
+          if (!ok) {
+            return res.status(400).json({ error: { message: `User ${uid} is not in this agency` } });
+          }
+        }
+      }
+      interviewerIds = JSON.stringify(cleaned);
+    }
+
+    const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
+    if (!profile?.id) {
+      return res.status(404).json({ error: { message: 'Hiring profile not found' } });
+    }
+
+    const sets = [];
+    const vals = [];
+    if (interviewStartsAt !== undefined) {
+      sets.push('interview_starts_at = ?');
+      vals.push(interviewStartsAt);
+    }
+    if (interviewTimezone !== undefined) {
+      sets.push('interview_timezone = ?');
+      vals.push(interviewTimezone);
+    }
+    if (req.body?.interviewStatus !== undefined) {
+      sets.push('interview_status = ?');
+      vals.push(interviewStatus);
+    }
+    if (interviewerIds !== undefined) {
+      sets.push('interview_interviewer_user_ids = ?');
+      vals.push(interviewerIds);
+    }
+    if (interviewStatus === 'cancelled') {
+      sets.push('interview_starts_at = NULL');
+    }
+    if (sets.length === 0) {
+      return res.status(400).json({ error: { message: 'No interview fields to update' } });
+    }
+    sets.push('interview_scheduled_by_user_id = ?');
+    vals.push(req.user.id);
+    vals.push(profile.id);
+
+    try {
+      await pool.execute(
+        `UPDATE hiring_profiles SET ${sets.join(', ')}, interview_updated_at = CURRENT_TIMESTAMP WHERE id = ? LIMIT 1`,
+        vals
+      );
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') {
+        return res.status(503).json({ error: { message: 'Interview scheduling requires migration 705' } });
+      }
+      throw e;
+    }
+
+    const updated = await HiringProfile.findByCandidateUserId(candidateUserId);
+    const sendRefs =
+      req.body?.sendReferenceRequests === true
+      || String(req.body?.sendReferenceRequests || '').trim().toLowerCase() === 'true';
+    let referenceSendResult = null;
+    if (sendRefs) {
+      const p = updated;
+      if (!p?.interview_starts_at) {
+        return res.status(400).json({
+          error: {
+            message: 'Interview date and time are required before sending reference requests.'
+          }
+        });
+      }
+      try {
+        const result = await createAndSendReferenceRequests({
+          agencyId,
+          candidateUserId,
+          profile: p,
+          sentByUserId: req.user.id,
+          intakeSubmissionId: null,
+          onlyIfNotSent: false
+        });
+        referenceSendResult = { sent: result.sent, skipped: result.skipped, errors: result.errors };
+        if ((result.errors || []).length && !(result.sent || []).length) {
+          return res.status(400).json({
+            error: { message: result.errors.join(' ') },
+            profile: p
+              ? {
+                  ...p,
+                  stage_label: hiringStageLabel(p.stage)
+                }
+              : p,
+            referenceSendResult
+          });
+        }
+      } catch (err) {
+        return res.status(400).json({
+          error: { message: String(err?.message || err) },
+          profile: updated
+            ? {
+                ...updated,
+                stage_label: hiringStageLabel(updated.stage)
+              }
+            : updated
+        });
+      }
+    }
+
+    const finalProfile = await HiringProfile.findByCandidateUserId(candidateUserId);
+    res.json({
+      profile: finalProfile
+        ? {
+            ...finalProfile,
+            stage_label: hiringStageLabel(finalProfile.stage)
+          }
+        : finalProfile,
+      ...(referenceSendResult ? { referenceSendResult } : {})
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listCandidateReferenceRequests = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
+    if (!profile?.id) return res.status(404).json({ error: { message: 'Hiring profile not found' } });
+
+    try {
+      const rows = await HiringReferenceRequest.listByProfileAndAgency(profile.id, agencyId);
+      const sanitized = (rows || []).map((r) => {
+        const { public_link_token: _t, open_track_token: _o, ...rest } = r || {};
+        return rest;
+      });
+      res.json(sanitized);
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') {
+        return res.status(503).json({ error: { message: 'Reference requests require migration 707' } });
+      }
+      throw e;
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listCandidateReferenceActivity = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
+    if (!profile?.id) return res.status(404).json({ error: { message: 'Hiring profile not found' } });
+
+    const lim = parseIntParam(req.query.limit) || 100;
+    try {
+      const rows = await UserActivityLog.getHiringReferenceEventsForUser(candidateUserId, agencyId, lim);
+      res.json(rows);
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') {
+        return res.json([]);
+      }
+      throw e;
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const postCandidateReferenceRequestsSend = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.body?.agencyId || req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
+    if (!profile?.id) return res.status(404).json({ error: { message: 'Hiring profile not found' } });
+    if (!profile.interview_starts_at) {
+      return res.status(400).json({ error: { message: 'Interview date and time are required before sending reference requests.' } });
+    }
+
+    const onlyIfNotSent =
+      req.body?.onlyIfNotSent === true || String(req.body?.onlyIfNotSent || '').trim() === '1';
+
+    const result = await createAndSendReferenceRequests({
+      agencyId,
+      candidateUserId,
+      profile,
+      sentByUserId: req.user.id,
+      intakeSubmissionId: null,
+      onlyIfNotSent
+    });
+
+    if ((result.errors || []).length && !(result.sent || []).length) {
+      return res.status(400).json({
+        error: { message: result.errors.join(' ') },
+        sent: result.sent,
+        skipped: result.skipped
+      });
+    }
+
+    res.json({
+      sent: result.sent,
+      skipped: result.skipped,
+      errors: result.errors
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listCandidateReviews = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const rows = await listHiringCandidateReviews(agencyId, candidateUserId);
+    res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createCandidateReview = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.body?.agencyId || req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const body = String(req.body?.body || '').trim();
+    const rating = parseInt(req.body?.rating, 10);
+    if (!body) return res.status(400).json({ error: { message: 'body is required' } });
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: { message: 'rating must be 1-5' } });
+    }
+
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO hiring_candidate_reviews (agency_id, candidate_user_id, author_user_id, rating, body)
+         VALUES (?, ?, ?, ?, ?)`,
+        [agencyId, candidateUserId, req.user.id, rating, body.slice(0, 20000)]
+      );
+      const [rows] = await pool.execute(
+        `SELECT r.*, u.first_name AS author_first_name, u.last_name AS author_last_name,
+                u.email AS author_email
+         FROM hiring_candidate_reviews r
+         JOIN users u ON u.id = r.author_user_id
+         WHERE r.id = ? LIMIT 1`,
+        [result.insertId]
+      );
+      res.status(201).json(rows[0] || null);
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+        return res.status(503).json({ error: { message: 'Reviews require migration 705' } });
+      }
+      throw e;
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const toggleHiringNoteKudos = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    const noteId = parseIntParam(req.params.noteId);
+    if (!candidateUserId || !noteId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const note = await HiringNote.findById(noteId);
+    if (!note || Number(note.candidate_user_id) !== Number(candidateUserId)) {
+      return res.status(404).json({ error: { message: 'Note not found' } });
+    }
+
+    const [existing] = await pool.execute(
+      `SELECT id FROM hiring_note_kudos WHERE note_id = ? AND user_id = ? LIMIT 1`,
+      [noteId, req.user.id]
+    );
+    if (existing.length) {
+      await pool.execute(`DELETE FROM hiring_note_kudos WHERE note_id = ? AND user_id = ? LIMIT 1`, [noteId, req.user.id]);
+    } else {
+      await pool.execute(`INSERT INTO hiring_note_kudos (note_id, user_id) VALUES (?, ?)`, [noteId, req.user.id]);
+    }
+    const notesRaw = await HiringNote.listByCandidateUserId(candidateUserId, { limit: 200 });
+    const notes = await enrichHiringNotesWithEngagement(notesRaw, req.user.id);
+    const n = notes.find((x) => Number(x.id) === Number(noteId));
+    res.json(n || { ok: true });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Note kudos require migration 705' } });
+    }
+    next(e);
+  }
+};
+
+export const setHiringNoteReaction = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    const noteId = parseIntParam(req.params.noteId);
+    const emoji = String(req.body?.emoji || '').trim().slice(0, 16);
+    if (!candidateUserId || !noteId || !emoji) {
+      return res.status(400).json({ error: { message: 'candidate, note, and emoji are required' } });
+    }
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const note = await HiringNote.findById(noteId);
+    if (!note || Number(note.candidate_user_id) !== Number(candidateUserId)) {
+      return res.status(404).json({ error: { message: 'Note not found' } });
+    }
+
+    await pool.execute(
+      `INSERT INTO hiring_note_reactions (note_id, user_id, emoji) VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE emoji = VALUES(emoji)`,
+      [noteId, req.user.id, emoji]
+    );
+    const notesRaw = await HiringNote.listByCandidateUserId(candidateUserId, { limit: 200 });
+    const notes = await enrichHiringNotesWithEngagement(notesRaw, req.user.id);
+    res.json(notes.find((x) => Number(x.id) === Number(noteId)) || { ok: true });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: { message: 'Note reactions require migration 705' } });
+    }
+    next(e);
+  }
+};
+
+export const deleteHiringNoteReaction = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    const noteId = parseIntParam(req.params.noteId);
+    const emoji = decodeURIComponent(String(req.query.emoji || '').trim()).slice(0, 16);
+    if (!candidateUserId || !noteId || !emoji) {
+      return res.status(400).json({ error: { message: 'Invalid ids' } });
+    }
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    await pool.execute(`DELETE FROM hiring_note_reactions WHERE note_id = ? AND user_id = ? AND emoji = ? LIMIT 1`, [
+      noteId,
+      req.user.id,
+      emoji
+    ]);
+    const notesRaw = await HiringNote.listByCandidateUserId(candidateUserId, { limit: 200 });
+    const notes = await enrichHiringNotesWithEngagement(notesRaw, req.user.id);
+    res.json(notes.find((x) => Number(x.id) === Number(noteId)) || { ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getMyPendingInterviewSplashes = async (req, res, next) => {
+  try {
+    const rows = await listPendingInterviewSplashesForUser(req.user.id);
+    res.json(rows);
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.json([]);
+    }
+    next(e);
+  }
+};
+
+export const getMyPendingTimeCapsuleReveals = async (req, res, next) => {
+  try {
+    const rows = await listPendingTimeCapsuleRevealsForUser(req.user.id);
+    res.json(rows);
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.json([]);
+    }
+    next(e);
+  }
+};
+
+export const postTimeCapsuleRevealOpen = async (req, res, next) => {
+  try {
+    const entryId = parseIntParam(req.params.entryId);
+    if (!entryId) return res.status(400).json({ error: { message: 'Invalid entryId' } });
+    const out = await openTimeCapsuleReveal(entryId, req.user.id);
+    res.json(out);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const postTimeCapsuleRevealAcknowledge = async (req, res, next) => {
+  try {
+    const entryId = parseIntParam(req.params.entryId);
+    if (!entryId) return res.status(400).json({ error: { message: 'Invalid entryId' } });
+    await acknowledgeTimeCapsuleReveal(entryId, req.user.id);
+    res.json({ ok: true });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const postTimeCapsuleRevealSnooze = async (req, res, next) => {
+  try {
+    const entryId = parseIntParam(req.params.entryId);
+    if (!entryId) return res.status(400).json({ error: { message: 'Invalid entryId' } });
+    const days = req.body?.days != null ? parseInt(req.body.days, 10) : 1;
+    const out = await snoozeTimeCapsuleReveal(entryId, req.user.id, days);
+    res.json(out);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const submitMyInterviewSplash = async (req, res, next) => {
+  try {
+    const hiringProfileId = parseIntParam(req.body?.hiringProfileId);
+    if (!hiringProfileId) return res.status(400).json({ error: { message: 'hiringProfileId is required' } });
+
+    const attendedRaw = req.body?.attended;
+    if (attendedRaw === undefined) {
+      return res.status(400).json({ error: { message: 'attended is required (true/false)' } });
+    }
+    const attended = attendedRaw === true || String(attendedRaw).toLowerCase() === 'true' || attendedRaw === 1;
+
+    await submitInterviewSplashAttendance({
+      hiringProfileId,
+      interviewerUserId: req.user.id,
+      attended
+    });
+
+    if (!attended) {
+      return res.json({ ok: true, dismissed: true });
+    }
+
+    const impression = String(req.body?.impression || '').trim();
+    const rating = parseInt(req.body?.rating, 10);
+    const prediction6m = String(req.body?.prediction6m || '').trim();
+    const prediction12m = String(req.body?.prediction12m || '').trim();
+
+    if (!impression || !Number.isFinite(rating) || !prediction6m || !prediction12m) {
+      return res.json({ ok: true, awaitingCapsule: true });
+    }
+
+    await submitInterviewSplashCapsule({
+      hiringProfileId,
+      interviewerUserId: req.user.id,
+      impression,
+      rating,
+      prediction6m,
+      prediction12m
+    });
+
+    res.json({ ok: true, completed: true });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
   }
 };
 

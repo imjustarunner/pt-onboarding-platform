@@ -60,7 +60,10 @@
               <div v-if="profile?.credential" class="sub">{{ profile.credential }}</div>
               <div v-if="profile?.service_focus" class="sub">{{ profile.service_focus }}</div>
               <div class="sub">Languages: {{ languagesDisplay }}</div>
-              <div v-if="providerContactLine" class="sub">{{ providerContactLine }}</div>
+              <div v-if="providerContactLine" class="sub">
+                <span class="contact-label">Phone</span>
+                {{ providerContactLine }}
+              </div>
               <div v-if="acceptedInsuranceLabels.length" class="insurance-row">
                 <div class="insurance-label">Accepted insurance</div>
                 <div class="insurance-list">
@@ -473,7 +476,13 @@ const recomputeDayBar = () => {
 
 const providerContactLine = computed(() => {
   const p = profile.value || {};
-  const phone = String(p.work_phone || p.personal_phone || p.phone_number || '').trim();
+  const agencyPhone = String(p.tenant_contact_phone || '').trim();
+  const agencyExt = String(p.tenant_contact_phone_extension || '').trim();
+  if (agencyPhone) {
+    return agencyExt ? `${agencyPhone} ext ${agencyExt}` : agencyPhone;
+  }
+  // No tenant Contact phone: fall back to work / legacy account phone only (not personal cell on school portal).
+  const phone = String(p.work_phone || p.phone_number || '').trim();
   const ext = String(p.work_phone_extension || '').trim();
   if (!phone) return '';
   if (ext) return `${phone} ext ${ext}`;
@@ -1122,6 +1131,16 @@ watch(
   background: rgba(239, 68, 68, 0.10);
 }
 .sub { color: var(--text-secondary); margin-top: 2px; }
+.contact-label {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #64748b);
+  opacity: 0.9;
+}
  .hero-actions { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .blurb {
   margin-top: 10px;

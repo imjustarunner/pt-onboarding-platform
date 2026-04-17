@@ -27,7 +27,22 @@ import {
   generateCandidatePreScreenReport,
   promoteCandidateToPendingSetup,
   listCandidateTasks,
-  createCandidateTask
+  createCandidateTask,
+  patchCandidateInterview,
+  listCandidateReferenceRequests,
+  listCandidateReferenceActivity,
+  postCandidateReferenceRequestsSend,
+  listCandidateReviews,
+  createCandidateReview,
+  toggleHiringNoteKudos,
+  setHiringNoteReaction,
+  deleteHiringNoteReaction,
+  getMyPendingInterviewSplashes,
+  submitMyInterviewSplash,
+  getMyPendingTimeCapsuleReveals,
+  postTimeCapsuleRevealOpen,
+  postTimeCapsuleRevealAcknowledge,
+  postTimeCapsuleRevealSnooze
 } from '../controllers/hiring.controller.js';
 
 const router = express.Router();
@@ -55,6 +70,12 @@ const upload = multer({
 
 router.get('/candidates', listCandidates);
 router.post('/candidates', createCandidate);
+router.get('/me/pending-interview-splashes', getMyPendingInterviewSplashes);
+router.post('/me/interview-splash', submitMyInterviewSplash);
+router.get('/me/pending-time-capsule-reveals', getMyPendingTimeCapsuleReveals);
+router.post('/me/time-capsule-reveals/:entryId/open', postTimeCapsuleRevealOpen);
+router.post('/me/time-capsule-reveals/:entryId/acknowledge', postTimeCapsuleRevealAcknowledge);
+router.post('/me/time-capsule-reveals/:entryId/snooze', postTimeCapsuleRevealSnooze);
 router.get('/assignees', listHiringAssignees);
 router.get('/job-descriptions', listJobDescriptions);
 router.post('/job-descriptions', upload.single('file'), createJobDescription);
@@ -62,7 +83,16 @@ router.put('/job-descriptions/:jobDescriptionId', upload.single('file'), updateJ
 router.delete('/job-descriptions/:jobDescriptionId', deleteJobDescription);
 router.get('/job-descriptions/:jobDescriptionId/view', viewJobDescriptionFile);
 router.get('/candidates/:userId', getCandidate);
+router.patch('/candidates/:userId/interview', patchCandidateInterview);
+router.get('/candidates/:userId/reference-requests', listCandidateReferenceRequests);
+router.get('/candidates/:userId/reference-activity', listCandidateReferenceActivity);
+router.post('/candidates/:userId/reference-requests/send', postCandidateReferenceRequestsSend);
+router.get('/candidates/:userId/reviews', listCandidateReviews);
+router.post('/candidates/:userId/reviews', createCandidateReview);
 router.post('/candidates/:userId/notes', createCandidateNote);
+router.post('/candidates/:userId/notes/:noteId/kudos', toggleHiringNoteKudos);
+router.post('/candidates/:userId/notes/:noteId/reactions', setHiringNoteReaction);
+router.delete('/candidates/:userId/notes/:noteId/reactions', deleteHiringNoteReaction);
 router.get('/candidates/:userId/tasks', listCandidateTasks);
 router.post('/candidates/:userId/tasks', createCandidateTask);
 router.get('/candidates/:userId/resumes', listCandidateResumes);

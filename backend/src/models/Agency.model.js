@@ -1310,7 +1310,8 @@ class Agency {
       schoolPortalPublicDocumentsIconId,
       schoolPortalAnnouncementsIconId,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId,
-      clubAddMemberIconId, clubAddSeasonIconId, clubSettingsIconId
+      clubAddMemberIconId, clubAddSeasonIconId, clubSettingsIconId,
+      hiringReferenceSenderIdentityId
     } = agencyData;
     
     // Check if icon_id column exists
@@ -2424,6 +2425,22 @@ class Agency {
         values.push(Boolean(publicAvailabilityEnabled));
       }
     }
+    }
+
+    if (hiringReferenceSenderIdentityId !== undefined) {
+      let hasHiringRefSender = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'hiring_reference_sender_identity_id'"
+        );
+        hasHiringRefSender = (cols || []).length > 0;
+      } catch {
+        hasHiringRefSender = false;
+      }
+      if (hasHiringRefSender) {
+        updates.push('hiring_reference_sender_identity_id = ?');
+        values.push(hiringReferenceSenderIdentityId ? Number(hiringReferenceSenderIdentityId) : null);
+      }
     }
 
     if (updates.length === 0) {

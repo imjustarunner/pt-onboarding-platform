@@ -110,6 +110,20 @@ export const recoveryLimiter = rateLimit({
 });
 
 /** Public marketing hub aggregate metrics — allowlisted SQL only; still rate-limit per slug + IP. */
+/** Public hiring reference form submit (token + IP). */
+export const publicHiringReferenceSubmitLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isDevelopment ? 80 : 25,
+  message: { error: { message: 'Too many submissions from this network. Please try again later.' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const token = String(req.params?.token || '').trim().toLowerCase();
+    const ip = getClientIpAddress(req) || req.ip || 'unknown';
+    return token ? `hire-ref-submit:${token}:${ip}` : `hire-ref-submit:${ip}`;
+  }
+});
+
 export const publicMarketingPageMetricsLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: isDevelopment ? 120 : 40,

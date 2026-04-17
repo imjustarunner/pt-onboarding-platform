@@ -64,6 +64,8 @@ import { notifyNewPacketUploaded } from '../services/clientNotifications.service
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
+import { buildJobDescriptionAttachmentForEmail } from '../services/hiringReferenceRequests.service.js';
+import { resolveJobApplicationSenderIdentity } from '../services/hiringReferenceIdentity.service.js';
 import {
   pickPreferredSenderIdentity,
   resolvePreferredSenderIdentityForAgency,
@@ -2271,6 +2273,95 @@ const toBooleanSafe = (value) => {
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 };
 
+const findJobApplicationReferencesMin = (link) => {
+  const steps = parseLinkIntakeSteps(link);
+  const ref = steps.find((s) => String(s?.type || '').toLowerCase() === 'references');
+  return Math.max(1, Number(ref?.minReferences || 3) || 3);
+};
+
+const validateJobApplicationSubmission = (link, ctx) => {
+  const min = findJobApplicationReferencesMin(link);
+  const waived = !!ctx.referencesWaived;
+  const refs = Array.isArray(ctx.referencesJson) ? ctx.referencesJson : [];
+  if (!waived) {
+    if (!ctx.referencesConsentJson?.digitalFormAtInterviewOrOffer) {
+      return 'You must consent to digital reference forms (at interview or offer stage) before continuing.';
+    }
+    if (!ctx.referencesConsentJson?.referenceContentWaiverAcknowledged) {
+      return 'You must acknowledge the reference confidentiality statement before continuing.';
+    }
+    const filled = refs.filter(
+      (r) =>
+        String(r?.name || '').trim()
+        || String(r?.email || '').trim()
+        || String(r?.phone || '').trim()
+        || String(r?.organization || '').trim()
+        || String(r?.relationship || '').trim()
+    );
+    if (filled.length < min) {
+      return `Please provide at least ${min} professional references, or select the waiver option.`;
+    }
+    const firstMin = filled.slice(0, min);
+    const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '').trim());
+    for (const r of firstMin) {
+      if (!emailOk(r?.email)) {
+        return `A valid email is required for each of the first ${min} professional references.`;
+      }
+    }
+  }
+  return null;
+};
+
+async function sendJobApplicationReceivedEmail({ agencyId, applicantUser, jobDescription, pdfBuffer, jobTitle }) {
+  try {
+    const identity = await resolveJobApplicationSenderIdentity(agencyId);
+    if (!identity?.id) return;
+    const to = String(applicantUser?.email || applicantUser?.personal_email || '').trim();
+    if (!to) return;
+    const title = String(jobTitle || 'your application').trim();
+    const attachments = [];
+    if (pdfBuffer) {
+      attachments.push({
+        filename: 'application-summary.pdf',
+        contentType: 'application/pdf',
+        contentBase64: Buffer.from(pdfBuffer).toString('base64')
+      });
+    }
+    const jdAttach = await buildJobDescriptionAttachmentForEmail(jobDescription);
+    if (jdAttach) attachments.push(jdAttach);
+    const name = `${String(applicantUser?.first_name || '').trim()} ${String(applicantUser?.last_name || '').trim()}`.trim() || 'Hello';
+    const subject = `Application received — ${title}`;
+    const text = [
+      `Hi ${name},`,
+      '',
+      'Thank you for applying. This message confirms we received your application materials.',
+      '',
+      jobDescription?.title ? `Role: ${jobDescription.title}` : '',
+      '',
+      attachments.length ? 'This email includes your application summary and job description materials as attachments.' : ''
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const html = `<div style="font-family: Arial, sans-serif; line-height: 1.5; color:#111;">
+      <p>Hi ${name},</p>
+      <p>Thank you for applying. We received your application materials.</p>
+      ${jobDescription?.title ? `<p><strong>Role:</strong> ${String(jobDescription.title).replace(/</g, '')}</p>` : ''}
+      <p style="color:#555;font-size:14px;">If attachments are missing, you can also download a copy from the confirmation page when available.</p>
+    </div>`;
+    await sendEmailFromIdentity({
+      senderIdentityId: identity.id,
+      to,
+      subject,
+      text,
+      html,
+      attachments: attachments.length ? attachments : null,
+      source: 'auto'
+    });
+  } catch {
+    // best-effort
+  }
+}
+
 const parseJobApplicationContext = (intakeData, link = null) => {
   const submission = intakeData?.responses?.submission && typeof intakeData.responses.submission === 'object'
     ? intakeData.responses.submission
@@ -2324,7 +2415,23 @@ const parseJobApplicationContext = (intakeData, link = null) => {
       ?? submission.jobAcknowledged
       ?? false
   );
-  return { coverLetterText, resumeText, referencesJson, fluentLanguagesJson, jobAcknowledged };
+  const referencesWaived = toBooleanSafe(intakeData?.referencesWaived ?? submission.referencesWaived ?? false);
+  const rcIn = submission.referencesConsent && typeof submission.referencesConsent === 'object' ? submission.referencesConsent : {};
+  const referencesConsentJson = {
+    consentVersion: Number(rcIn.consentVersion) || 1,
+    digitalFormAtInterviewOrOffer: toBooleanSafe(rcIn.digitalFormAtInterviewOrOffer),
+    referenceContentWaiverAcknowledged: toBooleanSafe(rcIn.referenceContentWaiverAcknowledged),
+    referencesWaived: !!referencesWaived
+  };
+  return {
+    coverLetterText,
+    resumeText,
+    referencesJson,
+    fluentLanguagesJson,
+    jobAcknowledged,
+    referencesWaived,
+    referencesConsentJson
+  };
 };
 
 export const listPublicCareers = async (req, res, next) => {
@@ -3712,7 +3819,19 @@ export const finalizePublicIntake = async (req, res, next) => {
       const gEmail = String(req.body?.guardian?.email || '').trim();
       const gPhone = req.body?.guardian?.phoneNumber !== undefined ? String(req.body.guardian.phoneNumber || '').trim()
   : req.body?.guardian?.phone !== undefined ? String(req.body.guardian.phone || '').trim() : null;
-      const { coverLetterText, resumeText, referencesJson, fluentLanguagesJson, jobAcknowledged } = parseJobApplicationContext(intakeData, link);
+      const jobAppCtx = parseJobApplicationContext(intakeData, link);
+      const jobAppErr = validateJobApplicationSubmission(link, jobAppCtx);
+      if (jobAppErr) {
+        return res.status(400).json({ error: { message: jobAppErr } });
+      }
+      const {
+        coverLetterText,
+        resumeText,
+        referencesJson,
+        fluentLanguagesJson,
+        jobAcknowledged,
+        referencesConsentJson
+      } = jobAppCtx;
 
       const user = await User.create({
         email: gEmail,
@@ -3760,6 +3879,8 @@ export const finalizePublicIntake = async (req, res, next) => {
         jobDescriptionId: jobDescriptionId || null,
         coverLetterText,
         referencesJson,
+        referencesConsentJson,
+        referencesConsentAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
         fluentLanguagesJson,
         jobAcknowledged
       });
@@ -3865,8 +3986,10 @@ export const finalizePublicIntake = async (req, res, next) => {
 
       await IntakeSubmission.updateById(submissionId, { guardian_user_id: user.id });
       let applicationDownloadUrl = null;
+      let answersPdfBuffer = null;
       try {
         const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
+        answersPdfBuffer = answersPdf || null;
         if (answersPdf) {
           const bundleHash = DocumentSigningService.calculatePDFHash(answersPdf);
           const bundleResult = await StorageService.saveIntakeBundle({
@@ -3882,6 +4005,19 @@ export const finalizePublicIntake = async (req, res, next) => {
         }
       } catch {
         // best effort: application can still submit without bundle generation
+      }
+      try {
+        const jd = jobDescriptionId ? await HiringJobDescription.findById(jobDescriptionId) : null;
+        const jobTitle = String(jd?.title || link?.title || 'Job application').trim();
+        await sendJobApplicationReceivedEmail({
+          agencyId,
+          applicantUser: user,
+          jobDescription: jd,
+          pdfBuffer: answersPdfBuffer,
+          jobTitle
+        });
+      } catch {
+        // best-effort applicant confirmation email
       }
       try {
         const jobTitle = String((await HiringJobDescription.findById(jobDescriptionId))?.title || '').trim()

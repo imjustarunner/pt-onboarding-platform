@@ -583,13 +583,33 @@
               <div class="form-group"><label>Relationship / Title</label><input v-model="refEntry.relationship" type="text" /></div>
               <div class="form-group"><label>Organization</label><input v-model="refEntry.organization" type="text" /></div>
               <div class="form-group"><label>Phone</label><input v-model="refEntry.phone" type="tel" /></div>
-              <div class="form-group" style="grid-column: 1 / -1;"><label>Email</label><input v-model="refEntry.email" type="email" /></div>
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label>Email<span v-if="!referencesWaived && idx < referencesRequiredCount"> (required)</span></label>
+                <input v-model="refEntry.email" type="email" />
+              </div>
             </div>
           </div>
           <label v-if="currentFlowStep?.waivable !== false" class="checkbox-row">
             <input v-model="referencesWaived" type="checkbox" />
-            <span>I waive my right to view these references.</span>
+            <span>I waive providing professional references.</span>
           </label>
+          <div v-if="!referencesWaived" class="reference-consents muted">
+            <label class="checkbox-row">
+              <input v-model="referencesDigitalFormConsent" type="checkbox" />
+              <span>
+                If I am offered an interview or a job, my listed references may receive a confidential digital reference form at that time.
+                I understand I will be notified when those forms are sent, when each reference is completed, and by whom.
+              </span>
+            </label>
+            <!-- Subject to legal review: final copy must be approved by counsel before production. -->
+            <label class="checkbox-row">
+              <input v-model="referenceContentWaiverAcknowledged" type="checkbox" />
+              <span>
+                I understand reference responses are confidential and I waive any right to access the contents of those reference responses,
+                subject to applicable law.
+              </span>
+            </label>
+          </div>
         </div>
         <div v-if="currentFlowStep?.type === 'registration'" class="registration-step">
           <p v-if="currentFlowStep?.description" class="muted">{{ currentFlowStep.description }}</p>
@@ -2212,11 +2232,19 @@ const referencesEntries = ref([
   { name: '', relationship: '', organization: '', phone: '', email: '' }
 ]);
 const referencesWaived = ref(false);
+const referencesDigitalFormConsent = ref(false);
+const referenceContentWaiverAcknowledged = ref(false);
 const jobDescriptionSummary = ref(null);
 const jobAckPdfZoom = ref(125);
 const jobDescriptionAcknowledged = ref(false);
 const defaultReferencesAuthorizationNotice =
   'By submitting this information, you authorize [tenant] to contact the individuals listed and obtain information regarding your employment history, educational background, professional conduct, and qualifications for employment.';
+
+const referencesRequiredCount = computed(() => {
+  const s = currentFlowStep.value;
+  if (!s || s.type !== 'references') return 3;
+  return Math.max(1, Number(s.minReferences || 3) || 3);
+});
 const embeddedSmartSchoolRoi = ref(null);
 const agencyRegistrationCatalog = ref([]);
 
@@ -2623,6 +2651,28 @@ const restoreDraftSnapshot = () => {
       intakeResponses.clients = Array.isArray(parsed.intakeResponses.clients)
         ? parsed.intakeResponses.clients
         : [{}];
+      const refs = intakeResponses.submission.references;
+      if (Array.isArray(refs) && refs.length) {
+        while (referencesEntries.value.length < Math.max(refs.length, 3)) {
+          referencesEntries.value.push({ name: '', relationship: '', organization: '', phone: '', email: '' });
+        }
+        refs.forEach((r, i) => {
+          if (!referencesEntries.value[i]) return;
+          referencesEntries.value[i] = {
+            name: String(r?.name || ''),
+            relationship: String(r?.relationship || ''),
+            organization: String(r?.organization || ''),
+            phone: String(r?.phone || ''),
+            email: String(r?.email || '')
+          };
+        });
+      }
+      referencesWaived.value = !!intakeResponses.submission.referencesWaived;
+      const rc = intakeResponses.submission.referencesConsent;
+      if (rc && typeof rc === 'object') {
+        referencesDigitalFormConsent.value = !!rc.digitalFormAtInterviewOrOffer;
+        referenceContentWaiverAcknowledged.value = !!rc.referenceContentWaiverAcknowledged;
+      }
     }
     embeddedSmartSchoolRoi.value = parsed.embeddedSmartSchoolRoi || null;
     submissionId.value = parsed.submissionId || submissionId.value || null;
@@ -4247,7 +4297,12 @@ const finalizePacket = async () => {
           }))
           .filter((r) => r.name || r.email || r.phone || r.organization || r.relationship),
         jobDescriptionAcknowledged: !!jobDescriptionAcknowledged.value,
-        referencesWaived: !!referencesWaived.value
+        referencesWaived: !!referencesWaived.value,
+        referencesConsent: {
+          consentVersion: 1,
+          digitalFormAtInterviewOrOffer: !!referencesDigitalFormConsent.value,
+          referenceContentWaiverAcknowledged: !!referenceContentWaiverAcknowledged.value
+        }
       }
     });
     downloadUrl.value = resp.data?.downloadUrl || '';
@@ -4317,6 +4372,8 @@ const resetIntakeState = () => {
   coverLetterInputMode.value = 'upload';
   coverLetterPastedText.value = '';
   referencesWaived.value = false;
+  referencesDigitalFormConsent.value = false;
+  referenceContentWaiverAcknowledged.value = false;
   referencesEntries.value = [
     { name: '', relationship: '', organization: '', phone: '', email: '' },
     { name: '', relationship: '', organization: '', phone: '', email: '' },
@@ -4826,8 +4883,31 @@ const completeReferencesStep = () => {
     stepError.value = `Please provide at least ${minimum} professional references, or select the waiver option.`;
     return;
   }
+  if (!referencesWaived.value) {
+    if (!referencesDigitalFormConsent.value) {
+      stepError.value = 'Please confirm consent for digital reference forms before continuing.';
+      return;
+    }
+    if (!referenceContentWaiverAcknowledged.value) {
+      stepError.value = 'Please acknowledge the confidentiality statement before continuing.';
+      return;
+    }
+    const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '').trim());
+    const firstMin = provided.slice(0, minimum);
+    for (const r of firstMin) {
+      if (!emailOk(r.email)) {
+        stepError.value = `A valid email is required for each of the first ${minimum} professional references.`;
+        return;
+      }
+    }
+  }
   intakeResponses.submission.references = provided;
   intakeResponses.submission.referencesWaived = !!referencesWaived.value;
+  intakeResponses.submission.referencesConsent = {
+    consentVersion: 1,
+    digitalFormAtInterviewOrOffer: !!referencesDigitalFormConsent.value,
+    referenceContentWaiverAcknowledged: !!referenceContentWaiverAcknowledged.value
+  };
   stepError.value = '';
   void nextFlowStep();
 };

@@ -112,6 +112,7 @@ class Notification {
     'unassigned_document_submitted',
     // Hiring
     'new_job_application_submitted',
+    'hiring_task_assigned',
     // Medical records release (ROI) - only visible to users with has_medical_records_release_access
     'medical_records_release_submitted',
     // School ROI lifecycle (admin/staff visibility)

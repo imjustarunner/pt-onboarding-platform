@@ -80,7 +80,7 @@
           <p class="stat-value">View supervisees</p>
         </button>
       </div>
-      
+
       <div class="presence-widgets-wrap">
         <div class="presence-widget-wrap">
           <PresenceStatusWidget />
@@ -151,7 +151,7 @@
           </table>
         </div>
       </section>
-      
+
       <NotificationCards />
 
       <section v-if="showSupervisionModal" class="supervision-panel-wrap">

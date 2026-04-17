@@ -9,6 +9,8 @@ class HiringProfile {
     jobDescriptionId = null,
     coverLetterText = null,
     referencesJson = null,
+    referencesConsentJson = null,
+    referencesConsentAt = null,
     jobAcknowledged = false,
     fluentLanguagesJson = null
   }) {
@@ -16,8 +18,9 @@ class HiringProfile {
     try {
       await pool.execute(
         `INSERT INTO hiring_profiles (
-          candidate_user_id, stage, applied_role, source, job_description_id, cover_letter_text, references_json, job_acknowledged, fluent_languages_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          candidate_user_id, stage, applied_role, source, job_description_id, cover_letter_text, references_json,
+          references_consent_json, references_consent_at, job_acknowledged, fluent_languages_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            stage = VALUES(stage),
            applied_role = VALUES(applied_role),
@@ -25,6 +28,8 @@ class HiringProfile {
            job_description_id = VALUES(job_description_id),
            cover_letter_text = VALUES(cover_letter_text),
            references_json = VALUES(references_json),
+           references_consent_json = VALUES(references_consent_json),
+           references_consent_at = VALUES(references_consent_at),
            job_acknowledged = VALUES(job_acknowledged),
            fluent_languages_json = VALUES(fluent_languages_json)`,
         [
@@ -35,21 +40,55 @@ class HiringProfile {
           jobDescriptionId,
           coverLetterText,
           referencesJson ? JSON.stringify(referencesJson) : null,
+          referencesConsentJson ? JSON.stringify(referencesConsentJson) : null,
+          referencesConsentAt || null,
           jobAcknowledged ? 1 : 0,
           fluentLanguagesJson ? JSON.stringify(fluentLanguagesJson) : null
         ]
       );
     } catch (e) {
       if (e?.code === 'ER_BAD_FIELD_ERROR') {
-        await pool.execute(
-          `INSERT INTO hiring_profiles (candidate_user_id, stage, applied_role, source)
-           VALUES (?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE
-             stage = VALUES(stage),
-             applied_role = VALUES(applied_role),
-             source = VALUES(source)`,
-          [candidateUserId, stage, appliedRole, source]
-        );
+        try {
+          await pool.execute(
+            `INSERT INTO hiring_profiles (
+              candidate_user_id, stage, applied_role, source, job_description_id, cover_letter_text, references_json, job_acknowledged, fluent_languages_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+               stage = VALUES(stage),
+               applied_role = VALUES(applied_role),
+               source = VALUES(source),
+               job_description_id = VALUES(job_description_id),
+               cover_letter_text = VALUES(cover_letter_text),
+               references_json = VALUES(references_json),
+               job_acknowledged = VALUES(job_acknowledged),
+               fluent_languages_json = VALUES(fluent_languages_json)`,
+            [
+              candidateUserId,
+              stage,
+              appliedRole,
+              source,
+              jobDescriptionId,
+              coverLetterText,
+              referencesJson ? JSON.stringify(referencesJson) : null,
+              jobAcknowledged ? 1 : 0,
+              fluentLanguagesJson ? JSON.stringify(fluentLanguagesJson) : null
+            ]
+          );
+        } catch (e2) {
+          if (e2?.code === 'ER_BAD_FIELD_ERROR') {
+            await pool.execute(
+              `INSERT INTO hiring_profiles (candidate_user_id, stage, applied_role, source)
+               VALUES (?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE
+                 stage = VALUES(stage),
+                 applied_role = VALUES(applied_role),
+                 source = VALUES(source)`,
+              [candidateUserId, stage, appliedRole, source]
+            );
+          } else {
+            throw e2;
+          }
+        }
       } else {
         throw e;
       }

@@ -500,7 +500,8 @@ export const updateAgency = async (req, res, next) => {
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId,
       clubAddMemberIconId, clubAddSeasonIconId, clubSettingsIconId,
       reviewPromptConfig, companyCarDefaultReason,
-      tenantAvailableAgencyFeaturesJson
+      tenantAvailableAgencyFeaturesJson,
+      hiringReferenceSenderIdentityId
     } = req.body;
     
     // Validate Google Docs URL if provided
@@ -718,7 +719,8 @@ export const updateAgency = async (req, res, next) => {
       ,clubSettingsIconId
       ,...(String(organizationType || '').toLowerCase() === 'school' && companyCarDefaultReason !== undefined
         ? { companyCarDefaultReason: companyCarDefaultReason?.trim() || null }
-        : {})
+        : {}),
+      hiringReferenceSenderIdentityId
     });
     if (!agency) {
       return res.status(404).json({ error: { message: 'Agency not found' } });

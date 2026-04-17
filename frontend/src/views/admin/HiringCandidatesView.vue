@@ -24,13 +24,38 @@
           Careers
         </button>
         <button class="btn btn-primary" @click="openCreate">New applicant</button>
-        <span v-if="unreadApplicantsCount > 0" class="pill unread-pill">
-          {{ unreadApplicantsCount }} new
+        <span v-if="newForMeInView > 0" class="pill unread-pill">
+          {{ newForMeInView }} new for you
         </span>
       </div>
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>
+
+    <div v-if="effectiveAgencyId && jobDescriptions.length" class="job-dash">
+      <button
+        type="button"
+        class="job-card"
+        :class="{ selected: filterJobId === '' }"
+        @click="selectJobFilter('')"
+      >
+        <div class="job-card-title">All roles</div>
+        <div class="job-card-meta">{{ candidates.length }} in view</div>
+        <div v-if="newForMeInView > 0" class="job-card-badge">{{ newForMeInView }} new for you</div>
+      </button>
+      <button
+        v-for="j in jobDescriptions"
+        :key="j.id"
+        type="button"
+        class="job-card"
+        :class="{ selected: String(filterJobId) === String(j.id) }"
+        @click="selectJobFilter(String(j.id))"
+      >
+        <div class="job-card-title">{{ j.title }}</div>
+        <div class="job-card-meta">{{ jobListedCount(j.id) }} in view</div>
+        <div v-if="newForMeJobCount(j.id) > 0" class="job-card-badge">{{ newForMeJobCount(j.id) }} new</div>
+      </button>
+    </div>
 
     <div class="grid" data-tour="hiring-grid">
       <div class="panel list-panel" data-tour="hiring-list-panel">
@@ -42,19 +67,23 @@
             <option value="not_hired">Not hired</option>
           </select>
           <select v-model="filterJobId" class="input" @change="refresh" style="max-width: 200px;">
-            <option value="">All jobs</option>
+            <option value="">All jobs (list)</option>
             <option v-for="j in jobDescriptions" :key="j.id" :value="String(j.id)">{{ j.title }}</option>
           </select>
+          <label class="toggle-new">
+            <input v-model="filterNewOnly" type="checkbox" />
+            New for me only
+          </label>
           <input v-model="q" class="input" placeholder="Search name/email…" @keyup.enter="refresh" />
           <button class="btn btn-secondary" @click="refresh" :disabled="loading">Search</button>
-          <button class="btn btn-secondary btn-sm" @click="setStageFilter('active')" :disabled="stageFilter === 'active'">Show applicants</button>
+          <button class="btn btn-secondary btn-sm" @click="setStageFilter('active')" :disabled="stageFilter === 'active'">Applicants</button>
           <button class="btn btn-secondary btn-sm" @click="setStageFilter('not_hired')" :disabled="stageFilter === 'not_hired'">Show not hired</button>
         </div>
 
         <div v-if="loading" class="loading">Loading applicants…</div>
         <div v-else class="list" data-tour="hiring-candidates-list">
           <button
-            v-for="c in candidates"
+            v-for="c in filteredCandidates"
             :key="c.id"
             class="list-item"
             data-tour="hiring-candidate-row"
@@ -63,7 +92,8 @@
           >
             <div class="name">{{ c.first_name }} {{ c.last_name }}</div>
             <div class="meta">
-              <span class="pill">{{ c.stage || 'applied' }}</span>
+              <span v-if="c.is_new_for_me" class="pill pill-new">New</span>
+              <span class="pill">{{ stageLabel(c) }}</span>
               <span v-if="c.job_title" class="muted small">{{ c.job_title }}</span>
               <span v-if="Number(c.duplicate_application_count || 0) > 1" class="pill pill-duplicate">Repeat applicant</span>
               <span class="email">{{ c.personal_email || c.email }}</span>
@@ -103,7 +133,7 @@
                   <h3 class="detail-name">{{ candidateName }}</h3>
                 </div>
                 <div class="detail-meta">
-                  <span class="pill">{{ detail.profile?.stage || 'applied' }}</span>
+                  <span class="pill">{{ detail.profile?.stage_label || stageLabel(detail.profile) }}</span>
                   <span class="muted">{{ detail.user?.personal_email || detail.user?.email }}</span>
                 </div>
               </div>
@@ -134,15 +164,58 @@
               <button class="tab" :class="{ active: tab === 'resume' }" @click="tab = 'resume'">Resume</button>
               <button class="tab" :class="{ active: tab === 'resumeSummary' }" @click="tab = 'resumeSummary'">Resume Summary</button>
               <button class="tab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Notes</button>
+              <button class="tab" :class="{ active: tab === 'reviews' }" @click="tab = 'reviews'">Reviews</button>
               <button class="tab" :class="{ active: tab === 'tasks' }" @click="tab = 'tasks'">Tasks</button>
               <button class="tab" :class="{ active: tab === 'prescreen' }" @click="tab = 'prescreen'">Pre-Screen</button>
+              <button class="tab" :class="{ active: tab === 'references' }" @click="openReferencesTab">References</button>
             </div>
 
             <!-- Profile -->
             <div v-if="tab === 'profile'" class="tab-body">
               <div class="kv">
                 <div class="k">Stage</div>
-                <div class="v">{{ detail.profile?.stage || 'applied' }}</div>
+                <div class="v">{{ detail.profile?.stage_label || stageLabel(detail.profile) }}</div>
+              </div>
+              <div class="kv">
+                <div class="k">Interview</div>
+                <div class="v">
+                  <div class="muted small" style="margin-bottom:8px;">
+                    Scheduled on the applicant profile only (not synced to calendar yet). Listed interviewers receive the post-interview follow-up.
+                  </div>
+                  <div class="interview-grid">
+                    <label class="small">Start (local)</label>
+                    <input v-model="interviewStartsLocal" class="input" type="datetime-local" />
+                    <label class="small">Timezone</label>
+                    <input v-model="interviewTimezone" class="input" placeholder="America/Denver" />
+                    <label class="small">Interviewers</label>
+                    <select v-model="interviewerPick" class="input" @change="addInterviewerFromPick">
+                      <option value="">Add interviewer…</option>
+                      <option v-for="u in assignees" :key="u.id" :value="String(u.id)" :disabled="interviewerIds.includes(Number(u.id))">
+                        {{ u.first_name }} {{ u.last_name }}
+                      </option>
+                    </select>
+                    <div class="chips">
+                      <span v-for="id in interviewerIds" :key="id" class="chip">
+                        {{ interviewerName(id) }}
+                        <button type="button" class="chip-x" @click="removeInterviewer(id)">×</button>
+                      </span>
+                    </div>
+                    <div class="interview-actions">
+                      <button type="button" class="btn btn-primary" :disabled="interviewSaving" @click="saveInterviewSchedule(false)">
+                        {{ interviewSaving ? 'Saving…' : 'Save interview' }}
+                      </button>
+                      <button type="button" class="btn btn-secondary" :disabled="interviewSaving" @click="saveInterviewSchedule(true)">
+                        {{ interviewSaving ? 'Saving…' : 'Save interview and send reference forms' }}
+                      </button>
+                      <button type="button" class="btn btn-secondary btn-sm" :disabled="interviewSaving" @click="sendReferenceRequestsOnly">
+                        Send references only
+                      </button>
+                      <button type="button" class="btn btn-secondary" :disabled="interviewSaving" @click="cancelInterviewSchedule">
+                        Cancel interview
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div v-if="canChooseAgency" class="kv">
                 <div class="k">Agency</div>
@@ -345,13 +418,87 @@
               </div>
               <div class="note-list">
                 <div v-for="n in detail.notes || []" :key="n.id" class="note">
-                  <div class="note-head">
-                    <div class="note-author">{{ noteAuthor(n) }}</div>
-                    <div class="note-time">{{ formatTime(n.created_at) }}</div>
+                  <div class="note-row-head">
+                    <UserAvatar
+                      class="note-avatar"
+                      size="sm"
+                      :photo-path="n.author_profile_photo_path"
+                      :first-name="n.author_first_name"
+                      :last-name="n.author_last_name"
+                    />
+                    <div class="note-head-main">
+                      <div class="note-head">
+                        <div class="note-author">{{ noteAuthor(n) }}</div>
+                        <div class="note-time">{{ formatTime(n.created_at) }}</div>
+                      </div>
+                      <div class="note-body">{{ n.message }}</div>
+                      <div class="note-actions">
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-xs"
+                          :class="{ active: n.my_kudos }"
+                          @click="toggleNoteKudos(n.id)"
+                        >
+                          Thumbs up {{ n.kudos_count ? `(${n.kudos_count})` : '' }}
+                        </button>
+                        <span class="rx-tools">
+                          <button type="button" class="btn-icon" title="Like" @click="toggleNoteReaction(n.id, '👍')">👍</button>
+                          <button type="button" class="btn-icon" title="Fire" @click="toggleNoteReaction(n.id, '🔥')">🔥</button>
+                          <button type="button" class="btn-icon" title="Celebrate" @click="toggleNoteReaction(n.id, '🎉')">🎉</button>
+                        </span>
+                        <span v-if="(n.reactions || []).length" class="rx-labels muted small">
+                          <span v-for="(rx, idx) in reactionCounts(n.reactions)" :key="idx">{{ rx.emoji }} {{ rx.c }}</span>
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div class="note-body">{{ n.message }}</div>
                 </div>
                 <div v-if="(detail.notes || []).length === 0" class="empty">No notes yet.</div>
+              </div>
+            </div>
+
+            <!-- Reviews -->
+            <div v-if="tab === 'reviews'" class="tab-body">
+              <div class="note-compose">
+                <label class="small">Rating (1–5)</label>
+                <select v-model.number="reviewRating" class="input" style="max-width:120px;">
+                  <option v-for="x in 5" :key="x" :value="x">{{ x }}</option>
+                </select>
+                <textarea v-model="reviewBody" class="textarea" rows="3" placeholder="Write a dated review…" />
+                <button class="btn btn-primary" :disabled="reviewSaving || !reviewBody.trim()" @click="submitReview">
+                  {{ reviewSaving ? 'Saving…' : 'Submit review' }}
+                </button>
+              </div>
+              <div class="review-list">
+                <div v-for="rv in detail.reviews || []" :key="rv.id" class="note review-item">
+                  <div class="note-row-head">
+                    <UserAvatar
+                      size="sm"
+                      :photo-path="rv.author_profile_photo_path"
+                      :first-name="rv.author_first_name"
+                      :last-name="rv.author_last_name"
+                    />
+                    <div class="note-head-main">
+                      <div class="note-head">
+                        <div class="note-author">
+                          {{ rv.author_first_name }} {{ rv.author_last_name }}
+                          <span class="pill">{{ rv.rating }}/5</span>
+                        </div>
+                        <div class="note-time">{{ formatTime(rv.created_at) }}</div>
+                      </div>
+                      <div class="note-body">{{ rv.body }}</div>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="!(detail.reviews || []).length" class="empty">No reviews yet.</div>
+              </div>
+              <div v-if="(detail.myTimeCapsules || []).length" class="capsule-hint">
+                <div class="small"><strong>Your sealed predictions</strong> (text appears here after you open the login splash and tap Done)</div>
+                <ul class="muted small">
+                  <li v-for="c in detail.myTimeCapsules" :key="c.id">
+                    {{ c.horizon_months }}m — unlocks {{ c.reveal_at ? formatTime(c.reveal_at) : '—' }}
+                  </li>
+                </ul>
               </div>
             </div>
 
@@ -437,6 +584,106 @@
                 <div v-if="preScreenHtml" class="markdown" v-html="preScreenHtml"></div>
                 <div v-else class="muted small">No pre-screen report yet. Click “Generate Pre-Screen Report”.</div>
               </div>
+            </div>
+
+            <div v-if="tab === 'references'" class="tab-body">
+              <p class="muted small">
+                References from the application, digital reference requests, form responses, and a best-effort email timeline
+                (including message copy when available). Email opens use an optional image pixel and may be blocked by the recipient’s mail client.
+              </p>
+
+              <h4 class="ref-subheading">Application references</h4>
+              <div v-if="!applicationReferences.length" class="empty subtle">No references were entered on the application.</div>
+              <table v-else class="table ref-req-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Digital request</th>
+                    <th>Sent</th>
+                    <th>Email opened</th>
+                    <th>Reminders</th>
+                    <th>Expires</th>
+                    <th>Completed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(ref, idx) in applicationReferences" :key="`appref_${idx}`">
+                    <td>{{ idx }}</td>
+                    <td>{{ ref.name || '—' }}</td>
+                    <td>{{ ref.email || '—' }}</td>
+                    <td>{{ ref.phone || ref.phone_number || '—' }}</td>
+                    <td>{{ refRowStatus(idx) }}</td>
+                    <td>{{ refRowSent(idx) }}</td>
+                    <td>{{ refRowOpened(idx) }}</td>
+                    <td>{{ refRowReminders(idx) }}</td>
+                    <td>{{ refRowExpires(idx) }}</td>
+                    <td>{{ refRowCompleted(idx) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <h4 class="ref-subheading">All digital reference requests (history)</h4>
+              <div v-if="referenceRequestsLoading" class="loading">Loading reference requests…</div>
+              <div v-else-if="!referenceRequests.length" class="empty subtle">No digital reference requests yet.</div>
+              <table v-else class="table ref-req-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Index</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th>Sent</th>
+                    <th>Email opened</th>
+                    <th>Expires</th>
+                    <th>Completed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in referenceRequests" :key="r.id">
+                    <td>{{ r.id }}</td>
+                    <td>{{ r.reference_index }}</td>
+                    <td>{{ r.reference_name }}</td>
+                    <td>{{ r.reference_email }}</td>
+                    <td>{{ r.status }}</td>
+                    <td>{{ r.sent_at ? formatTime(r.sent_at) : '—' }}</td>
+                    <td>{{ r.email_opened_at ? formatTime(r.email_opened_at) : '—' }}</td>
+                    <td>{{ r.token_expires_at ? formatTime(r.token_expires_at) : '—' }}</td>
+                    <td>{{ r.completed_at ? formatTime(r.completed_at) : '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div v-for="r in referenceRequests" :key="`resp_${r.id}`" class="ref-resp-block">
+                <h4 v-if="r.responses_json">Responses — {{ r.reference_name }} ({{ r.status }})</h4>
+                <pre v-if="r.responses_json" class="mono-block">{{ formatRefResponses(r) }}</pre>
+              </div>
+
+              <h4 class="ref-subheading">Reference email &amp; lifecycle activity</h4>
+              <div v-if="referenceActivityLoading" class="loading">Loading activity…</div>
+              <div v-else-if="!referenceActivity.length" class="empty subtle">No logged reference activity yet.</div>
+              <ul v-else class="ref-activity-list">
+                <li v-for="ev in referenceActivity" :key="ev.id" class="ref-activity-item">
+                  <div class="ref-activity-head">
+                    <span class="ref-activity-time">{{ formatTime(ev.created_at) }}</span>
+                    <span class="ref-activity-kind">{{ formatRefActivityKind(ev.metadata) }}</span>
+                    <span class="ref-activity-outcome">{{ refActivityOutcome(ev.metadata) }}</span>
+                  </div>
+                  <div v-if="ev.metadata?.to" class="muted small">To: {{ ev.metadata.to }}</div>
+                  <div v-if="ev.metadata?.subject" class="muted small">Subject: {{ ev.metadata.subject }}</div>
+                  <div v-if="ev.metadata?.gmailMessageId" class="muted small">Gmail message id: {{ ev.metadata.gmailMessageId }}</div>
+                  <div v-if="ev.metadata?.error" class="error-inline small">Error: {{ ev.metadata.error }}</div>
+                  <div v-if="ev.metadata?.skipReason" class="muted small">Skipped: {{ ev.metadata.skipReason }}</div>
+                  <div v-if="ev.metadata?.note" class="muted small">{{ ev.metadata.note }}</div>
+                  <details v-if="ev.metadata?.textBody || ev.metadata?.htmlBody" class="ref-activity-details">
+                    <summary>View email text</summary>
+                    <pre v-if="ev.metadata?.textBody" class="mono-block">{{ ev.metadata.textBody }}</pre>
+                  </details>
+                </li>
+              </ul>
             </div>
           </template>
         </div>
@@ -567,6 +814,7 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import UserAvatar from '../../components/common/UserAvatar.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -584,10 +832,20 @@ const candidates = ref([]);
 const q = ref('');
 const filterJobId = ref('');
 const stageFilter = ref('active');
+const filterNewOnly = ref(false);
 
 const selectedId = ref(null);
 const detailLoading = ref(false);
-const detail = ref({ user: null, profile: null, jobDescription: null, notes: [], latestResearch: null, latestPreScreen: null });
+const detail = ref({
+  user: null,
+  profile: null,
+  jobDescription: null,
+  notes: [],
+  reviews: [],
+  myTimeCapsules: [],
+  latestResearch: null,
+  latestPreScreen: null
+});
 
 const tab = ref('profile');
 
@@ -675,19 +933,34 @@ const applicantsByJob = computed(() => {
   }
   return Array.from(byJob.values()).sort((a, b) => b.count - a.count);
 });
-const unreadApplicantsCount = computed(() => {
-  const key = `hiring_last_seen_${effectiveAgencyId.value || 'none'}`;
-  let lastSeen = 0;
-  try {
-    lastSeen = Number(localStorage.getItem(key) || 0) || 0;
-  } catch {
-    lastSeen = 0;
-  }
-  return (candidates.value || []).filter((c) => {
-    const createdAt = new Date(c?.hiring_created_at || c?.hiring_updated_at || 0).getTime();
-    return createdAt > lastSeen;
-  }).length;
+
+const filteredCandidates = computed(() => {
+  const list = candidates.value || [];
+  if (!filterNewOnly.value) return list;
+  return list.filter((c) => c.is_new_for_me);
 });
+
+const newForMeInView = computed(() => (candidates.value || []).filter((c) => c.is_new_for_me).length);
+
+const jobListedCount = (jobId) =>
+  (candidates.value || []).filter((c) => Number(c.job_description_id || 0) === Number(jobId)).length;
+
+const newForMeJobCount = (jobId) =>
+  (candidates.value || []).filter((c) => Number(c.job_description_id || 0) === Number(jobId) && c.is_new_for_me).length;
+
+const selectJobFilter = async (id) => {
+  filterJobId.value = id || '';
+  await refresh();
+};
+
+const stageLabel = (row) => {
+  if (!row) return 'Applied';
+  if (row.stage_label) return row.stage_label;
+  const s = String(row.stage || 'applied').toLowerCase();
+  if (s === 'not_hired') return 'Not hired';
+  if (s === 'hired') return 'Hired';
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Applied';
+};
 
 const downloadApplicantsCsv = () => {
   const list = candidates.value || [];
@@ -697,7 +970,7 @@ const downloadApplicantsCsv = () => {
     `"${escape(`${c.first_name || ''} ${c.last_name || ''}`.trim())}"`,
     `"${escape(c.personal_email || c.email)}"`,
     `"${escape(c.job_title)}"`,
-    `"${escape(c.stage || 'applied')}"`,
+    `"${escape(stageLabel(c))}"`,
     `"${escape(c.applied_role)}"`,
     `"${escape(c.source)}"`
   ]);
@@ -841,10 +1114,6 @@ const refresh = async () => {
       }
     });
     candidates.value = r.data || [];
-    if (stageFilter.value === 'active') {
-      const key = `hiring_last_seen_${effectiveAgencyId.value || 'none'}`;
-      try { localStorage.setItem(key, String(Date.now())); } catch { /* ignore */ }
-    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load applicants';
   } finally {
@@ -865,14 +1134,17 @@ const selectCandidate = async (id) => {
   }
   selectedId.value = id;
   tab.value = 'profile';
+  referenceRequests.value = [];
+  referenceActivity.value = [];
   promoteResult.value = null;
   preScreenLinkedInUrl.value = '';
+  await loadAssignees();
   await loadDetail();
   await loadCandidatePhoto();
   await loadResumes();
   await loadResumeSummary();
-  await loadAssignees();
   await loadTasks();
+  syncInterviewFromProfile();
 };
 
 const loadDetail = async () => {
@@ -880,7 +1152,16 @@ const loadDetail = async () => {
   try {
     detailLoading.value = true;
     const r = await api.get(`/hiring/candidates/${selectedId.value}`, { params: { agencyId: effectiveAgencyId.value } });
-    detail.value = r.data || { user: null, profile: null, jobDescription: null, notes: [], latestResearch: null, latestPreScreen: null };
+    detail.value = r.data || {
+      user: null,
+      profile: null,
+      jobDescription: null,
+      notes: [],
+      reviews: [],
+      myTimeCapsules: [],
+      latestResearch: null,
+      latestPreScreen: null
+    };
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load candidate';
   } finally {
@@ -1166,6 +1447,321 @@ const loadAssignees = async () => {
   } catch {
     // best effort
     assignees.value = [];
+  }
+};
+
+const interviewStartsLocal = ref('');
+const interviewTimezone = ref('');
+const interviewerIds = ref([]);
+const interviewerPick = ref('');
+const interviewSaving = ref(false);
+const referenceRequests = ref([]);
+const referenceRequestsLoading = ref(false);
+const referenceActivity = ref([]);
+const referenceActivityLoading = ref(false);
+
+const REF_ACTIVITY_KIND_LABELS = {
+  reference_invite: 'Reference invite',
+  reference_invite_skipped: 'Invite skipped',
+  reference_reminder: 'Reminder',
+  reference_thank_you_referee: 'Thank-you (reference)',
+  applicant_reference_batch_notice: 'Applicant email (invites sent)',
+  applicant_reference_completed_notice: 'Applicant email (reference completed)',
+  reference_form_submitted: 'Reference form submitted',
+  reference_invite_email_opened: 'Reference email open (pixel)'
+};
+
+const applicationReferences = computed(() => {
+  const raw = detail.value?.profile?.references_json;
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const p = JSON.parse(raw);
+      return Array.isArray(p) ? p : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+});
+
+const latestRequestForRefIndex = (idx) => {
+  const rows = (referenceRequests.value || []).filter((r) => Number(r.reference_index) === Number(idx));
+  rows.sort((a, b) => Number(b.id) - Number(a.id));
+  return rows[0] || null;
+};
+
+const refRowStatus = (idx) => {
+  const r = latestRequestForRefIndex(idx);
+  return r ? String(r.status || '—') : '—';
+};
+const refRowSent = (idx) => {
+  const r = latestRequestForRefIndex(idx);
+  return r?.sent_at ? formatTime(r.sent_at) : '—';
+};
+const refRowOpened = (idx) => {
+  const r = latestRequestForRefIndex(idx);
+  return r?.email_opened_at ? formatTime(r.email_opened_at) : '—';
+};
+const refRowExpires = (idx) => {
+  const r = latestRequestForRefIndex(idx);
+  return r?.token_expires_at ? formatTime(r.token_expires_at) : '—';
+};
+const refRowCompleted = (idx) => {
+  const r = latestRequestForRefIndex(idx);
+  return r?.completed_at ? formatTime(r.completed_at) : '—';
+};
+const refRowReminders = (idx) => {
+  const r = latestRequestForRefIndex(idx);
+  if (!r) return '—';
+  const parts = [];
+  if (r.reminder_3d_sent_at) parts.push(`3d: ${formatTime(r.reminder_3d_sent_at)}`);
+  if (r.reminder_24h_sent_at) parts.push(`24h: ${formatTime(r.reminder_24h_sent_at)}`);
+  return parts.length ? parts.join(' · ') : '—';
+};
+
+const formatRefActivityKind = (meta) => {
+  const k = meta?.kind;
+  return REF_ACTIVITY_KIND_LABELS[k] || k || 'Event';
+};
+
+const refActivityOutcome = (meta) => {
+  const o = meta?.outcome;
+  return o ? String(o) : '';
+};
+const reviewRating = ref(4);
+const reviewBody = ref('');
+const reviewSaving = ref(false);
+
+const parseInterviewerJson = (raw) => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map((x) => Number(x)).filter((n) => Number.isFinite(n));
+  if (typeof raw === 'string') {
+    try {
+      const p = JSON.parse(raw);
+      return Array.isArray(p) ? p.map((x) => Number(x)).filter((n) => Number.isFinite(n)) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+const toDatetimeLocalValue = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const syncInterviewFromProfile = () => {
+  const p = detail.value?.profile;
+  if (!p) {
+    interviewStartsLocal.value = '';
+    interviewTimezone.value = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    interviewerIds.value = [];
+    return;
+  }
+  interviewStartsLocal.value = toDatetimeLocalValue(p.interview_starts_at);
+  interviewTimezone.value = p.interview_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  interviewerIds.value = parseInterviewerJson(p.interview_interviewer_user_ids);
+};
+
+const interviewerName = (id) => {
+  const u = (assignees.value || []).find((x) => Number(x.id) === Number(id));
+  if (u) return `${u.first_name || ''} ${u.last_name || ''}`.trim() || `User ${id}`;
+  return `User ${id}`;
+};
+
+const addInterviewerFromPick = () => {
+  const v = interviewerPick.value ? parseInt(String(interviewerPick.value), 10) : null;
+  interviewerPick.value = '';
+  if (!v || interviewerIds.value.includes(v)) return;
+  interviewerIds.value = [...interviewerIds.value, v];
+};
+
+const removeInterviewer = (id) => {
+  interviewerIds.value = interviewerIds.value.filter((x) => Number(x) !== Number(id));
+};
+
+const loadReferenceRequests = async () => {
+  if (!selectedId.value || !effectiveAgencyId.value) return;
+  try {
+    referenceRequestsLoading.value = true;
+    const r = await api.get(`/hiring/candidates/${selectedId.value}/reference-requests`, {
+      params: { agencyId: effectiveAgencyId.value }
+    });
+    referenceRequests.value = Array.isArray(r.data) ? r.data : [];
+  } catch {
+    referenceRequests.value = [];
+  } finally {
+    referenceRequestsLoading.value = false;
+  }
+};
+
+const loadReferenceActivity = async () => {
+  if (!selectedId.value || !effectiveAgencyId.value) return;
+  try {
+    referenceActivityLoading.value = true;
+    const r = await api.get(`/hiring/candidates/${selectedId.value}/reference-activity`, {
+      params: { agencyId: effectiveAgencyId.value, limit: 150 }
+    });
+    referenceActivity.value = Array.isArray(r.data) ? r.data : [];
+  } catch {
+    referenceActivity.value = [];
+  } finally {
+    referenceActivityLoading.value = false;
+  }
+};
+
+const openReferencesTab = async () => {
+  tab.value = 'references';
+  await Promise.all([loadReferenceRequests(), loadReferenceActivity()]);
+};
+
+const formatRefResponses = (row) => {
+  try {
+    return JSON.stringify(row.responses_json, null, 2);
+  } catch {
+    return '';
+  }
+};
+
+const saveInterviewSchedule = async (sendReferenceRequests = false) => {
+  if (!selectedId.value || !effectiveAgencyId.value) return;
+  try {
+    interviewSaving.value = true;
+    let iso = null;
+    if (interviewStartsLocal.value) {
+      const d = new Date(interviewStartsLocal.value);
+      iso = Number.isFinite(d.getTime()) ? d.toISOString() : null;
+    }
+    const resp = await api.patch(
+      `/hiring/candidates/${selectedId.value}/interview`,
+      {
+        interviewStartsAt: iso,
+        interviewTimezone: interviewTimezone.value || null,
+        interviewStatus: iso ? 'scheduled' : null,
+        interviewerUserIds: interviewerIds.value,
+        sendReferenceRequests: sendReferenceRequests === true
+      },
+      { params: { agencyId: effectiveAgencyId.value } }
+    );
+    await loadDetail();
+    syncInterviewFromProfile();
+    if (sendReferenceRequests && resp.data?.referenceSendResult?.errors?.length) {
+      window.alert(resp.data.referenceSendResult.errors.join('\n'));
+    }
+    if (sendReferenceRequests) {
+      await loadReferenceRequests();
+      await loadReferenceActivity();
+    }
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to save interview');
+  } finally {
+    interviewSaving.value = false;
+  }
+};
+
+const sendReferenceRequestsOnly = async () => {
+  if (!selectedId.value || !effectiveAgencyId.value) return;
+  try {
+    interviewSaving.value = true;
+    const resp = await api.post(
+      `/hiring/candidates/${selectedId.value}/reference-requests/send`,
+      { onlyIfNotSent: true },
+      { params: { agencyId: effectiveAgencyId.value } }
+    );
+    await loadReferenceRequests();
+    await loadReferenceActivity();
+    const errs = resp.data?.errors;
+    if (Array.isArray(errs) && errs.length) window.alert(errs.join('\n'));
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to send reference requests');
+  } finally {
+    interviewSaving.value = false;
+  }
+};
+
+const cancelInterviewSchedule = async () => {
+  if (!selectedId.value || !effectiveAgencyId.value) return;
+  // eslint-disable-next-line no-alert
+  if (!confirm('Cancel this scheduled interview on the profile?')) return;
+  try {
+    interviewSaving.value = true;
+    await api.patch(
+      `/hiring/candidates/${selectedId.value}/interview`,
+      {
+        interviewStartsAt: '',
+        interviewStatus: 'cancelled',
+        interviewerUserIds: [],
+        interviewTimezone: null
+      },
+      { params: { agencyId: effectiveAgencyId.value } }
+    );
+    await loadDetail();
+    syncInterviewFromProfile();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to cancel');
+  } finally {
+    interviewSaving.value = false;
+  }
+};
+
+const submitReview = async () => {
+  if (!selectedId.value || !effectiveAgencyId.value) return;
+  const body = reviewBody.value.trim();
+  if (!body) return;
+  try {
+    reviewSaving.value = true;
+    await api.post(
+      `/hiring/candidates/${selectedId.value}/reviews`,
+      { body, rating: reviewRating.value },
+      { params: { agencyId: effectiveAgencyId.value } }
+    );
+    reviewBody.value = '';
+    await loadDetail();
+    tab.value = 'reviews';
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to save review');
+  } finally {
+    reviewSaving.value = false;
+  }
+};
+
+const toggleNoteKudos = async (noteId) => {
+  try {
+    await api.post(`/hiring/candidates/${selectedId.value}/notes/${noteId}/kudos`, {}, { params: { agencyId: effectiveAgencyId.value } });
+    const r = await api.get(`/hiring/candidates/${selectedId.value}`, { params: { agencyId: effectiveAgencyId.value } });
+    if (r.data?.notes) detail.value.notes = r.data.notes;
+  } catch {
+    /* ignore */
+  }
+};
+
+const toggleNoteReaction = async (noteId, emoji) => {
+  const n = (detail.value.notes || []).find((x) => Number(x.id) === Number(noteId));
+  const has = (n?.reactions || []).some(
+    (rx) => Number(rx.userId) === Number(authStore.user?.id) && rx.emoji === emoji
+  );
+  try {
+    if (has) {
+      await api.delete(`/hiring/candidates/${selectedId.value}/notes/${noteId}/reactions`, {
+        params: { agencyId: effectiveAgencyId.value, emoji }
+      });
+    } else {
+      await api.post(
+        `/hiring/candidates/${selectedId.value}/notes/${noteId}/reactions`,
+        { emoji },
+        { params: { agencyId: effectiveAgencyId.value } }
+      );
+    }
+    const r = await api.get(`/hiring/candidates/${selectedId.value}`, { params: { agencyId: effectiveAgencyId.value } });
+    if (r.data?.notes) detail.value.notes = r.data.notes;
+  } catch {
+    /* ignore */
   }
 };
 
@@ -1468,12 +2064,31 @@ const noteAuthor = (n) => {
   return name || n.author_email || `User ${n.author_user_id || ''}`.trim();
 };
 
+const reactionCounts = (reactions) => {
+  const m = new Map();
+  for (const r of reactions || []) {
+    const e = String(r.emoji || '').trim();
+    if (!e) continue;
+    m.set(e, (m.get(e) || 0) + 1);
+  }
+  return [...m.entries()].map(([emoji, c]) => ({ emoji, c }));
+};
+
 watch(effectiveAgencyId, async (next) => {
   if (!next) return;
   await refresh();
   await loadJobDescriptions();
   selectedId.value = null;
-  detail.value = { user: null, profile: null, jobDescription: null, notes: [], latestResearch: null, latestPreScreen: null };
+  detail.value = {
+    user: null,
+    profile: null,
+    jobDescription: null,
+    notes: [],
+    reviews: [],
+    myTimeCapsules: [],
+    latestResearch: null,
+    latestPreScreen: null
+  };
 });
 
 watch(
@@ -1555,6 +2170,144 @@ onUnmounted(() => {
   padding-left: 16px;
   padding-right: 16px;
 }
+.job-dash {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.job-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px 14px;
+  min-width: 160px;
+  max-width: 240px;
+  text-align: left;
+  cursor: pointer;
+  background: linear-gradient(145deg, #ffffff, #f8fafc);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.job-card.selected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.job-card-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: #0f172a;
+}
+.job-card-meta {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+}
+.job-card-badge {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.pill-new {
+  background: #dcfce7;
+  color: #166534;
+}
+.toggle-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #374151;
+  white-space: nowrap;
+}
+.note-row-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.note-head-main {
+  flex: 1;
+  min-width: 0;
+}
+.note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.btn-xs {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+.btn-xs.active {
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+.btn-icon {
+  border: none;
+  background: #f3f4f6;
+  border-radius: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.rx-tools {
+  display: inline-flex;
+  gap: 4px;
+}
+.rx-labels span {
+  margin-right: 8px;
+}
+.interview-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px 12px;
+  align-items: center;
+  max-width: 640px;
+}
+.interview-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.chips {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.chip-x {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.capsule-hint {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
 .header {
   display: flex;
   align-items: flex-end;
@@ -1614,6 +2367,8 @@ onUnmounted(() => {
   display: flex;
   gap: 8px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 .input, .textarea, select.input {
   width: 100%;
@@ -2092,6 +2847,91 @@ onUnmounted(() => {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 12px;
   word-break: break-all;
+}
+
+.ref-req-table {
+  width: 100%;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.ref-subheading {
+  margin: 22px 0 8px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.ref-subheading:first-of-type {
+  margin-top: 8px;
+}
+
+.ref-activity-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0 0;
+}
+
+.ref-activity-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+
+.ref-activity-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.ref-activity-time {
+  font-weight: 600;
+  color: #111827;
+}
+
+.ref-activity-kind {
+  color: #374151;
+}
+
+.ref-activity-outcome {
+  color: #6b7280;
+  text-transform: lowercase;
+}
+
+.ref-activity-details {
+  margin-top: 8px;
+}
+
+.error-inline {
+  color: #b91c1c;
+}
+
+.empty.subtle {
+  padding: 8px 0;
+}
+
+.ref-resp-block {
+  margin-top: 16px;
+}
+
+.ref-resp-block h4 {
+  margin: 0 0 6px 0;
+  font-size: 14px;
+}
+
+.mono-block {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  overflow: auto;
+  max-height: 320px;
 }
 
 .modal-overlay {

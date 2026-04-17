@@ -130,6 +130,7 @@ import publicProviderAvailabilityRoutes from './routes/publicProviderAvailabilit
 import publicSchoolsRoutes from './routes/publicSchools.routes.js';
 import skillBuildersProviderHubRoutes from './routes/skillBuildersProviderHub.routes.js';
 import publicSkillBuildersRoutes from './routes/publicSkillBuilders.routes.js';
+import publicHiringReferenceRoutes from './routes/publicHiringReference.routes.js';
 import publicMarketingPagesRoutes from './routes/publicMarketingPages.routes.js';
 import publicMarketingPagesAdminRoutes from './routes/publicMarketingPagesAdmin.routes.js';
 import agentsRoutes from './routes/agents.routes.js';
@@ -560,6 +561,7 @@ app.use('/api/public/provider-availability', publicProviderAvailabilityRoutes);
 app.use('/api/public/schools', publicSchoolsRoutes);
 app.use('/api/public/skill-builders', publicSkillBuildersRoutes);
 app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
+app.use('/api/public/hiring/reference', publicHiringReferenceRoutes);
 app.use('/api/company-events', companyEventsPublicRoutes);
 
 // Club manager email verification (public, no auth) - mount before auth to avoid any auth middleware
@@ -1381,6 +1383,24 @@ if (!isBootstrap) {
 
   scheduleCompanyEventReminders();
   setInterval(scheduleCompanyEventReminders, 10 * 60 * 1000);
+
+  // Hiring reference reminders + expiry (hourly)
+  const scheduleHiringReferenceReminders = async () => {
+    try {
+      const { runHiringReferenceReminderTick } = await import('./services/hiringReferenceReminder.service.js');
+      await runHiringReferenceReminderTick();
+    } catch (error) {
+      const msg = String(error?.message || '');
+      const missing = error?.code === 'ER_NO_SUCH_TABLE' || msg.includes('hiring_reference_requests');
+      if (missing) {
+        console.warn('Hiring reference requests table not found. Run migration 707_hiring_reference_digital_forms.sql');
+      } else {
+        console.error('Error in hiring reference reminder scheduler:', error);
+      }
+    }
+  };
+  scheduleHiringReferenceReminders();
+  setInterval(scheduleHiringReferenceReminders, 60 * 60 * 1000);
 
   // Daily digest emails (runs every 15 minutes; respects per-user time + opt-in)
   const scheduleDailyDigest = async () => {

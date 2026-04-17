@@ -171,6 +171,28 @@ class UserActivityLog {
     }
   }
 
+  /** Hiring UI: scoped reference lifecycle events for an applicant in one agency. */
+  static async getHiringReferenceEventsForUser(candidateUserId, agencyId, limit = 100) {
+    const uid = Number(candidateUserId);
+    const aid = Number(agencyId);
+    const lim = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
+    if (!uid || !aid) return [];
+    const [rows] = await pool.execute(
+      `SELECT ual.id, ual.action_type, ual.user_id, ual.agency_id, ual.metadata, ual.created_at
+       FROM user_activity_log ual
+       WHERE ual.user_id = ?
+         AND ual.agency_id = ?
+         AND ual.action_type = 'hiring_reference_event'
+       ORDER BY ual.created_at DESC
+       LIMIT ${lim}`,
+      [uid, aid]
+    );
+    return (rows || []).map((row) => ({
+      ...row,
+      metadata: this.parseMetadata(row.metadata)
+    }));
+  }
+
   static async getRecentActivity(limit = 50) {
     return this.getActivityLog({ limit });
   }

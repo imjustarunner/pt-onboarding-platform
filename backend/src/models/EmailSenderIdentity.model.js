@@ -106,6 +106,22 @@ class EmailSenderIdentity {
     return { ...row, inbound_addresses: parseJsonMaybe(row.inbound_addresses_json) || [] };
   }
 
+  /** Active identity for an agency + stable identity_key (e.g. hiring_references, job_applications). */
+  static async findByAgencyAndIdentityKey(agencyId, identityKey) {
+    const aid = Number(agencyId);
+    const key = String(identityKey || '').trim();
+    if (!aid || !key) return null;
+    const [rows] = await pool.execute(
+      `SELECT * FROM email_sender_identities
+       WHERE agency_id = ? AND identity_key = ? AND is_active = TRUE
+       LIMIT 1`,
+      [aid, key]
+    );
+    const row = rows[0] || null;
+    if (!row) return null;
+    return { ...row, inbound_addresses: parseJsonMaybe(row.inbound_addresses_json) || [] };
+  }
+
   static async list({ agencyId = null, includePlatformDefaults = true, onlyActive = true } = {}) {
     const clauses = [];
     const params = [];

@@ -1269,6 +1269,8 @@
         </button>
       </div>
       <OfficeMandatoryReviewSplash v-if="showOfficeMandatorySplashHost" />
+      <InterviewCapsuleSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
+      <TimeCapsuleRevealSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
       </div>
     </div>
   </BrandingProvider>
@@ -1311,6 +1313,8 @@ import WeatherChip from './components/WeatherChip.vue';
 import SessionLockScreen from './components/SessionLockScreen.vue';
 import RegistrationPromoToastRail from './components/RegistrationPromoToastRail.vue';
 import OfficeMandatoryReviewSplash from './components/office/OfficeMandatoryReviewSplash.vue';
+import InterviewCapsuleSplashModal from './components/hiring/InterviewCapsuleSplashModal.vue';
+import TimeCapsuleRevealSplashModal from './components/hiring/TimeCapsuleRevealSplashModal.vue';
 import PublicTranslateWidget from './components/public/PublicTranslateWidget.vue';
 import {
   shouldShowPublicTranslate,

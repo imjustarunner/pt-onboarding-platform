@@ -377,6 +377,21 @@ export const getProviderSchoolProfile = async (req, res, next) => {
     }
 
     const activeAgencyId = await getActiveAgencyIdForSchool(schoolId);
+    let tenantContactPhone = null;
+    let tenantContactPhoneExtension = null;
+    if (activeAgencyId) {
+      try {
+        const agencyRow = await Agency.findById(activeAgencyId);
+        if (agencyRow) {
+          const pn = agencyRow.phone_number ?? agencyRow.phoneNumber;
+          const pe = agencyRow.phone_extension ?? agencyRow.phoneExtension;
+          tenantContactPhone = pn != null && String(pn).trim() ? String(pn).trim() : null;
+          tenantContactPhoneExtension = pe != null && String(pe).trim() ? String(pe).trim() : null;
+        }
+      } catch (e) {
+        if (!missingSchemaError(e)) throw e;
+      }
+    }
     const insuranceInfo = await computeAcceptedInsurances({
       agencyId: activeAgencyId,
       providerUserId,
@@ -479,6 +494,9 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       credential: credential ? String(credential) : null,
       service_focus: u.service_focus || null,
       languages_spoken: u.languages_spoken || null,
+      /** Tenant Contact tab (agency) — preferred for school portal public-facing phone. */
+      tenant_contact_phone: tenantContactPhone,
+      tenant_contact_phone_extension: tenantContactPhoneExtension,
       phone_number: u.phone_number || null,
       personal_phone: u.personal_phone || null,
       work_phone: u.work_phone || null,
