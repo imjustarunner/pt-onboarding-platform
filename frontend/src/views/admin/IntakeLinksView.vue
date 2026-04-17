@@ -2551,6 +2551,10 @@ watch(
   () => {
     const currentEventId = Number(form.companyEventId || 0) || null;
     if (!currentEventId) return;
+    // While the picker is loading or has not fetched yet, do not clear — otherwise opening
+    // an existing link wipes `companyEventId` before options arrive (user sees selection "lost" after save).
+    if (companyEventsPickerLoading.value) return;
+    if (!companyEventsPickerOptions.value.length) return;
     const exists = companyEventsPickerFilteredOptions.value.some((ev) => Number(ev.id) === currentEventId);
     if (!exists) {
       form.companyEventId = null;
