@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import Agency from '../models/Agency.model.js';
 import PlatformBranding from '../models/PlatformBranding.model.js';
-import { isSkillBuildersSchoolProgramActiveForParentAgencyId } from '../utils/skillBuildersSchoolProgramFeature.js';
+import { mapSkillBuildersSchoolProgramActiveForOrganizations } from '../utils/skillBuildersSchoolProgramFeature.js';
 
 function safeInt(v) {
   const n = parseInt(v, 10);
@@ -139,10 +139,11 @@ export const getSchoolOverview = async (req, res, next) => {
     const refreshedAt = new Date().toISOString();
 
     const roleForSb = String(req.user?.role || '').trim().toLowerCase();
-    let includeSkillBuildersSchoolProgram = roleForSb === 'super_admin';
-    if (!includeSkillBuildersSchoolProgram) {
-      includeSkillBuildersSchoolProgram = await isSkillBuildersSchoolProgramActiveForParentAgencyId(agencyId);
-    }
+    const sbActiveBySchoolId =
+      roleForSb === 'super_admin'
+        ? new Map(schoolIds.map((id) => [id, true]))
+        : await mapSkillBuildersSchoolProgramActiveForOrganizations(agencyId, schoolIds);
+    const sbSchoolIds = schoolIds.filter((id) => sbActiveBySchoolId.get(id));
 
     if (schoolIds.length === 0) {
       return res.json({ agencyId, refreshedAt, schools: [] });
@@ -266,7 +267,8 @@ export const getSchoolOverview = async (req, res, next) => {
       if (!isMissingSchemaError(e)) throw e;
     }
 
-    if (includeSkillBuildersSchoolProgram) {
+    if (sbSchoolIds.length) {
+      const sbPh = makeInClausePlaceholders(sbSchoolIds.length);
       // Skills group occurring now
       try {
         const [rows] = await pool.execute(
@@ -275,12 +277,12 @@ export const getSchoolOverview = async (req, res, next) => {
              1 AS occurring
            FROM skills_groups sg
            JOIN skills_group_meetings sgm ON sgm.skills_group_id = sg.id
-           WHERE sg.organization_id IN (${placeholders})
+           WHERE sg.organization_id IN (${sbPh})
              AND CURDATE() BETWEEN sg.start_date AND sg.end_date
              AND sgm.weekday = DAYNAME(CURDATE()) COLLATE utf8mb4_unicode_ci
              AND CURTIME() BETWEEN sgm.start_time AND sgm.end_time
            GROUP BY sg.organization_id`,
-          schoolIds
+          sbSchoolIds
         );
         addCountMap(rows, 'school_id', 'occurring', (t) => {
           t.skills_group_occurring_now = true;
@@ -296,9 +298,9 @@ export const getSchoolOverview = async (req, res, next) => {
              sg.organization_id AS school_id,
              COUNT(DISTINCT sg.id) AS skills_groups_count
            FROM skills_groups sg
-           WHERE sg.organization_id IN (${placeholders})
+           WHERE sg.organization_id IN (${sbPh})
            GROUP BY sg.organization_id`,
-          schoolIds
+          sbSchoolIds
         );
         addCountMap(rows, 'school_id', 'skills_groups_count', (t, v) => {
           t.skills_groups_count = Number(v || 0);
@@ -317,12 +319,12 @@ export const getSchoolOverview = async (req, res, next) => {
              COUNT(DISTINCT sgc.client_id) AS participants_count
            FROM skills_groups sg
            LEFT JOIN skills_group_clients sgc ON sgc.skills_group_id = sg.id
-           WHERE sg.organization_id IN (${placeholders})
+           WHERE sg.organization_id IN (${sbPh})
              AND sg.start_date <= CURDATE()
              AND sg.end_date >= CURDATE()
            GROUP BY sg.organization_id, sg.id
            ORDER BY sg.organization_id ASC, sg.id ASC`,
-          schoolIds
+          sbSchoolIds
         );
         for (const r of rows || []) {
           const sid = safeInt(r?.school_id);
@@ -350,12 +352,12 @@ export const getSchoolOverview = async (req, res, next) => {
            LEFT JOIN skills_groups sg
              ON sg.id = sgc.skills_group_id AND sg.organization_id = coa.organization_id
            WHERE coa.is_active = TRUE
-             AND coa.organization_id IN (${placeholders})
+             AND coa.organization_id IN (${sbPh})
              AND c.skills = TRUE
              AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
              AND sg.id IS NULL
            GROUP BY coa.organization_id`,
-          schoolIds
+          sbSchoolIds
         );
         addCountMap(rows, 'school_id', 'skills_clients_unassigned_count', (t, v) => {
           t.skills_clients_unassigned_count = Number(v || 0);
@@ -371,12 +373,12 @@ export const getSchoolOverview = async (req, res, next) => {
              LEFT JOIN skills_group_clients sgc ON sgc.client_id = c.id
              LEFT JOIN skills_groups sg
                ON sg.id = sgc.skills_group_id AND sg.organization_id = c.organization_id
-             WHERE c.organization_id IN (${placeholders})
+             WHERE c.organization_id IN (${sbPh})
                AND c.skills = TRUE
                AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
                AND sg.id IS NULL
              GROUP BY c.organization_id`,
-            schoolIds
+            sbSchoolIds
           );
           addCountMap(rows, 'school_id', 'skills_clients_unassigned_count', (t, v) => {
             t.skills_clients_unassigned_count = Number(v || 0);

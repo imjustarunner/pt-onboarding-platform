@@ -30,3 +30,8 @@ export function setCached(url, params, data) {
   const key = getKey(url, params);
   cache.set(key, { data, at: Date.now() });
 }
+
+/** Drop cached GET /agencies/:id (and other admin reads) so UI reflects saves immediately. */
+export function clearAdminApiCache() {
+  cache.clear();
+}

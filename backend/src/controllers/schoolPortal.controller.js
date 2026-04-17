@@ -1134,7 +1134,10 @@ export const getProviderMyRoster = async (req, res, next) => {
         const activeAgencyId =
           (await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId)) ||
           (await AgencySchool.getActiveAgencyIdForSchool(orgId));
-        skillBuildersProgramActiveForSchool = await isSkillBuildersSchoolProgramActiveForParentAgencyId(activeAgencyId);
+        skillBuildersProgramActiveForSchool = await isSkillBuildersSchoolProgramActiveForParentAgencyId(
+          activeAgencyId,
+          orgId
+        );
       } catch {
         skillBuildersProgramActiveForSchool = false;
       }

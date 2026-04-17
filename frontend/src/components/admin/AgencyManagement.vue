@@ -3933,6 +3933,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import { isFeatureKeyAvailableAfterMerge } from '../../utils/mergeAvailableAgencyFeatures.js';
+import { clearAdminApiCache } from '../../utils/adminApiCache.js';
 import IconSelector from './IconSelector.vue';
 import DashboardPreviewModal from './DashboardPreviewModal.vue';
 import IconTemplateModal from './IconTemplateModal.vue';
@@ -8594,9 +8595,11 @@ const saveAgency = async () => {
         : {}),
       themeSettings: Object.keys(themeSettings).length > 0 ? themeSettings : null,
       customParameters: Object.keys(customParams).length > 0 ? customParams : null,
+      // Child orgs (school/program/learning/clinical) also persist `feature_flags` — toggles like School Portals
+      // and Skill Builders school program must not be dropped from the save payload.
       featureFlags:
-        String(agencyForm.value.organizationType || 'agency').toLowerCase() === 'agency'
-          ? (agencyForm.value.featureFlags || null)
+        agencyForm.value.featureFlags && typeof agencyForm.value.featureFlags === 'object'
+          ? agencyForm.value.featureFlags
           : null,
       // Notification icon fields
       statusExpiredIconId: agencyForm.value.statusExpiredIconId ?? null,
@@ -8669,6 +8672,8 @@ const saveAgency = async () => {
     if (updatedAgency?.id) {
       await saveSenderIdentitiesForAgency(updatedAgency.id);
     }
+
+    clearAdminApiCache();
 
     // IMPORTANT: In embedded single-org contexts (School Portal settings / embedded org editor),
     // saving should not "exit" the editor. Keep the modal/editor open so users can continue.

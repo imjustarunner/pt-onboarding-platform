@@ -241,6 +241,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import { clearAdminApiCache } from '../../utils/adminApiCache.js';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 
@@ -553,6 +554,7 @@ const saveSuperadminFeatures = async () => {
       featureEntitlements: buildFeatureEntitlementsPayload(agencyFeatureDrafts.value, { adminView: true })
     });
     await Promise.all([loadAgencyDetail(), loadPricing(), loadEstimate(), loadSettings()]);
+    clearAdminApiCache();
   } catch (error) {
     pricingError.value = error?.response?.data?.error?.message || 'Failed to save features.';
   } finally {
@@ -580,6 +582,7 @@ const saveTenantSelections = async () => {
       featureEntitlements: buildFeatureEntitlementsPayload(agencyFeatureDrafts.value, { adminView: false })
     });
     await Promise.all([loadAgencyDetail(), loadPricing(), loadEstimate(), loadSettings()]);
+    clearAdminApiCache();
   } catch (error) {
     loadError.value = error?.response?.data?.error?.message || 'Failed to save feature selections.';
   } finally {
