@@ -101,6 +101,9 @@
         <TransitionGroup name="pel-card" tag="ul" class="pel-list">
           <li v-for="(ev, idx) in displayEvents" :key="ev.id" class="pel-item" :style="{ '--stagger': idx }">
             <article class="pel-card" :style="eventHubCardThemeStyle(ev)">
+              <div class="pel-status-banner" :class="`pel-status-banner--${registrationStatusKey(ev)}`">
+                {{ registrationBannerText(ev) }}
+              </div>
               <div v-if="showHubSourceChips && hubPartnerEntries(ev).length" class="pel-card-agency-logos">
                 <button
                   v-for="(p, pi) in hubPartnerEntries(ev)"
@@ -139,7 +142,6 @@
                 <div class="pel-card-hero-main">
                   <div class="pel-card-hero-head">
                     <h2 class="pel-card-title">{{ eventPrimaryTitle(ev) }}</h2>
-                    <span class="pel-badge pel-badge-ready">Open for registration</span>
                   </div>
                   <p v-if="eventLocationMetaLine(ev)" class="pel-card-meta-loc muted">{{ eventLocationMetaLine(ev) }}</p>
                   <p v-if="publicEventScheduleLine(ev)" class="pel-card-schedule">{{ publicEventScheduleLine(ev) }}</p>
@@ -149,11 +151,18 @@
                     </button>
                   </p>
                   <a
+                    v-if="!registrationCtaDisabled(ev)"
                     class="pel-btn pel-btn-primary pel-btn-register"
                     :href="registrationUrl(ev.registrationPublicKey)"
                   >
                     Register now
                   </a>
+                  <span
+                    v-else
+                    class="pel-btn pel-btn-primary pel-btn-register pel-btn-register--disabled"
+                  >
+                    Registration unavailable
+                  </span>
                 </div>
               </div>
 
@@ -685,6 +694,25 @@ function drivingDistanceDisplay(ev) {
 
 function registrationUrl(publicKey) {
   return buildPublicIntakeUrl(publicKey);
+}
+
+function registrationStatusKey(ev) {
+  return String(ev?.publicRegistrationStatus || 'open').trim().toLowerCase();
+}
+
+function registrationBannerText(ev) {
+  const custom = String(ev?.publicRegistrationStatusLabel || '').trim();
+  if (custom) return custom;
+  const s = registrationStatusKey(ev);
+  if (s === 'limited') return 'Limited spots remaining';
+  if (s === 'waitlist') return 'Waitlist — registration not available online';
+  if (s === 'closed') return 'Registration closed';
+  return 'Open for registration';
+}
+
+function registrationCtaDisabled(ev) {
+  const s = registrationStatusKey(ev);
+  return s === 'waitlist' || s === 'closed';
 }
 
 function googleMapsSearchUrl(address) {
@@ -1300,6 +1328,36 @@ defineExpose({ focusNearestInput });
   border-radius: 18px;
   overflow: hidden;
   backdrop-filter: blur(8px);
+}
+
+.pel-status-banner {
+  padding: 10px 16px;
+  font-weight: 800;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(199, 210, 254, 0.12);
+}
+.pel-status-banner--open {
+  background: rgba(34, 197, 94, 0.22);
+  color: #bbf7d0;
+}
+.pel-status-banner--limited {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fef3c7;
+}
+.pel-status-banner--waitlist,
+.pel-status-banner--closed {
+  background: rgba(248, 113, 113, 0.18);
+  color: #fecaca;
+}
+
+.pel-btn-register--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
 }
 
 .pel-card-hero {

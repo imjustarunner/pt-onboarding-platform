@@ -111,6 +111,16 @@ async function getSkillBuilderCoordinatorAccess(userId) {
   }
 }
 
+/** Admin/staff OR Skill Builders program coordinator (tenant-gated) for company event mutations. */
+async function canManageAgencyCompanyEvent(req, agencyId) {
+  if (await userCanManageCompanyEventsAsync(req, agencyId)) return true;
+  const aid = parsePositiveInt(agencyId);
+  if (!aid) return false;
+  if (!(await getSkillBuilderCoordinatorAccess(req.user?.id))) return false;
+  const sbGate = await assertSkillBuildersSchoolProgramForRequest(req, aid);
+  return sbGate.ok;
+}
+
 /** Affiliated child org suitable for program-scoped events (excludes schools). */
 async function validateAffiliatedOrganizationForEvent(agencyId, organizationId) {
   if (!organizationId) return { ok: true, organizationId: null };
@@ -420,7 +430,11 @@ function mapEventRow(row, req, opts = {}) {
     eventLocationPhone: row.event_location_phone ? String(row.event_location_phone).trim() : '',
     familyProvisionNote: row.family_provision_note ? String(row.family_provision_note) : '',
     registrationFormUrl: row.registration_form_url ? String(row.registration_form_url).trim() : '',
-    smsDraft: parseJsonMaybe(row.sms_draft_json)
+    smsDraft: parseJsonMaybe(row.sms_draft_json),
+    publicRegistrationStatus: String(row.public_registration_status || 'open').trim().toLowerCase(),
+    publicRegistrationStatusLabel: row.public_registration_status_label
+      ? String(row.public_registration_status_label).trim()
+      : ''
   };
   const nextOccurrence = computeNextOccurrence(base);
   const calendarSource = nextOccurrence || { startsAt, endsAt };
@@ -710,6 +724,17 @@ function parseEventPayload(body = {}) {
     organizationId = n;
   }
 
+  const prsRaw = String(body.publicRegistrationStatus ?? body.public_registration_status ?? 'open')
+    .trim()
+    .toLowerCase();
+  const allowedPrs = new Set(['open', 'limited', 'waitlist', 'closed']);
+  const publicRegistrationStatus = allowedPrs.has(prsRaw) ? prsRaw : 'open';
+  const publicRegistrationStatusLabel = String(
+    body.publicRegistrationStatusLabel ?? body.public_registration_status_label ?? ''
+  )
+    .trim()
+    .slice(0, 120) || null;
+
   return {
     title,
     description,
@@ -768,7 +793,9 @@ function parseEventPayload(body = {}) {
     eventLocationPhone,
     familyProvisionNote,
     registrationFormUrl,
-    smsDraft
+    smsDraft,
+    publicRegistrationStatus,
+    publicRegistrationStatusLabel
   };
 }
 
@@ -1345,9 +1372,7 @@ export const postBackfillSkillsGroupCompanyEvents = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    const isCoord = await getSkillBuilderCoordinatorAccess(req.user?.id);
-    const isStaff = await userCanManageCompanyEventsAsync(req);
-    if (!isCoord && !isStaff) {
+    if (!(await canManageAgencyCompanyEvent(req, agencyId))) {
       return res.status(403).json({
         error: { message: 'Program coordinator or admin/staff access required' }
       });
@@ -1729,8 +1754,8 @@ export const createCompanyEvent = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!(await userCanManageCompanyEventsAsync(req))) {
-      return res.status(403).json({ error: { message: 'Admin or staff access required' } });
+    if (!(await canManageAgencyCompanyEvent(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Admin, staff, or program coordinator access required' } });
     }
     const parsed = parseEventPayload(req.body || {});
     if (parsed.error) return res.status(400).json({ error: { message: parsed.error } });
@@ -1760,9 +1785,7 @@ export const postProgramCompanyEventForCoordinator = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    const isCoord = await getSkillBuilderCoordinatorAccess(req.user?.id);
-    const isStaff = await userCanManageCompanyEventsAsync(req);
-    if (!isCoord && !isStaff) {
+    if (!(await canManageAgencyCompanyEvent(req, agencyId))) {
       return res.status(403).json({
         error: { message: 'Program coordinator or admin/staff access required' }
       });
@@ -1877,7 +1900,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
 
   await pool.execute(
     `UPDATE company_events
-     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_hero_focal_point = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, public_session_label = ?, public_session_date_range = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, medicaid_eligible = ?, cash_eligible = ?, program_cost_billing_mode = ?, program_cost_dollars = ?, per_session_cost_dollars = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?, snacks_available = ?, snack_options_json = ?, meals_available = ?, meal_options_json = ?, guest_policy = ?, potluck_enabled = ?, organizer_providing_json = ?, event_image_url = ?, event_image_urls_json = ?, rsvp_deadline = ?, event_location_name = ?, event_location_address = ?, event_location_phone = ?, family_provision_note = ?, registration_form_url = ?, sms_draft_json = ?
+     SET updated_by_user_id = ?, organization_id = ?, title = ?, description = ?, event_type = ?, splash_content = ?, public_hero_image_url = ?, public_hero_focal_point = ?, public_listing_details = ?, in_person_public = ?, public_location_address = ?, public_location_lat = ?, public_location_lng = ?, public_age_min = ?, public_age_max = ?, public_session_label = ?, public_session_date_range = ?, starts_at = ?, ends_at = ?, timezone = ?, recurrence_json = ?, is_active = ?, rsvp_mode = ?, voting_config_json = ?, reminder_config_json = ?, voting_closed_at = ?, sms_code = ?, skill_builder_direct_hours = ?, registration_eligible = ?, public_registration_status = ?, public_registration_status_label = ?, medicaid_eligible = ?, cash_eligible = ?, program_cost_billing_mode = ?, program_cost_dollars = ?, per_session_cost_dollars = ?, client_check_in_display_time = ?, client_check_out_display_time = ?, employee_report_time = ?, employee_departure_time = ?, virtual_sessions_enabled = ?, kiosk_event_pin_hash = ?, snacks_available = ?, snack_options_json = ?, meals_available = ?, meal_options_json = ?, guest_policy = ?, potluck_enabled = ?, organizer_providing_json = ?, event_image_url = ?, event_image_urls_json = ?, rsvp_deadline = ?, event_location_name = ?, event_location_address = ?, event_location_phone = ?, family_provision_note = ?, registration_form_url = ?, sms_draft_json = ?
      WHERE id = ? AND agency_id = ?`,
     [
       userId,
@@ -1909,6 +1932,8 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
       parsed.smsCode,
       parsed.skillBuilderDirectHours,
       parsed.registrationEligible ? 1 : 0,
+      parsed.publicRegistrationStatus || 'open',
+      parsed.publicRegistrationStatusLabel || null,
       parsed.medicaidEligible ? 1 : 0,
       parsed.cashEligible ? 1 : 0,
       parsed.programCostBillingMode || 'total',
@@ -1989,8 +2014,8 @@ export const updateCompanyEvent = async (req, res, next) => {
     if (!(await userHasAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
-    if (!(await userCanManageCompanyEventsAsync(req))) {
-      return res.status(403).json({ error: { message: 'Admin or staff access required' } });
+    if (!(await canManageAgencyCompanyEvent(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Admin, staff, or program coordinator access required' } });
     }
 
     const result = await persistCompanyEventUpdate(req, agencyId, eventId, req.body);

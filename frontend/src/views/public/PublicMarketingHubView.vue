@@ -3358,21 +3358,33 @@ watch(hubSlug, () => {
 }
 
 @media (max-width: 760px) {
+  .pmh-splash-logos {
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
   .pmh-splash-program-logo-wrap {
-    width: 132px;
-    height: 132px;
-    min-width: 132px;
-    max-width: 132px;
-    padding: 10px;
+    width: 92px;
+    height: 92px;
+    min-width: 92px;
+    max-width: 92px;
+    padding: 8px;
+    margin: 0 auto;
   }
   .pmh-splash-tenant-logos {
     width: 100%;
-    justify-content: flex-start;
+    margin-left: 0;
+    justify-content: center;
+    flex-wrap: nowrap;
+    gap: 10px;
   }
   .pmh-splash-tenant-logo-wrap {
-    width: 132px;
-    height: 132px;
-    padding: 10px;
+    width: 92px;
+    height: 92px;
+    padding: 8px;
+  }
+  .pmh-splash-card {
+    padding: 18px 14px;
   }
 }
 

@@ -1318,7 +1318,12 @@ const routes = [
     alias: '/:organizationSlug/program/event/:eventId',
     name: 'SkillBuildersEventPortal',
     component: () => import('../views/skillBuilders/SkillBuildersEventPortalView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    meta: {
+      requiresAuth: true,
+      requiresRole: SKILL_BUILDERS_PROGRAM_EVENTS_ROLES,
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
   },
   {
     path: '/:organizationSlug/admin/providers',

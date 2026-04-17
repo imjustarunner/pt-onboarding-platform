@@ -161,6 +161,24 @@
               <option :value="true">Yes</option>
             </select>
           </div>
+          <div class="form-group">
+            <label class="lbl">Public registration status</label>
+            <select v-model="draft.publicRegistrationStatus" class="input">
+              <option value="open">Open</option>
+              <option value="limited">Limited</option>
+              <option value="waitlist">Waitlist</option>
+              <option value="closed">Closed</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label class="lbl">Status banner override (optional)</label>
+            <input
+              v-model.trim="draft.publicRegistrationStatusLabel"
+              class="input"
+              maxlength="120"
+              placeholder="Default label is chosen from status if left blank"
+            />
+          </div>
         </div>
         <small class="hint">When registration is eligible, guardians can see this event in the portal catalog (after migration 583).</small>
       </div>
@@ -516,6 +534,8 @@ const emptyDraft = () => ({
   },
   skillBuilderDirectHours: null,
   registrationEligible: false,
+  publicRegistrationStatus: 'open',
+  publicRegistrationStatusLabel: '',
   medicaidEligible: false,
   cashEligible: false,
   publicHeroImageUrl: '',
@@ -733,6 +753,8 @@ const editEvent = (event) => {
         ? Number(event.skillBuilderDirectHours)
         : null,
     registrationEligible: !!event.registrationEligible,
+    publicRegistrationStatus: String(event.publicRegistrationStatus || 'open').trim().toLowerCase(),
+    publicRegistrationStatusLabel: String(event.publicRegistrationStatusLabel || '').trim(),
     medicaidEligible: !!event.medicaidEligible,
     cashEligible: !!event.cashEligible,
     publicHeroImageUrl: String(event.publicHeroImageUrl || '').trim(),
@@ -827,6 +849,8 @@ const saveEvent = async () => {
           ? Number(draft.value.organizationId)
           : null,
       registrationEligible: !!draft.value.registrationEligible,
+      publicRegistrationStatus: String(draft.value.publicRegistrationStatus || 'open').trim().toLowerCase(),
+      publicRegistrationStatusLabel: String(draft.value.publicRegistrationStatusLabel || '').trim().slice(0, 120) || null,
       medicaidEligible: !!draft.value.medicaidEligible,
       cashEligible: !!draft.value.cashEligible,
       publicHeroImageUrl: String(draft.value.publicHeroImageUrl || '').trim() || null,

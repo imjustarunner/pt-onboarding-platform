@@ -491,6 +491,24 @@
                     <option :value="true">Yes</option>
                   </select>
                 </div>
+                <div class="form-group">
+                  <label class="sb-ce-lbl">Public registration status</label>
+                  <select v-model="draft.publicRegistrationStatus" class="input">
+                    <option value="open">Open</option>
+                    <option value="limited">Limited</option>
+                    <option value="waitlist">Waitlist</option>
+                    <option value="closed">Closed</option>
+                  </select>
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1;">
+                  <label class="sb-ce-lbl">Status banner override (optional)</label>
+                  <input
+                    v-model.trim="draft.publicRegistrationStatusLabel"
+                    class="input"
+                    maxlength="120"
+                    placeholder="Leave blank to use the default label for the status above"
+                  />
+                </div>
               </div>
               <div v-if="draft.cashEligible" class="sb-ce-pricing-block">
                 <p class="muted small sb-ce-pattern-lead">
@@ -1159,6 +1177,8 @@ function emptyDraft() {
     potluckEnabled: false,
     skillBuilderDirectHours: null,
     registrationEligible: false,
+    publicRegistrationStatus: 'open',
+    publicRegistrationStatusLabel: '',
     medicaidEligible: false,
     cashEligible: false,
     programCostBillingMode: 'total',
@@ -1467,6 +1487,8 @@ function populateFromEvent(event) {
         ? Number(event.skillBuilderDirectHours)
         : null,
     registrationEligible: !!event.registrationEligible,
+    publicRegistrationStatus: String(event.publicRegistrationStatus || 'open').trim().toLowerCase(),
+    publicRegistrationStatusLabel: String(event.publicRegistrationStatusLabel || '').trim(),
     medicaidEligible: !!event.medicaidEligible,
     cashEligible: !!event.cashEligible,
     snacksAvailable: event.snacksAvailable === undefined ? true : !!event.snacksAvailable,
@@ -2071,6 +2093,8 @@ function validateAndBuildPersistPayload() {
         ? Number(draft.value.organizationId)
         : null,
     registrationEligible: !!draft.value.registrationEligible,
+    publicRegistrationStatus: String(draft.value.publicRegistrationStatus || 'open').trim().toLowerCase(),
+    publicRegistrationStatusLabel: String(draft.value.publicRegistrationStatusLabel || '').trim().slice(0, 120) || null,
     medicaidEligible: !!draft.value.medicaidEligible,
     cashEligible: !!draft.value.cashEligible,
     programCostBillingMode: draft.value.cashEligible
