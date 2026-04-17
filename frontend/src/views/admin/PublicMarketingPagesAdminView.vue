@@ -382,7 +382,9 @@
           where <code>filter</code> is <code>{ "kind": "programTitleAnd", "includes": ["D11 Summer ITSCO"] }</code>,
           <code>{ "kind": "officeSources" }</code>, or <code>{ "kind": "all" }</code> (add e.g. a D12 button with its own
           <code>programTitleAnd</code> row). Optional <code>subtitle</code>, <code>districtTitle</code>, <code>nonDistrictTitle</code>,
-          <code>changeSelectionLabel</code>, <code>gateAriaLabel</code>, <code>enabled: false</code>. Tenant colors use platform
+          <code>changeSelectionLabel</code>, <code>gateAriaLabel</code>, <code>enabled: false</code>. If <code>paths</code> is omitted, default
+          buttons are “My Dependent attends a D11 School” (program-title filter) and “My Dependent is in another district” (office path).
+          Tenant colors use platform
           branding unless <code>programThemePrimary</code> overrides the accent stripe.
         </p>
         <textarea v-model="form.brandingJsonText" rows="6" class="mono" placeholder='{"programThemePrimary":"#a32623"}' />

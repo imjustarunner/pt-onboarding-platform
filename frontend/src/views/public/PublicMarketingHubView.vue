@@ -1320,17 +1320,13 @@ const skillbuildersJourneyPaths = computed(() => {
   return [
     {
       id: 'district',
-      label: String(
-        c.districtTitle || 'My dependent is part of the D11 Summer ITSCO program'
-      ).trim(),
+      label: String(c.districtTitle || 'My Dependent attends a D11 School').trim(),
       buttonVariant: 'primary',
       filter: { kind: 'programTitleAnd', includes: districtIncludes }
     },
     {
       id: 'office',
-      label: String(
-        c.nonDistrictTitle || 'My dependent is not in that program (office Skill Builders)'
-      ).trim(),
+      label: String(c.nonDistrictTitle || 'My Dependent is in another district').trim(),
       buttonVariant: 'secondary',
       filter: { kind: 'officeSources' }
     }
