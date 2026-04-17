@@ -90,7 +90,7 @@
               :class="{ active: journeyPrimary === 'school' }"
               @click="choosePrimary('school')"
             >
-              I know my school
+              I know my location / school
             </button>
             <button
               type="button"
@@ -103,38 +103,65 @@
           </div>
 
           <div v-if="journeyPrimary === 'school'" class="pmh-pathfinder-detail">
-            <p class="pmh-pathfinder-detail-title">Choose your session</p>
-            <p class="pmh-pathfinder-detail-hint">Session dates come from each program’s registration listing.</p>
+            <p class="pmh-pathfinder-detail-title">Choose your location or school</p>
+            <p class="pmh-pathfinder-detail-hint">
+              Sites include schools and other program locations. Names are shown as published (not street addresses).
+            </p>
             <div class="pmh-chip-row pmh-chip-row--wrap">
               <button
-                v-for="(s, si) in summerSessionsForNavigator"
-                :key="`sess-splash-${s.groupKey}-${si}`"
+                v-for="loc in allNavigatorLocations"
+                :key="`loc-splash-${normalizeNavigatorLocKey(loc)}`"
                 type="button"
-                class="pmh-chip-btn pmh-chip-btn--session"
-                :class="{ active: isNavigatorSessionActive(s) }"
-                @click="selectNavigatorSession(s)"
+                class="pmh-chip-btn"
+                :class="{ active: isNavigatorLocationActive(loc) }"
+                @click="selectNavigatorLocation(loc)"
               >
-                <span class="pmh-chip-session-title">{{ s.displayTitle }}</span>
-                <span v-if="s.displaySubtitle" class="pmh-chip-session-sub">{{ s.displaySubtitle }}</span>
+                {{ loc }}
               </button>
             </div>
-            <p v-if="!summerSessionsForNavigator.length" class="pmh-navigator-empty">No sessions are open for registration here right now.</p>
-            <template v-if="navigatorSessionSelected">
-              <p class="pmh-pathfinder-detail-title">Choose your school</p>
-              <p class="pmh-pathfinder-detail-hint">We list school names (not street addresses). Registration opens for the session you picked.</p>
+            <p v-if="!allNavigatorLocations.length" class="pmh-navigator-empty">
+              No registration sites are listed here yet. Try another agency filter above or browse the full list below.
+            </p>
+            <template v-if="navigatorLocationSelected">
+              <p class="pmh-pathfinder-detail-title">Choose your session</p>
+              <p class="pmh-pathfinder-detail-hint">Session dates come from each program’s registration listing for this site.</p>
               <div class="pmh-chip-row pmh-chip-row--wrap">
                 <button
-                  v-for="opt in schoolRegistrationsForNavigator"
-                  :key="`school-splash-${opt.eventId}-${opt.name}`"
+                  v-for="(s, si) in summerSessionsForSelectedLocation"
+                  :key="`sess-splash-${s.groupKey}-${si}`"
                   type="button"
-                  class="pmh-chip-btn"
-                  :class="{ active: selectedSchoolName === opt.name }"
-                  @click="goLocationRegistration(opt)"
+                  class="pmh-chip-btn pmh-chip-btn--session"
+                  :class="{ active: isNavigatorSessionActive(s) }"
+                  @click="selectNavigatorSessionForLocationFlow(s)"
                 >
-                  {{ opt.name }}
+                  <span class="pmh-chip-session-title">{{ s.displayTitle }}</span>
+                  <span v-if="s.displaySubtitle" class="pmh-chip-session-sub">{{ s.displaySubtitle }}</span>
                 </button>
               </div>
-              <p v-if="!schoolRegistrationsForNavigator.length" class="pmh-navigator-empty">No school sites match this session yet. Try another session or browse the full list below.</p>
+              <p v-if="!summerSessionsForSelectedLocation.length" class="pmh-navigator-empty">
+                No sessions are open for this site right now. Pick another location or browse below.
+              </p>
+              <template v-if="navigatorSessionSelected && registrationsForNavigatorLocationSession.length > 1">
+                <p class="pmh-pathfinder-detail-title">Open registration</p>
+                <p class="pmh-pathfinder-detail-hint">More than one program uses this session label — pick the one that matches your family.</p>
+                <div class="pmh-chip-row pmh-chip-row--wrap">
+                  <button
+                    v-for="opt in registrationsForNavigatorLocationSession"
+                    :key="`reg-splash-${opt.eventId}-${opt.registrationPublicKey}`"
+                    type="button"
+                    class="pmh-chip-btn"
+                    @click="goLocationRegistration(opt)"
+                  >
+                    Register{{ opt.programTitle ? ` — ${opt.programTitle}` : '' }}
+                  </button>
+                </div>
+              </template>
+              <p
+                v-if="navigatorSessionSelected && !registrationsForNavigatorLocationSession.length"
+                class="pmh-navigator-empty"
+              >
+                No registration link matched this site and session. Try another session or browse the full list below.
+              </p>
             </template>
           </div>
 
@@ -297,7 +324,7 @@
               :class="{ active: journeyPrimary === 'school' }"
               @click="choosePrimary('school')"
             >
-              I know my school
+              I know my location / school
             </button>
             <button
               type="button"
@@ -332,38 +359,65 @@
                 </button>
               </div>
             </div>
-            <p class="pmh-pathfinder-detail-title">Choose your session</p>
-            <p class="pmh-pathfinder-detail-hint">Session dates come from each program’s registration listing.</p>
+            <p class="pmh-pathfinder-detail-title">Choose your location or school</p>
+            <p class="pmh-pathfinder-detail-hint">
+              Sites include schools and other program locations. Names are shown as published (not street addresses).
+            </p>
             <div class="pmh-chip-row pmh-chip-row--wrap">
               <button
-                v-for="(s, si) in summerSessionsForNavigator"
-                :key="`sess-card-${s.groupKey}-${si}`"
+                v-for="loc in allNavigatorLocations"
+                :key="`loc-card-${normalizeNavigatorLocKey(loc)}`"
                 type="button"
-                class="pmh-chip-btn pmh-chip-btn--session"
-                :class="{ active: isNavigatorSessionActive(s) }"
-                @click="selectNavigatorSession(s)"
+                class="pmh-chip-btn"
+                :class="{ active: isNavigatorLocationActive(loc) }"
+                @click="selectNavigatorLocation(loc)"
               >
-                <span class="pmh-chip-session-title">{{ s.displayTitle }}</span>
-                <span v-if="s.displaySubtitle" class="pmh-chip-session-sub">{{ s.displaySubtitle }}</span>
+                {{ loc }}
               </button>
             </div>
-            <p v-if="!summerSessionsForNavigator.length" class="pmh-navigator-empty">No sessions are open for registration here right now.</p>
-            <template v-if="navigatorSessionSelected">
-              <p class="pmh-pathfinder-detail-title">Choose your school</p>
-              <p class="pmh-pathfinder-detail-hint">We list school names (not street addresses). Registration opens for the session you picked.</p>
+            <p v-if="!allNavigatorLocations.length" class="pmh-navigator-empty">
+              No registration sites are listed here yet. Try another agency filter above or browse the full list below.
+            </p>
+            <template v-if="navigatorLocationSelected">
+              <p class="pmh-pathfinder-detail-title">Choose your session</p>
+              <p class="pmh-pathfinder-detail-hint">Session dates come from each program’s registration listing for this site.</p>
               <div class="pmh-chip-row pmh-chip-row--wrap">
                 <button
-                  v-for="opt in schoolRegistrationsForNavigator"
-                  :key="`school-card-${opt.eventId}-${opt.name}`"
+                  v-for="(s, si) in summerSessionsForSelectedLocation"
+                  :key="`sess-card-${s.groupKey}-${si}`"
                   type="button"
-                  class="pmh-chip-btn"
-                  :class="{ active: selectedSchoolName === opt.name }"
-                  @click="goLocationRegistration(opt)"
+                  class="pmh-chip-btn pmh-chip-btn--session"
+                  :class="{ active: isNavigatorSessionActive(s) }"
+                  @click="selectNavigatorSessionForLocationFlow(s)"
                 >
-                  {{ opt.name }}
+                  <span class="pmh-chip-session-title">{{ s.displayTitle }}</span>
+                  <span v-if="s.displaySubtitle" class="pmh-chip-session-sub">{{ s.displaySubtitle }}</span>
                 </button>
               </div>
-              <p v-if="!schoolRegistrationsForNavigator.length" class="pmh-navigator-empty">No school sites match this session yet. Try another session or browse the full list below.</p>
+              <p v-if="!summerSessionsForSelectedLocation.length" class="pmh-navigator-empty">
+                No sessions are open for this site right now. Pick another location or browse below.
+              </p>
+              <template v-if="navigatorSessionSelected && registrationsForNavigatorLocationSession.length > 1">
+                <p class="pmh-pathfinder-detail-title">Open registration</p>
+                <p class="pmh-pathfinder-detail-hint">More than one program uses this session label — pick the one that matches your family.</p>
+                <div class="pmh-chip-row pmh-chip-row--wrap">
+                  <button
+                    v-for="opt in registrationsForNavigatorLocationSession"
+                    :key="`reg-card-${opt.eventId}-${opt.registrationPublicKey}`"
+                    type="button"
+                    class="pmh-chip-btn"
+                    @click="goLocationRegistration(opt)"
+                  >
+                    Register{{ opt.programTitle ? ` — ${opt.programTitle}` : '' }}
+                  </button>
+                </div>
+              </template>
+              <p
+                v-if="navigatorSessionSelected && !registrationsForNavigatorLocationSession.length"
+                class="pmh-navigator-empty"
+              >
+                No registration link matched this site and session. Try another session or browse the full list below.
+              </p>
             </template>
           </div>
 
@@ -743,6 +797,8 @@ const eventsListingRef = ref(null);
 const journeyPrimary = ref('');
 const journeyProgramMode = ref('');
 const selectedSchoolName = ref('');
+/** Summer navigator: location/school first, then sessions (D11 path) */
+const navigatorLocationName = ref('');
 /** Summer navigator: filter hub events + school path by footer partner agency */
 const navigatorAgencyFilterId = ref(null);
 const navigatorSessionLabel = ref('');
@@ -836,45 +892,30 @@ function isPastSessionRegistrationCutoff(startsAt) {
   return todayStart.getTime() >= cutoff.getTime();
 }
 
-function isSchoolLikeTitle(s) {
-  const t = String(s || '').toLowerCase();
-  return (
-    /\belementary\b/.test(t) ||
-    /\bmiddle\b/.test(t) ||
-    /\bhigh school\b/.test(t) ||
-    /\bhigh\s+school\b/.test(t)
-  );
+function normalizeNavigatorLoc(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
 }
 
-function sessionGroupKey(ev) {
-  const lab = String(ev.publicSessionLabel || '').trim();
-  const dr = String(ev.publicSessionDateRange || '').trim();
-  if (lab || dr) return `L:${lab}|DR:${dr}`;
-  const ms = startsAtToMs(ev.startsAt);
-  if (ms != null) {
-    const d = new Date(ms);
-    return `D:${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+/** Stable key for :key in v-for (avoids duplicate-normalized collisions). */
+function normalizeNavigatorLocKey(s) {
+  return normalizeNavigatorLoc(s).replace(/[^a-z0-9]+/g, '-');
+}
+
+function eventHasLocation(ev, locName) {
+  const want = normalizeNavigatorLoc(locName);
+  if (!want) return false;
+  const slocs = Array.isArray(ev.sessionLocations) ? ev.sessionLocations : [];
+  for (const x of slocs) {
+    if (normalizeNavigatorLoc(x?.label) === want) return true;
   }
-  return `E:${ev.id}`;
+  if (normalizeNavigatorLoc(ev.title) === want) return true;
+  return false;
 }
 
-const navigatorEventPool = computed(() => {
-  const base = eventsForListing.value || [];
-  const aid = navigatorAgencyFilterId.value;
-  if (aid == null || !Number(aid)) return base;
-  return base.filter((ev) =>
-    (Array.isArray(ev.hubSourcePartners) ? ev.hubSourcePartners : []).some(
-      (p) => Number(p.sourceAgencyId) === Number(aid)
-    )
-  );
-});
-
-const summerSessionsForNavigator = computed(() => {
-  if (!eventNavigatorEnabled.value) return [];
-  const pool = navigatorEventPool.value || [];
-  const eligible = pool.filter(
-    (ev) => String(ev?.registrationPublicKey || '').trim() && !isPastSessionRegistrationCutoff(ev.startsAt)
-  );
+function buildNavigatorSessionRowsFromEligible(eligible) {
   const byKey = new Map();
   for (const ev of eligible) {
     const k = sessionGroupKey(ev);
@@ -915,6 +956,81 @@ const summerSessionsForNavigator = computed(() => {
       startsAt: fe.startsAt
     };
   });
+}
+
+function sessionGroupKey(ev) {
+  const lab = String(ev.publicSessionLabel || '').trim();
+  const dr = String(ev.publicSessionDateRange || '').trim();
+  if (lab || dr) return `L:${lab}|DR:${dr}`;
+  const ms = startsAtToMs(ev.startsAt);
+  if (ms != null) {
+    const d = new Date(ms);
+    return `D:${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  }
+  return `E:${ev.id}`;
+}
+
+const navigatorEventPool = computed(() => {
+  const base = eventsForListing.value || [];
+  const aid = navigatorAgencyFilterId.value;
+  if (aid == null || !Number(aid)) return base;
+  return base.filter((ev) =>
+    (Array.isArray(ev.hubSourcePartners) ? ev.hubSourcePartners : []).some(
+      (p) => Number(p.sourceAgencyId) === Number(aid)
+    )
+  );
+});
+
+/** Unique sites/locations with open registration (any session), for “location first” navigator. */
+const allNavigatorLocations = computed(() => {
+  if (!eventNavigatorEnabled.value) return [];
+  const pool = navigatorEventPool.value || [];
+  const eligible = pool.filter(
+    (ev) => String(ev?.registrationPublicKey || '').trim() && !isPastSessionRegistrationCutoff(ev.startsAt)
+  );
+  const seen = new Set();
+  const names = [];
+  for (const ev of eligible) {
+    const slocs = Array.isArray(ev.sessionLocations) ? ev.sessionLocations : [];
+    let addedFromLocations = false;
+    for (const x of slocs) {
+      const lbl = String(x?.label || '').trim();
+      if (!lbl) continue;
+      const k = normalizeNavigatorLoc(lbl);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      names.push(lbl);
+      addedFromLocations = true;
+    }
+    if (!addedFromLocations) {
+      const title = String(ev.title || '').trim();
+      if (title) {
+        const k = normalizeNavigatorLoc(title);
+        if (k && !seen.has(k)) {
+          seen.add(k);
+          names.push(title);
+        }
+      }
+    }
+  }
+  names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  return names;
+});
+
+const navigatorLocationSelected = computed(() => !!String(navigatorLocationName.value || '').trim());
+
+const summerSessionsForSelectedLocation = computed(() => {
+  if (!eventNavigatorEnabled.value) return [];
+  const loc = String(navigatorLocationName.value || '').trim();
+  if (!loc) return [];
+  const pool = navigatorEventPool.value || [];
+  const eligible = pool.filter(
+    (ev) =>
+      String(ev?.registrationPublicKey || '').trim() &&
+      !isPastSessionRegistrationCutoff(ev.startsAt) &&
+      eventHasLocation(ev, loc)
+  );
+  return buildNavigatorSessionRowsFromEligible(eligible);
 });
 
 const navigatorSessionSelected = computed(
@@ -939,38 +1055,33 @@ function isNavigatorSessionActive(row) {
   return l === String(row.publicSessionLabel || '').trim() && r === String(row.publicSessionDateRange || '').trim();
 }
 
-const schoolRegistrationsForNavigator = computed(() => {
+const registrationsForNavigatorLocationSession = computed(() => {
   if (!eventNavigatorEnabled.value || !navigatorSessionSelected.value) return [];
+  const loc = String(navigatorLocationName.value || '').trim();
+  if (!loc) return [];
   const pool = navigatorEventPool.value || [];
   const matched = pool.filter(
-    (ev) => eventMatchesNavigatorSession(ev) && !isPastSessionRegistrationCutoff(ev.startsAt)
+    (ev) =>
+      eventHasLocation(ev, loc) &&
+      eventMatchesNavigatorSession(ev) &&
+      !isPastSessionRegistrationCutoff(ev.startsAt)
   );
   const out = [];
   const seen = new Set();
   for (const ev of matched) {
     const regKey = String(ev?.registrationPublicKey || '').trim();
     if (!regKey) continue;
-    const slocs = Array.isArray(ev.sessionLocations) ? ev.sessionLocations : [];
-    for (const s of slocs) {
-      const lbl = String(s?.label || '').trim();
-      if (lbl && isSchoolLikeTitle(lbl)) {
-        const dedupe = `${lbl}::${regKey}`;
-        if (!seen.has(dedupe)) {
-          seen.add(dedupe);
-          out.push({ name: lbl, registrationPublicKey: regKey, eventId: ev.id });
-        }
-      }
-    }
-    const title = String(ev.title || '').trim();
-    if (title && isSchoolLikeTitle(title)) {
-      const dedupe = `${title}::${regKey}`;
-      if (!seen.has(dedupe)) {
-        seen.add(dedupe);
-        out.push({ name: title, registrationPublicKey: regKey, eventId: ev.id });
-      }
-    }
+    const dedupe = `${regKey}::${ev.id}`;
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    out.push({
+      name: loc,
+      registrationPublicKey: regKey,
+      eventId: ev.id,
+      programTitle: String(ev.title || '').trim()
+    });
   }
-  out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  out.sort((a, b) => (a.programTitle || '').localeCompare(b.programTitle || '', undefined, { sensitivity: 'base' }));
   return out;
 });
 
@@ -980,10 +1091,29 @@ function selectNavigatorSession(row) {
   selectedSchoolName.value = '';
 }
 
+function isNavigatorLocationActive(loc) {
+  return normalizeNavigatorLoc(navigatorLocationName.value) === normalizeNavigatorLoc(loc);
+}
+
+function selectNavigatorLocation(name) {
+  navigatorLocationName.value = String(name || '').trim();
+  navigatorSessionLabel.value = '';
+  navigatorSessionDateRange.value = '';
+  selectedSchoolName.value = '';
+}
+
+async function selectNavigatorSessionForLocationFlow(row) {
+  selectNavigatorSession(row);
+  await nextTick();
+  const opts = registrationsForNavigatorLocationSession.value;
+  if (opts.length === 1) goLocationRegistration(opts[0]);
+}
+
 function toggleNavigatorAgency(agencyId) {
   const n = Number(agencyId);
   if (!Number.isFinite(n) || n <= 0) return;
   navigatorAgencyFilterId.value = navigatorAgencyFilterId.value === n ? null : n;
+  navigatorLocationName.value = '';
   navigatorSessionLabel.value = '';
   navigatorSessionDateRange.value = '';
   selectedSchoolName.value = '';
@@ -991,14 +1121,17 @@ function toggleNavigatorAgency(agencyId) {
 
 function onListingHubAgencyFilterChange(val) {
   navigatorAgencyFilterId.value = val == null || val === '' || Number(val) <= 0 ? null : Number(val);
+  navigatorLocationName.value = '';
   navigatorSessionLabel.value = '';
   navigatorSessionDateRange.value = '';
   selectedSchoolName.value = '';
 }
 
-const presetLocationQuery = computed(() => (
-  journeyPrimary.value === 'school' ? String(selectedSchoolName.value || '').trim() : ''
-));
+const presetLocationQuery = computed(() =>
+  journeyPrimary.value === 'school'
+    ? String(navigatorLocationName.value || selectedSchoolName.value || '').trim()
+    : ''
+);
 const presetSessionLabel = computed(() => String(navigatorSessionLabel.value || '').trim());
 const presetSessionDateRange = computed(() => String(navigatorSessionDateRange.value || '').trim());
 
@@ -1679,16 +1812,19 @@ function choosePrimary(mode) {
   journeyPrimary.value = mode;
   if (mode === 'school') {
     journeyProgramMode.value = '';
+    navigatorLocationName.value = '';
     navigatorSessionLabel.value = '';
     navigatorSessionDateRange.value = '';
     selectedSchoolName.value = '';
   } else if (mode === 'program') {
     selectedSchoolName.value = '';
+    navigatorLocationName.value = '';
     navigatorSessionLabel.value = '';
     navigatorSessionDateRange.value = '';
   } else {
     journeyProgramMode.value = '';
     selectedSchoolName.value = '';
+    navigatorLocationName.value = '';
     navigatorSessionLabel.value = '';
     navigatorSessionDateRange.value = '';
   }
