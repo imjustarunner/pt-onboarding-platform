@@ -24,7 +24,8 @@ import {
   getStripeConfig,
   createStripeSetupIntent,
   identifyPreferencesUser,
-  savePreferencesUser
+  savePreferencesUser,
+  getPublicRegistrationReceipt
 } from '../controllers/publicIntake.controller.js';
 
 const upload = multer({
@@ -37,6 +38,7 @@ const router = express.Router();
 
 router.use(publicIntakeLimiter);
 
+router.get('/registration-receipt/:submissionId', getPublicRegistrationReceipt);
 router.get('/careers/:agencySlug', listPublicCareers);
 router.get('/school/:organizationId', getSchoolIntakeLink);
 router.post(

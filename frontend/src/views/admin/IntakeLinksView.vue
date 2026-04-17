@@ -3447,13 +3447,20 @@ const applyGuardianPartnershipCompletionEmailCopy = () => {
 const applySummerSkillsProgramCompletionEmailCopy = () => {
   if (!form.customMessages) return;
   const formLabel = String(form.title || '').trim() || 'Summer Skills Program';
-  form.customMessages.completionEmailSubject = `${formLabel} — We received your registration & intake (next steps inside)`;
+  form.customMessages.completionEmailSubject = `${formLabel} — {{EVENT_TITLE}} — Registration & intake received`;
   form.customMessages.completionEmailBody = [
     'Hi {{SIGNER_NAME}},',
     '',
     'Thank you for taking the time to complete your Summer Skills Program registration and intake materials.',
     'We are glad you are exploring the program with your family, and we appreciate the care you put into each answer.',
     '{{CLIENT_SUMMARY}}',
+    '',
+    'Session details',
+    '• Title: {{EVENT_TITLE}}',
+    '• Dates: {{EVENT_DATES}}',
+    '• Address / location: {{EVENT_ADDRESS}}',
+    '• Report time: {{EVENT_REPORT_TIME}}',
+    '• Duration: {{EVENT_DURATION}}',
     '',
     'What happens next',
     '• You will find a copy of your signed packet below — please keep that link somewhere safe until you hear from us.',
@@ -3463,7 +3470,7 @@ const applySummerSkillsProgramCompletionEmailCopy = () => {
     '',
     'Your signed packet',
     'Download your signed packet for your records:',
-    '{{DOWNLOAD_URL}}',
+    '[Click here to download]({{DOWNLOAD_URL}})',
     '',
     'This download link expires in {{LINK_EXPIRES_DAYS}} days.',
     '',
@@ -3487,6 +3494,13 @@ const applySummerSkillsProgramCompletionEmailCopy = () => {
     '• Watch for an email or call from our team — that is how we will coordinate any missing details or scheduling.',
     '• If anything in your packet needs updating, reply to this message and tell us what changed; we are happy to help.',
     '• Add our domain to your safe-senders list so follow-ups do not land in spam.',
+    '',
+    'Save a web receipt (no login)',
+    'You can open this snapshot page any time with the link below — use Print to PDF or the download button on the page:',
+    '{{REGISTRATION_RECEIPT_URL}}',
+    '',
+    'About the sender address',
+    'Emails come from {{FROM_ADDRESS}} — please add it to your contacts, check spam, and mark messages as safe.',
     '',
     'We are cheering you on and look forward to connecting soon.',
     '',

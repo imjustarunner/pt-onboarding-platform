@@ -244,6 +244,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/registration-receipt/:submissionId',
+    name: 'RegistrationReceipt',
+    component: () => import('../views/public/RegistrationReceiptView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
     path: '/event-rsvp/:token',
     name: 'CompanyEventRsvp',
     component: () => import('../views/public/CompanyEventRsvpView.vue'),

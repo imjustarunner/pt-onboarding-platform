@@ -34,6 +34,7 @@ import GuardianPaymentCard from '../models/GuardianPaymentCard.model.js';
 import QuickBooksPaymentsService from '../services/quickbooksPayments.service.js';
 import StripePaymentsService, { isStripeConfigured, getStripePublishableKey } from '../services/stripePayments.service.js';
 import { normalizeGradeForSave } from '../utils/clientGrade.js';
+import { getIntakePdfStrings } from '../services/intakeLocaleLabels.js';
 
 /** Fetch the Stripe Connect account ID for an agency (null if not connected). */
 async function getAgencyStripeConnectAccountId(agencyId) {
@@ -170,6 +171,66 @@ const registrationEntityType = (selection) => {
   if (t === 'event') return 'company_event';
   return t;
 };
+
+/** Placeholders for completion email / PDFs tied to a selected company event registration. */
+const loadRegistrationEventFieldPlaceholders = async (intakeData, link) => {
+  const empty = {
+    EVENT_TITLE: '',
+    EVENT_DATES: '',
+    EVENT_ADDRESS: '',
+    EVENT_REPORT_TIME: '',
+    EVENT_DURATION: ''
+  };
+  try {
+    const evSel = normalizeRegistrationSelections(intakeData).find(
+      (s) => registrationEntityType(s) === 'company_event'
+    );
+    const aid = Number(link?.agency_id || 0) || null;
+    if (!evSel?.entityId || !aid) return empty;
+    const [rows] = await pool.execute(
+      `SELECT title, starts_at, ends_at, timezone,
+              public_location_address, event_location_name, event_location_address
+       FROM company_events
+       WHERE id = ? AND agency_id = ?
+       LIMIT 1`,
+      [Number(evSel.entityId), aid]
+    );
+    const er = rows?.[0];
+    if (!er) return empty;
+    const title = String(er.title || '').trim();
+    const tz = String(er.timezone || '').trim();
+    const start = er.starts_at ? new Date(er.starts_at) : null;
+    const end = er.ends_at ? new Date(er.ends_at) : null;
+    const fmtOpts = tz ? { timeZone: tz } : {};
+    const dates = start
+      ? `${start.toLocaleDateString(undefined, fmtOpts)}${
+          end && end.getTime() !== start.getTime()
+            ? ` – ${end.toLocaleDateString(undefined, fmtOpts)}`
+            : ''
+        }`
+      : '';
+    const reportTime = start
+      ? start.toLocaleTimeString(undefined, { ...fmtOpts, hour: 'numeric', minute: '2-digit' })
+      : '';
+    let duration = '';
+    if (start && end && Number.isFinite(end.getTime()) && Number.isFinite(start.getTime())) {
+      const mins = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+      if (mins) duration = mins >= 120 ? `${Math.round(mins / 60)} hr` : `${mins} min`;
+    }
+    const addr = String(er.public_location_address || '').trim()
+      || [er.event_location_name, er.event_location_address].filter(Boolean).join(' — ');
+    return {
+      EVENT_TITLE: title,
+      EVENT_DATES: dates,
+      EVENT_ADDRESS: addr,
+      EVENT_REPORT_TIME: reportTime,
+      EVENT_DURATION: duration
+    };
+  } catch {
+    return empty;
+  }
+};
+
 /** When the link is pinned to one company event, ensure enrollment still runs if selections are missing from the payload (defense in depth). Registration is always shown in the smart registration UI. */
 const mergeLockedCompanyEventSelection = (selections, link, intakeData) => {
   const lockedId = Number(link?.company_event_id || 0) || null;
@@ -863,14 +924,55 @@ const renderTemplateString = (template, params = {}) => {
   return rendered;
 };
 
-const toSimpleHtmlEmail = (text) => `
+const stripEmptyTemporaryPasswordLines = (body) => {
+  const raw = String(body || '').replace(/\r\n/g, '\n');
+  return raw
+    .split('\n')
+    .filter((line) => !/^\s*Temporary password:\s*$/i.test(line))
+    .join('\n');
+};
+
+const toSimpleHtmlEmail = (text) => {
+  const raw = String(text || '').replace(/\r\n/g, '\n');
+  const outLines = [];
+  let pendingBlank = false;
+  for (const ln of raw.split('\n')) {
+    const empty = !String(ln).trim();
+    if (empty) {
+      pendingBlank = true;
+      continue;
+    }
+    if (pendingBlank) {
+      outLines.push('');
+      pendingBlank = false;
+    }
+    outLines.push(ln);
+  }
+  if (pendingBlank) outLines.push('');
+
+  const lineToHtml = (line) => {
+    const t = String(line);
+    const md = t.match(/^\s*\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)\s*$/);
+    if (md) {
+      return `<p style="margin:8px 0"><a href="${escapeHtml(md[2])}" style="color:#1a56db;font-weight:700;text-decoration:underline;">${escapeHtml(md[1])}</a></p>`;
+    }
+    const trimmed = t.trim();
+    if (/^https?:\/\//i.test(trimmed) && !/\s/.test(trimmed)) {
+      return `<p style="margin:8px 0"><a href="${escapeHtml(trimmed)}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">Download signed packet</a></p>`;
+    }
+    if (!trimmed) {
+      return '<p style="margin:8px 0"></p>';
+    }
+    const inner = escapeHtml(t).replace(/^\s+|\s+$/g, '') || '&nbsp;';
+    return `<p style="margin:8px 0">${inner}</p>`;
+  };
+
+  return `
   <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
-    ${String(text || '')
-      .split('\n')
-      .map((line) => `<p>${escapeHtml(line || '').replace(/^\s+|\s+$/g, '') || '&nbsp;'}</p>`)
-      .join('')}
+    ${outLines.map(lineToHtml).join('')}
   </div>
 `.trim();
+};
 
 const resolvePacketEmailTemplateType = (link, customMessages = {}) => {
   const explicitType = String(customMessages?.completionEmailTemplateType || '').trim();
@@ -895,7 +997,10 @@ const resolvePacketCompletionEmailContent = async ({
   registrationNeedsSetup = false,
   portalLoginUrl = null,
   registrationPasswordlessUrl = null,
-  registrationEventSummary = null
+  registrationEventSummary = null,
+  registrationReceiptUrl = null,
+  fromAddress = null,
+  eventPlaceholders = null
 }) => {
   const customMessages = link?.custom_messages && typeof link.custom_messages === 'object'
     ? link.custom_messages
@@ -924,6 +1029,7 @@ const resolvePacketCompletionEmailContent = async ({
 
   const orgDisplayName = String(schoolName || '').trim();
   const agencyDisplayName = String(agencyName || '').trim();
+  const ev = eventPlaceholders && typeof eventPlaceholders === 'object' ? eventPlaceholders : {};
   const params = {
     SIGNER_NAME: String(signerName || '').trim() || 'Signer',
     SIGNER_EMAIL: String(signerEmail || '').trim() || '',
@@ -943,7 +1049,15 @@ const resolvePacketCompletionEmailContent = async ({
     PORTAL_LOGIN_URL: regPortalPrimary,
     REGISTRATION_PASSWORDLESS_URL: regPasswordless,
     REGISTRATION_LOGIN_PAGE_URL: regPlainLogin,
-    REGISTRATION_EVENT_SUMMARY: regEvent
+    REGISTRATION_EVENT_SUMMARY: regEvent,
+    EVENT_TITLE: String(ev.EVENT_TITLE || ''),
+    EVENT_DATES: String(ev.EVENT_DATES || ''),
+    EVENT_ADDRESS: String(ev.EVENT_ADDRESS || ''),
+    EVENT_REPORT_TIME: String(ev.EVENT_REPORT_TIME || ''),
+    EVENT_DURATION: String(ev.EVENT_DURATION || ''),
+    REGISTRATION_RECEIPT_URL: String(registrationReceiptUrl || '').trim(),
+    RECEIPT_URL: String(registrationReceiptUrl || '').trim(),
+    FROM_ADDRESS: String(fromAddress || '').trim()
   };
 
   const credsBlock = needsSetup || regPw || regPasswordless
@@ -1008,6 +1122,10 @@ const resolvePacketCompletionEmailContent = async ({
       (!regPasswordless && regPlainLogin) ? `Login page: ${regPlainLogin}` : ''
     ].filter(Boolean).join('\n');
     text = `${text}\n${appendedBlock}`;
+  }
+
+  if (!regPw) {
+    text = stripEmptyTemporaryPasswordLines(text);
   }
 
   const html = selectedTemplate?.body || customBody
@@ -1199,6 +1317,7 @@ const notifySchoolRoiCompletedForBackoffice = async ({
 
 const buildAnswersPdfBuffer = async ({ link, intakeData }) => {
   if (!intakeData) return null;
+  const pdfStrings = getIntakePdfStrings(link?.language_code);
   const clients = Array.isArray(intakeData?.clients) ? intakeData.clients : [];
   const totalClients = clients.length || 1;
   const sections = [];
@@ -1209,7 +1328,9 @@ const buildAnswersPdfBuffer = async ({ link, intakeData }) => {
     const clientName =
       String(client?.fullName || '').trim()
       || `${String(client?.firstName || '').trim()} ${String(client?.lastName || '').trim()}`.trim();
-    const heading = clientName ? `Intake Responses - ${clientName}` : `Intake Responses - Client ${i + 1}`;
+    const heading = clientName
+      ? `${pdfStrings.intakeResponses} - ${clientName}`
+      : `${pdfStrings.intakeResponses} - Client ${i + 1}`;
     const lines = decodeHtmlEntities(rawText).split('\n');
     sections.push({ heading, lines });
   }
@@ -1254,17 +1375,17 @@ const buildAnswersPdfBuffer = async ({ link, intakeData }) => {
 
   const approval = intakeData?.approval || null;
   if (approval && (approval.staffLastName || approval.clientFirstName || approval.mode)) {
-    const approvalTitle = wrapText('Staff-Assisted Verification', fontBold, 18, maxWidth);
+    const approvalTitle = wrapText(pdfStrings.staffAssisted, fontBold, 18, maxWidth);
     approvalTitle.forEach((line) => {
       page.drawText(line, { x: margin, y, size: 18, font: fontBold, color: rgb(0, 0, 0) });
       newLine(18);
     });
     newLine(8);
     const approvalLines = [
-      `Mode: ${approval.mode || 'staff_assisted'}`,
-      `Staff last name: ${approval.staffLastName || '—'}`,
-      `Client first name: ${approval.clientFirstName || '—'}`,
-      `Approved at: ${approval.approvedAt || '—'}`
+      `${pdfStrings.mode}: ${approval.mode || 'staff_assisted'}`,
+      `${pdfStrings.staffLastName}: ${approval.staffLastName || '—'}`,
+      `${pdfStrings.clientFirstName}: ${approval.clientFirstName || '—'}`,
+      `${pdfStrings.approvedAt}: ${approval.approvedAt || '—'}`
     ];
     approvalLines.forEach((line) => {
       const wrapped = wrapText(line, font, 12, maxWidth);
@@ -1277,7 +1398,7 @@ const buildAnswersPdfBuffer = async ({ link, intakeData }) => {
     y = pageSize[1] - margin;
   }
 
-  const headerLines = wrapText('Intake Responses', fontBold, 18, maxWidth);
+  const headerLines = wrapText(pdfStrings.intakeResponses, fontBold, 18, maxWidth);
   headerLines.forEach((line) => {
     page.drawText(line, { x: margin, y, size: 18, font: fontBold, color: rgb(0, 0, 0) });
     newLine(18);
@@ -5266,6 +5387,19 @@ export const finalizePublicIntake = async (req, res, next) => {
         registrationEventSummary = '';
       }
 
+      const eventPlaceholdersForEmail = await loadRegistrationEventFieldPlaceholders(intakeData, link);
+      const portalBaseReceipt = String(config.frontendUrl || '').replace(/\/$/, '');
+      let registrationReceiptUrl = '';
+      if (portalBaseReceipt) {
+        const receiptToken = crypto.randomBytes(32).toString('hex');
+        await IntakeSubmission.updateById(submissionId, { registration_receipt_token: receiptToken });
+        registrationReceiptUrl = `${portalBaseReceipt}/registration-receipt/${submissionId}?token=${encodeURIComponent(receiptToken)}`;
+      }
+      const completionEmailFromAddress =
+        process.env.GOOGLE_WORKSPACE_FROM_ADDRESS
+        || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM
+        || '';
+
       if (updatedSubmission.signer_email) {
         emailDelivery.attempted = true;
         try {
@@ -5275,7 +5409,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           const registrationLoginPageUrl = portalBase ? `${portalBase}/login` : '';
           const regFlow = linkSupportsPublicRegistrationFeatures(link);
           const registrationPasswordlessUrl =
-            regFlow && link.create_guardian && newGuardianCreated
+            regFlow && link.create_guardian && (newGuardianPasswordlessLoginUrl || '')
               ? (newGuardianPasswordlessLoginUrl || '')
               : '';
           const packetEmail = await resolvePacketCompletionEmailContent({
@@ -5291,10 +5425,15 @@ export const finalizePublicIntake = async (req, res, next) => {
             expiresInDays: 7,
             registrationLoginEmail: updatedSubmission.signer_email || '',
             registrationNeedsSetup: regFlow && link.create_guardian && newGuardianCreated,
-            registrationTempPassword: regFlow && link.create_guardian ? (newGuardianTemporaryPassword || '') : '',
+            registrationTempPassword: regFlow && link.create_guardian && newGuardianCreated
+              ? (newGuardianTemporaryPassword || '')
+              : '',
             portalLoginUrl: registrationLoginPageUrl,
             registrationPasswordlessUrl,
-            registrationEventSummary
+            registrationEventSummary,
+            registrationReceiptUrl,
+            fromAddress: completionEmailFromAddress,
+            eventPlaceholders: eventPlaceholdersForEmail
           });
           const identity = await resolveIntakeSenderIdentity({
             organizationId: link?.organization_id || null,
@@ -5819,6 +5958,19 @@ export const submitPublicIntake = async (req, res, next) => {
         }).catch(() => {});
       }
 
+      const eventPlaceholdersForEmailSubmit = await loadRegistrationEventFieldPlaceholders(intakeData, link);
+      const portalBaseReceiptSubmit = String(config.frontendUrl || '').replace(/\/$/, '');
+      let registrationReceiptUrlSubmit = '';
+      if (portalBaseReceiptSubmit) {
+        const receiptTokenSubmit = crypto.randomBytes(32).toString('hex');
+        await IntakeSubmission.updateById(submissionId, { registration_receipt_token: receiptTokenSubmit });
+        registrationReceiptUrlSubmit = `${portalBaseReceiptSubmit}/registration-receipt/${submissionId}?token=${encodeURIComponent(receiptTokenSubmit)}`;
+      }
+      const completionEmailFromAddressSubmit =
+        process.env.GOOGLE_WORKSPACE_FROM_ADDRESS
+        || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM
+        || '';
+
       if (updatedSubmission.signer_email && EmailService.isConfigured()) {
         emailDelivery.attempted = true;
         const clientCount = rawClients.length || 1;
@@ -5845,7 +5997,7 @@ export const submitPublicIntake = async (req, res, next) => {
         const registrationLoginPageUrl = portalBase ? `${portalBase}/login` : '';
         const regFlowEmail = linkSupportsPublicRegistrationFeatures(link);
         const registrationPasswordlessUrl =
-          regFlowEmail && link.create_guardian && newGuardianCreated
+          regFlowEmail && link.create_guardian && (newGuardianPasswordlessLoginUrl || '')
             ? (newGuardianPasswordlessLoginUrl || '')
             : '';
         const packetEmail = await resolvePacketCompletionEmailContent({
@@ -5861,10 +6013,15 @@ export const submitPublicIntake = async (req, res, next) => {
           expiresInDays: 7,
           registrationLoginEmail: updatedSubmission.signer_email || '',
           registrationNeedsSetup: regFlowEmail && link.create_guardian && newGuardianCreated,
-          registrationTempPassword: regFlowEmail && link.create_guardian ? (newGuardianTemporaryPassword || '') : '',
+          registrationTempPassword: regFlowEmail && link.create_guardian && newGuardianCreated
+            ? (newGuardianTemporaryPassword || '')
+            : '',
           portalLoginUrl: registrationLoginPageUrl,
           registrationPasswordlessUrl,
-          registrationEventSummary
+          registrationEventSummary,
+          registrationReceiptUrl: registrationReceiptUrlSubmit,
+          fromAddress: completionEmailFromAddressSubmit,
+          eventPlaceholders: eventPlaceholdersForEmailSubmit
         });
         try {
           const identity = await resolveIntakeSenderIdentity({
@@ -6029,6 +6186,53 @@ export const submitPublicIntake = async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+};
+
+/**
+ * GET /public-intake/registration-receipt/:submissionId?token=...
+ * Read-only snapshot data for the guardian receipt page (token issued at finalize).
+ */
+export const getPublicRegistrationReceipt = async (req, res) => {
+  try {
+    const submissionId = Number(req.params.submissionId || 0) || null;
+    const token = String(req.query.token || '').trim();
+    if (!submissionId || !token) {
+      return res.status(400).json({ error: { message: 'submissionId and token are required' } });
+    }
+    const sub = await IntakeSubmission.findById(submissionId);
+    if (!sub?.registration_receipt_token || sub.registration_receipt_token !== token) {
+      return res.status(404).json({ error: { message: 'Not found' } });
+    }
+    const link = await IntakeLink.findById(sub.intake_link_id);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Not found' } });
+    }
+    let intakeData = {};
+    try {
+      intakeData = sub.intake_data ? JSON.parse(sub.intake_data) : {};
+    } catch {
+      intakeData = {};
+    }
+    const eventPlaceholders = await loadRegistrationEventFieldPlaceholders(intakeData, link);
+    const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink: null, boundClient: null });
+    const fromAddress =
+      process.env.GOOGLE_WORKSPACE_FROM_ADDRESS
+      || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM
+      || '';
+    return res.json({
+      submissionId,
+      signerName: sub.signer_name || '',
+      signerEmail: sub.signer_email || '',
+      formTitle: link.title || '',
+      organizationName: organization?.name || '',
+      agencyName: agency?.name || '',
+      fromAddress,
+      event: eventPlaceholders,
+      registrationSelections: intakeData?.responses?.submission?.registrationSelections || []
+    });
+  } catch (e) {
+    return res.status(500).json({ error: { message: e?.message || 'Server error' } });
   }
 };
 

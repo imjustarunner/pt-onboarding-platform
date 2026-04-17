@@ -1,14 +1,7 @@
 import { google } from 'googleapis';
 import { getWorkspaceClientsForEmployee, logGoogleUnauthorizedHint } from './googleWorkspaceAuth.service.js';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
-
-function base64UrlEncode(str) {
-  return Buffer.from(str)
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
-}
+import { base64UrlEncode, buildMimeMessage } from './unifiedEmail/mime.js';
 
 function parseServiceAccountJson() {
   const raw = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON;
@@ -24,95 +17,6 @@ function parseServiceAccountJson() {
   } catch {
     return null;
   }
-}
-
-function buildMimeMessage({ to, subject, text, html, from, replyTo, attachments }) {
-  const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
-  const headers = [
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    `From: ${from}`,
-    ...(replyTo ? [`Reply-To: ${replyTo}`] : []),
-    'MIME-Version: 1.0'
-  ];
-
-  if (hasAttachments) {
-    const boundary = `mixed_${Math.random().toString(16).slice(2)}`;
-    const altBoundary = `alt_${Math.random().toString(16).slice(2)}`;
-    headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
-
-    const parts = [
-      ...headers,
-      '',
-      `--${boundary}`,
-      `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
-      '',
-      `--${altBoundary}`,
-      'Content-Type: text/plain; charset="UTF-8"',
-      'Content-Transfer-Encoding: 7bit',
-      '',
-      text || '',
-      '',
-      `--${altBoundary}`,
-      'Content-Type: text/html; charset="UTF-8"',
-      'Content-Transfer-Encoding: 7bit',
-      '',
-      html || text || '',
-      '',
-      `--${altBoundary}--`,
-      ''
-    ];
-
-    attachments.forEach((att) => {
-      const filename = att.filename || 'attachment';
-      const contentType = att.contentType || 'application/octet-stream';
-      const content = att.contentBase64 || '';
-      parts.push(
-        `--${boundary}`,
-        `Content-Type: ${contentType}; name="${filename}"`,
-        'Content-Transfer-Encoding: base64',
-        `Content-Disposition: attachment; filename="${filename}"`,
-        '',
-        content,
-        ''
-      );
-    });
-
-    parts.push(`--${boundary}--`, '');
-    return parts.join('\r\n');
-  }
-
-  // Prefer multipart/alternative when both are present
-  if (text && html) {
-    const boundary = `alt_${Math.random().toString(16).slice(2)}`;
-    headers.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
-    return [
-      ...headers,
-      '',
-      `--${boundary}`,
-      'Content-Type: text/plain; charset="UTF-8"',
-      'Content-Transfer-Encoding: 7bit',
-      '',
-      text,
-      '',
-      `--${boundary}`,
-      'Content-Type: text/html; charset="UTF-8"',
-      'Content-Transfer-Encoding: 7bit',
-      '',
-      html,
-      '',
-      `--${boundary}--`,
-      ''
-    ].join('\r\n');
-  }
-
-  if (html) {
-    headers.push('Content-Type: text/html; charset="UTF-8"');
-    return [...headers, '', html, ''].join('\r\n');
-  }
-
-  headers.push('Content-Type: text/plain; charset="UTF-8"');
-  return [...headers, '', (text || ''), ''].join('\r\n');
 }
 
 function getImpersonatedUser() {

@@ -171,6 +171,20 @@ class PublicIntakeClientService {
       const existingUser = await User.findByEmail(email);
       if (existingUser) {
         guardianUser = existingUser;
+        const roleNorm = String(guardianUser.role || '').toLowerCase();
+        if (roleNorm === 'client_guardian') {
+          const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
+          try {
+            const agencyRecord = await Agency.findById(agencyId);
+            const tokenResult = await User.generatePasswordlessToken(guardianUser.id, tempHours, 'setup');
+            newGuardianPasswordlessLoginUrl = buildGuardianPasswordlessLoginUrl(agencyRecord, tokenResult.token);
+          } catch (tokenErr) {
+            console.error('[publicIntakeClient] existing guardian passwordless token failed', {
+              userId: guardianUser.id,
+              message: tokenErr?.message || tokenErr
+            });
+          }
+        }
       } else {
         const firstName = String(guardianPayload.firstName || '').trim() || 'Guardian';
         const lastName = String(guardianPayload.lastName || '').trim() || '';
