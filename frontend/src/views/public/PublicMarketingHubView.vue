@@ -61,7 +61,7 @@
                 :title="`${p.agencyName} — tap to show only this agency’s programs`"
                 :aria-pressed="navigatorAgencyFilterId === p.agencyId ? 'true' : 'false'"
                 :aria-label="`Filter to ${p.agencyName} only`"
-                @click="toggleNavigatorAgency(p.agencyId)"
+                @click="toggleNavigatorAgency(p.agencyId, { openSchoolPath: true })"
               >
                 <span class="pmh-splash-tenant-logo-wrap">
                   <img v-if="p.logoUrl" class="pmh-splash-tenant-logo" :src="p.logoUrl" :alt="`${p.agencyName} logo`" />
@@ -71,6 +71,13 @@
               </button>
             </div>
           </div>
+          <p
+            v-if="splashTenantLogos.length > 1"
+            class="pmh-splash-agency-hint"
+          >
+            Select an agency logo to see only that agency’s open sessions and registration sites. The list below
+            updates as soon as you tap one.
+          </p>
           <p class="pmh-pathfinder-eyebrow">Start here</p>
           <h1 class="pmh-splash-title">D11 Summer 2026</h1>
           <p class="pmh-pathfinder-sub">Choose how you want to find the best option for your family.</p>
@@ -339,7 +346,10 @@
           <div v-if="journeyPrimary === 'school'" class="pmh-pathfinder-detail">
             <div v-if="splashTenantLogos.length > 1" class="pmh-navigator-agency-block">
               <p class="pmh-pathfinder-detail-title">Choose your agency</p>
-              <p class="pmh-pathfinder-detail-hint">Tap a logo to show only that agency’s sites and sessions.</p>
+              <p class="pmh-pathfinder-detail-hint">
+                Select an agency to see only its open sessions and registration sites. The location and session lists
+                below update automatically.
+              </p>
               <div class="pmh-agency-logo-row">
                 <button
                   v-for="p in splashTenantLogos"
@@ -349,7 +359,7 @@
                   :class="{ active: navigatorAgencyFilterId === p.agencyId }"
                   :aria-pressed="navigatorAgencyFilterId === p.agencyId ? 'true' : 'false'"
                   :aria-label="`Show only ${p.agencyName}`"
-                  @click="toggleNavigatorAgency(p.agencyId)"
+                  @click="toggleNavigatorAgency(p.agencyId, { openSchoolPath: true })"
                 >
                   <span class="pmh-agency-filter-tile-logo">
                     <img v-if="p.logoUrl" :src="p.logoUrl" :alt="`${p.agencyName} logo`" />
@@ -1109,14 +1119,19 @@ async function selectNavigatorSessionForLocationFlow(row) {
   if (opts.length === 1) goLocationRegistration(opts[0]);
 }
 
-function toggleNavigatorAgency(agencyId) {
+function toggleNavigatorAgency(agencyId, opts = {}) {
   const n = Number(agencyId);
   if (!Number.isFinite(n) || n <= 0) return;
-  navigatorAgencyFilterId.value = navigatorAgencyFilterId.value === n ? null : n;
+  const prev = navigatorAgencyFilterId.value;
+  const wasSame = prev === n;
+  navigatorAgencyFilterId.value = wasSame ? null : n;
   navigatorLocationName.value = '';
   navigatorSessionLabel.value = '';
   navigatorSessionDateRange.value = '';
   selectedSchoolName.value = '';
+  if (opts.openSchoolPath === true && navigatorAgencyFilterId.value != null) {
+    choosePrimary('school');
+  }
 }
 
 function onListingHubAgencyFilterChange(val) {
@@ -3033,25 +3048,40 @@ watch(hubSlug, () => {
 
 .pmh-splash-logos {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: 20px;
+  margin-bottom: 12px;
   flex-wrap: wrap;
 }
 
+.pmh-splash-agency-hint {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid var(--hub-border);
+  border-radius: 14px;
+}
+
 .pmh-splash-program-logo-wrap {
-  height: 74px;
-  min-width: 220px;
-  max-width: 320px;
+  width: 168px;
+  height: 168px;
+  min-width: 168px;
+  max-width: 168px;
+  flex-shrink: 0;
+  box-sizing: border-box;
   border: 1px solid var(--hub-border);
   border-radius: 14px;
   background: #fff;
-  padding: 8px 14px;
+  padding: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.09);
 }
 
 .pmh-splash-program-logo {
@@ -3176,9 +3206,11 @@ watch(hubSlug, () => {
 
 @media (max-width: 760px) {
   .pmh-splash-program-logo-wrap {
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
+    width: 132px;
+    height: 132px;
+    min-width: 132px;
+    max-width: 132px;
+    padding: 10px;
   }
   .pmh-splash-tenant-logos {
     width: 100%;
