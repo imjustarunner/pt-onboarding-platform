@@ -526,6 +526,9 @@
                   <option value="preset:guardian_partnership">
                     Parent partnership / class registration (welcome + account &amp; packet)
                   </option>
+                  <option value="preset:summer_skills_registration_intake">
+                    Summer Skills Program — registration &amp; intake (welcome + portal; not admission yet)
+                  </option>
                   <option
                     v-for="tpl in completionEmailTemplateOptions"
                     :key="tpl.id"
@@ -536,9 +539,10 @@
                 </select>
                 <small class="form-help">
                   Default behavior uses the agency template type <code>school_full_intake_packet_default</code>.
-                  The parent-partnership option fills suggested copy for welcome plus portal credentials; when a new
-                  guardian account is created, the PORTAL_LOGIN_URL placeholder resolves to the one-time sign-in link.
-                  You can edit the subject and body after choosing it.
+                  Preset options fill suggested subject and body; placeholders such as
+                  <code>PORTAL_LOGIN_URL</code>, <code>DOWNLOAD_URL</code>, and <code>REGISTRATION_TEMP_PASSWORD</code>
+                  are replaced when the email is sent. The Summer Skills preset explains that this email is not final
+                  admission and that staff will follow up. You can edit the subject and body after choosing a preset.
                 </small>
               </div>
               <div class="form-group" style="grid-column: 1 / -1;">
@@ -1923,6 +1927,13 @@ import PublicIntakePaymentStep from '../../components/public-intake/PublicIntake
 
 /** Stored on the intake link customMessages when the admin picks the built-in parent/class registration email preset. */
 const COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP = 'guardian_partnership';
+/** Summer Skills–style welcome: portal setup, packet link, and clear “not yet admitted” messaging. */
+const COMPLETION_EMAIL_PRESET_SUMMER_SKILLS = 'summer_skills_registration_intake';
+
+const COMPLETION_EMAIL_PRESET_IDS = new Set([
+  COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP,
+  COMPLETION_EMAIL_PRESET_SUMMER_SKILLS
+]);
 const props = defineProps({
   /** When set (e.g. Settings tenant hub), lock digital forms to this agency id. */
   scopedAgencyId: { type: Number, default: null }
@@ -2383,6 +2394,9 @@ const completionEmailDropdownValue = computed(() => {
   if (id) return `template:${id}`;
   if (form.customMessages?.completionEmailPreset === COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP) {
     return 'preset:guardian_partnership';
+  }
+  if (form.customMessages?.completionEmailPreset === COMPLETION_EMAIL_PRESET_SUMMER_SKILLS) {
+    return 'preset:summer_skills_registration_intake';
   }
   return '';
 });
@@ -3206,16 +3220,13 @@ const save = async () => {
         || hasCustomCompletionType
         || (cm.completionEmailSubject || '').trim()
         || (cm.completionEmailBody || '').trim()
-        || preset === COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP;
+        || COMPLETION_EMAIL_PRESET_IDS.has(preset);
       if (!hasAny) return null;
       return {
         beginSubtitle: (cm.beginSubtitle || '').trim() || undefined,
         formTimeLimit: (cm.formTimeLimit || '').trim() || undefined,
         completionEmailTemplateId: Number(cm.completionEmailTemplateId || 0) || undefined,
-        completionEmailPreset:
-          preset === COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP
-            ? COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP
-            : undefined,
+        completionEmailPreset: COMPLETION_EMAIL_PRESET_IDS.has(preset) ? preset : undefined,
         completionEmailTemplateType: hasCustomCompletionType ? completionType : undefined,
         completionEmailSubject: (cm.completionEmailSubject || '').trim() || undefined,
         completionEmailBody: (cm.completionEmailBody || '').trim() || undefined
@@ -3337,6 +3348,58 @@ const applyGuardianPartnershipCompletionEmailCopy = () => {
   ].join('\n');
 };
 
+const applySummerSkillsProgramCompletionEmailCopy = () => {
+  if (!form.customMessages) return;
+  const formLabel = String(form.title || '').trim() || 'Summer Skills Program';
+  form.customMessages.completionEmailSubject = `${formLabel} — We received your registration & intake (next steps inside)`;
+  form.customMessages.completionEmailBody = [
+    'Hi {{SIGNER_NAME}},',
+    '',
+    'Thank you for taking the time to complete your Summer Skills Program registration and intake materials.',
+    'We are glad you are exploring the program with your family, and we appreciate the care you put into each answer.',
+    '{{CLIENT_SUMMARY}}',
+    '',
+    'What happens next',
+    '• You will find a copy of your signed packet below — please keep that link somewhere safe until you hear from us.',
+    '• If we created a guardian portal account for you, use the secure sign-in link (or your email + temporary password) to set your password and access your portal.',
+    '• Important: this confirmation email does not mean your participant is admitted to the program yet. It only means we received your submission.',
+    '• A member of our staff will review your materials and reach out soon with any follow-up questions or to outline the rest of the enrollment process.',
+    '',
+    'Your signed packet',
+    'Download your signed packet for your records:',
+    '{{DOWNLOAD_URL}}',
+    '',
+    'This download link expires in {{LINK_EXPIRES_DAYS}} days.',
+    '',
+    'Guardian portal — set your password',
+    'We recommend starting with the one-time sign-in link below. You can also use the main login page with your email and temporary password.',
+    '',
+    'One-time sign-in link:',
+    '{{PORTAL_LOGIN_URL}}',
+    '',
+    'Username (email): {{REGISTRATION_LOGIN_EMAIL}}',
+    'Temporary password: {{REGISTRATION_TEMP_PASSWORD}}',
+    '',
+    'Main login page (optional): {{REGISTRATION_LOGIN_PAGE_URL}}',
+    '',
+    'The temporary password is valid for 72 hours. After you sign in, you will be prompted to choose a new password.',
+    'If it expires before you sign in, use "Forgot password" on the login page and we will email you a fresh reset link.',
+    '',
+    '{{REGISTRATION_EVENT_SUMMARY}}',
+    '',
+    'Tips to help things go smoothly',
+    '• Watch for an email or call from our team — that is how we will coordinate any missing details or scheduling.',
+    '• If anything in your packet needs updating, reply to this message and tell us what changed; we are happy to help.',
+    '• Add our domain to your safe-senders list so follow-ups do not land in spam.',
+    '',
+    'We are cheering you on and look forward to connecting soon.',
+    '',
+    'Warmly,',
+    '{{SCHOOL_NAME}} team',
+    '(Summer Skills Program)'
+  ].join('\n');
+};
+
 const onCompletionEmailDropdownChange = (event) => {
   if (!form.customMessages) return;
   const raw = String(event?.target?.value ?? '');
@@ -3353,6 +3416,11 @@ const onCompletionEmailDropdownChange = (event) => {
   if (raw === 'preset:guardian_partnership') {
     form.customMessages.completionEmailPreset = COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP;
     applyGuardianPartnershipCompletionEmailCopy();
+    return;
+  }
+  if (raw === 'preset:summer_skills_registration_intake') {
+    form.customMessages.completionEmailPreset = COMPLETION_EMAIL_PRESET_SUMMER_SKILLS;
+    applySummerSkillsProgramCompletionEmailCopy();
     return;
   }
   form.customMessages.completionEmailSubject = '';
