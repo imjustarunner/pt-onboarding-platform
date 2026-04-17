@@ -305,6 +305,10 @@ const props = defineProps({
   presetHubAgencyId: { type: [Number, null], default: undefined },
   /** Parent can pre-filter by school/location text. */
   presetLocationQuery: { type: String, default: '' },
+  /** Parent-provided nearest-result allowlist: event IDs that may appear even when address search returns wider results. `null` = no restriction. */
+  allowedEventIds: { type: [Array, null], default: null },
+  /** Parent can force-hide the nearest CTA even when coords exist (e.g. only one option left after journey filter). */
+  hideNearestCta: { type: Boolean, default: false },
   /** Hide the top hero (logo/title) — e.g. when embedded under a parent enroll page. */
   hidePelHeader: { type: Boolean, default: false },
   /** Optional link to program enroll hub (shown on events-only pages). */
@@ -359,8 +363,28 @@ const sessionLabelFilter = ref('');
 /** Filter events sharing the same public_session_date_range (optional with label). */
 const sessionDateRangeFilter = ref('');
 
+const allowedEventIdSet = computed(() => {
+  const raw = props.allowedEventIds;
+  if (!Array.isArray(raw)) return null;
+  const out = new Set();
+  for (const id of raw) {
+    const n = Number(id);
+    if (Number.isFinite(n) && n > 0) out.add(n);
+  }
+  return out;
+});
+
+/** Keep nearest-sorted results aligned with the parent's journey filter (e.g. D11-only, office-only). */
+function withAllowedEvents(list) {
+  const set = allowedEventIdSet.value;
+  if (!set) return list;
+  return list.filter((ev) => set.has(Number(ev?.id)));
+}
+
 const baseEventList = computed(() =>
-  Array.isArray(rankedEvents.value) ? rankedEvents.value : props.events || []
+  Array.isArray(rankedEvents.value)
+    ? withAllowedEvents(rankedEvents.value)
+    : props.events || []
 );
 
 const displayEvents = computed(() => {
@@ -442,7 +466,13 @@ const canUseNearest = computed(() => {
 });
 
 const showDrivingDistanceCta = computed(() => {
+  if (props.hideNearestCta) return false;
   if (!canUseNearest.value) return false;
+  // Hide the CTA when there's effectively only one destination after the journey filter — nothing to rank.
+  const maxPool = allowedEventIdSet.value
+    ? allowedEventIdSet.value.size
+    : Array.isArray(props.events) ? props.events.length : 0;
+  if (maxPool < 2) return false;
   // Marketing hub: always show address search (backend geocodes text addresses; useful when only one event or coords not saved yet)
   if (hubSlugNorm.value) return true;
   return (props.events || []).some((ev) => {

@@ -380,10 +380,12 @@
           against each event’s program organization name; default includes <code>D11 Summer ITSCO</code>),
           optional <code>paths</code> array of <code>{ "id", "label", "buttonVariant": "primary"|"secondary", "filter" }</code>
           where <code>filter</code> is <code>{ "kind": "programTitleAnd", "includes": ["D11 Summer ITSCO"] }</code>,
-          <code>{ "kind": "officeSources" }</code>, or <code>{ "kind": "all" }</code> (add e.g. a D12 button with its own
-          <code>programTitleAnd</code> row). Optional <code>subtitle</code>, <code>districtTitle</code>, <code>nonDistrictTitle</code>,
+          <code>{ "kind": "officeSources" }</code>, <code>{ "kind": "districtOrOffice", "includes": ["D11 Summer ITSCO"] }</code>
+          (district events plus office fallback — used by the default “attends a D11 school” path),
+          or <code>{ "kind": "all" }</code> (add e.g. a D12 button with its own <code>programTitleAnd</code> row). Optional <code>subtitle</code>, <code>districtTitle</code>, <code>nonDistrictTitle</code>,
           <code>changeSelectionLabel</code>, <code>gateAriaLabel</code>, <code>enabled: false</code>. If <code>paths</code> is omitted, default
-          buttons are “My Dependent attends a D11 School” (program-title filter) and “My Dependent is in another district” (office path).
+          buttons are “My Dependent attends a D11 School” (inclusive <code>districtOrOffice</code> — D11 plus office fallback) and
+          “My Dependent is in another district” (exclusive <code>officeSources</code>).
           Tenant colors use platform
           branding unless <code>programThemePrimary</code> overrides the accent stripe.
         </p>

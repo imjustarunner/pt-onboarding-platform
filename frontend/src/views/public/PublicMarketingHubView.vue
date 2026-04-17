@@ -648,12 +648,37 @@
           We couldn’t load office Skill Builders listings on this page yet. Try the other option above, or check back
           later.
         </div>
+        <div
+          v-if="skillbuildersSessionPickerVisible"
+          class="sb-skillbuilders-sessions"
+          role="region"
+          aria-label="Choose a program session"
+        >
+          <p class="sb-skillbuilders-sessions-title">Choose a session</p>
+          <p class="sb-skillbuilders-sessions-hint">
+            Pick a week, then every site for that session appears below. You can still enter your address to sort by
+            shortest drive.
+          </p>
+          <div class="sb-skillbuilders-sessions-row">
+            <button
+              v-for="(s, si) in skillbuildersSessionRows"
+              :key="`sb-sess-${s.groupKey}-${si}`"
+              type="button"
+              class="sb-skillbuilders-session-chip"
+              :class="{ active: isSkillbuildersListingSessionActive(s) }"
+              @click="selectSkillbuildersListingSession(s)"
+            >
+              <span class="sb-skillbuilders-session-chip-title">{{ s.displayTitle }}</span>
+              <span v-if="s.displaySubtitle" class="sb-skillbuilders-session-chip-sub">{{ s.displaySubtitle }}</span>
+            </button>
+          </div>
+        </div>
         <PublicEventsListing
           ref="eventsListingRef"
           v-if="!error"
           :page-title="displayHeadline"
           :page-subtitle="listingSubtitle"
-          :events="eventsForListing"
+          :events="eventsForPublicListing"
           :loading="loading"
           :error="''"
           :hub-slug="hubSlug"
@@ -663,9 +688,11 @@
           :nearest-modal-title="nearestModalTitle"
           :nearest-modal-hint="nearestModalHint"
           :preset-location-query="presetLocationQuery"
-          :preset-session-label="presetSessionLabel"
-          :preset-session-date-range="presetSessionDateRange"
+          :preset-session-label="presetSessionLabelForHub"
+          :preset-session-date-range="presetSessionDateRangeForHub"
           :preset-hub-agency-id="eventNavigatorEnabled ? navigatorAgencyFilterId : undefined"
+          :allowed-event-ids="allowedEventIdsForListing"
+          :hide-nearest-cta="skillbuildersAwaitingSessionChoice"
           @hub-agency-filter-change="onListingHubAgencyFilterChange"
         />
       </div>
@@ -824,6 +851,9 @@ const navigatorSessionDateRange = ref('');
 const showNavigatorSplash = ref(false);
 /** Path id from skillbuilders journey config, or null — only for /p/skillbuilders when journey is active */
 const skillbuildersJourneyChoice = ref(null);
+/** Skill Builders hub: session chips above listing → syncs to PublicEventsListing session filters */
+const skillbuildersListingSessionLabel = ref('');
+const skillbuildersListingSessionDateRange = ref('');
 
 const gallerySlideIndex = ref(0);
 let gallerySlideshowTimer = null;
@@ -1155,8 +1185,14 @@ const presetLocationQuery = computed(() =>
     ? String(navigatorLocationName.value || selectedSchoolName.value || '').trim()
     : ''
 );
-const presetSessionLabel = computed(() => String(navigatorSessionLabel.value || '').trim());
-const presetSessionDateRange = computed(() => String(navigatorSessionDateRange.value || '').trim());
+const presetSessionLabelForHub = computed(() => {
+  if (hubSlug.value === 'skillbuilders') return String(skillbuildersListingSessionLabel.value || '').trim();
+  return String(navigatorSessionLabel.value || '').trim();
+});
+const presetSessionDateRangeForHub = computed(() => {
+  if (hubSlug.value === 'skillbuilders') return String(skillbuildersListingSessionDateRange.value || '').trim();
+  return String(navigatorSessionDateRange.value || '').trim();
+});
 
 const hubBranding = computed(() => pageMeta.value?.branding || {});
 
@@ -1235,6 +1271,10 @@ function normalizeSkillbuildersPathFilter(raw) {
     const includes = Array.isArray(raw.includes) ? raw.includes.map((x) => String(x || '').trim()).filter(Boolean) : [];
     return { kind: 'programTitleAnd', includes };
   }
+  if (k === 'district_or_office' || k === 'districtoroffice') {
+    const includes = Array.isArray(raw.includes) ? raw.includes.map((x) => String(x || '').trim()).filter(Boolean) : [];
+    return { kind: 'districtOrOffice', includes };
+  }
   return { kind: 'unknown' };
 }
 
@@ -1254,6 +1294,11 @@ function eventMatchesSkillbuildersPath(ev, path, officeSources) {
     return eventMatchesAnyOfficeSource(ev, officeSources);
   }
   if (f.kind === 'programTitleAnd') return eventMatchesProgramTitleAnd(ev, f.includes);
+  if (f.kind === 'districtOrOffice') {
+    if (eventMatchesProgramTitleAnd(ev, f.includes)) return true;
+    if (eventOfficePathByEventTitle(ev)) return true;
+    return eventMatchesAnyOfficeSource(ev, officeSources);
+  }
   return false;
 }
 
@@ -1322,12 +1367,14 @@ const skillbuildersJourneyPaths = computed(() => {
       id: 'district',
       label: String(c.districtTitle || 'My Dependent attends a D11 School').trim(),
       buttonVariant: 'primary',
-      filter: { kind: 'programTitleAnd', includes: districtIncludes }
+      /** D11 students are eligible for D11 programs AND office Skill Builders, so the district path is inclusive. */
+      filter: { kind: 'districtOrOffice', includes: districtIncludes }
     },
     {
       id: 'office',
       label: String(c.nonDistrictTitle || 'My Dependent is in another district').trim(),
       buttonVariant: 'secondary',
+      /** Other-district families only see office/standalone events — exclusive of D11-specific programs. */
       filter: { kind: 'officeSources' }
     }
   ];
@@ -1367,6 +1414,58 @@ const eventsForListing = computed(() => {
   const officeSrc = skillbuildersOfficeSources.value;
   return all.filter((ev) => eventMatchesSkillbuildersPath(ev, path, officeSrc));
 });
+
+const allowedEventIdsForListing = computed(() => {
+  const ids = (eventsForListing.value || [])
+    .map((ev) => Number(ev?.id))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return ids.length ? ids : [];
+});
+
+const skillbuildersSessionRows = computed(() => {
+  if (hubSlug.value !== 'skillbuilders') return [];
+  const pool = eventsForListing.value || [];
+  if (!pool.length) return [];
+  return buildNavigatorSessionRowsFromEligible(pool);
+});
+
+const skillbuildersAwaitingSessionChoice = computed(() => {
+  if (hubSlug.value !== 'skillbuilders') return false;
+  if (!skillbuildersJourneyChoice.value) return false;
+  if (skillbuildersAudienceGateVisible.value) return false;
+  const rows = skillbuildersSessionRows.value;
+  if (rows.length <= 1) return false;
+  const has =
+    String(skillbuildersListingSessionLabel.value || '').trim() ||
+    String(skillbuildersListingSessionDateRange.value || '').trim();
+  return !has;
+});
+
+const eventsForPublicListing = computed(() => {
+  const base = eventsForListing.value || [];
+  if (!skillbuildersAwaitingSessionChoice.value) return base;
+  return [];
+});
+
+const skillbuildersSessionPickerVisible = computed(
+  () =>
+    hubSlug.value === 'skillbuilders' &&
+    !!skillbuildersJourneyChoice.value &&
+    !skillbuildersAudienceGateVisible.value &&
+    skillbuildersSessionRows.value.length > 1
+);
+
+function isSkillbuildersListingSessionActive(row) {
+  return (
+    String(skillbuildersListingSessionLabel.value || '').trim() === String(row?.publicSessionLabel || '').trim() &&
+    String(skillbuildersListingSessionDateRange.value || '').trim() === String(row?.publicSessionDateRange || '').trim()
+  );
+}
+
+function selectSkillbuildersListingSession(row) {
+  skillbuildersListingSessionLabel.value = String(row?.publicSessionLabel || '').trim();
+  skillbuildersListingSessionDateRange.value = String(row?.publicSessionDateRange || '').trim();
+}
 
 const hubLegalTitle = computed(() => String(hubBranding.value.legalFooterTitle || '').trim());
 const hubLegalLinksOverride = computed(() => {
@@ -1436,6 +1535,41 @@ watch(
   () => {
     gallerySlideIndex.value = 0;
     startGallerySlideshow();
+  },
+  { immediate: true }
+);
+
+watch(
+  () => skillbuildersJourneyChoice.value,
+  () => {
+    if (hubSlug.value !== 'skillbuilders') return;
+    skillbuildersListingSessionLabel.value = '';
+    skillbuildersListingSessionDateRange.value = '';
+  }
+);
+
+watch(
+  () => [
+    hubSlug.value,
+    skillbuildersJourneyChoice.value,
+    skillbuildersSessionRows.value,
+    skillbuildersAudienceGateVisible.value
+  ],
+  () => {
+    if (hubSlug.value !== 'skillbuilders') return;
+    if (skillbuildersAudienceGateVisible.value) return;
+    if (!skillbuildersJourneyChoice.value) return;
+    const rows = skillbuildersSessionRows.value;
+    if (rows.length !== 1) return;
+    if (
+      String(skillbuildersListingSessionLabel.value || '').trim() ||
+      String(skillbuildersListingSessionDateRange.value || '').trim()
+    ) {
+      return;
+    }
+    const r = rows[0];
+    skillbuildersListingSessionLabel.value = String(r.publicSessionLabel || '').trim();
+    skillbuildersListingSessionDateRange.value = String(r.publicSessionDateRange || '').trim();
   },
   { immediate: true }
 );
@@ -1928,6 +2062,8 @@ function chooseSkillbuildersAudiencePath(pathId) {
 
 function resetSkillbuildersAudience() {
   skillbuildersJourneyChoice.value = null;
+  skillbuildersListingSessionLabel.value = '';
+  skillbuildersListingSessionDateRange.value = '';
   clearSkillbuildersAudienceStorage();
 }
 
@@ -1945,6 +2081,8 @@ async function loadAll() {
   navigatorSessionLabel.value = '';
   navigatorSessionDateRange.value = '';
   selectedSchoolName.value = '';
+  skillbuildersListingSessionLabel.value = '';
+  skillbuildersListingSessionDateRange.value = '';
   try {
     const [pageRes, evRes, bookRes] = await Promise.all([
       api.get(`/public/marketing-pages/${encodeURIComponent(slug)}`, { skipGlobalLoading: true, skipAuthRedirect: true }),
@@ -3987,5 +4125,75 @@ watch(hubSlug, () => {
   color: #334155;
   font-size: 0.875rem;
   line-height: 1.45;
+}
+
+.sb-skillbuilders-sessions {
+  margin: 0 16px 14px;
+  padding: 14px 16px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--hub-border, #e2e8f0);
+  background: color-mix(in srgb, var(--hub-surface, #fff) 94%, var(--hub-brand, #6a9c5c) 6%);
+}
+
+.sb-skillbuilders-sessions-title {
+  margin: 0 0 6px;
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--hub-text, #0f172a);
+  font-family: var(--hub-font-display, inherit);
+}
+
+.sb-skillbuilders-sessions-hint {
+  margin: 0 0 12px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--hub-text-muted, #475569);
+}
+
+.sb-skillbuilders-sessions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sb-skillbuilders-session-chip {
+  border: 1px solid rgba(163, 38, 35, 0.35);
+  background: #fff;
+  color: var(--hub-link-dark, #7a1f1d);
+  border-radius: 14px;
+  padding: 10px 14px;
+  cursor: pointer;
+  text-align: left;
+  min-width: min(200px, 100%);
+  font-family: var(--hub-font-display, inherit);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.sb-skillbuilders-session-chip:hover {
+  border-color: rgba(163, 38, 35, 0.55);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.sb-skillbuilders-session-chip.active {
+  border-color: #a32623;
+  background: #fff7f6;
+  box-shadow: 0 0 0 2px rgba(163, 38, 35, 0.2);
+}
+
+.sb-skillbuilders-session-chip-title {
+  display: block;
+  font-weight: 800;
+  font-size: 0.95rem;
+}
+
+.sb-skillbuilders-session-chip-sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--hub-text-muted, #64748b);
 }
 </style>
