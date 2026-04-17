@@ -79,6 +79,18 @@ const DEFAULT_FEATURE_CATALOG = {
     'Onboarding packages, checklist templates, intake forms, and related tenant workflows.',
     { featureFlagKey: 'onboardingTrainingEnabled' }
   ),
+  schoolPortals: createFeatureCatalogEntry(
+    'schoolPortals',
+    'School portals & school overview',
+    'School overview dashboard, school-scoped portal routes, digital intakes hub, and school staff sign-in for assigned school organizations.',
+    { featureFlagKey: 'schoolPortalsEnabled', defaultAvailable: false }
+  ),
+  skillBuildersSchoolProgram: createFeatureCatalogEntry(
+    'skillBuildersSchoolProgram',
+    'Skill Builders school program',
+    'School/program Skill Builders calendar, event portal, skills groups roster, provider hub program events, and related APIs.',
+    { featureFlagKey: 'skillBuildersSchoolProgramEnabled', defaultAvailable: false }
+  ),
   budgetManagementEnabled: createFeatureCatalogEntry(
     'budgetManagementEnabled',
     'Budget Management',

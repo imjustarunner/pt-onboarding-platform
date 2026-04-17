@@ -3,7 +3,7 @@
     <div v-if="modelValue" class="sb-ce-modal-overlay" @click.self="close">
       <div class="sb-ce-modal" role="dialog" aria-modal="true" aria-labelledby="sb-ce-edit-title" @click.stop>
         <div class="sb-ce-modal-header">
-          <h2 id="sb-ce-edit-title" class="sb-ce-modal-title">Edit event</h2>
+          <h2 id="sb-ce-edit-title" class="sb-ce-modal-title">{{ duplicateMode ? 'Duplicate event' : 'Edit event' }}</h2>
           <button type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="close">Close</button>
         </div>
         <div class="sb-ce-modal-body">
@@ -11,6 +11,29 @@
           <div v-else-if="loading" class="muted sb-ce-msg">Loading event…</div>
           <template v-else>
             <div v-if="formError" class="error-box sb-ce-msg">{{ formError }}</div>
+            <div
+              v-if="eventContextBannerLines.length"
+              class="sb-ce-event-context"
+              :class="{ 'sb-ce-event-context--non-super': !isSuperAdmin }"
+            >
+              <div v-for="line in eventContextBannerLines" :key="line.key" class="sb-ce-event-context-line">
+                <span class="sb-ce-event-context-k">{{ line.label }}</span>
+                <span class="sb-ce-event-context-v">{{ line.value }}</span>
+              </div>
+            </div>
+            <p v-if="duplicateMode" class="muted small sb-ce-dup-lead">
+              This copy is saved as <strong>inactive</strong> until you turn it on. You must change at least one detail
+              (title, dates, program, etc.) so it is not identical to the original before saving.
+            </p>
+            <div v-if="duplicateMode && isSuperAdmin && superAdminAgencyOptions.length" class="form-group sb-ce-super-agency">
+              <label class="sb-ce-lbl">Agency for new copy</label>
+              <select v-model.number="effectiveAgencyId" class="input">
+                <option v-for="a in superAdminAgencyOptions" :key="`dup-ag-${a.id}`" :value="Number(a.id)">
+                  {{ a.name }}
+                </option>
+              </select>
+              <small class="form-help">Super admins can place the duplicate under another tenant agency.</small>
+            </div>
             <div class="sb-ce-grid">
               <div class="form-group">
                 <label class="sb-ce-lbl">Event category</label>
@@ -47,10 +70,13 @@
               </div>
               <div class="form-group">
                 <label class="sb-ce-lbl">Program (optional)</label>
-                <select v-model.number="draft.organizationId" class="input">
+                <select v-model.number="draft.organizationId" class="input" :disabled="!isSuperAdmin">
                   <option :value="0">Agency-wide (all programs)</option>
                   <option v-for="o in affiliateProgramOrgs" :key="o.id" :value="o.id">{{ o.name }}</option>
                 </select>
+                <small v-if="!isSuperAdmin" class="form-help sb-ce-program-locked-hint">
+                  Program is fixed for this calendar entry. Contact a super admin to move it between programs.
+                </small>
               </div>
               <div class="form-group">
                 <label class="sb-ce-lbl">Active</label>
@@ -911,12 +937,21 @@
             </p>
 
             <div class="sb-ce-actions">
-              <button type="button" class="btn btn-primary btn-sm" :disabled="saving" @click="save">
-                {{ saving ? 'Saving…' : 'Save changes' }}
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="saving || duplicateSaveBlocked"
+                @click="save"
+              >
+                {{ saving ? 'Saving…' : duplicateMode ? 'Save as new event' : 'Save changes' }}
               </button>
             </div>
+            <p v-if="duplicateMode && duplicateSaveBlocked" class="muted small sb-ce-dup-block-msg">
+              Adjust the event so it is not identical to the source, then save.
+            </p>
 
             <StaffEventInviteePanel
+              v-if="!duplicateMode"
               :agency-id="agencyId"
               :event-id="eventId"
               :potluck-enabled="draft.potluckEnabled"
@@ -931,6 +966,7 @@
 <script setup>
 import { ref, watch, computed } from 'vue';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 import SkillBuildersEventProgramMeetingsCard from './SkillBuildersEventProgramMeetingsCard.vue';
 import StaffEventInviteePanel from '../admin/StaffEventInviteePanel.vue';
 
@@ -941,10 +977,23 @@ const props = defineProps({
   /** Portal slug for branded links (same as route `/:organizationSlug`). */
   portalSlug: { type: String, default: '' },
   /** When true, show the full week-pattern editor (otherwise read-only list for integrated groups). */
-  canEditProgramWeekPattern: { type: Boolean, default: false }
+  canEditProgramWeekPattern: { type: Boolean, default: false },
+  /** Load this event, then save a new inactive copy (POST) instead of updating in place. */
+  duplicateMode: { type: Boolean, default: false },
+  /** Human label for the owning agency (shown in the context strip). */
+  contextAgencyName: { type: String, default: '' },
+  /** Super admin only: agencies available when choosing where the duplicate is created. */
+  superAdminAgencyOptions: { type: Array, default: () => [] }
 });
 
 const emit = defineEmits(['update:modelValue', 'saved']);
+
+const authStore = useAuthStore();
+const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+/** Target agency for POST create when super admin duplicates across tenants. */
+const effectiveAgencyId = ref(0);
+/** JSON.stringify of persist payload right after duplicate prep — save blocked until this changes. */
+const duplicateComparableSnapshot = ref('');
 
 const loading = ref(false);
 const loadError = ref('');
@@ -1167,6 +1216,22 @@ const selectedTimezoneOffsetLabel = computed(() => {
 });
 
 const kioskPinNewDigitCount = computed(() => String(draft.value.kioskEventPinNew || '').replace(/\D/g, '').length);
+
+const eventContextBannerLines = computed(() => {
+  const lines = [];
+  const agencyLabel =
+    String(props.contextAgencyName || '').trim() || (props.agencyId ? `Agency #${props.agencyId}` : '—');
+  lines.push({ key: 'agency', label: 'Agency', value: agencyLabel });
+  const oid = Number(draft.value.organizationId || 0);
+  if (oid > 0) {
+    const org = (affiliateProgramOrgs.value || []).find((o) => Number(o.id) === oid);
+    lines.push({ key: 'program', label: 'Program', value: org?.name || `Organization #${oid}` });
+  } else {
+    lines.push({ key: 'program', label: 'Program', value: 'Agency-wide (all programs)' });
+  }
+  return lines;
+});
+
 const hasUnsavedChanges = computed(() => {
   if (!props.modelValue || loading.value) return false;
   return serializeModalState() !== baselineSnapshot.value;
@@ -1757,10 +1822,14 @@ async function removeRosterProvider(userId) {
 
 async function loadAffiliateProgramOrgs() {
   affiliateProgramOrgs.value = [];
-  if (!props.agencyId) return;
+  const aid =
+    props.duplicateMode && isSuperAdmin.value
+      ? Number(effectiveAgencyId.value || props.agencyId)
+      : Number(props.agencyId);
+  if (!aid) return;
   try {
     const res = await api.get('/availability/admin/skill-builders/options', {
-      params: { agencyId: props.agencyId },
+      params: { agencyId: aid },
       skipGlobalLoading: true
     });
     const orgs = Array.isArray(res.data?.organizations) ? res.data.organizations : [];
@@ -1859,6 +1928,7 @@ async function removeEventProviderAssignment(providerUserId) {
 async function loadEditBundle() {
   loadError.value = '';
   loading.value = true;
+  duplicateComparableSnapshot.value = '';
   try {
     const [evRes] = await Promise.all([
       api.get(`/skill-builders/events/${props.eventId}/company-event-edit`, {
@@ -1870,10 +1940,29 @@ async function loadEditBundle() {
       loadEventProviderAssignments(),
       loadSurveyOptions()
     ]);
+    const bundleEvent = evRes.data?.event;
+    if (props.duplicateMode && String(bundleEvent?.eventType || '').toLowerCase() === 'skills_group') {
+      loadError.value =
+        'Duplicating school-integrated Skill Builders events is not supported here. Create a new program calendar entry from the school workspace instead.';
+      skillsGroupMeetingsPreview.value = [];
+      draft.value = emptyDraft();
+      return;
+    }
     skillsGroupMeetingsPreview.value = Array.isArray(evRes.data?.skillsGroupMeetings)
       ? evRes.data.skillsGroupMeetings.map((x) => ({ ...x }))
       : [];
-    populateFromEvent(evRes.data?.event);
+    populateFromEvent(bundleEvent);
+    if (props.duplicateMode) {
+      draft.value.isActive = false;
+      draft.value.kioskEventPinNew = '';
+      draft.value.kioskEventPinClear = false;
+      addOrganizerItem();
+      const built = validateAndBuildPersistPayload();
+      const agencyKey = isSuperAdmin.value
+        ? Number(effectiveAgencyId.value || props.agencyId)
+        : Number(props.agencyId);
+      duplicateComparableSnapshot.value = built.ok ? JSON.stringify({ p: built.payload, a: agencyKey }) : '';
+    }
     await loadEventSessionSurveyAttachments();
     markClean();
   } catch (e) {
@@ -1891,37 +1980,31 @@ function close() {
   emit('update:modelValue', false);
 }
 
-async function save() {
-  formError.value = '';
-  addOrganizerItem();
+/** Validates draft and builds the JSON body shared by create (duplicate) and update. Omits kiosk PIN fields. */
+function validateAndBuildPersistPayload() {
   const tz = String(draft.value.timezone || '').trim();
   if (!isValidTimeZone(tz)) {
-    formError.value = 'Enter a valid IANA timezone (e.g. America/Chicago).';
-    return;
+    return { ok: false, error: 'Enter a valid IANA timezone (e.g. America/Chicago).' };
   }
   const startsAtIso = datetimeLocalInZoneToIso(draft.value.startsAtLocal, tz);
   const endsAtIso = datetimeLocalInZoneToIso(draft.value.endsAtLocal, tz);
   const startsAt = startsAtIso ? new Date(startsAtIso) : null;
   const endsAt = endsAtIso ? new Date(endsAtIso) : null;
   if (!draft.value.title.trim()) {
-    formError.value = 'Title is required.';
-    return;
+    return { ok: false, error: 'Title is required.' };
   }
   if (!startsAt || !endsAt || !Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
-    formError.value = 'Start and end dates are required.';
-    return;
+    return { ok: false, error: 'Start and end dates are required.' };
   }
   if (endsAt <= startsAt) {
-    formError.value = 'End time must be after start time.';
-    return;
+    return { ok: false, error: 'End time must be after start time.' };
   }
   const pam = parseInt(String(draft.value.publicAgeMin || '').trim(), 10);
   const pax = parseInt(String(draft.value.publicAgeMax || '').trim(), 10);
   const hasMin = Number.isFinite(pam) && pam >= 0;
   const hasMax = Number.isFinite(pax) && pax >= 0;
   if (hasMin && hasMax && pam > pax) {
-    formError.value = 'Minimum age cannot be greater than maximum age.';
-    return;
+    return { ok: false, error: 'Minimum age cannot be greater than maximum age.' };
   }
   let votingClosedAt = null;
   let rsvpDeadline = null;
@@ -1932,129 +2015,178 @@ async function save() {
     rsvpDeadline = datetimeLocalInZoneToIso(draft.value.rsvpDeadlineLocal, tz);
   }
 
+  const payload = {
+    title: draft.value.title,
+    description: draft.value.description,
+    eventType: draft.value.eventType || 'company_event',
+    splashContent: draft.value.splashContent,
+    startsAt: startsAtIso,
+    endsAt: endsAtIso,
+    timezone: tz,
+    isActive: !!draft.value.isActive,
+    recurrence: normalizeRecurrenceForPayload(draft.value.recurrence),
+    rsvpMode: draft.value.rsvpMode,
+    smsCode: draft.value.smsCode || null,
+    votingClosedAt,
+    votingConfig: {
+      enabled: !!draft.value.votingConfig.enabled,
+      viaSms: !!draft.value.votingConfig.viaSms,
+      question: String(draft.value.votingConfig.question || '').trim(),
+      options: (Array.isArray(draft.value.votingConfig.options) ? draft.value.votingConfig.options : [])
+        .map((o) => ({
+          key: String(o.key || '').trim(),
+          label: String(o.label || '').trim()
+        }))
+        .filter((o) => o.key && o.label)
+    },
+    reminderConfig: {
+      enabled: !!draft.value.reminderConfig.enabled,
+      offsetsHours: String(draft.value.reminderOffsetsRaw || '')
+        .split(',')
+        .map((n) => Number.parseInt(String(n).trim(), 10))
+        .filter((n) => Number.isFinite(n) && n > 0),
+      channels: {
+        inApp: true,
+        sms: !!draft.value.reminderConfig.channels.sms
+      }
+    },
+    audience: {
+      userIds: draft.value.audience.userIds,
+      groupIds: draft.value.audience.groupIds,
+      roleKeys: draft.value.audience.roleKeys
+    },
+    guestPolicy: String(draft.value.guestPolicy || 'staff_only').trim().toLowerCase() || 'staff_only',
+    potluckEnabled: !!draft.value.potluckEnabled,
+    organizerProviding: String(draft.value.organizerProvidingRaw || '')
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+    familyProvisionNote: String(draft.value.familyProvisionNote || '').trim() || null,
+    skillBuilderDirectHours:
+      draft.value.skillBuilderDirectHours === '' || draft.value.skillBuilderDirectHours == null
+        ? null
+        : Number(draft.value.skillBuilderDirectHours),
+    organizationId:
+      draft.value.organizationId && Number(draft.value.organizationId) > 0
+        ? Number(draft.value.organizationId)
+        : null,
+    registrationEligible: !!draft.value.registrationEligible,
+    medicaidEligible: !!draft.value.medicaidEligible,
+    cashEligible: !!draft.value.cashEligible,
+    programCostBillingMode: draft.value.cashEligible
+      ? (
+          draft.value.programCostBillingMode ||
+          (draft.value.programCostDollars != null && draft.value.programCostDollars !== '' ? 'total' : 'per_session')
+        )
+      : null,
+    programCostDollars: draft.value.cashEligible
+      ? (draft.value.programCostDollars != null && draft.value.programCostDollars !== ''
+          ? Number(draft.value.programCostDollars)
+          : null)
+      : null,
+    perSessionCostDollars: draft.value.cashEligible
+      ? (draft.value.perSessionCostDollars != null && draft.value.perSessionCostDollars !== ''
+          ? Number(draft.value.perSessionCostDollars)
+          : null)
+      : null,
+    publicHeroImageUrl: String(draft.value.publicHeroImageUrl || '').trim() || null,
+    publicHeroFocalPoint: String(draft.value.publicHeroFocalPoint || '').trim() || null,
+    eventImageUrl: String(draft.value.eventImageUrl || '').trim() || null,
+    eventImageUrls: Array.isArray(draft.value.eventImageUrls) ? [...draft.value.eventImageUrls] : [],
+    registrationFormUrl: String(draft.value.registrationFormUrl || '').trim() || null,
+    rsvpDeadline,
+    publicListingDetails: String(draft.value.publicListingDetails || '').trim() || null,
+    inPersonPublic: !!draft.value.inPersonPublic,
+    publicLocationAddress: draft.value.inPersonPublic
+      ? String(draft.value.publicLocationAddress || '').trim() || null
+      : null,
+    publicAgeMin: (() => {
+      const s = String(draft.value.publicAgeMin || '').trim();
+      if (!s) return null;
+      const n = parseInt(s, 10);
+      return Number.isFinite(n) && n >= 0 && n <= 120 ? n : null;
+    })(),
+    publicAgeMax: (() => {
+      const s = String(draft.value.publicAgeMax || '').trim();
+      if (!s) return null;
+      const n = parseInt(s, 10);
+      return Number.isFinite(n) && n >= 0 && n <= 120 ? n : null;
+    })(),
+    publicSessionLabel: String(draft.value.publicSessionLabel || '').trim().slice(0, 128) || null,
+    publicSessionDateRange: String(draft.value.publicSessionDateRange || '').trim().slice(0, 255) || null,
+    clientCheckInDisplayTime: draft.value.clientCheckInDisplayTime || null,
+    clientCheckOutDisplayTime: draft.value.clientCheckOutDisplayTime || null,
+    employeeReportTime: draft.value.employeeReportTime || null,
+    employeeDepartureTime: draft.value.employeeDepartureTime || null,
+    virtualSessionsEnabled: !!draft.value.virtualSessionsEnabled,
+    snacksAvailable: !!draft.value.snacksAvailable,
+    snackOptions: draft.value.snacksAvailable
+      ? (draft.value.snackOptions || []).map((s) => String(s || '').trim()).filter(Boolean)
+      : [],
+    mealsAvailable: !!draft.value.mealsAvailable,
+    mealOptions: draft.value.mealsAvailable
+      ? (draft.value.mealOptions || []).map((s) => String(s || '').trim()).filter(Boolean)
+      : []
+  };
+  return { ok: true, payload };
+}
+
+const duplicateSaveBlocked = computed(() => {
+  if (!props.duplicateMode || !duplicateComparableSnapshot.value) return false;
+  const built = validateAndBuildPersistPayload();
+  if (!built.ok) return false;
+  const agencyKey = isSuperAdmin.value
+    ? Number(effectiveAgencyId.value || props.agencyId)
+    : Number(props.agencyId);
+  const current = JSON.stringify({ p: built.payload, a: agencyKey });
+  return current === duplicateComparableSnapshot.value;
+});
+
+async function save() {
+  formError.value = '';
+  addOrganizerItem();
+  const built = validateAndBuildPersistPayload();
+  if (!built.ok) {
+    formError.value = built.error;
+    return;
+  }
+  const payload = { ...built.payload };
+  const pinNew = String(draft.value.kioskEventPinNew || '').replace(/\D/g, '').slice(0, 6);
+  if (pinNew.length === 6) {
+    payload.kioskEventPin = pinNew;
+  } else if (draft.value.kioskEventPinClear) {
+    payload.kioskEventPinClear = true;
+  }
+
+  if (props.duplicateMode) {
+    if (duplicateSaveBlocked.value) {
+      formError.value = 'Change at least one field so this copy is not identical to the original.';
+      return;
+    }
+    const targetAgency = isSuperAdmin.value
+      ? Number(effectiveAgencyId.value || props.agencyId)
+      : Number(props.agencyId);
+    if (!Number.isFinite(targetAgency) || targetAgency < 1) {
+      formError.value = 'Select a valid agency for the new event.';
+      return;
+    }
+    saving.value = true;
+    try {
+      const res = await api.post(`/agencies/${targetAgency}/company-events`, payload, { skipGlobalLoading: true });
+      const newId = Number(res.data?.id || 0);
+      markClean();
+      emit('update:modelValue', false);
+      emit('saved', { createdEventId: newId });
+    } catch (e) {
+      formError.value = e.response?.data?.error?.message || e.message || 'Failed to create duplicate';
+    } finally {
+      saving.value = false;
+    }
+    return;
+  }
+
   saving.value = true;
   try {
-    const payload = {
-      title: draft.value.title,
-      description: draft.value.description,
-      eventType: draft.value.eventType || 'company_event',
-      splashContent: draft.value.splashContent,
-      startsAt: startsAtIso,
-      endsAt: endsAtIso,
-      timezone: tz,
-      isActive: !!draft.value.isActive,
-      recurrence: normalizeRecurrenceForPayload(draft.value.recurrence),
-      rsvpMode: draft.value.rsvpMode,
-      smsCode: draft.value.smsCode || null,
-      votingClosedAt,
-      votingConfig: {
-        enabled: !!draft.value.votingConfig.enabled,
-        viaSms: !!draft.value.votingConfig.viaSms,
-        question: String(draft.value.votingConfig.question || '').trim(),
-        options: (Array.isArray(draft.value.votingConfig.options) ? draft.value.votingConfig.options : [])
-          .map((o) => ({
-            key: String(o.key || '').trim(),
-            label: String(o.label || '').trim()
-          }))
-          .filter((o) => o.key && o.label)
-      },
-      reminderConfig: {
-        enabled: !!draft.value.reminderConfig.enabled,
-        offsetsHours: String(draft.value.reminderOffsetsRaw || '')
-          .split(',')
-          .map((n) => Number.parseInt(String(n).trim(), 10))
-          .filter((n) => Number.isFinite(n) && n > 0),
-        channels: {
-          inApp: true,
-          sms: !!draft.value.reminderConfig.channels.sms
-        }
-      },
-      audience: {
-        userIds: draft.value.audience.userIds,
-        groupIds: draft.value.audience.groupIds,
-        roleKeys: draft.value.audience.roleKeys
-      },
-      guestPolicy: String(draft.value.guestPolicy || 'staff_only').trim().toLowerCase() || 'staff_only',
-      potluckEnabled: !!draft.value.potluckEnabled,
-      organizerProviding: String(draft.value.organizerProvidingRaw || '')
-        .split(/[\n,]+/)
-        .map((s) => s.trim())
-        .filter(Boolean),
-      familyProvisionNote: String(draft.value.familyProvisionNote || '').trim() || null,
-      skillBuilderDirectHours:
-        draft.value.skillBuilderDirectHours === '' || draft.value.skillBuilderDirectHours == null
-          ? null
-          : Number(draft.value.skillBuilderDirectHours),
-      organizationId:
-        draft.value.organizationId && Number(draft.value.organizationId) > 0
-          ? Number(draft.value.organizationId)
-          : null,
-      registrationEligible: !!draft.value.registrationEligible,
-      medicaidEligible: !!draft.value.medicaidEligible,
-      cashEligible: !!draft.value.cashEligible,
-      programCostBillingMode: draft.value.cashEligible
-        ? (
-            draft.value.programCostBillingMode ||
-            (draft.value.programCostDollars != null && draft.value.programCostDollars !== '' ? 'total' : 'per_session')
-          )
-        : null,
-      programCostDollars: draft.value.cashEligible
-        ? (draft.value.programCostDollars != null && draft.value.programCostDollars !== ''
-            ? Number(draft.value.programCostDollars)
-            : null)
-        : null,
-      perSessionCostDollars: draft.value.cashEligible
-        ? (draft.value.perSessionCostDollars != null && draft.value.perSessionCostDollars !== ''
-            ? Number(draft.value.perSessionCostDollars)
-            : null)
-        : null,
-      publicHeroImageUrl: String(draft.value.publicHeroImageUrl || '').trim() || null,
-      publicHeroFocalPoint: String(draft.value.publicHeroFocalPoint || '').trim() || null,
-      eventImageUrl: String(draft.value.eventImageUrl || '').trim() || null,
-      eventImageUrls: Array.isArray(draft.value.eventImageUrls) ? [...draft.value.eventImageUrls] : [],
-      registrationFormUrl: String(draft.value.registrationFormUrl || '').trim() || null,
-      rsvpDeadline,
-      publicListingDetails: String(draft.value.publicListingDetails || '').trim() || null,
-      inPersonPublic: !!draft.value.inPersonPublic,
-      publicLocationAddress: draft.value.inPersonPublic
-        ? String(draft.value.publicLocationAddress || '').trim() || null
-        : null,
-      publicAgeMin: (() => {
-        const s = String(draft.value.publicAgeMin || '').trim();
-        if (!s) return null;
-        const n = parseInt(s, 10);
-        return Number.isFinite(n) && n >= 0 && n <= 120 ? n : null;
-      })(),
-      publicAgeMax: (() => {
-        const s = String(draft.value.publicAgeMax || '').trim();
-        if (!s) return null;
-        const n = parseInt(s, 10);
-        return Number.isFinite(n) && n >= 0 && n <= 120 ? n : null;
-      })(),
-      publicSessionLabel: String(draft.value.publicSessionLabel || '').trim().slice(0, 128) || null,
-      publicSessionDateRange: String(draft.value.publicSessionDateRange || '').trim().slice(0, 255) || null,
-      clientCheckInDisplayTime: draft.value.clientCheckInDisplayTime || null,
-      clientCheckOutDisplayTime: draft.value.clientCheckOutDisplayTime || null,
-      employeeReportTime: draft.value.employeeReportTime || null,
-      employeeDepartureTime: draft.value.employeeDepartureTime || null,
-      virtualSessionsEnabled: !!draft.value.virtualSessionsEnabled,
-      snacksAvailable: !!draft.value.snacksAvailable,
-      snackOptions: draft.value.snacksAvailable
-        ? (draft.value.snackOptions || []).map((s) => String(s || '').trim()).filter(Boolean)
-        : [],
-      mealsAvailable: !!draft.value.mealsAvailable,
-      mealOptions: draft.value.mealsAvailable
-        ? (draft.value.mealOptions || []).map((s) => String(s || '').trim()).filter(Boolean)
-        : []
-    };
-
-    const pinNew = String(draft.value.kioskEventPinNew || '').replace(/\D/g, '').slice(0, 6);
-    if (pinNew.length === 6) {
-      payload.kioskEventPin = pinNew;
-    } else if (draft.value.kioskEventPinClear) {
-      payload.kioskEventPinClear = true;
-    }
-
     await api.put(
       `/skill-builders/events/${props.eventId}/company-event-edit`,
       { agencyId: props.agencyId, ...payload },
@@ -2075,9 +2207,12 @@ watch(
   (open) => {
     if (open) {
       formError.value = '';
+      effectiveAgencyId.value = Number(props.agencyId) || 0;
       loadEditBundle();
     } else {
       loadError.value = '';
+      duplicateComparableSnapshot.value = '';
+      effectiveAgencyId.value = 0;
       skillsGroupMeetingsPreview.value = [];
       draft.value = emptyDraft();
       rosterError.value = '';
@@ -2101,6 +2236,11 @@ watch(
   },
   { immediate: true }
 );
+
+watch([effectiveAgencyId, () => props.duplicateMode, () => props.modelValue], () => {
+  if (!props.modelValue || !props.duplicateMode || !isSuperAdmin.value) return;
+  void loadAffiliateProgramOrgs();
+});
 
 watch(
   () => draft.value.kioskEventPinClear,
@@ -2497,6 +2637,50 @@ watch(
 }
 .small {
   font-size: 0.8rem;
+}
+.sb-ce-event-context {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: #f8fafc;
+  font-size: 0.82rem;
+}
+.sb-ce-event-context--non-super {
+  background: #f1f5f9;
+  color: #475569;
+  border-style: dashed;
+}
+.sb-ce-event-context-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 4px;
+}
+.sb-ce-event-context-line:last-child {
+  margin-bottom: 0;
+}
+.sb-ce-event-context-k {
+  font-weight: 700;
+  color: #334155;
+  min-width: 4.5rem;
+}
+.sb-ce-event-context-v {
+  flex: 1;
+  min-width: 0;
+}
+.sb-ce-dup-lead {
+  margin: 0 0 12px;
+}
+.sb-ce-super-agency {
+  grid-column: 1 / -1;
+  margin-bottom: 4px;
+}
+.sb-ce-program-locked-hint {
+  margin-top: 4px;
+}
+.sb-ce-dup-block-msg {
+  margin: 6px 0 0;
 }
 @media (max-width: 640px) {
   .sb-ce-grid {

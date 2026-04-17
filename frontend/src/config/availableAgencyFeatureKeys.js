@@ -23,8 +23,8 @@ export const AVAILABLE_AGENCY_FEATURE_KEYS = [
   { key: 'workspaceProvisioningEnabled', label: 'Workspace Provisioning' },
   {
     key: 'schoolPortalsEnabled',
-    label: 'School Portals (overview + all portals)',
-    /** Opt-in: platform must expose before tenants see the Company Profile toggle. */
+    label: 'School Portals (overview + all portals + school staff)',
+    /** Opt-in: platform must expose before tenants see the Company Profile toggle. Gates school staff portal surfaces. */
     defaultAvailable: false
   },
   {

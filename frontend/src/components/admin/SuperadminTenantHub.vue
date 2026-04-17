@@ -200,7 +200,9 @@ const FLAG_KEY_TO_BILLING_CATALOG = {
   payrollEnabled: 'payrollWorkspace',
   onboardingTrainingEnabled: 'onboardingTraining',
   shiftProgramsEnabled: 'officeSchedulingPublishing',
-  publicProviderFinderEnabled: 'publicAvailability'
+  publicProviderFinderEnabled: 'publicAvailability',
+  schoolPortalsEnabled: 'schoolPortals',
+  skillBuildersSchoolProgramEnabled: 'skillBuildersSchoolProgram'
 };
 
 const loadError = ref('');

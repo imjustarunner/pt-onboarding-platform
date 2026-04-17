@@ -102,6 +102,15 @@
               </div>
               <div class="sbes-card-cta-row">
                 <span class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'Open portal' : 'Manage event' }}</span>
+                <button
+                  v-if="!isSkillsBuildersEvent(e)"
+                  type="button"
+                  class="sbes-card-dup-btn"
+                  title="Create an inactive copy you can edit before publishing"
+                  @click.stop="emit('duplicateCompanyEvent', { id: e.companyEventId, agencyId: props.agencyId })"
+                >
+                  Duplicate
+                </button>
                 <a
                   v-if="!isSkillsBuildersEvent(e) && publicProgramEventsPageHref(e)"
                   :href="publicProgramEventsPageHref(e)"
@@ -148,7 +157,18 @@
                 <div v-if="familyLine(e)" class="sbes-card-meta"><strong>Family</strong> {{ familyLine(e) }}</div>
                 <div v-if="e.weekdaysShort" class="sbes-card-meta">{{ e.weekdaysShort }}</div>
               </div>
-              <div class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'View' : 'Manage' }}</div>
+              <div class="sbes-card-cta-row sbes-card-cta-row--past">
+                <span class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'View' : 'Manage' }}</span>
+                <button
+                  v-if="!isSkillsBuildersEvent(e)"
+                  type="button"
+                  class="sbes-card-dup-btn"
+                  title="Create an inactive copy you can edit before publishing"
+                  @click.stop="emit('duplicateCompanyEvent', { id: e.companyEventId, agencyId: props.agencyId })"
+                >
+                  Duplicate
+                </button>
+              </div>
             </button>
           </div>
         </section>
@@ -176,7 +196,7 @@ const props = defineProps({
 const router = useRouter();
 const route = useRoute();
 const agencyStore = useAgencyStore();
-const emit = defineEmits(['close', 'openCompanyEvent']);
+const emit = defineEmits(['close', 'openCompanyEvent', 'duplicateCompanyEvent']);
 
 const mode = ref('all');
 const loading = ref(false);
@@ -739,6 +759,22 @@ watch(
   white-space: nowrap;
 }
 .sbes-card-view-link:hover { text-decoration: underline; }
+.sbes-card-dup-btn {
+  border: none;
+  background: transparent;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--primary, #15803d);
+  cursor: pointer;
+  padding: 2px 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-family: inherit;
+}
+.sbes-card-dup-btn:hover { opacity: 0.88; }
+.sbes-card-cta-row--past {
+  margin-top: 4px;
+}
 .sbes-muted {
   color: var(--text-secondary, #64748b);
 }

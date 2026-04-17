@@ -100,6 +100,7 @@
       :portal-slug="selectedAgencyPortalSlug"
       variant="page"
       @openCompanyEvent="handleOpenCompanyEvent"
+      @duplicateCompanyEvent="handleDuplicateCompanyEvent"
     />
     <SkillBuildersProgramEnrollmentsGuide
       v-if="selectedAgencyIdNum"
@@ -126,6 +127,9 @@
       :event-id="manageEventId"
       :portal-slug="selectedAgencyPortalSlug"
       :can-edit-program-week-pattern="true"
+      :duplicate-mode="duplicateProgramEvent"
+      :context-agency-name="selectedAgencyDisplayName"
+      :super-admin-agency-options="isSuperAdmin ? agencies : []"
       @saved="handleUnifiedEditorSaved"
     />
 
@@ -171,6 +175,8 @@ const directoryPanelRef = ref(null);
 const directoryRefreshKey = ref(0);
 /** When non-null, StaffEventForm opens in edit mode for this event id. */
 const manageEventId = ref(null);
+/** When true, the edit modal loads the selected event but saves a new inactive copy. */
+const duplicateProgramEvent = ref(false);
 const programOrganizations = ref([]);
 const selectedProgramOrgId = ref('');
 const showProgramWorkspace = ref(false);
@@ -302,6 +308,13 @@ function handleStaffEventSaved() {
 }
 
 function handleOpenCompanyEvent({ id }) {
+  duplicateProgramEvent.value = false;
+  manageEventId.value = Number(id) || null;
+  showProgramEventEditor.value = !!manageEventId.value;
+}
+
+function handleDuplicateCompanyEvent({ id }) {
+  duplicateProgramEvent.value = true;
   manageEventId.value = Number(id) || null;
   showProgramEventEditor.value = !!manageEventId.value;
 }
@@ -332,7 +345,10 @@ function attemptCloseStaffEventFormWrapped() {
 }
 
 watch(showProgramEventEditor, (open) => {
-  if (!open) manageEventId.value = null;
+  if (!open) {
+    manageEventId.value = null;
+    duplicateProgramEvent.value = false;
+  }
 });
 
 watch(selectedProgramOrgId, () => {

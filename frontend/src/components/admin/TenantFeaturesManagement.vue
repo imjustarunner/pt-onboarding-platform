@@ -309,7 +309,9 @@ const BILLING_FEATURE_FLAG_KEY_OVERRIDES = {
   geminiNoteAid: 'noteAidEnabled',
   officeSchedulingPublishing: 'shiftProgramsEnabled',
   payrollWorkspace: 'payrollEnabled',
-  onboardingTraining: 'onboardingTrainingEnabled'
+  onboardingTraining: 'onboardingTrainingEnabled',
+  schoolPortals: 'schoolPortalsEnabled',
+  skillBuildersSchoolProgram: 'skillBuildersSchoolProgramEnabled'
 };
 
 const resolveFeatureFlagKey = (feature) => {
