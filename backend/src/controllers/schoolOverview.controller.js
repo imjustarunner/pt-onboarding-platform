@@ -31,19 +31,6 @@ function parseJsonMaybe(v) {
   }
 }
 
-/** Mirrors frontend merge for opt-in key `schoolPortalsEnabled` (default off when absent). */
-function isSchoolPortalsOfferedAfterMerge(globalJson, tenantOverrideJson) {
-  const tenant = parseJsonMaybe(tenantOverrideJson) || {};
-  if (Object.prototype.hasOwnProperty.call(tenant, 'schoolPortalsEnabled')) {
-    return tenant.schoolPortalsEnabled !== false;
-  }
-  const global = parseJsonMaybe(globalJson) || {};
-  if (Object.prototype.hasOwnProperty.call(global, 'schoolPortalsEnabled')) {
-    return global.schoolPortalsEnabled !== false;
-  }
-  return false;
-}
-
 function isTruthyFeatureFlag(v) {
   if (v === true || v === 1) return true;
   const s = String(v ?? '').trim().toLowerCase();
@@ -114,10 +101,16 @@ export const getSchoolOverview = async (req, res, next) => {
         const globalJson = pb?.available_agency_features_json ?? pb?.availableAgencyFeaturesJson ?? null;
         const tenantJson =
           agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson ?? null;
-        const offered = isSchoolPortalsOfferedAfterMerge(globalJson, tenantJson);
+        const tenant = parseJsonMaybe(tenantJson) || {};
+        if (
+          Object.prototype.hasOwnProperty.call(tenant, 'schoolPortalsEnabled') &&
+          tenant.schoolPortalsEnabled === false
+        ) {
+          return res.status(403).json({ error: { message: 'School Portals is not enabled for this agency' } });
+        }
         const flags = parseJsonMaybe(agency.feature_flags) || {};
         const tenantFlag = isTruthyFeatureFlag(flags.schoolPortalsEnabled);
-        if (!offered || !tenantFlag) {
+        if (!tenantFlag) {
           return res.status(403).json({ error: { message: 'School Portals is not enabled for this agency' } });
         }
       }

@@ -563,7 +563,7 @@
                 <textarea
                   v-model="form.customMessages.completionEmailBody"
                   rows="6"
-                  placeholder="Placeholders include {{SIGNER_NAME}}, {{CLIENT_SUMMARY}}, {{DOWNLOAD_URL}}, {{LINK_EXPIRES_DAYS}}, {{PORTAL_LOGIN_URL}}, {{REGISTRATION_LOGIN_PAGE_URL}}, {{REGISTRATION_LOGIN_EMAIL}}, {{REGISTRATION_TEMP_PASSWORD}}, {{REGISTRATION_EVENT_SUMMARY}}, {{SCHOOL_NAME}}."
+                  placeholder="Placeholders include {{SIGNER_NAME}}, {{CLIENT_SUMMARY}}, {{DOWNLOAD_URL}}, {{LINK_EXPIRES_DAYS}}, {{PORTAL_LOGIN_URL}}, {{REGISTRATION_LOGIN_PAGE_URL}}, {{REGISTRATION_LOGIN_EMAIL}}, {{REGISTRATION_TEMP_PASSWORD}}, {{REGISTRATION_EVENT_SUMMARY}}, {{SCHOOL_NAME}}, {{AGENCY_NAME}}."
                 />
               </div>
             </div>
@@ -3344,7 +3344,7 @@ const applyGuardianPartnershipCompletionEmailCopy = () => {
     'If you have questions, reply to this email and we will be happy to help.',
     '',
     'Warm regards,',
-    '{{SCHOOL_NAME}} team'
+    '{{AGENCY_NAME}} team'
   ].join('\n');
 };
 
@@ -3395,7 +3395,7 @@ const applySummerSkillsProgramCompletionEmailCopy = () => {
     'We are cheering you on and look forward to connecting soon.',
     '',
     'Warmly,',
-    '{{SCHOOL_NAME}} team',
+    '{{AGENCY_NAME}} team',
     '(Summer Skills Program)'
   ].join('\n');
 };

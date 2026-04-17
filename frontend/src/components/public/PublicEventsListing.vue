@@ -299,6 +299,10 @@ const props = defineProps({
   nearestModalHint: { type: String, default: '' },
   /** Parent can pre-select a public session label (e.g., Session 1). */
   presetSessionLabel: { type: String, default: '' },
+  /** Parent can pre-select `public_session_date_range` (with or without label). */
+  presetSessionDateRange: { type: String, default: '' },
+  /** Parent can pre-select hub source agency id (same as logo filter). `undefined` = do not sync from parent. */
+  presetHubAgencyId: { type: [Number, null], default: undefined },
   /** Parent can pre-filter by school/location text. */
   presetLocationQuery: { type: String, default: '' },
   /** Hide the top hero (logo/title) — e.g. when embedded under a parent enroll page. */
@@ -313,6 +317,8 @@ const props = defineProps({
   /** Optional additional legal links appended after default footer docs. */
   footerExtraLegalLinks: { type: Array, default: () => [] }
 });
+
+const emit = defineEmits(['hubAgencyFilterChange']);
 
 const brandingStore = useBrandingStore();
 
@@ -350,6 +356,8 @@ const nearestInputEl = ref(null);
 const hubAgencyFilterId = ref(null);
 /** Filter events sharing the same public session label. */
 const sessionLabelFilter = ref('');
+/** Filter events sharing the same public_session_date_range (optional with label). */
+const sessionDateRangeFilter = ref('');
 
 const baseEventList = computed(() =>
   Array.isArray(rankedEvents.value) ? rankedEvents.value : props.events || []
@@ -366,8 +374,16 @@ const displayEvents = computed(() => {
     );
   }
   const sl = String(sessionLabelFilter.value || '').trim();
-  if (sl) {
-    list = list.filter((ev) => String(ev.publicSessionLabel || '').trim() === sl);
+  const sdr = String(sessionDateRangeFilter.value || '').trim();
+  if (sl || sdr) {
+    list = list.filter((ev) => {
+      const evSl = String(ev.publicSessionLabel || '').trim();
+      const evDr = String(ev.publicSessionDateRange || '').trim();
+      if (sl && sdr) return evSl === sl && evDr === sdr;
+      if (sdr) return evDr === sdr;
+      if (sl) return evSl === sl;
+      return true;
+    });
   }
   const locQuery = String(props.presetLocationQuery || '').trim().toLowerCase();
   if (locQuery) {
@@ -444,8 +460,6 @@ watch(
     rankedEvents.value = null;
     nearestError.value = '';
     originSummary.value = '';
-    hubAgencyFilterId.value = null;
-    sessionLabelFilter.value = '';
   }
 );
 
@@ -453,6 +467,28 @@ watch(
   () => String(props.presetSessionLabel || '').trim(),
   (next) => {
     sessionLabelFilter.value = next;
+  },
+  { immediate: true }
+);
+
+watch(
+  () => String(props.presetSessionDateRange || '').trim(),
+  (next) => {
+    sessionDateRangeFilter.value = next;
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.presetHubAgencyId,
+  (next) => {
+    if (next === undefined) return;
+    if (next === null || next === '') {
+      hubAgencyFilterId.value = null;
+      return;
+    }
+    const n = Number(next);
+    hubAgencyFilterId.value = Number.isFinite(n) && n > 0 ? n : null;
   },
   { immediate: true }
 );
@@ -490,18 +526,22 @@ function toggleAgencyFilter(id) {
   const n = Number(id);
   if (!Number.isFinite(n) || n <= 0) return;
   hubAgencyFilterId.value = hubAgencyFilterId.value === n ? null : n;
+  emit('hubAgencyFilterChange', hubAgencyFilterId.value);
 }
 
 function clearAgencyFilter() {
   hubAgencyFilterId.value = null;
+  emit('hubAgencyFilterChange', null);
 }
 
 function setSessionFilter(label) {
   sessionLabelFilter.value = String(label || '').trim();
+  sessionDateRangeFilter.value = '';
 }
 
 function clearSessionFilter() {
   sessionLabelFilter.value = '';
+  sessionDateRangeFilter.value = '';
 }
 
 function agencyInitials(name) {
@@ -2022,8 +2062,13 @@ defineExpose({ focusNearestInput });
 }
 
 .pel-agency-logo-btn--bar {
-  width: 48px;
-  height: 48px;
+  width: 96px;
+  height: 96px;
+  border-radius: 16px;
+}
+
+.pel-agency-logo-btn--bar .pel-agency-fallback {
+  font-size: 0.95rem;
 }
 
 .pel-agency-fallback {
@@ -2173,6 +2218,12 @@ defineExpose({ focusNearestInput });
 .pel-root--hub .pel-agency-logo-btn {
   background: #f8fafc;
   border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.pel-root--hub .pel-agency-logo-btn--bar {
+  width: 112px;
+  height: 112px;
+  border-radius: 18px;
 }
 
 .pel-root--hub .pel-agency-fallback {

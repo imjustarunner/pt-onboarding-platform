@@ -782,6 +782,7 @@ const resolvePacketCompletionEmailContent = async ({
   clientCount,
   primaryClientName,
   schoolName,
+  agencyName = null,
   downloadUrl,
   expiresInDays = 7,
   registrationLoginEmail = null,
@@ -816,6 +817,8 @@ const resolvePacketCompletionEmailContent = async ({
   const regPortalPrimary = regPasswordless || regPlainLogin;
   const regEvent = String(registrationEventSummary || '').trim();
 
+  const orgDisplayName = String(schoolName || '').trim();
+  const agencyDisplayName = String(agencyName || '').trim();
   const params = {
     SIGNER_NAME: String(signerName || '').trim() || 'Signer',
     SIGNER_EMAIL: String(signerEmail || '').trim() || '',
@@ -824,7 +827,8 @@ const resolvePacketCompletionEmailContent = async ({
     CLIENT_SUMMARY: Number(clientCount || 0) > 1
       ? `Clients: ${Number(clientCount || 0)}`
       : (String(primaryClientName || '').trim() ? `Client: ${String(primaryClientName || '').trim()}` : ''),
-    SCHOOL_NAME: String(schoolName || '').trim() || 'School',
+    SCHOOL_NAME: orgDisplayName || 'School',
+    AGENCY_NAME: agencyDisplayName || orgDisplayName || 'Our team',
     DOWNLOAD_URL: String(downloadUrl || '').trim(),
     LINK_EXPIRES_DAYS: Number(expiresInDays || 7),
     LINK_EXPIRY_DAYS: Number(expiresInDays || 7),
@@ -5177,6 +5181,7 @@ export const finalizePublicIntake = async (req, res, next) => {
             clientCount,
             primaryClientName,
             schoolName: organization?.name || '',
+            agencyName: agency?.name || '',
             downloadUrl,
             expiresInDays: 7,
             registrationLoginEmail: updatedSubmission.signer_email || '',
@@ -5746,6 +5751,7 @@ export const submitPublicIntake = async (req, res, next) => {
           clientCount,
           primaryClientName,
           schoolName: organization?.name || '',
+          agencyName: agency?.name || '',
           downloadUrl,
           expiresInDays: 7,
           registrationLoginEmail: updatedSubmission.signer_email || '',

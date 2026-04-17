@@ -52,15 +52,23 @@
               <img class="pmh-splash-program-logo" :src="logoUrl" :alt="`${displayHeadline} logo`" />
             </div>
             <div v-if="splashTenantLogos.length" class="pmh-splash-tenant-logos">
-              <div
+              <button
                 v-for="p in splashTenantLogos"
                 :key="`splash-tenant-${p.agencyId}`"
-                class="pmh-splash-tenant-logo-wrap"
-                :title="p.agencyName"
+                type="button"
+                class="pmh-splash-tenant-tile"
+                :class="{ active: navigatorAgencyFilterId === p.agencyId }"
+                :title="`${p.agencyName} — tap to show only this agency’s programs`"
+                :aria-pressed="navigatorAgencyFilterId === p.agencyId ? 'true' : 'false'"
+                :aria-label="`Filter to ${p.agencyName} only`"
+                @click="toggleNavigatorAgency(p.agencyId)"
               >
-                <img v-if="p.logoUrl" class="pmh-splash-tenant-logo" :src="p.logoUrl" :alt="`${p.agencyName} logo`" />
-                <span v-else class="pmh-splash-tenant-fallback">{{ agencyFooterInitials(p.agencyName) }}</span>
-              </div>
+                <span class="pmh-splash-tenant-logo-wrap">
+                  <img v-if="p.logoUrl" class="pmh-splash-tenant-logo" :src="p.logoUrl" :alt="`${p.agencyName} logo`" />
+                  <span v-else class="pmh-splash-tenant-fallback">{{ agencyFooterInitials(p.agencyName) }}</span>
+                </span>
+                <span class="pmh-splash-tenant-name">{{ p.agencyName }}</span>
+              </button>
             </div>
           </div>
           <p class="pmh-pathfinder-eyebrow">Start here</p>
@@ -95,19 +103,39 @@
           </div>
 
           <div v-if="journeyPrimary === 'school'" class="pmh-pathfinder-detail">
-            <p class="pmh-pathfinder-detail-title">Choose your location (goes straight to registration)</p>
-            <div class="pmh-chip-row">
+            <p class="pmh-pathfinder-detail-title">Choose your session</p>
+            <p class="pmh-pathfinder-detail-hint">Session dates come from each program’s registration listing.</p>
+            <div class="pmh-chip-row pmh-chip-row--wrap">
               <button
-                v-for="opt in schoolOptions"
-                :key="`school-splash-${opt.name}`"
+                v-for="(s, si) in summerSessionsForNavigator"
+                :key="`sess-splash-${s.groupKey}-${si}`"
                 type="button"
-                class="pmh-chip-btn"
-                :class="{ active: selectedSchoolName === opt.name }"
-                @click="goLocationRegistration(opt)"
+                class="pmh-chip-btn pmh-chip-btn--session"
+                :class="{ active: isNavigatorSessionActive(s) }"
+                @click="selectNavigatorSession(s)"
               >
-                {{ opt.name }}
+                <span class="pmh-chip-session-title">{{ s.displayTitle }}</span>
+                <span v-if="s.displaySubtitle" class="pmh-chip-session-sub">{{ s.displaySubtitle }}</span>
               </button>
             </div>
+            <p v-if="!summerSessionsForNavigator.length" class="pmh-navigator-empty">No sessions are open for registration here right now.</p>
+            <template v-if="navigatorSessionSelected">
+              <p class="pmh-pathfinder-detail-title">Choose your school</p>
+              <p class="pmh-pathfinder-detail-hint">We list school names (not street addresses). Registration opens for the session you picked.</p>
+              <div class="pmh-chip-row pmh-chip-row--wrap">
+                <button
+                  v-for="opt in schoolRegistrationsForNavigator"
+                  :key="`school-splash-${opt.eventId}-${opt.name}`"
+                  type="button"
+                  class="pmh-chip-btn"
+                  :class="{ active: selectedSchoolName === opt.name }"
+                  @click="goLocationRegistration(opt)"
+                >
+                  {{ opt.name }}
+                </button>
+              </div>
+              <p v-if="!schoolRegistrationsForNavigator.length" class="pmh-navigator-empty">No school sites match this session yet. Try another session or browse the full list below.</p>
+            </template>
           </div>
 
           <div v-if="journeyPrimary === 'program'" class="pmh-pathfinder-detail">
@@ -282,19 +310,61 @@
           </div>
 
           <div v-if="journeyPrimary === 'school'" class="pmh-pathfinder-detail">
-            <p class="pmh-pathfinder-detail-title">Choose your location (goes straight to registration)</p>
-            <div class="pmh-chip-row">
+            <div v-if="splashTenantLogos.length > 1" class="pmh-navigator-agency-block">
+              <p class="pmh-pathfinder-detail-title">Choose your agency</p>
+              <p class="pmh-pathfinder-detail-hint">Tap a logo to show only that agency’s sites and sessions.</p>
+              <div class="pmh-agency-logo-row">
+                <button
+                  v-for="p in splashTenantLogos"
+                  :key="`school-agency-${p.agencyId}`"
+                  type="button"
+                  class="pmh-agency-filter-tile"
+                  :class="{ active: navigatorAgencyFilterId === p.agencyId }"
+                  :aria-pressed="navigatorAgencyFilterId === p.agencyId ? 'true' : 'false'"
+                  :aria-label="`Show only ${p.agencyName}`"
+                  @click="toggleNavigatorAgency(p.agencyId)"
+                >
+                  <span class="pmh-agency-filter-tile-logo">
+                    <img v-if="p.logoUrl" :src="p.logoUrl" :alt="`${p.agencyName} logo`" />
+                    <span v-else class="pmh-agency-filter-tile-fallback">{{ agencyFooterInitials(p.agencyName) }}</span>
+                  </span>
+                  <span class="pmh-agency-filter-tile-name">{{ p.agencyName }}</span>
+                </button>
+              </div>
+            </div>
+            <p class="pmh-pathfinder-detail-title">Choose your session</p>
+            <p class="pmh-pathfinder-detail-hint">Session dates come from each program’s registration listing.</p>
+            <div class="pmh-chip-row pmh-chip-row--wrap">
               <button
-                v-for="opt in schoolOptions"
-                :key="`school-${opt.name}`"
+                v-for="(s, si) in summerSessionsForNavigator"
+                :key="`sess-card-${s.groupKey}-${si}`"
                 type="button"
-                class="pmh-chip-btn"
-                :class="{ active: selectedSchoolName === opt.name }"
-                @click="goLocationRegistration(opt)"
+                class="pmh-chip-btn pmh-chip-btn--session"
+                :class="{ active: isNavigatorSessionActive(s) }"
+                @click="selectNavigatorSession(s)"
               >
-                {{ opt.name }}
+                <span class="pmh-chip-session-title">{{ s.displayTitle }}</span>
+                <span v-if="s.displaySubtitle" class="pmh-chip-session-sub">{{ s.displaySubtitle }}</span>
               </button>
             </div>
+            <p v-if="!summerSessionsForNavigator.length" class="pmh-navigator-empty">No sessions are open for registration here right now.</p>
+            <template v-if="navigatorSessionSelected">
+              <p class="pmh-pathfinder-detail-title">Choose your school</p>
+              <p class="pmh-pathfinder-detail-hint">We list school names (not street addresses). Registration opens for the session you picked.</p>
+              <div class="pmh-chip-row pmh-chip-row--wrap">
+                <button
+                  v-for="opt in schoolRegistrationsForNavigator"
+                  :key="`school-card-${opt.eventId}-${opt.name}`"
+                  type="button"
+                  class="pmh-chip-btn"
+                  :class="{ active: selectedSchoolName === opt.name }"
+                  @click="goLocationRegistration(opt)"
+                >
+                  {{ opt.name }}
+                </button>
+              </div>
+              <p v-if="!schoolRegistrationsForNavigator.length" class="pmh-navigator-empty">No school sites match this session yet. Try another session or browse the full list below.</p>
+            </template>
           </div>
 
           <div v-if="journeyPrimary === 'program'" class="pmh-pathfinder-detail">
@@ -522,6 +592,9 @@
           :nearest-modal-hint="nearestModalHint"
           :preset-location-query="presetLocationQuery"
           :preset-session-label="presetSessionLabel"
+          :preset-session-date-range="presetSessionDateRange"
+          :preset-hub-agency-id="eventNavigatorEnabled ? navigatorAgencyFilterId : undefined"
+          @hub-agency-filter-change="onListingHubAgencyFilterChange"
         />
       </div>
 
@@ -670,6 +743,10 @@ const eventsListingRef = ref(null);
 const journeyPrimary = ref('');
 const journeyProgramMode = ref('');
 const selectedSchoolName = ref('');
+/** Summer navigator: filter hub events + school path by footer partner agency */
+const navigatorAgencyFilterId = ref(null);
+const navigatorSessionLabel = ref('');
+const navigatorSessionDateRange = ref('');
 const showNavigatorSplash = ref(false);
 /** Path id from skillbuilders journey config, or null — only for /p/skillbuilders when journey is active */
 const skillbuildersJourneyChoice = ref(null);
@@ -742,37 +819,188 @@ const eventNavigatorEnabled = computed(
   () => hubSlug.value === 'd11summer2026' || hubBranding.value.enableSummerNavigator === true
 );
 
-const schoolOptions = computed(() => {
-  const byName = new Map();
-  const add = (nameRaw, ev) => {
-    const name = String(nameRaw || '').trim();
-    if (!name) return;
-    if (byName.has(name)) return;
-    byName.set(name, {
-      name,
-      registrationPublicKey: String(ev?.registrationPublicKey || '').trim()
-    });
-  };
-  for (const ev of events.value || []) {
-    const fromAddress = String(ev?.publicLocationAddress || '').split(',')[0].trim();
-    if (fromAddress) add(fromAddress, ev);
-    const nearestName = String(ev?.nearestVenueLabel || '').trim();
-    if (nearestName) add(nearestName, ev);
-    const sessions = Array.isArray(ev?.sessionLocations) ? ev.sessionLocations : [];
-    for (const s of sessions) {
+function startsAtToMs(iso) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+/** Hide school-path registration once the calendar date is on or after (session start + 2 days). */
+function isPastSessionRegistrationCutoff(startsAt) {
+  const ms = startsAtToMs(startsAt);
+  if (ms == null) return false;
+  const start = new Date(ms);
+  const cutoff = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 2);
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return todayStart.getTime() >= cutoff.getTime();
+}
+
+function isSchoolLikeTitle(s) {
+  const t = String(s || '').toLowerCase();
+  return (
+    /\belementary\b/.test(t) ||
+    /\bmiddle\b/.test(t) ||
+    /\bhigh school\b/.test(t) ||
+    /\bhigh\s+school\b/.test(t)
+  );
+}
+
+function sessionGroupKey(ev) {
+  const lab = String(ev.publicSessionLabel || '').trim();
+  const dr = String(ev.publicSessionDateRange || '').trim();
+  if (lab || dr) return `L:${lab}|DR:${dr}`;
+  const ms = startsAtToMs(ev.startsAt);
+  if (ms != null) {
+    const d = new Date(ms);
+    return `D:${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  }
+  return `E:${ev.id}`;
+}
+
+const navigatorEventPool = computed(() => {
+  const base = eventsForListing.value || [];
+  const aid = navigatorAgencyFilterId.value;
+  if (aid == null || !Number(aid)) return base;
+  return base.filter((ev) =>
+    (Array.isArray(ev.hubSourcePartners) ? ev.hubSourcePartners : []).some(
+      (p) => Number(p.sourceAgencyId) === Number(aid)
+    )
+  );
+});
+
+const summerSessionsForNavigator = computed(() => {
+  if (!eventNavigatorEnabled.value) return [];
+  const pool = navigatorEventPool.value || [];
+  const eligible = pool.filter(
+    (ev) => String(ev?.registrationPublicKey || '').trim() && !isPastSessionRegistrationCutoff(ev.startsAt)
+  );
+  const byKey = new Map();
+  for (const ev of eligible) {
+    const k = sessionGroupKey(ev);
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(ev);
+  }
+  const groups = [...byKey.entries()].map(([key, list]) => {
+    const sorted = [...list].sort((a, b) => (startsAtToMs(a.startsAt) || 0) - (startsAtToMs(b.startsAt) || 0));
+    return { key, events: sorted, first: sorted[0] };
+  });
+  groups.sort((a, b) => (startsAtToMs(a.first?.startsAt) || 0) - (startsAtToMs(b.first?.startsAt) || 0));
+  return groups.map((g, idx) => {
+    const fe = g.first;
+    const lab = String(fe.publicSessionLabel || '').trim();
+    const dr = String(fe.publicSessionDateRange || '').trim();
+    const displayTitle = lab || `Session ${idx + 1}`;
+    let displaySubtitle = dr;
+    if (!displaySubtitle && fe.startsAt) {
+      try {
+        const s = new Date(fe.startsAt);
+        const e = fe.endsAt ? new Date(fe.endsAt) : null;
+        if (!Number.isNaN(s.getTime())) {
+          displaySubtitle =
+            e && !Number.isNaN(e.getTime())
+              ? `${s.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${e.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+              : s.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return {
+      groupKey: g.key,
+      publicSessionLabel: lab,
+      publicSessionDateRange: dr,
+      displayTitle,
+      displaySubtitle: displaySubtitle || '',
+      startsAt: fe.startsAt
+    };
+  });
+});
+
+const navigatorSessionSelected = computed(
+  () =>
+    !!(String(navigatorSessionLabel.value || '').trim() || String(navigatorSessionDateRange.value || '').trim())
+);
+
+function eventMatchesNavigatorSession(ev) {
+  const l = String(navigatorSessionLabel.value || '').trim();
+  const r = String(navigatorSessionDateRange.value || '').trim();
+  const evL = String(ev.publicSessionLabel || '').trim();
+  const evR = String(ev.publicSessionDateRange || '').trim();
+  if (l && r) return evL === l && evR === r;
+  if (r) return evR === r;
+  if (l) return evL === l;
+  return false;
+}
+
+function isNavigatorSessionActive(row) {
+  const l = String(navigatorSessionLabel.value || '').trim();
+  const r = String(navigatorSessionDateRange.value || '').trim();
+  return l === String(row.publicSessionLabel || '').trim() && r === String(row.publicSessionDateRange || '').trim();
+}
+
+const schoolRegistrationsForNavigator = computed(() => {
+  if (!eventNavigatorEnabled.value || !navigatorSessionSelected.value) return [];
+  const pool = navigatorEventPool.value || [];
+  const matched = pool.filter(
+    (ev) => eventMatchesNavigatorSession(ev) && !isPastSessionRegistrationCutoff(ev.startsAt)
+  );
+  const out = [];
+  const seen = new Set();
+  for (const ev of matched) {
+    const regKey = String(ev?.registrationPublicKey || '').trim();
+    if (!regKey) continue;
+    const slocs = Array.isArray(ev.sessionLocations) ? ev.sessionLocations : [];
+    for (const s of slocs) {
       const lbl = String(s?.label || '').trim();
-      const addr = String(s?.address || '').split(',')[0].trim();
-      if (lbl) add(lbl, ev);
-      else if (addr) add(addr, ev);
+      if (lbl && isSchoolLikeTitle(lbl)) {
+        const dedupe = `${lbl}::${regKey}`;
+        if (!seen.has(dedupe)) {
+          seen.add(dedupe);
+          out.push({ name: lbl, registrationPublicKey: regKey, eventId: ev.id });
+        }
+      }
+    }
+    const title = String(ev.title || '').trim();
+    if (title && isSchoolLikeTitle(title)) {
+      const dedupe = `${title}::${regKey}`;
+      if (!seen.has(dedupe)) {
+        seen.add(dedupe);
+        out.push({ name: title, registrationPublicKey: regKey, eventId: ev.id });
+      }
     }
   }
-  return [...byName.values()];
+  out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  return out;
 });
+
+function selectNavigatorSession(row) {
+  navigatorSessionLabel.value = String(row?.publicSessionLabel || '').trim();
+  navigatorSessionDateRange.value = String(row?.publicSessionDateRange || '').trim();
+  selectedSchoolName.value = '';
+}
+
+function toggleNavigatorAgency(agencyId) {
+  const n = Number(agencyId);
+  if (!Number.isFinite(n) || n <= 0) return;
+  navigatorAgencyFilterId.value = navigatorAgencyFilterId.value === n ? null : n;
+  navigatorSessionLabel.value = '';
+  navigatorSessionDateRange.value = '';
+  selectedSchoolName.value = '';
+}
+
+function onListingHubAgencyFilterChange(val) {
+  navigatorAgencyFilterId.value = val == null || val === '' || Number(val) <= 0 ? null : Number(val);
+  navigatorSessionLabel.value = '';
+  navigatorSessionDateRange.value = '';
+  selectedSchoolName.value = '';
+}
 
 const presetLocationQuery = computed(() => (
   journeyPrimary.value === 'school' ? String(selectedSchoolName.value || '').trim() : ''
 ));
-const presetSessionLabel = computed(() => '');
+const presetSessionLabel = computed(() => String(navigatorSessionLabel.value || '').trim());
+const presetSessionDateRange = computed(() => String(navigatorSessionDateRange.value || '').trim());
 
 const hubBranding = computed(() => pageMeta.value?.branding || {});
 
@@ -1451,14 +1679,18 @@ function choosePrimary(mode) {
   journeyPrimary.value = mode;
   if (mode === 'school') {
     journeyProgramMode.value = '';
-    if (!selectedSchoolName.value && schoolOptions.value.length > 0) {
-      selectedSchoolName.value = schoolOptions.value[0].name;
-    }
+    navigatorSessionLabel.value = '';
+    navigatorSessionDateRange.value = '';
+    selectedSchoolName.value = '';
   } else if (mode === 'program') {
     selectedSchoolName.value = '';
+    navigatorSessionLabel.value = '';
+    navigatorSessionDateRange.value = '';
   } else {
     journeyProgramMode.value = '';
     selectedSchoolName.value = '';
+    navigatorSessionLabel.value = '';
+    navigatorSessionDateRange.value = '';
   }
 }
 
@@ -1543,6 +1775,10 @@ async function loadAll() {
   loading.value = true;
   error.value = '';
   metricsBlock.value = null;
+  navigatorAgencyFilterId.value = null;
+  navigatorSessionLabel.value = '';
+  navigatorSessionDateRange.value = '';
+  selectedSchoolName.value = '';
   try {
     const [pageRes, evRes, bookRes] = await Promise.all([
       api.get(`/public/marketing-pages/${encodeURIComponent(slug)}`, { skipGlobalLoading: true, skipAuthRedirect: true }),
@@ -1594,6 +1830,9 @@ watch(eventNavigatorEnabled, (enabled) => {
   journeyPrimary.value = '';
   journeyProgramMode.value = '';
   selectedSchoolName.value = '';
+  navigatorAgencyFilterId.value = null;
+  navigatorSessionLabel.value = '';
+  navigatorSessionDateRange.value = '';
 }, { immediate: true });
 
 watch(
@@ -1609,6 +1848,9 @@ watch(hubSlug, () => {
   journeyPrimary.value = '';
   journeyProgramMode.value = '';
   selectedSchoolName.value = '';
+  navigatorAgencyFilterId.value = null;
+  navigatorSessionLabel.value = '';
+  navigatorSessionDateRange.value = '';
   skillbuildersJourneyChoice.value = null;
   showNavigatorSplash.value = !!eventNavigatorEnabled.value;
   loadAll();
@@ -2684,16 +2926,49 @@ watch(hubSlug, () => {
 
 .pmh-splash-tenant-logos {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 18px;
   flex-wrap: wrap;
   margin-left: auto;
 }
 
+.pmh-splash-tenant-tile {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 168px;
+  text-align: center;
+}
+
+.pmh-splash-tenant-tile:focus-visible {
+  outline: 2px solid var(--hub-link);
+  outline-offset: 3px;
+  border-radius: 12px;
+}
+
+.pmh-splash-tenant-tile.active .pmh-splash-tenant-logo-wrap {
+  border-color: #a32623;
+  box-shadow: 0 0 0 2px rgba(163, 38, 35, 0.28);
+}
+
+.pmh-splash-tenant-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #334155;
+  line-height: 1.25;
+  max-width: 160px;
+}
+
 .pmh-splash-tenant-logo-wrap {
-  width: 92px;
-  height: 92px;
+  width: 128px;
+  height: 128px;
   border: 1px solid var(--hub-border);
   border-radius: 14px;
   background: #fff;
@@ -2702,7 +2977,7 @@ watch(hubSlug, () => {
   justify-content: center;
   overflow: hidden;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.09);
-  padding: 8px;
+  padding: 10px;
 }
 
 .pmh-splash-tenant-logo {
@@ -2774,8 +3049,8 @@ watch(hubSlug, () => {
     justify-content: flex-start;
   }
   .pmh-splash-tenant-logo-wrap {
-    width: 72px;
-    height: 72px;
+    width: 96px;
+    height: 96px;
   }
 }
 
@@ -2840,6 +3115,91 @@ watch(hubSlug, () => {
   color: var(--hub-text-muted);
 }
 
+.pmh-pathfinder-detail-title:not(:first-child) {
+  margin-top: 16px;
+}
+
+.pmh-pathfinder-detail-hint {
+  margin: 0 0 10px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--hub-text-soft);
+}
+
+.pmh-navigator-empty {
+  margin: 0 0 10px;
+  font-size: 0.84rem;
+  color: var(--hub-text-soft);
+}
+
+.pmh-navigator-agency-block {
+  margin-bottom: 8px;
+}
+
+.pmh-agency-logo-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.pmh-agency-filter-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 132px;
+  padding: 10px 8px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--hub-border);
+  background: #fff;
+  cursor: pointer;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+}
+
+.pmh-agency-filter-tile:focus-visible {
+  outline: 2px solid var(--hub-link);
+  outline-offset: 2px;
+}
+
+.pmh-agency-filter-tile.active {
+  border-color: rgba(163, 38, 35, 0.55);
+  background: rgba(163, 38, 35, 0.06);
+}
+
+.pmh-agency-filter-tile-logo {
+  width: 96px;
+  height: 96px;
+  border-radius: 14px;
+  border: 1px solid var(--hub-border);
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 8px;
+}
+
+.pmh-agency-filter-tile-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.pmh-agency-filter-tile-fallback {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--hub-link-dark);
+}
+
+.pmh-agency-filter-tile-name {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.25;
+  color: var(--hub-text-muted);
+}
+
 .pmh-chip-row {
   display: flex;
   flex-wrap: wrap;
@@ -2859,6 +3219,31 @@ watch(hubSlug, () => {
   border-color: rgba(163, 38, 35, 0.5);
   background: rgba(163, 38, 35, 0.08);
   color: var(--hub-link-dark);
+}
+
+.pmh-chip-row--wrap {
+  justify-content: flex-start;
+}
+
+.pmh-chip-btn--session {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border-radius: 14px;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.pmh-chip-session-title {
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+
+.pmh-chip-session-sub {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--hub-text-soft);
 }
 
 .pmh-cta-band {

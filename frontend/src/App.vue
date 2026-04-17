@@ -394,7 +394,7 @@
                       </div>
                     </div>
                     <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav">School Portals</router-link>
-                    <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Program Overview</router-link>
+                    <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav">Program Overview</router-link>
                     <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Provider Booking Interface</router-link>
                     <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" >Provider Management</router-link>
                     <router-link :to="orgTo('/admin/school-clients')" v-if="canSeeSchoolClientsNav">
@@ -2158,6 +2158,28 @@ const canSeeSchoolClientsNav = computed(() => {
     tenantAvailableAgencyFeaturesOverrideJson:
       agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
   });
+});
+
+/** Program tab of school overview: show when either school portals or Skill Builders school program is provisioned. */
+const canSeeProgramOverviewNav = computed(() => {
+  if (!authStore.isAuthenticated) return false;
+  if (hideGlobalNavForSchoolStaff.value) return false;
+  if (isSummitStatsChallengeChrome.value) return false;
+  if (isSscSstcTenant.value) return false;
+  if (!(user.value?.role === 'super_admin' || isAdmin.value)) return false;
+  if (isAffiliationContext.value) return false;
+  const agency = agencyStore.currentAgency?.value || agencyStore.currentAgency || {};
+  const pb = brandingStore.platformBranding || {};
+  const opts = {
+    userRole: user.value?.role,
+    agencyFeatureFlags: agency.feature_flags ?? agency.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
+  };
+  return (
+    canAccessSchoolPortalsSurfaces(opts) || canAccessSkillBuildersSchoolProgramSurfaces(opts)
+  );
 });
 
 const showBookClubPortalLink = computed(() => {

@@ -34,6 +34,13 @@ function routeRequiresSchoolPortalsFeature(to) {
   return false;
 }
 
+/** School overview “Program” tab — either school portals or Skill Builders school program must be provisioned. */
+function routeRequiresProgramOverviewDashboard(to) {
+  const n = String(to?.name || '');
+  if (n !== 'SchoolOverviewDashboard' && n !== 'OrganizationSchoolOverviewDashboard') return false;
+  return String(to.query?.orgType || '').toLowerCase() === 'program';
+}
+
 /** Authenticated Skill Builders school-program admin + event portal (not public/guardian SB pages). */
 function routeRequiresSkillBuildersSchoolProgramFeature(to) {
   const n = String(to?.name || '');
@@ -2912,6 +2919,23 @@ router.beforeEach(async (to, from, next) => {
         tenantAvailableAgencyFeaturesOverrideJson:
           agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
       });
+      if (!allowed) {
+        next(getSlugAwarePath('/dashboard', to, authStore));
+        return;
+      }
+    }
+    if (authStore.isAuthenticated && routeRequiresProgramOverviewDashboard(to)) {
+      const agency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? {};
+      const pb = brandingStore.platformBranding || {};
+      const opts = {
+        userRole: authStore.user?.role,
+        agencyFeatureFlags: agency.feature_flags ?? agency.featureFlags,
+        platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+        tenantAvailableAgencyFeaturesOverrideJson:
+          agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
+      };
+      const allowed =
+        canAccessSchoolPortalsSurfaces(opts) || canAccessSkillBuildersSchoolProgramSurfaces(opts);
       if (!allowed) {
         next(getSlugAwarePath('/dashboard', to, authStore));
         return;

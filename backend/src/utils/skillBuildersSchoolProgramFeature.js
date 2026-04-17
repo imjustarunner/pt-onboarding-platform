@@ -56,9 +56,16 @@ async function loadParentSkillBuildersContext(parentAgencyId) {
   const globalJson = pb?.available_agency_features_json ?? pb?.availableAgencyFeaturesJson ?? null;
   const tenantJson =
     agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson ?? null;
-  const offered = isSkillBuildersSchoolProgramOfferedAfterMerge(globalJson, tenantJson);
+  const tenant = parseJsonMaybe(tenantJson) || {};
   const flags = parseJsonMaybe(agency.feature_flags) || {};
   const parentOn = isTruthyFeatureFlag(flags[FEATURE_KEY]);
+
+  if (Object.prototype.hasOwnProperty.call(tenant, FEATURE_KEY) && tenant[FEATURE_KEY] === false) {
+    return { offered: false, parentOn };
+  }
+
+  const mergeOffered = isSkillBuildersSchoolProgramOfferedAfterMerge(globalJson, tenantJson);
+  const offered = mergeOffered || parentOn;
   return { offered, parentOn };
 }
 
