@@ -99,6 +99,26 @@
             </template>
           </div>
 
+          <div
+            v-if="intakeSafetyStaffBanners.length"
+            class="phi-warning"
+            style="margin-bottom: 14px;"
+          >
+            <div
+              v-for="b in intakeSafetyStaffBanners"
+              :key="b.key"
+              style="margin-bottom: 12px;"
+            >
+              <div style="font-weight: 800;">{{ b.title }}</div>
+              <div v-if="b.notes" class="muted small" style="margin-top: 6px; white-space: pre-wrap;">
+                {{ b.notes }}
+              </div>
+            </div>
+            <div class="muted small" style="margin-top: 8px;">
+              Staff-only intake flags — do not share with guardians or schools unless policy allows.
+            </div>
+          </div>
+
           <div class="info-grid">
             <div class="info-item">
               <label>Initials</label>
@@ -1826,6 +1846,30 @@ const currentClientPositionLabel = computed(() => {
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSuperAdmin = computed(() => roleNorm.value === 'super_admin');
 const isBackofficeRole = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
+
+/** Intake-captured safety / support flags (eloping, extra assistance) — staff-facing only. */
+const intakeSafetyStaffBanners = computed(() => {
+  if (roleNorm.value === 'school_staff') return [];
+  if (!isBackofficeRole.value && roleNorm.value !== 'supervisor') return [];
+  const c = props.client || {};
+  const yn = (v) => v === true || v === 1 || v === '1';
+  const out = [];
+  if (yn(c.eloping_flag)) {
+    out.push({
+      key: 'eloping',
+      title: 'Eloping risk — staff only',
+      notes: String(c.eloping_notes || '').trim() || null
+    });
+  }
+  if (yn(c.extra_assistance_flag)) {
+    out.push({
+      key: 'extra_assistance',
+      title: 'Extra assistance requested — staff only',
+      notes: String(c.extra_assistance_notes || '').trim() || null
+    });
+  }
+  return out;
+});
 const guardianIntakeProfile = computed(() => {
   if (roleNorm.value === 'school_staff') return null;
   return props.client?.guardian_intake_profile || null;

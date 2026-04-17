@@ -33,6 +33,7 @@ import GuardianInsuranceProfile from '../models/GuardianInsuranceProfile.model.j
 import GuardianPaymentCard from '../models/GuardianPaymentCard.model.js';
 import QuickBooksPaymentsService from '../services/quickbooksPayments.service.js';
 import StripePaymentsService, { isStripeConfigured, getStripePublishableKey } from '../services/stripePayments.service.js';
+import { normalizeGradeForSave } from '../utils/clientGrade.js';
 
 /** Fetch the Stripe Connect account ID for an agency (null if not connected). */
 async function getAgencyStripeConnectAccountId(agencyId) {
@@ -575,6 +576,67 @@ const persistClientDateOfBirthIfMissing = async ({ clientId, dateOfBirth }) => {
     [dob, cid]
   );
 };
+const parseIntakeYesNo = (val) => {
+  const s = String(val ?? '').trim().toLowerCase();
+  if (['yes', 'true', '1', 'y'].includes(s)) return true;
+  if (['no', 'false', '0', 'n'].includes(s)) return false;
+  return null;
+};
+
+/** Merge demographics step + clinical question keys used for client / guardian profile sync. */
+const buildMergedDemographicsForPersist = (submission = {}) => {
+  const base = submission?.demographicsInfo && typeof submission.demographicsInfo === 'object'
+    ? { ...submission.demographicsInfo }
+    : {};
+  const clinical = submission?.clinicalResponses && typeof submission.clinicalResponses === 'object'
+    ? submission.clinicalResponses
+    : {};
+  const merged = {
+    ...base,
+    preferredLanguage: clinical.client_preferred_language || base.preferredLanguage,
+    grade: clinical.client_grade || base.grade,
+    guardianPreferredLanguage: clinical.guardian_preferred_language || base.guardianPreferredLanguage,
+    eloping: clinical.client_eloping ?? base.eloping,
+    elopingNotes: clinical.client_eloping_notes ?? base.elopingNotes,
+    extraAssistance: clinical.client_extra_assistance ?? base.extraAssistance,
+    extraAssistanceNotes: clinical.client_extra_assistance_notes ?? base.extraAssistanceNotes
+  };
+  const hasAny = Object.values(merged).some((v) => {
+    if (v === null || v === undefined) return false;
+    if (typeof v === 'boolean') return true;
+    return String(v).trim().length > 0;
+  });
+  return hasAny ? merged : null;
+};
+
+/** Merge guardian preferred language from intake into encrypted guardian intake profile JSON. */
+const persistGuardianPreferredLanguageOnIntakeProfile = async ({ clientId, demographicsInfo }) => {
+  const cid = Number(clientId || 0);
+  if (!cid || !demographicsInfo || typeof demographicsInfo !== 'object') return;
+  const lang = String(
+    demographicsInfo.guardianPreferredLanguage
+    ?? demographicsInfo.guardian_preferred_language
+    ?? ''
+  ).trim();
+  if (!lang) return;
+  try {
+    const existing = await ClientGuardianIntakeProfile.findByClientId(cid);
+    const base = existing && typeof existing === 'object' ? { ...existing } : {};
+    delete base.source;
+    delete base.updated_at;
+    const merged = { ...base, primaryLanguage: lang };
+    const hasAny = Object.values(merged).some((v) => String(v || '').trim());
+    if (!hasAny) return;
+    await ClientGuardianIntakeProfile.upsertForClient({
+      clientId: cid,
+      profile: merged,
+      source: 'public_intake'
+    });
+  } catch (e) {
+    console.warn('[publicIntake] guardian preferred language persist failed', { clientId: cid, message: e?.message });
+  }
+};
+
 const persistClientDemographicsIfProvided = async ({ clientId, demographicsInfo }) => {
   const cid = Number(clientId || 0);
   if (!cid || !demographicsInfo || typeof demographicsInfo !== 'object') return;
@@ -600,7 +662,49 @@ const persistClientDemographicsIfProvided = async ({ clientId, demographicsInfo 
   addIfPresent('address_state', demographicsInfo.addressState);
   addIfPresent('address_zip', demographicsInfo.addressZip);
 
-  if (!updates.length) return;
+  const gradeRaw = demographicsInfo.grade ?? demographicsInfo.clientGrade ?? null;
+  if (gradeRaw !== null && gradeRaw !== undefined && String(gradeRaw).trim()) {
+    try {
+      const g = normalizeGradeForSave(gradeRaw);
+      if (g) {
+        updates.push('grade = ?');
+        values.push(g);
+      }
+    } catch {
+      // ignore invalid grade
+    }
+  }
+
+  const elopingYn = parseIntakeYesNo(demographicsInfo.eloping ?? demographicsInfo.client_eloping);
+  if (elopingYn !== null) {
+    updates.push('eloping_flag = ?');
+    values.push(elopingYn ? 1 : 0);
+  }
+  const elopingNotes = String(demographicsInfo.elopingNotes ?? demographicsInfo.client_eloping_notes ?? '').trim();
+  if (elopingYn !== null || elopingNotes) {
+    updates.push('eloping_notes = ?');
+    values.push(elopingNotes ? elopingNotes.slice(0, 65000) : null);
+  }
+
+  const assistYn = parseIntakeYesNo(
+    demographicsInfo.extraAssistance ?? demographicsInfo.client_extra_assistance
+  );
+  if (assistYn !== null) {
+    updates.push('extra_assistance_flag = ?');
+    values.push(assistYn ? 1 : 0);
+  }
+  const assistNotes = String(
+    demographicsInfo.extraAssistanceNotes ?? demographicsInfo.client_extra_assistance_notes ?? ''
+  ).trim();
+  if (assistYn !== null || assistNotes) {
+    updates.push('extra_assistance_notes = ?');
+    values.push(assistNotes ? assistNotes.slice(0, 65000) : null);
+  }
+
+  if (!updates.length) {
+    await persistGuardianPreferredLanguageOnIntakeProfile({ clientId: cid, demographicsInfo });
+    return;
+  }
   values.push(cid);
   try {
     await pool.execute(`UPDATE clients SET ${updates.join(', ')} WHERE id = ?`, values);
@@ -608,6 +712,7 @@ const persistClientDemographicsIfProvided = async ({ clientId, demographicsInfo 
     // Best-effort; ignore if columns don't exist yet (migration pending)
     console.warn('[publicIntake] demographics persist failed', { clientId: cid, message: e?.message });
   }
+  await persistGuardianPreferredLanguageOnIntakeProfile({ clientId: cid, demographicsInfo });
 };
 
 const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {}, accessEnabled = false }) => {
@@ -5019,8 +5124,8 @@ export const finalizePublicIntake = async (req, res, next) => {
           organizationId: req.body?.organizationId || null
         });
 
-        // Save demographics to client profile if a demographics step was included
-        const demographicsInfo = intakeData?.responses?.submission?.demographicsInfo;
+        // Save demographics + mapped clinical intake fields to client / guardian profile
+        const demographicsInfo = buildMergedDemographicsForPersist(intakeData?.responses?.submission || {});
         if (demographicsInfo) {
           await persistClientDemographicsIfProvided({ clientId, demographicsInfo });
         }

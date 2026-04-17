@@ -703,24 +703,6 @@
               <small class="muted">{{ formatScheduleBlock(sb) }}</small>
             </div>
           </div>
-
-          <div class="form-group" style="margin-top: 12px; margin-bottom: 0;">
-            <label class="checkbox">
-              <input
-                type="checkbox"
-                :checked="isCurrentRegistrationExistingParticipant"
-                @change="setCurrentRegistrationExistingParticipant($event?.target?.checked)"
-              />
-              I am already in your system
-            </label>
-            <input
-              v-if="isCurrentRegistrationExistingParticipant"
-              v-model="currentRegistrationLookupValue"
-              :placeholder="currentRegistrationLookupPlaceholder"
-              type="text"
-              style="margin-top: 6px;"
-            />
-          </div>
         </div>
 
         <div v-if="currentFlowStep?.type === 'guardian_waiver'" class="guardian-waiver-step">
@@ -2422,38 +2404,6 @@ const setRegistrationParticipant = (stepId, patch = {}) => {
     ...patch
   };
 };
-const isCurrentRegistrationExistingParticipant = computed(() => {
-  const stepId = String(currentFlowStep.value?.id || '').trim();
-  if (!stepId || currentFlowStep.value?.type !== 'registration') return false;
-  return !!getRegistrationParticipant(stepId).alreadyInSystem;
-});
-const setCurrentRegistrationExistingParticipant = (checked) => {
-  const stepId = String(currentFlowStep.value?.id || '').trim();
-  if (!stepId || currentFlowStep.value?.type !== 'registration') return;
-  setRegistrationParticipant(stepId, { alreadyInSystem: !!checked });
-};
-const currentRegistrationLookupValue = computed({
-  get: () => {
-    const stepId = String(currentFlowStep.value?.id || '').trim();
-    if (!stepId || currentFlowStep.value?.type !== 'registration') return '';
-    return getRegistrationParticipant(stepId).lookupValue;
-  },
-  set: (value) => {
-    const stepId = String(currentFlowStep.value?.id || '').trim();
-    if (!stepId || currentFlowStep.value?.type !== 'registration') return;
-    setRegistrationParticipant(stepId, { lookupValue: String(value || '').trim() });
-  }
-});
-const currentRegistrationLookupPlaceholder = computed(() => {
-  const step = currentFlowStep.value;
-  if (!step || step.type !== 'registration') return 'Lookup value';
-  const lookupField = ['email', 'phone', 'client_id'].includes(String(step.existingLookupField || ''))
-    ? String(step.existingLookupField)
-    : 'email';
-  if (lookupField === 'phone') return 'Enter your phone';
-  if (lookupField === 'client_id') return 'Enter your client ID';
-  return 'Enter your email';
-});
 const formatScheduleBlock = (sb) => {
   const parts = [];
   if (sb.startDate && sb.endDate) parts.push(`${sb.startDate} to ${sb.endDate}`);
@@ -3870,11 +3820,6 @@ const completeRegistrationStep = async () => {
   if (!stepMeta || stepMeta.type !== 'registration') return;
   const rules = getCurrentRegistrationRules();
   const selectedIds = getRegistrationSelectionIds(stepMeta.id);
-  const participant = getRegistrationParticipant(stepMeta.id);
-  if (participant.alreadyInSystem && !participant.lookupValue) {
-    stepError.value = `Please enter your ${String(stepMeta.existingLookupField || 'email').replace('_', ' ')}.`;
-    return;
-  }
   if (selectedIds.length < rules.minSelections) {
     stepError.value = rules.minSelections > 1
       ? `Please select at least ${rules.minSelections} options.`
@@ -3924,9 +3869,9 @@ const completeRegistrationStep = async () => {
       termsSummary: String(opt.termsSummary || '').trim() || null,
       participant: {
         mode: String(stepMeta.participantMode || 'any'),
-        alreadyInSystem: !!participant.alreadyInSystem,
+        alreadyInSystem: false,
         lookupField: String(stepMeta.existingLookupField || 'email'),
-        lookupValue: participant.alreadyInSystem ? String(participant.lookupValue || '') : ''
+        lookupValue: ''
       },
       medicaidEligible: !!opt.medicaidEligible,
       cashEligible: !!opt.cashEligible,
@@ -3980,6 +3925,14 @@ const completeGuardianWaiverStep = () => {
       if (String(sec.signatureData || '').trim().length < 10) {
         stepError.value = `Please apply your saved signature to the ${guardianWaiverSectionLabels[key] || 'waiver'} section for ${label}.`;
         return;
+      }
+      if (key === 'allergies_snacks') {
+        const p = sec?.payload || {};
+        const filled = (v) => String(v ?? '').trim().length > 0;
+        if (!filled(p.allergies) || !filled(p.approvedSnacks) || !filled(p.notes)) {
+          stepError.value = `Please complete allergies, approved snacks, and notes for ${label} (type "None" if not applicable).`;
+          return;
+        }
       }
     }
   }

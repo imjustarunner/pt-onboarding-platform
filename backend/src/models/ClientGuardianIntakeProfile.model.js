@@ -18,6 +18,7 @@ function normalizeProfile(profile = {}) {
   const phone = String(profile?.phone || '').trim() || null;
   const relationship = String(profile?.relationship || '').trim() || null;
   const dateOfBirth = normalizeDateOnly(profile?.dateOfBirth || profile?.dob || null);
+  const primaryLanguage = String(profile?.primaryLanguage || profile?.primary_language || '').trim() || null;
   return {
     firstName,
     lastName,
@@ -25,7 +26,8 @@ function normalizeProfile(profile = {}) {
     email,
     phone,
     relationship,
-    dateOfBirth
+    dateOfBirth,
+    primaryLanguage
   };
 }
 

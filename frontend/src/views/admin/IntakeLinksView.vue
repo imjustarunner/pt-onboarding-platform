@@ -1934,6 +1934,102 @@ const COMPLETION_EMAIL_PRESET_IDS = new Set([
   COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP,
   COMPLETION_EMAIL_PRESET_SUMMER_SKILLS
 ]);
+
+/** Default clinical keys for D11 / Summer Skills–style intakes (merged into first clinical step when preset is chosen). */
+const createSummerSkillsDefaultClinicalFields = () => ([
+  {
+    key: 'client_grade',
+    label: 'Participant grade (upcoming school year)',
+    type: 'text',
+    required: true,
+    helperText: 'Example: 3rd, K, Pre-K',
+    options: []
+  },
+  {
+    key: 'client_preferred_language',
+    label: 'Participant preferred language',
+    type: 'text',
+    required: false,
+    helperText: '',
+    options: []
+  },
+  {
+    key: 'guardian_preferred_language',
+    label: 'Guardian preferred language',
+    type: 'text',
+    required: false,
+    helperText: '',
+    options: []
+  },
+  {
+    key: 'client_eloping',
+    label: 'Does the participant have eloping / wandering risk?',
+    type: 'select',
+    required: true,
+    helperText: '',
+    options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]
+  },
+  {
+    key: 'client_eloping_notes',
+    label: 'If yes, helpful context for staff (optional)',
+    type: 'textarea',
+    required: false,
+    helperText: '',
+    options: []
+  },
+  {
+    key: 'client_extra_assistance',
+    label: 'Does the participant need extra assistance from staff for safety or participation?',
+    type: 'select',
+    required: true,
+    helperText: '',
+    options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]
+  },
+  {
+    key: 'client_extra_assistance_notes',
+    label: 'If yes, describe the support needed (optional)',
+    type: 'textarea',
+    required: false,
+    helperText: '',
+    options: []
+  }
+]);
+
+const mergeSummerSkillsClinicalQuestionDefaults = () => {
+  if (!Array.isArray(form.intakeSteps)) form.intakeSteps = [];
+  let clinicalStep = form.intakeSteps.find((s) => String(s?.type || '').trim() === 'clinical_questions');
+  if (!clinicalStep) {
+    clinicalStep = {
+      id: createId('step'),
+      type: 'clinical_questions',
+      label: 'Clinical questions',
+      visibility: 'always',
+      fields: []
+    };
+    form.intakeSteps.push(clinicalStep);
+  }
+  if (!Array.isArray(clinicalStep.fields)) clinicalStep.fields = [];
+  const existingKeys = new Set(
+    clinicalStep.fields.map((f) => String(f?.key || '').trim()).filter(Boolean)
+  );
+  for (const template of createSummerSkillsDefaultClinicalFields()) {
+    if (existingKeys.has(template.key)) continue;
+    clinicalStep.fields.push({
+      id: createId('field'),
+      key: template.key,
+      label: template.label,
+      type: template.type,
+      required: !!template.required,
+      helperText: template.helperText || '',
+      scope: 'clinical',
+      documentKey: '',
+      visibility: 'always',
+      showIf: { fieldKey: '', equals: '' },
+      options: Array.isArray(template.options) ? template.options.map((o) => ({ ...o })) : []
+    });
+    existingKeys.add(template.key);
+  }
+};
 const props = defineProps({
   /** When set (e.g. Settings tenant hub), lock digital forms to this agency id. */
   scopedAgencyId: { type: Number, default: null }
@@ -3398,6 +3494,7 @@ const applySummerSkillsProgramCompletionEmailCopy = () => {
     '{{AGENCY_NAME}} team',
     '(Summer Skills Program)'
   ].join('\n');
+  mergeSummerSkillsClinicalQuestionDefaults();
 };
 
 const onCompletionEmailDropdownChange = (event) => {
