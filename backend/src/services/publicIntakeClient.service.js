@@ -235,6 +235,95 @@ class PublicIntakeClientService {
       newGuardianPasswordlessLoginUrl
     };
   }
+
+  /**
+   * Link an existing guardian account to one or more existing clients (returning-family intake path).
+   * Mirrors guardian provisioning from createClientAndGuardian without creating new client rows.
+   */
+  static async provisionGuardianForIntakeClients({ link, agencyId, clients = [], payload = {} }) {
+    const createdClients = Array.isArray(clients) ? clients.filter((c) => c && Number(c.id)) : [];
+    let guardianUser = null;
+    let newGuardianCreated = false;
+    let newGuardianTemporaryPassword = null;
+    let newGuardianPasswordlessLoginUrl = null;
+    if (!link.create_guardian || !createdClients.length) {
+      return {
+        clients: createdClients,
+        guardianUser,
+        newGuardianCreated,
+        newGuardianTemporaryPassword,
+        newGuardianPasswordlessLoginUrl
+      };
+    }
+    const guardianPayload = payload?.guardian || {};
+    const email = String(guardianPayload.email || '').trim();
+    if (!email) {
+      throw new Error('Guardian email is required for guardian account creation');
+    }
+    const existingUser = await User.findByEmail(email);
+    if (existingUser) {
+      guardianUser = existingUser;
+      const roleNorm = String(guardianUser.role || '').toLowerCase();
+      if (roleNorm === 'client_guardian') {
+        const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
+        try {
+          const agencyRecord = await Agency.findById(agencyId);
+          const tokenResult = await User.generatePasswordlessToken(guardianUser.id, tempHours, 'setup');
+          newGuardianPasswordlessLoginUrl = buildGuardianPasswordlessLoginUrl(agencyRecord, tokenResult.token);
+        } catch (tokenErr) {
+          console.error('[publicIntakeClient] returning guardian passwordless token failed', {
+            userId: guardianUser.id,
+            message: tokenErr?.message || tokenErr
+          });
+        }
+      }
+    } else {
+      const firstName = String(guardianPayload.firstName || '').trim() || 'Guardian';
+      const lastName = String(guardianPayload.lastName || '').trim() || '';
+      const phoneNumber = String(guardianPayload.phone || '').trim() || null;
+      guardianUser = await User.create({
+        email,
+        passwordHash: null,
+        firstName,
+        lastName,
+        phoneNumber,
+        personalEmail: email,
+        role: 'client_guardian',
+        status: 'ACTIVE_EMPLOYEE'
+      });
+      newGuardianCreated = true;
+      const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
+      try {
+        const agencyRecord = await Agency.findById(agencyId);
+        const tokenResult = await User.generatePasswordlessToken(guardianUser.id, tempHours, 'setup');
+        newGuardianPasswordlessLoginUrl = buildGuardianPasswordlessLoginUrl(agencyRecord, tokenResult.token);
+      } catch (tokenErr) {
+        console.error('[publicIntakeClient] returning guardian passwordless token failed (new user)', {
+          userId: guardianUser.id,
+          message: tokenErr?.message || tokenErr
+        });
+      }
+    }
+
+    for (const client of createdClients) {
+      await ClientGuardian.upsertLink({
+        clientId: client.id,
+        guardianUserId: guardianUser.id,
+        relationshipTitle: guardianPayload.relationship || 'Guardian',
+        accessEnabled: true,
+        permissionsJson: { intakeLink: link.id },
+        createdByUserId: null
+      });
+    }
+
+    return {
+      clients: createdClients,
+      guardianUser,
+      newGuardianCreated,
+      newGuardianTemporaryPassword,
+      newGuardianPasswordlessLoginUrl
+    };
+  }
 }
 
 export default PublicIntakeClientService;

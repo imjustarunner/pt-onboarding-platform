@@ -15,6 +15,17 @@
         <p v-if="data.agencyName"><strong>Program host:</strong> {{ data.agencyName }}</p>
       </section>
 
+      <section
+        v-if="data.registrationReturningAutoMatch?.matched && data.registrationReturningAutoMatch?.initials"
+        class="reg-receipt__card reg-receipt__match"
+      >
+        <h2>Existing profile</h2>
+        <p>
+          We matched you to an existing profile for
+          <strong>{{ data.registrationReturningAutoMatch.initials }}</strong>.
+        </p>
+      </section>
+
       <section v-if="data.event?.EVENT_TITLE" class="reg-receipt__card">
         <h2>Session</h2>
         <p><strong>Title:</strong> {{ data.event.EVENT_TITLE }}</p>

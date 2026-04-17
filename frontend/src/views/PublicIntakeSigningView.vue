@@ -1161,6 +1161,14 @@
         <template v-else>
           <!-- Registration success card -->
           <div v-if="formTypeKey === 'smart_registration'" class="reg-success-card">
+            <p
+              v-if="registrationReturningAutoMatch?.matched && registrationReturningAutoMatch?.initials"
+              class="reg-returning-match-notice"
+              style="margin: 0 0 12px; padding: 10px 12px; background: #f0f7ff; border-radius: 8px; border: 1px solid #cfe4ff;"
+            >
+              We matched you to an existing profile for
+              <strong>{{ registrationReturningAutoMatch.initials }}</strong>.
+            </p>
             <div v-if="registeredEventSummary" class="reg-success-event">
               <div class="reg-success-event-title">{{ registeredEventSummary.title }}</div>
               <div v-if="registeredEventSummary.startsAtFormatted" class="reg-success-event-date">
@@ -2273,6 +2281,7 @@ const eventWaiverContext = computed(() => {
 });
 
 const registrationCompletion = ref(null);
+const registrationReturningAutoMatch = ref(null);
 const loginHelpSending = ref(false);
 const loginHelpMessage = ref('');
 const missingRequiredQuestionKeys = ref([]);
@@ -4264,6 +4273,7 @@ const finalizePacket = async () => {
     if (resp.data?.registrationCompletion) {
       registrationCompletion.value = resp.data.registrationCompletion;
     }
+    registrationReturningAutoMatch.value = resp.data?.registrationReturningAutoMatch || null;
     jobApplicationSubmitted.value = !!resp.data?.jobApplicationSubmitted;
     if (downloadUrl.value || jobApplicationSubmitted.value) {
       pollingForDownload.value = false;
@@ -4302,6 +4312,9 @@ const pollForDownloadUrl = async () => {
         if (resp.data?.registrationCompletion) {
           registrationCompletion.value = resp.data.registrationCompletion;
         }
+        if (resp.data?.registrationReturningAutoMatch) {
+          registrationReturningAutoMatch.value = resp.data.registrationReturningAutoMatch;
+        }
         break;
       }
     } catch {
@@ -4314,6 +4327,7 @@ const pollForDownloadUrl = async () => {
 const resetIntakeState = () => {
   agencyRegistrationCatalog.value = [];
   registrationCompletion.value = null;
+  registrationReturningAutoMatch.value = null;
   loginHelpMessage.value = '';
   guardianFirstName.value = '';
   guardianLastName.value = '';

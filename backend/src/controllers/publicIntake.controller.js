@@ -10,6 +10,10 @@ import ClientSchoolRoiSigningLink from '../models/ClientSchoolRoiSigningLink.mod
 import PublicIntakeSigningService from '../services/publicIntakeSigning.service.js';
 import DocumentSigningService from '../services/documentSigning.service.js';
 import PublicIntakeClientService, { deriveInitials } from '../services/publicIntakeClient.service.js';
+import {
+  agencyReturningGuardianAutoMatchEnabled,
+  tryReturningGuardianAutoMatch
+} from '../services/publicIntakeReturningMatch.service.js';
 import { fetchRegistrationCatalogItems } from '../services/registrationCatalog.service.js';
 import { enrollClientsInCompanyEvent } from '../services/skillBuildersIntakeEnrollment.service.js';
 import applyClientRoiCompletion from '../services/clientRoiCompletion.service.js';
@@ -1000,7 +1004,8 @@ const resolvePacketCompletionEmailContent = async ({
   registrationEventSummary = null,
   registrationReceiptUrl = null,
   fromAddress = null,
-  eventPlaceholders = null
+  eventPlaceholders = null,
+  returningMatchClientInitials = null
 }) => {
   const customMessages = link?.custom_messages && typeof link.custom_messages === 'object'
     ? link.custom_messages
@@ -1057,7 +1062,11 @@ const resolvePacketCompletionEmailContent = async ({
     EVENT_DURATION: String(ev.EVENT_DURATION || ''),
     REGISTRATION_RECEIPT_URL: String(registrationReceiptUrl || '').trim(),
     RECEIPT_URL: String(registrationReceiptUrl || '').trim(),
-    FROM_ADDRESS: String(fromAddress || '').trim()
+    FROM_ADDRESS: String(fromAddress || '').trim(),
+    CLIENT_INITIALS: String(returningMatchClientInitials || '').trim(),
+    RETURNING_MATCH_NOTICE: String(returningMatchClientInitials || '').trim()
+      ? `We matched you to an existing profile for ${String(returningMatchClientInitials).trim()}.`
+      : ''
   };
 
   const credsBlock = needsSetup || regPw || regPasswordless
@@ -1085,6 +1094,7 @@ const resolvePacketCompletionEmailContent = async ({
   const fallbackText = [
     `Hello ${params.SIGNER_NAME || 'there'},`,
     '',
+    params.RETURNING_MATCH_NOTICE ? `${params.RETURNING_MATCH_NOTICE}\n` : '',
     `${params.CLIENT_SUMMARY ? `${params.CLIENT_SUMMARY}\n` : ''}Thank you for completing the intake packet${params.SCHOOL_NAME ? ` for ${params.SCHOOL_NAME}` : ''}.`,
     'Our staff will be in touch with next steps.',
     'Once your client is assigned to a provider, they will reach out to schedule intake and begin services.',
@@ -1574,6 +1584,127 @@ async function computePublicIntakeClientMatch({ link, intakeData = null, payload
     return base;
   }
   return base;
+}
+
+/**
+ * Resolve whether to attach this intake to an existing client instead of creating a new row.
+ * - Tenant-flagged returning-guardian auto-match (email + school/site + participant initials).
+ * - Or consent-time single match (registration_client_match === 'existing') from computePublicIntakeClientMatch.
+ */
+async function resolveIntakeExistingClientAttach({ link, intakeData, payload, submission }) {
+  const empty = {
+    attachClientId: null,
+    attachSource: null,
+    agencyIdResolved: null,
+    returningMatchInitials: '',
+    mergePatch: {}
+  };
+  if (!link?.create_client) return empty;
+
+  const submissionPatient = intakeData?.responses?.submission || {};
+  const orgId = Number(
+    payload?.organizationId
+      || submissionPatient.organizationId
+      || link.organization_id
+      || 0
+  ) || null;
+
+  let agencyIdResolved = null;
+  if (orgId) {
+    agencyIdResolved =
+      (await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId)) ||
+      (await AgencySchool.getActiveAgencyIdForSchool(orgId)) ||
+      null;
+  }
+  if (!agencyIdResolved) return { ...empty, agencyIdResolved: null };
+
+  const rawClients = Array.isArray(payload?.clients) && payload.clients.length
+    ? payload.clients
+    : (payload?.client ? [payload.client] : []);
+  const first = rawClients[0];
+  const firstName = String(first?.firstName || '').trim();
+  const lastName = String(first?.lastName || '').trim();
+  const fullName = String(first?.fullName || `${firstName} ${lastName}` || '').trim();
+
+  const regExisting = String(submissionPatient.registration_client_match || '').toLowerCase() === 'existing';
+  const regMatchedId = Number(submissionPatient.registration_matched_client_id || 0) || null;
+
+  const signerEmail = String(submission?.signer_email || payload?.guardian?.email || '').trim().toLowerCase();
+
+  let autoId = null;
+  let autoInitials = '';
+  if (await agencyReturningGuardianAutoMatchEnabled(agencyIdResolved)) {
+    const schoolRow = orgId ? await Agency.findById(orgId) : null;
+    const schoolNameInput = String(
+      submissionPatient.school_name_input
+        || schoolRow?.name
+        || ''
+    ).trim();
+    if (signerEmail.includes('@') && fullName && schoolNameInput) {
+      const auto = await tryReturningGuardianAutoMatch({
+        agencyId: agencyIdResolved,
+        signerEmail,
+        schoolNameInput,
+        participantFullName: fullName
+      });
+      if (auto?.clientId) {
+        autoId = auto.clientId;
+        autoInitials = String(auto.initials || '').trim();
+      }
+    }
+  }
+
+  let attachClientId = null;
+  let attachSource = null;
+
+  if (autoId && regExisting && regMatchedId && autoId !== regMatchedId) {
+    console.warn('[publicIntake] returning auto-match vs consent match conflict; creating new client', {
+      autoId,
+      regMatchedId
+    });
+  } else if (autoId) {
+    attachClientId = autoId;
+    attachSource = 'returning_auto';
+  } else if (regExisting && regMatchedId) {
+    attachClientId = regMatchedId;
+    attachSource = 'consent_org_match';
+  }
+
+  if (!attachClientId) return { ...empty, agencyIdResolved };
+
+  const existingClient = await Client.findById(attachClientId, { includeSensitive: true });
+  if (!existingClient?.id) {
+    return { ...empty, agencyIdResolved };
+  }
+  if (Number(existingClient.agency_id) !== Number(agencyIdResolved)) {
+    console.warn('[publicIntake] attach client agency mismatch; creating new client', {
+      attachClientId,
+      clientAgency: existingClient.agency_id,
+      expectedAgency: agencyIdResolved
+    });
+    return { ...empty, agencyIdResolved };
+  }
+
+  const returningMatchInitials =
+    attachSource === 'returning_auto'
+      ? (autoInitials || String(existingClient.initials || '').trim())
+      : String(existingClient.initials || '').trim();
+
+  const mergePatch =
+    attachSource === 'returning_auto'
+      ? {
+          registration_returning_guardian_auto_match: true,
+          registration_returning_matched_initials: returningMatchInitials
+        }
+      : {};
+
+  return {
+    attachClientId,
+    attachSource,
+    agencyIdResolved,
+    returningMatchInitials,
+    mergePatch
+  };
 }
 
 const parseFieldDefinitions = (rawFieldDefs) => {
@@ -3512,6 +3643,11 @@ export const getPublicIntakeStatus = async (req, res, next) => {
         }
       : null;
 
+    const registrationReturningAutoMatch =
+      sub.registration_returning_guardian_auto_match === true && String(sub.registration_returning_matched_initials || '').trim()
+        ? { matched: true, initials: String(sub.registration_returning_matched_initials || '').trim() }
+        : null;
+
     res.json({
       submissionId,
       status: submission.status,
@@ -3521,7 +3657,8 @@ export const getPublicIntakeStatus = async (req, res, next) => {
       downloadUrl,
       clientBundles,
       intakeData,
-      registrationCompletion
+      registrationCompletion,
+      registrationReturningAutoMatch
     });
   } catch (error) {
     next(error);
@@ -4024,7 +4161,7 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
 
     const now = new Date();
-    const intakeData = req.body?.intakeData || null;
+    let intakeData = req.body?.intakeData || null;
     const packetDocumentTemplates = filterPacketDocumentTemplates(link, allAllowedTemplates, intakeData);
     const retentionPolicy = await resolveRetentionPolicy(link);
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
@@ -4675,25 +4812,99 @@ export const finalizePublicIntake = async (req, res, next) => {
     let newGuardianTemporaryPassword = null;
     let newGuardianPasswordlessLoginUrl = null;
     let createdClients = [];
+    let returningAutoMatchInitialsForEmail = '';
     if (link.create_client) {
-      const {
-        clients,
-        guardianUser,
-        newGuardianCreated: ngCreated,
-        newGuardianTemporaryPassword: ngpw,
-        newGuardianPasswordlessLoginUrl: ngMagic
-      } = await PublicIntakeClientService.createClientAndGuardian({
+      const attachInfo = await resolveIntakeExistingClientAttach({
         link,
-        payload: req.body
+        intakeData,
+        payload: req.body,
+        submission: updatedSubmission
       });
-      createdClients = clients || [];
-      newGuardianCreated = !!ngCreated;
-      newGuardianTemporaryPassword = ngpw || null;
-      newGuardianPasswordlessLoginUrl = ngMagic || null;
-      updatedSubmission = await IntakeSubmission.updateById(submissionId, {
-        client_id: createdClients?.[0]?.id || null,
-        guardian_user_id: guardianUser?.id || null
-      });
+      if (attachInfo.attachClientId) {
+        const existingClient = await Client.findById(attachInfo.attachClientId, { includeSensitive: true });
+        if (existingClient?.id) {
+          const {
+            guardianUser,
+            newGuardianCreated: ngCreated,
+            newGuardianTemporaryPassword: ngpw,
+            newGuardianPasswordlessLoginUrl: ngMagic
+          } = await PublicIntakeClientService.provisionGuardianForIntakeClients({
+            link,
+            agencyId: attachInfo.agencyIdResolved,
+            clients: [existingClient],
+            payload: req.body
+          });
+          createdClients = [existingClient];
+          newGuardianCreated = !!ngCreated;
+          newGuardianTemporaryPassword = ngpw || null;
+          newGuardianPasswordlessLoginUrl = ngMagic || null;
+          if (attachInfo.attachSource === 'returning_auto') {
+            returningAutoMatchInitialsForEmail = attachInfo.returningMatchInitials || '';
+            try {
+              await Client.update(existingClient.id, {
+                last_returning_match_submission_id: submissionId
+              });
+            } catch (auditErr) {
+              console.warn('[publicIntake] last_returning_match_submission_id update failed', {
+                clientId: existingClient.id,
+                message: auditErr?.message
+              });
+            }
+          }
+          if (attachInfo.mergePatch && Object.keys(attachInfo.mergePatch).length) {
+            intakeData = mergeIntakeSubmissionPatch(intakeData || { responses: { submission: {} } }, attachInfo.mergePatch);
+            updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+              client_id: existingClient.id,
+              guardian_user_id: guardianUser?.id || null,
+              intake_data: JSON.stringify(intakeData),
+              intake_data_hash: hashIntakeData(intakeData)
+            });
+          } else {
+            updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+              client_id: existingClient.id,
+              guardian_user_id: guardianUser?.id || null
+            });
+          }
+        } else {
+          const {
+            clients,
+            guardianUser,
+            newGuardianCreated: ngCreated,
+            newGuardianTemporaryPassword: ngpw,
+            newGuardianPasswordlessLoginUrl: ngMagic
+          } = await PublicIntakeClientService.createClientAndGuardian({
+            link,
+            payload: req.body
+          });
+          createdClients = clients || [];
+          newGuardianCreated = !!ngCreated;
+          newGuardianTemporaryPassword = ngpw || null;
+          newGuardianPasswordlessLoginUrl = ngMagic || null;
+          updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+            client_id: createdClients?.[0]?.id || null,
+            guardian_user_id: guardianUser?.id || null
+          });
+        }
+      } else {
+        const {
+          clients,
+          guardianUser,
+          newGuardianCreated: ngCreated,
+          newGuardianTemporaryPassword: ngpw,
+          newGuardianPasswordlessLoginUrl: ngMagic
+        } = await PublicIntakeClientService.createClientAndGuardian({
+          link,
+          payload: req.body
+        });
+        createdClients = clients || [];
+        newGuardianCreated = !!ngCreated;
+        newGuardianTemporaryPassword = ngpw || null;
+        newGuardianPasswordlessLoginUrl = ngMagic || null;
+        updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+          client_id: createdClients?.[0]?.id || null,
+          guardian_user_id: guardianUser?.id || null
+        });
+      }
     }
 
     const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
@@ -4949,7 +5160,10 @@ export const finalizePublicIntake = async (req, res, next) => {
       success: true,
       submission: updatedSubmission,
       status: 'processing',
-      submissionId
+      submissionId,
+      registrationReturningAutoMatch: returningAutoMatchInitialsForEmail
+        ? { matched: true, initials: returningAutoMatchInitialsForEmail }
+        : null
     });
 
     // Heavy processing: PDF merge, bundle, email, notifications, guardian persistence
@@ -5433,7 +5647,8 @@ export const finalizePublicIntake = async (req, res, next) => {
             registrationEventSummary,
             registrationReceiptUrl,
             fromAddress: completionEmailFromAddress,
-            eventPlaceholders: eventPlaceholdersForEmail
+            eventPlaceholders: eventPlaceholdersForEmail,
+            returningMatchClientInitials: returningAutoMatchInitialsForEmail || ''
           });
           const identity = await resolveIntakeSenderIdentity({
             organizationId: link?.organization_id || null,
@@ -5678,7 +5893,7 @@ export const submitPublicIntake = async (req, res, next) => {
     }
 
     const now = new Date();
-    const intakeData = req.body?.intakeData || null;
+    let intakeData = req.body?.intakeData || null;
     const retentionPolicy = await resolveRetentionPolicy(link);
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
     const intakeDataHash = hashIntakeData(intakeData);
@@ -5690,28 +5905,103 @@ export const submitPublicIntake = async (req, res, next) => {
       retention_expires_at: retentionExpiresAt
     });
 
+    let newGuardianCreated = false;
     let newGuardianTemporaryPassword = null;
     let newGuardianPasswordlessLoginUrl = null;
     let createdClients = [];
+    let returningAutoMatchInitialsForEmailSubmit = '';
     if (link.create_client) {
-      const {
-        clients,
-        guardianUser,
-        newGuardianCreated: ngCreated,
-        newGuardianTemporaryPassword: ngpw,
-        newGuardianPasswordlessLoginUrl: ngMagic
-      } = await PublicIntakeClientService.createClientAndGuardian({
+      const attachInfo = await resolveIntakeExistingClientAttach({
         link,
-        payload: req.body
+        intakeData,
+        payload: req.body,
+        submission: updatedSubmission
       });
-      createdClients = clients || [];
-      newGuardianCreated = !!ngCreated;
-      newGuardianTemporaryPassword = ngpw || null;
-      newGuardianPasswordlessLoginUrl = ngMagic || null;
-      updatedSubmission = await IntakeSubmission.updateById(submissionId, {
-        client_id: createdClients?.[0]?.id || null,
-        guardian_user_id: guardianUser?.id || null
-      });
+      if (attachInfo.attachClientId) {
+        const existingClient = await Client.findById(attachInfo.attachClientId, { includeSensitive: true });
+        if (existingClient?.id) {
+          const {
+            guardianUser,
+            newGuardianCreated: ngCreated,
+            newGuardianTemporaryPassword: ngpw,
+            newGuardianPasswordlessLoginUrl: ngMagic
+          } = await PublicIntakeClientService.provisionGuardianForIntakeClients({
+            link,
+            agencyId: attachInfo.agencyIdResolved,
+            clients: [existingClient],
+            payload: req.body
+          });
+          createdClients = [existingClient];
+          newGuardianCreated = !!ngCreated;
+          newGuardianTemporaryPassword = ngpw || null;
+          newGuardianPasswordlessLoginUrl = ngMagic || null;
+          if (attachInfo.attachSource === 'returning_auto') {
+            returningAutoMatchInitialsForEmailSubmit = attachInfo.returningMatchInitials || '';
+            try {
+              await Client.update(existingClient.id, {
+                last_returning_match_submission_id: submissionId
+              });
+            } catch (auditErr) {
+              console.warn('[publicIntake] last_returning_match_submission_id update failed (submit)', {
+                clientId: existingClient.id,
+                message: auditErr?.message
+              });
+            }
+          }
+          if (attachInfo.mergePatch && Object.keys(attachInfo.mergePatch).length) {
+            intakeData = mergeIntakeSubmissionPatch(intakeData || { responses: { submission: {} } }, attachInfo.mergePatch);
+            updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+              client_id: existingClient.id,
+              guardian_user_id: guardianUser?.id || null,
+              intake_data: JSON.stringify(intakeData),
+              intake_data_hash: hashIntakeData(intakeData)
+            });
+          } else {
+            updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+              client_id: existingClient.id,
+              guardian_user_id: guardianUser?.id || null
+            });
+          }
+        } else {
+          const {
+            clients,
+            guardianUser,
+            newGuardianCreated: ngCreated,
+            newGuardianTemporaryPassword: ngpw,
+            newGuardianPasswordlessLoginUrl: ngMagic
+          } = await PublicIntakeClientService.createClientAndGuardian({
+            link,
+            payload: req.body
+          });
+          createdClients = clients || [];
+          newGuardianCreated = !!ngCreated;
+          newGuardianTemporaryPassword = ngpw || null;
+          newGuardianPasswordlessLoginUrl = ngMagic || null;
+          updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+            client_id: createdClients?.[0]?.id || null,
+            guardian_user_id: guardianUser?.id || null
+          });
+        }
+      } else {
+        const {
+          clients,
+          guardianUser,
+          newGuardianCreated: ngCreated,
+          newGuardianTemporaryPassword: ngpw,
+          newGuardianPasswordlessLoginUrl: ngMagic
+        } = await PublicIntakeClientService.createClientAndGuardian({
+          link,
+          payload: req.body
+        });
+        createdClients = clients || [];
+        newGuardianCreated = !!ngCreated;
+        newGuardianTemporaryPassword = ngpw || null;
+        newGuardianPasswordlessLoginUrl = ngMagic || null;
+        updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+          client_id: createdClients?.[0]?.id || null,
+          guardian_user_id: guardianUser?.id || null
+        });
+      }
     }
 
     const allAllowedTemplates = await loadAllowedTemplates(link);
@@ -6021,7 +6311,8 @@ export const submitPublicIntake = async (req, res, next) => {
           registrationEventSummary,
           registrationReceiptUrl: registrationReceiptUrlSubmit,
           fromAddress: completionEmailFromAddressSubmit,
-          eventPlaceholders: eventPlaceholdersForEmailSubmit
+          eventPlaceholders: eventPlaceholdersForEmailSubmit,
+          returningMatchClientInitials: returningAutoMatchInitialsForEmailSubmit || ''
         });
         try {
           const identity = await resolveIntakeSenderIdentity({
@@ -6182,7 +6473,10 @@ export const submitPublicIntake = async (req, res, next) => {
       documents: signedDocs,
       downloadUrl,
       emailDelivery,
-      clientBundles
+      clientBundles,
+      registrationReturningAutoMatch: returningAutoMatchInitialsForEmailSubmit
+        ? { matched: true, initials: returningAutoMatchInitialsForEmailSubmit }
+        : null
     });
   } catch (error) {
     next(error);
@@ -6220,6 +6514,9 @@ export const getPublicRegistrationReceipt = async (req, res) => {
       process.env.GOOGLE_WORKSPACE_FROM_ADDRESS
       || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM
       || '';
+    const subSnap = intakeData?.responses?.submission && typeof intakeData.responses.submission === 'object'
+      ? intakeData.responses.submission
+      : {};
     return res.json({
       submissionId,
       signerName: sub.signer_name || '',
@@ -6229,7 +6526,12 @@ export const getPublicRegistrationReceipt = async (req, res) => {
       agencyName: agency?.name || '',
       fromAddress,
       event: eventPlaceholders,
-      registrationSelections: intakeData?.responses?.submission?.registrationSelections || []
+      registrationSelections: intakeData?.responses?.submission?.registrationSelections || [],
+      registrationReturningAutoMatch:
+        subSnap.registration_returning_guardian_auto_match === true
+        && String(subSnap.registration_returning_matched_initials || '').trim()
+          ? { matched: true, initials: String(subSnap.registration_returning_matched_initials || '').trim() }
+          : null
     });
   } catch (e) {
     return res.status(500).json({ error: { message: e?.message || 'Server error' } });

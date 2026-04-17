@@ -497,7 +497,8 @@ class Client {
       'client_type_transitioned_by_user_id',
       'termination_reason',
       'terminated_at',
-      'terminated_by_user_id'
+      'terminated_by_user_id',
+      'last_returning_match_submission_id'
     ];
 
     for (const field of allowedFields) {

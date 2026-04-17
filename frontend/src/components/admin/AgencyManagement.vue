@@ -1391,6 +1391,15 @@
             </small>
 
             <div v-if="userRole === 'super_admin'" class="toggle-row" style="margin-top: 10px;">
+              <span>Returning guardian auto-match (public intake)</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.returningGuardianAutoMatchEnabled" compact />
+            </div>
+            <small v-if="userRole === 'super_admin'" class="hint">
+              When on, a single confident match on guardian email + selected site name + participant initials can attach
+              the submission to an existing client instead of creating a duplicate (Skill Builders / summer flows).
+            </small>
+
+            <div v-if="userRole === 'super_admin'" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Games (mental health games platform)</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.gamesPlatformEnabled" compact />
             </div>
@@ -4043,6 +4052,7 @@ const TENANT_FEATURE_PROFILES = {
       smsAutoProvisionOnPrehire: false,
       platformSharedMarketingEnabled: true,
       platformPublicRegistrationEnabled: true,
+      returningGuardianAutoMatchEnabled: false,
       gamesPlatformEnabled: false,
 
       schoolPortalsEnabled: false,
@@ -4077,6 +4087,7 @@ const TENANT_FEATURE_PROFILES = {
       smsAutoProvisionOnPrehire: false,
       platformSharedMarketingEnabled: true,
       platformPublicRegistrationEnabled: true,
+      returningGuardianAutoMatchEnabled: false,
       gamesPlatformEnabled: false,
 
       schoolPortalsEnabled: false,
@@ -4111,6 +4122,7 @@ const TENANT_FEATURE_PROFILES = {
       smsAutoProvisionOnPrehire: false,
       platformSharedMarketingEnabled: true,
       platformPublicRegistrationEnabled: true,
+      returningGuardianAutoMatchEnabled: false,
       gamesPlatformEnabled: false,
 
       schoolPortalsEnabled: false,
@@ -6358,6 +6370,8 @@ const defaultAgencyForm = () => ({
     platformSharedMarketingEnabled: true,
     platformPublicRegistrationEnabled: true,
 
+    returningGuardianAutoMatchEnabled: false,
+
     gamesPlatformEnabled: false,
 
     schoolPortalsEnabled: false,
@@ -7752,6 +7766,7 @@ const editAgency = async (agency) => {
       tenantFeatureProfileKey: String(featureFlags.tenantFeatureProfileKey || 'essential_baseline').trim().toLowerCase() || 'essential_baseline',
       platformSharedMarketingEnabled: featureFlags.platformSharedMarketingEnabled !== false,
       platformPublicRegistrationEnabled: featureFlags.platformPublicRegistrationEnabled !== false,
+      returningGuardianAutoMatchEnabled: featureFlags.returningGuardianAutoMatchEnabled === true,
       gamesPlatformEnabled: featureFlags.gamesPlatformEnabled === true,
 
       schoolPortalsEnabled: featureFlags.schoolPortalsEnabled === true,

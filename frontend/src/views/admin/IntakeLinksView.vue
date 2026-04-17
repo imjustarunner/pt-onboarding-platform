@@ -563,7 +563,7 @@
                 <textarea
                   v-model="form.customMessages.completionEmailBody"
                   rows="6"
-                  placeholder="Placeholders include {{SIGNER_NAME}}, {{CLIENT_SUMMARY}}, {{DOWNLOAD_URL}}, {{LINK_EXPIRES_DAYS}}, {{PORTAL_LOGIN_URL}}, {{REGISTRATION_LOGIN_PAGE_URL}}, {{REGISTRATION_LOGIN_EMAIL}}, {{REGISTRATION_TEMP_PASSWORD}}, {{REGISTRATION_EVENT_SUMMARY}}, {{SCHOOL_NAME}}, {{AGENCY_NAME}}."
+                  placeholder="Placeholders include {{SIGNER_NAME}}, {{CLIENT_SUMMARY}}, {{DOWNLOAD_URL}}, {{LINK_EXPIRES_DAYS}}, {{PORTAL_LOGIN_URL}}, {{REGISTRATION_LOGIN_PAGE_URL}}, {{REGISTRATION_LOGIN_EMAIL}}, {{REGISTRATION_TEMP_PASSWORD}}, {{REGISTRATION_EVENT_SUMMARY}}, {{RETURNING_MATCH_NOTICE}}, {{CLIENT_INITIALS}}, {{SCHOOL_NAME}}, {{AGENCY_NAME}}."
                 />
               </div>
             </div>
@@ -3450,6 +3450,8 @@ const applySummerSkillsProgramCompletionEmailCopy = () => {
   form.customMessages.completionEmailSubject = `${formLabel} — {{EVENT_TITLE}} — Registration & intake received`;
   form.customMessages.completionEmailBody = [
     'Hi {{SIGNER_NAME}},',
+    '',
+    '{{RETURNING_MATCH_NOTICE}}',
     '',
     'Thank you for taking the time to complete your Summer Skills Program registration and intake materials.',
     'We are glad you are exploring the program with your family, and we appreciate the care you put into each answer.',
