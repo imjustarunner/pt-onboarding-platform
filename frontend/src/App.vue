@@ -316,6 +316,21 @@
                         <template v-else>
                           <div v-if="directoryPublicLinksError" class="nav-dropdown-error">{{ directoryPublicLinksError }}</div>
                           <template v-else>
+                            <template v-if="directoryPublicLinksData.intakeLinks.length">
+                              <div class="nav-dropdown-group-label">Digital forms</div>
+                              <a
+                                v-for="row in directoryPublicLinksData.intakeLinks"
+                                :key="'intake-' + row.id"
+                                class="nav-dropdown-external-link"
+                                :href="buildFormUrl(row.publicKey, row.formType)"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                @click.stop
+                              >
+                                {{ row.title }}
+                                <span class="nav-dropdown-external-hint">{{ intakeFormDirectoryLabel(row.formType) }}</span>
+                              </a>
+                            </template>
                             <template v-if="directoryPublicLinksData.marketingHubs.length">
                               <div class="nav-dropdown-group-label">Marketing hubs</div>
                               <a
@@ -363,6 +378,11 @@
                               No active public links for your access.
                             </div>
                           </template>
+                          <router-link
+                            v-if="canSeeDigitalFormsNav"
+                            :to="orgTo('/admin/digital-forms')"
+                            @click.stop
+                          >Manage digital forms</router-link>
                           <router-link
                             v-if="String(user?.role || '').toLowerCase() === 'super_admin'"
                             :to="orgTo('/admin/public-marketing-pages')"
@@ -424,6 +444,10 @@
                     <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" >Guardians</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" >Clients</router-link>
                     <router-link :to="orgTo('/admin/credentialing')" v-if="canSeeCredentialing" >Credentialing</router-link>
+                    <router-link
+                      v-if="isSscSstcTenant && canSeeDigitalFormsNav"
+                      :to="orgTo('/admin/digital-forms')"
+                    >Digital forms</router-link>
 
                     <div class="nav-dropdown-sep" />
 
@@ -876,6 +900,19 @@
                   <template v-else>
                     <div v-if="directoryPublicLinksError" class="mobile-nav-link mobile-nav-sublink nav-dropdown-error">{{ directoryPublicLinksError }}</div>
                     <template v-else>
+                      <div v-if="directoryPublicLinksData.intakeLinks.length" class="nav-dropdown-group-label mobile-nav-sublabel">Digital forms</div>
+                      <a
+                        v-for="row in directoryPublicLinksData.intakeLinks"
+                        :key="'m-intake-' + row.id"
+                        class="mobile-nav-link mobile-nav-sublink nav-dropdown-external-link"
+                        :href="buildFormUrl(row.publicKey, row.formType)"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        @click="closeMobileMenu"
+                      >
+                        {{ row.title }}
+                        <span class="nav-dropdown-external-hint">{{ intakeFormDirectoryLabel(row.formType) }}</span>
+                      </a>
                       <div v-if="directoryPublicLinksData.marketingHubs.length" class="nav-dropdown-group-label mobile-nav-sublabel">Marketing hubs</div>
                       <a
                         v-for="hub in directoryPublicLinksData.marketingHubs"
@@ -920,6 +957,12 @@
                       </div>
                     </template>
                     <router-link
+                      v-if="canSeeDigitalFormsNav"
+                      :to="orgTo('/admin/digital-forms')"
+                      class="mobile-nav-link mobile-nav-sublink"
+                      @click="closeMobileMenu"
+                    >Manage digital forms</router-link>
+                    <router-link
                       v-if="String(user?.role || '').toLowerCase() === 'super_admin'"
                       :to="orgTo('/admin/public-marketing-pages')"
                       class="mobile-nav-link mobile-nav-sublink"
@@ -928,6 +971,13 @@
                   </template>
                 </template>
               </div>
+
+              <router-link
+                v-if="isSscSstcTenant && canSeeDigitalFormsNav"
+                :to="orgTo('/admin/digital-forms')"
+                class="mobile-nav-link"
+                @click="closeMobileMenu"
+              >Digital forms</router-link>
 
               <router-link
                 :to="orgTo('/admin/modules')"
@@ -1258,6 +1308,7 @@ import { useUserPreferencesStore } from './store/userPreferences';
 import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
+import { buildFormUrl } from './utils/publicIntakeUrl.js';
 import api from './services/api';
 import AgencySelector from './components/AgencySelector.vue';
 import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
@@ -2233,11 +2284,27 @@ const schoolClientsAgencyId = computed(() => {
 const hasDirectoryPublicLinkRows = computed(() => {
   const d = directoryPublicLinksData.value;
   return (
+    (d.intakeLinks?.length || 0) > 0 ||
     (d.marketingHubs?.length || 0) > 0 ||
     !!d.providerFinder ||
     (d.publicEventPages?.length || 0) > 0
   );
 });
+
+/** Matches /admin/digital-forms route access (IntakeLinksView). */
+const canSeeDigitalFormsNav = computed(() => {
+  const r = String(user.value?.role || '').toLowerCase();
+  return ['admin', 'support', 'staff', 'super_admin'].includes(r);
+});
+
+const intakeFormDirectoryLabel = (formType) => {
+  const t = String(formType || '').toLowerCase();
+  if (t === 'internal_preferences') return 'Preferences';
+  if (t === 'smart_registration') return 'Smart registration';
+  if (t === 'hiring_reference' || t === 'hiring-reference') return 'Hiring reference';
+  if (t === 'company_event_vote') return 'Event vote / RSVP';
+  return 'Digital intake';
+};
 
 const marketingHubPublicUrl = (slug) => {
   const s = String(slug || '').trim().toLowerCase();
@@ -2256,7 +2323,7 @@ const loadDirectoryPublicLinks = async () => {
     if (aid) params.agencyId = aid;
     const { data } = await api.get('/directory/public-links', { params, skipGlobalLoading: true });
     directoryPublicLinksData.value = {
-      intakeLinks: [],
+      intakeLinks: Array.isArray(data?.intakeLinks) ? data.intakeLinks : [],
       marketingHubs: data?.marketingHubs || [],
       providerFinder: data?.providerFinder || null,
       publicEventPages: data?.publicEventPages || []
