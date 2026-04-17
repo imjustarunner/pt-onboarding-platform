@@ -632,13 +632,21 @@
           </button>
         </p>
         <div
-          v-if="skillbuildersOfficeFilterMisconfigured"
+          v-if="skillbuildersOfficeFilterMisconfigured && isSuperAdmin"
           class="sb-audience-warn"
           role="status"
         >
           The office / “not in program” path needs <code>skillbuildersJourney.officeSources</code> in this page’s branding JSON
           (each entry <code>{ "sourceType": "agency"|"organization", "sourceId": number }</code> matching a row under
           <strong>Sources</strong> in admin). Until that is set, no events are shown for that option.
+        </div>
+        <div
+          v-else-if="skillbuildersOfficeFilterMisconfigured"
+          class="sb-audience-notice"
+          role="status"
+        >
+          We couldn’t load office Skill Builders listings on this page yet. Try the other option above, or check back
+          later.
         </div>
         <PublicEventsListing
           ref="eventsListingRef"
@@ -1213,6 +1221,11 @@ function eventMatchesAnyOfficeSource(ev, officeSources) {
   return false;
 }
 
+/** Office journey: partner convention — put “Office” in the public event title when hub officeSources JSON is omitted. */
+function eventOfficePathByEventTitle(ev) {
+  return /\boffice\b/i.test(String(ev?.title || ''));
+}
+
 function normalizeSkillbuildersPathFilter(raw) {
   if (!raw || typeof raw !== 'object') return { kind: 'unknown' };
   const k = String(raw.kind || '').toLowerCase().replace(/-/g, '_');
@@ -1236,7 +1249,10 @@ function eventMatchesSkillbuildersPath(ev, path, officeSources) {
   const f = path?.filter;
   if (!f || f.kind === 'unknown') return false;
   if (f.kind === 'all') return true;
-  if (f.kind === 'officeSources') return eventMatchesAnyOfficeSource(ev, officeSources);
+  if (f.kind === 'officeSources') {
+    if (eventOfficePathByEventTitle(ev)) return true;
+    return eventMatchesAnyOfficeSource(ev, officeSources);
+  }
   if (f.kind === 'programTitleAnd') return eventMatchesProgramTitleAnd(ev, f.includes);
   return false;
 }
@@ -1340,7 +1356,10 @@ const skillbuildersOfficeFilterMisconfigured = computed(() => {
   if (!skillbuildersJourneyActive.value || loading.value || !skillbuildersJourneyChoice.value) return false;
   const path = skillbuildersJourneyPaths.value.find((p) => p.id === skillbuildersJourneyChoice.value);
   if (!path || path.filter.kind !== 'officeSources') return false;
-  return !skillbuildersOfficeSources.value.length;
+  if (skillbuildersOfficeSources.value.length > 0) return false;
+  const all = events.value || [];
+  if (all.some((ev) => eventOfficePathByEventTitle(ev))) return false;
+  return true;
 });
 
 const eventsForListing = computed(() => {
@@ -3961,5 +3980,16 @@ watch(hubSlug, () => {
   background: rgba(255, 255, 255, 0.7);
   padding: 1px 5px;
   border-radius: 4px;
+}
+
+.sb-audience-notice {
+  margin: 0 16px 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  font-size: 0.875rem;
+  line-height: 1.45;
 }
 </style>
