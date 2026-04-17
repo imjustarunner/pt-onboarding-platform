@@ -18,6 +18,8 @@ export const PUBLIC_EVENT_SELECT = `ce.id, ce.title, ce.description, ce.splash_c
        ce.public_age_min, ce.public_age_max,
        ce.public_session_label, ce.public_session_date_range,
        ce.starts_at, ce.ends_at, ce.timezone, ce.registration_eligible, ce.agency_id AS owning_agency_id,
+       ce.organization_id AS program_organization_id,
+       (SELECT a_prog.name FROM agencies a_prog WHERE a_prog.id = ce.organization_id LIMIT 1) AS program_organization_name,
        (SELECT il.public_key FROM intake_links il
         WHERE il.company_event_id = ce.id
           AND il.is_active = 1
@@ -60,6 +62,14 @@ export function formatPublicEvent(row, sessionLocations = []) {
   };
   if (Number.isFinite(owningAgencyIdRaw) && owningAgencyIdRaw > 0) {
     out.owningAgencyId = owningAgencyIdRaw;
+  }
+  const progOrgIdRaw = row.program_organization_id != null ? Number(row.program_organization_id) : null;
+  if (Number.isFinite(progOrgIdRaw) && progOrgIdRaw > 0) {
+    out.programOrganizationId = progOrgIdRaw;
+  }
+  const progName = row.program_organization_name != null ? String(row.program_organization_name).trim() : '';
+  if (progName) {
+    out.programOrganizationName = progName;
   }
   return out;
 }

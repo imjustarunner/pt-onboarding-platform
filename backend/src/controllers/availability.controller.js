@@ -525,19 +525,24 @@ async function loadAffiliatedOrganizationsWithBranding(agencyId) {
     .filter(Boolean)
     .join('\n       ');
 
-  const affiliationFilter = hasAffiliatedAgencyId
-    ? '(oa.organization_id IS NOT NULL OR child.affiliated_agency_id = ?)'
-    : 'oa.organization_id IS NOT NULL';
-  const queryParams = hasAffiliatedAgencyId ? [agencyId, agencyId] : [agencyId];
+  /**
+   * Only orgs with an *active* organization_affiliations row for this agency.
+   * Do not use `child.affiliated_agency_id = agencyId` here — many schools point at a parent
+   * agency that way without being Skill Builders “program workspace” orgs, which blew up
+   * the program dropdown with every school in the district.
+   */
+  const affiliationFilter = 'oa.organization_id IS NOT NULL';
+  const queryParams = [agencyId];
   const [rows] = await pool.execute(
     `SELECT DISTINCT ${selectSql}
      FROM agencies child
-     LEFT JOIN organization_affiliations oa
+     INNER JOIN organization_affiliations oa
        ON oa.organization_id = child.id
       AND oa.agency_id = ?
       AND oa.is_active = TRUE
      ${joins}
      WHERE ${affiliationFilter}
+       AND LOWER(COALESCE(child.organization_type, '')) IN ('program', 'learning')
        AND (child.is_archived = FALSE OR child.is_archived IS NULL)
        AND (child.is_active = TRUE OR child.is_active IS NULL)
      ORDER BY child.name ASC, child.id ASC`,

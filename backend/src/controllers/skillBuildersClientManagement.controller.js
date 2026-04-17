@@ -109,7 +109,7 @@ export const listCoordinatorSkillBuilderCompanyEvents = async (req, res, next) =
     const q = String(req.query.q || '').trim();
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!(await assertSkillBuildersCoordinationAccess(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
     const params = [agencyId];
     let searchSql = '';
@@ -163,7 +163,7 @@ export const listMasterSkillBuilderClients = async (req, res, next) => {
     const schoolFilter = parsePositiveInt(req.query.schoolOrganizationId);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!(await assertSkillBuildersCoordinationAccess(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
 
     const params = [agencyId, agencyId];
@@ -275,7 +275,7 @@ export const patchCoordinatorSkillBuilderClient = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'agencyId and clientId are required' } });
     }
     if (!(await assertSkillBuildersCoordinationAccess(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
 
     const cur = await Client.findById(clientId);
@@ -346,7 +346,7 @@ export const confirmClientReadyForGroups = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'agencyId is required' } });
     }
     if (!(await assertSkillBuildersCoordinationAccess(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
 
     const cur = await Client.findById(clientId);
@@ -402,7 +402,7 @@ export const coordinatorAssignClientToEvent = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'agencyId, companyEventId required' } });
     }
     if (!(await assertSkillBuildersCoordinationAccess(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
 
     const cur = await Client.findById(clientId);
@@ -465,7 +465,7 @@ export const coordinatorUnassignClientFromEvent = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'agencyId and companyEventId are required' } });
     }
     if (!(await assertSkillBuildersCoordinationAccess(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
 
     const cur = await Client.findById(clientId);
@@ -790,7 +790,7 @@ export const confirmClientActiveForSkillBuilderEvent = async (req, res, next) =>
     const access = await assertEventAccessForUser({ req, agencyId, eventId });
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
     if (!(await assertSkillBuildersCoordinationAccess(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
 
     const [r] = await pool.execute(

@@ -1279,7 +1279,7 @@ class User {
       }
     }
 
-    // Skill Builder coordinator access (agency-scoped permission)
+    // Program coordinator access (agency-scoped; users.has_skill_builder_coordinator_access)
     if (hasSkillBuilderCoordinatorAccess !== undefined) {
       try {
         const dbName = process.env.DB_NAME || 'onboarding_stage';

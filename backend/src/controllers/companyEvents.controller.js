@@ -31,6 +31,7 @@ import {
   listTenantEligibleBookClubUsers
 } from '../utils/bookClub.js';
 import { resolveScopedAgencyIdsForMyDashboard } from '../utils/meDashboardTenantScope.js';
+import { assertSkillBuildersSchoolProgramForRequest } from '../utils/skillBuildersSchoolProgramFeature.js';
 
 const DEFAULT_RSVP_OPTIONS = [
   { key: '1', label: 'Yes' },
@@ -1333,7 +1334,7 @@ async function getEventDeliverySummary(eventId) {
 
 /**
  * POST body: { agencyId } — creates company_events from school skills_groups missing links (same data as CLI backfill).
- * Requires agency access and (Skill Builders sub-coordinator OR staff who can manage company events).
+ * Requires agency access and (program coordinator OR staff who can manage company events).
  */
 export const postBackfillSkillsGroupCompanyEvents = async (req, res, next) => {
   try {
@@ -1348,9 +1349,11 @@ export const postBackfillSkillsGroupCompanyEvents = async (req, res, next) => {
     const isStaff = await userCanManageCompanyEventsAsync(req);
     if (!isCoord && !isStaff) {
       return res.status(403).json({
-        error: { message: 'Skill Builders sub-coordinator or admin/staff access required' }
+        error: { message: 'Program coordinator or admin/staff access required' }
       });
     }
+    const sbGate = await assertSkillBuildersSchoolProgramForRequest(req, agencyId);
+    if (!sbGate.ok) return res.status(sbGate.status).json({ error: { message: sbGate.message } });
     const conn = await pool.getConnection();
     try {
       const result = await backfillSkillsGroupCompanyEvents(conn, {
@@ -1377,8 +1380,10 @@ export const listProgramCompanyEventsForCoordinator = async (req, res, next) => 
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
     if (!(await getSkillBuilderCoordinatorAccess(req.user?.id))) {
-      return res.status(403).json({ error: { message: 'Sub-coordinator access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator access required' } });
     }
+    const sbGate = await assertSkillBuildersSchoolProgramForRequest(req, agencyId);
+    if (!sbGate.ok) return res.status(sbGate.status).json({ error: { message: sbGate.message } });
     const aff = await validateAffiliatedOrganizationForEvent(agencyId, organizationId);
     if (aff.error) return res.status(400).json({ error: { message: aff.error } });
 
@@ -1645,8 +1650,8 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
 
   const [insertResult] = await pool.execute(
     `INSERT INTO company_events
-     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_hero_focal_point, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, public_session_label, public_session_date_range, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, program_cost_billing_mode, program_cost_dollars, per_session_cost_dollars, kiosk_event_pin_hash, snacks_available, snack_options_json, meals_available, meal_options_json, guest_policy, potluck_enabled, organizer_providing_json, event_image_url, event_image_urls_json, rsvp_deadline, event_location_name, event_location_address, event_location_phone, family_provision_note, registration_form_url, sms_draft_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (agency_id, organization_id, created_by_user_id, updated_by_user_id, title, description, event_type, splash_content, public_hero_image_url, public_hero_focal_point, public_listing_details, in_person_public, public_location_address, public_location_lat, public_location_lng, public_age_min, public_age_max, public_session_label, public_session_date_range, starts_at, ends_at, timezone, recurrence_json, is_active, rsvp_mode, voting_config_json, reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours, registration_eligible, medicaid_eligible, cash_eligible, program_cost_billing_mode, program_cost_dollars, per_session_cost_dollars, client_check_in_display_time, client_check_out_display_time, employee_report_time, employee_departure_time, virtual_sessions_enabled, kiosk_event_pin_hash, snacks_available, snack_options_json, meals_available, meal_options_json, guest_policy, potluck_enabled, organizer_providing_json, event_image_url, event_image_urls_json, rsvp_deadline, event_location_name, event_location_address, event_location_phone, family_provision_note, registration_form_url, sms_draft_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       agencyId,
       organizationIdForRow,
@@ -1684,6 +1689,11 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
       parsed.programCostBillingMode || 'total',
       parsed.programCostDollars,
       parsed.perSessionCostDollars,
+      parsed.clientCheckInDisplayTime,
+      parsed.clientCheckOutDisplayTime,
+      parsed.employeeReportTime,
+      parsed.employeeDepartureTime,
+      parsed.virtualSessionsEnabled ? 1 : 0,
       createKioskPinHash,
       parsed.snacksAvailable ? 1 : 0,
       parsed.snackOptions?.length ? JSON.stringify(parsed.snackOptions) : null,
@@ -1738,7 +1748,7 @@ export const createCompanyEvent = async (req, res, next) => {
 
 /**
  * Program hub: create a company event scoped to an affiliated program org (not from school skills_groups).
- * Sub-coordinators may use this; integrated Skill Builders school events stay on the school/backfill flow.
+ * Program coordinators may use this; integrated Skill Builders school events stay on the school/backfill flow.
  */
 export const postProgramCompanyEventForCoordinator = async (req, res, next) => {
   try {
@@ -1754,9 +1764,11 @@ export const postProgramCompanyEventForCoordinator = async (req, res, next) => {
     const isStaff = await userCanManageCompanyEventsAsync(req);
     if (!isCoord && !isStaff) {
       return res.status(403).json({
-        error: { message: 'Sub-coordinator or admin/staff access required' }
+        error: { message: 'Program coordinator or admin/staff access required' }
       });
     }
+    const sbGate = await assertSkillBuildersSchoolProgramForRequest(req, agencyId);
+    if (!sbGate.ok) return res.status(sbGate.status).json({ error: { message: sbGate.message } });
 
     const aff = await validateAffiliatedOrganizationForEvent(agencyId, organizationId);
     if (aff.error) return res.status(400).json({ error: { message: aff.error } });

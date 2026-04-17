@@ -21,7 +21,7 @@
           class="btn btn-primary btn-sm"
           type="button"
           :disabled="!selectedAgencyIdNum"
-          @click="() => { manageEventId.value = null; showStaffEventForm = true; }"
+          @click="openCreateStaffEvent"
         >
           Create Event
         </button>
@@ -291,6 +291,11 @@ onMounted(async () => {
   }
   syncAgencySelection();
 });
+
+function openCreateStaffEvent() {
+  manageEventId.value = null;
+  showStaffEventForm.value = true;
+}
 
 function handleStaffEventSaved() {
   directoryRefreshKey.value += 1;

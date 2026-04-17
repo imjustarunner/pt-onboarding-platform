@@ -1353,6 +1353,8 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useUserPreferencesStore } from '../store/userPreferences';
 import { useBrandingStore } from '../store/branding';
+import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js';
+import { canAccessSkillBuildersSchoolProgramSurfaces } from '../utils/skillBuildersSchoolProgramAccess.js';
 import { useTutorialStore } from '../store/tutorial';
 import api from '../services/api';
 import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
@@ -1444,6 +1446,18 @@ const isClubContext = computed(() => {
 const isSummitStatsSurface = useSummitStatsChallengeChrome();
 const userPrefsStore = useUserPreferencesStore();
 const brandingStore = useBrandingStore();
+
+const canSeeSchoolPortalsForCoordinator = computed(() => {
+  const ag = agencyStore.currentAgency?.value || agencyStore.currentAgency || {};
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSchoolPortalsSurfaces({
+    userRole: authStore.user?.role,
+    agencyFeatureFlags: ag.feature_flags ?? ag.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      ag.tenant_available_agency_features_json ?? ag.tenantAvailableAgencyFeaturesJson
+  });
+});
 const tutorialStore = useTutorialStore();
 const PROGRAM_WORKSPACE_TAB = '__program_workspace__';
 const activeTab = ref('checklist');
@@ -1563,7 +1577,20 @@ function onDarkModeToggle(e) {
   isDarkMode.value = enabled;
 }
 
+const canAccessSkillBuildersSchoolProgramTenantDashboard = computed(() => {
+  const agency = agencyStore.currentAgency?.value || agencyStore.currentAgency || {};
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSkillBuildersSchoolProgramSurfaces({
+    userRole: authStore.user?.role,
+    agencyFeatureFlags: agency.feature_flags ?? agency.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
+  });
+});
+
 const isSkillBuilderEligible = computed(() => {
+  if (!canAccessSkillBuildersSchoolProgramTenantDashboard.value) return false;
   const u = authStore.user || {};
   return u.skill_builder_eligible === true || u.skill_builder_eligible === 1 || u.skill_builder_eligible === '1';
 });
@@ -3598,13 +3625,14 @@ const dashboardCards = computed(() => {
       });
     }
 
-    // Sub Coordinator access (backed by users.has_skill_builder_coordinator_access)
+    // Program coordinator access (users.has_skill_builder_coordinator_access)
     // grants elevated affiliated-org tools.
-    // Skill Builders admin card: super_admin, admin, and coordinator-flag users
-    // who aren't already seeing the provider-hub card via skill_builder_eligible.
+    // Skill Builders *school program* admin card (availability grid): only when that tenant program is on,
+    // except super admins (QA). Admins / program coordinators use Program Overview + per-program hubs otherwise.
+    const sbSchoolProgramOn = canAccessSkillBuildersSchoolProgramTenantDashboard.value;
     if (
       !isSkillBuilderEligible.value &&
-      (role === 'super_admin' || role === 'admin' || isSkillBuilderCoordinator.value)
+      (role === 'super_admin' || (sbSchoolProgramOn && (role === 'admin' || isSkillBuilderCoordinator.value)))
     ) {
       const sbIconOrg = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
       cards.push({
@@ -3620,15 +3648,17 @@ const dashboardCards = computed(() => {
 
     if (hasSkillBuilderCoordinatorToolsAccess.value) {
       const orgOverride = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
-      cards.push({
-        id: 'sub_coordinator_school_overview',
-        label: 'School Overview',
-        kind: 'link',
-        to: '/admin/schools/overview?orgType=school',
-        badgeCount: 0,
-        iconUrl: brandingStore.getAdminQuickActionIconUrl('school_overview', orgOverride),
-        description: 'Manage affiliated school dashboards and staffing/slot views.'
-      });
+      if (canSeeSchoolPortalsForCoordinator.value) {
+        cards.push({
+          id: 'sub_coordinator_school_portals',
+          label: 'School Portals',
+          kind: 'link',
+          to: '/admin/school-portals-hub',
+          badgeCount: 0,
+          iconUrl: brandingStore.getAdminQuickActionIconUrl('school_overview', orgOverride),
+          description: 'School overview, all school portals, and add-school entry when enabled for this tenant.'
+        });
+      }
       cards.push({
         id: 'sub_coordinator_program_overview',
         label: 'Program Overview',
@@ -3676,7 +3706,7 @@ const railCards = computed(() => {
         my: 0,
         my_schedule: 1,
         program_shifts: 2,
-        sub_coordinator_school_overview: 3,
+        sub_coordinator_school_portals: 3,
         sub_coordinator_program_overview: 3.5,
         skill_builders_provider_hub: 3.7,
         skill_builders_availability: 4,
@@ -3706,7 +3736,7 @@ const railCards = computed(() => {
       my_schedule: 3,
       skill_builders_provider_hub: 3.7,
       program_shifts: 4,
-      sub_coordinator_school_overview: 5,
+      sub_coordinator_school_portals: 5,
       sub_coordinator_program_overview: 5.5,
       skill_builders_availability: 6,
       clients: 7,

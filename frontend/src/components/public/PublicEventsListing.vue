@@ -100,7 +100,7 @@
 
         <TransitionGroup name="pel-card" tag="ul" class="pel-list">
           <li v-for="(ev, idx) in displayEvents" :key="ev.id" class="pel-item" :style="{ '--stagger': idx }">
-            <article class="pel-card">
+            <article class="pel-card" :style="eventHubCardThemeStyle(ev)">
               <div v-if="showHubSourceChips && hubPartnerEntries(ev).length" class="pel-card-agency-logos">
                 <button
                   v-for="(p, pi) in hubPartnerEntries(ev)"
@@ -122,70 +122,52 @@
                 </button>
               </div>
 
-              <div class="pel-card-condensed">
+              <div class="pel-card-hero">
                 <a
                   v-if="ev.publicHeroImageUrl && primaryMapsQuery(ev)"
                   :href="googleMapsSearchUrl(primaryMapsQuery(ev))"
-                  class="pel-thumb-maps"
+                  class="pel-thumb-maps pel-thumb-maps--hero"
                   target="_blank"
                   rel="noopener noreferrer"
                   :aria-label="`Open ${locationDisplayName(ev)} in Maps`"
                 >
-                  <img :src="ev.publicHeroImageUrl" :alt="locationDisplayName(ev)" loading="lazy" />
+                  <img :src="ev.publicHeroImageUrl" :alt="eventPrimaryTitle(ev)" loading="lazy" />
                 </a>
-                <div v-else-if="ev.publicHeroImageUrl" class="pel-thumb-maps pel-thumb-maps--static">
-                  <img :src="ev.publicHeroImageUrl" :alt="locationDisplayName(ev)" loading="lazy" />
+                <div v-else-if="ev.publicHeroImageUrl" class="pel-thumb-maps pel-thumb-maps--static pel-thumb-maps--hero">
+                  <img :src="ev.publicHeroImageUrl" :alt="eventPrimaryTitle(ev)" loading="lazy" />
                 </div>
-                <div class="pel-condensed-main">
-                  <div class="pel-condensed-line">
-                    <span class="pel-loc-name">{{ locationDisplayName(ev) }}</span>
-                    <template v-if="drivingDistanceDisplay(ev) != null">
-                      <span class="pel-loc-sep" aria-hidden="true"> — </span>
-                      <span class="pel-loc-dist">{{ formatDistanceMi(drivingDistanceDisplay(ev)) }} miles</span>
-                    </template>
-                    <a
-                      class="pel-btn pel-btn-primary pel-btn-register-inline"
-                      :href="registrationUrl(ev.registrationPublicKey)"
-                    >
-                      Register now
-                    </a>
+                <div class="pel-card-hero-main">
+                  <div class="pel-card-hero-head">
+                    <h2 class="pel-card-title">{{ eventPrimaryTitle(ev) }}</h2>
+                    <span class="pel-badge pel-badge-ready">Open for registration</span>
                   </div>
-                  <p v-if="ev.publicSessionLabel || ev.publicSessionDateRange" class="pel-session-public">
-                    <strong v-if="ev.publicSessionLabel">{{ ev.publicSessionLabel }}</strong>
-                    <span v-if="ev.publicSessionDateRange" class="muted">
-                      <template v-if="ev.publicSessionLabel"> · </template>{{ ev.publicSessionDateRange }}
-                    </span>
-                    <button
-                      v-if="ev.publicSessionLabel"
-                      type="button"
-                      class="pel-sess-filter-btn"
-                      @click="setSessionFilter(ev.publicSessionLabel)"
-                    >
-                      Show all {{ ev.publicSessionLabel }} locations
+                  <p v-if="eventLocationMetaLine(ev)" class="pel-card-meta-loc muted">{{ eventLocationMetaLine(ev) }}</p>
+                  <p v-if="publicEventScheduleLine(ev)" class="pel-card-schedule">{{ publicEventScheduleLine(ev) }}</p>
+                  <p v-if="ev.publicSessionLabel" class="pel-card-sess-filter">
+                    <button type="button" class="pel-sess-filter-btn" @click="setSessionFilter(ev.publicSessionLabel)">
+                      All {{ ev.publicSessionLabel }} locations
                     </button>
                   </p>
+                  <a
+                    class="pel-btn pel-btn-primary pel-btn-register"
+                    :href="registrationUrl(ev.registrationPublicKey)"
+                  >
+                    Register now
+                  </a>
                 </div>
               </div>
 
               <div class="pel-card-body">
-                <div class="pel-card-head">
-                  <h2 class="pel-card-title">{{ ev.title }}</h2>
-                  <span class="pel-badge pel-badge-ready">Open for registration</span>
-                </div>
-                <p v-if="showHubSourceChips && hubPartnerLabels(ev).length" class="pel-hub-partners">
+                <p v-if="showPartnerTextChips(ev)" class="pel-hub-partners">
                   <span v-for="(label, hi) in hubPartnerLabels(ev)" :key="`hp-${ev.id}-${hi}`" class="pel-chip">{{
                     label
                   }}</span>
                 </p>
-                <p class="pel-when">{{ formatWhen(ev) }}</p>
-                <p v-if="ageRangeLabel(ev)" class="pel-age-range">{{ ageRangeLabel(ev) }}</p>
+                <p v-if="ageRangeLabel(ev)" class="pel-meta-kicker">{{ ageRangeLabel(ev) }}</p>
                 <p v-if="ev.description" class="pel-desc">{{ ev.description }}</p>
                 <p v-if="ev.publicListingDetails" class="pel-extra">{{ ev.publicListingDetails }}</p>
-                <div
-                  v-if="ev.inPersonPublic && ev.publicLocationAddress"
-                  class="pel-venue"
-                >
-                  <strong>In person</strong>
+                <div v-if="primaryVenueShouldShow(ev)" class="pel-venue">
+                  <strong>Location</strong>
                   <a
                     class="pel-address pel-address-link"
                     :href="googleMapsSearchUrl(ev.publicLocationAddress)"
@@ -201,8 +183,8 @@
                     Open in Maps
                   </a>
                 </div>
-                <ul v-if="sessionAddresses(ev).length" class="pel-session-locs">
-                  <li v-for="(row, i) in sessionAddresses(ev)" :key="`sl-${ev.id}-${i}`">
+                <ul v-if="extraSessionLocations(ev).length" class="pel-session-locs">
+                  <li v-for="(row, i) in extraSessionLocations(ev)" :key="`sl-${ev.id}-${i}`">
                     <span v-if="row.label" class="pel-sess-label">{{ row.label }}</span>
                     <a
                       class="pel-address pel-address-link"
@@ -220,19 +202,12 @@
                     </a>
                   </li>
                 </ul>
-                <p
-                  v-if="drivingDistanceDisplay(ev) != null"
-                  class="pel-distance"
-                >
+                <p v-if="showDrivingDistanceFooter(ev)" class="pel-distance">
                   ~{{ formatDistanceMi(drivingDistanceDisplay(ev)) }} mi drive
                   <span v-if="ev.drivingDurationText" class="muted"> · {{ ev.drivingDurationText }}</span>
                   <span v-if="ev.nearestVenueLabel" class="muted"> · {{ ev.nearestVenueLabel }}</span>
                 </p>
-                <div
-                  v-if="sanitizedSplash(ev)"
-                  class="pel-splash"
-                  v-html="sanitizedSplash(ev)"
-                />
+                <div v-if="sanitizedSplash(ev)" class="pel-splash" v-html="sanitizedSplash(ev)" />
               </div>
             </article>
           </li>
@@ -243,7 +218,7 @@
             <p class="pel-empty-eyebrow">Coming up</p>
             <h2 class="pel-empty-title">Programs will appear here</h2>
             <p class="pel-empty-copy">
-              When summer sessions open for each school location, you&rsquo;ll see them listed below — with dates, locations, and
+              When sessions open for each site, you&rsquo;ll see them listed below — with dates, locations, and
               registration. Use the <strong>address search</strong> above to sort by driving distance from your home once events
               are posted.
             </p>
@@ -437,7 +412,7 @@ const nearestInlineSubtext = computed(() => {
   const o = String(props.nearestModalHint || '').trim();
   if (o) return o.split('\n')[0].replace(/<[^>]+>/g, '').trim().slice(0, 220);
   if (hubSlugNorm.value) {
-    return 'We use Google Maps driving routes to sort programs by shortest drive to each listed school or venue.';
+    return 'We use Google Maps driving routes to sort programs by shortest drive to each listed site or venue.';
   }
   return 'We use Google Maps driving routes to each in-person venue and sort events by shortest drive.';
 });
@@ -486,6 +461,29 @@ function hubPartnerEntries(ev) {
   const raw = ev?.hubSourcePartners;
   if (!Array.isArray(raw) || !raw.length) return [];
   return raw;
+}
+
+function normalizePartnerBrandHex(v) {
+  const s = String(v || '').trim();
+  if (/^#[0-9A-Fa-f]{6}$/i.test(s)) return `#${s.slice(1).toLowerCase()}`;
+  if (/^#[0-9A-Fa-f]{3}$/i.test(s)) {
+    return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`.toLowerCase();
+  }
+  return '';
+}
+
+/** Per-event accent when API includes `sourceAgencyBrandPrimary` on hub partners (marketing hub). */
+function eventHubCardThemeStyle(ev) {
+  if (!props.showHubSourceChips || !hubSlugNorm.value) return {};
+  const partners = hubPartnerEntries(ev);
+  const primary = partners.map((p) => normalizePartnerBrandHex(p?.sourceAgencyBrandPrimary)).find(Boolean);
+  if (!primary) return {};
+  const secondary =
+    partners.map((p) => normalizePartnerBrandHex(p?.sourceAgencyBrandSecondary)).find(Boolean) || primary;
+  return {
+    '--pel-card-primary': primary,
+    '--pel-card-primary-dark': secondary
+  };
 }
 
 function toggleAgencyFilter(id) {
@@ -551,14 +549,39 @@ function locationDisplayName(ev) {
   return String(ev?.title || 'Program').trim();
 }
 
+/** e.g. `America/Denver` → `MDT` / `MST` for that instant (not "Denver" as a place name). */
+function timezoneAbbrevAtInstant(isoDate, ianaTz) {
+  const id = String(ianaTz || '').trim();
+  if (!id || id.toUpperCase() === 'UTC') return '';
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: id,
+      timeZoneName: 'short'
+    });
+    const parts = fmt.formatToParts(isoDate);
+    return String(parts.find((p) => p.type === 'timeZoneName')?.value || '').trim();
+  } catch {
+    return '';
+  }
+}
+
 function formatWhen(ev) {
   const a = new Date(ev?.startsAt || 0);
   const b = new Date(ev?.endsAt || 0);
   if (!Number.isFinite(a.getTime())) return '';
-  const opt = { dateStyle: 'medium', timeStyle: 'short' };
+  const tz = String(ev?.timezone || '').trim();
+  const base = { dateStyle: 'medium', timeStyle: 'short' };
+  const opt = tz && tz.toUpperCase() !== 'UTC' ? { ...base, timeZone: tz } : base;
   try {
     const endPart = Number.isFinite(b.getTime()) ? b.toLocaleString(undefined, opt) : '';
-    return `${a.toLocaleString(undefined, opt)}${endPart ? ` – ${endPart}` : ''} (${ev.timezone || 'UTC'})`;
+    let out = `${a.toLocaleString(undefined, opt)}${endPart ? ` – ${endPart}` : ''}`;
+    if (tz && tz.toUpperCase() !== 'UTC') {
+      const abbr = timezoneAbbrevAtInstant(a, tz);
+      out += abbr ? ` (${abbr})` : ` (${tz})`;
+    } else {
+      out += ' (UTC)';
+    }
+    return out;
   } catch {
     return '';
   }
@@ -610,6 +633,122 @@ function sanitizedSplash(ev) {
 function sessionAddresses(ev) {
   const sessions = Array.isArray(ev?.sessionLocations) ? ev.sessionLocations : [];
   return sessions.filter((s) => String(s?.address || '').trim());
+}
+
+function normalizeAddrLine(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/,\s*/g, ', ');
+}
+
+/** Session rows whose address differs from the primary listing address (avoids duplicate blocks). */
+function extraSessionLocations(ev) {
+  const rows = sessionAddresses(ev);
+  const main = normalizeAddrLine(ev?.publicLocationAddress);
+  if (!main) return rows;
+  return rows.filter((r) => normalizeAddrLine(r.address) !== main);
+}
+
+function eventPrimaryTitle(ev) {
+  const t = String(ev?.title || '').trim();
+  if (t) return t;
+  return String(locationDisplayName(ev) || 'Program').trim() || 'Program';
+}
+
+function firstAddressLineLower(addr) {
+  return String(addr || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+}
+
+/** True when the meta “location” line would repeat the same street already shown in the Location block. */
+function locationMetaDuplicatesPrimaryVenue(ev, loc) {
+  if (!primaryVenueShouldShow(ev)) return false;
+  const full = String(ev?.publicLocationAddress || '').trim();
+  if (!full || !loc) return false;
+  const fullLo = full.toLowerCase();
+  const locLo = loc.toLowerCase();
+  const fullFirst = firstAddressLineLower(full);
+  return locLo === fullFirst || fullLo.startsWith(locLo);
+}
+
+function eventLocationMetaLine(ev) {
+  const loc = String(locationDisplayName(ev) || '').trim();
+  const title = eventPrimaryTitle(ev);
+  const dist =
+    drivingDistanceDisplay(ev) != null ? `${formatDistanceMi(drivingDistanceDisplay(ev))} mi` : '';
+
+  if (!loc || loc === title) {
+    return dist || '';
+  }
+
+  if (locationMetaDuplicatesPrimaryVenue(ev, loc)) {
+    return dist || '';
+  }
+
+  const parts = [loc];
+  if (dist) parts.push(dist);
+  return parts.join(' · ');
+}
+
+function formatEventTimesOnly(ev) {
+  const a = new Date(ev?.startsAt || 0);
+  const b = new Date(ev?.endsAt || 0);
+  if (!Number.isFinite(a.getTime())) return '';
+  const tz = String(ev?.timezone || '').trim();
+  const timeOpts = {
+    timeStyle: 'short',
+    ...(tz && tz.toUpperCase() !== 'UTC' ? { timeZone: tz } : {})
+  };
+  try {
+    const startT = a.toLocaleString(undefined, timeOpts);
+    const endT = Number.isFinite(b.getTime()) ? b.toLocaleString(undefined, timeOpts) : '';
+    let s = endT ? `${startT} – ${endT}` : startT;
+    if (tz && tz.toUpperCase() !== 'UTC') {
+      const abbr = timezoneAbbrevAtInstant(a, tz);
+      if (abbr) s += ` · ${abbr}`;
+    }
+    return s;
+  } catch {
+    return '';
+  }
+}
+
+/** One line for session label + human date range + daily times (avoids repeating full `formatWhen`). */
+function publicEventScheduleLine(ev) {
+  const label = String(ev?.publicSessionLabel || '').trim();
+  const range = String(ev?.publicSessionDateRange || '').trim();
+  const times = formatEventTimesOnly(ev);
+  if (label || range) {
+    const head = [label, range].filter(Boolean).join(' · ');
+    if (times) return `${head} · ${times}`;
+    return head;
+  }
+  if (times) return times;
+  return formatWhen(ev);
+}
+
+function showPartnerTextChips(ev) {
+  const labels = hubPartnerLabels(ev);
+  if (!labels.length) return false;
+  if (props.showHubSourceChips && hubSlugNorm.value && hubPartnerEntries(ev).length) return false;
+  return true;
+}
+
+function primaryVenueShouldShow(ev) {
+  return !!(ev?.inPersonPublic && String(ev?.publicLocationAddress || '').trim());
+}
+
+function showDrivingDistanceFooter(ev) {
+  if (drivingDistanceDisplay(ev) == null) return false;
+  const meta = eventLocationMetaLine(ev);
+  if (!meta) return true;
+  const distLabel = `${formatDistanceMi(drivingDistanceDisplay(ev))} mi`;
+  if (meta.includes(distLabel)) return false;
+  return true;
 }
 
 function formatDistanceMi(meters) {
@@ -1093,6 +1232,95 @@ defineExpose({ focusNearestInput });
   backdrop-filter: blur(8px);
 }
 
+.pel-card-hero {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 16px 16px 14px;
+  border-bottom: 1px solid rgba(199, 210, 254, 0.12);
+}
+
+.pel-card-hero-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pel-card-hero-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pel-card-meta-loc {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.pel-card-schedule {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #e2e8f0;
+  font-weight: 500;
+}
+
+.pel-card-sess-filter {
+  margin: 0;
+}
+
+.pel-card-sess-filter .pel-sess-filter-btn {
+  display: inline;
+  margin-top: 0;
+}
+
+.pel-meta-kicker {
+  margin: 0 0 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #e9d5ff;
+}
+
+.pel-thumb-maps--hero {
+  width: 76px;
+  height: 76px;
+  border-radius: 14px;
+  align-self: flex-start;
+}
+
+.pel-btn-register {
+  align-self: flex-start;
+  margin-top: 6px;
+  min-height: 44px;
+  padding: 10px 18px;
+  font-size: 0.9375rem;
+  border-radius: 12px;
+  text-decoration: none;
+}
+
+@media (max-width: 520px) {
+  .pel-card-hero {
+    flex-direction: column;
+  }
+
+  .pel-thumb-maps--hero {
+    width: 100%;
+    height: min(160px, 38vw);
+    max-height: 180px;
+  }
+
+  .pel-btn-register {
+    align-self: stretch;
+    text-align: center;
+    justify-content: center;
+  }
+}
+
 .pel-media img {
   display: block;
   width: 100%;
@@ -1104,23 +1332,15 @@ defineExpose({ focusNearestInput });
   padding: 16px 16px 18px;
 }
 
-.pel-card-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
 .pel-card-title {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: clamp(1.15rem, 3.6vw, 1.35rem);
   font-weight: 800;
   color: #fff;
-  line-height: 1.25;
+  line-height: 1.22;
   flex: 1;
   min-width: 0;
+  letter-spacing: -0.02em;
 }
 
 .pel-badge {
@@ -1351,12 +1571,31 @@ defineExpose({ focusNearestInput });
 .pel-root--hub .pel-card-title {
   color: var(--hub-text, #111827);
   font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, sans-serif);
+  font-size: clamp(1.2rem, 3.8vw, 1.45rem);
+}
+
+.pel-root--hub .pel-card-hero {
+  border-bottom-color: var(--hub-border, rgba(15, 23, 42, 0.06));
+}
+
+.pel-root--hub .pel-card-schedule {
+  color: var(--hub-text-muted, #4b5563);
+  font-family: var(--hub-font-body, Inter, sans-serif);
+}
+
+.pel-root--hub .pel-meta-kicker {
+  color: var(--hub-link-dark, #334155);
+}
+
+.pel-root--hub .pel-sess-filter-btn {
+  color: var(--hub-link, #334155);
 }
 
 .pel-root--hub .pel-badge-ready {
-  background: rgba(163, 38, 35, 0.1);
-  color: var(--hub-link-dark, #7a1f1d);
-  border: 1px solid rgba(163, 38, 35, 0.28);
+  background: color-mix(in srgb, var(--hub-brand, #059669) 10%, #ecfdf5);
+  color: #065f46;
+  border: 1px solid color-mix(in srgb, var(--hub-brand, #10b981) 28%, #a7f3d0);
+  font-family: var(--hub-font-body, Inter, sans-serif);
 }
 
 .pel-root--hub .pel-when {
@@ -1485,6 +1724,16 @@ defineExpose({ focusNearestInput });
   color: #fff;
   font-family: var(--hub-font-display, 'Plus Jakarta Sans', Inter, sans-serif);
   box-shadow: 0 8px 22px rgba(122, 31, 29, 0.28);
+}
+
+.pel-root--hub .pel-card .pel-btn-primary,
+.pel-root--hub .pel-card .pel-btn-register {
+  background: linear-gradient(
+    135deg,
+    var(--pel-card-primary, var(--hub-brand, #a32623)) 0%,
+    var(--pel-card-primary-dark, var(--hub-link-dark, #7a1f1d)) 100%
+  );
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--pel-card-primary, var(--hub-brand, #64748b)) 28%, transparent);
 }
 
 .pel-root--hub .pel-btn-primary:hover:not(:disabled) {
@@ -1758,6 +2007,11 @@ defineExpose({ focusNearestInput });
 .pel-agency-logo-btn--active {
   border-color: #a5b4fc;
   box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.35);
+}
+
+.pel-root--hub .pel-agency-logo-btn--active {
+  border-color: color-mix(in srgb, var(--hub-brand, #818cf8) 55%, #ffffff);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--hub-brand, #818cf8) 38%, transparent);
 }
 
 .pel-agency-logo-btn img {

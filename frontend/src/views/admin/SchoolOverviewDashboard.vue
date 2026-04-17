@@ -7,7 +7,21 @@
       </div>
       <div class="header-actions" data-tour="schools-overview-actions">
         <router-link class="btn btn-secondary" to="/admin/clients">Back to Client Management</router-link>
-        <router-link class="btn btn-secondary" :to="showAllPortalsTo">Show All School Portals</router-link>
+        <router-link class="btn btn-secondary" :to="hubTo">School Portals hub</router-link>
+        <router-link
+          v-if="!isAllPortalsPage && orgType === 'school'"
+          class="btn btn-secondary"
+          :to="showAllPortalsTo"
+        >All school portals</router-link>
+        <router-link v-if="isAllPortalsPage" class="btn btn-secondary" :to="schoolOverviewTo">School overview</router-link>
+        <button
+          v-if="canManageSchoolsHere"
+          class="btn btn-secondary"
+          type="button"
+          @click="showAddSchoolModal = true"
+        >
+          Add school
+        </button>
         <button
           class="btn btn-primary"
           type="button"
@@ -157,7 +171,7 @@
           data-tour="schools-overview-card"
           role="button"
           tabindex="0"
-          :class="{ 'skills-active': s.skills_group_occurring_now }"
+          :class="{ 'skills-active': canSeeSkillBuildersSchoolOverviewUi && s.skills_group_occurring_now }"
           @click="openSchool(s)"
           @keydown.enter.prevent="openSchool(s)"
           @keydown.space.prevent="openSchool(s)"
@@ -169,7 +183,7 @@
                 <span class="pill">{{ formatOrgType(s.organization_type) }}</span>
                 <span v-if="s.district_name" class="pill pill-muted">{{ s.district_name }}</span>
                 <button
-                  v-if="Number(s.skills_groups_count || 0) > 0"
+                  v-if="canSeeSkillBuildersSchoolOverviewUi && Number(s.skills_groups_count || 0) > 0"
                   type="button"
                   class="sg-icon-btn"
                   title="Open Skills Groups in School Portal"
@@ -178,18 +192,20 @@
                   <img v-if="skillBuildersIconUrl" :src="skillBuildersIconUrl" alt="" class="sg-icon-img" />
                   <span v-else aria-hidden="true" class="sg-icon-fallback">SB</span>
                 </button>
-                <span
-                  v-for="g in (Array.isArray(s.active_skills_groups) ? s.active_skills_groups : [])"
-                  :key="`asg-${s.school_id}-${g.skills_group_id}`"
-                  class="pill pill-sg-badge"
-                  title="Active Skills Group participants"
-                >
-                  SG
-                  <span class="sg-count">{{ Number(g.participants_count || 0) }}</span>
-                </span>
+                <template v-if="canSeeSkillBuildersSchoolOverviewUi">
+                  <span
+                    v-for="g in (Array.isArray(s.active_skills_groups) ? s.active_skills_groups : [])"
+                    :key="`asg-${s.school_id}-${g.skills_group_id}`"
+                    class="pill pill-sg-badge"
+                    title="Active Skills Group participants"
+                  >
+                    SG
+                    <span class="sg-count">{{ Number(g.participants_count || 0) }}</span>
+                  </span>
+                </template>
                 <span v-if="!s.is_active" class="pill pill-warn">Inactive</span>
                 <span v-if="s.is_archived" class="pill pill-warn">Archived</span>
-                <span v-if="s.skills_group_occurring_now" class="pill pill-accent">Skills Group Live</span>
+                <span v-if="canSeeSkillBuildersSchoolOverviewUi && s.skills_group_occurring_now" class="pill pill-accent">Skills Group Live</span>
               </div>
             </div>
             <div class="card-cta">Open</div>
@@ -266,6 +282,7 @@
               <div class="stat-value" :class="{ danger: s.docs_needs_count > 0 }">{{ s.docs_needs_count }}</div>
             </div>
             <div
+              v-if="canSeeSkillBuildersSchoolOverviewUi"
               class="stat stat-clickable"
               role="button"
               tabindex="0"
@@ -469,6 +486,12 @@
       </div>
     </div>
 
+    <AddSchoolScopedModal
+      v-model="showAddSchoolModal"
+      :affiliated-agency-id="affiliatedAgencyIdForModal"
+      @created="onSchoolCreated"
+    />
+
     <div v-if="showDeleteConfirmModal" class="modal-overlay" @click.self="closeDeleteConfirmModal">
       <div class="modal delete-confirm-modal" @click.stop>
         <div class="modal-header">
@@ -515,6 +538,9 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
+import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
+import AddSchoolScopedModal from '../../components/admin/AddSchoolScopedModal.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -557,6 +583,13 @@ const showDeleteConfirmModal = ref(false);
 const deleteTarget = ref(null);
 const deleteSaving = ref(false);
 const deleteError = ref('');
+const showAddSchoolModal = ref(false);
+
+const orgSlug = computed(() => (typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug : ''));
+const hubTo = computed(() => (orgSlug.value ? `/${orgSlug.value}/admin/school-portals-hub` : '/admin/school-portals-hub'));
+const schoolOverviewTo = computed(() =>
+  orgSlug.value ? `/${orgSlug.value}/admin/schools/overview?orgType=school` : '/admin/schools/overview?orgType=school'
+);
 
 const toLocalDatetimeInputValue = (value) => {
   const date = value instanceof Date ? value : new Date(value);
@@ -654,6 +687,68 @@ const announcementDistrictScopeOptions = computed(() => districtOptions.value.fi
 
 const agencyOptions = ref([]);
 const selectedAgencyId = ref('');
+
+const overviewAgencyRowForGate = computed(() => {
+  if (isSuperAdmin.value) {
+    const id = parseInt(String(selectedAgencyId.value || ''), 10);
+    if (!Number.isFinite(id) || id < 1) return null;
+    return (agencyOptions.value || []).find((a) => Number(a?.id) === id) || null;
+  }
+  return agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
+});
+
+const isBackofficeManager = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return r === 'admin' || r === 'support' || r === 'super_admin';
+});
+
+const canManageSchoolsHere = computed(() => {
+  if (!isBackofficeManager.value) return false;
+  if (orgType.value === 'program' || orgType.value === 'learning') return false;
+  if (isSuperAdmin.value) return true;
+  const row = overviewAgencyRowForGate.value;
+  if (!row) return false;
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSchoolPortalsSurfaces({
+    userRole: authStore.user?.role,
+    agencyFeatureFlags: row.feature_flags ?? row.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      row.tenant_available_agency_features_json ?? row.tenantAvailableAgencyFeaturesJson
+  });
+});
+
+const canSeeSkillBuildersSchoolOverviewUi = computed(() => {
+  if (orgType.value === 'program' || orgType.value === 'learning') return false;
+  if (isSuperAdmin.value) return true;
+  const row = overviewAgencyRowForGate.value;
+  if (!row) return false;
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSkillBuildersSchoolProgramSurfaces({
+    userRole: authStore.user?.role,
+    agencyFeatureFlags: row.feature_flags ?? row.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      row.tenant_available_agency_features_json ?? row.tenantAvailableAgencyFeaturesJson
+  });
+});
+
+const affiliatedAgencyIdForModal = computed(() => {
+  const fromPicker = selectedAgencyId.value ? parseInt(String(selectedAgencyId.value), 10) : null;
+  if (Number.isFinite(fromPicker) && fromPicker > 0) return fromPicker;
+  const cur = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  if (cur?.id && String(cur.organization_type || 'agency').toLowerCase() === 'agency') {
+    return Number(cur.id);
+  }
+  const fromStore = isSuperAdmin.value ? (agencyStore.agencies?.value || agencyStore.agencies) : (agencyStore.userAgencies?.value || agencyStore.userAgencies);
+  const first = (fromStore || []).find((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+  return first?.id ? Number(first.id) : null;
+});
+
+const onSchoolCreated = async () => {
+  await refresh();
+};
+
 const studentStatusBySchool = ref({});
 const studentStatusOrder = ['current', 'packet', 'screener', 'waitlist'];
 

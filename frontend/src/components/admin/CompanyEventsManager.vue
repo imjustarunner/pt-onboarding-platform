@@ -62,7 +62,7 @@
             <option :value="0">Agency-wide (all programs)</option>
             <option v-for="o in affiliateProgramOrgs" :key="o.id" :value="o.id">{{ o.name }}</option>
           </select>
-          <small class="hint">Link this event to a specific affiliated program for sub-coordinator dashboards.</small>
+          <small class="hint">Link this event to a specific affiliated program for program coordinator dashboards.</small>
         </div>
         <div class="form-group">
           <label class="lbl">Timezone</label>

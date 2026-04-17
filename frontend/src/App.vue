@@ -280,7 +280,7 @@
                       </button>
                       <div v-show="directorySkillBuildersNavExpanded" class="nav-dropdown-group-items">
                         <router-link
-                          v-if="canSeeSkillBuildersCoordinatorNavLinks"
+                          v-if="canSeeSchoolSkillBuildersProgramCoordinatorNav"
                           :to="orgTo('/admin/skill-builders-availability')"
                         >Event availability</router-link>
                         <router-link
@@ -288,7 +288,7 @@
                           :to="skillBuildersProgramsDashboardTo"
                         >Programs &amp; events</router-link>
                         <router-link
-                          v-if="canSeeSkillBuildersCoordinatorNavLinks"
+                          v-if="canSeeSchoolSkillBuildersProgramCoordinatorNav"
                           :to="orgTo('/admin/skill-builders-client-management')"
                         >Client management</router-link>
                         <router-link
@@ -316,21 +316,6 @@
                         <template v-else>
                           <div v-if="directoryPublicLinksError" class="nav-dropdown-error">{{ directoryPublicLinksError }}</div>
                           <template v-else>
-                            <template v-if="directoryPublicLinksData.intakeLinks.length">
-                              <div class="nav-dropdown-group-label">Digital forms</div>
-                              <a
-                                v-for="row in directoryPublicLinksData.intakeLinks"
-                                :key="'intake-' + row.id"
-                                class="nav-dropdown-external-link"
-                                :href="buildPublicIntakeUrl(row.publicKey)"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                @click.stop
-                              >
-                                {{ row.title }}
-                                <span class="nav-dropdown-external-hint">{{ intakeFormDirectoryLabel(row.formType) }}</span>
-                              </a>
-                            </template>
                             <template v-if="directoryPublicLinksData.marketingHubs.length">
                               <div class="nav-dropdown-group-label">Marketing hubs</div>
                               <a
@@ -378,7 +363,6 @@
                               No active public links for your access.
                             </div>
                           </template>
-                          <router-link :to="orgTo('/admin/digital-forms')" @click.stop>Manage digital forms</router-link>
                           <router-link
                             v-if="String(user?.role || '').toLowerCase() === 'super_admin'"
                             :to="orgTo('/admin/public-marketing-pages')"
@@ -389,12 +373,11 @@
                         </template>
                       </div>
                     </div>
-                    <router-link :to="orgTo('/admin/schools/overview?orgType=school')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >School Overview</router-link>
+                    <router-link :to="orgTo('/admin/school-portals-hub')" v-if="canSeeSchoolPortalsNav">School Portals</router-link>
                     <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Program Overview</router-link>
-                    <router-link :to="orgTo('/admin/school-portals')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Show All School Portals</router-link>
                     <router-link :to="orgTo('/admin/find-providers')" v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext" >Provider Booking Interface</router-link>
                     <router-link :to="orgTo('/admin/provider-availability')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext" >Provider Management</router-link>
-                    <router-link :to="orgTo('/admin/school-clients')" v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff') && !isAffiliationContext">
+                    <router-link :to="orgTo('/admin/school-clients')" v-if="canSeeSchoolClientsNav">
                       <span>School Clients</span>
                       <span
                         v-if="schoolClientsPendingCount > 0"
@@ -846,7 +829,7 @@
                 </button>
                 <template v-if="directorySkillBuildersNavExpanded">
                   <router-link
-                    v-if="canSeeSkillBuildersCoordinatorNavLinks"
+                    v-if="canSeeSchoolSkillBuildersProgramCoordinatorNav"
                     :to="orgTo('/admin/skill-builders-availability')"
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
@@ -858,7 +841,7 @@
                     class="mobile-nav-link mobile-nav-sublink"
                   >Programs &amp; events</router-link>
                   <router-link
-                    v-if="canSeeSkillBuildersCoordinatorNavLinks"
+                    v-if="canSeeSchoolSkillBuildersProgramCoordinatorNav"
                     :to="orgTo('/admin/skill-builders-client-management')"
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
@@ -893,19 +876,6 @@
                   <template v-else>
                     <div v-if="directoryPublicLinksError" class="mobile-nav-link mobile-nav-sublink nav-dropdown-error">{{ directoryPublicLinksError }}</div>
                     <template v-else>
-                      <div v-if="directoryPublicLinksData.intakeLinks.length" class="nav-dropdown-group-label mobile-nav-sublabel">Digital forms</div>
-                      <a
-                        v-for="row in directoryPublicLinksData.intakeLinks"
-                        :key="'m-intake-' + row.id"
-                        class="mobile-nav-link mobile-nav-sublink nav-dropdown-external-link"
-                        :href="buildPublicIntakeUrl(row.publicKey)"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        @click="closeMobileMenu"
-                      >
-                        {{ row.title }}
-                        <span class="nav-dropdown-external-hint">{{ intakeFormDirectoryLabel(row.formType) }}</span>
-                      </a>
                       <div v-if="directoryPublicLinksData.marketingHubs.length" class="nav-dropdown-group-label mobile-nav-sublabel">Marketing hubs</div>
                       <a
                         v-for="hub in directoryPublicLinksData.marketingHubs"
@@ -950,11 +920,6 @@
                       </div>
                     </template>
                     <router-link
-                      :to="orgTo('/admin/digital-forms')"
-                      class="mobile-nav-link mobile-nav-sublink"
-                      @click="closeMobileMenu"
-                    >Manage digital forms</router-link>
-                    <router-link
                       v-if="String(user?.role || '').toLowerCase() === 'super_admin'"
                       :to="orgTo('/admin/public-marketing-pages')"
                       class="mobile-nav-link mobile-nav-sublink"
@@ -971,11 +936,11 @@
                 class="mobile-nav-link"
               >Training</router-link>
               <router-link
-                :to="orgTo('/admin/school-portals')"
-                v-if="(user?.role === 'super_admin' || isAdmin) && !isAffiliationContext"
+                :to="orgTo('/admin/school-portals-hub')"
+                v-if="canSeeSchoolPortalsNav"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
-              >Show All School Portals</router-link>
+              >School Portals</router-link>
               <router-link
                 :to="orgTo('/admin/provider-availability')"
                 v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff' || user?.role === 'provider_plus') && !isAffiliationContext"
@@ -984,7 +949,7 @@
               >Provider Management</router-link>
               <router-link
                 :to="orgTo('/admin/school-clients')"
-                v-if="(user?.role === 'super_admin' || isAdmin || user?.role === 'staff') && !isAffiliationContext"
+                v-if="canSeeSchoolClientsNav"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >
@@ -1294,7 +1259,6 @@ import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
 import api from './services/api';
-import { buildPublicIntakeUrl } from './utils/publicIntakeUrl';
 import AgencySelector from './components/AgencySelector.vue';
 import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
 import BrandingProvider from './components/BrandingProvider.vue';
@@ -1339,6 +1303,8 @@ import {
   getPreferredWorkAgencyId,
   setPreferredWorkAgencyId
 } from './utils/sstcSurfaceChoice.js';
+import { canAccessSchoolPortalsSurfaces } from './utils/schoolPortalsAccess.js';
+import { canAccessSkillBuildersSchoolProgramSurfaces } from './utils/skillBuildersSchoolProgramAccess.js';
 import SummitStatsContextBar from './components/summit/SummitStatsContextBar.vue';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from './constants/summitStatsBranding.js';
 
@@ -2103,6 +2069,46 @@ const canSeeGamesNav = computed(() => {
   return isTruthyFlag(currentAgencyFeatureFlags.value?.gamesPlatformEnabled);
 });
 
+/** School Portals hub (overview + all portals). Same roles as prior School Overview links; gated by platform + tenant flags. */
+const canSeeSchoolPortalsNav = computed(() => {
+  if (!authStore.isAuthenticated) return false;
+  if (hideGlobalNavForSchoolStaff.value) return false;
+  if (isSummitStatsChallengeChrome.value) return false;
+  if (isSscSstcTenant.value) return false;
+  const role = String(user.value?.role || '').toLowerCase();
+  if (!(role === 'super_admin' || isAdmin.value)) return false;
+  if (isAffiliationContext.value) return false;
+  const agency = agencyStore.currentAgency?.value || agencyStore.currentAgency || {};
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSchoolPortalsSurfaces({
+    userRole: user.value?.role,
+    agencyFeatureFlags: agency.feature_flags ?? agency.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
+  });
+});
+
+/** School Clients: same platform + tenant gate as School Portals; includes staff (prior nav behavior). */
+const canSeeSchoolClientsNav = computed(() => {
+  if (!authStore.isAuthenticated) return false;
+  if (hideGlobalNavForSchoolStaff.value) return false;
+  if (isSummitStatsChallengeChrome.value) return false;
+  if (isSscSstcTenant.value) return false;
+  const role = String(user.value?.role || '').toLowerCase();
+  if (!(role === 'super_admin' || isAdmin.value || role === 'staff')) return false;
+  if (isAffiliationContext.value) return false;
+  const agency = agencyStore.currentAgency?.value || agencyStore.currentAgency || {};
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSchoolPortalsSurfaces({
+    userRole: user.value?.role,
+    agencyFeatureFlags: agency.feature_flags ?? agency.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
+  });
+});
+
 const showBookClubPortalLink = computed(() => {
   if (!authStore.isAuthenticated) return false;
   if (isSummitStatsChallengeChrome.value) return false;
@@ -2227,25 +2233,11 @@ const schoolClientsAgencyId = computed(() => {
 const hasDirectoryPublicLinkRows = computed(() => {
   const d = directoryPublicLinksData.value;
   return (
-    (d.intakeLinks?.length || 0) > 0 ||
     (d.marketingHubs?.length || 0) > 0 ||
     !!d.providerFinder ||
     (d.publicEventPages?.length || 0) > 0
   );
 });
-
-const intakeFormDirectoryLabel = (formType) => {
-  const ft = String(formType || 'intake').toLowerCase();
-  const map = {
-    intake: 'Intake',
-    public_form: 'Public form',
-    job_application: 'Job application',
-    medical_records_request: 'Medical records',
-    smart_school_roi: 'Smart school ROI',
-    smart_registration: 'Smart registration'
-  };
-  return map[ft] || ft;
-};
 
 const marketingHubPublicUrl = (slug) => {
   const s = String(slug || '').trim().toLowerCase();
@@ -2264,7 +2256,7 @@ const loadDirectoryPublicLinks = async () => {
     if (aid) params.agencyId = aid;
     const { data } = await api.get('/directory/public-links', { params, skipGlobalLoading: true });
     directoryPublicLinksData.value = {
-      intakeLinks: data?.intakeLinks || [],
+      intakeLinks: [],
       marketingHubs: data?.marketingHubs || [],
       providerFinder: data?.providerFinder || null,
       publicEventPages: data?.publicEventPages || []
@@ -2305,10 +2297,7 @@ const canSeeAvailabilityIntake = computed(() => {
   return ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff'].includes(r);
 });
 
-const showSchoolClientsPendingBadge = computed(() => {
-  const r = String(user.value?.role || '').toLowerCase();
-  return r === 'super_admin' || r === 'admin' || r === 'staff';
-});
+const showSchoolClientsPendingBadge = computed(() => canSeeSchoolClientsNav.value);
 const schoolClientsPendingCount = ref(0);
 let schoolClientsPendingInterval = null;
 const MIN_PENDING_DATE = '2026-02-01';
@@ -2328,20 +2317,35 @@ const fetchSchoolClientsPendingCount = async () => {
   }
 };
 
+const canAccessSkillBuildersSchoolProgramTenant = computed(() => {
+  const agency = agencyStore.currentAgency?.value || agencyStore.currentAgency || {};
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSkillBuildersSchoolProgramSurfaces({
+    userRole: user.value?.role,
+    agencyFeatureFlags: agency.feature_flags ?? agency.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
+  });
+});
+
 const canSeeSkillBuildersAvailabilityNav = computed(() => {
   if (isSscSstcTenant.value) return false;
   const r = String(user.value?.role || '').toLowerCase();
+  if (r === 'super_admin') return true;
   const roleAllowed =
-    r === 'super_admin' ||
     r === 'admin' ||
     r === 'support' ||
     r === 'clinical_practice_assistant' ||
     r === 'provider_plus';
-  const coordinator =
+  const programCoordinator =
     user.value?.has_skill_builder_coordinator_access === true ||
     user.value?.has_skill_builder_coordinator_access === 1 ||
     user.value?.has_skill_builder_coordinator_access === '1';
-  return roleAllowed || coordinator;
+  if (canAccessSkillBuildersSchoolProgramTenant.value) {
+    return roleAllowed || programCoordinator;
+  }
+  return roleAllowed;
 });
 
 const canSeeSkillBuildersAvailabilityTopNav = computed(() => {
@@ -2355,11 +2359,12 @@ const canOpenSkillBuildersProgramsFromNav = computed(() => {
   if (isSscSstcTenant.value) return false;
   const r = String(user.value?.role || '').toLowerCase();
   if (['super_admin', 'admin', 'staff', 'support'].includes(r)) return true;
-  const coord =
+  const programCoordinator =
     user.value?.has_skill_builder_coordinator_access === true ||
     user.value?.has_skill_builder_coordinator_access === 1 ||
     user.value?.has_skill_builder_coordinator_access === '1';
-  if (coord) return true;
+  if (programCoordinator) return true;
+  if (!canAccessSkillBuildersSchoolProgramTenant.value) return false;
   const elig =
     user.value?.skill_builder_eligible === true ||
     user.value?.skill_builder_eligible === 1 ||
@@ -2368,18 +2373,24 @@ const canOpenSkillBuildersProgramsFromNav = computed(() => {
   return !!(elig && providerLike);
 });
 
-/** Matches router `schedule_manager` + `allowSubCoordinator` for coordinator Skill Builders admin pages. */
-const canSeeSkillBuildersCoordinatorNavLinks = computed(() => {
+/** Program coordinator flag or roles that share coordinator-style program tooling (not school SB–specific). */
+const hasProgramCoordinatorAccess = computed(() => {
   const r = String(user.value?.role || '').toLowerCase();
   if (['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'support'].includes(r)) return true;
-  const coord =
+  return (
     user.value?.has_skill_builder_coordinator_access === true ||
     user.value?.has_skill_builder_coordinator_access === 1 ||
-    user.value?.has_skill_builder_coordinator_access === '1';
-  return coord;
+    user.value?.has_skill_builder_coordinator_access === '1'
+  );
 });
 
+/** School Skill Builders program admin links (availability grid + SB client management). */
+const canSeeSchoolSkillBuildersProgramCoordinatorNav = computed(
+  () => hasProgramCoordinatorAccess.value && canAccessSkillBuildersSchoolProgramTenant.value
+);
+
 const canSeeSkillBuildersMyAvailabilityNav = computed(() => {
+  if (!canAccessSkillBuildersSchoolProgramTenant.value) return false;
   const r = String(user.value?.role || '').toLowerCase();
   const elig =
     user.value?.skill_builder_eligible === true ||
@@ -2391,7 +2402,7 @@ const canSeeSkillBuildersMyAvailabilityNav = computed(() => {
 
 const canSeeEventsProgramsNavGroup = computed(
   () =>
-    canSeeSkillBuildersCoordinatorNavLinks.value ||
+    hasProgramCoordinatorAccess.value ||
     canOpenSkillBuildersProgramsFromNav.value ||
     canSeeSkillBuildersMyAvailabilityNav.value ||
     (showBookClubPortalLink.value && isAdmin.value)

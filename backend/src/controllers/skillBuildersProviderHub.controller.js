@@ -257,7 +257,7 @@ async function isAgencyStaffLikeForSkillBuilders(req, agencyId) {
   return role === 'admin' || role === 'staff' || role === 'support';
 }
 
-/** Staff/support/admin/super_admin or Skill Builder coordinator flag. */
+/** Staff/support/admin/super_admin or program coordinator flag (has_skill_builder_coordinator_access). */
 async function canManageTeamSchedulesForAgency(req, agencyId) {
   if (!(await userHasAgencyAccess(req, agencyId))) return false;
   if (await isAgencyStaffLikeForSkillBuilders(req, agencyId)) return true;
@@ -533,7 +533,7 @@ export const applyToSkillBuilderEvent = async (req, res, next) => {
     const coord = await getSkillBuilderCoordinatorAccess(userId);
     const elig = await getSkillBuilderEligibility(userId);
     if (!coord && !elig) {
-      return res.status(403).json({ error: { message: 'Skill Builder eligibility or coordinator access required' } });
+      return res.status(403).json({ error: { message: 'Skill Builder eligibility or program coordinator access required' } });
     }
 
     const [evRows] = await pool.execute(
@@ -766,7 +766,7 @@ export const getSkillBuilderEventProviderWorkSchedule = async (req, res, next) =
     const access = await assertEventAccess({ req, agencyId, eventId });
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
     if (!(await canManageTeamSchedulesForAgency(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
     const onRoster = await providerOnEventRoster(eventId, agencyId, providerUserId);
     if (!onRoster) {
@@ -792,7 +792,7 @@ export const putSkillBuilderEventProviderWorkSchedule = async (req, res, next) =
     const access = await assertEventAccess({ req, agencyId, eventId });
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
     if (!(await canManageTeamSchedulesForAgency(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
     const onRoster = await providerOnEventRoster(eventId, agencyId, providerUserId);
     if (!onRoster) {
@@ -1754,7 +1754,7 @@ export const patchSkillBuilderProgramSession = async (req, res, next) => {
     const access = await assertEventAccess({ req, agencyId, eventId });
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
     if (!(await canManageTeamSchedulesForAgency(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
 
     const [rows] = await pool.execute(
@@ -1823,7 +1823,7 @@ export const generateVirtualRoomsForProgramSessions = async (req, res, next) => 
     const access = await assertEventAccess({ req, agencyId, eventId });
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
     if (!(await canManageTeamSchedulesForAgency(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
     const [rows] = await pool.execute(
       `SELECT id, join_url, modality
@@ -2011,7 +2011,7 @@ export const putSkillBuilderEventSessionProviders = async (req, res, next) => {
     const access = await assertEventAccess({ req, agencyId, eventId });
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
     if (!(await canManageTeamSchedulesForAgency(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
 
     const normalized = [...new Set(rawIds.map((x) => parsePositiveInt(x)).filter(Boolean))];
@@ -2114,7 +2114,7 @@ export const patchSkillBuilderEventSession = async (req, res, next) => {
     const access = await assertEventAccess({ req, agencyId, eventId });
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
     if (!(await canManageTeamSchedulesForAgency(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
     const [sRows] = await pool.execute(
       `SELECT s.id, s.session_date
@@ -2402,7 +2402,7 @@ export const patchSkillBuilderEventGroupMeetings = async (req, res, next) => {
     const access = await assertEventAccess({ req, agencyId, eventId });
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
     if (!(await canManageTeamSchedulesForAgency(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff access required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff access required' } });
     }
     const meetingsBody = req.body?.meetings;
     if (!Array.isArray(meetingsBody)) {
@@ -3999,7 +3999,7 @@ export const deleteSkillBuilderSessionClinicalNotes = async (req, res, next) => 
     const access = await assertClinicalSkillBuildersAccess(req, agencyId, eventId);
     if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
     if (!(await canManageTeamSchedulesForAgency(req, agencyId)) && !(await isAgencyStaffLikeForSkillBuilders(req, agencyId))) {
-      return res.status(403).json({ error: { message: 'Coordinator or agency staff required' } });
+      return res.status(403).json({ error: { message: 'Program coordinator or agency staff required' } });
     }
     const n = await deleteClinicalNotesForSession({ sessionId, companyEventId: eventId });
     res.json({ ok: true, deletedCount: n });

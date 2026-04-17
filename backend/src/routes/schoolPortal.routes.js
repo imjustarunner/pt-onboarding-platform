@@ -80,7 +80,13 @@ import {
   replaceSchoolPublicDocumentFile,
   deleteSchoolPublicDocument
 } from '../controllers/schoolPublicDocuments.controller.js';
-import { listSchoolPortalIntakeLinks } from '../controllers/schoolPortalIntakeLinks.controller.js';
+import {
+  listSchoolPortalIntakeLinks,
+  listSchoolPortalIntakeLinkCopySources,
+  activateSchoolPortalIntakeLink,
+  createSchoolPortalIntakeLink,
+  duplicateSchoolPortalIntakeLinkFrom
+} from '../controllers/schoolPortalIntakeLinks.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -126,6 +132,10 @@ router.get('/:organizationId/faq', authenticate, listSchoolPortalFaq);
 router.post('/:organizationId/faq', authenticate, createSchoolPortalFaq);
 
 // School portal: shared public documents library (non-PHI)
+router.get('/:organizationId/intake-links/copy-sources', authenticate, listSchoolPortalIntakeLinkCopySources);
+router.put('/:organizationId/intake-links/:linkId/activate', authenticate, activateSchoolPortalIntakeLink);
+router.post('/:organizationId/intake-links/create', authenticate, createSchoolPortalIntakeLink);
+router.post('/:organizationId/intake-links/duplicate-from', authenticate, duplicateSchoolPortalIntakeLinkFrom);
 router.get('/:organizationId/intake-links', authenticate, listSchoolPortalIntakeLinks);
 router.get('/:organizationId/public-documents', authenticate, listSchoolPublicDocuments);
 router.post('/:organizationId/public-documents', authenticate, createSchoolPublicDocument);

@@ -416,25 +416,45 @@
             </div>
             <div
               v-if="registrationFlowAdmin"
-              class="form-group"
+              class="form-group il-ce-wrap"
+              :class="{ 'il-ce-wrap--warn': !form.companyEventId }"
               style="grid-column: 1 / -1"
             >
-              <label>Company event (required)</label>
+              <label class="il-ce-label">
+                Program / company event
+                <span class="required-indicator" title="Recommended before sharing this link publicly">*</span>
+              </label>
               <select
-                v-model.number="form.companyEventId"
+                v-model="form.companyEventId"
+                class="il-ce-select"
+                :class="{ 'il-ce-select--warn': !form.companyEventId }"
                 :disabled="companyEventsPickerLoading"
-                required
               >
-                <option :value="null" disabled>Select the event this URL enrolls into</option>
+                <option :value="null">
+                  None yet — save as a draft, then pick the Skill Builders / company event this URL enrolls into
+                </option>
                 <option v-for="e in companyEventsPickerFilteredOptions" :key="e.id" :value="e.id">
-                  {{ e.title || `Event ${e.id}` }} (starts {{ formatCompanyEventPickerLabel(e) }})
+                  {{ e.title || `Event ${e.id}` }} (starts {{ formatCompanyEventPickerLabel(e) }}){{
+                    Number(e.organizationId || 0) ? '' : ' — agency-wide'
+                  }}
                 </option>
               </select>
+              <div v-if="!form.companyEventId" class="il-ce-warn" role="status">
+                <span class="il-ce-warn-icon" aria-hidden="true">!</span>
+                <div class="il-ce-warn-body">
+                  <strong>No event selected.</strong>
+                  You can still save this digital form. Registration and public enroll flows need a specific company event
+                  before the link is reliable — create the program event first if needed, then return here and choose it.
+                </div>
+              </div>
               <small class="form-help">
-                Each registration-capable URL enrolls into one company event. Use <strong>Intake</strong> + Registration for full
-                paperwork plus event enrollment; use <strong>Smart Registration</strong> alone for shorter flows. For returning
-                families, use step visibility on <strong>questions</strong>, <strong>documents</strong>, and <strong>uploads</strong>. For
-                <strong>Register</strong> on <code>/open-events/…</code>, keep this link <strong>active</strong> with the same event.
+                Each registration-capable URL should eventually enroll into one company event (program calendar card).
+                Use <strong>Intake</strong> + Registration for full paperwork plus event enrollment; use <strong>Smart Registration</strong>
+                alone for shorter flows. Events saved as <strong>agency-wide</strong> on the calendar (no program on the event) still
+                appear in this list when your form is program-scoped — choose the row that matches your title and dates.
+                For returning families, use step visibility on <strong>questions</strong>, <strong>documents</strong>,
+                and <strong>uploads</strong>. For <strong>Register</strong> on <code>/open-events/…</code>, keep this link <strong>active</strong>
+                with the same event once selected.
               </small>
             </div>
             <div class="form-group">
@@ -982,8 +1002,8 @@
                       <strong>1)</strong> Set <strong>Source type</strong> to <strong>Agency catalog (public)</strong> — signers pick from
                       live events on <em>this link&rsquo;s agency</em> that are marked registration-eligible and still open.
                       <br />
-                      <strong>2)</strong> Or, in link settings, choose the required <strong>company event</strong> (after picking the agency).
-                      The catalog and enrollment use that event.
+                      <strong>2)</strong> Or, in link settings, choose the <strong>company event</strong> (after picking the agency).
+                      You can save the link first and attach the event later; the editor highlights until one is selected.
                       <br />
                       <strong>Programs</strong> = affiliated program <em>organizations</em> (e.g. D11 Summer), not a specific dated
                       event — use schedule blocks / copy for timing unless you use the catalog or lock.
@@ -2307,7 +2327,13 @@ const companyEventsPickerFilteredOptions = computed(() => {
   const scope = String(form.scopeType || '').toLowerCase();
   const orgId = Number(form.organizationId || 0) || null;
   if (!orgId || scope === 'agency') return all;
-  return all.filter((ev) => Number(ev.organizationId || 0) === Number(orgId));
+  // Program/school forms: show events tied to this org, plus agency-wide calendar rows
+  // (organization_id null) — those are common when events are created without picking a program.
+  return all.filter((ev) => {
+    const evOrg = Number(ev.organizationId || 0) || null;
+    if (!evOrg) return true;
+    return evOrg === orgId;
+  });
 });
 
 const organizationsForScope = computed(() => {
@@ -2969,7 +2995,7 @@ const editLink = (link) => {
 const clearEditorQueryParams = async () => {
   const q = { ...(route.query || {}) };
   let changed = false;
-  ['editIntakeLinkId', 'editId', 'jobDescriptionId', 'source'].forEach((key) => {
+  ['editIntakeLinkId', 'editId', 'jobDescriptionId', 'source', 'companyEventId', 'formType'].forEach((key) => {
     if (key in q) {
       delete q[key];
       changed = true;
@@ -2981,6 +3007,81 @@ const clearEditorQueryParams = async () => {
   } catch {
     // ignore replace failures
   }
+};
+
+const clearCompanyEventEnrollmentQueryParams = async () => {
+  const q = { ...(route.query || {}) };
+  let changed = false;
+  ['companyEventId', 'formType'].forEach((key) => {
+    if (key in q) {
+      delete q[key];
+      changed = true;
+    }
+  });
+  if (!changed) return;
+  try {
+    await router.replace({ path: route.path, query: q });
+  } catch {
+    /* ignore */
+  }
+};
+
+/**
+ * Deep-link from company event editor: `?companyEventId=` opens a new draft locked to that event.
+ * Optional `&formType=intake` (default from the program event editor) uses Intake + Registration; omit for Smart Registration only.
+ */
+const openCreateFromCompanyEventQuery = async () => {
+  const ce = Number(route.query?.companyEventId || 0) || null;
+  if (!ce || showForm.value) return;
+  const wantedFormType = String(route.query?.formType || '').trim().toLowerCase();
+  const useIntakeEnrollment = wantedFormType === 'intake';
+
+  openCreate();
+  if (lockAgencyPicker.value) {
+    const id = Number(props.scopedAgencyId || 0);
+    form.organizationId = id;
+    companyEventsPickerAgencyId.value = id;
+  }
+  await nextTick();
+  // Always load the event list for the picker (Intake has no Registration step until we add one below,
+  // so `registrationFlowAdmin` would be false and skip hydration — leaving the dropdown empty).
+  await hydrateCompanyEventPickerForEdit(ce);
+
+  const ev = (companyEventsPickerOptions.value || []).find((e) => Number(e.id) === ce) || null;
+  const evOrg = ev && Number(ev.organizationId || 0) > 0 ? Number(ev.organizationId) : null;
+
+  if (useIntakeEnrollment) {
+    form.formType = 'intake';
+    if (evOrg) {
+      form.scopeType = 'program';
+      form.organizationId = evOrg;
+    } else {
+      form.scopeType = 'agency';
+      if (lockAgencyPicker.value) {
+        form.organizationId = Number(props.scopedAgencyId || 0);
+      } else {
+        form.organizationId = Number(companyEventsPickerAgencyId.value || form.organizationId || 0) || null;
+      }
+    }
+    form.createClient = true;
+    form.createGuardian = true;
+    form.companyEventId = ce;
+    if (!form.intakeSteps.length) {
+      addStep('questions');
+      addStep('registration');
+    }
+    form.intakeSteps = sanitizeSteps(form.intakeSteps, { formType: 'intake' });
+  } else {
+    form.formType = 'smart_registration';
+    form.scopeType = 'agency';
+    if (lockAgencyPicker.value) {
+      const id = Number(props.scopedAgencyId || 0);
+      form.organizationId = id;
+      companyEventsPickerAgencyId.value = id;
+    }
+    form.companyEventId = ce;
+  }
+  await clearCompanyEventEnrollmentQueryParams();
 };
 
 const openEditorFromQuery = async () => {
@@ -3089,11 +3190,6 @@ const save = async () => {
   try {
     saving.value = true;
     formError.value = '';
-    if (registrationFlowAdmin.value && !form.companyEventId) {
-      formError.value =
-        'Choose the company event for this link. Registration-capable URLs (Smart Registration or Intake with a Registration step) must be tied to one program event.';
-      return;
-    }
     const { intakeSteps, intakeFields, allowedDocumentTemplateIds } = buildPayloadFromSteps();
     const customMessagesPayload = (() => {
       const cm = form.customMessages || {};
@@ -4477,12 +4573,25 @@ const filteredLinks = computed(() => {
 onMounted(async () => {
   await fetchData();
   await openEditorFromQuery();
+  if (!showForm.value) {
+    await openCreateFromCompanyEventQuery();
+  } else {
+    await clearCompanyEventEnrollmentQueryParams();
+  }
 });
 
 watch(
   () => [route.query?.editIntakeLinkId, route.query?.editId, route.query?.jobDescriptionId],
   async () => {
     await openEditorFromQuery();
+  }
+);
+
+watch(
+  () => route.query?.companyEventId,
+  async () => {
+    if (showForm.value) return;
+    await openCreateFromCompanyEventQuery();
   }
 );
 </script>
@@ -5030,5 +5139,52 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.il-ce-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.il-ce-wrap--warn {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+}
+.il-ce-select--warn {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.25);
+}
+.il-ce-warn {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 10px 0 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #fbbf24;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.il-ce-warn-icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f59e0b;
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.il-ce-warn-body strong {
+  display: block;
+  margin-bottom: 2px;
+  color: #7c2d12;
 }
 </style>

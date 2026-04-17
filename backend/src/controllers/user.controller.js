@@ -26,6 +26,7 @@ import { canUserManageClub } from '../utils/sscClubAccess.js';
 import { detachUserFromOrganization, detachUserGlobalLinks } from '../services/userStaffDetach.service.js';
 import { runSummitStrictErasureForAccountDeletion } from '../services/summitStrictErasure.service.js';
 import { syncProgramMembershipForSkillBuilderEligibleUser } from '../services/skillBuildersProgramAffiliation.service.js';
+import { isSkillBuildersSchoolProgramActiveForParentAgencyId } from '../utils/skillBuildersSchoolProgramFeature.js';
 import { isStravaRolloutEnabledForEmail } from '../utils/stravaRollout.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -35,6 +36,25 @@ const isAdminOrSuperAdmin = (req) => {
   const r = String(req.user?.role || '').toLowerCase();
   return r === 'admin' || r === 'super_admin';
 };
+
+async function targetUserBelongsToSkillBuildersSchoolProgramTenant(targetUserId) {
+  const uid = parseInt(String(targetUserId), 10);
+  if (!Number.isFinite(uid) || uid < 1) return false;
+  try {
+    const agencies = await User.getAgencies(uid);
+    const ids = new Set();
+    for (const a of agencies || []) {
+      const id = parseInt(String(a?.id || 0), 10);
+      if (Number.isFinite(id) && id > 0) ids.add(id);
+    }
+    for (const aid of ids) {
+      if (await isSkillBuildersSchoolProgramActiveForParentAgencyId(aid)) return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
 
 /** Summit club managers may view a user who belongs to their club or has a pending application there. */
 async function clubManagerCanViewClubMemberUser(req, targetUserId) {
@@ -2598,10 +2618,10 @@ export const updateUser = async (req, res, next) => {
     // Skill Builder eligibility (provider program)
     if (skillBuilderEligible !== undefined) updateData.skillBuilderEligible = Boolean(skillBuilderEligible);
 
-    // Skill Builder coordinator access (admin/support/super admin only)
+    // Program coordinator access (admin/support/super admin only)
     if (hasSkillBuilderCoordinatorAccess !== undefined) {
       if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
-        return res.status(403).json({ error: { message: 'Only admins, super admins, or support can change Skill Builder coordinator access' } });
+        return res.status(403).json({ error: { message: 'Only admins, super admins, or support can change program coordinator access' } });
       }
       updateData.hasSkillBuilderCoordinatorAccess = Boolean(hasSkillBuilderCoordinatorAccess);
     }
@@ -2648,6 +2668,20 @@ export const updateUser = async (req, res, next) => {
       updateData.externalBusyIcsUrl = v || null;
     }
 
+    if (skillBuilderEligible !== undefined && updateData.skillBuilderEligible === true) {
+      const actorRole = String(req.user?.role || '').toLowerCase();
+      if (actorRole !== 'super_admin') {
+        const okSb = await targetUserBelongsToSkillBuildersSchoolProgramTenant(id);
+        if (!okSb) {
+          return res.status(403).json({
+            error: {
+              message:
+                'Skill Builders school program must be enabled for a tenant this user belongs to before marking Skill Development Program eligible.'
+            }
+          });
+        }
+      }
+    }
     console.log('Calling User.update with updateData:', updateData);
     const user = await User.update(id, updateData);
     console.log('User.update returned user:', user ? {
@@ -2902,7 +2936,7 @@ export const requireSkillBuilderConfirmNextLogin = async (req, res, next) => {
     // Access control:
     // - super_admin can force confirm for any user
     // - admin can force confirm for users in shared agencies
-    // - skill builder coordinators can force confirm for users in shared agencies
+    // - program coordinators can force confirm for users in shared agencies
     let isCoordinator = false;
     if (!isAdminOrSuperAdmin(req) && actorRole !== 'super_admin') {
       try {

@@ -19,6 +19,7 @@ import {
 import { replaceSkillsGroupMeetings } from '../services/skillsGroupMeetingsWrite.service.js';
 import { materializeSkillBuildersEventSessions } from '../services/skillBuildersEventSessions.service.js';
 import { ProviderAvailabilityService } from '../services/providerAvailability.service.js';
+import { assertSkillBuildersSchoolProgramForRequest } from '../utils/skillBuildersSchoolProgramFeature.js';
 
 const allowedOrgTypes = ['school', 'program', 'learning'];
 const allowedWeekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -71,6 +72,10 @@ async function providerHasActiveSkillsGroupAccess({ providerUserId, organization
     if (missing) return false;
     throw e;
   }
+}
+
+async function requireSkillBuildersSchoolProgramActive(req, activeAgencyId) {
+  return assertSkillBuildersSchoolProgramForRequest(req, activeAgencyId);
 }
 
 async function ensureSkillsGroupOrgAccess(req, organizationId) {
@@ -304,6 +309,8 @@ export const getSkillBuildersProgramLink = async (req, res, next) => {
     const { orgId } = req.params;
     const access = await ensureSkillsGroupOrgAccess(req, orgId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const sb = await requireSkillBuildersSchoolProgramActive(req, access.activeAgencyId);
+    if (!sb.ok) return res.status(sb.status).json({ error: { message: sb.message } });
     if (!canManageSkillsGroups(req)) {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
@@ -330,6 +337,8 @@ export const listSkillsGroups = async (req, res, next) => {
     const { orgId } = req.params;
     const access = await ensureSkillsGroupOrgAccess(req, orgId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const sb = await requireSkillBuildersSchoolProgramActive(req, access.activeAgencyId);
+    if (!sb.ok) return res.status(sb.status).json({ error: { message: sb.message } });
 
     const roleNorm = String(req.user?.role || '').toLowerCase();
     const providerUserId = roleNorm === 'provider' ? parseInt(req.user.id, 10) : null;
@@ -349,6 +358,8 @@ export const createSkillsGroup = async (req, res, next) => {
     const { orgId } = req.params;
     const access = await ensureSkillsGroupOrgAccess(req, orgId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const sb = await requireSkillBuildersSchoolProgramActive(req, access.activeAgencyId);
+    if (!sb.ok) return res.status(sb.status).json({ error: { message: sb.message } });
     if (!canManageSkillsGroups(req)) return res.status(403).json({ error: { message: 'Admin access required' } });
 
     const name = String(req.body?.name || '').trim();
@@ -450,6 +461,8 @@ export const updateSkillsGroup = async (req, res, next) => {
     const { orgId, groupId } = req.params;
     const access = await ensureSkillsGroupOrgAccess(req, orgId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const sbU = await requireSkillBuildersSchoolProgramActive(req, access.activeAgencyId);
+    if (!sbU.ok) return res.status(sbU.status).json({ error: { message: sbU.message } });
     if (!canManageSkillsGroups(req)) return res.status(403).json({ error: { message: 'Admin access required' } });
 
     const gid = parseInt(groupId, 10);
@@ -548,6 +561,8 @@ export const deleteSkillsGroup = async (req, res, next) => {
     const { orgId, groupId } = req.params;
     const access = await ensureSkillsGroupOrgAccess(req, orgId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const sbD = await requireSkillBuildersSchoolProgramActive(req, access.activeAgencyId);
+    if (!sbD.ok) return res.status(sbD.status).json({ error: { message: sbD.message } });
     if (!canManageSkillsGroups(req)) return res.status(403).json({ error: { message: 'Admin access required' } });
 
     const gid = parseInt(groupId, 10);
@@ -578,6 +593,8 @@ export const updateSkillsGroupProvider = async (req, res, next) => {
     const { orgId, groupId } = req.params;
     const access = await ensureSkillsGroupOrgAccess(req, orgId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const sbP = await requireSkillBuildersSchoolProgramActive(req, access.activeAgencyId);
+    if (!sbP.ok) return res.status(sbP.status).json({ error: { message: sbP.message } });
     if (!canManageSkillsGroups(req)) return res.status(403).json({ error: { message: 'Admin access required' } });
 
     const gid = parseInt(groupId, 10);
@@ -634,6 +651,8 @@ export const updateSkillsGroupClient = async (req, res, next) => {
     const { orgId, groupId } = req.params;
     const access = await ensureSkillsGroupOrgAccess(req, orgId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const sbC = await requireSkillBuildersSchoolProgramActive(req, access.activeAgencyId);
+    if (!sbC.ok) return res.status(sbC.status).json({ error: { message: sbC.message } });
     if (!canManageSkillsGroups(req)) return res.status(403).json({ error: { message: 'Admin access required' } });
 
     const gid = parseInt(groupId, 10);
@@ -696,6 +715,8 @@ export const listSkillsEligibleClients = async (req, res, next) => {
     const { orgId } = req.params;
     const access = await ensureSkillsGroupOrgAccess(req, orgId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const sbEc = await requireSkillBuildersSchoolProgramActive(req, access.activeAgencyId);
+    if (!sbEc.ok) return res.status(sbEc.status).json({ error: { message: sbEc.message } });
 
     // Providers get read-only access; this is used for admin assignment UI, so keep it restricted.
     if (!canManageSkillsGroups(req)) return res.status(403).json({ error: { message: 'Admin access required' } });
@@ -751,6 +772,8 @@ export const listSkillsEligibleProviders = async (req, res, next) => {
     const { orgId } = req.params;
     const access = await ensureSkillsGroupOrgAccess(req, orgId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const sbEp = await requireSkillBuildersSchoolProgramActive(req, access.activeAgencyId);
+    if (!sbEp.ok) return res.status(sbEp.status).json({ error: { message: sbEp.message } });
     if (!canManageSkillsGroups(req)) return res.status(403).json({ error: { message: 'Admin access required' } });
 
     const agencyId = access.activeAgencyId;
@@ -795,6 +818,8 @@ export const listProviderSkillsGroupMeetings = async (req, res, next) => {
     const { orgId } = req.params;
     const access = await ensureSkillsGroupOrgAccess(req, orgId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const sbMt = await requireSkillBuildersSchoolProgramActive(req, access.activeAgencyId);
+    if (!sbMt.ok) return res.status(sbMt.status).json({ error: { message: sbMt.message } });
 
     const roleNorm = String(req.user?.role || '').toLowerCase();
     const providerUserId = req.query?.providerUserId ? parseInt(req.query.providerUserId, 10) : parseInt(req.user?.id, 10);

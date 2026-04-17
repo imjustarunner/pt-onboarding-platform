@@ -21,6 +21,28 @@ function parseJsonObject(raw) {
   return {};
 }
 
+/** Normalize agency `color_palette` primary/secondary to `#RRGGBB` for public hub JSON. */
+function normalizeHexColor(v) {
+  const s = String(v || '').trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(s)) return s.toLowerCase();
+  if (/^#[0-9A-Fa-f]{3}$/.test(s)) {
+    const r = s[1];
+    const g = s[2];
+    const b = s[3];
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  return '';
+}
+
+function hubAgencyBrandColorsFromRow(row) {
+  const parsed = parseJsonObject(row?.color_palette);
+  const primary = normalizeHexColor(parsed?.primary || parsed?.primaryColor);
+  const secondary = normalizeHexColor(
+    parsed?.secondary || parsed?.secondaryColor || parsed?.accent || parsed?.accentColor
+  );
+  return { primary, secondary };
+}
+
 function normalizeSlug(s) {
   return String(s || '')
     .trim()
@@ -45,7 +67,7 @@ async function resolveHubDisplayAgencyRow(conn, sourceRow) {
   const [parRows] = await conn.execute(
     `SELECT pa.id, pa.name, pa.slug, pa.logo_path, pa.logo_url,
             LOWER(COALESCE(pa.organization_type, 'agency')) AS org_type,
-            pa.theme_settings,
+            pa.theme_settings, pa.color_palette,
             i.file_path AS icon_file_path
      FROM organization_affiliations oa
      INNER JOIN agencies pa ON pa.id = oa.agency_id
@@ -133,6 +155,8 @@ export async function loadHubPublicEvents(conn, sources, opts = {}) {
     if (!Number.isFinite(sid) || sid <= 0) continue;
 
     let batch = [];
+    /** Resolved agency row for branding (parent when source is a program org). */
+    let displayRow = null;
     /** Partner row uses parent agency id/name/logo when the hub source is a program org. */
     let meta = { sourceAgencyId: sid, sourceAgencyName: '', sourceAgencySlug: '', sourceAgencyLogoUrl: null };
 
@@ -141,6 +165,7 @@ export async function loadHubPublicEvents(conn, sources, opts = {}) {
       const [agRows] = await conn.execute(
         `SELECT a.id, a.name, a.slug, a.logo_path, a.logo_url,
                 LOWER(COALESCE(a.organization_type, 'agency')) AS org_type,
+                a.color_palette,
                 i.file_path AS icon_file_path
          FROM agencies a
          LEFT JOIN icons i ON a.icon_id = i.id
@@ -148,7 +173,7 @@ export async function loadHubPublicEvents(conn, sources, opts = {}) {
         [sid]
       );
       const ag = agRows?.[0];
-      const displayRow = await resolveHubDisplayAgencyRow(conn, ag);
+      displayRow = await resolveHubDisplayAgencyRow(conn, ag);
       const orgType = String(ag?.org_type || 'agency');
       const displayId = Number(displayRow?.id);
       const idOk = Number.isFinite(displayId) && displayId > 0;
@@ -171,6 +196,7 @@ export async function loadHubPublicEvents(conn, sources, opts = {}) {
       const [orgRows] = await conn.execute(
         `SELECT a.id, a.name, a.slug, a.logo_path, a.logo_url,
                 LOWER(COALESCE(a.organization_type, 'agency')) AS org_type,
+                a.color_palette,
                 i.file_path AS icon_file_path
          FROM agencies a
          LEFT JOIN icons i ON a.icon_id = i.id
@@ -178,7 +204,7 @@ export async function loadHubPublicEvents(conn, sources, opts = {}) {
         [sid]
       );
       const org = orgRows?.[0];
-      const displayRow = await resolveHubDisplayAgencyRow(conn, org);
+      displayRow = await resolveHubDisplayAgencyRow(conn, org);
       const displayId = Number(displayRow?.id);
       const idOk = Number.isFinite(displayId) && displayId > 0;
 
@@ -194,12 +220,15 @@ export async function loadHubPublicEvents(conn, sources, opts = {}) {
       continue;
     }
 
+    const brand = hubAgencyBrandColorsFromRow(displayRow);
     const partnerPayload = {
       sourceAgencyId: meta.sourceAgencyId,
       sourceAgencyName: meta.sourceAgencyName,
       sourceAgencySlug: meta.sourceAgencySlug,
       sourceAgencyLogoUrl: meta.sourceAgencyLogoUrl,
-      sourceOrganizationId: meta.sourceOrganizationId || null
+      sourceOrganizationId: meta.sourceOrganizationId || null,
+      sourceAgencyBrandPrimary: brand.primary || null,
+      sourceAgencyBrandSecondary: brand.secondary || null
     };
 
     for (const ev of batch) {
@@ -352,7 +381,7 @@ export async function loadHubFooterPartners(sources, baseUrl) {
     const [rows] = await pool.execute(
       `SELECT a.id, a.name, a.slug, a.logo_path, a.logo_url,
               LOWER(COALESCE(a.organization_type, 'agency')) AS org_type,
-              a.theme_settings,
+              a.theme_settings, a.color_palette,
               i.file_path AS icon_file_path
        FROM agencies a
        LEFT JOIN icons i ON a.icon_id = i.id
@@ -368,6 +397,7 @@ export async function loadHubFooterPartners(sources, baseUrl) {
     if (byId.has(aid)) continue;
 
     const gate = await checkPublicAvailabilityGate(aid);
+    const brand = hubAgencyBrandColorsFromRow(displayRow);
     byId.set(aid, {
       agencyId: aid,
       agencyName: String(displayRow.name || '').trim() || `Agency ${aid}`,
@@ -376,7 +406,9 @@ export async function loadHubFooterPartners(sources, baseUrl) {
       websiteUrl: hubPublicWebsiteUrlFromRow(displayRow),
       publicAvailabilityEnabled: gate.ok === true,
       findProviderPath: `/find-provider/${aid}`,
-      requiresAccessKey: true
+      requiresAccessKey: true,
+      brandPrimaryHex: brand.primary || null,
+      brandSecondaryHex: brand.secondary || null
     });
   }
 

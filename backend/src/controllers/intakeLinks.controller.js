@@ -31,12 +31,9 @@ async function resolveAgencyIdForIntakeLink({ scopeType, organizationId, created
 
 async function assertSmartRegistrationCompanyEvent({ companyEventId, scopeType, organizationId, createdByUserId }) {
   const ceid = companyEventId ? Number(companyEventId) : null;
+  /** Drafts: allow saving without an event; UI warns until one is chosen before going live. */
   if (!ceid) {
-    return {
-      ok: false,
-      message:
-        'A company event is required when using Smart Registration or Intake with a Registration step. Each public URL must enroll participants in one specific program event.'
-    };
+    return { ok: true };
   }
   const agencyId = await resolveAgencyIdForIntakeLink({ scopeType, organizationId, createdByUserId });
   if (!agencyId) {
@@ -135,6 +132,36 @@ const getUserOrganizationIds = async (userId) => {
 
 export const listIntakeLinks = async (req, res, next) => {
   try {
+    const companyEventFilterId = req.query.companyEventId ? asNumberOrNull(req.query.companyEventId) : null;
+    if (companyEventFilterId) {
+      const [evRows] = await pool.execute(
+        `SELECT id, agency_id, organization_id FROM company_events WHERE id = ? LIMIT 1`,
+        [companyEventFilterId]
+      );
+      const ev = evRows?.[0];
+      if (!ev) {
+        return res.status(404).json({ error: { message: 'Company event not found' } });
+      }
+      const eventAgencyId = Number(ev.agency_id);
+      const eventOrgId = ev.organization_id != null ? Number(ev.organization_id) : null;
+      if (!isSuperAdmin(req.user?.role)) {
+        const userOrgIds = await getUserOrganizationIds(req.user?.id);
+        const allowed =
+          Number.isFinite(eventAgencyId) &&
+          eventAgencyId > 0 &&
+          (userOrgIds.includes(eventAgencyId) || (eventOrgId && userOrgIds.includes(eventOrgId)));
+        if (!allowed) {
+          return res.status(403).json({ error: { message: 'Access denied for this company event.' } });
+        }
+      }
+      const [rows] = await pool.execute(
+        `SELECT * FROM intake_links WHERE company_event_id = ? ORDER BY updated_at DESC, id DESC`,
+        [companyEventFilterId]
+      );
+      const links = (rows || []).map((row) => IntakeLink.normalize(row));
+      return res.json(links);
+    }
+
     const scopeType = req.query.scopeType ? String(req.query.scopeType) : null;
     const organizationId = req.query.organizationId ? asNumberOrNull(req.query.organizationId) : null;
     const learningClassId = req.query.learningClassId ? asNumberOrNull(req.query.learningClassId) : null;

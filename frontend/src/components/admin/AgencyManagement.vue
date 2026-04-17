@@ -1398,6 +1398,22 @@
               When on, users in this tenant see the Games menu with titles you have enabled (e.g. Test Game). Super admins always see Games for testing.
             </small>
 
+            <div v-if="isFeatureAvailable('schoolPortalsEnabled')" class="toggle-row" style="margin-top: 10px;">
+              <span>Enable School Portals workspace</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.schoolPortalsEnabled" compact />
+            </div>
+            <small v-if="isFeatureAvailable('schoolPortalsEnabled')" class="hint">
+              When on, admins can open School Overview and All School Portals (and add schools from those screens). Requires the feature to be offered in Platform → Available agency features. School counts still follow your existing billing usage.
+            </small>
+
+            <div v-if="isFeatureAvailable('skillBuildersSchoolProgramEnabled')" class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Skill Builders school program</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.skillBuildersSchoolProgramEnabled" compact />
+            </div>
+            <small v-if="isFeatureAvailable('skillBuildersSchoolProgramEnabled')" class="hint">
+              When on, schools can use Skills Groups in the school portal, School Overview shows Skill Builders stats, and providers can use the Skill Builders hub and availability flows for this tenant. Requires Platform → Available agency features.
+            </small>
+
             <div v-if="isFeatureAvailable('momentumListEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Momentum List</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.momentumListEnabled" compact />
@@ -4026,7 +4042,10 @@ const TENANT_FEATURE_PROFILES = {
       smsAutoProvisionOnPrehire: false,
       platformSharedMarketingEnabled: true,
       platformPublicRegistrationEnabled: true,
-      gamesPlatformEnabled: false
+      gamesPlatformEnabled: false,
+
+      schoolPortalsEnabled: false,
+      skillBuildersSchoolProgramEnabled: false
     }
   },
   standard_healthcare: {
@@ -4057,7 +4076,10 @@ const TENANT_FEATURE_PROFILES = {
       smsAutoProvisionOnPrehire: false,
       platformSharedMarketingEnabled: true,
       platformPublicRegistrationEnabled: true,
-      gamesPlatformEnabled: false
+      gamesPlatformEnabled: false,
+
+      schoolPortalsEnabled: false,
+      skillBuildersSchoolProgramEnabled: false
     }
   },
   learning_programs: {
@@ -4088,7 +4110,10 @@ const TENANT_FEATURE_PROFILES = {
       smsAutoProvisionOnPrehire: false,
       platformSharedMarketingEnabled: true,
       platformPublicRegistrationEnabled: true,
-      gamesPlatformEnabled: false
+      gamesPlatformEnabled: false,
+
+      schoolPortalsEnabled: false,
+      skillBuildersSchoolProgramEnabled: false
     }
   }
 };
@@ -6332,7 +6357,10 @@ const defaultAgencyForm = () => ({
     platformSharedMarketingEnabled: true,
     platformPublicRegistrationEnabled: true,
 
-    gamesPlatformEnabled: false
+    gamesPlatformEnabled: false,
+
+    schoolPortalsEnabled: false,
+    skillBuildersSchoolProgramEnabled: false
   },
   // Notification icon fields
   statusExpiredIconId: null,
@@ -7723,7 +7751,10 @@ const editAgency = async (agency) => {
       tenantFeatureProfileKey: String(featureFlags.tenantFeatureProfileKey || 'essential_baseline').trim().toLowerCase() || 'essential_baseline',
       platformSharedMarketingEnabled: featureFlags.platformSharedMarketingEnabled !== false,
       platformPublicRegistrationEnabled: featureFlags.platformPublicRegistrationEnabled !== false,
-      gamesPlatformEnabled: featureFlags.gamesPlatformEnabled === true
+      gamesPlatformEnabled: featureFlags.gamesPlatformEnabled === true,
+
+      schoolPortalsEnabled: featureFlags.schoolPortalsEnabled === true,
+      skillBuildersSchoolProgramEnabled: featureFlags.skillBuildersSchoolProgramEnabled === true
     },
     // Notification icon fields
     statusExpiredIconId: agency.status_expired_icon_id ?? null,

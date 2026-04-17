@@ -61,6 +61,8 @@ import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
+import { useAuthStore } from '../store/auth';
+import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js';
 import PlatformPreviewBanner from '../components/admin/PlatformPreviewBanner.vue';
 import { useMomentumListAddon } from '../composables/useMomentumListAddon';
 import { useSuperadminPlatformPreview } from '../composables/useSuperadminPlatformPreview';
@@ -71,6 +73,7 @@ import SurveyPromptCard from '../components/dashboard/SurveyPromptCard.vue';
 const route = useRoute();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
 const { isSuperadminPreview, appendPreviewQueryToRoute } = useSuperadminPlatformPreview({ route, agencyStore });
 
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id ?? null);
@@ -118,15 +121,32 @@ const onIconError = (cardId) => {
 
 const resolveCardTo = (card) => appendPreviewQueryToRoute(card?.to);
 
-const cards = computed(() => [
-  {
-    id: 'school_overview',
-    title: 'School Overview',
-    description: 'View school-level status and progress dashboards.',
-    to: { path: orgTo('/admin/schools/overview'), query: { orgType: 'school' } },
-    iconKey: 'school_overview',
-    emoji: '🏫'
-  },
+const canSeeSchoolPortalsCard = computed(() => {
+  const ag = agencyStore.currentAgency || {};
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSchoolPortalsSurfaces({
+    userRole: authStore.user?.role,
+    agencyFeatureFlags: ag.feature_flags ?? ag.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      ag.tenant_available_agency_features_json ?? ag.tenantAvailableAgencyFeaturesJson
+  });
+});
+
+const cards = computed(() => {
+  const all = [
+  ...(canSeeSchoolPortalsCard.value
+    ? [
+        {
+          id: 'school_portals',
+          title: 'School Portals',
+          description: 'School overview, all portals, and related tools when enabled for this tenant.',
+          to: orgTo('/admin/school-portals-hub'),
+          iconKey: 'school_overview',
+          emoji: '🏫'
+        }
+      ]
+    : []),
   {
     id: 'program_overview',
     title: 'Program Overview',
@@ -191,7 +211,9 @@ const cards = computed(() => [
     iconKey: 'dashboard_notifications',
     emoji: '🔔'
   }
-]);
+  ];
+  return all;
+});
 </script>
 
 <style scoped>

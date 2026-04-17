@@ -3,8 +3,11 @@
     <header class="pmp-head">
       <h1>Public marketing pages</h1>
       <p class="muted">
-        Multi-agency public event hubs at <code>/p/:slug</code>. Sources use each agency’s Skill Builders program events
-        (same rules as single-agency public listings).
+        Custom public pages at <code>/p/:slug</code>. Each slug is its own record—creating or editing one page does not
+        change any other slug (for example your <code>d11summer2026</code> page stays untouched unless you open Edit on
+        that row). Use <strong>New page</strong> for another URL. For event-style hubs, per-page <strong>sources</strong>
+        control which agencies feed the listing; eligibility follows the same public-event rules as single-agency
+        listings when those sources are used.
       </p>
     </header>
 
@@ -371,6 +374,16 @@
           <code>offerExpandedExternalLinks</code> (array of <code>{ title, href }</code>; use the form above—opens in new tab),
           <code>ctaSection.embedInOfferExpanded</code> / <code>hideStandaloneCtaBand</code> (use checkboxes above),
           <code>heroVideoUrl</code> (use the Hero video field above; it merges here on save).
+          For slug <code>skillbuilders</code> only: optional <code>skillbuildersJourney</code> with
+          <code>officeSources</code> (same shape as Sources; used for paths whose filter is <code>officeSources</code>),
+          <code>districtProgramTitleContains</code> or <code>districtProgramTitleIncludes</code> (substring match, case-insensitive,
+          against each event’s program organization name; default includes <code>D11 Summer ITSCO</code>),
+          optional <code>paths</code> array of <code>{ "id", "label", "buttonVariant": "primary"|"secondary", "filter" }</code>
+          where <code>filter</code> is <code>{ "kind": "programTitleAnd", "includes": ["D11 Summer ITSCO"] }</code>,
+          <code>{ "kind": "officeSources" }</code>, or <code>{ "kind": "all" }</code> (add e.g. a D12 button with its own
+          <code>programTitleAnd</code> row). Optional <code>subtitle</code>, <code>districtTitle</code>, <code>nonDistrictTitle</code>,
+          <code>changeSelectionLabel</code>, <code>gateAriaLabel</code>, <code>enabled: false</code>. Tenant colors use platform
+          branding unless <code>programThemePrimary</code> overrides the accent stripe.
         </p>
         <textarea v-model="form.brandingJsonText" rows="6" class="mono" placeholder='{"programThemePrimary":"#a32623"}' />
       </label>

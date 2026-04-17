@@ -220,6 +220,8 @@ import { getCached, setCached } from '../../utils/adminApiCache';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import { useAuthStore } from '../../store/auth';
+import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
+import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
 import { isSupervisor } from '../../utils/helpers.js';
 import NotificationCards from '../../components/admin/NotificationCards.vue';
 import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.vue';
@@ -668,7 +670,6 @@ const fetchOrgOverviewSummary = async () => {
   }
 };
 
-const hasAffiliatedSchools = computed(() => Number(orgOverviewSummary.value?.counts?.school || 0) > 0);
 // Program Overview includes learning orgs (but not schools).
 const hasAffiliatedPrograms = computed(() =>
   Number(orgOverviewSummary.value?.counts?.program || 0) + Number(orgOverviewSummary.value?.counts?.learning || 0) > 0
@@ -708,9 +709,33 @@ const bookClubEnabledForAgency = computed(() =>
 const orgSlug = computed(() => route.params?.organizationSlug || '');
 const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
 
+const canSeeSchoolPortalsQuickAction = computed(() => {
+  const ag = agencyData.value || currentAgency.value || {};
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSchoolPortalsSurfaces({
+    userRole: authStore.user?.role,
+    agencyFeatureFlags: ag.feature_flags ?? ag.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      ag.tenant_available_agency_features_json ?? ag.tenantAvailableAgencyFeaturesJson
+  });
+});
+
+const canSeeSkillBuildersSchoolProgramQuickAction = computed(() => {
+  const ag = agencyData.value || currentAgency.value || {};
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSkillBuildersSchoolProgramSurfaces({
+    userRole: authStore.user?.role,
+    agencyFeatureFlags: ag.feature_flags ?? ag.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      ag.tenant_available_agency_features_json ?? ag.tenantAvailableAgencyFeaturesJson
+  });
+});
+
 const AFFILIATION_QUICK_ACTION_IDS = ['team_lead_dashboard', 'schedule', 'start_new_season', 'manage_users', 'settings'];
 const AFFILIATION_HIDDEN_IDS = new Set([
-  'school_overview', 'program_overview', 'import_school_directory', 'skill_builders_availability',
+  'school_portals', 'program_overview', 'import_school_directory', 'skill_builders_availability',
   'provider_availability_dashboard', 'provider_scheduling_settings', 'audit_center', 'external_calendar_audit',
   'manage_clients', 'progress_dashboard', 'tools_aids', 'clinical_note_generator', 'manage_modules',
   'manage_documents', 'intake_links', 'unassigned_documents', 'management_team', 'provider_directory',
@@ -821,10 +846,10 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
-    id: 'school_overview',
-    title: 'School Overview',
-    description: 'View affiliated schools and key staffing/slot stats',
-    to: '/admin/schools/overview?orgType=school',
+    id: 'school_portals',
+    title: 'School Portals',
+    description: 'School overview, all portals, and add-school when enabled for this tenant',
+    to: '/admin/school-portals-hub',
     emoji: '🏫',
     iconKey: 'school_overview',
     category: 'Management',
@@ -1099,7 +1124,8 @@ const quickActions = computed(() => {
       if (String(a?.id) === 'settings') return true;
       return ['team_lead_dashboard', 'manage_users', 'season_management', 'company_events', 'surveys', 'settings'].includes(String(a?.id));
     }
-    if (String(a?.id) === 'school_overview') return hasAffiliatedSchools.value;
+    if (String(a?.id) === 'school_portals') return canSeeSchoolPortalsQuickAction.value;
+    if (String(a?.id) === 'skill_builders_availability') return canSeeSkillBuildersSchoolProgramQuickAction.value;
     if (String(a?.id) === 'program_overview') return hasAffiliatedPrograms.value;
     if (String(a?.id) === 'book_club') return bookClubEnabledForAgency.value && !isSummitStatsContext.value;
     // Admin/support/supervisor always see Tools & Aids when no agency selected; otherwise use agency feature flag
@@ -1123,7 +1149,7 @@ const defaultQuickActionIds = computed(() => {
     'manage_clients',
     'management_team',
     ...((clinicalNoteGeneratorEnabledForAgency.value || !currentAgency.value) ? ['tools_aids', 'clinical_note_generator'] : []),
-    ...(hasAffiliatedSchools.value ? ['school_overview'] : []),
+    ...(canSeeSchoolPortalsQuickAction.value ? ['school_portals'] : []),
     ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
     ...(bookClubEnabledForAgency.value ? ['book_club'] : []),
     'manage_modules',
@@ -1135,7 +1161,7 @@ const defaultQuickActionIds = computed(() => {
     'external_calendar_audit',
     'provider_availability_dashboard',
     'provider_scheduling_settings',
-    'skill_builders_availability',
+    ...(canSeeSkillBuildersSchoolProgramQuickAction.value ? ['skill_builders_availability'] : []),
     'notifications',
     'communications',
     'chats',

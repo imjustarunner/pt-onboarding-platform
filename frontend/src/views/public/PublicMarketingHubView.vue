@@ -1,5 +1,5 @@
 <template>
-  <div class="pmh-page">
+  <div class="pmh-page" :class="hubRootModifierClass" :style="hubPageRootStyle">
     <!-- Superadmin: quick path to edit content (does not show to public visitors). -->
     <router-link
       v-if="isSuperAdmin"
@@ -12,6 +12,39 @@
     <div v-if="error" class="pmh-fatal">{{ error }}</div>
 
     <div v-else class="pmh-shell">
+      <section
+        v-if="skillbuildersAudienceGateVisible"
+        class="pmh-splash-overlay sb-audience-overlay"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="skillbuildersJourneyCopy.gateAria"
+      >
+        <div class="sb-audience-card">
+          <p v-if="logoUrl" class="sb-audience-logo-wrap">
+            <img class="sb-audience-logo" :src="logoUrl" :alt="`${displayHeadline} logo`" />
+          </p>
+          <p class="sb-audience-eyebrow">Welcome</p>
+          <h2 class="sb-audience-title">{{ skillbuildersJourneyCopy.subtitle }}</h2>
+          <div
+            class="sb-audience-actions"
+            :class="{ 'sb-audience-actions--many': skillbuildersJourneyPaths.length > 2 }"
+          >
+            <button
+              v-for="p in skillbuildersJourneyPaths"
+              :key="p.id"
+              type="button"
+              class="sb-audience-btn"
+              :class="
+                p.buttonVariant === 'primary' ? 'sb-audience-btn--primary' : 'sb-audience-btn--secondary'
+              "
+              @click="chooseSkillbuildersAudiencePath(p.id)"
+            >
+              {{ p.label }}
+            </button>
+          </div>
+        </div>
+      </section>
+
       <section v-if="showNavigatorSplash" class="pmh-splash-overlay" role="dialog" aria-modal="true" aria-label="Choose your summer path">
         <div class="pmh-splash-card">
           <div class="pmh-splash-logos">
@@ -127,7 +160,7 @@
           v-if="heroProcessCinemaEnabled"
           class="pmh-hero-cinema"
           :aria-label="processSectionResolved.title"
-          :style="{ ...programThemeStyle, '--pmh-cinema-scroll-sec': `${heroCinemaScrollDurationSec}s` }"
+          :style="{ ...hubPageRootStyle, '--pmh-cinema-scroll-sec': `${heroCinemaScrollDurationSec}s` }"
         >
           <div class="pmh-hero-cinema-bg" aria-hidden="true">
             <iframe
@@ -140,7 +173,7 @@
               loading="lazy"
             />
             <video
-              v-else
+              v-else-if="heroVideoUrl"
               class="pmh-hero-cinema-video"
               :src="heroVideoUrl"
               muted
@@ -150,6 +183,7 @@
               disablepictureinpicture
               preload="metadata"
             />
+            <div v-else class="pmh-hero-cinema-gradient-fallback" />
           </div>
           <div class="pmh-hero-cinema-scrim" aria-hidden="true" />
           <div class="pmh-hero-cinema-overlay">
@@ -336,7 +370,7 @@
                 </article>
               </div>
 
-              <div v-if="ctaEmbedInOfferExpanded && ctaSectionResolved" class="pmh-offer-cta-wrap" :style="programThemeStyle">
+              <div v-if="ctaEmbedInOfferExpanded && ctaSectionResolved" class="pmh-offer-cta-wrap">
                 <div class="pmh-cta-band pmh-cta-band--in-offer">
                   <p v-if="ctaSectionResolved.eyebrow" class="pmh-cta-eyebrow">{{ ctaSectionResolved.eyebrow }}</p>
                   <h2 class="pmh-cta-title">{{ ctaSectionResolved.title }}</h2>
@@ -405,7 +439,7 @@
       </section>
 
       <!-- Built-in narrative blocks (override or disable via branding JSON: ctaSection, processSection). -->
-      <section v-if="ctaSectionResolved && ctaShowStandaloneBand" class="pmh-cta-band" :style="programThemeStyle">
+      <section v-if="ctaSectionResolved && ctaShowStandaloneBand" class="pmh-cta-band">
         <p v-if="ctaSectionResolved.eyebrow" class="pmh-cta-eyebrow">{{ ctaSectionResolved.eyebrow }}</p>
         <h2 class="pmh-cta-title">{{ ctaSectionResolved.title }}</h2>
         <p v-if="ctaSectionResolved.subtitle" class="pmh-cta-subtitle">{{ ctaSectionResolved.subtitle }}</p>
@@ -439,7 +473,7 @@
         </div>
       </section>
 
-      <section v-if="processSectionResolved && !heroProcessCinemaEnabled" class="pmh-process" :style="programThemeStyle">
+      <section v-if="processSectionResolved && !heroProcessCinemaEnabled" class="pmh-process">
         <div class="pmh-process-inner">
           <div class="pmh-process-head">
             <h2 class="pmh-process-title">{{ processSectionResolved.title }}</h2>
@@ -455,12 +489,29 @@
       </section>
 
       <div id="hub-programs" class="pmh-programs-anchor">
+        <p
+          v-if="skillbuildersJourneyActive && skillbuildersJourneyChoice && !skillbuildersAudienceGateVisible"
+          class="sb-audience-change"
+        >
+          <button type="button" class="sb-audience-change-btn" @click="resetSkillbuildersAudience">
+            {{ skillbuildersJourneyCopy.changeLink }}
+          </button>
+        </p>
+        <div
+          v-if="skillbuildersOfficeFilterMisconfigured"
+          class="sb-audience-warn"
+          role="status"
+        >
+          The office / “not in program” path needs <code>skillbuildersJourney.officeSources</code> in this page’s branding JSON
+          (each entry <code>{ "sourceType": "agency"|"organization", "sourceId": number }</code> matching a row under
+          <strong>Sources</strong> in admin). Until that is set, no events are shown for that option.
+        </div>
         <PublicEventsListing
           ref="eventsListingRef"
           v-if="!error"
           :page-title="displayHeadline"
           :page-subtitle="listingSubtitle"
-          :events="events"
+          :events="eventsForListing"
           :loading="loading"
           :error="''"
           :hub-slug="hubSlug"
@@ -531,7 +582,12 @@
           <div v-if="footerPartners.length" class="pmh-footer-partners-block">
             <h2 class="pmh-footer-heading">Participating agencies</h2>
             <ul class="pmh-footer-partner-list">
-              <li v-for="p in footerPartners" :key="`fp-${p.agencyId}`" class="pmh-footer-partner-card">
+              <li
+                v-for="p in footerPartners"
+                :key="`fp-${p.agencyId}`"
+                class="pmh-footer-partner-card"
+                :style="footerPartnerAccentStyle(p)"
+              >
                 <div class="pmh-footer-partner-logo-wrap">
                   <img
                     v-if="p.logoUrl"
@@ -595,6 +651,12 @@ const brandingStore = useBrandingStore();
 const route = useRoute();
 const hubSlug = computed(() => String(route.params.hubSlug || '').trim().toLowerCase());
 
+/** Stable class for hub-only CSS, e.g. `.pmh-page--hub-skillbuilders { --hub-brand: … }` — other slugs get their own class but no rules by default. */
+const hubRootModifierClass = computed(() => {
+  const s = hubSlug.value.replace(/[^a-z0-9-]/g, '');
+  return s ? `pmh-page--hub-${s}` : '';
+});
+
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 
 const loading = ref(true);
@@ -609,6 +671,8 @@ const journeyPrimary = ref('');
 const journeyProgramMode = ref('');
 const selectedSchoolName = ref('');
 const showNavigatorSplash = ref(false);
+/** Path id from skillbuilders journey config, or null — only for /p/skillbuilders when journey is active */
+const skillbuildersJourneyChoice = ref(null);
 
 const gallerySlideIndex = ref(0);
 let gallerySlideshowTimer = null;
@@ -712,6 +776,207 @@ const presetSessionLabel = computed(() => '');
 
 const hubBranding = computed(() => pageMeta.value?.branding || {});
 
+const SB_AUDIENCE_STORAGE_KEY_V2 = 'public_hub_skillbuilders_audience_v2';
+const SB_AUDIENCE_STORAGE_KEY_V1 = 'public_hub_skillbuilders_audience_v1';
+
+function readSkillbuildersAudience() {
+  try {
+    if (typeof sessionStorage === 'undefined') return null;
+    const v2 = sessionStorage.getItem(SB_AUDIENCE_STORAGE_KEY_V2);
+    if (v2 && String(v2).trim()) return String(v2).trim();
+    const v1 = sessionStorage.getItem(SB_AUDIENCE_STORAGE_KEY_V1);
+    if (v1 === 'district' || v1 === 'office') return v1;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function writeSkillbuildersAudience(value) {
+  try {
+    if (typeof sessionStorage === 'undefined') return;
+    sessionStorage.setItem(SB_AUDIENCE_STORAGE_KEY_V2, value);
+    sessionStorage.removeItem(SB_AUDIENCE_STORAGE_KEY_V1);
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearSkillbuildersAudienceStorage() {
+  try {
+    if (typeof sessionStorage === 'undefined') return;
+    sessionStorage.removeItem(SB_AUDIENCE_STORAGE_KEY_V2);
+    sessionStorage.removeItem(SB_AUDIENCE_STORAGE_KEY_V1);
+  } catch {
+    /* ignore */
+  }
+}
+
+function partnerMatchesOfficeSourceFilter(partner, filter) {
+  const st = String(filter?.sourceType || '').toLowerCase();
+  const sid = Number(filter?.sourceId);
+  if (!st || !Number.isFinite(sid) || sid <= 0) return false;
+  const pa = Number(partner?.sourceAgencyId);
+  const poRaw = partner?.sourceOrganizationId;
+  const po = poRaw != null && poRaw !== '' ? Number(poRaw) : null;
+  if (st === 'organization') {
+    return Number.isFinite(po) && po === sid;
+  }
+  if (st === 'agency') {
+    return Number.isFinite(pa) && pa === sid;
+  }
+  return false;
+}
+
+function eventMatchesAnyOfficeSource(ev, officeSources) {
+  const partners = Array.isArray(ev?.hubSourcePartners) ? ev.hubSourcePartners : [];
+  if (!partners.length || !officeSources.length) return false;
+  for (const src of officeSources) {
+    if (partners.some((p) => partnerMatchesOfficeSourceFilter(p, src))) return true;
+  }
+  return false;
+}
+
+function normalizeSkillbuildersPathFilter(raw) {
+  if (!raw || typeof raw !== 'object') return { kind: 'unknown' };
+  const k = String(raw.kind || '').toLowerCase().replace(/-/g, '_');
+  if (k === 'all' || k === 'all_sources') return { kind: 'all' };
+  if (k === 'office_sources' || k === 'officesources') return { kind: 'officeSources' };
+  if (k === 'program_title_and' || k === 'programtitleand') {
+    const includes = Array.isArray(raw.includes) ? raw.includes.map((x) => String(x || '').trim()).filter(Boolean) : [];
+    return { kind: 'programTitleAnd', includes };
+  }
+  return { kind: 'unknown' };
+}
+
+function eventMatchesProgramTitleAnd(ev, includes) {
+  if (!includes.length) return true;
+  const name = String(ev?.programOrganizationName || '').toLowerCase();
+  if (!name) return false;
+  return includes.every((frag) => name.includes(String(frag || '').toLowerCase()));
+}
+
+function eventMatchesSkillbuildersPath(ev, path, officeSources) {
+  const f = path?.filter;
+  if (!f || f.kind === 'unknown') return false;
+  if (f.kind === 'all') return true;
+  if (f.kind === 'officeSources') return eventMatchesAnyOfficeSource(ev, officeSources);
+  if (f.kind === 'programTitleAnd') return eventMatchesProgramTitleAnd(ev, f.includes);
+  return false;
+}
+
+function resolveDistrictProgramTitleIncludes(c) {
+  if (Array.isArray(c?.districtProgramTitleIncludes)) {
+    const out = c.districtProgramTitleIncludes.map((x) => String(x || '').trim()).filter(Boolean);
+    if (out.length) return out;
+  }
+  const single = String(c?.districtProgramTitleContains || '').trim();
+  if (single) return [single];
+  return ['D11 Summer ITSCO'];
+}
+
+const skillbuildersJourneyCfg = computed(() => {
+  const b = hubBranding.value?.skillbuildersJourney;
+  if (!b || typeof b !== 'object') return {};
+  return b;
+});
+
+const skillbuildersJourneyActive = computed(() => {
+  if (hubSlug.value !== 'skillbuilders') return false;
+  if (skillbuildersJourneyCfg.value.enabled === false) return false;
+  return true;
+});
+
+const skillbuildersOfficeSources = computed(() => {
+  const raw = skillbuildersJourneyCfg.value.officeSources;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((x) => ({
+      sourceType: String(x?.sourceType || '').trim().toLowerCase(),
+      sourceId: Number(x?.sourceId)
+    }))
+    .filter(
+      (x) =>
+        (x.sourceType === 'agency' || x.sourceType === 'organization') &&
+        Number.isFinite(x.sourceId) &&
+        x.sourceId > 0
+    );
+});
+
+const skillbuildersJourneyPaths = computed(() => {
+  const c = skillbuildersJourneyCfg.value;
+  const rawPaths = Array.isArray(c.paths) ? c.paths : null;
+  if (rawPaths && rawPaths.length) {
+    const built = rawPaths
+      .map((p, idx) => {
+        const id = String(p?.id || '').trim() || `path_${idx}`;
+        const label = String(p?.label || '').trim();
+        const variantRaw = String(p?.buttonVariant || '').trim().toLowerCase();
+        const variant =
+          variantRaw === 'primary' || variantRaw === 'secondary'
+            ? variantRaw
+            : idx === 0
+              ? 'primary'
+              : 'secondary';
+        const filter = normalizeSkillbuildersPathFilter(p?.filter);
+        return { id, label, buttonVariant: variant, filter };
+      })
+      .filter((p) => p.label && p.filter.kind !== 'unknown');
+    if (built.length) return built;
+  }
+  const districtIncludes = resolveDistrictProgramTitleIncludes(c);
+  return [
+    {
+      id: 'district',
+      label: String(
+        c.districtTitle || 'My dependent is part of the D11 Summer ITSCO program'
+      ).trim(),
+      buttonVariant: 'primary',
+      filter: { kind: 'programTitleAnd', includes: districtIncludes }
+    },
+    {
+      id: 'office',
+      label: String(
+        c.nonDistrictTitle || 'My dependent is not in that program (office Skill Builders)'
+      ).trim(),
+      buttonVariant: 'secondary',
+      filter: { kind: 'officeSources' }
+    }
+  ];
+});
+
+const skillbuildersValidPathIds = computed(() => new Set(skillbuildersJourneyPaths.value.map((p) => p.id)));
+
+const skillbuildersJourneyCopy = computed(() => {
+  const c = skillbuildersJourneyCfg.value;
+  return {
+    subtitle: String(c.subtitle || 'Choose an option so we can show the right programs.').trim(),
+    gateAria: String(c.gateAriaLabel || 'Choose which Skill Builders programs apply').trim(),
+    changeLink: String(c.changeSelectionLabel || 'Change my selection').trim()
+  };
+});
+
+const skillbuildersAudienceGateVisible = computed(
+  () => skillbuildersJourneyActive.value && !loading.value && !error.value && skillbuildersJourneyChoice.value == null
+);
+
+const skillbuildersOfficeFilterMisconfigured = computed(() => {
+  if (!skillbuildersJourneyActive.value || loading.value || !skillbuildersJourneyChoice.value) return false;
+  const path = skillbuildersJourneyPaths.value.find((p) => p.id === skillbuildersJourneyChoice.value);
+  if (!path || path.filter.kind !== 'officeSources') return false;
+  return !skillbuildersOfficeSources.value.length;
+});
+
+const eventsForListing = computed(() => {
+  const all = events.value || [];
+  if (!skillbuildersJourneyActive.value) return all;
+  if (skillbuildersJourneyChoice.value == null) return [];
+  const path = skillbuildersJourneyPaths.value.find((p) => p.id === skillbuildersJourneyChoice.value);
+  if (!path) return [];
+  const officeSrc = skillbuildersOfficeSources.value;
+  return all.filter((ev) => eventMatchesSkillbuildersPath(ev, path, officeSrc));
+});
+
 const hubLegalTitle = computed(() => String(hubBranding.value.legalFooterTitle || '').trim());
 const hubLegalLinksOverride = computed(() => {
   const raw = hubBranding.value.legalFooterLinks;
@@ -725,7 +990,7 @@ const hubLegalLinksOverride = computed(() => {
 const partnerLine = computed(() => String(hubBranding.value.partnerLine || '').trim());
 
 const DEFAULT_PARENT_INTRO =
-  'Summer mental health programs run at multiple school locations. When sessions are listed below, use your address to find the site closest to your home.';
+  'Summer programs are offered at partner sites across the region. When sessions are listed below, use your address to find the location closest to your home.';
 
 const parentIntroResolved = computed(() => {
   const custom = String(hubBranding.value.parentIntro || '').trim();
@@ -854,21 +1119,135 @@ function youtubeCinemaEmbedFromUrl(raw) {
 
 const heroVideoYoutubeCinemaEmbed = computed(() => youtubeCinemaEmbedFromUrl(heroVideoUrl.value));
 
-/** Brick accent for CTA strip + process band; override with branding.programThemePrimary. */
-const programThemeStyle = computed(() => {
-  const primary = String(hubBranding.value.programThemePrimary || '#a32623').trim();
-  return { '--pmh-program-primary': primary };
+function normalizeHubHex(v) {
+  const s = String(v || '').trim();
+  if (/^#[0-9A-Fa-f]{6}$/i.test(s)) return `#${s.slice(1).toLowerCase()}`;
+  if (/^#[0-9A-Fa-f]{3}$/i.test(s)) {
+    return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`.toLowerCase();
+  }
+  return '';
+}
+
+function hubHexToRgb(hex) {
+  const h = normalizeHubHex(hex);
+  if (!h) return null;
+  return {
+    r: parseInt(h.slice(1, 3), 16),
+    g: parseInt(h.slice(3, 5), 16),
+    b: parseInt(h.slice(5, 7), 16)
+  };
+}
+
+function hubDarkenHex(hex, factor = 0.78) {
+  const rgb = hubHexToRgb(hex);
+  if (!rgb) return '';
+  const clamp = (n) => Math.max(0, Math.min(255, Math.round(n * factor)));
+  return `#${clamp(rgb.r).toString(16).padStart(2, '0')}${clamp(rgb.g).toString(16).padStart(2, '0')}${clamp(rgb.b).toString(16).padStart(2, '0')}`;
+}
+
+function hubHexToRgba(hex, alpha) {
+  const rgb = hubHexToRgb(hex);
+  if (!rgb) return `rgba(15,23,42,${alpha})`;
+  return `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
+}
+
+/** /p/skillbuilders only: map platform (main tenant) branding colors onto hub CSS variables */
+const skillbuildersPlatformThemeStyle = computed(() => {
+  if (hubSlug.value !== 'skillbuilders') return {};
+  const pb = brandingStore.platformBranding || {};
+  const hubPrimary = String(hubBranding.value.programThemePrimary || '').trim();
+  const platformPrimary = String(pb.primary_color || '').trim();
+  const primary = hubPrimary || platformPrimary;
+  const secondary = String(pb.secondary_color || '').trim();
+  if (!primary) return {};
+  const linkDark = secondary || primary;
+  const out = {
+    '--hub-brand': primary,
+    '--hub-link': primary,
+    '--hub-link-dark': linkDark,
+    '--pmh-program-primary': primary
+  };
+  if (secondary) {
+    out['--hub-eyebrow'] = secondary;
+  }
+  return out;
 });
+
+const skillbuildersPartnerBrandPrimaries = computed(() => {
+  const out = [];
+  const seen = new Set();
+  for (const p of footerPartners.value || []) {
+    const h = normalizeHubHex(p?.brandPrimaryHex);
+    if (h && !seen.has(h)) {
+      seen.add(h);
+      out.push(h);
+    }
+  }
+  return out;
+});
+
+/** Participating-agency palette for /p/skillbuilders (from booking-hints footer partners). */
+const skillbuildersAgencyHubTheme = computed(() => {
+  if (hubSlug.value !== 'skillbuilders') return {};
+  const primaries = skillbuildersPartnerBrandPrimaries.value;
+  if (!primaries.length) return {};
+  const primary = primaries[0];
+  const firstPartner = footerPartners.value.find((x) => normalizeHubHex(x?.brandPrimaryHex) === primary);
+  const secondaryHex = normalizeHubHex(firstPartner?.brandSecondaryHex);
+  const secondary = secondaryHex || primaries[1] || hubDarkenHex(primary, 0.72);
+  const gradientStops =
+    primaries.length > 1 ? [...primaries, primaries[0]].join(', ') : `${primary}, ${hubDarkenHex(primary, 0.52)}`;
+  return {
+    '--hub-brand': primary,
+    '--hub-link': primary,
+    '--hub-link-dark': secondary,
+    '--pmh-program-primary': primary,
+    '--hub-shadow-brand': `0 14px 36px ${hubHexToRgba(primary, 0.25)}`,
+    '--pmh-hero-cinema-shimmer': `linear-gradient(125deg, ${gradientStops})`
+  };
+});
+
+const hubPageRootStyle = computed(() => {
+  const explicit = String(hubBranding.value.programThemePrimary || '').trim();
+  if (hubSlug.value === 'skillbuilders') {
+    const platform = skillbuildersPlatformThemeStyle.value;
+    const agency = skillbuildersAgencyHubTheme.value;
+    const merged = { ...platform, ...agency };
+    if (explicit) {
+      const pb = brandingStore.platformBranding || {};
+      const platformSecondary = String(pb.secondary_color || '').trim();
+      merged['--hub-brand'] = explicit;
+      merged['--hub-link'] = explicit;
+      merged['--hub-link-dark'] = platformSecondary || hubDarkenHex(explicit, 0.75);
+      merged['--pmh-program-primary'] = explicit;
+      merged['--hub-shadow-brand'] = `0 14px 36px ${hubHexToRgba(explicit, 0.25)}`;
+      merged['--pmh-hero-cinema-shimmer'] = `linear-gradient(125deg, ${explicit}, ${hubDarkenHex(explicit, 0.5)})`;
+    } else if (!merged['--pmh-hero-cinema-shimmer'] && merged['--hub-brand']) {
+      const p = merged['--hub-brand'];
+      merged['--pmh-hero-cinema-shimmer'] = `linear-gradient(125deg, ${p}, ${hubDarkenHex(p, 0.52)})`;
+    }
+    return merged;
+  }
+  const hubPrimary = String(hubBranding.value.programThemePrimary || '').trim();
+  const primary = hubPrimary || '#a32623';
+  return { ...skillbuildersPlatformThemeStyle.value, '--pmh-program-primary': primary };
+});
+
+function footerPartnerAccentStyle(p) {
+  const accent = normalizeHubHex(p?.brandPrimaryHex);
+  if (!accent) return {};
+  return { '--fp-accent': accent };
+}
 
 const DEFAULT_CTA_SECTION = {
   eyebrow: 'Interested in learning more?',
-  title: 'Choose your preferred school site',
+  title: 'Choose your preferred program location',
   subtitle: '',
   body:
     'We believe in making mental healthcare accessible to everyone, especially those who face the most significant barriers. To uphold this commitment, we specifically reserve a portion of our program spots for clients with Medicaid. All other insurance types are grouped together for the remaining available spots. Our approach is designed to balance the need to provide care to those with the least access while serving the broader community within our resource constraints.',
   disclaimer:
     'Participation in these programs is based on eligibility. Completing registration does not guarantee enrollment.',
-  primaryLabel: 'Choose your school site',
+  primaryLabel: 'Choose your program location',
   primaryHref: '#hub-programs',
   partnerBadgeUrl: '',
   showLimitedBadge: true,
@@ -921,9 +1300,9 @@ const DEFAULT_WHAT_WE_OFFER_ITEMS = [
 const DEFAULT_WHAT_WE_OFFER = {
   title: 'What we offer',
   summary:
-    'School-based summer mental health programs with therapeutic activities in small, age-appropriate groups—focused on skills, emotional support, and practical strategies for kids and families.',
+    'Summer and seasonal skill-development programs with therapeutic activities in small groups—focused on practical skills, emotional support, and strategies for kids, teens, and families.',
   intro:
-    'The summer programs involve therapeutic activities designed to reduce and resolve the identified barriers in your children’s lives by improving social functioning, promoting skill development and training, and implementing and practicing strategies to reduce symptoms and improve emotion regulation in age appropriate groups of up to 9 participants per group!',
+    'Programs combine therapeutic activities and skill-building designed to reduce barriers in children’s and teens’ lives—improving social functioning, emotional regulation, and confidence in age-appropriate groups with trained staff.',
   expandLabel: 'Show more info',
   collapseLabel: 'Show less',
   items: DEFAULT_WHAT_WE_OFFER_ITEMS
@@ -1024,9 +1403,10 @@ const processSectionResolved = computed(() => {
 
 /** Hero video + process steps merged into one silent video backdrop with scrolling copy (no stacked image + video + process). */
 const heroProcessCinemaEnabled = computed(() => {
-  if (!heroVideoUrl.value) return false;
   const p = processSectionResolved.value;
-  return Boolean(p && Array.isArray(p.steps) && p.steps.length > 0);
+  if (!p || !Array.isArray(p.steps) || !p.steps.length) return false;
+  if (heroVideoUrl.value) return true;
+  return hubSlug.value === 'skillbuilders';
 });
 
 const heroCinemaScrollDurationSec = computed(() => {
@@ -1134,6 +1514,25 @@ async function chooseProgramMode(mode, autoProceed = false) {
   }
 }
 
+function chooseSkillbuildersAudiencePath(pathId) {
+  const id = String(pathId || '').trim();
+  if (!id || !skillbuildersValidPathIds.value.has(id)) return;
+  skillbuildersJourneyChoice.value = id;
+  writeSkillbuildersAudience(id);
+  nextTick(() => {
+    try {
+      document.getElementById('hub-programs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+function resetSkillbuildersAudience() {
+  skillbuildersJourneyChoice.value = null;
+  clearSkillbuildersAudienceStorage();
+}
+
 async function loadAll() {
   const slug = hubSlug.value;
   if (!slug) {
@@ -1151,9 +1550,9 @@ async function loadAll() {
       api.get(`/public/marketing-pages/${encodeURIComponent(slug)}/booking-hints`, {
         skipGlobalLoading: true,
         skipAuthRedirect: true
-      }),
-      brandingStore.fetchPlatformBranding()
+      })
     ]);
+    await brandingStore.fetchPlatformBranding();
     pageMeta.value = pageRes.data?.page || null;
     events.value = Array.isArray(evRes.data?.events) ? evRes.data.events : [];
     footerPartners.value = Array.isArray(bookRes.data?.footerPartners) ? bookRes.data.footerPartners : [];
@@ -1178,6 +1577,13 @@ async function loadAll() {
     footerPartners.value = [];
   } finally {
     loading.value = false;
+    if (slug === 'skillbuilders' && skillbuildersJourneyActive.value) {
+      const stored = readSkillbuildersAudience();
+      skillbuildersJourneyChoice.value =
+        stored && skillbuildersValidPathIds.value.has(stored) ? stored : null;
+    } else {
+      skillbuildersJourneyChoice.value = null;
+    }
   }
 }
 
@@ -1190,22 +1596,37 @@ watch(eventNavigatorEnabled, (enabled) => {
   selectedSchoolName.value = '';
 }, { immediate: true });
 
-watch(showNavigatorSplash, (open) => {
-  if (typeof document === 'undefined') return;
-  document.body.style.overflow = open ? 'hidden' : '';
-});
+watch(
+  () => showNavigatorSplash.value || skillbuildersAudienceGateVisible.value,
+  (open) => {
+    if (typeof document === 'undefined') return;
+    document.body.style.overflow = open ? 'hidden' : '';
+  }
+);
 
 watch(hubSlug, () => {
   offerExpanded.value = false;
   journeyPrimary.value = '';
   journeyProgramMode.value = '';
   selectedSchoolName.value = '';
+  skillbuildersJourneyChoice.value = null;
   showNavigatorSplash.value = !!eventNavigatorEnabled.value;
   loadAll();
 });
 </script>
 
 <style scoped>
+/*
+ * Per-hub look (optional): root also has `pmh-page--hub-<slug>` from the URL (e.g. skillbuilders → pmh-page--hub-skillbuilders).
+ * Uncomment / adjust to restyle only https://…/p/skillbuilders without affecting other hubs:
+ *
+ * .pmh-page.pmh-page--hub-skillbuilders {
+ *   --hub-brand: #0c4a6e;
+ *   --hub-link: #0369a1;
+ *   --hub-link-dark: #0c4a6e;
+ * }
+ */
+
 .pmh-page {
   /* Hub design system — inherited by embedded PublicEventsListing */
   --hub-font-display: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
@@ -1243,6 +1664,30 @@ watch(hubSlug, () => {
     radial-gradient(110% 55% at 50% -8%, rgba(163, 38, 35, 0.06) 0%, transparent 52%),
     radial-gradient(70% 45% at 95% 12%, rgba(120, 113, 108, 0.05) 0%, transparent 48%),
     linear-gradient(180deg, #f6f4f2 0%, #f3f1ef 45%, #eeebe8 100%);
+}
+
+.pmh-page--hub-skillbuilders {
+  background:
+    radial-gradient(110% 55% at 50% -8%, color-mix(in srgb, var(--hub-brand, #94a3b8) 14%, transparent) 0%, transparent 52%),
+    radial-gradient(70% 45% at 95% 12%, rgba(120, 113, 108, 0.05) 0%, transparent 48%),
+    linear-gradient(180deg, #f6f4f2 0%, #f3f1ef 45%, #eeebe8 100%);
+}
+
+.pmh-page--hub-skillbuilders .pmh-path-btn {
+  border-color: color-mix(in srgb, var(--hub-brand, #64748b) 30%, #ffffff);
+  color: var(--hub-link-dark, #334155);
+}
+
+.pmh-page--hub-skillbuilders .pmh-path-btn.active {
+  background: color-mix(in srgb, var(--hub-brand, #64748b) 11%, #ffffff);
+  border-color: color-mix(in srgb, var(--hub-brand, #64748b) 52%, #ffffff);
+  color: var(--hub-link-dark, #1e293b);
+}
+
+.pmh-page--hub-skillbuilders .pmh-chip-btn.active {
+  border-color: color-mix(in srgb, var(--hub-brand, #64748b) 48%, #ffffff);
+  background: color-mix(in srgb, var(--hub-brand, #64748b) 9%, #f8fafc);
+  color: var(--hub-link-dark, #334155);
 }
 
 .pmh-page::after {
@@ -1447,6 +1892,34 @@ watch(hubSlug, () => {
   inset: 0;
   z-index: 0;
   background: #0f172a;
+}
+
+.pmh-hero-cinema-gradient-fallback {
+  position: absolute;
+  inset: 0;
+  background: var(
+    --pmh-hero-cinema-shimmer,
+    linear-gradient(125deg, #0f766e 0%, #0369a1 42%, #0f172a 100%)
+  );
+  background-size: 240% 240%;
+  animation: pmh-cinema-bg-drift 22s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pmh-hero-cinema-gradient-fallback {
+    animation: none;
+    background-size: 100% 100%;
+  }
+}
+
+@keyframes pmh-cinema-bg-drift {
+  0%,
+  100% {
+    background-position: 0% 35%;
+  }
+  50% {
+    background-position: 100% 65%;
+  }
 }
 
 .pmh-hero-cinema-video {
@@ -1758,6 +2231,7 @@ watch(hubSlug, () => {
   padding: 14px 16px;
   background: #f8fafc;
   border: 1px solid var(--hub-border);
+  border-left: 3px solid var(--fp-accent, var(--hub-border));
   border-radius: var(--hub-radius-md);
 }
 
@@ -1918,9 +2392,10 @@ watch(hubSlug, () => {
   padding: 10px 12px;
   font-size: 0.8125rem;
   line-height: 1.45;
-  color: #7f1d1d;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  color: var(--hub-text-muted, #4b5563);
+  background: #f8fafc;
+  border: 1px solid var(--hub-border, rgba(15, 23, 42, 0.08));
+  border-left: 4px solid var(--hub-brand, #94a3b8);
   border-radius: var(--hub-radius-sm);
 }
 
@@ -1937,7 +2412,7 @@ watch(hubSlug, () => {
   text-transform: uppercase;
   font-family: var(--hub-font-display);
   color: #fff;
-  background: rgba(163, 38, 35, 0.94);
+  background: color-mix(in srgb, var(--hub-brand, #64748b) 92%, #000);
   border-radius: 8px;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
   pointer-events: none;
@@ -2518,7 +2993,7 @@ watch(hubSlug, () => {
 }
 
 .pmh-cta-primary:hover {
-  box-shadow: 0 16px 40px rgba(163, 38, 35, 0.32);
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--pmh-program-primary, var(--hub-brand, #64748b)) 32%, transparent);
   transform: translateY(-1px);
 }
 
@@ -2786,5 +3261,134 @@ watch(hubSlug, () => {
   .pmh-footer-nav-link:hover {
     transform: none;
   }
+}
+
+.sb-audience-overlay {
+  z-index: 125;
+}
+
+.sb-audience-card {
+  width: min(520px, 94vw);
+  padding: 28px 22px 26px;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid var(--hub-border);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+
+.sb-audience-logo-wrap {
+  margin: 0 0 16px;
+}
+
+.sb-audience-logo {
+  max-height: min(140px, 28vw);
+  max-width: min(420px, 92vw);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.sb-audience-eyebrow {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hub-eyebrow, #64748b);
+}
+
+.sb-audience-title {
+  margin: 0 0 22px;
+  font-size: clamp(1.15rem, 3.6vw, 1.45rem);
+  font-weight: 800;
+  line-height: 1.35;
+  color: var(--hub-text);
+}
+
+.sb-audience-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sb-audience-actions--many {
+  flex-direction: column;
+}
+
+@media (min-width: 560px) {
+  .sb-audience-actions:not(.sb-audience-actions--many) {
+    flex-direction: row;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+}
+
+.sb-audience-btn {
+  flex: 1 1 200px;
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.35;
+  border: 2px solid var(--hub-border);
+  background: #fff;
+  color: var(--hub-text);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.sb-audience-btn:hover {
+  border-color: var(--hub-brand);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.1);
+}
+
+.sb-audience-btn--primary {
+  background: var(--hub-brand);
+  border-color: var(--hub-brand);
+  color: #fff;
+}
+
+.sb-audience-btn--primary:hover {
+  filter: brightness(1.05);
+  border-color: var(--hub-brand);
+}
+
+.sb-audience-btn--secondary {
+  background: #f8fafc;
+}
+
+.sb-audience-change {
+  margin: 0 16px 10px;
+  text-align: right;
+}
+
+.sb-audience-change-btn {
+  border: none;
+  background: none;
+  color: var(--hub-link);
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.sb-audience-warn {
+  margin: 0 16px 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.sb-audience-warn code {
+  font-size: 0.8em;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 1px 5px;
+  border-radius: 4px;
 }
 </style>

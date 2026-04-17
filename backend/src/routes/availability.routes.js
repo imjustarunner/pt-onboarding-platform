@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
+import { requireSkillBuildersSchoolProgramForAgencyContext } from '../middleware/skillBuildersSchoolProgram.middleware.js';
 import {
   listProgramCompanyEventsForCoordinator,
   postBackfillSkillsGroupCompanyEvents,
@@ -56,8 +57,8 @@ router.get('/providers/:providerId/week', getProviderWeekAvailability);
 router.post('/office-requests', createMyOfficeAvailabilityRequest);
 router.post('/school-requests', createMySchoolAvailabilityRequest);
 router.post('/me/requests/unrequest-all', unrequestAllMyAvailabilityRequests);
-router.post('/me/skill-builder/submit', submitMySkillBuilderAvailability);
-router.post('/me/skill-builder/confirm', confirmMySkillBuilderAvailability);
+router.post('/me/skill-builder/submit', requireSkillBuildersSchoolProgramForAgencyContext, submitMySkillBuilderAvailability);
+router.post('/me/skill-builder/confirm', requireSkillBuildersSchoolProgramForAgencyContext, confirmMySkillBuilderAvailability);
 router.post('/me/supervised/confirm', confirmMySupervisedAvailability);
 
 // Admin/staff tools (RBAC is enforced inside controller)
@@ -77,13 +78,13 @@ router.get('/admin/providers', listProvidersForAvailability);
 router.get('/admin/intake-cards', listIntakeAvailabilityCards);
 
 router.get('/admin/pending-counts', getAdminPendingCounts);
-router.get('/admin/skill-builders/options', listSkillBuildersScopeOptions);
-router.get('/admin/skill-builders', listSkillBuildersAvailability);
-router.get('/admin/skill-builder-settings', getSkillBuilderSettings);
-router.put('/admin/skill-builder-settings', putSkillBuilderSettings);
-router.get('/admin/program-company-events', listProgramCompanyEventsForCoordinator);
-router.post('/admin/program-company-events', postProgramCompanyEventForCoordinator);
-router.post('/admin/backfill-skills-group-company-events', postBackfillSkillsGroupCompanyEvents);
+router.get('/admin/skill-builders/options', requireSkillBuildersSchoolProgramForAgencyContext, listSkillBuildersScopeOptions);
+router.get('/admin/skill-builders', requireSkillBuildersSchoolProgramForAgencyContext, listSkillBuildersAvailability);
+router.get('/admin/skill-builder-settings', requireSkillBuildersSchoolProgramForAgencyContext, getSkillBuilderSettings);
+router.put('/admin/skill-builder-settings', requireSkillBuildersSchoolProgramForAgencyContext, putSkillBuilderSettings);
+router.get('/admin/program-company-events', requireSkillBuildersSchoolProgramForAgencyContext, listProgramCompanyEventsForCoordinator);
+router.post('/admin/program-company-events', requireSkillBuildersSchoolProgramForAgencyContext, postProgramCompanyEventForCoordinator);
+router.post('/admin/backfill-skills-group-company-events', requireSkillBuildersSchoolProgramForAgencyContext, postBackfillSkillsGroupCompanyEvents);
 router.get('/admin/provider-availability-dashboard', providerAvailabilityDashboard);
 router.get('/admin/hourly-worker-direct-indirect', hourlyWorkerDirectIndirectDashboard);
 router.get('/admin/no-note-draft-unpaid', agencyProviderNoNoteDraftUnpaidDashboard);

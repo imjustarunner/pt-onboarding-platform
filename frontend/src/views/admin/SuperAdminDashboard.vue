@@ -195,6 +195,7 @@ import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import { getCached, setCached } from '../../utils/adminApiCache';
 import { isSupervisor } from '../../utils/helpers.js';
+import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import NotificationCards from '../../components/admin/NotificationCards.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
@@ -328,7 +329,17 @@ const fetchOrgOverviewSummary = async () => {
   }
 };
 
-const hasAffiliatedSchools = computed(() => Number(orgOverviewSummary.value?.counts?.school || 0) > 0);
+const canSeeSchoolPortalsQuickAction = computed(() => {
+  const ag = currentAgency.value || {};
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSchoolPortalsSurfaces({
+    userRole: authStore.user?.role,
+    agencyFeatureFlags: ag.feature_flags ?? ag.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      ag.tenant_available_agency_features_json ?? ag.tenantAvailableAgencyFeaturesJson
+  });
+});
 // Program Overview includes learning orgs (but not schools).
 const hasAffiliatedPrograms = computed(() =>
   Number(orgOverviewSummary.value?.counts?.program || 0) + Number(orgOverviewSummary.value?.counts?.learning || 0) > 0
@@ -418,7 +429,7 @@ const quickActions = computed(() => {
   {
     id: 'public_marketing_pages',
     title: 'Public marketing pages',
-    description: 'Multi-agency public hubs at /p/:slug',
+    description: 'Independent custom pages at /p/:slug (each slug is separate)',
     to: '/admin/public-marketing-pages',
     emoji: '🌐',
     iconKey: 'manage_agencies',
@@ -471,10 +482,10 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
-    id: 'school_overview',
-    title: 'School Overview',
-    description: 'View affiliated schools and key staffing/slot stats',
-    to: '/admin/schools/overview?orgType=school',
+    id: 'school_portals',
+    title: 'School Portals',
+    description: 'School overview, all portals, and add-school when enabled for this tenant',
+    to: '/admin/school-portals-hub',
     emoji: '🏫',
     iconKey: 'school_overview',
     category: 'Management',
@@ -737,7 +748,7 @@ const quickActions = computed(() => {
   ];
 
   return base.filter((a) => {
-    if (String(a?.id) === 'school_overview') return hasAffiliatedSchools.value;
+    if (String(a?.id) === 'school_portals') return canSeeSchoolPortalsQuickAction.value;
     if (String(a?.id) === 'program_overview') return hasAffiliatedPrograms.value;
     // Super admin always sees Tools & Aids / Note Aid when no agency; others need agency feature flag
     const showToolsOrNoteAid = clinicalNoteGeneratorEnabledForAgency.value || !currentAgency.value;
@@ -753,7 +764,7 @@ const defaultQuickActionIds = computed(() => ([
   'manage_organizations',
   'manage_clients',
   ...((clinicalNoteGeneratorEnabledForAgency.value || !currentAgency.value) ? ['tools_aids', 'clinical_note_generator'] : []),
-  ...(hasAffiliatedSchools.value ? ['school_overview'] : []),
+  ...(canSeeSchoolPortalsQuickAction.value ? ['school_portals'] : []),
   ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
   'manage_modules',
   'manage_documents',

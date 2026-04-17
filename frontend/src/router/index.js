@@ -16,8 +16,34 @@ import { officeMandatoryBlocking } from '../utils/officeMandatoryGate';
 import { isSummitPlatformRouteSlug, NATIVE_APP_ORG_SLUG } from '../utils/summitPlatformSlugs.js';
 import { userChoseWorkOverSummitFromStores } from '../utils/sstcSurfaceChoice.js';
 import { isSstcTenantSlug } from '../config/tenantAppProfiles.js';
+import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js';
+import { canAccessSkillBuildersSchoolProgramSurfaces } from '../utils/skillBuildersSchoolProgramAccess.js';
 
 const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff', 'provider_plus'];
+
+/** School Overview (orgType=school) + All portals + hub + school clients + school digital intakes — not Program Overview (orgType=program). */
+function routeRequiresSchoolPortalsFeature(to) {
+  const n = String(to?.name || '');
+  if (n === 'SchoolPortals' || n === 'OrganizationSchoolPortals') return true;
+  if (n === 'SchoolPortalsHub' || n === 'OrganizationSchoolPortalsHub') return true;
+  if (n === 'SchoolClients' || n === 'OrganizationSchoolClients') return true;
+  if (n === 'SchoolPortalDigitalIntakes' || n === 'OrganizationSchoolPortalDigitalIntakes') return true;
+  if (n === 'SchoolOverviewDashboard' || n === 'OrganizationSchoolOverviewDashboard') {
+    return String(to.query?.orgType || 'school').toLowerCase() === 'school';
+  }
+  return false;
+}
+
+/** Authenticated Skill Builders school-program admin + event portal (not public/guardian SB pages). */
+function routeRequiresSkillBuildersSchoolProgramFeature(to) {
+  const n = String(to?.name || '');
+  if (n === 'SkillBuildersEventPortal') return true;
+  if (n === 'OrganizationSkillBuildersAvailability' || n === 'SkillBuildersAvailability') return true;
+  if (n === 'OrganizationSkillBuildersProgramsEvents' || n === 'SkillBuildersProgramsEvents') return true;
+  if (n === 'OrganizationSkillBuildersClientManagement' || n === 'SkillBuildersClientManagement') return true;
+  if (n === 'OrganizationSkillBuildersMyAvailability' || n === 'SkillBuildersMyAvailability') return true;
+  return false;
+}
 /** Matches Directory “Programs & events” access (nav + dedicated page). */
 const SKILL_BUILDERS_PROGRAM_EVENTS_ROLES = [
   'admin',
@@ -996,6 +1022,17 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/school-portals-hub',
+    name: 'OrganizationSchoolPortalsHub',
+    component: () => import('../views/admin/SchoolPortalsHubView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/settings',
     name: 'OrganizationSettings',
     component: () => import('../views/admin/SettingsView.vue'),
@@ -1095,6 +1132,12 @@ const routes = [
     name: 'OrganizationSchoolClients',
     component: () => import('../views/admin/SchoolClientsView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'staff', 'super_admin'], organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/school-digital-intakes',
+    name: 'OrganizationSchoolPortalDigitalIntakes',
+    component: () => import('../views/admin/SchoolPortalDigitalIntakesView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/skill-builders-availability',
@@ -1665,6 +1708,16 @@ const routes = [
     }
   },
   {
+    path: '/admin/school-portals-hub',
+    name: 'SchoolPortalsHub',
+    component: () => import('../views/admin/SchoolPortalsHubView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true
+    }
+  },
+  {
     path: '/admin/settings',
     name: 'Settings',
     component: () => import('../views/admin/SettingsView.vue'),
@@ -1768,6 +1821,12 @@ const routes = [
     name: 'SchoolClients',
     component: () => import('../views/admin/SchoolClientsView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'staff', 'super_admin'] }
+  },
+  {
+    path: '/admin/school-digital-intakes',
+    name: 'SchoolPortalDigitalIntakes',
+    redirect: () => ({ path: '/dashboard' }),
+    meta: { requiresAuth: true }
   },
   {
     path: '/admin/skill-builders-availability',
@@ -2728,6 +2787,27 @@ router.beforeEach(async (to, from, next) => {
 
   if (
     authStore.isAuthenticated &&
+    to.meta.requiresAuth &&
+    routeRequiresSkillBuildersSchoolProgramFeature(to) &&
+    !to.meta.requiresRole
+  ) {
+    const agency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? {};
+    const pb = brandingStore.platformBranding || {};
+    const sbAllowed = canAccessSkillBuildersSchoolProgramSurfaces({
+      userRole: authStore.user?.role,
+      agencyFeatureFlags: agency.feature_flags ?? agency.featureFlags,
+      platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+      tenantAvailableAgencyFeaturesOverrideJson:
+        agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
+    });
+    if (!sbAllowed) {
+      next(getSlugAwarePath('/dashboard', to, authStore));
+      return;
+    }
+  }
+
+  if (
+    authStore.isAuthenticated &&
     (currentUserRoleNorm === 'club_manager' || (_isAffiliationContext && (_clubRole === 'manager' || _clubRole === 'assistant_manager'))) &&
     currentOrgSlug &&
     isSscPortalSlug(String(currentOrgSlug).toLowerCase())
@@ -2822,6 +2902,36 @@ router.beforeEach(async (to, from, next) => {
       next(getDashboardRoute());
     }
   } else if (to.meta.requiresRole) {
+    if (authStore.isAuthenticated && routeRequiresSchoolPortalsFeature(to)) {
+      const agency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? {};
+      const pb = brandingStore.platformBranding || {};
+      const allowed = canAccessSchoolPortalsSurfaces({
+        userRole: authStore.user?.role,
+        agencyFeatureFlags: agency.feature_flags ?? agency.featureFlags,
+        platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+        tenantAvailableAgencyFeaturesOverrideJson:
+          agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
+      });
+      if (!allowed) {
+        next(getSlugAwarePath('/dashboard', to, authStore));
+        return;
+      }
+    }
+    if (authStore.isAuthenticated && routeRequiresSkillBuildersSchoolProgramFeature(to)) {
+      const agencySb = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? {};
+      const pbSb = brandingStore.platformBranding || {};
+      const sbAllowed = canAccessSkillBuildersSchoolProgramSurfaces({
+        userRole: authStore.user?.role,
+        agencyFeatureFlags: agencySb.feature_flags ?? agencySb.featureFlags,
+        platformAvailableAgencyFeaturesJson: pbSb.available_agency_features_json ?? pbSb.availableAgencyFeaturesJson,
+        tenantAvailableAgencyFeaturesOverrideJson:
+          agencySb.tenant_available_agency_features_json ?? agencySb.tenantAvailableAgencyFeaturesJson
+      });
+      if (!sbAllowed) {
+        next(getSlugAwarePath('/dashboard', to, authStore));
+        return;
+      }
+    }
     const userRole = authStore.user?.role;
     // Use context-aware effectiveRole for navigation decisions (computed above from currentAgency).
     // Falls back to the global role for users with no active agency context.

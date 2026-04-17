@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
+import { requireSkillBuildersSchoolProgramForAgencyContext } from '../middleware/skillBuildersSchoolProgram.middleware.js';
 import {
   getMySkillBuildersProgram,
   listMyAssignedSkillBuilderEvents,
@@ -81,6 +82,7 @@ import {
 
 const router = express.Router();
 router.use(authenticate);
+router.use(requireSkillBuildersSchoolProgramForAgencyContext);
 
 router.get('/me/program', getMySkillBuildersProgram);
 router.get('/me/assigned-events', listMyAssignedSkillBuilderEvents);

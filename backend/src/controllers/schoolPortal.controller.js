@@ -40,6 +40,10 @@ import {
   resolveSchoolStaffWaiverStatus,
   resetSchoolStaffWaiverForTesting
 } from '../services/schoolStaffWaiver.service.js';
+import {
+  assertSkillBuildersSchoolProgramForRequest,
+  isSkillBuildersSchoolProgramActiveForParentAgencyId
+} from '../utils/skillBuildersSchoolProgramFeature.js';
 
 const SCHOOL_PORTAL_VALID_AUDIENCES = ['everyone', 'school_staff_only', 'providers_only'];
 const parseSchoolPortalAudience = (raw) => {
@@ -1123,15 +1127,29 @@ export const getProviderMyRoster = async (req, res, next) => {
     const sbOnly =
       String(req.query.skillBuildersOnly || req.query.skill_builders_only || '').toLowerCase() === 'true' ||
       String(req.query.skillBuildersOnly || req.query.skill_builders_only || '') === '1';
+    const rosterRoleNorm = String(req.user?.role || '').trim().toLowerCase();
+    let skillBuildersProgramActiveForSchool = rosterRoleNorm === 'super_admin';
+    if (!skillBuildersProgramActiveForSchool) {
+      try {
+        const activeAgencyId =
+          (await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId)) ||
+          (await AgencySchool.getActiveAgencyIdForSchool(orgId));
+        skillBuildersProgramActiveForSchool = await isSkillBuildersSchoolProgramActiveForParentAgencyId(activeAgencyId);
+      } catch {
+        skillBuildersProgramActiveForSchool = false;
+      }
+    }
     let skillBuilderEligible = false;
-    try {
-      const [eligRows] = await pool.execute(`SELECT skill_builder_eligible FROM users WHERE id = ? LIMIT 1`, [
-        providerUserId
-      ]);
-      const v = eligRows?.[0]?.skill_builder_eligible;
-      skillBuilderEligible = v === true || v === 1 || v === '1';
-    } catch {
-      skillBuilderEligible = false;
+    if (skillBuildersProgramActiveForSchool) {
+      try {
+        const [eligRows] = await pool.execute(`SELECT skill_builder_eligible FROM users WHERE id = ? LIMIT 1`, [
+          providerUserId
+        ]);
+        const v = eligRows?.[0]?.skill_builder_eligible;
+        skillBuilderEligible = v === true || v === 1 || v === '1';
+      } catch {
+        skillBuilderEligible = false;
+      }
     }
     const useSkillBuildersRosterFilter = sbOnly && skillBuilderEligible;
     const skillsFilterVal = useSkillBuildersRosterFilter ? 1 : 0;
@@ -4274,6 +4292,12 @@ export const updateSchoolPortalClientSkillsFlag = async (req, res, next) => {
       clientId
     });
     if (!roiAccess.ok) return res.status(roiAccess.status).json({ error: { message: roiAccess.message } });
+
+    const activeAgencyForSb =
+      (await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId)) ||
+      (await AgencySchool.getActiveAgencyIdForSchool(orgId));
+    const sbGateSkills = await assertSkillBuildersSchoolProgramForRequest(req, activeAgencyForSb);
+    if (!sbGateSkills.ok) return res.status(sbGateSkills.status).json({ error: { message: sbGateSkills.message } });
 
     const isSupervisorOnly = await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user });
     const providerLike = ['provider', 'provider_plus', 'clinical_practice_assistant'].includes(roleNorm);

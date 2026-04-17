@@ -697,26 +697,11 @@
                 </label>
 
                 <label
+                  v-if="canEditSkillBuilderCoordinatorAccess"
                   class="compact-toggle"
-                  title="If enabled, this provider is in the Skill Development Program (including at least 6 hours/week via Submit → Additional Availability when required)."
+                  title="Program coordinators can open program hubs (e.g. Programs &amp; events) for affiliated organizations. School Skill Builders tools (event availability grid, SB client management) only apply when that tenant program is enabled."
                 >
-                  <span class="compact-title">Skill Development Program eligible</span>
-                  <div class="toggle-switch toggle-switch-sm">
-                    <input
-                      id="skill-builder-eligible-toggle"
-                      type="checkbox"
-                      v-model="accountForm.skillBuilderEligible"
-                      :disabled="!isEditingAccount"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-
-                <label
-                  class="compact-toggle"
-                  title="If enabled, this user is a Sub Coordinator: elevated access for affiliated school/program/learning organizations (and Skill Builders availability)."
-                >
-                  <span class="compact-title">Sub coordinator</span>
+                  <span class="compact-title">Program coordinator</span>
                   <div class="toggle-switch toggle-switch-sm">
                     <input
                       id="skill-builder-coordinator-toggle"
@@ -727,29 +712,51 @@
                     <span class="slider"></span>
                   </div>
                 </label>
-                <div class="compact-subtitle muted" style="margin-top: -4px;">
-                  Sub coordinator grants higher permissions for each affiliated school/program/learning organization.
+                <div
+                  v-if="canEditSkillBuilderCoordinatorAccess"
+                  class="compact-subtitle muted"
+                  style="margin-top: -4px;"
+                >
+                  Unlocks program-level coordinator tools; school Skill Builders screens follow the tenant “Skill Builders school program” setting.
                 </div>
 
-                <div
-                  v-if="canRequireSkillBuilderConfirmNextLogin && (accountForm.skillBuilderEligible || user?.skill_builder_eligible)"
-                  class="compact-row"
-                  style="align-items: center;"
-                  title="Push a required Skill Builder confirmation prompt to this user. They must click Confirm next 2 weeks on next login."
-                >
-                  <div class="compact-meta">
-                    <div class="compact-title">Require SB confirm</div>
-                    <div class="compact-subtitle muted">Next login: must confirm next 2 weeks</div>
-                  </div>
-                  <button
-                    class="btn btn-secondary btn-sm"
-                    type="button"
-                    :disabled="forcingSkillBuilderConfirm"
-                    @click="requireSkillBuilderConfirmNextLogin"
+                <template v-if="canShowSkillBuildersSchoolProgramUserFields">
+                  <label
+                    class="compact-toggle"
+                    title="If enabled, this provider is in the Skill Development Program (including at least 6 hours/week via Submit → Additional Availability when required)."
                   >
-                    Push
-                  </button>
-                </div>
+                    <span class="compact-title">Skill Development Program eligible</span>
+                    <div class="toggle-switch toggle-switch-sm">
+                      <input
+                        id="skill-builder-eligible-toggle"
+                        type="checkbox"
+                        v-model="accountForm.skillBuilderEligible"
+                        :disabled="!isEditingAccount"
+                      />
+                      <span class="slider"></span>
+                    </div>
+                  </label>
+
+                  <div
+                    v-if="canRequireSkillBuilderConfirmNextLogin && (accountForm.skillBuilderEligible || user?.skill_builder_eligible)"
+                    class="compact-row"
+                    style="align-items: center;"
+                    title="Push a required Skill Builder confirmation prompt to this user. They must click Confirm next 2 weeks on next login."
+                  >
+                    <div class="compact-meta">
+                      <div class="compact-title">Require SB confirm</div>
+                      <div class="compact-subtitle muted">Next login: must confirm next 2 weeks</div>
+                    </div>
+                    <button
+                      class="btn btn-secondary btn-sm"
+                      type="button"
+                      :disabled="forcingSkillBuilderConfirm"
+                      @click="requireSkillBuilderConfirmNextLogin"
+                    >
+                      Push
+                    </button>
+                  </div>
+                </template>
 
                 <label
                   v-if="showPayrollAccessToggle"
@@ -2591,6 +2598,8 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { useBrandingStore } from '../../store/branding';
+import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
 import { isSupervisor } from '../../utils/helpers.js';
 import { VALID_EMPLOYEE_STATUSES, RESTRICTED_ROLE_STATUSES } from '../../utils/statusUtils.js';
 import { getBackendBaseUrl } from '../../utils/uploadsUrl';
@@ -2615,7 +2624,22 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
 const userId = computed(() => parseInt(route.params.userId));
+
+const canShowSkillBuildersSchoolProgramUserFields = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  if (r === 'super_admin') return true;
+  const agency = agencyStore.currentAgency?.value || agencyStore.currentAgency || {};
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSkillBuildersSchoolProgramSurfaces({
+    userRole: authStore.user?.role,
+    agencyFeatureFlags: agency.feature_flags ?? agency.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
+  });
+});
 
 const backToUsersList = computed(() => {
   const raw = route.query?.returnTo;

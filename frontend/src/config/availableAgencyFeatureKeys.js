@@ -20,5 +20,17 @@ export const AVAILABLE_AGENCY_FEATURE_KEYS = [
   { key: 'medcancelEnabled', label: 'Med Cancel' },
   { key: 'inSchoolSubmissionsEnabled', label: 'In-School Submissions' },
   { key: 'googleSsoEnabled', label: 'Google Workspace SSO' },
-  { key: 'workspaceProvisioningEnabled', label: 'Workspace Provisioning' }
+  { key: 'workspaceProvisioningEnabled', label: 'Workspace Provisioning' },
+  {
+    key: 'schoolPortalsEnabled',
+    label: 'School Portals (overview + all portals)',
+    /** Opt-in: platform must expose before tenants see the Company Profile toggle. */
+    defaultAvailable: false
+  },
+  {
+    key: 'skillBuildersSchoolProgramEnabled',
+    label: 'Skill Builders school program (skills groups, portal, provider hub)',
+    /** Opt-in: school-scoped Skill Builders program; platform must expose before tenant toggle. */
+    defaultAvailable: false
+  }
 ];

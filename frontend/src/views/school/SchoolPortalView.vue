@@ -248,7 +248,14 @@
             <div class="nav-label">{{ isProvider ? 'My roster' : 'Roster' }}</div>
           </button>
 
-          <button data-tour="school-nav-skills" class="nav-item" type="button" @click="setPortalMode('skills')" :class="{ active: portalMode === 'skills' }">
+          <button
+            v-if="canAccessSkillBuildersSchoolProgramNav"
+            data-tour="school-nav-skills"
+            class="nav-item"
+            type="button"
+            @click="setPortalMode('skills')"
+            :class="{ active: portalMode === 'skills' }"
+          >
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
@@ -485,7 +492,13 @@
             </div>
           </button>
 
-          <button data-tour="school-home-card-skills" class="dash-card" type="button" @click="setPortalMode('skills')">
+          <button
+            v-if="canAccessSkillBuildersSchoolProgramNav"
+            data-tour="school-home-card-skills"
+            class="dash-card"
+            type="button"
+            @click="setPortalMode('skills')"
+          >
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
@@ -648,6 +661,22 @@
               <span class="dash-card-cta">Upload</span>
             </div>
           </button>
+
+          <router-link
+            v-if="canSeeManageSchoolDigitalIntakesLink"
+            class="dash-card"
+            :to="manageSchoolDigitalIntakesTo"
+            data-tour="school-home-card-manage-digital-intakes"
+          >
+            <div class="dash-card-icon">
+              <div class="dash-card-icon-fallback" aria-hidden="true">DF</div>
+            </div>
+            <div class="dash-card-title">Manage school digital forms</div>
+            <div class="dash-card-desc">Create or copy English/Spanish intake links for this portal only.</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Open</span>
+            </div>
+          </router-link>
         </div>
 
         <div ref="homeRosterEl" class="home-roster" data-tour="school-home-roster">
@@ -715,7 +744,7 @@
           </div>
 
       <SkillsGroupsPanel
-        v-else-if="portalMode === 'skills' && organizationId"
+        v-else-if="portalMode === 'skills' && organizationId && canAccessSkillBuildersSchoolProgramNav"
         :organization-id="organizationId"
         :organization-slug="organizationSlug"
         :organization-display-name="organizationDisplayName || organizationName"
@@ -1307,6 +1336,8 @@ import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isSupervisor } from '../../utils/helpers';
 import { setDarkMode, getStoredDarkMode } from '../../utils/darkMode';
 import { getSchoolStaffWaiverStatus as getSchoolStaffWaiverStatusForGate } from '../../utils/schoolStaffWaiverGate';
+import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
+import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
 import QRCode from 'qrcode';
 
 const props = defineProps({
@@ -1595,6 +1626,7 @@ const refreshWaiverGateStatus = async ({ force = false } = {}) => {
 const setPortalMode = async (mode) => {
   const next = String(mode || '').trim().toLowerCase();
   if (!next) return;
+  if (next === 'skills' && !canAccessSkillBuildersSchoolProgramNav.value) return;
   if (waiverGateLocked.value && next !== 'documents') {
     await forceWaiverDocumentsMode();
     return;
@@ -1605,6 +1637,19 @@ const setPortalMode = async (mode) => {
 const applyRequestedPortalMode = async (mode) => {
   const m = String(mode || '').trim().toLowerCase();
   if (!m) return;
+  if (m === 'skills' && !canAccessSkillBuildersSchoolProgramNav.value) {
+    try {
+      const q = { ...(route.query || {}) };
+      delete q.sp;
+      delete q.skillsUnassigned;
+      delete q.skills_unassigned;
+      await router.replace({ query: q });
+    } catch {
+      // ignore
+    }
+    await setPortalMode('home');
+    return;
+  }
   if (waiverGateLocked.value && m !== 'documents') {
     await forceWaiverDocumentsMode();
     return;
@@ -2666,6 +2711,40 @@ const organizationId = computed(() => {
          null;
 });
 
+const manageSchoolDigitalIntakesTo = computed(() => {
+  const slug = String(organizationSlug.value || '').trim();
+  return slug ? `/${slug}/admin/school-digital-intakes` : '/admin/school-digital-intakes';
+});
+
+const canSeeManageSchoolDigitalIntakesLink = computed(() => {
+  const r = roleNorm.value;
+  if (!['super_admin', 'admin', 'support', 'staff'].includes(r)) return false;
+  if (!organizationSlug.value || !organizationId.value) return false;
+  const parent = cardIconOrg.value;
+  if (!parent?.id) return false;
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSchoolPortalsSurfaces({
+    userRole: authStore.user?.role,
+    agencyFeatureFlags: parent.feature_flags ?? parent.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      parent.tenant_available_agency_features_json ?? parent.tenantAvailableAgencyFeaturesJson
+  });
+});
+
+const canAccessSkillBuildersSchoolProgramNav = computed(() => {
+  const parent = cardIconOrg.value;
+  if (!parent?.id) return false;
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSkillBuildersSchoolProgramSurfaces({
+    userRole: authStore.user?.role,
+    agencyFeatureFlags: parent.feature_flags ?? parent.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      parent.tenant_available_agency_features_json ?? parent.tenantAvailableAgencyFeaturesJson
+  });
+});
+
 const panelFor = (providerUserId) => {
   const key = `${store.selectedWeekday}:${providerUserId}`;
   return store.providerPanels?.[key] || store.ensurePanel(store.selectedWeekday, providerUserId);
@@ -2920,6 +2999,7 @@ onMounted(async () => {
   if (organizationId.value) {
     store.reset();
     store.setSchoolId(organizationId.value);
+    await ensureAffiliation();
     // Default portal mode (query param overrides provider default).
     if (requestedPortalMode.value) {
       await applyRequestedPortalMode(requestedPortalMode.value);
@@ -2939,8 +3019,6 @@ onMounted(async () => {
     await openClientFromQuery();
   }
 
-  // Best-effort: resolve active affiliated agency for icon overrides + settings button.
-  await ensureAffiliation();
   await maybeOpenWeeklyAvailabilityPrompt();
 
   const stored = authStore.user?.id ? getStoredDarkMode(authStore.user.id) : null;
@@ -2959,6 +3037,7 @@ watch(organizationId, async (id) => {
   if (!id) return;
   store.reset();
   store.setSchoolId(id);
+  await ensureAffiliation();
   if (requestedPortalMode.value) {
     await applyRequestedPortalMode(requestedPortalMode.value);
   } else if (isSchoolStaff.value) {
@@ -2974,7 +3053,6 @@ watch(organizationId, async (id) => {
   if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
   await openClientFromQuery();
 
-  await ensureAffiliation();
   await maybeOpenWeeklyAvailabilityPrompt();
 });
 
