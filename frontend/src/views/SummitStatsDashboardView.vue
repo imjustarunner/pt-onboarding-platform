@@ -2086,10 +2086,21 @@ watch(
 
 .season-card--rich {
   padding: 0;
-  overflow: hidden;
+  /* Avoid `overflow: hidden` here — it was clipping the
+     SeasonParticipationPill ("Will you join? / Decide") dropdown so
+     users couldn't pick an option. The banner hero is rounded via its
+     own border-radius below. */
+  overflow: visible;
   border-radius: 20px;
   box-shadow: 0 2px 12px rgba(0,0,0,0.07);
   transition: box-shadow 0.2s;
+  position: relative;
+}
+.season-card-banner,
+.season-card-banner--sm {
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  overflow: hidden;
 }
 .season-card--rich:hover { box-shadow: 0 4px 22px rgba(0,0,0,0.12); }
 

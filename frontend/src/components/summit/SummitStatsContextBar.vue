@@ -328,7 +328,11 @@ watch(
   );
   border-bottom: 2px solid var(--accent, #f97316);
   box-sizing: border-box;
-  overflow: hidden;
+  /* Intentionally NOT overflow: hidden — the club switcher dropdown
+     needs to escape this bar so users can pick another club. We rely
+     on individual children to clip their own text instead. */
+  overflow: visible;
+  position: relative;
 }
 
 .sstc-context-inner {
@@ -404,7 +408,10 @@ watch(
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  z-index: 40;
+  /* High z-index so the menu floats above season banners and dashboard
+     content cards — previously the dropdown was being clipped behind
+     the next section, making "switch club" unusable on iPad. */
+  z-index: 1500;
   min-width: 240px;
   max-width: 320px;
   background: #fff;

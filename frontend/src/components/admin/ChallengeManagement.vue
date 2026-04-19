@@ -35,7 +35,21 @@
       <div class="controls">
         <button class="btn btn-primary" @click="openCreateModal">Create Season</button>
         <button class="btn btn-secondary" @click="loadChallenges" :disabled="loading">Refresh</button>
+        <button
+          class="btn btn-secondary"
+          type="button"
+          :disabled="generatingInviteFor === 'club'"
+          @click="copyClubInviteLink"
+          title="Copy a link people can use to apply to join this club"
+        >
+          {{ copiedInviteKey === 'club' ? '✓ Copied club link' : '🔗 Copy join-club link' }}
+        </button>
       </div>
+      <div v-if="lastCopiedInviteUrl" class="invite-last-copied">
+        <span class="invite-last-copied-label">Last invite copied:</span>
+        <code class="invite-last-copied-url">{{ lastCopiedInviteUrl }}</code>
+      </div>
+      <div v-if="inviteError" class="error" style="margin-top: 6px;">{{ inviteError }}</div>
 
       <div v-if="loading" class="loading">Loading seasons…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
@@ -54,6 +68,15 @@
               <router-link :to="challengeDashboardLink(c)" class="btn btn-secondary btn-sm">Open Season</router-link>
               <button class="btn btn-secondary btn-sm" @click="openEditModal(c)">Edit</button>
               <button class="btn btn-secondary btn-sm" @click="openManageModal(c)">Manage</button>
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :disabled="generatingInviteFor === `season:${c.id}`"
+                @click="copySeasonInviteLink(c)"
+                :title="`Copy a fast-track invite that signs people up and drops them into ${c.class_name || c.className || 'this season'}`"
+              >
+                {{ copiedInviteKey === `season:${c.id}` ? '✓ Copied invite' : '🚀 Copy season invite' }}
+              </button>
               <button
                 v-if="canCloseSeason(c)"
                 class="btn btn-warning btn-sm"
@@ -108,11 +131,17 @@
             </div>
             <div class="form-group">
               <label>Start date</label>
-              <input v-model="challengeForm.startsAt" type="datetime-local" />
+              <input v-model="challengeForm.startsAt" type="date" />
+              <small style="display:block;margin-top:4px;color:var(--text-secondary);">
+                Day the season opens. Daily/weekly cutoff times are set under "Schedule".
+              </small>
             </div>
             <div class="form-group">
               <label>End date</label>
-              <input v-model="challengeForm.endsAt" type="datetime-local" />
+              <input v-model="challengeForm.endsAt" type="date" />
+              <small style="display:block;margin-top:4px;color:var(--text-secondary);">
+                Final day of the season (inclusive).
+              </small>
             </div>
           </div>
           <div v-if="!editingChallenge" class="form-group participation-agreement-block">
@@ -1971,6 +2000,69 @@ const saving = ref(false);
 const showChallengeModal = ref(false);
 const challengeFormSnapshotJson = ref('');
 const editingChallenge = ref(null);
+
+// Invite link state (lives next to season list)
+const generatingInviteFor = ref(null);
+const copiedInviteKey = ref('');
+const lastCopiedInviteUrl = ref('');
+const inviteError = ref('');
+
+const writeToClipboardSafe = async (text) => {
+  if (!text) return false;
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const el = document.createElement('textarea');
+      el.value = text;
+      el.style.position = 'fixed';
+      el.style.opacity = '0';
+      document.body.appendChild(el);
+      el.focus();
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+};
+
+const generateAndCopyInvite = async ({ key, learningClassId, autoApprove }) => {
+  const clubId = Number(organizationId.value || 0);
+  if (!clubId) {
+    inviteError.value = 'Select your club first.';
+    return;
+  }
+  generatingInviteFor.value = key;
+  inviteError.value = '';
+  try {
+    const body = { autoApprove: !!autoApprove };
+    if (learningClassId) body.learningClassId = Number(learningClassId);
+    const { data } = await api.post(`/summit-stats/clubs/${clubId}/invites`, body, { skipGlobalLoading: true });
+    const url = String(data?.joinUrl || '').trim();
+    if (!url) throw new Error('No invite URL returned');
+    await writeToClipboardSafe(url);
+    copiedInviteKey.value = key;
+    lastCopiedInviteUrl.value = url;
+    setTimeout(() => {
+      if (copiedInviteKey.value === key) copiedInviteKey.value = '';
+    }, 2500);
+  } catch (e) {
+    inviteError.value = String(e?.response?.data?.error?.message || e?.message || 'Failed to generate invite');
+  } finally {
+    generatingInviteFor.value = null;
+  }
+};
+
+const copyClubInviteLink = () => generateAndCopyInvite({ key: 'club', learningClassId: null, autoApprove: false });
+const copySeasonInviteLink = (c) => generateAndCopyInvite({
+  key: `season:${c?.id}`,
+  learningClassId: c?.id,
+  autoApprove: true
+});
 const agreementTemplateOptions = computed(() => collectUniqueParticipationAgreementSnapshots(challenges.value));
 const defaultAgreementFields = () => {
   const agreement = defaultParticipationAgreement();
@@ -2941,8 +3033,8 @@ const openEditModal = async (c) => {
     className: row.class_name || row.className || '',
     description: row.description || '',
     status: (row.status || 'draft').toLowerCase(),
-    startsAt: row.starts_at || row.startsAt ? new Date(row.starts_at || row.startsAt).toISOString().slice(0, 16) : '',
-    endsAt: row.ends_at || row.endsAt ? new Date(row.ends_at || row.endsAt).toISOString().slice(0, 16) : '',
+    startsAt: row.starts_at || row.startsAt ? new Date(row.starts_at || row.startsAt).toISOString().slice(0, 10) : '',
+    endsAt: row.ends_at || row.endsAt ? new Date(row.ends_at || row.endsAt).toISOString().slice(0, 10) : '',
     activityTypesText,
     weeklyGoalMinimum: row.weekly_goal_minimum ?? row.weeklyGoalMinimum ?? null,
     weeklyGoalMetric: seasonSettings?.participation?.weeklyGoalMetric || 'miles',
@@ -3053,8 +3145,19 @@ const saveChallenge = async () => {
       const arr = atText.split(',').map((s) => s.trim()).filter(Boolean);
       if (arr.length) activityTypesJson = arr;
     }
-    const startsAt = challengeForm.value.startsAt ? new Date(challengeForm.value.startsAt).toISOString() : null;
-    const endsAt = challengeForm.value.endsAt ? new Date(challengeForm.value.endsAt).toISOString() : null;
+    // Date inputs return YYYY-MM-DD. Anchor to local-time start-of-day for
+    // start and end-of-day for end, then send as ISO so the backend stores
+    // a UTC timestamp consistent with the manager's calendar pick.
+    const buildIsoFromDate = (raw, isEnd) => {
+      if (!raw) return null;
+      const s = String(raw).slice(0, 10);
+      // Already a full ISO (e.g. legacy datetime-local value) — use as-is.
+      if (raw.length > 10) return new Date(raw).toISOString();
+      const local = new Date(`${s}T${isEnd ? '23:59:00' : '00:00:00'}`);
+      return Number.isNaN(local.getTime()) ? null : local.toISOString();
+    };
+    const startsAt = buildIsoFromDate(challengeForm.value.startsAt, false);
+    const endsAt = buildIsoFromDate(challengeForm.value.endsAt, true);
     const buildBillingPayload = (source = {}) => {
       const src = source && typeof source === 'object' ? source : {};
       const amountCents = Math.max(0, Math.round(Number(src.billingMemberAmountDollars || 0) * 100));
@@ -4327,6 +4430,31 @@ onMounted(async () => {
   border-radius: 10px;
   padding: 14px 16px;
   background: #fafbfc;
+}
+
+.invite-last-copied {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #334155;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.invite-last-copied-label {
+  font-weight: 700;
+}
+.invite-last-copied-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+  background: #fff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
 }
 .schedule-summary {
   display: flex;

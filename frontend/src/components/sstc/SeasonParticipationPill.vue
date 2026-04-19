@@ -13,6 +13,9 @@
       <span v-if="!hideCaret" class="pill-caret" aria-hidden="true">▾</span>
     </button>
     <div v-if="open" class="participation-menu">
+      <div class="participation-menu-head">
+        Your participation in this season
+      </div>
       <button
         v-for="opt in options"
         :key="opt.value"
@@ -78,7 +81,7 @@ const label = (v) => {
   if (v === 'joined') return enrolled.value ? 'Joined' : "I'm in";
   if (v === 'sitting_out') return 'Sitting out';
   if (v === 'remind_me') return 'Remind me';
-  return 'Decide';
+  return 'Will you join?';
 };
 const icon = (v) => {
   if (v === 'joined') return '✓';
@@ -177,13 +180,25 @@ onMounted(() => { load(); });
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  z-index: 50;
+  /* High z-index so the menu floats above season banners, recent activity
+     cards, and the marketing splash toast — previously it was clipped. */
+  z-index: 1500;
   min-width: 240px;
   background: white;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
   padding: 6px;
+}
+.participation-menu-head {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #64748b);
+  padding: 4px 10px 6px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 4px;
 }
 .participation-menu-item {
   display: flex;
