@@ -90,7 +90,12 @@
         </div>
       </div>
 
-      <section class="marketing-audit-card">
+      <!-- Hidden 2026-04-19: superseded for now by /admin/marketing-campaigns,
+           which lets superadmin/agency-admin actually push campaigns to school
+           portals and staff dashboards (with optional cross-tenant targeting).
+           The boolean tenant-level flags this panel audits still exist and can
+           be re-surfaced if we need them again. -->
+      <section v-if="false" class="marketing-audit-card">
         <div class="marketing-audit-head">
           <div>
             <h2 style="margin: 0;">Tenant marketing controls</h2>

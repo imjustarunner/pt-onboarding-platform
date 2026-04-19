@@ -219,6 +219,45 @@
           </fieldset>
 
           <fieldset class="ams-fieldset">
+            <legend>Audience</legend>
+            <div class="ams-audience-grid">
+              <label v-for="opt in audienceOptions" :key="opt.id" class="ams-checkbox-field">
+                <input
+                  type="checkbox"
+                  :checked="audienceSelected(opt.id)"
+                  @change="toggleAudience(opt.id, $event.target.checked)"
+                />
+                <span>{{ opt.label }}</span>
+              </label>
+            </div>
+            <p class="ams-help">
+              <strong>School staff</strong> see the toast inside school portals.
+              All other roles see it on their main staff/provider dashboard.
+              Pick more than one to show in both surfaces.
+            </p>
+          </fieldset>
+
+          <fieldset v-if="isSuperAdmin" class="ams-fieldset">
+            <legend>Cross-tenant targeting (super admin)</legend>
+            <p class="ams-help">
+              Push this campaign into other tenants. Their school portals and
+              staff dashboards will receive it just like the originating tenant.
+              The originating tenant continues to own and edit the campaign.
+            </p>
+            <div v-if="!tenantOptions.length" class="muted">Loading other tenants…</div>
+            <div v-else class="ams-tenant-grid">
+              <label v-for="t in tenantOptions" :key="t.id" class="ams-checkbox-field">
+                <input
+                  type="checkbox"
+                  :checked="crossTenantSelected(t.id)"
+                  @change="toggleCrossTenant(t.id, $event.target.checked)"
+                />
+                <span>{{ t.name }} <code>/{{ t.slug }}</code></span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="ams-fieldset">
             <legend>Schools that see this campaign</legend>
             <p v-if="!schools.length" class="muted">No schools linked to this agency yet.</p>
             <div v-else class="ams-school-list">
@@ -228,7 +267,10 @@
                   :checked="schoolEnabled(sch.id)"
                   @change="toggleSchool(sch.id, $event.target.checked)"
                 />
-                <span>{{ sch.name }}</span>
+                <span>
+                  {{ sch.name }}
+                  <small v-if="sch.crossTenant" class="ams-cross-pill">cross-tenant</small>
+                </span>
               </label>
             </div>
             <p class="ams-help">Unchecked schools won't see the toast. Use the per-school "Pause" quick action from a school's overview to opt out without editing here.</p>
@@ -251,9 +293,26 @@
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
 
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0));
+const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+
+const audienceOptions = [
+  { id: 'school_staff', label: 'School staff (school portal)' },
+  { id: 'admin', label: 'Admin (dashboard)' },
+  { id: 'support', label: 'Support (dashboard)' },
+  { id: 'staff', label: 'Staff (dashboard)' },
+  { id: 'supervisor', label: 'Supervisors (dashboard)' },
+  { id: 'provider', label: 'Providers (dashboard)' },
+  { id: 'intern', label: 'Interns (dashboard)' },
+  { id: 'clinical_practice_assistant', label: 'CPAs (dashboard)' },
+  { id: 'schedule_manager', label: 'Schedule managers (dashboard)' },
+  { id: 'provider_plus', label: 'Provider Plus (dashboard)' },
+  { id: 'club_manager', label: 'Club managers (dashboard)' }
+];
 
 const splashes = ref([]);
 const schools = ref([]);
@@ -263,6 +322,7 @@ const busyKey = ref('');
 const editorError = ref('');
 const editing = ref(null);
 const destinationOptions = ref([]);
+const tenantOptions = ref([]);
 const flierInput = ref(null);
 
 const KIND_LABELS = {
@@ -321,6 +381,7 @@ async function load() {
 function startNew() {
   editing.value = blankCampaign();
   destinationOptions.value = [];
+  if (isSuperAdmin.value) loadTenantOptions();
 }
 
 function blankCampaign() {
@@ -345,16 +406,21 @@ function blankCampaign() {
     showFlier: true,
     reshowAfterHours: 24,
     audienceSchoolStaffOnly: true,
+    audienceKinds: ['school_staff'],
+    crossTenantTargetAgencyIds: [],
     flierUrl: null,
     flierFilename: null,
     targetSchools: [],
-    _enabledSet: new Set()
+    _enabledSet: new Set(),
+    _audienceSet: new Set(['school_staff']),
+    _crossSet: new Set()
   };
 }
 
 async function select(s) {
   editing.value = hydrateForEdit(s);
   await loadDestinationOptions();
+  if (isSuperAdmin.value) await loadTenantOptions();
 }
 
 function hydrateForEdit(s) {
@@ -385,10 +451,14 @@ function hydrateForEdit(s) {
     showFlier: !!s.showFlier,
     reshowAfterHours: Number(s.reshowAfterHours ?? 24),
     audienceSchoolStaffOnly: !!s.audienceSchoolStaffOnly,
+    audienceKinds: Array.isArray(s.audienceKinds) ? [...s.audienceKinds] : ['school_staff'],
+    crossTenantTargetAgencyIds: Array.isArray(s.crossTenantTargetAgencyIds) ? [...s.crossTenantTargetAgencyIds] : [],
     flierUrl: s.flierUrl,
     flierFilename: s.flierFilename,
     targetSchools: s.targetSchools || [],
     _enabledSet: enabled,
+    _audienceSet: new Set(Array.isArray(s.audienceKinds) && s.audienceKinds.length ? s.audienceKinds : ['school_staff']),
+    _crossSet: new Set((s.crossTenantTargetAgencyIds || []).map((n) => Number(n))),
     _resolved: s.destination?.resolved || null
   };
 }
@@ -450,8 +520,62 @@ function toggleSchool(id, checked) {
   if (!editing.value) return;
   if (checked) editing.value._enabledSet.add(id);
   else editing.value._enabledSet.delete(id);
-  // Trigger reactivity
   editing.value._enabledSet = new Set(editing.value._enabledSet);
+}
+
+function audienceSelected(id) {
+  return editing.value?._audienceSet?.has(id) || false;
+}
+function toggleAudience(id, checked) {
+  if (!editing.value) return;
+  if (checked) editing.value._audienceSet.add(id);
+  else editing.value._audienceSet.delete(id);
+  if (editing.value._audienceSet.size === 0) editing.value._audienceSet.add('school_staff');
+  editing.value._audienceSet = new Set(editing.value._audienceSet);
+}
+
+function crossTenantSelected(id) {
+  return editing.value?._crossSet?.has(Number(id)) || false;
+}
+function toggleCrossTenant(id, checked) {
+  if (!editing.value) return;
+  const n = Number(id);
+  if (checked) editing.value._crossSet.add(n);
+  else editing.value._crossSet.delete(n);
+  editing.value._crossSet = new Set(editing.value._crossSet);
+  // When you add/remove a cross-tenant target, the schools list will need to
+  // re-include/exclude that tenant's schools — refresh from the server.
+  saveCrossTenantThenReload();
+}
+
+let pendingCrossTimer = null;
+function saveCrossTenantThenReload() {
+  // Debounce: only reload schools list if we're already saved (have an id),
+  // and only after the user pauses for ~500ms.
+  if (!editing.value?.id) return;
+  if (pendingCrossTimer) clearTimeout(pendingCrossTimer);
+  pendingCrossTimer = setTimeout(async () => {
+    try {
+      const ids = [...editing.value._crossSet];
+      await api.patch(
+        `/agency-marketing-splashes/agencies/${agencyId.value}/${editing.value.id}`,
+        { crossTenantTargetAgencyIds: ids }
+      );
+      await load();
+      const refreshed = splashes.value.find((s) => s.id === editing.value.id);
+      if (refreshed) await select(refreshed);
+    } catch (_) { /* ignore */ }
+  }, 500);
+}
+
+async function loadTenantOptions() {
+  if (!agencyId.value || !isSuperAdmin.value) return;
+  try {
+    const { data } = await api.get(
+      `/agency-marketing-splashes/agencies/${agencyId.value}/tenant-options`
+    );
+    tenantOptions.value = data.tenants || [];
+  } catch (_) { tenantOptions.value = []; }
 }
 
 async function save() {
@@ -480,9 +604,12 @@ async function save() {
       showQr: editing.value.showQr,
       showFlier: editing.value.showFlier,
       reshowAfterHours: editing.value.reshowAfterHours,
-      audienceSchoolStaffOnly: editing.value.audienceSchoolStaffOnly,
+      audienceKinds: [...editing.value._audienceSet],
       targetSchoolIds: allEnabled ? null : enabledIds
     };
+    if (isSuperAdmin.value) {
+      payload.crossTenantTargetAgencyIds = [...editing.value._crossSet];
+    }
     let saved;
     if (editing.value.id) {
       const { data } = await api.patch(
@@ -696,6 +823,34 @@ onMounted(() => { load(); });
   padding: 6px 10px;
   border-radius: 8px;
   font-size: 13px;
+}
+.ams-cross-pill {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #ede9fe;
+  color: #6d28d9;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-weight: 800;
+}
+.ams-audience-grid,
+.ams-tenant-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 4px 10px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+.ams-tenant-grid code {
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: #475569;
 }
 
 .ams-editor-foot {

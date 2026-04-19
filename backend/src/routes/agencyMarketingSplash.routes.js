@@ -8,6 +8,7 @@ import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   listDestinationOptions,
+  listTenantOptions,
   listSplashes,
   createSplash,
   updateSplash,
@@ -16,6 +17,7 @@ import {
   uploadSplashFlier,
   deleteSplashFlier,
   listActiveForPortal,
+  listActiveForDashboard,
   dismissSplash
 } from '../controllers/agencyMarketingSplash.controller.js';
 
@@ -26,6 +28,7 @@ managerRouter.get(
   '/agencies/:agencyId/destination-options',
   listDestinationOptions
 );
+managerRouter.get('/agencies/:agencyId/tenant-options', listTenantOptions);
 managerRouter.get('/agencies/:agencyId', listSplashes);
 managerRouter.post('/agencies/:agencyId', createSplash);
 managerRouter.patch('/agencies/:agencyId/:id', updateSplash);
@@ -41,3 +44,10 @@ export const portalRouter = express.Router();
 portalRouter.use(authenticate);
 portalRouter.get('/marketing-splashes/active', listActiveForPortal);
 portalRouter.post('/marketing-splashes/:id/dismiss', dismissSplash);
+
+// Dashboard mount (regular staff/provider dashboard) — separate path so the
+// audience filter rules differ.
+export const dashboardRouter = express.Router();
+dashboardRouter.use(authenticate);
+dashboardRouter.get('/dashboard-active', listActiveForDashboard);
+dashboardRouter.post('/:id/dismiss', dismissSplash);

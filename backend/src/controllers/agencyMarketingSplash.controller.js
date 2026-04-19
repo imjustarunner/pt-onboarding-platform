@@ -32,6 +32,26 @@ const VALID_INITIAL_STATES = new Set(['peek', 'expanded', 'tab']);
 const VALID_POSITIONS = new Set(['right', 'bottom-right', 'bottom']);
 const VALID_ACK_KINDS = new Set(['snoozed', 'clicked', 'downloaded', 'closed']);
 
+// Audience role keys recognized for both school portal + dashboard surfaces.
+// 'school_staff' is the historical default and matches the school portal mount.
+// '*' wildcard is allowed (means "every signed-in user"); rarely useful but cheap.
+const VALID_AUDIENCE_KINDS = new Set([
+  '*',
+  'school_staff',
+  'admin',
+  'support',
+  'staff',
+  'provider',
+  'intern',
+  'clinical_practice_assistant',
+  'supervisor',
+  'schedule_manager',
+  'provider_plus',
+  'club_manager'
+]);
+const STAFF_DASHBOARD_AUDIENCES = new Set(VALID_AUDIENCE_KINDS);
+STAFF_DASHBOARD_AUDIENCES.delete('school_staff'); // school_staff is rendered via portal, not dashboard
+
 const toInt = (v) => {
   const n = parseInt(v, 10);
   return Number.isFinite(n) ? n : null;
@@ -43,6 +63,41 @@ const toNullableTimestamp = (v) => {
   if (!Number.isFinite(d.getTime())) return null;
   return d;
 };
+
+function parseJsonArray(raw) {
+  if (raw == null) return null;
+  try {
+    const v = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (Array.isArray(v)) return v;
+  } catch (_) { /* fall through */ }
+  return null;
+}
+
+function sanitizeAudienceKinds(input) {
+  if (!Array.isArray(input)) return null;
+  const out = [];
+  for (const v of input) {
+    const s = String(v || '').toLowerCase().trim();
+    if (VALID_AUDIENCE_KINDS.has(s) && !out.includes(s)) out.push(s);
+  }
+  return out.length ? out : null;
+}
+
+function effectiveAudienceKinds(row) {
+  const stored = parseJsonArray(row?.audience_kinds);
+  if (stored && stored.length) return stored;
+  return row?.audience_school_staff_only ? ['school_staff'] : ['*'];
+}
+
+function sanitizeCrossTenantIds(input) {
+  if (!Array.isArray(input)) return null;
+  const ids = [];
+  for (const v of input) {
+    const n = parseInt(v, 10);
+    if (Number.isFinite(n) && n > 0 && !ids.includes(n)) ids.push(n);
+  }
+  return ids.length ? ids : null;
+}
 
 const requireManagerForAgency = async (req, res, agencyId) => {
   if (!req.user?.id) {
@@ -283,26 +338,38 @@ async function loadTargetSchools(splashId) {
   return rows || [];
 }
 
-async function loadAgencySchools(agencyId) {
+async function loadAgencySchools(agencyId, crossTenantAgencyIds = null) {
+  const ids = [Number(agencyId), ...((crossTenantAgencyIds || []).map((n) => Number(n)).filter(Boolean))];
+  const uniq = [...new Set(ids)];
+  const ph = uniq.map(() => '?').join(', ');
   const [direct] = await pool.execute(
-    `SELECT s.id, s.name, s.slug
+    `SELECT s.id, s.name, s.slug, asx.agency_id AS owner_agency_id
      FROM agency_schools asx
      INNER JOIN agencies s ON s.id = asx.school_organization_id
-     WHERE asx.agency_id = ? AND asx.is_active = TRUE AND s.organization_type = 'school'
+     WHERE asx.agency_id IN (${ph}) AND asx.is_active = TRUE AND s.organization_type = 'school'
      ORDER BY s.name ASC`,
-    [agencyId]
+    uniq
   );
   const [aff] = await pool.execute(
-    `SELECT s.id, s.name, s.slug
+    `SELECT s.id, s.name, s.slug, oa.agency_id AS owner_agency_id
      FROM organization_affiliations oa
      INNER JOIN agencies s ON s.id = oa.organization_id
-     WHERE oa.agency_id = ? AND oa.is_active = TRUE AND s.organization_type = 'school'
+     WHERE oa.agency_id IN (${ph}) AND oa.is_active = TRUE AND s.organization_type = 'school'
      ORDER BY s.name ASC`,
-    [agencyId]
+    uniq
   );
   const map = new Map();
   for (const row of [...(direct || []), ...(aff || [])]) {
-    map.set(Number(row.id), { id: Number(row.id), name: row.name, slug: row.slug });
+    const id = Number(row.id);
+    const ownerId = Number(row.owner_agency_id);
+    const isCross = ownerId !== Number(agencyId);
+    if (!map.has(id)) {
+      map.set(id, { id, name: row.name, slug: row.slug, ownerAgencyId: ownerId, crossTenant: isCross });
+    } else if (!isCross) {
+      // Prefer marking it owned by the originating agency if both apply.
+      map.get(id).crossTenant = false;
+      map.get(id).ownerAgencyId = ownerId;
+    }
   }
   return [...map.values()];
 }
@@ -353,6 +420,9 @@ async function shapeSplashRow(row, agencyId) {
     showFlier: !!row.show_flier,
     reshowAfterHours: Number(row.reshow_after_hours || 0),
     audienceSchoolStaffOnly: !!row.audience_school_staff_only,
+    audienceKinds: effectiveAudienceKinds(row),
+    crossTenantTargetAgencyIds: parseJsonArray(row.cross_tenant_target_agency_ids) || [],
+    isCrossTenant: !!row.is_cross_tenant,
     targetSchools: targets.map((t) => ({
       schoolOrganizationId: Number(t.school_organization_id),
       isEnabled: !!t.is_enabled,
@@ -378,8 +448,46 @@ export const listSplashes = async (req, res, next) => {
       [agencyId]
     );
     const splashes = await Promise.all((rows || []).map((r) => shapeSplashRow(r, agencyId)));
-    const schools = await loadAgencySchools(agencyId);
+    // Union all cross-tenant agencies referenced by any active campaign so the
+    // editor can show the right schools without round-tripping per row.
+    const crossSet = new Set();
+    for (const s of splashes) {
+      for (const id of (s.crossTenantTargetAgencyIds || [])) crossSet.add(Number(id));
+    }
+    const schools = await loadAgencySchools(agencyId, [...crossSet]);
     return res.json({ splashes, schools });
+  } catch (e) { next(e); }
+};
+
+/**
+ * GET /api/agency-marketing-splashes/agencies/:agencyId/tenant-options
+ * super_admin: lists all tenants on the platform (id, name, slug) so the
+ * editor can build the "cross-tenant target tenants" multi-select.
+ * Non-superadmin gets a 403.
+ */
+export const listTenantOptions = async (req, res, next) => {
+  try {
+    const agencyId = toInt(req.params.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency' } });
+    if (!(await requireManagerForAgency(req, res, agencyId))) return;
+    const role = String(req.user.role || '').toLowerCase();
+    if (role !== 'super_admin') return res.status(403).json({ error: { message: 'Super admin only' } });
+    const [rows] = await pool.execute(
+      `SELECT id, name, slug, organization_type
+       FROM agencies
+       WHERE id <> ? AND COALESCE(organization_type, '') IN ('agency', 'affiliation', 'program', 'learning')
+       ORDER BY name ASC
+       LIMIT 500`,
+      [agencyId]
+    );
+    return res.json({
+      tenants: (rows || []).map((r) => ({
+        id: Number(r.id),
+        name: r.name,
+        slug: r.slug,
+        kind: r.organization_type
+      }))
+    });
   } catch (e) { next(e); }
 };
 
@@ -407,6 +515,14 @@ export const createSplash = async (req, res, next) => {
     const initialState = VALID_INITIAL_STATES.has(body.initialState) ? body.initialState : 'peek';
     const position = VALID_POSITIONS.has(body.position) ? body.position : 'right';
     const subsetJson = Array.isArray(body.destinationSubsetJson) ? JSON.stringify(body.destinationSubsetJson) : null;
+    const isSuperAdmin = String(req.user.role || '').toLowerCase() === 'super_admin';
+
+    const audienceKinds = sanitizeAudienceKinds(body.audienceKinds);
+    // Legacy compat: fall back to a single-kind audience based on the boolean.
+    const finalAudience = audienceKinds || (body.audienceSchoolStaffOnly === false ? ['*'] : ['school_staff']);
+
+    // Cross-tenant only when superadmin.
+    const crossIds = isSuperAdmin ? sanitizeCrossTenantIds(body.crossTenantTargetAgencyIds) : null;
 
     const [result] = await pool.execute(
       `INSERT INTO agency_marketing_splashes (
@@ -415,8 +531,8 @@ export const createSplash = async (req, res, next) => {
         destination_kind, destination_id, destination_subset_json, destination_override_url,
         starts_at, ends_at, is_active, priority,
         initial_state, position, show_qr, show_flier, reshow_after_hours,
-        audience_school_staff_only
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        audience_school_staff_only, audience_kinds, cross_tenant_target_agency_ids, is_cross_tenant
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId, req.user.id, req.user.id,
         title,
@@ -437,11 +553,15 @@ export const createSplash = async (req, res, next) => {
         body.showQr === false ? 0 : 1,
         body.showFlier === false ? 0 : 1,
         toInt(body.reshowAfterHours) ?? 24,
-        body.audienceSchoolStaffOnly === false ? 0 : 1
+        // Keep legacy boolean in sync with audience for safety.
+        finalAudience.includes('school_staff') && finalAudience.length === 1 ? 1 : 0,
+        JSON.stringify(finalAudience),
+        crossIds ? JSON.stringify(crossIds) : null,
+        crossIds && crossIds.length ? 1 : 0
       ]
     );
     const splashId = Number(result.insertId);
-    await replaceTargetSchools(splashId, agencyId, body.targetSchoolIds, body.pausedSchoolIds);
+    await replaceTargetSchools(splashId, agencyId, body.targetSchoolIds, body.pausedSchoolIds, crossIds);
 
     const row = await loadSplashRow(splashId, agencyId);
     return res.status(201).json(await shapeSplashRow(row, agencyId));
@@ -499,6 +619,22 @@ export const updateSplash = async (req, res, next) => {
     if (body.showFlier !== undefined) set('show_flier', body.showFlier ? 1 : 0);
     if (body.reshowAfterHours !== undefined) set('reshow_after_hours', toInt(body.reshowAfterHours) ?? 24);
     if (body.audienceSchoolStaffOnly !== undefined) set('audience_school_staff_only', body.audienceSchoolStaffOnly ? 1 : 0);
+    if (body.audienceKinds !== undefined) {
+      const kinds = sanitizeAudienceKinds(body.audienceKinds) || ['school_staff'];
+      set('audience_kinds', JSON.stringify(kinds));
+      set('audience_school_staff_only', kinds.length === 1 && kinds[0] === 'school_staff' ? 1 : 0);
+    }
+    let crossIdsForTargets;
+    if (body.crossTenantTargetAgencyIds !== undefined) {
+      const isSuperAdmin = String(req.user.role || '').toLowerCase() === 'super_admin';
+      if (!isSuperAdmin) {
+        return res.status(403).json({ error: { message: 'Only super admins can edit cross-tenant targets' } });
+      }
+      const crossIds = sanitizeCrossTenantIds(body.crossTenantTargetAgencyIds);
+      set('cross_tenant_target_agency_ids', crossIds ? JSON.stringify(crossIds) : null);
+      set('is_cross_tenant', crossIds && crossIds.length ? 1 : 0);
+      crossIdsForTargets = crossIds;
+    }
 
     set('updated_by_user_id', req.user.id);
 
@@ -509,8 +645,18 @@ export const updateSplash = async (req, res, next) => {
       );
     }
 
-    if (body.targetSchoolIds !== undefined || body.pausedSchoolIds !== undefined) {
-      await replaceTargetSchools(splashId, agencyId, body.targetSchoolIds, body.pausedSchoolIds);
+    if (
+      body.targetSchoolIds !== undefined
+      || body.pausedSchoolIds !== undefined
+      || crossIdsForTargets !== undefined
+    ) {
+      // If we already changed cross-tenant targets above, use those; otherwise
+      // fall back to whatever's currently stored so we recompute the correct
+      // "allowed schools" universe.
+      const cross = crossIdsForTargets !== undefined
+        ? crossIdsForTargets
+        : parseJsonArray(existing.cross_tenant_target_agency_ids);
+      await replaceTargetSchools(splashId, agencyId, body.targetSchoolIds, body.pausedSchoolIds, cross);
     }
 
     const fresh = await loadSplashRow(splashId, agencyId);
@@ -538,9 +684,10 @@ export const deleteSplash = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
-async function replaceTargetSchools(splashId, agencyId, targetIds, pausedIds) {
-  // Validate that every requested school is one of this agency's schools.
-  const allowed = new Set((await loadAgencySchools(agencyId)).map((s) => s.id));
+async function replaceTargetSchools(splashId, agencyId, targetIds, pausedIds, crossTenantAgencyIds = null) {
+  // Validate that every requested school is one of this agency's schools (or
+  // a cross-tenant target agency's schools when applicable).
+  const allowed = new Set((await loadAgencySchools(agencyId, crossTenantAgencyIds)).map((s) => s.id));
   const tIds = Array.isArray(targetIds)
     ? targetIds.map((n) => Number(n)).filter((n) => Number.isFinite(n) && allowed.has(n))
     : null;
@@ -704,7 +851,6 @@ export const listActiveForPortal = async (req, res, next) => {
     if (!schoolId) return res.status(400).json({ error: { message: 'schoolId required' } });
 
     const userRole = String(req.user.role || '').toLowerCase();
-    const isSchoolStaff = userRole === 'school_staff';
     // Determine the agencies that have access to this school (so the queue
     // joins the right campaigns).
     const [agencyRows] = await pool.execute(
@@ -720,6 +866,10 @@ export const listActiveForPortal = async (req, res, next) => {
     const agencyIds = (agencyRows || []).map((r) => Number(r.agency_id)).filter(Boolean);
     if (!agencyIds.length) return res.json({ splashes: [] });
     const agPh = agencyIds.map(() => '?').join(', ');
+    // Also include splashes whose cross_tenant_target_agency_ids overlaps any
+    // of this school's owning agencies — this is how a superadmin pushes a
+    // campaign from agency A into school portals of agency B.
+    const crossClauses = agencyIds.map(() => `JSON_CONTAINS(s.cross_tenant_target_agency_ids, JSON_ARRAY(?))`).join(' OR ');
 
     const [rows] = await pool.execute(
       `SELECT s.*
@@ -728,7 +878,7 @@ export const listActiveForPortal = async (req, res, next) => {
          ON ss.splash_id = s.id AND ss.school_organization_id = ?
        LEFT JOIN agency_marketing_splash_dismissals d
          ON d.splash_id = s.id AND d.user_id = ?
-       WHERE s.agency_id IN (${agPh})
+       WHERE (s.agency_id IN (${agPh}) OR (${crossClauses}))
          AND s.is_active = 1
          AND (s.starts_at IS NULL OR s.starts_at <= NOW())
          AND (s.ends_at IS NULL OR s.ends_at > NOW())
@@ -737,10 +887,18 @@ export const listActiveForPortal = async (req, res, next) => {
            d.id IS NULL
            OR d.dismissed_at < (NOW() - INTERVAL s.reshow_after_hours HOUR)
          )
-         AND (s.audience_school_staff_only = 0 OR ? = 1)
        ORDER BY s.priority DESC, s.created_at DESC`,
-      [schoolId, req.user.id, ...agencyIds, isSchoolStaff ? 1 : 0]
+      [schoolId, req.user.id, ...agencyIds, ...agencyIds]
     );
+
+    // Audience filter (in JS, since audience_kinds may be the legacy NULL/0/1 or new JSON)
+    const audienceFiltered = (rows || []).filter((row) => {
+      const kinds = effectiveAudienceKinds(row);
+      if (kinds.includes('*')) return true;
+      return kinds.includes('school_staff') ? userRole === 'school_staff' : kinds.includes(userRole);
+    });
+    rows.length = 0;
+    rows.push(...audienceFiltered);
 
     // Targeting policy: if any explicit (enabled) row exists for this splash
     // AND no row matches this school, the splash is NOT for this school.
@@ -770,6 +928,65 @@ export const listActiveForPortal = async (req, res, next) => {
       // If the splash uses an explicit allow-list, only those schools pass.
       if (buckets.enabled.size > 0 && !buckets.enabled.has(Number(schoolId))) return false;
       return true;
+    });
+
+    const splashes = await Promise.all(
+      filtered.map((row) => shapeSplashRow(row, Number(row.agency_id)))
+    );
+    return res.json({ splashes });
+  } catch (e) { next(e); }
+};
+
+/**
+ * GET /api/marketing-splashes/dashboard-active
+ * Returns the active campaigns the current user should see on the regular
+ * staff/provider dashboard (not school portal). Filters by:
+ *   - User's owning agency (via user_agencies) plus any agency that's listed
+ *     in cross_tenant_target_agency_ids of an active splash.
+ *   - audience_kinds matches the user role and is NOT school_staff-only
+ *     (school_staff lives on the portal mount).
+ *   - Same is_active + window + dismissal/reshow rules as the portal feed.
+ */
+export const listActiveForDashboard = async (req, res, next) => {
+  try {
+    if (!req.user?.id) return res.status(401).json({ error: { message: 'Sign in required' } });
+    const userRole = String(req.user.role || '').toLowerCase();
+
+    // Find every agency this user is meaningfully in. We use user_agencies as
+    // the source of truth for "this is your tenant".
+    const [agencyRows] = await pool.execute(
+      `SELECT DISTINCT agency_id FROM user_agencies WHERE user_id = ? AND is_active = 1`,
+      [req.user.id]
+    );
+    const agencyIds = (agencyRows || []).map((r) => Number(r.agency_id)).filter(Boolean);
+    if (!agencyIds.length) return res.json({ splashes: [] });
+    const agPh = agencyIds.map(() => '?').join(', ');
+    const crossClauses = agencyIds.map(() => `JSON_CONTAINS(s.cross_tenant_target_agency_ids, JSON_ARRAY(?))`).join(' OR ');
+
+    const [rows] = await pool.execute(
+      `SELECT s.*
+       FROM agency_marketing_splashes s
+       LEFT JOIN agency_marketing_splash_dismissals d
+         ON d.splash_id = s.id AND d.user_id = ?
+       WHERE (s.agency_id IN (${agPh}) OR (${crossClauses}))
+         AND s.is_active = 1
+         AND (s.starts_at IS NULL OR s.starts_at <= NOW())
+         AND (s.ends_at IS NULL OR s.ends_at > NOW())
+         AND (
+           d.id IS NULL
+           OR d.dismissed_at < (NOW() - INTERVAL s.reshow_after_hours HOUR)
+         )
+       ORDER BY s.priority DESC, s.created_at DESC`,
+      [req.user.id, ...agencyIds, ...agencyIds]
+    );
+
+    // Filter audience: must NOT be school_staff-only (those live on the portal),
+    // must include the current user's role (or '*').
+    const filtered = (rows || []).filter((row) => {
+      const kinds = effectiveAudienceKinds(row);
+      if (kinds.length === 1 && kinds[0] === 'school_staff') return false;
+      if (kinds.includes('*')) return true;
+      return kinds.includes(userRole);
     });
 
     const splashes = await Promise.all(

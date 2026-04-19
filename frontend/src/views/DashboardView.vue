@@ -1346,11 +1346,13 @@
         </div>
       </div>
     </div>
+    <SchoolMarketingSplash v-if="!previewMode" mode="dashboard" />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
+import SchoolMarketingSplash from '../components/marketing/SchoolMarketingSplash.vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';

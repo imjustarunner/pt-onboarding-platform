@@ -75,7 +75,8 @@ import unassignedDocumentsRoutes from './routes/unassignedDocuments.routes.js';
 import schoolPortalRoutes from './routes/schoolPortal.routes.js';
 import {
   managerRouter as agencyMarketingSplashManagerRoutes,
-  portalRouter as agencyMarketingSplashPortalRoutes
+  portalRouter as agencyMarketingSplashPortalRoutes,
+  dashboardRouter as agencyMarketingSplashDashboardRoutes
 } from './routes/agencyMarketingSplash.routes.js';
 import socialFeedLinksRoutes from './routes/socialFeedLinks.routes.js';
 import referralRoutes from './routes/referral.routes.js';
@@ -663,6 +664,7 @@ app.use('/api/intake-field-templates', intakeFieldTemplatesRoutes);
 app.use('/api/unassigned-documents', unassignedDocumentsRoutes);
 app.use('/api/school-portal', schoolPortalRoutes); // School portal routes (restricted client views)
 app.use('/api/school-portal', agencyMarketingSplashPortalRoutes); // School portal — marketing splash fetch + dismiss
+app.use('/api/marketing-splashes', agencyMarketingSplashDashboardRoutes); // Regular dashboard — marketing splash fetch + dismiss
 app.use('/api/agency-marketing-splashes', agencyMarketingSplashManagerRoutes);
 app.use('/api/referrals', referralRoutes); // Referral pipeline routes
 app.use('/api/clients', clientRoutes); // Client management routes

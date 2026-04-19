@@ -91,7 +91,10 @@ import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const props = defineProps({
-  schoolId: { type: [Number, String], required: true }
+  // 'portal' = scoped to a specific school portal (requires schoolId)
+  // 'dashboard' = the regular staff/provider dashboard mount
+  mode: { type: String, default: 'portal' },
+  schoolId: { type: [Number, String], default: null }
 });
 
 const queue = ref([]);
@@ -172,11 +175,22 @@ function clearCollapseTimer() {
   if (collapseTimer) { clearTimeout(collapseTimer); collapseTimer = null; }
 }
 
+const fetchPath = computed(() => (
+  props.mode === 'dashboard'
+    ? '/marketing-splashes/dashboard-active'
+    : '/school-portal/marketing-splashes/active'
+));
+const dismissPath = (id) => (
+  props.mode === 'dashboard'
+    ? `/marketing-splashes/${id}/dismiss`
+    : `/school-portal/marketing-splashes/${id}/dismiss`
+);
+
 async function load() {
-  if (!props.schoolId) return;
+  if (props.mode === 'portal' && !props.schoolId) return;
   try {
-    const { data } = await api.get('/school-portal/marketing-splashes/active', {
-      params: { schoolId: props.schoolId }
+    const { data } = await api.get(fetchPath.value, {
+      params: props.mode === 'portal' ? { schoolId: props.schoolId } : {}
     });
     queue.value = data.splashes || [];
     index.value = 0;
@@ -192,7 +206,7 @@ async function load() {
 async function dismiss() {
   if (!active.value) return;
   try {
-    await api.post(`/school-portal/marketing-splashes/${active.value.id}/dismiss`, { ackKind: 'snoozed' });
+    await api.post(dismissPath(active.value.id), { ackKind: 'snoozed' });
   } catch (_) { /* ignore */ }
   removeCurrent();
 }
@@ -209,7 +223,7 @@ function removeCurrent() {
 
 async function ack(kind) {
   if (!active.value) return;
-  try { await api.post(`/school-portal/marketing-splashes/${active.value.id}/dismiss`, { ackKind: kind }); }
+  try { await api.post(dismissPath(active.value.id), { ackKind: kind }); }
   catch (_) { /* ignore */ }
 }
 
