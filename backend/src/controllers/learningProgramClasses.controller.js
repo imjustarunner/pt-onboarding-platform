@@ -197,11 +197,59 @@ const normalizeSeasonSettings = (input = {}) => {
     if (s === '1v4_2v3' || s === 'seeded_bracket') return s;
     return '1v4_2v3';
   };
-  const regularSeasonWeeks = Math.max(1, numOr(postseason.regularSeasonWeeks, 10));
-  const hasBreakWeek = asBool(postseason.hasBreakWeek, false);
-  const breakWeekNumber = hasBreakWeek ? Math.max(1, numOr(postseason.breakWeekNumber, regularSeasonWeeks + 1)) : null;
-  const playoffWeekNumber = Math.max(1, numOr(postseason.playoffWeekNumber, regularSeasonWeeks + (hasBreakWeek ? 2 : 1)));
-  const championshipWeekNumber = Math.max(playoffWeekNumber + 1, numOr(postseason.championshipWeekNumber, playoffWeekNumber + 1));
+  // Per-week phase overrides authored in the visual "Season Schedule"
+  // editor. Stored as [{ weekNumber: 1, phase: 'regular_season' }, ...].
+  // When non-empty, this is the source of truth and the legacy numeric
+  // fields below are derived from it (so callers that still consume
+  // regularSeasonWeeks / playoffWeekNumber / etc. keep working).
+  const ALLOWED_WEEK_PHASES = ['regular_season', 'break_week', 'playoff_week', 'championship_week'];
+  const rawWeekPhases = Array.isArray(postseason.weekPhases) ? postseason.weekPhases : [];
+  const seenWeeks = new Set();
+  const weekPhases = [];
+  for (const entry of rawWeekPhases) {
+    if (!entry || typeof entry !== 'object') continue;
+    const wn = numOr(entry.weekNumber, NaN);
+    const ph = String(entry.phase || '').trim().toLowerCase();
+    if (!Number.isFinite(wn) || wn < 1) continue;
+    if (!ALLOWED_WEEK_PHASES.includes(ph)) continue;
+    if (seenWeeks.has(wn)) continue;
+    seenWeeks.add(wn);
+    weekPhases.push({ weekNumber: wn, phase: ph });
+  }
+  weekPhases.sort((a, b) => a.weekNumber - b.weekNumber);
+
+  // Derive legacy numeric fields. If the editor produced weekPhases, use
+  // those; otherwise honor whatever the legacy form posted.
+  let regularSeasonWeeks;
+  let hasBreakWeek;
+  let breakWeekNumber;
+  let playoffWeekNumber;
+  let championshipWeekNumber;
+  if (weekPhases.length > 0) {
+    let regCount = 0;
+    for (const wp of weekPhases) {
+      if (wp.weekNumber === regCount + 1 && wp.phase === 'regular_season') regCount += 1;
+      else break;
+    }
+    regularSeasonWeeks = Math.max(1, regCount || 1);
+    const firstBreak = weekPhases.find((w) => w.phase === 'break_week');
+    const firstPlayoff = weekPhases.find((w) => w.phase === 'playoff_week');
+    const firstChampionship = weekPhases.find((w) => w.phase === 'championship_week');
+    hasBreakWeek = !!firstBreak;
+    breakWeekNumber = firstBreak ? firstBreak.weekNumber : null;
+    playoffWeekNumber = firstPlayoff
+      ? firstPlayoff.weekNumber
+      : (regularSeasonWeeks + (hasBreakWeek ? 2 : 1));
+    championshipWeekNumber = firstChampionship
+      ? firstChampionship.weekNumber
+      : (playoffWeekNumber + 1);
+  } else {
+    regularSeasonWeeks = Math.max(1, numOr(postseason.regularSeasonWeeks, 10));
+    hasBreakWeek = asBool(postseason.hasBreakWeek, false);
+    breakWeekNumber = hasBreakWeek ? Math.max(1, numOr(postseason.breakWeekNumber, regularSeasonWeeks + 1)) : null;
+    playoffWeekNumber = Math.max(1, numOr(postseason.playoffWeekNumber, regularSeasonWeeks + (hasBreakWeek ? 2 : 1)));
+    championshipWeekNumber = Math.max(playoffWeekNumber + 1, numOr(postseason.championshipWeekNumber, playoffWeekNumber + 1));
+  }
   const toChargeTarget = (v) => {
     const s = String(v || '').trim().toLowerCase();
     if (s === 'club') return 'club';
@@ -305,7 +353,8 @@ const normalizeSeasonSettings = (input = {}) => {
       playoffWeekNumber,
       championshipWeekNumber,
       playoffSeedCount: Math.max(2, numOr(postseason.playoffSeedCount, 4)),
-      playoffMatchupMode: toPostseasonMatchupMode(postseason.playoffMatchupMode)
+      playoffMatchupMode: toPostseasonMatchupMode(postseason.playoffMatchupMode),
+      weekPhases
     },
     billing: {
       enabled,

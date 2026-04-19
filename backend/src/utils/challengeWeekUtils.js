@@ -226,9 +226,37 @@ export function getSeasonWeekPhase({
   const breakWeekNumber = hasBreakWeek ? Math.max(1, Number.parseInt(postseason?.breakWeekNumber, 10) || (regularSeasonWeeks + 1)) : null;
   const playoffWeekNumber = Math.max(1, Number.parseInt(postseason?.playoffWeekNumber, 10) || (regularSeasonWeeks + (hasBreakWeek ? 2 : 1)));
   const championshipWeekNumber = Math.max(playoffWeekNumber + 1, Number.parseInt(postseason?.championshipWeekNumber, 10) || (playoffWeekNumber + 1));
+
+  // Per-week phase override map. When the manager has filled out the
+  // visual week-by-week schedule editor, an entry here wins over the
+  // legacy numeric "regular season weeks / playoff week / championship
+  // week" fields. Phases supported: regular_season, break_week,
+  // playoff_week, championship_week.
+  const weekPhasesArray = Array.isArray(postseason?.weekPhases) ? postseason.weekPhases : [];
+  const weekPhaseMap = new Map();
+  for (const entry of weekPhasesArray) {
+    if (!entry || typeof entry !== 'object') continue;
+    const wn = Number.parseInt(entry.weekNumber, 10);
+    const ph = String(entry.phase || '').trim().toLowerCase();
+    if (!Number.isFinite(wn) || wn < 1) continue;
+    if (!['regular_season', 'break_week', 'playoff_week', 'championship_week'].includes(ph)) continue;
+    weekPhaseMap.set(wn, ph);
+  }
+  const hasWeekPhaseOverrides = weekPhaseMap.size > 0;
+
   let phase = 'regular_season';
   if (enabled) {
-    if (weekNumber <= regularSeasonWeeks) phase = 'regular_season';
+    if (hasWeekPhaseOverrides) {
+      // Per-week schedule wins. If the requested week isn't listed, fall
+      // back to the most natural default: weeks before the last listed
+      // week are regular_season, weeks after it are postseason_complete.
+      if (weekPhaseMap.has(weekNumber)) {
+        phase = weekPhaseMap.get(weekNumber);
+      } else {
+        const maxListed = Math.max(...weekPhaseMap.keys());
+        phase = weekNumber > maxListed ? 'postseason_complete' : 'regular_season';
+      }
+    } else if (weekNumber <= regularSeasonWeeks) phase = 'regular_season';
     else if (hasBreakWeek && weekNumber === breakWeekNumber) phase = 'break_week';
     else if (weekNumber === playoffWeekNumber) phase = 'playoff_week';
     else if (weekNumber === championshipWeekNumber) phase = 'championship_week';
@@ -243,7 +271,8 @@ export function getSeasonWeekPhase({
     breakWeekNumber,
     playoffWeekNumber,
     championshipWeekNumber,
-    postseasonEnabled: enabled
+    postseasonEnabled: enabled,
+    hasWeekPhaseOverrides
   };
 }
 

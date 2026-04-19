@@ -545,29 +545,6 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>Regular season weeks</label>
-                <input v-model.number="challengeForm.regularSeasonWeeks" type="number" min="1" />
-              </div>
-              <div class="form-group">
-                <label>Break week before playoffs</label>
-                <select v-model="challengeForm.postseasonHasBreakWeek">
-                  <option :value="false">No</option>
-                  <option :value="true">Yes</option>
-                </select>
-              </div>
-              <div v-if="challengeForm.postseasonHasBreakWeek" class="form-group">
-                <label>Break week number</label>
-                <input v-model.number="challengeForm.postseasonBreakWeekNumber" type="number" min="1" />
-              </div>
-              <div class="form-group">
-                <label>Playoff week number</label>
-                <input v-model.number="challengeForm.playoffWeekNumber" type="number" min="1" />
-              </div>
-              <div class="form-group">
-                <label>Championship week number</label>
-                <input v-model.number="challengeForm.championshipWeekNumber" type="number" min="1" />
-              </div>
-              <div class="form-group">
                 <label>Playoff seeds</label>
                 <input v-model.number="challengeForm.playoffSeedCount" type="number" min="2" />
               </div>
@@ -582,6 +559,86 @@
             <small>
               Supports regular season champion and post-season champion tracking. With 4 seeds, semifinal defaults are 1v4 and 2v3.
             </small>
+          </div>
+
+          <!-- Visual week-by-week season schedule -->
+          <div class="form-group season-schedule-block">
+            <label>Season schedule (week by week)</label>
+            <p class="hint" style="margin: 4px 0 10px 0;">
+              Once start and end dates are set, every week of the season appears below.
+              Tag each week as <strong>Regular season</strong>, <strong>Break week</strong>
+              (no scoring), <strong>Playoffs</strong>, or <strong>Championship</strong>.
+              The legacy "regular season weeks / playoff week / championship week" numbers
+              are derived from these tags automatically.
+            </p>
+
+            <div v-if="!seasonStartDateValid" class="hint" style="color: var(--text-secondary, #666);">
+              Set a start date above to lay out the weeks.
+            </div>
+            <template v-else>
+              <div class="schedule-summary">
+                <span
+                  v-for="opt in SEASON_PHASE_OPTIONS"
+                  :key="opt.value"
+                  class="schedule-summary-pill"
+                  :style="{ background: opt.bg, color: opt.color, borderColor: opt.color }"
+                >
+                  <span class="schedule-summary-dot" :style="{ background: opt.color }"></span>
+                  {{ opt.label }}
+                  <strong>{{ seasonPhaseSummary[opt.value] || 0 }}</strong>
+                </span>
+                <span class="schedule-summary-pill schedule-summary-pill--total">
+                  Total weeks <strong>{{ seasonTotalWeeks }}</strong>
+                </span>
+              </div>
+
+              <div class="schedule-actions" style="margin: 8px 0 12px 0; display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary btn-sm" @click="applyDefaultSeasonSchedule">
+                  Apply default (regular + last week as championship, second to last as playoffs)
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="clearSeasonSchedule"
+                  :disabled="!challengeForm.weekPhases || !challengeForm.weekPhases.length"
+                  title="Remove the per-week schedule and fall back to the simple regular/playoff/championship numbers"
+                >
+                  Clear schedule
+                </button>
+              </div>
+
+              <div class="schedule-grid">
+                <div
+                  v-for="row in seasonWeekRows"
+                  :key="`week-${row.weekNumber}`"
+                  class="schedule-week-card"
+                  :style="{
+                    borderColor: phaseOptionFor(row.phase).color,
+                    background: phaseOptionFor(row.phase).bg
+                  }"
+                >
+                  <div class="schedule-week-head">
+                    <span class="schedule-week-num">Week {{ row.weekNumber }}</span>
+                    <span
+                      class="schedule-week-pill"
+                      :style="{ color: phaseOptionFor(row.phase).color, borderColor: phaseOptionFor(row.phase).color }"
+                    >
+                      {{ phaseOptionFor(row.phase).short }}
+                    </span>
+                  </div>
+                  <div v-if="row.dateRange" class="schedule-week-dates">{{ row.dateRange }}</div>
+                  <select
+                    class="schedule-week-select"
+                    :value="row.phase"
+                    @change="(e) => setWeekPhase(row.weekNumber, e.target.value)"
+                  >
+                    <option v-for="opt in SEASON_PHASE_OPTIONS" :key="opt.value" :value="opt.value">
+                      {{ opt.label }}
+                    </option>
+                  </select>
+                </div>
+              </div>
+            </template>
           </div>
           <div class="form-group">
             <label>Treadmill rules</label>
@@ -2003,6 +2060,7 @@ const challengeForm = ref({
   postseasonBreakWeekNumber: 11,
   playoffWeekNumber: 11,
   championshipWeekNumber: 12,
+  weekPhases: [],
   playoffSeedCount: 4,
   playoffMatchupMode: '1v4_2v3',
   runRuckStartMilesPerPerson: 0,
@@ -2046,6 +2104,125 @@ const weekDeadlineTimeDisplay = computed(() => {
   const h12 = dh % 12 || 12;
   return `${h12}:${String(dm).padStart(2, '0')} ${period}`;
 });
+
+// =====================================================================
+// Visual season schedule (week-by-week phase editor).
+// Drives challengeForm.weekPhases. Once start + end dates are filled in,
+// we compute Week 1..N and let the manager (or super admin) tag each
+// week as Regular Season / Break Week / Playoffs / Championship.
+// The legacy regularSeasonWeeks / breakWeekNumber / playoffWeekNumber /
+// championshipWeekNumber fields are derived from this on save (backend
+// also re-derives, so the system stays consistent either way).
+// =====================================================================
+const SEASON_PHASE_OPTIONS = [
+  { value: 'regular_season', label: 'Regular season', short: 'Reg', color: '#1f7f4f', bg: '#e6f5ec' },
+  { value: 'break_week', label: 'Break week (no scoring)', short: 'Break', color: '#7a5c00', bg: '#fff5d6' },
+  { value: 'playoff_week', label: 'Playoffs', short: 'Playoffs', color: '#1d4fa3', bg: '#e2ecfb' },
+  { value: 'championship_week', label: 'Championship', short: 'Champ', color: '#7a1d6f', bg: '#f4e4f1' }
+];
+
+const seasonStartDateValid = computed(() => {
+  const v = challengeForm.value?.startsAt;
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+});
+
+const seasonEndDateValid = computed(() => {
+  const v = challengeForm.value?.endsAt;
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+});
+
+const seasonTotalWeeks = computed(() => {
+  const s = seasonStartDateValid.value;
+  const e = seasonEndDateValid.value;
+  if (!s) return 0;
+  if (!e) {
+    // No end date yet — show a sensible default so the manager can start
+    // labeling phases. Derived from regularSeasonWeeks + a couple slots
+    // for break/playoff/championship so nothing is hidden.
+    const reg = Math.max(1, Number(challengeForm.value?.regularSeasonWeeks || 10));
+    return Math.min(26, reg + 2);
+  }
+  const ms = e.getTime() - s.getTime();
+  if (ms <= 0) return 1;
+  return Math.max(1, Math.min(52, Math.ceil(ms / (7 * 24 * 60 * 60 * 1000))));
+});
+
+// One row per week, [{ weekNumber, phase, label, dateRange }].
+const seasonWeekRows = computed(() => {
+  const total = seasonTotalWeeks.value;
+  if (!total) return [];
+  const start = seasonStartDateValid.value;
+  const phaseByWeek = new Map();
+  for (const wp of (challengeForm.value?.weekPhases || [])) {
+    const wn = Number(wp?.weekNumber);
+    if (Number.isFinite(wn) && wn >= 1) phaseByWeek.set(wn, String(wp.phase || 'regular_season'));
+  }
+  const rows = [];
+  for (let i = 1; i <= total; i++) {
+    let dateRange = '';
+    if (start) {
+      const s = new Date(start.getTime() + (i - 1) * 7 * 24 * 60 * 60 * 1000);
+      const e = new Date(s.getTime() + 6 * 24 * 60 * 60 * 1000);
+      const fmt = (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      dateRange = `${fmt(s)} – ${fmt(e)}`;
+    }
+    rows.push({
+      weekNumber: i,
+      phase: phaseByWeek.get(i) || defaultPhaseForWeek(i, total),
+      dateRange
+    });
+  }
+  return rows;
+});
+
+function defaultPhaseForWeek(weekNumber, total) {
+  // Sensible default when no per-week override is set yet: last 2 weeks
+  // are playoff + championship, the rest are regular season.
+  if (total >= 2 && weekNumber === total) return 'championship_week';
+  if (total >= 3 && weekNumber === total - 1) return 'playoff_week';
+  return 'regular_season';
+}
+
+const seasonPhaseSummary = computed(() => {
+  const rows = seasonWeekRows.value;
+  const counts = { regular_season: 0, break_week: 0, playoff_week: 0, championship_week: 0 };
+  for (const r of rows) {
+    if (counts[r.phase] != null) counts[r.phase] += 1;
+  }
+  return counts;
+});
+
+const setWeekPhase = (weekNumber, phase) => {
+  if (!Number.isFinite(Number(weekNumber))) return;
+  if (!SEASON_PHASE_OPTIONS.some((opt) => opt.value === phase)) return;
+  const wn = Number(weekNumber);
+  const list = Array.isArray(challengeForm.value.weekPhases) ? [...challengeForm.value.weekPhases] : [];
+  const idx = list.findIndex((wp) => Number(wp?.weekNumber) === wn);
+  if (idx >= 0) list[idx] = { weekNumber: wn, phase };
+  else list.push({ weekNumber: wn, phase });
+  list.sort((a, b) => Number(a.weekNumber) - Number(b.weekNumber));
+  challengeForm.value.weekPhases = list;
+};
+
+const phaseOptionFor = (phase) => SEASON_PHASE_OPTIONS.find((opt) => opt.value === phase) || SEASON_PHASE_OPTIONS[0];
+
+const applyDefaultSeasonSchedule = () => {
+  const total = seasonTotalWeeks.value;
+  if (!total) return;
+  const list = [];
+  for (let i = 1; i <= total; i++) {
+    list.push({ weekNumber: i, phase: defaultPhaseForWeek(i, total) });
+  }
+  challengeForm.value.weekPhases = list;
+};
+
+const clearSeasonSchedule = () => {
+  challengeForm.value.weekPhases = [];
+};
 
 // Compute fixed week options from season start → end dates (7-day increments)
 const seasonWeekOptions = computed(() => {
@@ -2813,6 +2990,16 @@ const openEditModal = async (c) => {
     postseasonBreakWeekNumber: postseasonSettings.breakWeekNumber ?? 11,
     playoffWeekNumber: postseasonSettings.playoffWeekNumber ?? 11,
     championshipWeekNumber: postseasonSettings.championshipWeekNumber ?? 12,
+    weekPhases: Array.isArray(postseasonSettings.weekPhases)
+      ? postseasonSettings.weekPhases
+          .filter((wp) => wp && Number.isFinite(Number(wp.weekNumber)))
+          .map((wp) => ({
+            weekNumber: Number(wp.weekNumber),
+            phase: ['regular_season', 'break_week', 'playoff_week', 'championship_week'].includes(String(wp.phase || ''))
+              ? String(wp.phase)
+              : 'regular_season'
+          }))
+      : [],
     playoffSeedCount: postseasonSettings.playoffSeedCount ?? 4,
     playoffMatchupMode: postseasonSettings.playoffMatchupMode || '1v4_2v3',
     runRuckStartMilesPerPerson: seasonSettings?.participation?.runRuckStartMilesPerPerson ?? 0,
@@ -2991,7 +3178,15 @@ const saveChallenge = async () => {
           playoffWeekNumber: Number(challengeForm.value.playoffWeekNumber ?? 11),
           championshipWeekNumber: Number(challengeForm.value.championshipWeekNumber ?? 12),
           playoffSeedCount: Number(challengeForm.value.playoffSeedCount ?? 4),
-          playoffMatchupMode: challengeForm.value.playoffMatchupMode || '1v4_2v3'
+          playoffMatchupMode: challengeForm.value.playoffMatchupMode || '1v4_2v3',
+          weekPhases: Array.isArray(challengeForm.value.weekPhases)
+            ? challengeForm.value.weekPhases
+                .filter((wp) => wp && Number.isFinite(Number(wp.weekNumber)))
+                .map((wp) => ({
+                  weekNumber: Number(wp.weekNumber),
+                  phase: String(wp.phase || 'regular_season')
+                }))
+            : []
         },
         billing: seasonSettingsBilling,
         treadmill: {
@@ -4126,6 +4321,95 @@ onMounted(async () => {
 }
 .btn-outline:hover { background: #f1f5f9; }
 .btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.season-schedule-block {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: #fafbfc;
+}
+.schedule-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.schedule-summary-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  border: 1px solid transparent;
+}
+.schedule-summary-pill strong {
+  font-weight: 700;
+  margin-left: 2px;
+}
+.schedule-summary-pill--total {
+  background: #f1f5f9;
+  color: #334155;
+  border-color: #cbd5e1;
+}
+.schedule-summary-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+.schedule-week-card {
+  border: 1.5px solid;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: transform 0.08s ease;
+}
+.schedule-week-card:hover {
+  transform: translateY(-1px);
+}
+.schedule-week-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.schedule-week-num {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: #1f2937;
+}
+.schedule-week-pill {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border: 1px solid;
+  border-radius: 999px;
+  background: #fff;
+}
+.schedule-week-dates {
+  font-size: 11.5px;
+  color: #475569;
+}
+.schedule-week-select {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 12.5px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #1f2937;
+}
 .tenant-write-toggle-bar {
   display: flex;
   flex-direction: column;
