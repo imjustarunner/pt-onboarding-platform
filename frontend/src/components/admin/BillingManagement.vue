@@ -518,39 +518,114 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="inv in invoices" :key="inv.id">
-              <td class="mono">{{ inv.period_start }} - {{ inv.period_end }}</td>
-              <td>{{ money(inv.total_cents) }}</td>
-              <td>
-                <span :class="['pill', inv.status === 'sent' || inv.status === 'paid' ? 'pill-on' : ['failed', 'payment_failed'].includes(inv.status) ? 'pill-bad' : 'pill-off']">
-                  {{ inv.status }}
-                </span>
-              </td>
-              <td class="mono">{{ inv.payment_status || 'unpaid' }}</td>
-              <td class="mono">{{ inv.invoice_delivery_status || 'not_sent' }}</td>
-              <td class="mono">{{ inv.qbo_invoice_id || '—' }}</td>
-              <td class="actions">
-                <button
-                  v-if="inv.payment_status !== 'paid' && autopayEnabled"
-                  class="btn btn-secondary"
-                  :disabled="retryingInvoiceId === inv.id || !subscriptionProviderStatus?.paymentsEnabled || !canUseLiveBilling"
-                  @click="retryInvoicePayment(inv.id)"
-                >
-                  {{ retryingInvoiceId === inv.id ? 'Retrying…' : 'Retry Autopay' }}
-                </button>
-                <button
-                  v-if="inv.payment_status !== 'paid'"
-                  class="btn btn-secondary"
-                  :disabled="sendingInvoiceId === inv.id || !inv.qbo_invoice_id || !canUseLiveBilling"
-                  @click="sendInvoice(inv.id)"
-                >
-                  {{ sendingInvoiceId === inv.id ? 'Sending…' : 'Send Invoice' }}
-                </button>
-                <button class="btn" @click="downloadPdf(inv.id)" :disabled="!inv.pdf_storage_path">
-                  {{ inv.payment_status === 'paid' ? 'Download Receipt' : 'Download Invoice' }}
-                </button>
-              </td>
-            </tr>
+            <template v-for="inv in invoices" :key="inv.id">
+              <tr>
+                <td class="mono">{{ inv.period_start }} - {{ inv.period_end }}</td>
+                <td>{{ money(inv.total_cents) }}</td>
+                <td>
+                  <span :class="['pill', inv.status === 'sent' || inv.status === 'paid' ? 'pill-on' : ['failed', 'payment_failed'].includes(inv.status) ? 'pill-bad' : 'pill-off']">
+                    {{ inv.status }}
+                  </span>
+                </td>
+                <td class="mono">{{ inv.payment_status || 'unpaid' }}</td>
+                <td class="mono">{{ inv.invoice_delivery_status || 'not_sent' }}</td>
+                <td class="mono">{{ inv.qbo_invoice_id || '—' }}</td>
+                <td class="actions">
+                  <button class="btn btn-secondary" @click="toggleInvoiceDetails(inv.id)">
+                    {{ openInvoiceIds.has(inv.id) ? 'Hide' : 'Details' }}
+                  </button>
+                  <button
+                    v-if="inv.payment_status !== 'paid' && autopayEnabled"
+                    class="btn btn-secondary"
+                    :disabled="retryingInvoiceId === inv.id || !subscriptionProviderStatus?.paymentsEnabled || !canUseLiveBilling"
+                    @click="retryInvoicePayment(inv.id)"
+                  >
+                    {{ retryingInvoiceId === inv.id ? 'Retrying…' : 'Retry Autopay' }}
+                  </button>
+                  <button
+                    v-if="inv.payment_status !== 'paid'"
+                    class="btn btn-secondary"
+                    :disabled="sendingInvoiceId === inv.id || !inv.qbo_invoice_id || !canUseLiveBilling"
+                    @click="sendInvoice(inv.id)"
+                  >
+                    {{ sendingInvoiceId === inv.id ? 'Sending…' : 'Send Invoice' }}
+                  </button>
+                  <button class="btn" @click="downloadPdf(inv.id)" :disabled="!inv.pdf_storage_path">
+                    {{ inv.payment_status === 'paid' ? 'Download Receipt' : 'Download Invoice' }}
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="openInvoiceIds.has(inv.id)" class="invoice-details-row">
+                <td colspan="7">
+                  <div class="invoice-details">
+                    <div class="invoice-summary">
+                      <div><strong>Base fee:</strong> {{ money(inv.base_fee_cents) }}</div>
+                      <div v-if="parsedInvoiceItems(inv)?.lineItems?.length">
+                        <strong>Usage line items:</strong>
+                        <ul>
+                          <li v-for="li in parsedInvoiceItems(inv).lineItems.filter(x => x.extraCents > 0 && !String(x.key||'').startsWith('feature_'))" :key="`li-${inv.id}-${li.key}`">
+                            {{ li.label }}: {{ li.overage }} @ {{ money(li.unitCostCents) }} = {{ money(li.extraCents) }}
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                    <div v-if="invoiceFeatureBilling(inv)" class="feature-billing-block">
+                      <h4>Feature charges</h4>
+                      <div
+                        v-for="fk in featureBillingKeys(inv)"
+                        :key="`fb-${inv.id}-${fk}`"
+                        class="feature-billing-feature"
+                      >
+                        <div class="feature-billing-label">
+                          {{ tenantPortionFor(inv, fk)?.featureLabel || userPortionsFor(inv, fk)[0]?.featureLabel || fk }}
+                        </div>
+                        <table class="sub-table">
+                          <tbody>
+                            <tr v-if="tenantPortionFor(inv, fk)" class="tenant-row">
+                              <td>Tenant fee</td>
+                              <td class="mono">
+                                {{ tenantPortionFor(inv, fk).billableDays }}/{{ invoiceFeatureBilling(inv).daysInPeriod }} days
+                                @ {{ money(tenantPortionFor(inv, fk).unitMonthlyCents) }}/mo
+                              </td>
+                              <td class="mono">{{ money(tenantPortionFor(inv, fk).chargeCents) }}</td>
+                            </tr>
+                            <tr v-if="tenantPortionFor(inv, fk)?.lastActorName" class="audit-row">
+                              <td colspan="3" class="muted italic">
+                                last {{ tenantPortionFor(inv, fk).lastEventType }} by
+                                {{ tenantPortionFor(inv, fk).lastActorName }}
+                                <span v-if="tenantPortionFor(inv, fk).lastEffectiveAt">
+                                  on {{ formatDate(tenantPortionFor(inv, fk).lastEffectiveAt) }}
+                                </span>
+                              </td>
+                            </tr>
+                            <template v-for="up in userPortionsFor(inv, fk)" :key="`up-${inv.id}-${fk}-${up.userId}`">
+                              <tr>
+                                <td>{{ up.userName || `User ${up.userId}` }}</td>
+                                <td class="mono">
+                                  {{ up.billableDays }}/{{ invoiceFeatureBilling(inv).daysInPeriod }} days
+                                  @ {{ money(up.unitMonthlyCents) }}/mo
+                                </td>
+                                <td class="mono">{{ money(up.chargeCents) }}</td>
+                              </tr>
+                              <tr v-if="up.lastActorName" class="audit-row">
+                                <td colspan="3" class="muted italic">
+                                  last {{ up.lastEventType }} by {{ up.lastActorName }}
+                                  <span v-if="up.lastEffectiveAt">on {{ formatDate(up.lastEffectiveAt) }}</span>
+                                </td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </div>
+                      <div class="feature-billing-totals">
+                        <strong>Feature total:</strong>
+                        {{ money(invoiceFeatureBilling(inv).totals?.featureTotalCents || 0) }}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -723,6 +798,55 @@ const estimateError = ref('');
 const qboStatus = ref(null);
 const platformQboStatus = ref(null);
 const invoices = ref([]);
+const openInvoiceIds = ref(new Set());
+
+const toggleInvoiceDetails = (id) => {
+  const next = new Set(openInvoiceIds.value);
+  if (next.has(id)) next.delete(id); else next.add(id);
+  openInvoiceIds.value = next;
+};
+
+const parsedInvoiceItems = (inv) => {
+  if (!inv) return null;
+  const raw = inv.line_items_json;
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(raw); } catch { return null; }
+};
+
+const invoiceFeatureBilling = (inv) => {
+  const items = parsedInvoiceItems(inv);
+  return items?.featureBilling || null;
+};
+
+const featureBillingKeys = (inv) => {
+  const fb = invoiceFeatureBilling(inv);
+  if (!fb) return [];
+  const tenantKeys = (fb.tenantPortions || []).map((p) => p.featureKey);
+  const userKeys = (fb.userPortions || []).map((p) => p.featureKey);
+  return Array.from(new Set([...tenantKeys, ...userKeys]));
+};
+
+const tenantPortionFor = (inv, featureKey) => {
+  const fb = invoiceFeatureBilling(inv);
+  if (!fb) return null;
+  return (fb.tenantPortions || []).find((p) => p.featureKey === featureKey) || null;
+};
+
+const userPortionsFor = (inv, featureKey) => {
+  const fb = invoiceFeatureBilling(inv);
+  if (!fb) return [];
+  return (fb.userPortions || []).filter((p) => p.featureKey === featureKey);
+};
+
+const formatDate = (iso) => {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso);
+    return d.toISOString().slice(0, 10);
+  } catch { return String(iso); }
+};
 const billingEmail = ref('');
 const autopayEnabled = ref(false);
 const subscriptionMerchantMode = ref('agency_managed');
@@ -2181,4 +2305,19 @@ onBeforeUnmount(() => {
   border-bottom: none;
   padding-top: 14px;
 }
+
+.invoice-details-row td { background: #f9fafb; padding: 14px; }
+.invoice-details { display: flex; flex-direction: column; gap: 12px; }
+.invoice-summary ul { margin: 4px 0 0 16px; padding: 0; font-size: 13px; }
+.feature-billing-block h4 { margin: 0 0 8px 0; font-size: 14px; }
+.feature-billing-feature { margin-bottom: 12px; }
+.feature-billing-label { font-weight: 600; margin-bottom: 4px; }
+.sub-table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border: 1px solid #e5e7eb; border-radius: 4px; }
+.sub-table td { padding: 6px 10px; border-bottom: 1px solid #f1f5f9; }
+.sub-table tr:last-child td { border-bottom: none; }
+.sub-table .audit-row td { padding-top: 0; padding-bottom: 8px; font-size: 11px; }
+.sub-table .tenant-row td { background: #f0fdf4; }
+.italic { font-style: italic; }
+.muted { color: #6b7280; }
+.feature-billing-totals { font-size: 14px; padding-top: 6px; border-top: 1px dashed #e5e7eb; }
 </style>

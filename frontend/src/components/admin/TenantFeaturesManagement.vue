@@ -138,7 +138,39 @@
               </label>
 
               <label class="feature-control">
-                <span class="feature-control-label">Price override</span>
+                <span class="feature-control-label">Tenant $/mo override</span>
+                <input
+                  v-model.number="feature.tenantMonthlyOverrideDollars"
+                  class="input"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  :disabled="pricingLoading || pricingSaving"
+                  :placeholder="`Default $${Number(feature.platformTenantMonthlyDollars || 0).toFixed(2)}`"
+                />
+                <span class="feature-control-hint">
+                  Platform default: ${{ Number(feature.platformTenantMonthlyDollars || 0).toFixed(2) }}/mo
+                </span>
+              </label>
+
+              <label v-if="feature.perUserBillable" class="feature-control">
+                <span class="feature-control-label">Per-user $/mo override</span>
+                <input
+                  v-model.number="feature.userMonthlyOverrideDollars"
+                  class="input"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  :disabled="pricingLoading || pricingSaving"
+                  :placeholder="`Default $${Number(feature.platformUserMonthlyDollars || 0).toFixed(2)}`"
+                />
+                <span class="feature-control-hint">
+                  Platform default: ${{ Number(feature.platformUserMonthlyDollars || 0).toFixed(2) }}/user/mo
+                </span>
+              </label>
+
+              <label v-if="feature.pricingModel === 'manual_quantity'" class="feature-control">
+                <span class="feature-control-label">Unit price override</span>
                 <input
                   v-model.number="feature.unitAmountOverrideDollars"
                   class="input"
@@ -174,6 +206,47 @@
                   placeholder="Optional internal note"
                 />
               </label>
+            </div>
+
+            <div v-if="feature.perUserBillable" class="entitled-users">
+              <button type="button" class="btn-link" @click="toggleEntitledUsers(feature)">
+                {{ feature.showEntitlements ? '▼' : '▶' }} Entitled users
+                <span v-if="feature.entitledUsers.length" class="muted">
+                  ({{ feature.entitledUsers.length }} active · est. {{ formatPerUserEstimate(feature) }})
+                </span>
+              </button>
+              <div v-if="feature.showEntitlements" class="entitled-users-panel">
+                <div v-if="feature.entitlementsError" class="error">{{ feature.entitlementsError }}</div>
+                <div v-if="feature.entitlementsLoading" class="muted">Loading users…</div>
+                <table v-else class="entitled-users-table">
+                  <thead>
+                    <tr>
+                      <th>User</th>
+                      <th>Role</th>
+                      <th>Email</th>
+                      <th class="center">Entitled</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="u in feature.tenantUsers" :key="`${feature.key}-u-${u.id}`">
+                      <td>{{ formatUserName(u) }}</td>
+                      <td class="muted">{{ u.role || '—' }}</td>
+                      <td class="muted">{{ u.email || '—' }}</td>
+                      <td class="center">
+                        <input
+                          type="checkbox"
+                          :checked="!!u.entitled"
+                          @change="onToggleUserEntitlement(feature, u, $event.target.checked)"
+                          :disabled="!!u.saving"
+                        />
+                      </td>
+                    </tr>
+                    <tr v-if="!feature.tenantUsers.length">
+                      <td colspan="4" class="muted center">No users in this tenant.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </article>
         </div>
@@ -271,6 +344,20 @@ const featureControlsDraft = ref({
   allAlaCarteDisabled: false
 });
 const pricingOverrideRaw = ref(null);
+const platformDefaults = ref({ catalog: {}, loaded: false });
+
+async function loadPlatformDefaultsOnce() {
+  if (platformDefaults.value.loaded) return platformDefaults.value.catalog;
+  try {
+    const res = await api.get('/billing/pricing/default');
+    const cat = res.data?.pricing?.featureCatalog || res.data?.featureCatalog || {};
+    platformDefaults.value = { catalog: cat, loaded: true };
+    return cat;
+  } catch {
+    platformDefaults.value = { catalog: {}, loaded: true };
+    return {};
+  }
+}
 const agencyFeatureDrafts = ref([]);
 const estimate = ref(null);
 const agencyDetail = ref(null);
@@ -339,18 +426,32 @@ const dollarsToCents = (value) => {
   return Math.round(amount * 100);
 };
 
-const featureCatalogToDraftRows = (catalog, entitlements = {}, featureFlags = {}) => {
+const featureCatalogToDraftRows = (catalog, entitlements = {}, featureFlags = {}, platformCatalog = {}, pricingOverrideCatalog = {}) => {
   const source = catalog && typeof catalog === 'object' ? catalog : {};
   return Object.values(source).map((feature) => {
     const entitlement = entitlements?.[feature.key] || {};
+    const platformDef = platformCatalog?.[feature.key] || {};
+    const overrideRaw = pricingOverrideCatalog?.[feature.key] || {};
     const featureFlagKey = resolveFeatureFlagKey(feature);
     const flagEnabled = featureFlagKey ? isTruthy(featureFlags?.[featureFlagKey]) : false;
+    const tenantMonthlyCents = Number(feature.tenantMonthlyCents || 0);
+    const userMonthlyCents = Number(feature.userMonthlyCents || 0);
+    const platformTenantCents = Number(platformDef.tenantMonthlyCents != null ? platformDef.tenantMonthlyCents : tenantMonthlyCents);
+    const platformUserCents = Number(platformDef.userMonthlyCents != null ? platformDef.userMonthlyCents : userMonthlyCents);
     return {
       key: feature.key,
       label: feature.label || feature.key,
       description: feature.description || '',
       pricingModel: feature.pricingModel || 'flat_monthly',
       unitAmountDollars: Number(feature.unitAmountCents || 0) / 100,
+      tenantMonthlyDollars: tenantMonthlyCents / 100,
+      userMonthlyDollars: userMonthlyCents / 100,
+      platformTenantMonthlyDollars: platformTenantCents / 100,
+      platformUserMonthlyDollars: platformUserCents / 100,
+      tenantMonthlyOverrideDollars: overrideRaw.tenantMonthlyCents != null ? Number(overrideRaw.tenantMonthlyCents) / 100 : null,
+      userMonthlyOverrideDollars: overrideRaw.userMonthlyCents != null ? Number(overrideRaw.userMonthlyCents) / 100 : null,
+      perUserBillable: feature.perUserBillable === true || userMonthlyCents > 0 || platformUserCents > 0,
+      minProrationDays: Number(feature.minProrationDays || 0),
       unitLabel: feature.unitLabel || 'month',
       usageKey: feature.usageKey || null,
       featureFlagKey,
@@ -362,9 +463,41 @@ const featureCatalogToDraftRows = (catalog, entitlements = {}, featureFlags = {}
       locked: entitlement.locked === true,
       quantity: entitlement.quantity != null ? Number(entitlement.quantity) : 0,
       unitAmountOverrideDollars: entitlement.unitAmountCents != null ? Number(entitlement.unitAmountCents || 0) / 100 : null,
-      notes: entitlement.notes || ''
+      notes: entitlement.notes || '',
+      showEntitlements: false,
+      entitledUsers: [],
+      tenantUsers: [],
+      entitlementsLoading: false,
+      entitlementsError: ''
     };
   });
+};
+
+const buildPricingOverridePayload = (rows, basePricing) => {
+  const next = basePricing && typeof basePricing === 'object' ? JSON.parse(JSON.stringify(basePricing)) : {};
+  if (!next.featureCatalog || typeof next.featureCatalog !== 'object') next.featureCatalog = {};
+  for (const row of rows || []) {
+    if (!row?.key) continue;
+    const entry = next.featureCatalog[row.key] && typeof next.featureCatalog[row.key] === 'object'
+      ? next.featureCatalog[row.key]
+      : {};
+    if (row.tenantMonthlyOverrideDollars != null && row.tenantMonthlyOverrideDollars !== '') {
+      entry.tenantMonthlyCents = dollarsToCents(row.tenantMonthlyOverrideDollars);
+    } else {
+      delete entry.tenantMonthlyCents;
+    }
+    if (row.perUserBillable && row.userMonthlyOverrideDollars != null && row.userMonthlyOverrideDollars !== '') {
+      entry.userMonthlyCents = dollarsToCents(row.userMonthlyOverrideDollars);
+    } else {
+      delete entry.userMonthlyCents;
+    }
+    if (Object.keys(entry).length > 0) {
+      next.featureCatalog[row.key] = entry;
+    } else {
+      delete next.featureCatalog[row.key];
+    }
+  }
+  return next;
 };
 
 const buildFeatureEntitlementsPayload = (rows, { adminView = false } = {}) => {
@@ -397,11 +530,31 @@ const saveSelectionsDisabled = computed(() => {
   return featureControls.value.allAlaCarteDisabled === true;
 });
 
-const displayFeaturePrice = (feature) => formatFeaturePricing({
-  unitAmountCents: (feature.unitAmountOverrideDollars != null ? feature.unitAmountOverrideDollars : feature.unitAmountDollars) * 100,
-  pricingModel: feature.pricingModel,
-  unitLabel: feature.unitLabel
-});
+const displayFeaturePrice = (feature) => {
+  const effectiveTenant = feature.tenantMonthlyOverrideDollars != null
+    ? Number(feature.tenantMonthlyOverrideDollars)
+    : Number(feature.tenantMonthlyDollars || 0);
+  const effectiveUser = feature.userMonthlyOverrideDollars != null
+    ? Number(feature.userMonthlyOverrideDollars)
+    : Number(feature.userMonthlyDollars || 0);
+  if (effectiveTenant > 0 || effectiveUser > 0) {
+    const parts = [];
+    if (effectiveTenant > 0) {
+      const isOverride = feature.tenantMonthlyOverrideDollars != null;
+      parts.push(`$${effectiveTenant.toFixed(2)} tenant/mo${isOverride ? ' (override)' : ''}`);
+    }
+    if (effectiveUser > 0 && feature.perUserBillable) {
+      const isOverride = feature.userMonthlyOverrideDollars != null;
+      parts.push(`$${effectiveUser.toFixed(2)} per user/mo${isOverride ? ' (override)' : ''}`);
+    }
+    if (parts.length > 0) return parts.join(' + ');
+  }
+  return formatFeaturePricing({
+    unitAmountCents: (feature.unitAmountOverrideDollars != null ? feature.unitAmountOverrideDollars : feature.unitAmountDollars) * 100,
+    pricingModel: feature.pricingModel,
+    unitLabel: feature.unitLabel
+  });
+};
 
 const featureSelectionDisabled = (feature) => (
   !canUseLiveBilling.value ||
@@ -452,13 +605,18 @@ const loadPricing = async () => {
   }
   pricingLoading.value = true;
   try {
-    const res = await api.get(`/billing/${currentAgencyId.value}/pricing`);
+    const [res, platformCat] = await Promise.all([
+      api.get(`/billing/${currentAgencyId.value}/pricing`),
+      loadPlatformDefaultsOnce()
+    ]);
+    pricingOverrideRaw.value = res.data?.pricingOverride ?? null;
     agencyFeatureDrafts.value = featureCatalogToDraftRows(
       res.data?.featureCatalog || {},
       res.data?.featureEntitlements || {},
-      agencyFeatureFlags.value
+      agencyFeatureFlags.value,
+      platformCat,
+      pricingOverrideRaw.value?.featureCatalog || {}
     );
-    pricingOverrideRaw.value = res.data?.pricingOverride ?? null;
   } catch (error) {
     pricingError.value = error?.response?.data?.error?.message || 'Failed to load feature pricing.';
     agencyFeatureDrafts.value = [];
@@ -549,8 +707,9 @@ const saveSuperadminFeatures = async () => {
         ...(agencyRes.data || {})
       });
     }
+    const pricingPayload = buildPricingOverridePayload(agencyFeatureDrafts.value, pricingOverrideRaw.value);
     await api.put(`/billing/${currentAgencyId.value}/pricing`, {
-      pricing: pricingOverrideRaw.value,
+      pricing: pricingPayload,
       featureEntitlements: buildFeatureEntitlementsPayload(agencyFeatureDrafts.value, { adminView: true })
     });
     await Promise.all([loadAgencyDetail(), loadPricing(), loadEstimate(), loadSettings()]);
@@ -587,6 +746,67 @@ const saveTenantSelections = async () => {
     loadError.value = error?.response?.data?.error?.message || 'Failed to save feature selections.';
   } finally {
     savingSelections.value = false;
+  }
+};
+
+const formatUserName = (u) => {
+  const parts = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
+  return parts || u.email || `User ${u.id}`;
+};
+
+const formatPerUserEstimate = (feature) => {
+  const count = (feature.entitledUsers || []).length;
+  const cents = Number(feature.userMonthlyDollars || 0) * 100;
+  return `$${((count * cents) / 100).toFixed(2)}/mo`;
+};
+
+const toggleEntitledUsers = async (feature) => {
+  feature.showEntitlements = !feature.showEntitlements;
+  if (!feature.showEntitlements) return;
+  if (feature.entitlementsLoading) return;
+  feature.entitlementsLoading = true;
+  feature.entitlementsError = '';
+  try {
+    const res = await api.get(`/billing/${currentAgencyId.value}/features/${feature.key}/users`);
+    const entitled = res.data?.users || [];
+    const candidates = res.data?.candidates || [];
+    const entitledIds = new Set(entitled.map((u) => Number(u.userId)));
+    feature.entitledUsers = entitled;
+    feature.tenantUsers = candidates.map((u) => ({
+      ...u,
+      entitled: entitledIds.has(Number(u.id)),
+      saving: false
+    }));
+  } catch (e) {
+    feature.entitlementsError = e?.response?.data?.error?.message || 'Failed to load entitled users';
+  } finally {
+    feature.entitlementsLoading = false;
+  }
+};
+
+const onToggleUserEntitlement = async (feature, user, enabled) => {
+  if (!currentAgencyId.value) return;
+  user.saving = true;
+  feature.entitlementsError = '';
+  try {
+    await api.post(`/billing/${currentAgencyId.value}/features/users/${user.id}`, {
+      featureKey: feature.key,
+      enabled: !!enabled
+    });
+    user.entitled = !!enabled;
+    if (enabled) {
+      const exists = feature.entitledUsers.some((u) => Number(u.userId) === Number(user.id));
+      if (!exists) feature.entitledUsers.push({
+        userId: user.id, firstName: user.first_name, lastName: user.last_name, email: user.email
+      });
+    } else {
+      feature.entitledUsers = feature.entitledUsers.filter((u) => Number(u.userId) !== Number(user.id));
+    }
+  } catch (e) {
+    user.entitled = !enabled;
+    feature.entitlementsError = e?.response?.data?.error?.message || 'Failed to update entitlement';
+  } finally {
+    user.saving = false;
   }
 };
 
@@ -794,6 +1014,13 @@ watch(currentAgencyId, () => {
   color: var(--text-secondary);
 }
 
+.feature-control-hint {
+  font-size: 10px;
+  color: var(--text-secondary, #6b7280);
+  margin-top: 2px;
+  font-style: italic;
+}
+
 .feature-control-static {
   display: flex;
   align-items: center;
@@ -861,4 +1088,40 @@ watch(currentAgencyId, () => {
     align-items: flex-start;
   }
 }
+
+.entitled-users {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border, #e5e7eb);
+}
+.btn-link {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--primary, #059669);
+  font: inherit;
+  padding: 0;
+  font-weight: 600;
+  font-size: 13px;
+}
+.btn-link .muted { font-weight: 400; margin-left: 6px; color: var(--text-secondary, #6b7280); }
+.entitled-users-panel {
+  margin-top: 8px;
+  background: #f9fafb;
+  padding: 8px;
+  border-radius: 8px;
+}
+.entitled-users-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.entitled-users-table th, .entitled-users-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+}
+.entitled-users-table tr:last-child td { border-bottom: none; }
+.entitled-users-table .center { text-align: center; }
+.entitled-users-table .muted { color: var(--text-secondary, #6b7280); }
 </style>

@@ -21,6 +21,15 @@ import {
   listAgencyBillingPaymentMethods,
   setAgencyBillingPaymentMethodDefault
 } from '../controllers/agencyBillingPaymentMethods.controller.js';
+import {
+  setTenantFeatureToggle,
+  setUserFeatureToggle,
+  listAgencyFeatureCurrentState,
+  listFeatureEntitledUsers,
+  getFeatureBillingPreview,
+  auditTenantEvents,
+  auditUserEvents
+} from '../controllers/featureEntitlement.controller.js';
 
 const router = express.Router();
 
@@ -92,5 +101,16 @@ router.get('/quickbooks/callback', quickBooksOAuthCallback);
 
 // Stripe Connect per-agency routes (/:agencyId/stripe/*)
 router.use('/:agencyId/stripe', stripeConnectRoutes);
+
+// Dual-axis feature entitlement (event log + current-state denorm).
+router.get('/:agencyId/features', authenticate, requireAgencyAccess, listAgencyFeatureCurrentState);
+router.post('/:agencyId/features/tenant', authenticate, requireSuperAdmin, setTenantFeatureToggle);
+router.get('/:agencyId/features/:featureKey/users', authenticate, requireAgencyAccess, listFeatureEntitledUsers);
+router.post('/:agencyId/features/users/:userId', authenticate, requireAgencyAdmin, setUserFeatureToggle);
+router.get('/:agencyId/features/billing-preview', authenticate, requireAgencyAccess, getFeatureBillingPreview);
+
+// Audit log views (super admin).
+router.get('/audit/tenant', authenticate, requireSuperAdmin, auditTenantEvents);
+router.get('/audit/user', authenticate, requireSuperAdmin, auditUserEvents);
 
 export default router;

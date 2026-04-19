@@ -327,6 +327,8 @@ import EmailTemplateManagement from './EmailTemplateManagement.vue';
 import EmailSettingsPanel from './EmailSettingsPanel.vue';
 import PlatformSettings from './PlatformSettings.vue';
 import PlatformBillingManagement from './PlatformBillingManagement.vue';
+import PlatformFeatureCatalogManagement from './PlatformFeatureCatalogManagement.vue';
+import PlatformFeatureAuditView from './PlatformFeatureAuditView.vue';
 import AgencyPlatformManagement from './AgencyPlatformManagement.vue';
 import SuperadminTenantHub from './SuperadminTenantHub.vue';
 import TenantSettingsCardHub from './TenantSettingsCardHub.vue';
@@ -485,6 +487,24 @@ const allCategories = [
         label: 'Platform Billing',
         icon: '💳',
         component: 'PlatformBillingManagement',
+        roles: ['super_admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'platform-feature-catalog',
+        label: 'Feature Catalog & Pricing',
+        icon: '🧮',
+        component: 'PlatformFeatureCatalogManagement',
+        roles: ['super_admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'platform-feature-audit',
+        label: 'Feature audit log',
+        icon: '📜',
+        component: 'PlatformFeatureAuditView',
         roles: ['super_admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
@@ -1133,6 +1153,8 @@ const componentMap = {
   EmailSettingsPanel,
   PlatformSettings,
   PlatformBillingManagement,
+  PlatformFeatureCatalogManagement,
+  PlatformFeatureAuditView,
   UserInfoFieldManagement,
   AgencyUserInfoFields,
   CustomChecklistItemManagement,
@@ -1618,7 +1640,7 @@ const handleAgencySelection = async () => {
 };
 
 /** Platform settings screens that are never scoped to a tenant — URL must not carry agencyId or the route watch will restore the tenant and break platform mode + branding. */
-const PLATFORM_SOLO_ROUTE_ITEMS = new Set(['platform-ws-home', 'platform-settings', 'platform-billing', 'platform-all-agencies']);
+const PLATFORM_SOLO_ROUTE_ITEMS = new Set(['platform-ws-home', 'platform-settings', 'platform-billing', 'platform-feature-catalog', 'platform-feature-audit', 'platform-all-agencies']);
 
 const buildSettingsReplaceQuery = (categoryId, itemId) => {
   const q = { ...route.query, category: categoryId, item: itemId };
@@ -1775,6 +1797,8 @@ onMounted(async () => {
       categoryId === 'platform' &&
       (itemId === 'platform-ws-home' ||
         itemId === 'platform-billing' ||
+        itemId === 'platform-feature-catalog' ||
+        itemId === 'platform-feature-audit' ||
         itemId === 'platform-all-agencies' ||
         itemId === 'platform-settings' ||
         itemId === 'tenant-ws-global-platform');
@@ -1900,7 +1924,7 @@ watch(() => route.query, (newQuery) => {
     const inPlatformHubHome =
       platformSettingsCardHubActive.value &&
       newQuery.category === 'platform' &&
-      ['platform-ws-home', 'platform-all-agencies', 'platform-settings', 'platform-billing', 'tenant-ws-global-platform'].includes(
+      ['platform-ws-home', 'platform-all-agencies', 'platform-settings', 'platform-billing', 'platform-feature-catalog', 'platform-feature-audit', 'tenant-ws-global-platform'].includes(
         newQuery.item
       );
     const categoryFromNav = roleFilteredCategories.value.find((c) => c.id === newQuery.category);

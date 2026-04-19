@@ -14,14 +14,32 @@ import { getCommunicationRateCards } from './agencyCommunicationBilling.service.
  * and Tenant overview can show unified pricing. The superadmin hub maps a subset of flags
  * to these keys on the frontend until then.
  */
+const DEFAULT_MIN_PRORATION_DAYS = 7;
+
 function createFeatureCatalogEntry(key, label, description, options = {}) {
   const pricingModel = String(options.pricingModel || 'flat_monthly');
+  // Dual-axis pricing fields. Either, both, or neither may be > 0.
+  // - tenantMonthlyCents: flat-per-tenant monthly fee.
+  // - userMonthlyCents: per-entitled-user monthly fee.
+  // Legacy `unitAmountCents` is kept for `manual_quantity` features (e.g. Summer Programs).
+  const tenantMonthlyCents = options.tenantMonthlyCents != null
+    ? Math.max(0, Number(options.tenantMonthlyCents))
+    : (pricingModel === 'flat_monthly' ? Math.max(0, Number(options.unitAmountCents || 0)) : 0);
+  const userMonthlyCents = options.userMonthlyCents != null
+    ? Math.max(0, Number(options.userMonthlyCents))
+    : (pricingModel === 'usage' ? Math.max(0, Number(options.unitAmountCents || 0)) : 0);
+  const perUserBillable = options.perUserBillable === true || userMonthlyCents > 0;
+  const minProrationDays = Math.max(0, Number(options.minProrationDays != null ? options.minProrationDays : DEFAULT_MIN_PRORATION_DAYS));
   return {
     key,
     label,
     description,
     pricingModel,
     unitAmountCents: Number(options.unitAmountCents || 0),
+    tenantMonthlyCents,
+    userMonthlyCents,
+    perUserBillable,
+    minProrationDays,
     unitLabel: options.unitLabel || (pricingModel === 'manual_quantity' ? 'unit' : 'month'),
     usageKey: options.usageKey || null,
     defaultAvailable: options.defaultAvailable === true,
@@ -191,7 +209,7 @@ const DEFAULT_FEATURE_CATALOG = {
     'gamesPlatformEnabled',
     'Games Platform',
     'Access to the mental health games platform and enabled game titles.',
-    { featureFlagKey: 'gamesPlatformEnabled' }
+    { featureFlagKey: 'gamesPlatformEnabled', perUserBillable: true }
   ),
   summerProgramManagement: createFeatureCatalogEntry(
     'summerProgramManagement',
@@ -385,14 +403,32 @@ function normalizeFeatureCatalogEntry(key, value, fallback = {}) {
     ...(fallback || {}),
     ...(isRecord(value) ? value : {})
   };
+  const pricingModel = ['flat_monthly', 'usage', 'manual_quantity'].includes(String(merged.pricingModel || 'flat_monthly'))
+    ? String(merged.pricingModel || 'flat_monthly')
+    : 'flat_monthly';
+  const unitAmountCents = Math.max(0, Number(merged.unitAmountCents || 0));
+  // Auto-map legacy single-axis pricing into dual-axis fields when the new
+  // fields are absent: flat_monthly -> tenantMonthlyCents, usage -> userMonthlyCents.
+  const tenantMonthlyCents = merged.tenantMonthlyCents != null
+    ? Math.max(0, Number(merged.tenantMonthlyCents))
+    : (pricingModel === 'flat_monthly' ? unitAmountCents : 0);
+  const userMonthlyCents = merged.userMonthlyCents != null
+    ? Math.max(0, Number(merged.userMonthlyCents))
+    : (pricingModel === 'usage' ? unitAmountCents : 0);
+  const perUserBillable = merged.perUserBillable === true || userMonthlyCents > 0;
+  const minProrationDays = Math.max(0, Number(
+    merged.minProrationDays != null ? merged.minProrationDays : DEFAULT_MIN_PRORATION_DAYS
+  ));
   return {
     key,
     label: String(merged.label || key),
     description: String(merged.description || ''),
-    pricingModel: ['flat_monthly', 'usage', 'manual_quantity'].includes(String(merged.pricingModel || 'flat_monthly'))
-      ? String(merged.pricingModel || 'flat_monthly')
-      : 'flat_monthly',
-    unitAmountCents: Math.max(0, Number(merged.unitAmountCents || 0)),
+    pricingModel,
+    unitAmountCents,
+    tenantMonthlyCents,
+    userMonthlyCents,
+    perUserBillable,
+    minProrationDays,
     unitLabel: String(merged.unitLabel || 'month'),
     usageKey: merged.usageKey ? String(merged.usageKey) : null,
     defaultAvailable: merged.defaultAvailable === true,
@@ -610,6 +646,10 @@ export function buildEstimate(usage, pricingConfig = null, options = {}) {
     pricingConfig: PRICING,
     featureEntitlementsJson: options?.featureEntitlements
   });
+  // Dual-axis feature billing: when caller supplies a precomputed breakdown
+  // (featureBilling = { tenantPortions, userPortions, totals, daysInPeriod })
+  // it takes precedence over the legacy single-axis featureLineItems below.
+  const featureBilling = options?.featureBilling || null;
   const featureLineItems = Object.keys(featureCatalog).map((key) => {
     const feature = featureCatalog[key];
     const entitlement = featureEntitlements[key];
@@ -635,7 +675,11 @@ export function buildEstimate(usage, pricingConfig = null, options = {}) {
       unitLabel: feature.unitLabel
     };
   }).filter((item) => item.available || item.selected || item.included > 0);
-  const featureAddonsCents = featureLineItems.reduce((sum, item) => sum + Number(item.extraCents || 0), 0);
+  // When a dual-axis featureBilling is provided, charge it instead of the
+  // legacy single-axis sum so we don't double-bill the same feature.
+  const featureAddonsCents = featureBilling
+    ? Number(featureBilling?.totals?.featureTotalCents || 0)
+    : featureLineItems.reduce((sum, item) => sum + Number(item.extraCents || 0), 0);
   const publicAvailabilityAddonCents = Number(featureLineItems.find((item) => item.featureKey === 'publicAvailability')?.extraCents || 0);
   const momentumListAddonCents = Number(featureLineItems.find((item) => item.featureKey === 'momentumList')?.extraCents || 0);
   const momentumListUnitCents = Number(featureLineItems.find((item) => item.featureKey === 'momentumList')?.unitCostCents || 0);
@@ -696,6 +740,7 @@ export function buildEstimate(usage, pricingConfig = null, options = {}) {
     pricing: PRICING,
     featureCatalog,
     featureEntitlements,
+    featureBilling,
     usage: {
       schoolsUsed,
       programsUsed,

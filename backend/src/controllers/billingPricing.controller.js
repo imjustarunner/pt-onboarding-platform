@@ -51,7 +51,21 @@ export const pricingValidators = [
   body('pricing.communicationRateCents.voiceInboundMinute.actualCostCents').optional().isInt({ min: 0 }),
   body('pricing.communicationRateCents.voiceInboundMinute.markupCents').optional().isInt({ min: 0 }),
   body('pricing.communicationRateCents.videoParticipantMinute.actualCostCents').optional().isInt({ min: 0 }),
-  body('pricing.communicationRateCents.videoParticipantMinute.markupCents').optional().isInt({ min: 0 })
+  body('pricing.communicationRateCents.videoParticipantMinute.markupCents').optional().isInt({ min: 0 }),
+  // Dual-axis feature catalog (each key may set tenant + per-user pricing).
+  body('pricing.featureCatalog').optional().isObject().withMessage('featureCatalog must be an object'),
+  body('pricing.featureCatalog.*').optional().isObject(),
+  body('pricing.featureCatalog.*.tenantMonthlyCents').optional().isInt({ min: 0 }),
+  body('pricing.featureCatalog.*.userMonthlyCents').optional().isInt({ min: 0 }),
+  body('pricing.featureCatalog.*.unitAmountCents').optional().isInt({ min: 0 }),
+  body('pricing.featureCatalog.*.minProrationDays').optional().isInt({ min: 0, max: 366 }),
+  body('pricing.featureCatalog.*.perUserBillable').optional().isBoolean(),
+  body('pricing.featureCatalog.*.defaultAvailable').optional().isBoolean(),
+  body('pricing.featureCatalog.*.tenantSelfServe').optional().isBoolean(),
+  body('pricing.featureCatalog.*.label').optional().isString(),
+  body('pricing.featureCatalog.*.description').optional().isString(),
+  body('pricing.featureCatalog.*.pricingModel').optional().isIn(['flat_monthly', 'usage', 'manual_quantity']),
+  body('pricing.featureCatalog.*.unitLabel').optional().isString()
 ];
 
 export const platformPricingValidators = [
@@ -113,7 +127,17 @@ export const agencyPricingOverrideValidators = [
   body('pricing.communicationRateCents.voiceInboundMinute.actualCostCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
   body('pricing.communicationRateCents.voiceInboundMinute.markupCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
   body('pricing.communicationRateCents.videoParticipantMinute.actualCostCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
-  body('pricing.communicationRateCents.videoParticipantMinute.markupCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 })
+  body('pricing.communicationRateCents.videoParticipantMinute.markupCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  // Dual-axis feature catalog override (per-tenant).
+  body('pricing.featureCatalog').if((v, { req }) => req.body?.pricing != null).optional().isObject().withMessage('featureCatalog must be an object'),
+  body('pricing.featureCatalog.*').if((v, { req }) => req.body?.pricing != null).optional().isObject(),
+  body('pricing.featureCatalog.*.tenantMonthlyCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.featureCatalog.*.userMonthlyCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.featureCatalog.*.unitAmountCents').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.featureCatalog.*.minProrationDays').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0, max: 366 }),
+  body('pricing.featureCatalog.*.perUserBillable').if((v, { req }) => req.body?.pricing != null).optional().isBoolean(),
+  body('pricing.featureCatalog.*.defaultAvailable').if((v, { req }) => req.body?.pricing != null).optional().isBoolean(),
+  body('pricing.featureCatalog.*.tenantSelfServe').if((v, { req }) => req.body?.pricing != null).optional().isBoolean()
 ];
 
 export const getPlatformPricing = async (req, res, next) => {

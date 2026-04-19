@@ -11,6 +11,7 @@ import AgencyCommunicationBillingService from './agencyCommunicationBilling.serv
 import AgencyCommunicationUsageLedger from '../models/AgencyCommunicationUsageLedger.model.js';
 import AgencyBillingPaymentService from './agencyBillingPayment.service.js';
 import BillingMerchantContextService from './billingMerchantContext.service.js';
+import { computeFeatureBillingForPeriod } from './featureBilling.service.js';
 
 class BillingInvoiceService {
   static buildInvoiceStorageKey({ agencyId, periodStart }) {
@@ -48,8 +49,21 @@ class BillingInvoiceService {
       periodEnd
     });
     const account = await AgencyBillingAccount.getByAgencyId(parsedAgencyId);
+    let featureBilling = null;
+    try {
+      featureBilling = await computeFeatureBillingForPeriod(
+        parsedAgencyId,
+        periodStart,
+        periodEnd,
+        pricingBundle.effective
+      );
+    } catch (e) {
+      // Event tables may not exist on legacy databases; fall back to legacy single-axis billing.
+      console.warn('Feature billing computation failed, falling back to legacy:', e?.message || e);
+    }
     const estimate = buildEstimate(usage, pricingBundle.effective, {
-      featureEntitlements: account?.feature_entitlements_json || null
+      featureEntitlements: account?.feature_entitlements_json || null,
+      featureBilling
     });
     const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(parsedAgencyId);
     const invoiceDeliveryMode = account?.autopay_enabled ? 'autopay' : 'manual';

@@ -4,6 +4,7 @@ import { validationResult } from 'express-validator';
 import AgencySchool from '../models/AgencySchool.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import pool from '../config/database.js';
+import { syncTenantState } from '../services/featureEntitlement.service.js';
 
 const parseJsonField = (raw) => {
   if (raw === null || raw === undefined || raw === '') return null;
@@ -612,6 +613,18 @@ export const updateAgency = async (req, res, next) => {
         ? formattedTenantAvailableAgencyFeatures
         : undefined;
 
+    // Capture previous feature_flags so we can record entitlement events for any toggles.
+    let previousFeatureFlags = {};
+    if (formattedFeatureFlags && typeof formattedFeatureFlags === 'object') {
+      try {
+        const existing = await Agency.findById(id);
+        const raw = existing?.feature_flags;
+        previousFeatureFlags = typeof raw === 'string' ? (JSON.parse(raw || '{}') || {}) : (raw || {});
+      } catch {
+        previousFeatureFlags = {};
+      }
+    }
+
     const agency = await Agency.update(id, { 
       name, 
       officialName,
@@ -724,6 +737,30 @@ export const updateAgency = async (req, res, next) => {
     });
     if (!agency) {
       return res.status(404).json({ error: { message: 'Agency not found' } });
+    }
+
+    // Record feature_flags toggles as entitlement events so dual-axis billing
+    // and the audit log stay in sync. Best-effort: never fail the request.
+    if (formattedFeatureFlags && typeof formattedFeatureFlags === 'object') {
+      const actor = { id: req.user?.id || null, role: req.user?.role || null };
+      const allKeys = new Set([
+        ...Object.keys(previousFeatureFlags || {}),
+        ...Object.keys(formattedFeatureFlags || {})
+      ]);
+      const isTruthy = (v) => v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
+      for (const key of allKeys) {
+        const before = isTruthy(previousFeatureFlags?.[key]);
+        const after = isTruthy(formattedFeatureFlags?.[key]);
+        if (before === after) continue;
+        try {
+          await syncTenantState(parseInt(id, 10), key, after, {
+            actor,
+            notes: `Set via Agency settings (${after ? 'enabled' : 'disabled'})`
+          });
+        } catch (e) {
+          console.warn(`featureEntitlement sync failed for ${key}:`, e?.message || e);
+        }
+      }
     }
 
     // School-specific profile fields (district, ITSCO email, primary contact, etc.)

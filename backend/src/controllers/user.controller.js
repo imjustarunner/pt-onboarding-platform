@@ -18,6 +18,7 @@ import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.s
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import ExternalBusyCalendarService from '../services/externalBusyCalendar.service.js';
 import UserExternalCalendar from '../models/UserExternalCalendar.model.js';
+import { syncUserState as syncUserFeatureState } from '../services/featureEntitlement.service.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -2661,11 +2662,16 @@ export const updateUser = async (req, res, next) => {
       updateData.hasMedicalRecordsReleaseAccess = Boolean(hasMedicalRecordsReleaseAccess);
     }
 
-    // Games access entitlement (per-user billing model)
+    // Games access entitlement (per-user billing model). Tracked through the
+    // featureEntitlement event log; legacy `users.has_games_access` column is
+    // kept as a denormalization for hot-path reads.
+    let prevGamesAccess = null;
     if (hasGamesAccess !== undefined) {
       if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
         return res.status(403).json({ error: { message: 'Only admins or super admins can change Games access' } });
       }
+      const targetGamesBefore = await User.findById(id);
+      prevGamesAccess = !!(targetGamesBefore?.has_games_access === 1 || targetGamesBefore?.has_games_access === true || targetGamesBefore?.has_games_access === '1');
       updateData.hasGamesAccess = Boolean(hasGamesAccess);
     }
 
@@ -2708,6 +2714,36 @@ export const updateUser = async (req, res, next) => {
     // readers still rely on user_info_values.
     if (credential !== undefined) {
       await syncLegacyProviderCredentialValue(id, updateData.credential);
+    }
+
+    // Mirror per-user games entitlement into the event log for billing audit.
+    if (hasGamesAccess !== undefined) {
+      const newGamesAccess = !!updateData.hasGamesAccess;
+      if (prevGamesAccess !== newGamesAccess) {
+        try {
+          const targetUser = user;
+          const agencyId = Number(targetUser?.agency_id || targetUser?.primary_agency_id || 0);
+          if (agencyId) {
+            await syncUserFeatureState(agencyId, parseInt(id, 10), 'gamesPlatformEnabled', newGamesAccess, {
+              actor: { id: req.user?.id || null, role: req.user?.role || null },
+              notes: `Set via User profile (${newGamesAccess ? 'enabled' : 'disabled'})`
+            });
+          } else {
+            const [agencies] = await pool.execute(
+              'SELECT agency_id FROM user_agencies WHERE user_id = ? ORDER BY agency_id ASC',
+              [parseInt(id, 10)]
+            );
+            for (const row of agencies) {
+              await syncUserFeatureState(Number(row.agency_id), parseInt(id, 10), 'gamesPlatformEnabled', newGamesAccess, {
+                actor: { id: req.user?.id || null, role: req.user?.role || null },
+                notes: `Set via User profile (${newGamesAccess ? 'enabled' : 'disabled'})`
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('featureEntitlement sync (gamesPlatformEnabled) failed:', e?.message || e);
+        }
+      }
     }
 
     if (skillBuilderEligible !== undefined) {

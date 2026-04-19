@@ -868,6 +868,47 @@
                 </label>
               </div>
 
+              <div v-if="canManageFeatureAccess && perUserFeatureAccessRows.length > 0" class="feature-access-section">
+                <h3>Feature access</h3>
+                <p class="feature-access-help">
+                  Per-user entitlements driven by the platform feature catalog. Toggling here writes a
+                  billing event for the user's primary tenant; charges are pro-rated to the day.
+                </p>
+                <div v-if="featureAccessError" class="error">{{ featureAccessError }}</div>
+                <div class="feature-access-grid">
+                  <div
+                    v-for="row in perUserFeatureAccessRows"
+                    :key="`fa-${row.key}`"
+                    class="feature-access-row"
+                  >
+                    <div class="feature-access-meta">
+                      <div class="feature-access-label">{{ row.label }}</div>
+                      <div class="feature-access-desc">{{ row.description }}</div>
+                      <div class="feature-access-price">
+                        <span v-if="row.userMonthlyCents > 0">
+                          ${{ (row.userMonthlyCents / 100).toFixed(2) }} / user / mo
+                        </span>
+                        <span v-if="row.minProrationDays > 0" class="muted">
+                          · min {{ row.minProrationDays }}d charge
+                        </span>
+                      </div>
+                    </div>
+                    <label class="compact-toggle">
+                      <span class="compact-title">Entitled</span>
+                      <div class="toggle-switch toggle-switch-sm">
+                        <input
+                          type="checkbox"
+                          :checked="!!row.enabled"
+                          :disabled="!!row.saving || !canManageFeatureAccess"
+                          @change="onToggleFeatureAccess(row, $event.target.checked)"
+                        />
+                        <span class="slider"></span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
               <div class="agency-assignments-section">
                 <h3>Agency Assignments</h3>
                 <div class="agency-assignments">
@@ -4215,6 +4256,89 @@ const scheduleAgencyId = computed(() => {
   return 0;
 });
 
+// =============================================================================
+// Feature access (per-user entitlements driven by perUserBillable catalog)
+// =============================================================================
+const featureCatalogState = ref({ catalog: {}, loaded: false });
+const perUserFeatureAccessRows = ref([]);
+const featureAccessError = ref('');
+
+const canManageFeatureAccess = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'super_admin' || role === 'admin';
+});
+
+const primaryFeatureAgencyId = computed(() => {
+  const list = (userAgencies.value || []).filter((a) => isAgencyOrg(a));
+  return list.length ? Number(list[0].id) : 0;
+});
+
+async function loadFeatureCatalogOnce() {
+  if (featureCatalogState.value.loaded) return featureCatalogState.value.catalog;
+  try {
+    const res = await api.get('/billing/pricing/default');
+    const cat = res.data?.pricing?.featureCatalog || res.data?.featureCatalog || {};
+    featureCatalogState.value = { catalog: cat, loaded: true };
+    return cat;
+  } catch {
+    featureCatalogState.value = { catalog: {}, loaded: true };
+    return {};
+  }
+}
+
+async function loadFeatureAccessRows() {
+  featureAccessError.value = '';
+  if (!canManageFeatureAccess.value || !userId.value || !primaryFeatureAgencyId.value) {
+    perUserFeatureAccessRows.value = [];
+    return;
+  }
+  try {
+    const catalog = await loadFeatureCatalogOnce();
+    const features = Object.values(catalog).filter((f) => f && f.perUserBillable === true);
+    if (!features.length) { perUserFeatureAccessRows.value = []; return; }
+    const res = await api.get(`/billing/${primaryFeatureAgencyId.value}/features`, {
+      params: { userId: userId.value }
+    });
+    const userFeatureMap = res.data?.userFeatures || {};
+    perUserFeatureAccessRows.value = features.map((f) => ({
+      key: f.key,
+      label: f.label || f.key,
+      description: f.description || '',
+      userMonthlyCents: Number(f.userMonthlyCents || 0),
+      minProrationDays: Number(f.minProrationDays || 0),
+      enabled: !!userFeatureMap?.[f.key]?.enabled,
+      saving: false
+    }));
+  } catch (e) {
+    featureAccessError.value = e?.response?.data?.error?.message || 'Failed to load feature access';
+    perUserFeatureAccessRows.value = [];
+  }
+}
+
+async function onToggleFeatureAccess(row, enabled) {
+  if (!primaryFeatureAgencyId.value || !userId.value) return;
+  row.saving = true;
+  featureAccessError.value = '';
+  try {
+    await api.post(`/billing/${primaryFeatureAgencyId.value}/features/users/${userId.value}`, {
+      featureKey: row.key,
+      enabled: !!enabled
+    });
+    row.enabled = !!enabled;
+    if (row.key === 'gamesPlatformEnabled' && accountForm.value) {
+      accountForm.value.hasGamesAccess = !!enabled;
+    }
+  } catch (e) {
+    featureAccessError.value = e?.response?.data?.error?.message || 'Failed to update entitlement';
+  } finally {
+    row.saving = false;
+  }
+}
+
+watch([userId, primaryFeatureAgencyId, canManageFeatureAccess], () => {
+  loadFeatureAccessRows();
+}, { immediate: true });
+
 // Schedule & Availability: allow filtering by affiliated agencies (agency-type orgs).
 const affiliatedAgencies = computed(() => (userAgencies.value || []).filter((a) => isAgencyOrg(a)));
 const affiliatedOrgsByAgencyId = computed(() => {
@@ -7042,6 +7166,44 @@ onMounted(() => {
   color: var(--text-secondary);
   font-size: 12px;
 }
+
+.feature-access-section {
+  max-width: 100%;
+  margin-bottom: 24px;
+  padding: 16px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--surface-elevated, #f9fafb);
+}
+.feature-access-section h3 {
+  margin: 0 0 6px 0;
+  font-size: 16px;
+  color: var(--text-primary, #111827);
+}
+.feature-access-help {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+}
+.feature-access-grid {
+  display: grid;
+  gap: 10px;
+}
+.feature-access-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+}
+.feature-access-meta { min-width: 0; flex: 1 1 auto; }
+.feature-access-label { font-weight: 600; font-size: 14px; }
+.feature-access-desc { font-size: 12px; color: var(--text-secondary, #6b7280); }
+.feature-access-price { font-size: 12px; color: var(--text-secondary, #6b7280); margin-top: 2px; }
+.feature-access-price .muted { opacity: 0.8; }
 
 .agency-assignments-section {
   max-width: 100%;

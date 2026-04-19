@@ -39,6 +39,30 @@
             </span>
           </span>
         </button>
+        <button type="button" class="hub-card hub-card--superadmin-only" @click="openArea('platform', 'platform-feature-catalog')">
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('platform-feature-catalog')" :src="iconFor('platform-feature-catalog')" alt="" class="hub-card-icon-img" />
+            <span v-else>🧮</span>
+          </span>
+          <span class="hub-card-body">
+            <span class="hub-card-label">Feature Catalog &amp; Pricing</span>
+            <span class="hub-card-desc">
+              Set the platform default tenant and per-user monthly price for every feature, plus pro-ration rules.
+            </span>
+          </span>
+        </button>
+        <button type="button" class="hub-card hub-card--superadmin-only" @click="openArea('platform', 'platform-feature-audit')">
+          <span class="hub-card-icon" aria-hidden="true">
+            <img v-if="iconFor('platform-feature-audit')" :src="iconFor('platform-feature-audit')" alt="" class="hub-card-icon-img" />
+            <span v-else>📜</span>
+          </span>
+          <span class="hub-card-body">
+            <span class="hub-card-label">Feature audit log</span>
+            <span class="hub-card-desc">
+              Every tenant- and user-level enable/disable event with actor, timestamp, and notes.
+            </span>
+          </span>
+        </button>
         <button type="button" class="hub-card hub-card--superadmin-only" @click="openArea('platform', 'platform-all-agencies')">
           <span class="hub-card-icon" aria-hidden="true">
             <img v-if="iconFor('platform-all-agencies')" :src="iconFor('platform-all-agencies')" alt="" class="hub-card-icon-img" />
