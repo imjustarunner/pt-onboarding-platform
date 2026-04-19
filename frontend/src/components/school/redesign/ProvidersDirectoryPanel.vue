@@ -63,9 +63,29 @@
           <div class="meta">
             <div class="name-row">
               <div class="name">{{ p.first_name }} {{ p.last_name }}</div>
-              <button class="btn btn-secondary btn-sm msg-btn" type="button" @click.stop="$emit('message-provider', p.provider_user_id)">
-                Message
-              </button>
+              <div class="name-actions">
+                <span
+                  v-if="statusFor(p)"
+                  class="status-pill"
+                  :class="statusClassFor(p)"
+                  :title="statusTooltipFor(p)"
+                >
+                  {{ statusFor(p) }}
+                </span>
+                <button
+                  v-if="canPushVerification"
+                  class="btn btn-secondary btn-sm push-btn"
+                  type="button"
+                  :disabled="isPushing(p)"
+                  @click.stop="onPushVerification(p)"
+                  title="Send a slot verification request to this provider"
+                >
+                  {{ isPushing(p) ? 'Sending…' : (isPendingFor(p) ? 'Re-push verify' : 'Push slot verify') }}
+                </button>
+                <button class="btn btn-secondary btn-sm msg-btn" type="button" @click.stop="$emit('message-provider', p.provider_user_id)">
+                  Message
+                </button>
+              </div>
             </div>
             <div v-if="dayBadgesFor(p).length" class="day-badges" aria-label="Availability by day">
               <span
@@ -98,19 +118,79 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
 import api from '../../../services/api';
+import {
+  useSlotVerification,
+  canPushSlotVerification,
+  statusPillText,
+  statusPillVariant
+} from '../../../composables/useSlotVerification';
 
 const props = defineProps({
   schoolOrganizationId: { type: [Number, String], default: null },
   organizationSlug: { type: String, default: '' },
   providers: { type: Array, default: () => [] },
-  loading: { type: Boolean, default: false }
+  loading: { type: Boolean, default: false },
+  currentUserRole: { type: String, default: '' }
 });
 
 defineEmits(['open-provider', 'message-provider']);
+
+const schoolOrgIdRef = computed(() => props.schoolOrganizationId);
+const slotVerification = useSlotVerification(schoolOrgIdRef);
+const canPushVerification = computed(() => canPushSlotVerification(props.currentUserRole));
+const pushingByProvider = reactive({});
+
+const refreshSlotVerificationStatuses = async (force = false) => {
+  if (!props.schoolOrganizationId || !canPushVerification.value) return;
+  await slotVerification.fetchOrgRequests({ force });
+};
+
+onMounted(refreshSlotVerificationStatuses);
+watch(() => props.schoolOrganizationId, () => refreshSlotVerificationStatuses(true));
+watch(() => props.currentUserRole, () => refreshSlotVerificationStatuses(true));
+
+const requestFor = (p) => slotVerification.requestForProvider(p?.provider_user_id);
+const statusFor = (p) => statusPillText(requestFor(p));
+const statusClassFor = (p) => {
+  const v = statusPillVariant(requestFor(p));
+  return v ? `status-${v}` : '';
+};
+const statusTooltipFor = (p) => {
+  const r = requestFor(p);
+  if (!r) return '';
+  const when = r.created_at ? new Date(r.created_at).toLocaleString() : '';
+  const status = String(r.status || '').toUpperCase();
+  if (status === 'PENDING') return `Verification pending since ${when}`;
+  if (status === 'CONFIRMED') return `Provider confirmed slots ${r.responded_at ? `at ${new Date(r.responded_at).toLocaleString()}` : ''}`;
+  if (status === 'CHANGES_REQUESTED') return `Provider requested slot changes ${r.responded_at ? `at ${new Date(r.responded_at).toLocaleString()}` : ''}`;
+  if (status === 'CANCELLED') return `Cancelled ${r.cancelled_at ? `at ${new Date(r.cancelled_at).toLocaleString()}` : ''}`;
+  return '';
+};
+const isPendingFor = (p) => String(requestFor(p)?.status || '').toUpperCase() === 'PENDING';
+const isPushing = (p) => !!pushingByProvider[String(p?.provider_user_id || '')];
+
+const onPushVerification = async (p) => {
+  const id = Number(p?.provider_user_id || 0);
+  if (!id) return;
+  if (isPendingFor(p)) {
+    const ok = window.confirm('There is already a pending verification for this provider. Push another reminder?');
+    if (!ok) return;
+  }
+  const note = window.prompt('Optional message to include with this verification request (visible to the provider). Leave blank to send default.', '');
+  if (note === null) return; // cancelled
+  pushingByProvider[String(id)] = true;
+  try {
+    await slotVerification.pushVerification(id, { message: String(note || '').trim() });
+  } catch (e) {
+    window.alert(e?.response?.data?.error?.message || 'Failed to push slot verification.');
+  } finally {
+    pushingByProvider[String(id)] = false;
+  }
+};
 
 const router = useRouter();
 const query = ref('');
@@ -390,8 +470,42 @@ const runClientFind = async () => {
   align-items: center;
   justify-content: space-between;
 }
-.msg-btn {
+.name-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   flex: 0 0 auto;
+}
+.msg-btn,
+.push-btn {
+  flex: 0 0 auto;
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.status-pill.status-warning {
+  border-color: rgba(245, 158, 11, 0.65);
+  background: rgba(245, 158, 11, 0.10);
+  color: #92400e;
+}
+.status-pill.status-success {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.10);
+  color: #065f46;
+}
+.status-pill.status-muted {
+  color: var(--text-secondary);
 }
 .name {
   font-weight: 950;

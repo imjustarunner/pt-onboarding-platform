@@ -18,7 +18,9 @@ const SMS_CATEGORY_BY_TYPE = {
   credential_expired_blocking: 'compliance_access_restriction_warnings',
   program_reminder: 'program_reminders',
   client_assigned: 'client_assignments',
-  shift_calloff_need_coverage: 'scheduling_shift_calloff'
+  shift_calloff_need_coverage: 'scheduling_shift_calloff',
+  // School portal: admin pushed slot verification to a provider — high-signal request
+  school_provider_slot_verification_requested: 'school_portal_provider_slots'
 };
 
 function parseJsonMaybe(v) {
@@ -57,7 +59,9 @@ async function resolveNotificationCategories({ userId, agencyId }) {
       surveys_survey_completed: false,
       system_emergency_broadcasts: true,
       system_org_announcements: false,
-      program_reminders: false
+      program_reminders: false,
+      // Default ON: a pushed slot verification is an admin-initiated, action-required prompt.
+      school_portal_provider_slots: true
     };
     const agencyPrefs = agencyId ? await AgencyNotificationPreferences.getByAgencyId(agencyId) : null;
     const defaults = agencyPrefs?.defaults || fallbackDefaults;

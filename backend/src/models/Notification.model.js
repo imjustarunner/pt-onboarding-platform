@@ -103,6 +103,10 @@ class Notification {
     'school_provider_availability_confirmed',
     // School portal: provider directly updated slots/hours
     'school_provider_availability_updated',
+    // School portal: admin/staff/super_admin/support pushed a slot verification to a provider
+    'school_provider_slot_verification_requested',
+    // School portal: provider responded to a pushed slot verification
+    'school_provider_slot_verification_completed',
     // Budget Management: expense pending approval (department approvers)
     'budget_expense_pending_approval',
     // School portal: primary sent password reset link (notify agency admin)

@@ -25,6 +25,12 @@ import {
   markSchoolPortalNotificationsRead,
   dismissSchoolPortalNotifications,
   confirmProviderSchoolAvailability,
+  applyProviderSchoolAvailability,
+  pushProviderSlotVerification,
+  listSlotVerificationRequests,
+  getMySlotVerificationStatus,
+  cancelSlotVerificationRequest,
+  respondToMyPendingSlotVerification,
   listSchoolPortalBannerAnnouncements,
   createSchoolPortalAnnouncement,
   updateSchoolPortalAnnouncement,
@@ -101,6 +107,12 @@ router.delete('/bulk-announcements/:groupId', authenticate, deleteBulkSchoolPort
 router.get('/:organizationId/clients', authenticate, getSchoolClients);
 router.get('/:organizationId/my-roster', authenticate, getProviderMyRoster);
 router.post('/:organizationId/provider-availability/confirm', authenticate, confirmProviderSchoolAvailability);
+router.post('/:organizationId/provider-availability/apply', authenticate, applyProviderSchoolAvailability);
+router.get('/:organizationId/my-slot-verification', authenticate, getMySlotVerificationStatus);
+router.get('/:organizationId/slot-verification-requests', authenticate, listSlotVerificationRequests);
+router.post('/:organizationId/providers/:providerUserId/slot-verification', authenticate, pushProviderSlotVerification);
+router.post('/:organizationId/slot-verification-requests/:requestId/cancel', authenticate, cancelSlotVerificationRequest);
+router.post('/:organizationId/my-slot-verification/respond', authenticate, respondToMyPendingSlotVerification);
 router.get('/:organizationId/clients/:clientId/waitlist-note', authenticate, getClientWaitlistNote);
 router.put('/:organizationId/clients/:clientId/waitlist-note', authenticate, upsertClientWaitlistNote);
 router.get('/:organizationId/clients/:clientId/comments', authenticate, listClientComments);

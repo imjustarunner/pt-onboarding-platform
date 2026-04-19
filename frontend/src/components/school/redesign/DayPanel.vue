@@ -98,6 +98,7 @@
             :key="`panel-${p.provider_user_id}`"
             :provider="p"
             :weekday="weekday"
+            :school-organization-id="schoolOrganizationId"
             :client-label-mode="clientLabelMode"
             :current-user-id="currentUserId"
             :current-user-role="currentUserRole"
@@ -126,6 +127,7 @@ import ProviderPanel from './ProviderPanel.vue';
 
 const props = defineProps({
   weekday: { type: String, required: true },
+  schoolOrganizationId: { type: [Number, String], default: null },
   providers: { type: Array, default: () => [] },
   eligibleProviders: { type: Array, default: () => [] },
   loadingProviders: { type: Boolean, default: false },

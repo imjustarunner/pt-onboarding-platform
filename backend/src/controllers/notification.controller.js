@@ -29,6 +29,8 @@ const IN_APP_CATEGORY_BY_TYPE = {
   school_availability_request_pending: 'scheduling_schedule_changes',
   school_provider_availability_confirmed: 'school_portal_provider_slots',
   school_provider_availability_updated: 'school_portal_provider_slots',
+  school_provider_slot_verification_requested: 'school_portal_provider_slots',
+  school_provider_slot_verification_completed: 'school_portal_provider_slots',
   client_school_roi_link_generated: 'clients_new_intakes',
   client_school_roi_link_copied: 'clients_new_intakes',
   client_school_roi_link_sent: 'clients_new_intakes',

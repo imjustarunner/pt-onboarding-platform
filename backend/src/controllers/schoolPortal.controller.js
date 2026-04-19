@@ -1503,6 +1503,143 @@ export const getProviderMyRoster = async (req, res, next) => {
   }
 };
 
+// =============================================================================
+// Slot verification: shared helpers
+// =============================================================================
+
+const SLOT_VERIFICATION_PUSH_ROLES = new Set(['admin', 'super_admin', 'staff', 'support']);
+// School staff are intentionally excluded from receiving the "completed" notification per spec.
+const SLOT_VERIFICATION_RESPONSE_RECIPIENT_ROLES = ['admin', 'super_admin', 'support'];
+
+async function getSchoolOrgRecipientUserIds({ agencyId, roles }) {
+  if (!agencyId || !Array.isArray(roles) || roles.length === 0) return [];
+  const lowered = roles.map((r) => String(r || '').toLowerCase()).filter(Boolean);
+  if (lowered.length === 0) return [];
+  const placeholders = lowered.map(() => '?').join(',');
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT u.id
+     FROM users u
+     LEFT JOIN user_agencies ua ON ua.user_id = u.id
+     WHERE (
+       (ua.agency_id = ? AND LOWER(COALESCE(u.role, '')) IN (${placeholders}))
+       OR LOWER(COALESCE(u.role, '')) = 'super_admin'
+     )
+       AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+       AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'`,
+    [agencyId, ...lowered]
+  );
+  return (rows || []).map((r) => Number(r.id)).filter(Boolean);
+}
+
+async function userCanPushSlotVerification({ userId, role, schoolOrganizationId }) {
+  const r = String(role || '').toLowerCase();
+  if (!SLOT_VERIFICATION_PUSH_ROLES.has(r)) return false;
+  if (r === 'super_admin') return true;
+  if (!userId || !schoolOrganizationId) return false;
+  const userOrgs = await User.getAgencies(userId);
+  const sid = Number(schoolOrganizationId);
+  const hasDirect = (userOrgs || []).some((org) => Number(org?.id || 0) === sid);
+  if (hasDirect) return true;
+  const activeAgencyId = await resolveActiveAgencyIdForOrg(sid);
+  if (!activeAgencyId) return false;
+  return (userOrgs || []).some((org) => Number(org?.id || 0) === Number(activeAgencyId));
+}
+
+/**
+ * Mark all PENDING slot verification requests for a (school, provider) as completed,
+ * and notify the original requester + admins/staff/support of the response.
+ *
+ * Returns the number of requests closed.
+ */
+async function closePendingSlotVerificationRequests({
+  schoolOrganizationId,
+  providerUserId,
+  agencyId,
+  responseKind,
+  responseSummary,
+  actorUserId,
+  actorName,
+  schoolName
+}) {
+  const sid = Number(schoolOrganizationId || 0);
+  const pid = Number(providerUserId || 0);
+  if (!sid || !pid) return 0;
+  let pending = [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id, requested_by_user_id
+       FROM provider_slot_verification_requests
+       WHERE school_organization_id = ? AND provider_user_id = ? AND status = 'PENDING'`,
+      [sid, pid]
+    );
+    pending = rows || [];
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return 0;
+    throw e;
+  }
+  if (pending.length === 0) return 0;
+
+  const kind = String(responseKind || '').toLowerCase() === 'changes_requested' ? 'changes_requested' : 'confirmed';
+  const newStatus = kind === 'changes_requested' ? 'CHANGES_REQUESTED' : 'CONFIRMED';
+  const summary = String(responseSummary || '').slice(0, 2000);
+
+  for (const row of pending) {
+    try {
+      await pool.execute(
+        `UPDATE provider_slot_verification_requests
+         SET status = ?, response_kind = ?, response_summary = ?, responded_at = NOW()
+         WHERE id = ?`,
+        [newStatus, kind, summary || null, Number(row.id)]
+      );
+    } catch {
+      // best-effort
+    }
+  }
+
+  // Notify back to the requester + admins/staff/support (per spec: not school_staff).
+  const Notification = (await import('../models/Notification.model.js')).default;
+  const recipientIds = new Set();
+  for (const row of pending) {
+    const reqId = Number(row?.requested_by_user_id || 0);
+    if (reqId) recipientIds.add(reqId);
+  }
+  if (agencyId) {
+    const adminIds = await getSchoolOrgRecipientUserIds({
+      agencyId,
+      roles: SLOT_VERIFICATION_RESPONSE_RECIPIENT_ROLES
+    });
+    for (const id of adminIds) recipientIds.add(Number(id));
+  }
+  recipientIds.delete(Number(actorUserId || 0));
+
+  const verb = kind === 'changes_requested' ? 'requested changes to' : 'confirmed';
+  const title = kind === 'changes_requested'
+    ? 'Provider requested slot changes'
+    : 'Provider confirmed slot verification';
+  const message = `${actorName || `Provider #${pid}`} ${verb} school slots for ${schoolName || `School #${sid}`}.${summary ? ` ${summary}` : ''}`;
+
+  await Promise.all(Array.from(recipientIds).map(async (recipientUserId) => {
+    try {
+      await Notification.create({
+        type: 'school_provider_slot_verification_completed',
+        severity: kind === 'changes_requested' ? 'warning' : 'info',
+        title,
+        message,
+        userId: recipientUserId,
+        agencyId: agencyId || null,
+        relatedEntityType: 'school_organization',
+        relatedEntityId: sid,
+        actorUserId: actorUserId || null,
+        actorSource: 'School Portal'
+      });
+    } catch {
+      // ignore
+    }
+  }));
+
+  return pending.length;
+}
+
 /**
  * Provider confirms current school-day availability (weekly splash action).
  * POST /api/school-portal/:organizationId/provider-availability/confirm
@@ -1611,7 +1748,19 @@ export const confirmProviderSchoolAvailability = async (req, res, next) => {
       });
     }));
 
-    res.json({ ok: true, notifiedCount: uniqueRecipients.length });
+    const summary = `Confirmed current availability. Assigned clients: ${assignedTotal}.${lines.length ? ` ${lines.join(' | ')}` : ''}`;
+    const closedRequests = await closePendingSlotVerificationRequests({
+      schoolOrganizationId: orgId,
+      providerUserId: userId,
+      agencyId: activeAgencyId,
+      responseKind: 'confirmed',
+      responseSummary: summary,
+      actorUserId: userId,
+      actorName,
+      schoolName
+    }).catch(() => 0);
+
+    res.json({ ok: true, notifiedCount: uniqueRecipients.length, closedVerificationRequests: Number(closedRequests || 0) });
   } catch (e) {
     next(e);
   }
@@ -1789,9 +1938,22 @@ export const applyProviderSchoolAvailability = async (req, res, next) => {
       });
     }));
 
+    const summary = `Updated ${dayOfWeek} availability: slots ${currentSlots} → ${slotsTotal}, hours ${currentStart}-${currentEnd} → ${requestedStartTime}-${requestedEndTime}.`;
+    const closedRequests = await closePendingSlotVerificationRequests({
+      schoolOrganizationId: orgId,
+      providerUserId: userId,
+      agencyId: activeAgencyId,
+      responseKind: 'changes_requested',
+      responseSummary: summary,
+      actorUserId: userId,
+      actorName,
+      schoolName
+    }).catch(() => 0);
+
     res.json({
       ok: true,
       notifiedCount: uniqueRecipients.length,
+      closedVerificationRequests: Number(closedRequests || 0),
       warning: slotsTotal < assignedCount
         ? {
             overAssigned: true,
@@ -6299,6 +6461,502 @@ export const deleteBulkSchoolPortalAnnouncements = async (req, res, next) => {
     }).catch(() => {});
 
     res.json({ ok: true, deleted_count: Number(result.affectedRows) });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// =============================================================================
+// Slot verification: admin push + listing + provider self-status
+// =============================================================================
+
+function safeProviderName(user, fallbackId) {
+  const f = String(user?.first_name || '').trim();
+  const l = String(user?.last_name || '').trim();
+  const full = `${f} ${l}`.trim();
+  if (full) return full;
+  const email = String(user?.email || '').trim();
+  if (email) return email;
+  return `Provider #${fallbackId || ''}`.trim();
+}
+
+/**
+ * POST /api/school-portal/:organizationId/providers/:providerUserId/slot-verification
+ * Admin/super_admin/staff/support pushes a slot verification request to a provider for this school org.
+ * Body (optional): { message: string }
+ *
+ * Notifies the provider in-app + SMS + push (+ email when a sender identity is configured for the trigger).
+ * If a pending request already exists, it is returned (no duplicate).
+ */
+export const pushProviderSlotVerification = async (req, res, next) => {
+  try {
+    const orgId = parseInt(String(req.params.organizationId), 10);
+    const providerUserId = parseInt(String(req.params.providerUserId), 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+    if (!providerUserId) return res.status(400).json({ error: { message: 'Invalid providerUserId' } });
+
+    const actorId = Number(req.user?.id || 0);
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const allowed = await userCanPushSlotVerification({
+      userId: actorId,
+      role,
+      schoolOrganizationId: orgId
+    });
+    if (!allowed) {
+      return res.status(403).json({ error: { message: 'Only admin, super admin, staff, or support may push slot verification.' } });
+    }
+
+    const provider = await User.findById(providerUserId);
+    if (!provider) return res.status(404).json({ error: { message: 'Provider not found' } });
+    const providerRole = String(provider?.role || '').toLowerCase();
+    const providerRoles = ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'];
+    if (!providerRoles.includes(providerRole)) {
+      return res.status(400).json({ error: { message: 'Target user is not a provider.' } });
+    }
+
+    const [assignmentRows] = await pool.execute(
+      `SELECT day_of_week, slots_total, slots_available, start_time, end_time
+       FROM provider_school_assignments
+       WHERE school_organization_id = ? AND provider_user_id = ? AND is_active = TRUE
+       ORDER BY FIELD(day_of_week, 'Monday','Tuesday','Wednesday','Thursday','Friday')`,
+      [orgId, providerUserId]
+    );
+    if (!Array.isArray(assignmentRows) || assignmentRows.length === 0) {
+      return res.status(409).json({
+        error: { message: 'This provider has no active slot assignments at this school yet.' }
+      });
+    }
+
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    if (!activeAgencyId) {
+      return res.status(400).json({ error: { message: 'No active agency affiliation found for this school' } });
+    }
+
+    const message = String(req.body?.message || '').trim().slice(0, 1000);
+
+    const [existingRows] = await pool.execute(
+      `SELECT id, requested_by_user_id, requested_at, message, created_at
+       FROM provider_slot_verification_requests
+       WHERE school_organization_id = ? AND provider_user_id = ? AND status = 'PENDING'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [orgId, providerUserId]
+    );
+    if (existingRows?.[0]?.id) {
+      return res.status(200).json({
+        ok: true,
+        alreadyPending: true,
+        requestId: Number(existingRows[0].id),
+        request: existingRows[0]
+      });
+    }
+
+    const [insertResult] = await pool.execute(
+      `INSERT INTO provider_slot_verification_requests
+        (school_organization_id, agency_id, provider_user_id, requested_by_user_id, requested_by_role, message, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'PENDING')`,
+      [orgId, activeAgencyId, providerUserId, actorId, role || null, message || null]
+    );
+    const requestId = Number(insertResult?.insertId || 0);
+
+    const actor = await User.findById(actorId);
+    const actorName = safeProviderName(actor, actorId);
+    const school = await Agency.findById(orgId);
+    const schoolName = school?.name || school?.official_name || `School #${orgId}`;
+
+    const linePieces = (assignmentRows || []).map((d) => {
+      const day = String(d?.day_of_week || '').trim();
+      const slots = Number(d?.slots_total || 0);
+      const avail = Number(d?.slots_available ?? 0);
+      const st = String(d?.start_time || '').slice(0, 5) || '—';
+      const et = String(d?.end_time || '').slice(0, 5) || '—';
+      return `${day}: ${slots} slots (${avail} avail), ${st}-${et}`;
+    });
+    const summaryLine = linePieces.length ? ` Current: ${linePieces.join(' | ')}.` : '';
+    const adminMessage = message ? ` Note: ${message}` : '';
+    const title = `Verify your school slots — ${schoolName}`;
+    const body = `${actorName} asked you to verify or update your slots & hours for ${schoolName}. Open the school portal to Confirm or Request Changes.${summaryLine}${adminMessage}`;
+
+    const NotificationDispatcher = (await import('../services/notificationDispatcher.service.js')).default;
+    let createdNotification = null;
+    try {
+      createdNotification = await NotificationDispatcher.createNotificationAndDispatch(
+        {
+          type: 'school_provider_slot_verification_requested',
+          severity: 'warning',
+          title,
+          message: body,
+          userId: providerUserId,
+          agencyId: activeAgencyId,
+          relatedEntityType: 'provider_slot_verification_request',
+          relatedEntityId: requestId,
+          actorUserId: actorId,
+          actorSource: 'School Portal'
+        },
+        { context: { severity: 'urgent', isUrgent: true } }
+      );
+    } catch (e) {
+      // best-effort: don't fail the request if notification dispatch hiccups
+      createdNotification = null;
+    }
+
+    // Best-effort email through the unified email pipeline. Only fires when an
+    // agency has a sender identity configured for the trigger and emails are enabled.
+    try {
+      const providerEmail = String(provider?.email || provider?.work_email || '').trim();
+      if (providerEmail) {
+        const { sendNotificationEmail } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
+        const { isCategoryEnabledForUser } = await import('../services/notificationDispatcher.service.js');
+        const NotificationGatekeeperService = (await import('../services/notificationGatekeeper.service.js')).default;
+
+        const categoryOk = await isCategoryEnabledForUser({
+          userId: providerUserId,
+          agencyId: activeAgencyId,
+          categoryKey: 'school_portal_provider_slots'
+        });
+        if (categoryOk) {
+          const decision = await NotificationGatekeeperService.decideChannels({
+            userId: providerUserId,
+            context: { severity: 'urgent', isUrgent: true }
+          });
+          if (decision?.email) {
+            await sendNotificationEmail({
+              agencyId: activeAgencyId,
+              triggerKey: 'school_provider_slot_verification_requested',
+              to: providerEmail,
+              subject: title,
+              text: body,
+              html: null,
+              source: 'auto',
+              userId: providerUserId,
+              templateType: 'school_provider_slot_verification_requested',
+              templateId: null
+            });
+          }
+        }
+      }
+    } catch {
+      // ignore email errors
+    }
+
+    logAuditEvent(req, {
+      actionType: 'school_provider_slot_verification_pushed',
+      agencyId: activeAgencyId,
+      metadata: {
+        schoolOrganizationId: orgId,
+        providerUserId,
+        requestId,
+        message: message || null
+      }
+    }).catch(() => {});
+
+    res.status(201).json({
+      ok: true,
+      requestId,
+      notificationId: createdNotification?.id || null,
+      providerUserId,
+      schoolOrganizationId: orgId,
+      message: message || null
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/school-portal/:organizationId/slot-verification-requests
+ * Returns all requests for this school. Optional ?status=PENDING|CONFIRMED|CHANGES_REQUESTED|CANCELLED.
+ * Visible to roles that can edit clients in this portal (admin, super_admin, staff, support, supervisor)
+ * — same gate as other admin reads.
+ */
+export const listSlotVerificationRequests = async (req, res, next) => {
+  try {
+    const orgId = parseInt(String(req.params.organizationId), 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = Number(req.user?.id || 0);
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (role !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    const status = String(req.query?.status || '').trim().toUpperCase();
+    const allowedStatus = new Set(['PENDING', 'CONFIRMED', 'CHANGES_REQUESTED', 'CANCELLED']);
+
+    let rows = [];
+    try {
+      const params = [orgId];
+      let where = 'WHERE psvr.school_organization_id = ?';
+      if (status && allowedStatus.has(status)) {
+        where += ' AND psvr.status = ?';
+        params.push(status);
+      }
+      const [r] = await pool.execute(
+        `SELECT psvr.id,
+                psvr.school_organization_id,
+                psvr.agency_id,
+                psvr.provider_user_id,
+                psvr.requested_by_user_id,
+                psvr.requested_by_role,
+                psvr.message,
+                psvr.status,
+                psvr.responded_at,
+                psvr.response_kind,
+                psvr.response_summary,
+                psvr.cancelled_at,
+                psvr.created_at,
+                psvr.updated_at,
+                ru.first_name AS requested_by_first_name,
+                ru.last_name  AS requested_by_last_name,
+                ru.email      AS requested_by_email,
+                pu.first_name AS provider_first_name,
+                pu.last_name  AS provider_last_name,
+                pu.email      AS provider_email
+         FROM provider_slot_verification_requests psvr
+         LEFT JOIN users ru ON ru.id = psvr.requested_by_user_id
+         LEFT JOIN users pu ON pu.id = psvr.provider_user_id
+         ${where}
+         ORDER BY psvr.created_at DESC
+         LIMIT 500`,
+        params
+      );
+      rows = r || [];
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') rows = [];
+      else throw e;
+    }
+
+    const items = rows.map((r) => ({
+      id: Number(r.id),
+      school_organization_id: Number(r.school_organization_id),
+      agency_id: Number(r.agency_id),
+      provider_user_id: Number(r.provider_user_id),
+      provider_name: safeProviderName(
+        { first_name: r.provider_first_name, last_name: r.provider_last_name, email: r.provider_email },
+        r.provider_user_id
+      ),
+      requested_by_user_id: Number(r.requested_by_user_id),
+      requested_by_role: r.requested_by_role || null,
+      requested_by_name: safeProviderName(
+        { first_name: r.requested_by_first_name, last_name: r.requested_by_last_name, email: r.requested_by_email },
+        r.requested_by_user_id
+      ),
+      message: r.message || null,
+      status: r.status,
+      responded_at: r.responded_at,
+      response_kind: r.response_kind,
+      response_summary: r.response_summary,
+      cancelled_at: r.cancelled_at,
+      created_at: r.created_at,
+      updated_at: r.updated_at
+    }));
+
+    // by_provider: latest record per provider for quick UI lookup (any status).
+    const latestByProvider = new Map();
+    for (const it of items) {
+      const k = String(it.provider_user_id);
+      if (!latestByProvider.has(k)) latestByProvider.set(k, it);
+    }
+    const by_provider = {};
+    for (const [k, v] of latestByProvider.entries()) by_provider[k] = v;
+
+    res.json({ items, by_provider });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/school-portal/:organizationId/my-slot-verification
+ * Provider self-lookup. Returns the most recent PENDING request (or null).
+ */
+export const getMySlotVerificationStatus = async (req, res, next) => {
+  try {
+    const orgId = parseInt(String(req.params.organizationId), 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = Number(req.user?.id || 0);
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    let row = null;
+    try {
+      const [rows] = await pool.execute(
+        `SELECT psvr.id,
+                psvr.school_organization_id,
+                psvr.agency_id,
+                psvr.provider_user_id,
+                psvr.requested_by_user_id,
+                psvr.requested_by_role,
+                psvr.message,
+                psvr.status,
+                psvr.created_at,
+                ru.first_name AS requested_by_first_name,
+                ru.last_name  AS requested_by_last_name,
+                ru.email      AS requested_by_email
+         FROM provider_slot_verification_requests psvr
+         LEFT JOIN users ru ON ru.id = psvr.requested_by_user_id
+         WHERE psvr.school_organization_id = ?
+           AND psvr.provider_user_id = ?
+           AND psvr.status = 'PENDING'
+         ORDER BY psvr.created_at DESC
+         LIMIT 1`,
+        [orgId, userId]
+      );
+      row = rows?.[0] || null;
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') row = null;
+      else throw e;
+    }
+
+    if (!row) return res.json({ pending: null });
+    res.json({
+      pending: {
+        id: Number(row.id),
+        school_organization_id: Number(row.school_organization_id),
+        agency_id: Number(row.agency_id),
+        requested_by_user_id: Number(row.requested_by_user_id),
+        requested_by_role: row.requested_by_role || null,
+        requested_by_name: safeProviderName(
+          { first_name: row.requested_by_first_name, last_name: row.requested_by_last_name, email: row.requested_by_email },
+          row.requested_by_user_id
+        ),
+        message: row.message || null,
+        created_at: row.created_at
+      }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/school-portal/:organizationId/my-slot-verification/respond
+ * Provider-only. Closes any pending slot verification requests for this provider in this school
+ * and notifies the original requester + admins/staff/support.
+ *
+ * Body: { kind?: 'confirmed'|'changes_requested' (default 'changes_requested'),
+ *         summary?: string,
+ *         schoolRequestId?: number }
+ *
+ * Used by the school portal weekly check-in flow when the provider chose
+ * "Update my availability" (which sends a change request to the agency
+ * intake queue) — this closes out any verification request that prompted the response.
+ */
+export const respondToMyPendingSlotVerification = async (req, res, next) => {
+  try {
+    const orgId = parseInt(String(req.params.organizationId), 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = Number(req.user?.id || 0);
+    const role = String(req.user?.role || '').toLowerCase();
+    const providerRoles = ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'];
+    if (!providerRoles.includes(role)) {
+      return res.status(403).json({ error: { message: 'Provider access required' } });
+    }
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    if (!activeAgencyId) {
+      return res.status(400).json({ error: { message: 'No active agency affiliation found for this school' } });
+    }
+
+    const kindRaw = String(req.body?.kind || 'changes_requested').toLowerCase();
+    const kind = kindRaw === 'confirmed' ? 'confirmed' : 'changes_requested';
+    const summary = String(req.body?.summary || '').trim().slice(0, 2000);
+    const schoolRequestId = Number(req.body?.schoolRequestId || 0) || null;
+
+    const actor = await User.findById(userId);
+    const actorName = safeProviderName(actor, userId);
+    const school = await Agency.findById(orgId);
+    const schoolName = school?.name || school?.official_name || `School #${orgId}`;
+
+    // Stamp the response_school_request_id where appropriate (best effort).
+    if (schoolRequestId) {
+      try {
+        await pool.execute(
+          `UPDATE provider_slot_verification_requests
+           SET response_school_request_id = ?
+           WHERE school_organization_id = ? AND provider_user_id = ? AND status = 'PENDING'`,
+          [schoolRequestId, orgId, userId]
+        );
+      } catch {
+        // best-effort
+      }
+    }
+
+    const closed = await closePendingSlotVerificationRequests({
+      schoolOrganizationId: orgId,
+      providerUserId: userId,
+      agencyId: activeAgencyId,
+      responseKind: kind,
+      responseSummary: summary || null,
+      actorUserId: userId,
+      actorName,
+      schoolName
+    });
+
+    res.json({ ok: true, closedVerificationRequests: Number(closed || 0), kind });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/school-portal/:organizationId/slot-verification-requests/:requestId/cancel
+ * Admin/super_admin/staff/support cancels a pending request.
+ */
+export const cancelSlotVerificationRequest = async (req, res, next) => {
+  try {
+    const orgId = parseInt(String(req.params.organizationId), 10);
+    const requestId = parseInt(String(req.params.requestId), 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+    if (!requestId) return res.status(400).json({ error: { message: 'Invalid requestId' } });
+
+    const actorId = Number(req.user?.id || 0);
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const allowed = await userCanPushSlotVerification({
+      userId: actorId,
+      role,
+      schoolOrganizationId: orgId
+    });
+    if (!allowed) {
+      return res.status(403).json({ error: { message: 'Only admin, super admin, staff, or support may cancel slot verification.' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT id, status, school_organization_id
+       FROM provider_slot_verification_requests
+       WHERE id = ? LIMIT 1`,
+      [requestId]
+    );
+    const row = rows?.[0] || null;
+    if (!row) return res.status(404).json({ error: { message: 'Request not found' } });
+    if (Number(row.school_organization_id) !== orgId) {
+      return res.status(403).json({ error: { message: 'Request belongs to a different school organization' } });
+    }
+    if (row.status !== 'PENDING') {
+      return res.status(409).json({ error: { message: `Request is already ${row.status}` } });
+    }
+
+    await pool.execute(
+      `UPDATE provider_slot_verification_requests
+       SET status = 'CANCELLED', cancelled_at = NOW(), cancelled_by_user_id = ?
+       WHERE id = ?`,
+      [actorId, requestId]
+    );
+
+    logAuditEvent(req, {
+      actionType: 'school_provider_slot_verification_cancelled',
+      metadata: { schoolOrganizationId: orgId, requestId }
+    }).catch(() => {});
+
+    res.json({ ok: true, requestId });
   } catch (e) {
     next(e);
   }

@@ -727,6 +727,7 @@
           <DayPanel
             v-else-if="organizationId"
             :weekday="store.selectedWeekday"
+            :school-organization-id="organizationId"
             :providers="store.dayProviders"
             :eligible-providers="store.eligibleProvidersForSelectedDay"
             :loading-providers="store.dayProvidersLoading"
@@ -757,6 +758,7 @@
             :organization-slug="organizationSlug"
             :providers="store.eligibleProviders"
             :loading="store.eligibleProvidersLoading"
+            :current-user-role="roleNorm"
             @open-provider="goToProviderSchoolProfile"
             @message-provider="messageProvider"
           />
@@ -1033,6 +1035,15 @@
           <button class="btn btn-secondary btn-sm" type="button" @click="dismissWeeklyAvailabilityPrompt">Close</button>
         </div>
         <div class="modal-body">
+          <div v-if="slotVerificationPending" class="weekly-availability-pushed-banner">
+            <strong>Slot verification requested.</strong>
+            <span>
+              {{ slotVerificationRequesterLabel }} asked you to confirm or update your slot availability for this school.
+            </span>
+            <div v-if="slotVerificationPending.message" class="weekly-availability-pushed-note">
+              “{{ slotVerificationPending.message }}”
+            </div>
+          </div>
           <div class="weekly-availability-lead">
             Please confirm your school client availability this week.
           </div>
@@ -1358,6 +1369,7 @@ import { setDarkMode, getStoredDarkMode } from '../../utils/darkMode';
 import { getSchoolStaffWaiverStatus as getSchoolStaffWaiverStatusForGate } from '../../utils/schoolStaffWaiverGate';
 import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
+import { useSlotVerification } from '../../composables/useSlotVerification';
 import QRCode from 'qrcode';
 
 const props = defineProps({
@@ -2255,6 +2267,16 @@ const isProviderRoleForAvailability = computed(() => {
   return ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'].includes(role);
 });
 
+const slotVerification = useSlotVerification(() => organizationId.value);
+const slotVerificationPending = ref(null);
+const wasOpenedByPendingVerification = ref(false);
+const slotVerificationRequesterLabel = computed(() => {
+  const r = slotVerificationPending.value || {};
+  const role = String(r.requested_by_role || '').replace(/_/g, ' ').trim();
+  if (role) return `An ${role}`.replace('An staff', 'A staff member').replace('An super admin', 'A super admin');
+  return 'A school admin';
+});
+
 const selectedAvailabilityAssignment = computed(() => {
   const day = String(availabilitySelectedDay.value || '');
   if (!day) return null;
@@ -2337,11 +2359,25 @@ const ensureAvailabilityContext = async ({ force = false } = {}) => {
 const maybeOpenWeeklyAvailabilityPrompt = async () => {
   if (!isProviderRoleForAvailability.value) return;
   if (!organizationId.value) return;
-  if (hasSeenWeeklyAvailabilityPrompt()) return;
+
+  // Admin/staff/super_admin/support can push a slot verification request to a specific
+  // provider. When that happens we MUST bypass the once-a-week localStorage gate so the
+  // provider sees the modal on their next portal visit.
+  let hasPendingPush = false;
+  try {
+    const pending = await slotVerification.fetchMyPending({ force: true });
+    slotVerificationPending.value = pending || null;
+    hasPendingPush = !!pending;
+  } catch {
+    slotVerificationPending.value = null;
+  }
+
+  if (!hasPendingPush && hasSeenWeeklyAvailabilityPrompt()) return;
   await ensureAvailabilityContext();
   if ((availabilityDayOptions.value || []).length === 0) return;
   availabilityConfirmSuccess.value = '';
   availabilityConfirmError.value = '';
+  wasOpenedByPendingVerification.value = hasPendingPush;
   showWeeklyAvailabilityPrompt.value = true;
 };
 
@@ -2370,6 +2406,10 @@ const confirmWeeklyAvailability = async () => {
     availabilityConfirmSuccess.value = count > 0
       ? `Confirmed. ${count} admin notification${count === 1 ? '' : 's'} sent.`
       : 'Confirmed. Admin notification sent.';
+    // Backend already closes any pending push slot-verification request on confirm.
+    slotVerification.clearMyPending();
+    slotVerificationPending.value = null;
+    wasOpenedByPendingVerification.value = false;
     markWeeklyAvailabilityPromptSeen();
     window.setTimeout(() => {
       showWeeklyAvailabilityPrompt.value = false;
@@ -2523,6 +2563,21 @@ const submitAvailabilityRequest = async () => {
         }
       ]
     });
+
+    // If a slot-verification was pushed to this provider, mark it as "changes_requested" so
+    // it disappears from the admin/staff view and notifies them that the provider responded.
+    if (slotVerificationPending.value && isProviderRoleForAvailability.value) {
+      try {
+        await slotVerification.respondPending({
+          kind: 'changes_requested',
+          summary: `Submitted change request for ${weekday}: requested ${requestedSlots} slot(s) (${requestedHours}).`
+        });
+        slotVerificationPending.value = null;
+        wasOpenedByPendingVerification.value = false;
+      } catch {
+        // Non-blocking: change request was still recorded server-side via /availability.
+      }
+    }
 
     const submittedDay = weekday || 'this day';
     const submitAnother = window.confirm(`Request sent for ${submittedDay}. Submit another day update now?`);
@@ -3870,6 +3925,24 @@ watch(() => store.selectedWeekday, async (weekday) => {
   align-items: center;
   margin-top: 12px;
   flex-wrap: wrap;
+}
+
+.weekly-availability-pushed-banner {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  background: rgba(245, 158, 11, 0.10);
+  color: #92400e;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.weekly-availability-pushed-note {
+  font-style: italic;
+  color: #78350f;
+  font-size: 13px;
 }
 
 .school-announcement-modal {

@@ -120,6 +120,35 @@
                   {{ chatWorking ? 'Opening…' : 'Message provider' }}
                 </button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="load" :disabled="loading">Refresh</button>
+                <span
+                  v-if="slotVerificationLabel"
+                  class="status-pill"
+                  :class="slotVerificationVariantClass"
+                  :title="slotVerificationTooltip"
+                >
+                  {{ slotVerificationLabel }}
+                </span>
+                <button
+                  v-if="canPushSlotVerify"
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  :disabled="pushingVerification"
+                  @click="onPushSlotVerification"
+                  title="Send a slot verification request to this provider"
+                  data-tour="school-provider-push-verify"
+                >
+                  {{ pushingVerification ? 'Sending…' : (slotVerificationIsPending ? 'Re-push slot verify' : 'Push slot verify') }}
+                </button>
+                <button
+                  v-if="canPushSlotVerify && slotVerificationIsPending"
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  :disabled="cancelingVerification"
+                  @click="onCancelSlotVerification"
+                  title="Cancel the pending slot verification request"
+                >
+                  {{ cancelingVerification ? 'Cancelling…' : 'Cancel verify' }}
+                </button>
               </div>
             </div>
           </div>
@@ -333,6 +362,12 @@ import ClientListGrid from '../ClientListGrid.vue';
 import { useAuthStore } from '../../../store/auth';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
 import { formatPhoneForDisplay } from '../../../utils/phoneDisplay.js';
+import {
+  useSlotVerification,
+  canPushSlotVerification,
+  statusPillText,
+  statusPillVariant
+} from '../../../composables/useSlotVerification';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
@@ -830,6 +865,81 @@ const sendMessage = async () => {
 onMounted(load);
 watch(() => [props.schoolOrganizationId, props.providerUserId], load);
 
+const schoolOrgIdRef = computed(() => props.schoolOrganizationId);
+const slotVerification = useSlotVerification(schoolOrgIdRef);
+const canPushSlotVerify = computed(() => canPushSlotVerification(roleNorm.value));
+const slotVerificationRequest = computed(() => slotVerification.requestForProvider(props.providerUserId));
+const slotVerificationLabel = computed(() => statusPillText(slotVerificationRequest.value));
+const slotVerificationVariantClass = computed(() => {
+  const v = statusPillVariant(slotVerificationRequest.value);
+  return v ? `status-${v}` : '';
+});
+const slotVerificationIsPending = computed(() => (
+  String(slotVerificationRequest.value?.status || '').toUpperCase() === 'PENDING'
+));
+const slotVerificationTooltip = computed(() => {
+  const r = slotVerificationRequest.value;
+  if (!r) return '';
+  const status = String(r.status || '').toUpperCase();
+  const when = r.created_at ? new Date(r.created_at).toLocaleString() : '';
+  if (status === 'PENDING') return `Verification pending since ${when}`;
+  if (status === 'CONFIRMED') return `Provider confirmed slots${r.responded_at ? ` at ${new Date(r.responded_at).toLocaleString()}` : ''}`;
+  if (status === 'CHANGES_REQUESTED') return `Provider requested slot changes${r.responded_at ? ` at ${new Date(r.responded_at).toLocaleString()}` : ''}`;
+  if (status === 'CANCELLED') return `Cancelled${r.cancelled_at ? ` at ${new Date(r.cancelled_at).toLocaleString()}` : ''}`;
+  return '';
+});
+
+const pushingVerification = ref(false);
+const cancelingVerification = ref(false);
+
+const onPushSlotVerification = async () => {
+  const id = Number(props.providerUserId || 0);
+  if (!id) return;
+  if (slotVerificationIsPending.value) {
+    const ok = window.confirm('There is already a pending verification for this provider. Push another reminder?');
+    if (!ok) return;
+  }
+  const note = window.prompt('Optional message to include with this verification request (visible to the provider). Leave blank to send default.', '');
+  if (note === null) return;
+  pushingVerification.value = true;
+  try {
+    await slotVerification.pushVerification(id, { message: String(note || '').trim() });
+  } catch (e) {
+    window.alert(e?.response?.data?.error?.message || 'Failed to push slot verification.');
+  } finally {
+    pushingVerification.value = false;
+  }
+};
+
+const onCancelSlotVerification = async () => {
+  const r = slotVerificationRequest.value;
+  if (!r?.id) return;
+  const ok = window.confirm('Cancel this pending slot verification request?');
+  if (!ok) return;
+  cancelingVerification.value = true;
+  try {
+    await slotVerification.cancelRequest(r.id);
+  } catch (e) {
+    window.alert(e?.response?.data?.error?.message || 'Failed to cancel slot verification.');
+  } finally {
+    cancelingVerification.value = false;
+  }
+};
+
+onMounted(() => {
+  if (canPushSlotVerify.value && props.schoolOrganizationId) {
+    slotVerification.fetchOrgRequests();
+  }
+});
+watch(
+  () => [props.schoolOrganizationId, canPushSlotVerify.value],
+  () => {
+    if (canPushSlotVerify.value && props.schoolOrganizationId) {
+      slotVerification.fetchOrgRequests({ force: true });
+    }
+  }
+);
+
 onMounted(() => {
   try {
     const saved = window.localStorage.getItem('schoolPortalClientLabelMode');
@@ -1216,7 +1326,32 @@ watch(
   color: var(--text-secondary, #64748b);
   opacity: 0.9;
 }
- .hero-actions { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+ .hero-actions { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.status-pill.status-warning {
+  border-color: rgba(245, 158, 11, 0.65);
+  background: rgba(245, 158, 11, 0.10);
+  color: #92400e;
+}
+.status-pill.status-success {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.10);
+  color: #065f46;
+}
+.status-pill.status-muted {
+  color: var(--text-secondary);
+}
 .blurb {
   margin-top: 10px;
   border: 1px solid var(--border);

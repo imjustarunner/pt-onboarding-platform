@@ -32,6 +32,24 @@
             <option value="afternoon">Afternoon</option>
           </select>
         </label>
+        <span
+          v-if="slotVerificationLabel"
+          class="status-pill"
+          :class="slotVerificationVariantClass"
+          :title="slotVerificationTooltip"
+        >
+          {{ slotVerificationLabel }}
+        </span>
+        <button
+          v-if="canPushSlotVerify"
+          class="btn btn-secondary btn-sm"
+          type="button"
+          :disabled="pushingVerification"
+          @click="onPushSlotVerification"
+          title="Send a slot verification request to this provider"
+        >
+          {{ pushingVerification ? 'Sending…' : (slotVerificationIsPending ? 'Re-push verify' : 'Push slot verify') }}
+        </button>
         <button class="btn btn-secondary btn-sm" type="button" @click="collapsed = !collapsed">
           {{ collapsed ? 'Expand' : 'Collapse' }}
         </button>
@@ -82,14 +100,21 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import ClientInitialsList from './ClientInitialsList.vue';
 import SoftScheduleEditor from './SoftScheduleEditor.vue';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
+import {
+  useSlotVerification,
+  canPushSlotVerification,
+  statusPillText,
+  statusPillVariant
+} from '../../../composables/useSlotVerification';
 
 const props = defineProps({
   provider: { type: Object, required: true },
   weekday: { type: String, default: '' },
+  schoolOrganizationId: { type: [Number, String], default: null },
   caseloadClients: { type: Array, default: () => [] },
   slots: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
@@ -168,6 +193,60 @@ const handleOpenClient = (client) => {
     navigationClientIds: (props.caseloadClients || []).map((entry) => Number(entry?.id || 0)).filter(Boolean)
   });
 };
+
+const schoolOrgIdRef = computed(() => props.schoolOrganizationId);
+const slotVerification = useSlotVerification(schoolOrgIdRef);
+const canPushSlotVerify = computed(() => (
+  !!props.schoolOrganizationId && canPushSlotVerification(props.currentUserRole)
+));
+
+const slotVerificationRequest = computed(() => slotVerification.requestForProvider(props.provider?.provider_user_id));
+const slotVerificationLabel = computed(() => statusPillText(slotVerificationRequest.value));
+const slotVerificationVariantClass = computed(() => {
+  const v = statusPillVariant(slotVerificationRequest.value);
+  return v ? `status-${v}` : '';
+});
+const slotVerificationIsPending = computed(() => (
+  String(slotVerificationRequest.value?.status || '').toUpperCase() === 'PENDING'
+));
+const slotVerificationTooltip = computed(() => {
+  const r = slotVerificationRequest.value;
+  if (!r) return '';
+  const status = String(r.status || '').toUpperCase();
+  const when = r.created_at ? new Date(r.created_at).toLocaleString() : '';
+  if (status === 'PENDING') return `Verification pending since ${when}`;
+  if (status === 'CONFIRMED') return 'Provider confirmed slots';
+  if (status === 'CHANGES_REQUESTED') return 'Provider requested slot changes';
+  if (status === 'CANCELLED') return 'Verification cancelled';
+  return '';
+});
+
+const pushingVerification = ref(false);
+const onPushSlotVerification = async () => {
+  const id = Number(props.provider?.provider_user_id || 0);
+  if (!id) return;
+  if (slotVerificationIsPending.value) {
+    const ok = window.confirm('There is already a pending verification for this provider. Push another reminder?');
+    if (!ok) return;
+  }
+  const note = window.prompt('Optional message to include with this verification request (visible to the provider). Leave blank to send default.', '');
+  if (note === null) return;
+  pushingVerification.value = true;
+  try {
+    await slotVerification.pushVerification(id, { message: String(note || '').trim() });
+  } catch (e) {
+    window.alert(e?.response?.data?.error?.message || 'Failed to push slot verification.');
+  } finally {
+    pushingVerification.value = false;
+  }
+};
+
+onMounted(() => {
+  if (canPushSlotVerify.value) slotVerification.fetchOrgRequests();
+});
+watch(() => props.schoolOrganizationId, () => {
+  if (canPushSlotVerify.value) slotVerification.fetchOrgRequests({ force: true });
+});
 </script>
 
 <style scoped>
@@ -241,6 +320,33 @@ const handleOpenClient = (client) => {
   display: flex;
   gap: 10px;
   align-items: end;
+  flex-wrap: wrap;
+}
+.status-pill {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.status-pill.status-warning {
+  border-color: rgba(245, 158, 11, 0.65);
+  background: rgba(245, 158, 11, 0.10);
+  color: #92400e;
+}
+.status-pill.status-success {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.10);
+  color: #065f46;
+}
+.status-pill.status-muted {
+  color: var(--text-secondary);
 }
 .section {
   display: grid;
