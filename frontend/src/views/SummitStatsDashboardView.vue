@@ -7,6 +7,12 @@
       tone="warm"
     />
     <SeasonAnnouncementSplash v-if="!isSuperadminPreview" />
+    <ClubAddSeasonModal
+      :open="showAddSeasonModal"
+      :club-id="previewedClubId"
+      @close="showAddSeasonModal = false"
+      @created="onAddSeasonCreated"
+    />
     <AnnounceSeasonModal
       v-if="announceModalSeason"
       :club-id="announceModalSeason.clubId"
@@ -139,9 +145,22 @@
           <h2>Current and Upcoming Seasons</h2>
           <p>What's live now or coming up — stats here are for each season you're in.</p>
         </div>
-        <div v-if="onlinePillClubId" class="section-header-online">
-          <OnlineMembersPill :club-id="onlinePillClubId" />
+        <div class="section-header-actions">
+          <button
+            v-if="showSuperAdminClubTools"
+            type="button"
+            class="btn btn-primary btn-sm"
+            @click="openAddSeasonForPreviewedClub"
+            :title="`Start a new season for ${previewedClubName || 'this club'}`"
+          >🏁 Start a new season</button>
+          <div v-if="onlinePillClubId" class="section-header-online">
+            <OnlineMembersPill :club-id="onlinePillClubId" />
+          </div>
         </div>
+      </div>
+      <div v-if="showSuperAdminClubTools" class="superadmin-club-helper" role="note">
+        <span class="pill pill--accent">Super admin</span>
+        Helping <strong>{{ previewedClubName || 'this club' }}</strong> get set up — you can start their first season, edit it, and send the launch announcement on their behalf.
       </div>
       <div v-if="currentSeasons.length" class="season-list">
         <div
@@ -226,13 +245,13 @@
                 :class-id="season.classId"
                 source="dashboard_current"
               />
-              <template v-if="isManagedClub(season.clubId) && !isSuperadminPreview">
+              <template v-if="canManageThisClub(season.clubId)">
                 <router-link
-                  :to="`/${navSlug}/club/seasons?manageSeason=${season.classId}`"
+                  :to="appendPreviewQueryToRoute(`/${navSlug}/club/seasons?manageSeason=${season.classId}`)"
                   class="btn btn-secondary btn-sm"
                 >Manage</router-link>
                 <router-link
-                  :to="`/${navSlug}/club/seasons?editSeason=${season.classId}`"
+                  :to="appendPreviewQueryToRoute(`/${navSlug}/club/seasons?editSeason=${season.classId}`)"
                   class="btn btn-secondary btn-sm"
                 >Edit</router-link>
                 <button
@@ -440,7 +459,7 @@
                 Open Club
               </button>
               <button
-                v-if="isManagedClub(membership.clubId)"
+                v-if="canManageThisClub(membership.clubId)"
                 type="button"
                 class="btn btn-secondary btn-sm"
                 @click="switchToClubContext(membership.clubId, 'settings')"
@@ -845,6 +864,7 @@ import SeasonParticipationPill from '../components/sstc/SeasonParticipationPill.
 import SeasonAnnouncementSplash from '../components/sstc/SeasonAnnouncementSplash.vue';
 import AnnounceSeasonModal from '../components/sstc/AnnounceSeasonModal.vue';
 import ClubDismissalsCard from '../components/sstc/ClubDismissalsCard.vue';
+import ClubAddSeasonModal from '../components/club/ClubAddSeasonModal.vue';
 import {
   AVERAGE_MILES_PER_WEEK_OPTIONS,
   PHYSICAL_ACTIVITY_HOURS_OPTIONS
@@ -1484,6 +1504,49 @@ const isManagedClub = (clubId) => {
   );
 };
 
+// Super admins can manage / start seasons for any club they preview, even
+// when they are not actually a manager or assistant manager of that club.
+// This lets them help a tenant get set up (kick off the first season,
+// announce it, edit settings) without having to manually grant themselves
+// a club-manager role first.
+const isSuperAdmin = computed(
+  () => String(authStore.user?.role || '').toLowerCase() === 'super_admin'
+);
+const canManageThisClub = (clubId) => {
+  if (isSuperAdmin.value) return true;
+  return isManagedClub(clubId);
+};
+// The club a super admin is currently previewing via the universal SSTC
+// switcher. Used to scope the "Start a new season" CTA below.
+const previewedClubId = computed(() => {
+  if (!isSuperAdmin.value) return null;
+  const cur = agencyStore.currentAgency;
+  if (!cur) return null;
+  const orgType = String(cur.organization_type || cur.organizationType || '').toLowerCase();
+  if (orgType !== 'affiliation') return null;
+  const id = Number(cur.id || 0);
+  return id > 0 ? id : null;
+});
+const previewedClubName = computed(
+  () => String(agencyStore.currentAgency?.name || '').trim()
+);
+// True when the previewed club is one the super admin is helping but does
+// NOT actually manage. This is what powers the dedicated super-admin
+// "set up a season" tools section.
+const showSuperAdminClubTools = computed(
+  () => !!previewedClubId.value && !isManagedClub(previewedClubId.value)
+);
+const showAddSeasonModal = ref(false);
+const openAddSeasonForPreviewedClub = () => {
+  if (!previewedClubId.value) return;
+  showAddSeasonModal.value = true;
+};
+const onAddSeasonCreated = async () => {
+  showAddSeasonModal.value = false;
+  // Refresh dashboard so the new season shows up immediately.
+  try { await loadDashboard(); } catch { /* non-fatal */ }
+};
+
 const scrollToAccountSnapshot = async () => {
   if (String(route.query?.view || '').trim().toLowerCase() !== 'account') return;
   await nextTick();
@@ -1731,6 +1794,40 @@ watch(
 
 .section-header-online {
   flex-shrink: 0;
+}
+
+.section-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.superadmin-club-helper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 8px 0 14px;
+  padding: 10px 14px;
+  background: #fff8e6;
+  border: 1px solid #f4d574;
+  border-left: 4px solid #d99a1c;
+  border-radius: 8px;
+  color: #5a3d05;
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.superadmin-club-helper .pill--accent {
+  background: #d99a1c;
+  color: #fff;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+  padding: 3px 8px;
 }
 
 .dashboard-hero-text {
