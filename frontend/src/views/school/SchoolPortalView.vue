@@ -35,6 +35,14 @@
               </option>
             </select>
           </div>
+          <router-link
+            v-if="canManageMarketingCampaigns"
+            to="/admin/marketing-campaigns"
+            class="btn btn-secondary btn-sm"
+            title="Manage campaigns shown on this portal"
+          >
+            📣 School Marketing Campaign
+          </router-link>
           <button
             v-if="isSchoolStaff"
             type="button"
@@ -1327,6 +1335,11 @@
     </div>
 
     <!-- Providers are now shown in-page via ProvidersDirectoryPanel -->
+
+    <SchoolMarketingSplash
+      v-if="!props.previewMode && organizationId"
+      :school-id="organizationId"
+    />
   </div>
 </template>
 
@@ -1358,6 +1371,7 @@ import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import OrganizationSettingsModal from '../../components/school/OrganizationSettingsModal.vue';
 import QuickChecklistModal from '../../components/school/QuickChecklistModal.vue';
 import SurveyPromptCard from '../../components/dashboard/SurveyPromptCard.vue';
+import SchoolMarketingSplash from '../../components/marketing/SchoolMarketingSplash.vue';
 import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
@@ -1763,6 +1777,10 @@ const hasSupervisorCapability = computed(() => isSupervisor(authStore.user));
 const isProvider = computed(() => roleNorm.value === 'provider' && !hasSupervisorCapability.value);
 const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value && roleNorm.value === 'provider');
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
+const canManageMarketingCampaigns = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return ['admin', 'super_admin', 'support'].includes(r);
+});
 const waiverGateStatus = ref(null);
 const waiverGateLocked = computed(() => (
   isSchoolStaff.value

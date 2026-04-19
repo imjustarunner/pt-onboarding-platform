@@ -22,6 +22,11 @@
         >
           Add school
         </button>
+        <router-link
+          v-if="canManageMarketingCampaigns"
+          to="/admin/marketing-campaigns"
+          class="btn btn-secondary"
+        >📣 School Marketing Campaign</router-link>
         <button
           class="btn btn-primary"
           type="button"
@@ -640,6 +645,10 @@ function onCardLogoError(schoolId) {
 }
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+const canManageMarketingCampaigns = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return ['admin', 'support', 'super_admin'].includes(r);
+});
 
 const orgType = computed(() => {
   const t = String(route.query?.orgType || '').trim().toLowerCase();

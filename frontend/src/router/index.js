@@ -1795,6 +1795,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff'] }
   },
   {
+    path: '/admin/marketing-campaigns',
+    name: 'AgencyMarketingCampaigns',
+    component: () => import('../views/admin/AgencyMarketingSplashAdminView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'] }
+  },
+  {
     path: '/admin/communications/sms',
     redirect: '/admin/communications'
   },

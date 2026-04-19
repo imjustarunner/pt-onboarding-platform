@@ -791,6 +791,17 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'school_marketing_campaigns',
+    title: 'School Marketing Campaigns',
+    description: 'Promote a public page, event, or program as a slide-out toast on every school portal',
+    to: '/admin/marketing-campaigns',
+    emoji: '📣',
+    iconKey: 'communications',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'progress_dashboard',
     title: 'Progress Dashboard',
     description: 'View and manage training progress, completion, and quiz scores',
@@ -1149,7 +1160,7 @@ const defaultQuickActionIds = computed(() => {
     'manage_clients',
     'management_team',
     ...((clinicalNoteGeneratorEnabledForAgency.value || !currentAgency.value) ? ['tools_aids', 'clinical_note_generator'] : []),
-    ...(canSeeSchoolPortalsQuickAction.value ? ['school_portals'] : []),
+    ...(canSeeSchoolPortalsQuickAction.value ? ['school_portals', 'school_marketing_campaigns'] : []),
     ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
     ...(bookClubEnabledForAgency.value ? ['book_club'] : []),
     'manage_modules',

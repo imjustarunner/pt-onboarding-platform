@@ -1201,6 +1201,46 @@ class StorageService {
   }
 
   /**
+   * Save a marketing splash flier (PDF / image) under a per-agency key. Used
+   * by the school marketing campaign feature; mirrors the school-public-doc
+   * pipeline so we get GCS persistence + signed-URL serving via /uploads/*.
+   */
+  static async saveAgencyMarketingFlier({ agencyId, splashId, uploadedByUserId, fileBuffer, filename, contentType }) {
+    const aid = parseInt(agencyId, 10);
+    const sid = parseInt(splashId, 10) || 'pending';
+    const sanitizedFilename = this.sanitizeFilename(filename || `marketing-flier-${Date.now()}.pdf`);
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const key = `uploads/agency_marketing_fliers/agency_${aid || 'unknown'}/splash_${sid}/${unique}-${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    await file.save(fileBuffer, {
+      contentType: contentType || 'application/pdf',
+      metadata: {
+        agencyId: String(aid || ''),
+        splashId: String(splashId || ''),
+        uploadedByUserId: String(uploadedByUserId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
+  static async deleteAgencyMarketingFlier(filenameOrKey) {
+    const key = String(filenameOrKey || '').trim();
+    if (!key) return;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    try {
+      await file.delete();
+    } catch (gcsError) {
+      if (gcsError?.code === 404) return;
+      throw new Error(`Failed to delete agency marketing flier from GCS: ${gcsError.message}`);
+    }
+  }
+
+  /**
    * Save a budget expense receipt to GCS under uploads/ so it can be served via /uploads/*.
    */
   static async saveBudgetExpenseReceipt(fileBuffer, filename, contentType = 'application/pdf') {
