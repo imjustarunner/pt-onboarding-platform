@@ -1497,6 +1497,33 @@ const buildAnswersPdfBuffer = async ({ link, intakeData }) => {
     y = pageSize[1] - margin;
   }
 
+  // Multi-client signature consent audit trail. When the parent added 2+
+  // children to one packet, they explicitly agreed (in the wizard) that
+  // their signatures and releases apply to every child. Print the agreement
+  // here so the staff-visible answers PDF carries the proof.
+  const multiClientConsent = intakeData?.multiClientSignatureConsent || null;
+  if (multiClientConsent && multiClientConsent.accepted) {
+    const consentHeading = wrapText('Multi-child Signature Consent', fontBold, 16, maxWidth);
+    consentHeading.forEach((line) => {
+      page.drawText(line, { x: margin, y, size: 16, font: fontBold, color: rgb(0, 0, 0) });
+      newLine(16);
+    });
+    newLine(6);
+    const consentLines = [
+      `Children covered: ${Number(multiClientConsent.clientCount) || (Array.isArray(intakeData?.clients) ? intakeData.clients.length : '—')}`,
+      `Agreed at: ${multiClientConsent.acceptedAt || '—'}`,
+      'Acknowledgment: The parent/guardian agreed that the signatures and releases captured in this packet apply equally to every child listed. Each child receives their own packet PDF, automatically populated with that child\'s identifying information (name, date of birth, etc.).'
+    ];
+    consentLines.forEach((line) => {
+      const wrapped = wrapText(line, font, 11, maxWidth);
+      wrapped.forEach((w) => {
+        page.drawText(w, { x: margin, y, size: 11, font, color: rgb(0, 0, 0) });
+        newLine(11);
+      });
+    });
+    newLine(10);
+  }
+
   const headerLines = wrapText(pdfStrings.intakeResponses, fontBold, 18, maxWidth);
   headerLines.forEach((line) => {
     page.drawText(line, { x: margin, y, size: 18, font: fontBold, color: rgb(0, 0, 0) });
@@ -5434,6 +5461,26 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     const intakeClientRows = [];
     const isMultiClient = rawClients.length > 1;
+    // Multi-client signature consent audit. The frontend prompts the parent
+    // to explicitly agree before adding a 2nd+ child to a single packet.
+    // Log the result either way so we can spot any client (or a custom curl)
+    // that bypassed the prompt.
+    if (isMultiClient) {
+      const mcConsent = intakeData?.multiClientSignatureConsent || null;
+      if (mcConsent && mcConsent.accepted) {
+        console.log('[multi_child_signature_consent] parent agreed signatures apply to all children', {
+          submissionId,
+          clientCount: rawClients.length,
+          acceptedAt: mcConsent.acceptedAt || null
+        });
+      } else {
+        console.warn('[multi_child_signature_consent_missing] multi-client packet finalized without recorded consent — verify intake source / frontend version', {
+          submissionId,
+          clientCount: rawClients.length,
+          hasConsentField: !!mcConsent
+        });
+      }
+    }
     const docAuditByTemplate = new Map();
     // Index any per-child wizard signatures by (templateId, clientIndex) so
     // finalize can use the right pre-signed PDF for each child instead of
@@ -5664,32 +5711,44 @@ export const finalizePublicIntake = async (req, res, next) => {
 
       const mergePaths = clientPaths.length ? clientPaths : pdfPaths;
       if (mergePaths.length) {
-        const prefixBuffers = !clientPaths.length && answersPdf ? [answersPdf] : [];
-        const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(mergePaths, prefixBuffers);
-        const clientBundleResult = await StorageService.saveIntakeClientBundle({
-          submissionId,
-          clientId: clientPayload?.id || 'unknown',
-          fileBuffer: mergedClientPdf,
-          filename: `intake-client-${clientPayload?.id || 'unknown'}.pdf`
-        });
-        const clientBundleHash = DocumentSigningService.calculatePDFHash(mergedClientPdf);
-        const targetRow = intakeClientRows[i];
-        if (targetRow?.id) {
-          await IntakeSubmissionClient.updateById(targetRow.id, {
-            bundle_pdf_path: clientBundleResult.relativePath,
-            bundle_pdf_hash: clientBundleHash
+        // Per-client bundle build/upload is wrapped in its own try/catch so a
+        // single child's PDF problem (or transient GCS hiccup) does NOT abort
+        // the rest of the loop iteration — auto-mark, demographics persist,
+        // and the eventual completion email all still need to run.
+        try {
+          const prefixBuffers = !clientPaths.length && answersPdf ? [answersPdf] : [];
+          const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(mergePaths, prefixBuffers);
+          const clientBundleResult = await StorageService.saveIntakeClientBundle({
+            submissionId,
+            clientId: clientPayload?.id || 'unknown',
+            fileBuffer: mergedClientPdf,
+            filename: `intake-client-${clientPayload?.id || 'unknown'}.pdf`
           });
-          // Keep in-memory row in sync so the per-child packet attachment
-          // below can rely on bundle_pdf_path without re-querying.
-          targetRow.bundle_pdf_path = clientBundleResult.relativePath;
-          targetRow.bundle_pdf_hash = clientBundleHash;
+          const clientBundleHash = DocumentSigningService.calculatePDFHash(mergedClientPdf);
+          const targetRow = intakeClientRows[i];
+          if (targetRow?.id) {
+            await IntakeSubmissionClient.updateById(targetRow.id, {
+              bundle_pdf_path: clientBundleResult.relativePath,
+              bundle_pdf_hash: clientBundleHash
+            });
+            targetRow.bundle_pdf_path = clientBundleResult.relativePath;
+            targetRow.bundle_pdf_hash = clientBundleHash;
+          }
+          clientBundles.push({
+            clientId: clientPayload?.id || null,
+            clientName: clientPayload?.fullName || null,
+            filename: `intake-client-${clientPayload?.id || 'unknown'}.pdf`,
+            downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 7)
+          });
+        } catch (perClientBundleErr) {
+          console.error('[publicIntake] per-client bundle build/save failed (school-roi flow) — continuing so downstream side-effects (auto-mark, completion email) still run', {
+            submissionId,
+            clientId: clientPayload?.id || null,
+            mergePathCount: mergePaths.length,
+            error: perClientBundleErr?.message || perClientBundleErr,
+            stack: perClientBundleErr?.stack
+          });
         }
-        clientBundles.push({
-          clientId: clientPayload?.id || null,
-          clientName: clientPayload?.fullName || null,
-          filename: `intake-client-${clientPayload?.id || 'unknown'}.pdf`,
-          downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 7)
-        });
       }
 
       if (clientId) {
@@ -5782,22 +5841,38 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
 
     let downloadUrl = null;
+    let bundleResult = null;
+    let bundleSaveFailed = false;
     if (pdfPaths.length > 0) {
-      const mergedPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
-        pdfPaths,
-        answersPdf ? [answersPdf] : []
-      );
-      const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
-      const bundleResult = await StorageService.saveIntakeBundle({
-        submissionId,
-        fileBuffer: mergedPdf,
-        filename: `intake-bundle-${submissionId}.pdf`
-      });
-      await IntakeSubmission.updateById(submissionId, {
-        combined_pdf_path: bundleResult.relativePath,
-        combined_pdf_hash: bundleHash
-      });
-      downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 7);
+      // Combined-bundle build/upload is wrapped in its own try/catch so that
+      // a failure here does NOT abort the per-client Intake Packet PHI doc
+      // creation, the completion email, or the staff notifications below.
+      // Historically a silent GCS upload hang here orphaned the entire packet.
+      try {
+        const mergedPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
+          pdfPaths,
+          answersPdf ? [answersPdf] : []
+        );
+        const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
+        bundleResult = await StorageService.saveIntakeBundle({
+          submissionId,
+          fileBuffer: mergedPdf,
+          filename: `intake-bundle-${submissionId}.pdf`
+        });
+        await IntakeSubmission.updateById(submissionId, {
+          combined_pdf_path: bundleResult.relativePath,
+          combined_pdf_hash: bundleHash
+        });
+        downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 7);
+      } catch (combinedBundleErr) {
+        bundleSaveFailed = true;
+        console.error('[publicIntake] combined bundle build/save failed (school-roi flow) — continuing so per-client Intake Packet docs and completion email still go out', {
+          submissionId,
+          pdfPathCount: pdfPaths.length,
+          error: combinedBundleErr?.message || combinedBundleErr,
+          stack: combinedBundleErr?.stack
+        });
+      }
 
       // Multi-child safe per-client packet attachment.
       // We must NOT pass `bundleResult.relativePath` (the combined bundle) for
@@ -5821,11 +5896,13 @@ export const finalizePublicIntake = async (req, res, next) => {
         const perClientBundlePath = perClientRow?.bundle_pdf_path || null;
         const packetStoragePath = isMultiClientFinalize
           ? (perClientBundlePath || null)
-          : (perClientBundlePath || bundleResult.relativePath);
+          : (perClientBundlePath || bundleResult?.relativePath || null);
         if (!packetStoragePath) {
           packetFailures.push({
             clientId,
-            reason: 'missing_per_child_bundle_path',
+            reason: bundleSaveFailed && !perClientBundlePath
+              ? 'combined_bundle_save_failed'
+              : 'missing_per_child_bundle_path',
             multiChild: isMultiClientFinalize
           });
         } else {
@@ -6378,6 +6455,26 @@ export const submitPublicIntake = async (req, res, next) => {
     }
     const primaryClientName = String(rawClients?.[0]?.fullName || '').trim() || null;
 
+    // Multi-client signature consent audit (registration flow). Mirrors the
+    // school-roi flow above — we want a server-side breadcrumb either way so
+    // any unconsented multi-child packet is flagged for staff follow-up.
+    if (Array.isArray(rawClients) && rawClients.length > 1) {
+      const mcConsentReg = intakeData?.multiClientSignatureConsent || null;
+      if (mcConsentReg && mcConsentReg.accepted) {
+        console.log('[multi_child_signature_consent] parent agreed signatures apply to all children (registration flow)', {
+          submissionId,
+          clientCount: rawClients.length,
+          acceptedAt: mcConsentReg.acceptedAt || null
+        });
+      } else {
+        console.warn('[multi_child_signature_consent_missing] multi-client registration finalized without recorded consent — verify intake source / frontend version', {
+          submissionId,
+          clientCount: rawClients.length,
+          hasConsentField: !!mcConsentReg
+        });
+      }
+    }
+
     const intakeClientRows = [];
     for (const clientPayload of rawClients) {
       const clientId = clientPayload?.id || null;
@@ -6479,34 +6576,45 @@ export const submitPublicIntake = async (req, res, next) => {
       }
 
       if (clientPaths.length) {
-        const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(clientPaths);
-        const clientBundleResult = await StorageService.saveIntakeClientBundle({
-          submissionId,
-          clientId: clientId || 'unknown',
-          fileBuffer: mergedClientPdf,
-          filename: `intake-client-${clientId || 'unknown'}.pdf`
-        });
-        const clientBundleHash = DocumentSigningService.calculatePDFHash(mergedClientPdf);
-        if (intakeClientRows?.length) {
-          const targetRow = intakeClientRows[intakeClientRows.length - 1];
-          if (targetRow?.id) {
-            await IntakeSubmissionClient.updateById(targetRow.id, {
-              bundle_pdf_path: clientBundleResult.relativePath,
-              bundle_pdf_hash: clientBundleHash
-            });
-            // Keep in-memory row in sync so the per-child packet attachment
-            // (createIntakePacketDocument loop below) can use the per-child
-            // path and avoid the UNIQUE(storage_path) collision on child 2+.
-            targetRow.bundle_pdf_path = clientBundleResult.relativePath;
-            targetRow.bundle_pdf_hash = clientBundleHash;
+        // Per-client bundle build/upload is wrapped in its own try/catch so a
+        // single child's PDF problem (or transient GCS hiccup) does NOT abort
+        // the rest of the loop iteration — auto-mark, demographics persist,
+        // and the eventual completion email all still need to run.
+        try {
+          const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(clientPaths);
+          const clientBundleResult = await StorageService.saveIntakeClientBundle({
+            submissionId,
+            clientId: clientId || 'unknown',
+            fileBuffer: mergedClientPdf,
+            filename: `intake-client-${clientId || 'unknown'}.pdf`
+          });
+          const clientBundleHash = DocumentSigningService.calculatePDFHash(mergedClientPdf);
+          if (intakeClientRows?.length) {
+            const targetRow = intakeClientRows[intakeClientRows.length - 1];
+            if (targetRow?.id) {
+              await IntakeSubmissionClient.updateById(targetRow.id, {
+                bundle_pdf_path: clientBundleResult.relativePath,
+                bundle_pdf_hash: clientBundleHash
+              });
+              targetRow.bundle_pdf_path = clientBundleResult.relativePath;
+              targetRow.bundle_pdf_hash = clientBundleHash;
+            }
           }
+          clientBundles.push({
+            clientId,
+            clientName,
+            filename: `intake-client-${clientId || 'unknown'}.pdf`,
+            downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 7)
+          });
+        } catch (perClientBundleErr) {
+          console.error('[publicIntake] per-client bundle build/save failed (registration flow) — continuing so downstream side-effects (auto-mark, completion email) still run', {
+            submissionId,
+            clientId: clientId || null,
+            mergePathCount: clientPaths.length,
+            error: perClientBundleErr?.message || perClientBundleErr,
+            stack: perClientBundleErr?.stack
+          });
         }
-        clientBundles.push({
-          clientId,
-          clientName,
-          filename: `intake-client-${clientId || 'unknown'}.pdf`,
-          downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 7)
-        });
       }
 
       if (clientId) {
@@ -6551,22 +6659,38 @@ export const submitPublicIntake = async (req, res, next) => {
     const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
 
     let downloadUrl = null;
+    let bundleResult = null;
+    let bundleSaveFailed = false;
     if (pdfPaths.length > 0) {
-      const mergedPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
-        pdfPaths,
-        answersPdf ? [answersPdf] : []
-      );
-      const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
-      const bundleResult = await StorageService.saveIntakeBundle({
-        submissionId,
-        fileBuffer: mergedPdf,
-        filename: `intake-bundle-${submissionId}.pdf`
-      });
-      await IntakeSubmission.updateById(submissionId, {
-        combined_pdf_path: bundleResult.relativePath,
-        combined_pdf_hash: bundleHash
-      });
-      downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 7);
+      // Combined-bundle build/upload is wrapped in its own try/catch so a
+      // failure here does NOT abort per-client Intake Packet PHI doc creation
+      // or the completion email. (See school-roi flow above for the parallel
+      // implementation; same hard-learned lesson.)
+      try {
+        const mergedPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
+          pdfPaths,
+          answersPdf ? [answersPdf] : []
+        );
+        const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
+        bundleResult = await StorageService.saveIntakeBundle({
+          submissionId,
+          fileBuffer: mergedPdf,
+          filename: `intake-bundle-${submissionId}.pdf`
+        });
+        await IntakeSubmission.updateById(submissionId, {
+          combined_pdf_path: bundleResult.relativePath,
+          combined_pdf_hash: bundleHash
+        });
+        downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 7);
+      } catch (combinedBundleErr) {
+        bundleSaveFailed = true;
+        console.error('[publicIntake] combined bundle build/save failed (registration flow) — continuing so per-client Intake Packet docs and completion email still go out', {
+          submissionId,
+          pdfPathCount: pdfPaths.length,
+          error: combinedBundleErr?.message || combinedBundleErr,
+          stack: combinedBundleErr?.stack
+        });
+      }
 
       // Multi-child safe per-client packet attachment.
       // See createIntakePacketDocument doc comment — combined bundle path
@@ -6587,11 +6711,13 @@ export const submitPublicIntake = async (req, res, next) => {
         const perClientBundlePath = perClientRow?.bundle_pdf_path || null;
         const packetStoragePath = isMultiClientFinalize
           ? (perClientBundlePath || null)
-          : (perClientBundlePath || bundleResult.relativePath);
+          : (perClientBundlePath || bundleResult?.relativePath || null);
         if (!packetStoragePath) {
           packetFailures.push({
             clientId,
-            reason: 'missing_per_child_bundle_path',
+            reason: bundleSaveFailed && !perClientBundlePath
+              ? 'combined_bundle_save_failed'
+              : 'missing_per_child_bundle_path',
             multiChild: isMultiClientFinalize
           });
         } else {

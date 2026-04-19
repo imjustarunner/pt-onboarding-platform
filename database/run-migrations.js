@@ -115,7 +115,65 @@ async function recordMigration(migrationName, success, executionTime, errorMessa
   );
 }
 
-// Run a single migration
+/**
+ * Split a SQL string on `;` boundaries, respecting:
+ *   - single-quoted strings (with escaped '' pairs)
+ *   - double-quoted strings (with escaped "" pairs)
+ *   - backtick-quoted identifiers
+ *
+ * Does NOT try to handle delimiter-changing statements (DELIMITER //) — none
+ * of our migrations use them. Multi-line `/-* ... *-/` comments are ignored
+ * and treated as opaque text since no current migration relies on them and
+ * MySQL accepts them in any context.
+ */
+function splitSqlStatements(sql) {
+  const out = [];
+  let buf = '';
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  for (let i = 0; i < sql.length; i += 1) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+    if (inSingle) {
+      buf += ch;
+      if (ch === '\\' && next != null) { buf += next; i += 1; continue; }
+      if (ch === "'") {
+        if (next === "'") { buf += next; i += 1; continue; }
+        inSingle = false;
+      }
+      continue;
+    }
+    if (inDouble) {
+      buf += ch;
+      if (ch === '\\' && next != null) { buf += next; i += 1; continue; }
+      if (ch === '"') {
+        if (next === '"') { buf += next; i += 1; continue; }
+        inDouble = false;
+      }
+      continue;
+    }
+    if (inBacktick) {
+      buf += ch;
+      if (ch === '`') inBacktick = false;
+      continue;
+    }
+    if (ch === "'") { inSingle = true; buf += ch; continue; }
+    if (ch === '"') { inDouble = true; buf += ch; continue; }
+    if (ch === '`') { inBacktick = true; buf += ch; continue; }
+    if (ch === ';') {
+      const trimmed = buf.trim();
+      if (trimmed) out.push(trimmed);
+      buf = '';
+      continue;
+    }
+    buf += ch;
+  }
+  const tail = buf.trim();
+  if (tail) out.push(tail);
+  return out;
+}
+
 async function runMigration(migrationFile, dryRun = false) {
   const migrationPath = path.join(MIGRATIONS_DIR, migrationFile);
   const migrationName = path.basename(migrationFile, '.sql');
@@ -132,10 +190,11 @@ async function runMigration(migrationFile, dryRun = false) {
       return line;
     })
     .join('\n');
-  const statements = sqlWithoutLineComments
-    .split(';')
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
+  // Naive `split(';')` blew up migration 731 because a column COMMENT contained
+  // a literal `;` ('Hex like #4f46e5; falls back to ...'). Walk the SQL once
+  // and only split on `;` that are NOT inside a quoted string so future
+  // migrations can safely include semicolons in COMMENT/ENUM/DEFAULT values.
+  const statements = splitSqlStatements(sqlWithoutLineComments);
   
   console.log(`\n${dryRun ? '[DRY RUN] ' : ''}Running migration: ${migrationName}`);
   console.log(`  File: ${migrationFile}`);

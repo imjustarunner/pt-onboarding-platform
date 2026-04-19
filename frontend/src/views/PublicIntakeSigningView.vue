@@ -317,6 +317,85 @@
           <div class="muted">This signing link is already assigned to this client.</div>
         </div>
 
+        <div
+          v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound && !intakeForSelf"
+          class="multi-client-plan-block"
+        >
+          <h4>{{ t('multiClientPlanTitle') }}</h4>
+          <p class="muted multi-client-plan-desc">{{ t('multiClientPlanDesc') }}</p>
+          <div class="radio-group">
+            <label class="radio-row">
+              <input
+                type="radio"
+                name="multiClientPlan"
+                value="one"
+                :checked="multiClientPlanChoice === 'one'"
+                @change="onSelectMultiClientPlan('one')"
+              />
+              <span>{{ t('multiClientPlanOne') }}</span>
+            </label>
+            <label class="radio-row">
+              <input
+                type="radio"
+                name="multiClientPlan"
+                value="multiple"
+                :checked="multiClientPlanChoice === 'multiple'"
+                @change="onSelectMultiClientPlan('multiple')"
+              />
+              <span>{{ t('multiClientPlanMultiple') }}</span>
+            </label>
+          </div>
+
+          <div
+            v-if="multiClientConsentDialogOpen"
+            class="multi-client-consent-panel"
+            role="dialog"
+            aria-live="polite"
+          >
+            <h4>{{ t('multiClientConsentTitle') }}</h4>
+            <p>{{ t('multiClientConsentBody') }}</p>
+            <ul class="multi-client-consent-bullets">
+              <li>{{ t('multiClientConsentBullet1') }}</li>
+              <li>{{ t('multiClientConsentBullet2') }}</li>
+              <li>{{ t('multiClientConsentBullet3') }}</li>
+            </ul>
+            <div class="multi-client-consent-actions">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                @click="acceptMultiClientConsent"
+              >{{ t('multiClientConsentAccept') }}</button>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                @click="declineMultiClientConsent"
+              >{{ t('multiClientConsentDecline') }}</button>
+            </div>
+          </div>
+
+          <div
+            v-if="multiClientConsentDeclined && !multiClientConsentDialogOpen"
+            class="multi-client-decline-notice"
+            role="status"
+            aria-live="polite"
+          >
+            <p>{{ t('multiClientDeclineNotice') }}</p>
+            <button
+              type="button"
+              class="btn btn-link btn-sm"
+              @click="dismissMultiClientDeclineNotice"
+            >{{ t('multiClientDeclineDismiss') }}</button>
+          </div>
+
+          <div
+            v-if="multiClientConsentAccepted && multiClientPlanChoice === 'multiple' && !multiClientConsentDialogOpen"
+            class="multi-client-consent-confirmed muted"
+            aria-live="polite"
+          >
+            {{ t('multiClientConsentConfirmed') }}
+          </div>
+        </div>
+
         <div v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound && !intakeForSelf" class="clients-block">
           <div class="clients-header">
             <h4>{{ intakeForSelf ? t('client') : t('clients') }}</h4>
@@ -412,7 +491,12 @@
           </div>
 
           <div v-if="!intakeForSelf" class="clients-footer">
-            <button class="btn btn-secondary btn-sm" type="button" @click="addClient">{{ t('addAnotherChild') }}</button>
+            <button
+              class="btn btn-secondary btn-sm"
+              type="button"
+              :disabled="multiClientConsentDialogOpen"
+              @click="onClickAddClient"
+            >{{ t('addAnotherChild') }}</button>
             <div class="muted">{{ t('addAnotherDesc') }}</div>
           </div>
         </div>
@@ -1342,6 +1426,20 @@ const INTAKE_TRANSLATIONS = {
     clientQuestionsDesc: 'These questions repeat for each client.',
     addAnotherChild: 'Add another child',
     addAnotherDesc: 'Add another client or continue below.',
+    multiClientPlanTitle: 'How many children are you submitting today?',
+    multiClientPlanDesc: 'Pick this now so you don\'t have to redo any answers later. You can change this anytime before submitting.',
+    multiClientPlanOne: 'Just one child',
+    multiClientPlanMultiple: 'Two or more children (one shared signing session)',
+    multiClientConsentTitle: 'Adding another child',
+    multiClientConsentBody: 'Before you add another child to this same packet, please confirm that you understand:',
+    multiClientConsentBullet1: 'You will sign each form once. The same signatures and releases will apply to every child you add.',
+    multiClientConsentBullet2: 'Each child will get their own signed packet, automatically filled in with that child\'s name, date of birth, and other details.',
+    multiClientConsentBullet3: 'You can request changes later by contacting our office.',
+    multiClientConsentAccept: 'Yes, the same signatures apply to both children',
+    multiClientConsentDecline: 'No, I want to sign separately for each child',
+    multiClientConsentConfirmed: 'You agreed that the signatures and releases apply to every child added here.',
+    multiClientDeclineNotice: 'No problem. Please finish this child\'s packet first. You can then start a fresh packet from the same link to sign separately for the other child.',
+    multiClientDeclineDismiss: 'Got it',
     additionalQuestions: 'Additional Questions',
     remove: 'Remove',
     clientN: 'Client',
@@ -1471,6 +1569,20 @@ const INTAKE_TRANSLATIONS = {
     clientQuestionsDesc: 'Estas preguntas se repiten para cada cliente.',
     addAnotherChild: 'Agregar otro hijo',
     addAnotherDesc: 'Agregue otro cliente o continúe abajo.',
+    multiClientPlanTitle: '¿Cuántos niños va a inscribir hoy?',
+    multiClientPlanDesc: 'Elija ahora para no tener que volver a llenar las respuestas más tarde. Puede cambiar esto en cualquier momento antes de enviar.',
+    multiClientPlanOne: 'Solo un niño',
+    multiClientPlanMultiple: 'Dos o más niños (una sola sesión de firma compartida)',
+    multiClientConsentTitle: 'Agregar otro niño',
+    multiClientConsentBody: 'Antes de agregar otro niño al mismo paquete, confirme que entiende:',
+    multiClientConsentBullet1: 'Firmará cada formulario una sola vez. Las mismas firmas y autorizaciones se aplicarán a cada niño que agregue.',
+    multiClientConsentBullet2: 'Cada niño recibirá su propio paquete firmado, completado automáticamente con su nombre, fecha de nacimiento y otros datos.',
+    multiClientConsentBullet3: 'Puede solicitar cambios más adelante comunicándose con nuestra oficina.',
+    multiClientConsentAccept: 'Sí, las mismas firmas se aplican a ambos niños',
+    multiClientConsentDecline: 'No, quiero firmar por separado para cada niño',
+    multiClientConsentConfirmed: 'Usted aceptó que las firmas y autorizaciones se aplican a todos los niños agregados aquí.',
+    multiClientDeclineNotice: 'No hay problema. Termine primero el paquete de este niño. Luego puede iniciar un paquete nuevo desde el mismo enlace para firmar por separado para el otro niño.',
+    multiClientDeclineDismiss: 'Entendido',
     additionalQuestions: 'Preguntas adicionales',
     remove: 'Eliminar',
     clientN: 'Cliente',
@@ -2476,7 +2588,13 @@ const buildDraftSnapshot = () => ({
     submission: intakeResponses.submission || {},
     clients: intakeResponses.clients || []
   },
-  embeddedSmartSchoolRoi: embeddedSmartSchoolRoi.value || null
+  embeddedSmartSchoolRoi: embeddedSmartSchoolRoi.value || null,
+  multiClientPlan: {
+    choice: multiClientPlanChoice.value || 'one',
+    consentAccepted: !!multiClientConsentAccepted.value,
+    consentAcceptedAt: multiClientConsentAcceptedAt.value || '',
+    upfront: !!multiClientUpfrontPlan.value
+  }
 });
 
 const persistDraftSnapshot = () => {
@@ -2591,6 +2709,17 @@ const restoreDraftSnapshot = () => {
     if (typeof parsed.intakeForSelf === 'boolean') intakeForSelf.value = parsed.intakeForSelf;
     if (parsed.organizationId !== null && parsed.organizationId !== undefined) {
       organizationId.value = parsed.organizationId;
+    }
+    // Restore the upfront multi-client plan + consent state so a refresh
+    // mid-flow doesn't lose the parent's earlier "yes, multiple kids" answer.
+    if (parsed.multiClientPlan && typeof parsed.multiClientPlan === 'object') {
+      const mcp = parsed.multiClientPlan;
+      if (mcp.choice === 'multiple' || mcp.choice === 'one') {
+        multiClientPlanChoice.value = mcp.choice;
+      }
+      multiClientConsentAccepted.value = !!mcp.consentAccepted;
+      multiClientConsentAcceptedAt.value = String(mcp.consentAcceptedAt || '');
+      multiClientUpfrontPlan.value = !!mcp.upfront;
     }
     guardianFirstName.value = String(parsed.guardian?.firstName || guardianFirstName.value || '');
     guardianLastName.value = String(parsed.guardian?.lastName || guardianLastName.value || '');
@@ -4247,6 +4376,16 @@ const finalizePacket = async () => {
           relationship: guardianRelationship.value
         },
         approval: approvalContext.value || null,
+        // Audit trail for the multi-client signature consent prompt. Only
+        // populated when the parent added 2+ clients via the consent flow.
+        multiClientSignatureConsent: clients.value.length > 1
+          ? {
+              accepted: !!multiClientConsentAccepted.value,
+              acceptedAt: multiClientConsentAcceptedAt.value || null,
+              clientCount: clients.value.length,
+              version: 1
+            }
+          : null,
         smartSchoolRoi: embeddedSmartSchoolRoi.value || null,
         coverLetterText: String(coverLetterPastedText.value || '').trim() || null,
         referencesJson: referencesEntries.value
@@ -4487,9 +4626,117 @@ const addClient = () => {
   intakeResponses.clients.push({});
 };
 
+// Multi-client signature consent: parents must explicitly agree that their
+// signatures and releases will apply to every child added in this session
+// before we let them tack a 2nd+ client onto the same packet. Recorded in
+// the encrypted intakeData payload so we have an audit trail.
+//
+// IMPORTANT: this is asked UPFRONT (before per-client questions) so a parent
+// who plans to enroll multiple kids doesn't fill out child 1's questions
+// only to discover they'd rather sign separately and have to start over.
+const multiClientConsentAccepted = ref(false);
+const multiClientConsentAcceptedAt = ref('');
+const multiClientConsentDeclined = ref(false);
+const multiClientConsentDialogOpen = ref(false);
+// 'one' | 'multiple' | '' (unset). Drives the upfront radio. When the parent
+// switches to 'multiple' we open the consent panel; on accept we pre-create
+// the 2nd client slot so they can fill out both at once.
+const multiClientPlanChoice = ref('one');
+// Tracks whether the upfront prompt drove the consent accept (so removeClient
+// doesn't snap them back to a 1-child state and erase that decision).
+const multiClientUpfrontPlan = ref(false);
+
+const onSelectMultiClientPlan = (choice) => {
+  if (choice === 'one') {
+    multiClientPlanChoice.value = 'one';
+    multiClientConsentDialogOpen.value = false;
+    multiClientConsentDeclined.value = false;
+    multiClientUpfrontPlan.value = false;
+    // Trim back to a single child if they previously expanded.
+    while (clients.value.length > 1) {
+      clients.value.pop();
+      intakeResponses.clients.pop();
+    }
+    multiClientConsentAccepted.value = false;
+    multiClientConsentAcceptedAt.value = '';
+    return;
+  }
+  // choice === 'multiple'
+  multiClientPlanChoice.value = 'multiple';
+  multiClientConsentDeclined.value = false;
+  if (multiClientConsentAccepted.value) {
+    // Already accepted earlier in this session — just make sure there are
+    // at least 2 client slots ready to fill out.
+    if (clients.value.length < 2) addClient();
+    return;
+  }
+  multiClientConsentDialogOpen.value = true;
+};
+
+const onClickAddClient = () => {
+  if (multiClientConsentAccepted.value) {
+    addClient();
+    return;
+  }
+  // Mind-change path: parent originally said "just one" upfront and is now
+  // clicking the bottom "Add another child" button. Re-open the consent
+  // panel inside the upfront plan block AND scroll to it so they don't
+  // miss the prompt rendered far above their current scroll position.
+  multiClientPlanChoice.value = 'multiple';
+  multiClientConsentDeclined.value = false;
+  multiClientConsentDialogOpen.value = true;
+  // Defer until the panel renders, then scroll it into view.
+  setTimeout(() => {
+    try {
+      const el = document.querySelector('.multi-client-plan-block');
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    } catch { /* best-effort */ }
+  }, 30);
+};
+
+const acceptMultiClientConsent = () => {
+  multiClientConsentAccepted.value = true;
+  multiClientConsentAcceptedAt.value = new Date().toISOString();
+  multiClientConsentDeclined.value = false;
+  multiClientConsentDialogOpen.value = false;
+  if (multiClientPlanChoice.value === 'multiple') {
+    multiClientUpfrontPlan.value = true;
+    if (clients.value.length < 2) addClient();
+  } else {
+    addClient();
+  }
+};
+
+const declineMultiClientConsent = () => {
+  multiClientConsentDeclined.value = true;
+  multiClientConsentDialogOpen.value = false;
+  // If the upfront radio drove this prompt, snap the choice back to 'one'
+  // so the UI reflects the parent's actual plan and they can continue with
+  // a single-child packet without confusion.
+  if (multiClientPlanChoice.value === 'multiple') {
+    multiClientPlanChoice.value = 'one';
+  }
+};
+
+const dismissMultiClientDeclineNotice = () => {
+  multiClientConsentDeclined.value = false;
+};
+
 const removeClient = (idx) => {
   clients.value.splice(idx, 1);
   intakeResponses.clients.splice(idx, 1);
+  // If they removed everyone except the primary child, drop the consent so
+  // the next addition prompts again. (Defense against accidental "yes".)
+  if (clients.value.length <= 1) {
+    multiClientConsentAccepted.value = false;
+    multiClientConsentAcceptedAt.value = '';
+    if (multiClientUpfrontPlan.value) {
+      multiClientPlanChoice.value = 'one';
+      multiClientUpfrontPlan.value = false;
+    }
+  }
 };
 
 const initializeFieldValues = () => {
@@ -5219,8 +5466,73 @@ onBeforeUnmount(() => {
 }
 .clients-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
+}
+.multi-client-plan-block {
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 4px solid #2c80bc;
+  background: #f7fbff;
+  border-radius: 10px;
+}
+.multi-client-plan-block h4 {
+  margin: 0 0 4px 0;
+  font-size: 15px;
+  color: #1d4f73;
+}
+.multi-client-plan-desc {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+}
+.multi-client-consent-panel {
+  flex-basis: 100%;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid #f0c66d;
+  background: #fff8e6;
+  border-radius: 10px;
+}
+.multi-client-consent-panel h4 {
+  margin: 0 0 6px 0;
+  font-size: 15px;
+  color: #8a6d1d;
+}
+.multi-client-consent-panel p {
+  margin: 0 0 8px 0;
+  color: #5b4a17;
+}
+.multi-client-consent-bullets {
+  margin: 0 0 12px 18px;
+  padding: 0;
+  color: #5b4a17;
+}
+.multi-client-consent-bullets li {
+  margin: 4px 0;
+}
+.multi-client-consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.multi-client-decline-notice {
+  flex-basis: 100%;
+  margin-top: 6px;
+  padding: 12px 14px;
+  border: 1px solid #cfd9e3;
+  background: #f4f7fb;
+  border-radius: 10px;
+  color: #2c3e50;
+}
+.multi-client-decline-notice p {
+  margin: 0 0 6px 0;
+}
+.multi-client-consent-confirmed {
+  flex-basis: 100%;
+  font-size: 12px;
+  font-style: italic;
 }
 .client-card {
   border: 1px solid var(--border);

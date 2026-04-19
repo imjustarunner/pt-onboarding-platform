@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS agency_marketing_splashes (
   subtitle          VARCHAR(240) NULL,
   body              TEXT         NULL,
   cta_label         VARCHAR(64)  NULL,
-  accent_color      VARCHAR(16)  NULL  COMMENT 'Hex like #4f46e5; falls back to agency brand',
+  accent_color      VARCHAR(16)  NULL  COMMENT 'Hex like #4f46e5 - falls back to agency brand',
   logo_path         VARCHAR(512) NULL,
   flier_path        VARCHAR(512) NULL  COMMENT 'StorageService key for downloadable PDF',
   flier_filename    VARCHAR(255) NULL,
