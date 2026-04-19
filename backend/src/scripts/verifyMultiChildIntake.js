@@ -27,6 +27,8 @@
  *   node backend/src/scripts/verifyMultiChildIntake.js --latest
  */
 import pool from '../config/database.js';
+import { decryptIntakeSubmissionRow } from '../services/intakeResponsesEncryption.service.js';
+import { decryptIntakeSubmissionClientRows } from '../models/IntakeSubmissionClient.model.js';
 
 function parseArgs(argv) {
   const out = { submissionId: null, guardianId: null, latest: false };
@@ -79,6 +81,7 @@ async function inspectSubmission(submissionId) {
   const [subRows] = await pool.execute(
     `SELECT s.id, s.guardian_user_id, s.signer_email, s.status, s.combined_pdf_path,
             s.intake_link_id, s.intake_data,
+            s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id,
             l.organization_id AS link_org_id, l.scope_type AS link_scope_type,
             l.program_id AS link_program_id, l.company_event_id AS link_company_event_id,
             l.agency_id AS link_agency_id
@@ -91,7 +94,7 @@ async function inspectSubmission(submissionId) {
     result.failures.push({ check: 'submission_exists', detail: `submission ${submissionId} not found` });
     return result;
   }
-  const submission = subRows[0];
+  const submission = decryptIntakeSubmissionRow(subRows[0]);
   result.guardianUserId = submission.guardian_user_id;
   result.status = submission.status;
   result.combinedPdfPath = submission.combined_pdf_path;
@@ -134,12 +137,14 @@ async function inspectSubmission(submissionId) {
   result.expectedClassIds = [...expectedClassIds];
 
   const [iscRows] = await pool.execute(
-    `SELECT id, client_id, full_name, initials, bundle_pdf_path, bundle_pdf_hash
+    `SELECT id, client_id, full_name, initials, bundle_pdf_path, bundle_pdf_hash,
+            pii_encrypted, pii_iv_b64, pii_auth_tag_b64, pii_key_id
        FROM intake_submission_clients
       WHERE intake_submission_id = ?
       ORDER BY id ASC`,
     [submissionId]
   );
+  decryptIntakeSubmissionClientRows(iscRows);
 
   if (!iscRows.length) {
     result.failures.push({ check: 'has_linked_clients', detail: 'no intake_submission_clients rows' });

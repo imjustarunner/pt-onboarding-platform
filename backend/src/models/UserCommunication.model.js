@@ -94,6 +94,15 @@ class UserCommunication {
     if (!Number.isFinite(cid) || cid <= 0) return [];
     const lim = Math.min(Math.max(Number(limit) || 200, 1), 500);
 
+    // Three match arms — the first two are the original matches, the third
+    // catches "orphaned" historical rows that were sent to a known guardian
+    // *email address* before that guardian's user account existed (or before
+    // client_guardians was linked, or because the sender forgot to pass
+    // client_id / user_id). Without this clause those rows would never appear
+    // on the Communications tab even though they're clearly addressed to this
+    // client's parent. Also includes a 4th arm that reaches sister-children
+    // sharing an intake_submission so a packet email tagged to one child shows
+    // for the other(s) too (multi-child intake parity).
     const [rows] = await pool.execute(
       `SELECT uc.id, uc.user_id, uc.client_id, uc.agency_id, uc.template_type, uc.template_id,
               uc.channel, uc.subject, uc.recipient_address, uc.delivery_status,
@@ -118,9 +127,24 @@ class UserCommunication {
           OR (uc.user_id IS NOT NULL AND uc.user_id IN (
                SELECT guardian_user_id FROM client_guardians WHERE client_id = ?
              ))
+          OR (uc.recipient_address IS NOT NULL AND LOWER(uc.recipient_address) COLLATE utf8mb4_unicode_ci IN (
+               SELECT LOWER(u2.email) COLLATE utf8mb4_unicode_ci
+                 FROM client_guardians cg2
+                 JOIN users u2 ON u2.id = cg2.guardian_user_id
+                WHERE cg2.client_id = ? AND u2.email IS NOT NULL
+             ))
+          OR (uc.client_id IS NOT NULL AND uc.client_id IN (
+               SELECT isc2.client_id
+                 FROM intake_submission_clients isc2
+                WHERE isc2.intake_submission_id IN (
+                  SELECT isc3.intake_submission_id
+                    FROM intake_submission_clients isc3
+                   WHERE isc3.client_id = ?
+                )
+             ))
        ORDER BY COALESCE(uc.sent_at, uc.generated_at) DESC, uc.id DESC
        LIMIT ${lim}`,
-      [cid, cid, cid]
+      [cid, cid, cid, cid, cid]
     );
     return rows || [];
   }

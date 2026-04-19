@@ -156,441 +156,473 @@
             </div>
           </div>
 
-          <div class="info-grid">
-            <div class="info-item">
-              <label>Initials</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <input v-model="overviewForm.initials" class="inline-input" placeholder="MesJuv" />
-                </template>
-                <template v-else>
-                  {{ client.initials }}
-                </template>
+          <div class="ov-sections">
+
+            <!-- Identity & Profile -->
+            <section class="ov-card">
+              <header class="ov-card-header">
+                <h3>Identity &amp; Profile</h3>
+              </header>
+              <div class="ov-card-body">
+                <div class="ov-row">
+                  <div class="ov-row-label">Initials</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <input v-model="overviewForm.initials" class="inline-input" placeholder="MesJuv" />
+                    </template>
+                    <template v-else>{{ client.initials }}</template>
+                  </div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Client Code</div>
+                  <div class="ov-row-value">
+                    <template v-if="clientCodeIsValid">
+                      <span class="mono">{{ client.identifier_code }}</span>
+                    </template>
+                    <template v-else>
+                      <span class="muted">Missing</span>
+                      <template v-if="canManageClientCode">
+                        <div style="display:flex; gap: 8px; align-items:center; margin-top: 6px; flex-wrap: wrap;">
+                          <input
+                            v-model="clientCodeDraft"
+                            class="inline-input"
+                            style="width: 140px;"
+                            inputmode="numeric"
+                            placeholder="6-digit code"
+                            maxlength="6"
+                          />
+                          <button class="btn btn-secondary btn-sm" type="button" @click="generateClientCode" :disabled="clientCodeSaving">
+                            Generate
+                          </button>
+                          <button
+                            class="btn btn-primary btn-sm"
+                            type="button"
+                            @click="saveClientCode"
+                            :disabled="clientCodeSaving || !clientCodeDraftValid"
+                          >
+                            {{ clientCodeSaving ? 'Saving…' : 'Save' }}
+                          </button>
+                        </div>
+                        <div class="hint" style="margin-top: 4px;">
+                          Once set, the code is permanent and cannot be edited.
+                        </div>
+                      </template>
+                    </template>
+                  </div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">{{ organizationLabel }}</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <select v-model="overviewForm.organization_id" class="inline-select">
+                        <option :value="''">—</option>
+                        <option v-for="o in overviewOrganizations" :key="o.id" :value="String(o.id)">
+                          {{ o.name }}
+                        </option>
+                      </select>
+                    </template>
+                    <template v-else>{{ client.organization_name || '-' }}</template>
+                  </div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Source</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <select v-model="overviewForm.source" class="inline-select">
+                        <option value="">—</option>
+                        <option value="BULK_IMPORT">Bulk Import</option>
+                        <option value="SCHOOL_UPLOAD">School Upload</option>
+                        <option value="SCHOOL_UPLOAD_INTERNAL">Packet Upload (Internal)</option>
+                        <option value="PUBLIC_INTAKE_LINK">Public Intake Link</option>
+                        <option value="DIGITAL_FORM">Digital Form</option>
+                        <option value="ADMIN_CREATED">Admin Created</option>
+                      </select>
+                    </template>
+                    <template v-else>{{ formatSource(client.source) }}</template>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div class="info-item">
-              <label>Client Code</label>
-              <div class="info-value">
-                <template v-if="clientCodeIsValid">
-                  <span class="mono">{{ client.identifier_code }}</span>
-                </template>
-                <template v-else>
-                  <span class="muted">Missing</span>
-                  <template v-if="canManageClientCode">
-                    <div style="display:flex; gap: 8px; align-items:center; margin-top: 6px; flex-wrap: wrap;">
-                      <input
-                        v-model="clientCodeDraft"
-                        class="inline-input"
-                        style="width: 140px;"
-                        inputmode="numeric"
-                        placeholder="6-digit code"
-                        maxlength="6"
-                      />
-                      <button class="btn btn-secondary btn-sm" type="button" @click="generateClientCode" :disabled="clientCodeSaving">
-                        Generate
-                      </button>
-                      <button
-                        class="btn btn-primary btn-sm"
-                        type="button"
-                        @click="saveClientCode"
-                        :disabled="clientCodeSaving || !clientCodeDraftValid"
+            </section>
+
+            <!-- Status & Activity -->
+            <section class="ov-card">
+              <header class="ov-card-header">
+                <h3>Status &amp; Activity</h3>
+              </header>
+              <div class="ov-card-body">
+                <div class="ov-row">
+                  <div class="ov-row-label">Client Status</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <select v-model="overviewForm.client_status_id" class="inline-select">
+                        <option :value="''">—</option>
+                        <option v-for="s in overviewClientStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
+                      </select>
+                      <div v-if="isTerminatedStatusSelected" class="termination-reason-field" style="margin-top: 10px;">
+                        <label class="required">Termination reason (required)</label>
+                        <textarea
+                          v-model="overviewForm.termination_reason"
+                          rows="3"
+                          placeholder="Explain why this client was terminated…"
+                          class="inline-input"
+                          style="width: 100%; margin-top: 4px;"
+                        />
+                      </div>
+                    </template>
+                    <template v-else>
+                      <span
+                        :title="isClientTerminated && client.termination_reason ? client.termination_reason : undefined"
+                        :class="{ 'status-hoverable': isClientTerminated && client.termination_reason }"
                       >
-                        {{ clientCodeSaving ? 'Saving…' : 'Save' }}
-                      </button>
-                    </div>
-                    <div class="hint" style="margin-top: 4px;">
-                      Once set, the code is permanent and cannot be edited.
-                    </div>
-                  </template>
-                </template>
-              </div>
-            </div>
-            <div class="info-item">
-              <label>{{ organizationLabel }}</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <select v-model="overviewForm.organization_id" class="inline-select">
-                    <option :value="''">—</option>
-                    <option v-for="o in overviewOrganizations" :key="o.id" :value="String(o.id)">
-                      {{ o.name }}
-                    </option>
-                  </select>
-                </template>
-                <template v-else>
-                  {{ client.organization_name || '-' }}
-                </template>
-              </div>
-            </div>
-            <div class="info-item">
-              <label>Client Status</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <select v-model="overviewForm.client_status_id" class="inline-select">
-                    <option :value="''">—</option>
-                    <option v-for="s in overviewClientStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
-                  </select>
-                  <div v-if="isTerminatedStatusSelected" class="termination-reason-field" style="margin-top: 10px;">
-                    <label class="required">Termination reason (required)</label>
-                    <textarea
-                      v-model="overviewForm.termination_reason"
-                      rows="3"
-                      placeholder="Explain why this client was terminated…"
-                      class="inline-input"
-                      style="width: 100%; margin-top: 4px;"
-                    />
+                        {{ client.client_status_label || '-' }}
+                      </span>
+                      <div v-if="isClientTerminated && client.termination_reason" class="hint" style="margin-top: 6px;">
+                        <strong>Termination reason:</strong> {{ client.termination_reason }}
+                      </div>
+                    </template>
                   </div>
-                </template>
-                <template v-else>
-                  <span
-                    :title="isClientTerminated && client.termination_reason ? client.termination_reason : undefined"
-                    :class="{ 'status-hoverable': isClientTerminated && client.termination_reason }"
-                  >
-                    {{ client.client_status_label || '-' }}
-                  </span>
-                  <div v-if="isClientTerminated && client.termination_reason" class="hint" style="margin-top: 6px;">
-                    <strong>Termination reason:</strong> {{ client.termination_reason }}
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Archived</div>
+                  <div class="ov-row-value">{{ isClientArchived ? 'Yes' : 'No' }}</div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Submission Date</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <input v-model="overviewForm.submission_date" type="date" class="inline-input" />
+                    </template>
+                    <template v-else>{{ formatDate(client.submission_date) }}</template>
                   </div>
-                </template>
-              </div>
-            </div>
-            <div class="info-item">
-              <label>Archived</label>
-              <div class="info-value">
-                {{ isClientArchived ? 'Yes' : 'No' }}
-              </div>
-            </div>
-            <div v-if="canViewAdminNote" class="info-item admin-note-item" :class="{ 'is-popover-open': adminNotePopoverOpen }">
-              <label>Admin Note</label>
-              <div
-                ref="adminNoteTriggerEl"
-                class="info-value admin-note-trigger"
-                @mouseenter="openAdminNotePopover"
-                @mouseleave="closeAdminNotePopoverSoon"
-              >
-                <span v-if="adminNoteLoading" class="muted">Loading…</span>
-                <span v-else-if="adminNoteMessage">
-                  <span class="admin-note-indicator" title="Admin note available">✓</span>
-                  <span class="muted" style="margin-left: 8px;">Hover to view/edit</span>
-                </span>
-                <span v-else class="muted">Hover to add</span>
-              </div>
-
-              <Teleport to="body">
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Referral Date</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <input v-model="overviewForm.referral_date" type="date" class="inline-input" />
+                    </template>
+                    <template v-else>{{ formatDate(client.referral_date) }}</template>
+                  </div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Last Activity</div>
+                  <div class="ov-row-value">{{ formatDate(client.last_activity_at) || '-' }}</div>
+                </div>
                 <div
-                  v-if="adminNotePopoverOpen"
-                  class="admin-note-popover admin-note-popover--floating"
-                  :style="adminNotePopoverStyle"
-                  @mouseenter="cancelCloseAdminNotePopover"
-                  @mouseleave="closeAdminNotePopoverSoon"
+                  v-if="canViewAdminNote"
+                  class="ov-row admin-note-row"
+                  :class="{ 'is-popover-open': adminNotePopoverOpen }"
                 >
-                  <div class="muted" style="font-size: 12px; margin-bottom: 6px; font-weight: 800;">Internal (admin only)</div>
-                  <textarea v-model="adminNoteDraft" class="admin-note-textarea" rows="5" placeholder="Add an internal admin note…" />
-                  <div style="display:flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
-                    <button class="btn btn-secondary btn-sm" type="button" @click="closeAdminNotePopoverNow" :disabled="adminNoteSaving">
-                      Close
-                    </button>
-                    <button
-                      class="btn btn-primary btn-sm"
-                      type="button"
-                      @click="saveAdminNote"
-                      :disabled="adminNoteSaving || !String(adminNoteDraft || '').trim()"
+                  <div class="ov-row-label">Admin Note</div>
+                  <div
+                    ref="adminNoteTriggerEl"
+                    class="ov-row-value admin-note-trigger"
+                    @mouseenter="openAdminNotePopover"
+                    @mouseleave="closeAdminNotePopoverSoon"
+                  >
+                    <span v-if="adminNoteLoading" class="muted">Loading…</span>
+                    <span v-else-if="adminNoteMessage">
+                      <span class="admin-note-indicator" title="Admin note available">✓</span>
+                      <span class="muted" style="margin-left: 8px;">Hover to view/edit</span>
+                    </span>
+                    <span v-else class="muted">Hover to add</span>
+                  </div>
+
+                  <Teleport to="body">
+                    <div
+                      v-if="adminNotePopoverOpen"
+                      class="admin-note-popover admin-note-popover--floating"
+                      :style="adminNotePopoverStyle"
+                      @mouseenter="cancelCloseAdminNotePopover"
+                      @mouseleave="closeAdminNotePopoverSoon"
                     >
-                      {{ adminNoteSaving ? 'Saving…' : 'Save' }}
-                    </button>
-                  </div>
-                </div>
-              </Teleport>
-            </div>
-            <div class="info-item">
-              <label>Provider</label>
-              <div class="info-value">
-                <div>
-                  <div v-if="overviewProvidersLoading" class="muted">Loading…</div>
-                  <div v-else-if="overviewProviders.length === 0">{{ client.provider_name || 'Not assigned' }}</div>
-                  <div v-else class="provider-list">
-                    <div v-for="p in overviewProviders" :key="p.id" class="provider-row">
-                      <div>
-                        <strong>{{ p.provider_last_name }}, {{ p.provider_first_name }}</strong>
-                        <span v-if="p.is_primary" class="badge badge-success" style="margin-left: 8px;">Primary</span>
-                        <div v-if="p.organization_name" class="muted" style="margin-top: 2px;">
-                          {{ p.organization_name }}
-                        </div>
-                      </div>
-                      <div class="muted" style="white-space: nowrap;">
-                        {{ p.service_day || 'Unknown' }}
+                      <div class="muted" style="font-size: 12px; margin-bottom: 6px; font-weight: 800;">Internal (admin only)</div>
+                      <textarea v-model="adminNoteDraft" class="admin-note-textarea" rows="5" placeholder="Add an internal admin note…" />
+                      <div style="display:flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
+                        <button class="btn btn-secondary btn-sm" type="button" @click="closeAdminNotePopoverNow" :disabled="adminNoteSaving">
+                          Close
+                        </button>
+                        <button
+                          class="btn btn-primary btn-sm"
+                          type="button"
+                          @click="saveAdminNote"
+                          :disabled="adminNoteSaving || !String(adminNoteDraft || '').trim()"
+                        >
+                          {{ adminNoteSaving ? 'Saving…' : 'Save' }}
+                        </button>
                       </div>
                     </div>
+                  </Teleport>
+                </div>
+              </div>
+            </section>
+
+            <!-- Documents & Insurance -->
+            <section class="ov-card">
+              <header class="ov-card-header">
+                <h3>Documents &amp; Insurance</h3>
+              </header>
+              <div class="ov-card-body">
+                <div class="ov-row">
+                  <div class="ov-row-label">Document Status</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <details ref="docStatusDetailsEl" class="doc-dropdown">
+                        <summary class="inline-select" style="list-style:none; cursor:pointer;">
+                          {{ documentStatusSummaryText || (client.paperwork_status_label || '—') }}
+                        </summary>
+                        <div style="margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt);">
+                          <div class="hint" style="margin-bottom: 8px;">
+                            Select the items that are <strong>Needed</strong>. When none are needed, status becomes <strong>Completed</strong>.
+                          </div>
+
+                          <div v-if="docChecklistAvailable">
+                            <div class="check-row" style="margin-bottom: 6px;">
+                              <label class="check-left">
+                                <input type="checkbox" :checked="docIsCompleted" disabled />
+                                <span class="check-label"><strong>Completed</strong></span>
+                              </label>
+                              <div class="check-right">
+                                <span v-if="docIsCompleted" class="badge badge-success">Yes</span>
+                                <span v-else class="badge badge-secondary">No</span>
+                                <button
+                                  v-if="canEditPaperwork && !docIsCompleted"
+                                  type="button"
+                                  class="btn btn-secondary btn-sm"
+                                  :disabled="docChecklistSaving"
+                                  @click="onMarkDocsCompletedFromOverview"
+                                  style="margin-left: 10px;"
+                                >
+                                  Mark completed
+                                </button>
+                              </div>
+                            </div>
+
+                            <div v-for="it in docNeededOptions" :key="String(it.status_key || it.paperwork_status_id)" class="check-row">
+                              <label class="check-left">
+                                <input
+                                  type="checkbox"
+                                  :disabled="!canEditPaperwork || docChecklistSaving"
+                                  :checked="!!it.is_needed"
+                                  @change="onToggleDocNeeded(it, $event)"
+                                />
+                                <span class="check-label">{{ it.label }}</span>
+                              </label>
+                              <div class="check-right">
+                                <span v-if="it.is_needed" class="badge badge-warning">Needed</span>
+                                <span v-else class="badge badge-secondary">Received</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div v-else class="muted">
+                            Document Status checklist is not available yet (missing migration).
+                          </div>
+                        </div>
+                      </details>
+                    </template>
+                    <template v-else>
+                      <span v-if="documentStatusSummaryText" class="doc-status-pill">{{ documentStatusSummaryText }}</span>
+                      <span v-else>{{ client.paperwork_status_label || '-' }}</span>
+                    </template>
                   </div>
-                  <div class="hint" style="margin-top: 4px;">
-                    Editing affiliated providers is managed on the <strong>Assignments</strong> tab.
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Doc Date</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <input v-model="overviewForm.doc_date" type="date" class="inline-input" />
+                    </template>
+                    <template v-else>{{ formatDate(client.doc_date) }}</template>
+                  </div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Insurance</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <select v-model="overviewForm.insurance_type_id" class="inline-select">
+                        <option :value="''">—</option>
+                        <option v-for="i in overviewInsuranceTypes" :key="i.id" :value="String(i.id)">{{ i.label }}</option>
+                      </select>
+                    </template>
+                    <template v-else>
+                      <span v-if="client.primary_insurer_name">
+                        {{ client.primary_insurer_name }}
+                        <span v-if="client.insurance_type_label && client.insurance_type_label !== client.primary_insurer_name" class="muted" style="font-size: 12px; margin-left: 4px;">({{ client.insurance_type_label }})</span>
+                      </span>
+                      <span v-else>{{ client.insurance_type_label || '-' }}</span>
+                    </template>
+                  </div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Upload status (legacy)</div>
+                  <div class="ov-row-value">
+                    <span class="muted">{{ formatDocumentStatus(client.document_status) }}</span>
                   </div>
                 </div>
               </div>
-            </div>
-            <div class="info-item">
-              <label>Submission Date</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <input v-model="overviewForm.submission_date" type="date" class="inline-input" />
-                </template>
-                <template v-else>
-                  {{ formatDate(client.submission_date) }}
-                </template>
-              </div>
-            </div>
-            <div class="info-item">
-              <label>Document Status</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <details ref="docStatusDetailsEl" class="doc-dropdown">
-                    <summary class="inline-select" style="list-style:none; cursor:pointer;">
-                      {{ documentStatusSummaryText || (client.paperwork_status_label || '—') }}
-                    </summary>
-                    <div style="margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt);">
-                      <div class="hint" style="margin-bottom: 8px;">
-                        Select the items that are <strong>Needed</strong>. When none are needed, status becomes <strong>Completed</strong>.
-                      </div>
+            </section>
 
-                      <div v-if="docChecklistAvailable">
-                        <div class="check-row" style="margin-bottom: 6px;">
-                          <label class="check-left">
-                            <input type="checkbox" :checked="docIsCompleted" disabled />
-                            <span class="check-label"><strong>Completed</strong></span>
-                          </label>
-                          <div class="check-right">
-                            <span v-if="docIsCompleted" class="badge badge-success">Yes</span>
-                            <span v-else class="badge badge-secondary">No</span>
-                            <button
-                              v-if="canEditPaperwork && !docIsCompleted"
-                              type="button"
-                              class="btn btn-secondary btn-sm"
-                              :disabled="docChecklistSaving"
-                              @click="onMarkDocsCompletedFromOverview"
-                              style="margin-left: 10px;"
-                            >
-                              Mark completed
-                            </button>
-                          </div>
-                        </div>
-
-                        <div v-for="it in docNeededOptions" :key="String(it.status_key || it.paperwork_status_id)" class="check-row">
-                          <label class="check-left">
-                            <input
-                              type="checkbox"
-                              :disabled="!canEditPaperwork || docChecklistSaving"
-                              :checked="!!it.is_needed"
-                              @change="onToggleDocNeeded(it, $event)"
-                            />
-                            <span class="check-label">{{ it.label }}</span>
-                          </label>
-                          <div class="check-right">
-                            <span v-if="it.is_needed" class="badge badge-warning">Needed</span>
-                            <span v-else class="badge badge-secondary">Received</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div v-else class="muted">
-                        Document Status checklist is not available yet (missing migration).
-                      </div>
-                    </div>
-                  </details>
-                </template>
-                <template v-else>
-                  <span v-if="documentStatusSummaryText" class="doc-status-pill">{{ documentStatusSummaryText }}</span>
-                  <span v-else>{{ client.paperwork_status_label || '-' }}</span>
-                </template>
-              </div>
-            </div>
-            <div
-              v-if="canManageSchoolRoi"
-              class="info-item school-roi-overview-cta"
-            >
-              <label>School ROI</label>
-              <div class="info-value" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
-                <button type="button" class="btn btn-secondary btn-sm" @click="activeTab = 'school-roi'">
-                  Open School ROI Access
-                </button>
-                <span class="hint" style="margin: 0;">
-                  Send signing links, notify guardians, and manage school-staff portal access for this client’s school.
+            <!-- Care Team -->
+            <section class="ov-card">
+              <header class="ov-card-header">
+                <h3>Care Team</h3>
+                <span class="muted" style="font-size: 12px;">
+                  Edit on the <strong>Assignments</strong> tab
                 </span>
+              </header>
+              <div class="ov-card-body">
+                <div class="ov-row ov-row--block">
+                  <div class="ov-row-label">Provider</div>
+                  <div class="ov-row-value">
+                    <div v-if="overviewProvidersLoading" class="muted">Loading…</div>
+                    <div v-else-if="overviewProviders.length === 0">{{ client.provider_name || 'Not assigned' }}</div>
+                    <div v-else class="provider-list">
+                      <div v-for="p in overviewProviders" :key="p.id" class="provider-row">
+                        <div>
+                          <strong>{{ p.provider_last_name }}, {{ p.provider_first_name }}</strong>
+                          <span v-if="p.is_primary" class="badge badge-success" style="margin-left: 8px;">Primary</span>
+                          <div v-if="p.organization_name" class="muted" style="margin-top: 2px;">
+                            {{ p.organization_name }}
+                          </div>
+                        </div>
+                        <div class="muted" style="white-space: nowrap;">
+                          {{ p.service_day || 'Unknown' }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div class="info-item">
-              <label>Insurance</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <select v-model="overviewForm.insurance_type_id" class="inline-select">
-                    <option :value="''">—</option>
-                    <option v-for="i in overviewInsuranceTypes" :key="i.id" :value="String(i.id)">{{ i.label }}</option>
-                  </select>
-                </template>
-                <template v-else>
-                  <span v-if="client.primary_insurer_name">
-                    {{ client.primary_insurer_name }}
-                    <span v-if="client.insurance_type_label && client.insurance_type_label !== client.primary_insurer_name" class="muted" style="font-size: 12px; margin-left: 4px;">({{ client.insurance_type_label }})</span>
-                  </span>
-                  <span v-else>{{ client.insurance_type_label || '-' }}</span>
-                </template>
+            </section>
+
+            <!-- Education -->
+            <section class="ov-card">
+              <header class="ov-card-header">
+                <h3>Education</h3>
+              </header>
+              <div class="ov-card-body">
+                <div v-if="showSchoolSpecificOverviewFields" class="ov-row">
+                  <div class="ov-row-label">School Year</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <input v-model="overviewForm.school_year" class="inline-input" placeholder="2025-2026" />
+                    </template>
+                    <template v-else>{{ client.school_year || '-' }}</template>
+                  </div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Grade</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <select v-model="overviewForm.grade" class="inline-input">
+                        <option value="">—</option>
+                        <option
+                          v-for="o in overviewGradeSelectOptions"
+                          :key="`${o.value}::${o.label}`"
+                          :value="o.value"
+                        >{{ o.label }}</option>
+                      </select>
+                    </template>
+                    <template v-else>{{ formatGradeDisplay(client.grade) }}</template>
+                  </div>
+                </div>
+                <div v-if="showSchoolSpecificOverviewFields" class="ov-row">
+                  <div class="ov-row-label">Skills client</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <label style="display:flex; align-items:center; gap: 8px;">
+                        <input type="checkbox" v-model="overviewForm.skills" />
+                        <span>{{ overviewForm.skills ? 'Yes' : 'No' }}</span>
+                      </label>
+                    </template>
+                    <template v-else>{{ isSkillsClientFlag(client.skills) ? 'Yes' : 'No' }}</template>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div class="info-item">
-              <label>Doc Date</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <input v-model="overviewForm.doc_date" type="date" class="inline-input" />
-                </template>
-                <template v-else>
-                  {{ formatDate(client.doc_date) }}
-                </template>
+            </section>
+
+            <!-- Languages -->
+            <section class="ov-card">
+              <header class="ov-card-header">
+                <h3>Languages</h3>
+              </header>
+              <div class="ov-card-body">
+                <div class="ov-row">
+                  <div class="ov-row-label">Client primary language</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <input v-model="overviewForm.primary_client_language" class="inline-input" placeholder="e.g., English" />
+                    </template>
+                    <template v-else>{{ client.primary_client_language || '-' }}</template>
+                  </div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Guardian primary language</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <input v-model="overviewForm.primary_parent_language" class="inline-input" placeholder="e.g., Spanish" />
+                    </template>
+                    <template v-else>{{ client.primary_parent_language || '-' }}</template>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div v-if="showSchoolSpecificOverviewFields" class="info-item">
-              <label>School Year</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <input v-model="overviewForm.school_year" class="inline-input" placeholder="2025-2026" />
-                </template>
-                <template v-else>
-                  {{ client.school_year || '-' }}
-                </template>
-              </div>
-            </div>
-            <div class="info-item">
-              <label>Grade</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <select v-model="overviewForm.grade" class="inline-input">
-                    <option value="">—</option>
-                    <option
-                      v-for="o in overviewGradeSelectOptions"
-                      :key="`${o.value}::${o.label}`"
-                      :value="o.value"
-                    >{{ o.label }}</option>
-                  </select>
-                </template>
-                <template v-else>
-                  {{ formatGradeDisplay(client.grade) }}
-                </template>
-              </div>
-            </div>
-            <div v-if="showSchoolSpecificOverviewFields" class="info-item">
-              <label>Skills client</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <label style="display:flex; align-items:center; gap: 8px;">
-                    <input type="checkbox" v-model="overviewForm.skills" />
-                    <span>{{ overviewForm.skills ? 'Yes' : 'No' }}</span>
-                  </label>
-                </template>
-                <template v-else>
-                  {{ isSkillsClientFlag(client.skills) ? 'Yes' : 'No' }}
-                </template>
-              </div>
-            </div>
-            <div class="info-item">
-              <label>Referral Date</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <input v-model="overviewForm.referral_date" type="date" class="inline-input" />
-                </template>
-                <template v-else>
-                  {{ formatDate(client.referral_date) }}
-                </template>
-              </div>
-            </div>
-            <div class="info-item">
-              <label>Client primary language</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <input v-model="overviewForm.primary_client_language" class="inline-input" placeholder="e.g., English" />
-                </template>
-                <template v-else>
-                  {{ client.primary_client_language || '-' }}
-                </template>
-              </div>
-            </div>
-            <div class="info-item">
-              <label>Guardian primary language</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <input v-model="overviewForm.primary_parent_language" class="inline-input" placeholder="e.g., Spanish" />
-                </template>
-                <template v-else>
-                  {{ client.primary_parent_language || '-' }}
-                </template>
-              </div>
-            </div>
-            <div class="info-item">
-              <label>Guardian contact (latest intake)</label>
-              <div class="info-value">
-                {{ guardianIntakeName || '-' }}
-              </div>
-            </div>
-            <div class="info-item">
-              <label>Guardian email (latest intake)</label>
-              <div class="info-value">
-                {{ guardianIntakeEmail || '-' }}
-              </div>
-            </div>
-            <div class="info-item">
-              <label>Guardian phone (latest intake)</label>
-              <div class="info-value">
-                {{ guardianIntakePhone || '-' }}
-              </div>
-            </div>
-            <div class="info-item">
-              <label>Guardian relationship (latest intake)</label>
-              <div class="info-value">
-                {{ guardianIntakeRelationship || '-' }}
-              </div>
-            </div>
-            <div class="info-item">
-              <label>Guardian DOB (latest intake)</label>
-              <div class="info-value">
-                {{ guardianIntakeDob ? formatDate(guardianIntakeDob) : '-' }}
-              </div>
-            </div>
-            <div
-              v-if="editingOverview && guardianIntakeProfile && !intakeGuardianAlreadyLinked && canManageGuardians"
-              class="info-item"
-            >
-              <label>&nbsp;</label>
-              <div class="info-value">
-                <button type="button" class="btn btn-primary btn-sm" @click="openAddGuardian">
+            </section>
+
+            <!-- Guardian (latest intake) -->
+            <section class="ov-card ov-card--guardian">
+              <header class="ov-card-header">
+                <h3>Guardian (latest intake)</h3>
+                <button
+                  v-if="editingOverview && guardianIntakeProfile && !intakeGuardianAlreadyLinked && canManageGuardians"
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  @click="openAddGuardian"
+                >
                   Add guardian from intake info
                 </button>
+              </header>
+              <div class="ov-card-body">
+                <div class="ov-row">
+                  <div class="ov-row-label">Name</div>
+                  <div class="ov-row-value">{{ guardianIntakeName || '-' }}</div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Email</div>
+                  <div class="ov-row-value">{{ guardianIntakeEmail || '-' }}</div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Phone</div>
+                  <div class="ov-row-value">{{ guardianIntakePhone || '-' }}</div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Relationship</div>
+                  <div class="ov-row-value">{{ guardianIntakeRelationship || '-' }}</div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Date of birth</div>
+                  <div class="ov-row-value">{{ guardianIntakeDob ? formatDate(guardianIntakeDob) : '-' }}</div>
+                </div>
               </div>
-            </div>
-            <div class="info-item">
-              <label>Upload status (legacy)</label>
-              <div class="info-value">
-                <span class="muted">{{ formatDocumentStatus(client.document_status) }}</span>
+            </section>
+
+            <!-- School ROI CTA (full width) -->
+            <section v-if="canManageSchoolRoi" class="ov-card ov-card--full ov-card--cta">
+              <header class="ov-card-header">
+                <h3>School ROI</h3>
+              </header>
+              <div class="ov-card-body">
+                <div class="ov-cta-row">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="activeTab = 'school-roi'">
+                    Open School ROI Access
+                  </button>
+                  <span class="hint" style="margin: 0;">
+                    Send signing links, notify guardians, and manage school-staff portal access for this client’s school.
+                  </span>
+                </div>
               </div>
-            </div>
-            <div class="info-item">
-              <label>Source</label>
-              <div class="info-value">
-                <template v-if="editingOverview">
-                  <select v-model="overviewForm.source" class="inline-select">
-                    <option value="">—</option>
-                    <option value="BULK_IMPORT">Bulk Import</option>
-                    <option value="SCHOOL_UPLOAD">School Upload</option>
-                    <option value="SCHOOL_UPLOAD_INTERNAL">Packet Upload (Internal)</option>
-                    <option value="PUBLIC_INTAKE_LINK">Public Intake Link</option>
-                    <option value="DIGITAL_FORM">Digital Form</option>
-                    <option value="ADMIN_CREATED">Admin Created</option>
-                  </select>
-                </template>
-                <template v-else>
-                  {{ formatSource(client.source) }}
-                </template>
-              </div>
-            </div>
-            <div class="info-item">
-              <label>Last Activity</label>
-              <div class="info-value">{{ formatDate(client.last_activity_at) || '-' }}</div>
-            </div>
+            </section>
+
           </div>
 
           <div v-if="(canEditAccount && editingOverview) || (canTerminate && !editingOverview)" class="quick-actions">
@@ -775,18 +807,139 @@
             </div>
           </div>
           <div v-else>
-            <p v-if="clinicalCapturedAt" class="muted" style="font-size: 13px; margin-bottom: 16px;">
-              From intake completed {{ new Date(clinicalCapturedAt).toLocaleDateString() }}.
-              Visible only to the assigned provider and admin staff.
-            </p>
-            <div v-for="section in clinicalSections" :key="section.title" class="clinical-section" style="margin-bottom: 24px;">
-              <h4 class="clinical-section-title">{{ section.title }}</h4>
-              <div class="clinical-field-list">
-                <div v-for="field in section.fields" :key="field.key" class="clinical-field-row">
-                  <div class="clinical-field-label">{{ field.label }}</div>
-                  <div class="clinical-field-value">{{ field.value }}</div>
-                </div>
+            <div class="tab-meta-bar">
+              <div class="muted" style="font-size: 13px;">
+                <span v-if="clinicalCapturedAt">
+                  From intake completed {{ new Date(clinicalCapturedAt).toLocaleDateString() }}.
+                </span>
+                Visible only to the assigned provider and admin staff.
               </div>
+              <div class="tab-meta-bar-spacer" />
+              <div class="muted" style="font-size: 12px;">
+                {{ clinicalTotalFieldCount }} responses across {{ clinicalSections.length }} {{ clinicalSections.length === 1 ? 'section' : 'sections' }}
+              </div>
+            </div>
+
+            <div class="ov-sections">
+              <section
+                v-for="section in clinicalSections"
+                :key="section.title"
+                class="ov-card"
+                :class="clinicalSectionCardClass(section)"
+              >
+                <header class="ov-card-header">
+                  <h3>{{ section.title }}</h3>
+                  <span class="muted" style="font-size: 12px;">
+                    {{ section.fields.length }} {{ section.fields.length === 1 ? 'item' : 'items' }}
+                  </span>
+                </header>
+
+                <!-- PSC-17: scored summary + collapsible item details -->
+                <div v-if="isPscSection(section)" class="ov-card-body">
+                  <div v-if="psc17Summary" class="psc-summary">
+                    <div class="psc-total-row">
+                      <div>
+                        <div class="psc-total-label">Total score</div>
+                        <div class="psc-total-value">
+                          {{ psc17Summary.total }}<span class="psc-out-of"> / {{ psc17Summary.totalMax }}</span>
+                        </div>
+                      </div>
+                      <span
+                        class="psc-flag"
+                        :class="psc17Summary.totalElevated ? 'psc-flag--elevated' : 'psc-flag--normal'"
+                      >
+                        {{ psc17Summary.totalElevated ? 'Elevated' : 'Within normal range' }}
+                        <span class="psc-flag-cutoff">cutoff &gt;= {{ psc17Summary.cutoffs.total }}</span>
+                      </span>
+                    </div>
+
+                    <div class="psc-subscale-grid">
+                      <div
+                        v-for="sub in psc17Summary.subscales"
+                        :key="sub.id"
+                        class="psc-subscale"
+                        :class="sub.elevated ? 'is-elevated' : 'is-normal'"
+                      >
+                        <div class="psc-subscale-header">
+                          <span class="psc-subscale-name">{{ sub.label }}</span>
+                          <span class="psc-subscale-flag">
+                            {{ sub.elevated ? 'Elevated' : 'Normal' }}
+                          </span>
+                        </div>
+                        <div class="psc-subscale-score">
+                          {{ sub.score }}<span class="psc-out-of"> / {{ sub.max }}</span>
+                          <span class="psc-subscale-cutoff">cutoff &gt;= {{ sub.cutoff }}</span>
+                        </div>
+                        <div class="psc-subscale-bar">
+                          <div
+                            class="psc-subscale-bar-fill"
+                            :style="{ width: Math.min(100, (sub.score / sub.max) * 100) + '%' }"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div v-if="psc17Summary.unscored" class="psc-warning muted small">
+                      {{ psc17Summary.unscored }} item{{ psc17Summary.unscored === 1 ? '' : 's' }}
+                      could not be scored (non-numeric or missing) — totals reflect only scored items.
+                    </div>
+
+                    <div class="psc-interpretation">
+                      <div class="psc-interpretation-title">Clinical interpretation</div>
+                      <p
+                        v-for="(para, idx) in psc17InterpretationParagraphs"
+                        :key="idx"
+                        class="psc-interpretation-body"
+                      >{{ para }}</p>
+                      <p class="psc-interpretation-disclaimer">
+                        Per PSC-17 scoring (Gardner et al., 1999): items scored Never=0, Sometimes=1,
+                        Often=2. Cutoffs are screening thresholds, not diagnostic — confirm with
+                        full clinical assessment.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    class="psc-expand-btn"
+                    @click="pscExpanded = !pscExpanded"
+                    :aria-expanded="pscExpanded"
+                  >
+                    <span>{{ pscExpanded ? 'Hide' : 'Show' }} all {{ section.fields.length }} item responses</span>
+                    <span class="psc-expand-caret" :class="{ 'is-open': pscExpanded }">▾</span>
+                  </button>
+
+                  <div v-if="pscExpanded" class="psc-items">
+                    <div
+                      v-for="item in psc17ItemsOrdered(section)"
+                      :key="item.key"
+                      class="ov-row psc-item-row"
+                      :class="item.scoreClass"
+                    >
+                      <div class="ov-row-label">
+                        <span class="psc-item-num">{{ item.itemNumber || '?' }}</span>
+                        {{ item.label }}
+                      </div>
+                      <div class="ov-row-value">
+                        <span class="psc-item-value">{{ item.scoreLabel }}</span>
+                        <span v-if="item.subscaleLabel" class="psc-item-sub">· {{ item.subscaleLabel }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Generic clinical section -->
+                <div v-else class="ov-card-body">
+                  <div
+                    v-for="field in section.fields"
+                    :key="field.key"
+                    class="ov-row"
+                  >
+                    <div class="ov-row-label">{{ field.label }}</div>
+                    <div class="ov-row-value" style="white-space: pre-wrap;">{{ field.value }}</div>
+                  </div>
+                </div>
+              </section>
             </div>
           </div>
         </div>
@@ -803,7 +956,7 @@
             </p>
           </div>
           <div v-else>
-            <div class="demo-toolbar">
+            <div class="tab-meta-bar">
               <div class="muted" style="font-size: 13px;">
                 <span v-if="demoCapturedAt">
                   Latest intake: {{ new Date(demoCapturedAt).toLocaleDateString() }} ·
@@ -816,28 +969,40 @@
               </label>
             </div>
 
-            <template v-for="group in demoGroupedSections" :key="group.id">
-              <div v-if="group.fields.length" class="demo-section">
-                <div class="demo-section-header">
-                  <h4 class="clinical-section-title" style="margin: 0;">{{ group.title }}</h4>
-                  <span v-if="group.subtitle" class="muted" style="font-size: 12px;">{{ group.subtitle }}</span>
-                </div>
-                <div class="clinical-field-list">
+            <div class="ov-sections">
+              <section
+                v-for="group in demoGroupedSections"
+                v-show="group.fields.length"
+                :key="group.id"
+                class="ov-card"
+                :class="demoGroupCardClass(group)"
+              >
+                <header class="ov-card-header">
+                  <h3>{{ group.title }}</h3>
+                  <span v-if="group.subtitle" class="muted" style="font-size: 12px;">
+                    {{ group.subtitle }}
+                  </span>
+                </header>
+                <div class="ov-card-body">
                   <div
                     v-for="f in group.fields"
                     :key="`${group.id}-${f.key}`"
-                    class="clinical-field-row"
+                    class="ov-row"
                     :class="{ 'is-duplicate': !!f.duplicateOf }"
                   >
-                    <div class="clinical-field-label">
-                      {{ f.label }}
-                      <span v-if="f.duplicateOf" class="demo-dup-chip" :title="`Also present in ${f.duplicateOf}`">dup</span>
+                    <div class="ov-row-label">
+                      {{ prettyDemoLabel(f) }}
+                      <span
+                        v-if="f.duplicateOf"
+                        class="demo-dup-chip"
+                        :title="`Also present in ${f.duplicateOf}`"
+                      >dup</span>
                     </div>
-                    <div class="clinical-field-value">{{ f.value }}</div>
+                    <div class="ov-row-value" style="white-space: pre-wrap;">{{ f.value }}</div>
                   </div>
                 </div>
-              </div>
-            </template>
+              </section>
+            </div>
           </div>
         </div>
 
@@ -4045,6 +4210,260 @@ const clinicalError = ref('');
 const clinicalDebug = ref('');
 const clinicalDebugLoading = ref(false);
 
+const clinicalTotalFieldCount = computed(() =>
+  (clinicalSections.value || []).reduce((acc, s) => acc + (s?.fields?.length || 0), 0)
+);
+
+// ─── PSC-17 scoring (Pediatric Symptom Checklist, 17-item) ────────────────
+// Items scored Never=0 / Sometimes=1 / Often=2. 17 items split across three
+// subscales. Standard screening cutoffs (Gardner et al., 1999):
+//   Total >= 15, Internalizing >= 5, Attention >= 7, Externalizing >= 7.
+const PSC17_CUTOFFS = { total: 15, internalizing: 5, attention: 7, externalizing: 7 };
+const PSC17_SUBSCALE_MAX = { internalizing: 10, attention: 10, externalizing: 14 };
+const PSC17_SUBSCALE_LABEL = {
+  internalizing: 'Internalizing',
+  attention: 'Attention',
+  externalizing: 'Externalizing'
+};
+
+// Canonical PSC-17 item → subscale mapping (item numbers are stable per the
+// published instrument).
+//   Attention:     1, 2, 3, 4, 7
+//   Internalizing: 5, 6, 9, 10, 11
+//   Externalizing: 8, 12, 13, 14, 15, 16, 17
+const PSC17_SUBSCALE_BY_ITEM = {
+  1: 'attention', 2: 'attention', 3: 'attention', 4: 'attention', 7: 'attention',
+  5: 'internalizing', 6: 'internalizing', 9: 'internalizing', 10: 'internalizing', 11: 'internalizing',
+  8: 'externalizing', 12: 'externalizing', 13: 'externalizing', 14: 'externalizing',
+  15: 'externalizing', 16: 'externalizing', 17: 'externalizing'
+};
+
+// Canonical labels — used as a friendly fallback when the intake form did
+// not carry symptom text into the `intake_fields` array (we'd otherwise
+// just see "PSC item N").
+const PSC17_CANONICAL_LABELS = {
+  1: 'Fidgety, unable to sit still',
+  2: 'Acts as if driven by a motor',
+  3: 'Daydreams too much',
+  4: 'Distracted easily',
+  5: 'Feels sad, unhappy',
+  6: 'Feels hopeless',
+  7: 'Has trouble concentrating',
+  8: 'Fights with others',
+  9: 'Is down on him or herself',
+  10: 'Worries a lot',
+  11: 'Seems to be having less fun',
+  12: 'Does not listen to rules',
+  13: "Does not understand other people's feelings",
+  14: 'Teases others',
+  15: 'Blames others for his or her troubles',
+  16: 'Takes things that do not belong to him or her',
+  17: 'Refuses to share'
+};
+
+const itemNumberFromPscKey = (key) => {
+  const m = String(key || '').match(/(\d{1,2})/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 1 && n <= 17 ? n : null;
+};
+
+// Subscale lookup: item-number is primary (deterministic per published
+// instrument), label keyword is a fallback for non-standard forms.
+const PSC17_LABEL_RULES = [
+  { sub: 'internalizing', tests: [/feels?\s+sad/i, /unhappy/i, /hopeless/i, /down on (him|her|them)/i, /low\s+self/i, /less fun/i, /worri/i] },
+  { sub: 'attention', tests: [/fidget/i, /sit still/i, /driven by a motor/i, /daydream/i, /distract/i, /trouble concentrat/i, /(can'?t|cannot) concentrat/i] },
+  { sub: 'externalizing', tests: [/fights? with/i, /(does ?not|doesn'?t) listen/i, /listen to rules/i, /teases?/i, /blames? others/i, /takes? things/i, /refuses? to share/i, /(other people'?s|others'?) feelings/i] }
+];
+const subscaleForPscField = (field) => {
+  const item = itemNumberFromPscKey(field?.key);
+  if (item && PSC17_SUBSCALE_BY_ITEM[item]) return PSC17_SUBSCALE_BY_ITEM[item];
+  const label = String(field?.label || '');
+  for (const rule of PSC17_LABEL_RULES) {
+    if (rule.tests.some((re) => re.test(label))) return rule.sub;
+  }
+  return null;
+};
+
+// Tolerant value parser: 0/1/2, "Never"/"Sometimes"/"Often", or
+// "0 - Never" / "Often (2)" style answers.
+const parsePscScore = (raw) => {
+  if (raw === null || raw === undefined) return null;
+  const s = String(raw).trim().toLowerCase();
+  if (!s) return null;
+  if (/^[012]$/.test(s)) return Number(s);
+  const numMatch = s.match(/(?:^|[^0-9])([012])(?:[^0-9]|$)/);
+  if (/never/.test(s)) return 0;
+  if (/sometimes/.test(s)) return 1;
+  if (/(very )?often/.test(s)) return 2;
+  if (numMatch) return Number(numMatch[1]);
+  return null;
+};
+
+const PSC_SCORE_LABEL = ['Never (0)', 'Sometimes (1)', 'Often (2)'];
+
+const isPscSection = (section) =>
+  String(section?.title || '').toLowerCase().includes('psc');
+
+const psc17ItemsOrdered = (section) => {
+  const items = (section?.fields || []).map((f) => {
+    const score = parsePscScore(f.value);
+    const sub = subscaleForPscField(f);
+    const itemNumber = itemNumberFromPscKey(f.key);
+    // Prefer the form's own label, but fall back to the canonical PSC-17
+    // symptom text when the backend gave us a generic placeholder.
+    const rawLabel = String(f.label || '').trim();
+    const isPlaceholderLabel = !rawLabel || /^psc[ _-]?item\b/i.test(rawLabel);
+    const label = isPlaceholderLabel && itemNumber && PSC17_CANONICAL_LABELS[itemNumber]
+      ? PSC17_CANONICAL_LABELS[itemNumber]
+      : rawLabel || (itemNumber ? PSC17_CANONICAL_LABELS[itemNumber] : f.key);
+    return {
+      key: f.key,
+      label,
+      itemNumber,
+      score,
+      scoreLabel: score === null ? String(f.value ?? '—') : PSC_SCORE_LABEL[score],
+      subscaleLabel: sub ? PSC17_SUBSCALE_LABEL[sub] : null,
+      scoreClass:
+        score === 2 ? 'is-often' : score === 1 ? 'is-sometimes' : score === 0 ? 'is-never' : 'is-unscored'
+    };
+  });
+  items.sort((a, b) => (a.itemNumber || 99) - (b.itemNumber || 99));
+  return items;
+};
+
+const pscExpanded = ref(false);
+
+const psc17Summary = computed(() => {
+  const section = (clinicalSections.value || []).find(isPscSection);
+  if (!section || !section.fields?.length) return null;
+
+  const subTotals = { internalizing: 0, attention: 0, externalizing: 0 };
+  const subUnscored = { internalizing: 0, attention: 0, externalizing: 0 };
+  const subExpected = { internalizing: 5, attention: 5, externalizing: 7 };
+  let total = 0;
+  let scored = 0;
+  let unscored = 0;
+  for (const f of section.fields) {
+    const score = parsePscScore(f.value);
+    const sub = subscaleForPscField(f);
+    if (score === null) {
+      unscored += 1;
+      if (sub && subUnscored[sub] !== undefined) subUnscored[sub] += 1;
+      continue;
+    }
+    scored += 1;
+    total += score;
+    if (sub && subTotals[sub] !== undefined) subTotals[sub] += score;
+  }
+
+  const subscales = ['internalizing', 'attention', 'externalizing'].map((id) => ({
+    id,
+    label: PSC17_SUBSCALE_LABEL[id],
+    score: subTotals[id],
+    max: PSC17_SUBSCALE_MAX[id],
+    cutoff: PSC17_CUTOFFS[id],
+    expectedItems: subExpected[id],
+    unscoredItems: subUnscored[id],
+    elevated: subTotals[id] >= PSC17_CUTOFFS[id]
+  }));
+
+  const totalElevated = total >= PSC17_CUTOFFS.total;
+  const elevatedSubs = subscales.filter((s) => s.elevated);
+
+  // Required output format: a single text block with three narrative
+  // sections separated by blank lines. No headers, no bold, no bullets,
+  // and use plain ASCII for thresholds (e.g. >=15) — not unicode (≥).
+  let interpretation;
+  if (!scored) {
+    interpretation =
+      'No PSC-17 items could be scored from the submitted responses. '
+      + 'Verify that responses use Never/Sometimes/Often or 0/1/2 values.\n\n'
+      + 'Without scored items the screening cannot be interpreted.\n\n'
+      + 'Re-administer the PSC-17 with valid response options and rescore.';
+  } else {
+    const subSummary = subscales
+      .map((s) => `${s.label} ${s.score} of ${s.max} (cutoff >=${s.cutoff})`)
+      .join('; ');
+    const scoreSection =
+      `Total score: ${total} of 34 (cutoff >=${PSC17_CUTOFFS.total}). `
+      + `Subscale scores: ${subSummary}.`;
+
+    const interpParts = [];
+    if (totalElevated) {
+      interpParts.push(
+        `The total score is at or above the >=${PSC17_CUTOFFS.total} cutoff for overall psychosocial impairment.`
+      );
+    } else {
+      interpParts.push(
+        `The total score is below the >=${PSC17_CUTOFFS.total} cutoff for overall psychosocial impairment.`
+      );
+    }
+    if (elevatedSubs.length) {
+      const subText = elevatedSubs
+        .map((s) => `${s.label} (${s.score} of ${s.max}, cutoff >=${s.cutoff})`)
+        .join(', ');
+      interpParts.push(
+        `The following subscale${elevatedSubs.length > 1 ? 's are' : ' is'} at or above threshold and indicate${elevatedSubs.length > 1 ? '' : 's'} elevated risk: ${subText}.`
+      );
+    } else {
+      interpParts.push('No individual subscale is at or above its screening threshold.');
+    }
+    if (unscored) {
+      interpParts.push(
+        `Note: ${unscored} item${unscored === 1 ? ' was' : 's were'} not scored, which may underestimate the affected subscale totals.`
+      );
+    }
+    const interpretationSection = interpParts.join(' ');
+
+    let recommendationSection;
+    if (totalElevated || elevatedSubs.length) {
+      recommendationSection =
+        'Recommend follow-up clinical evaluation to confirm the screening signal, complete a comprehensive psychosocial assessment, and identify appropriate supports. '
+        + 'Cutoffs are screening thresholds and are not diagnostic; final determinations require a full clinical assessment.';
+    } else {
+      recommendationSection =
+        'No follow-up clinical evaluation is indicated by this screening at this time. Continue routine monitoring and rescreen if concerns arise. '
+        + 'Cutoffs are screening thresholds and are not diagnostic.';
+    }
+
+    interpretation = `${scoreSection}\n\n${interpretationSection}\n\n${recommendationSection}`;
+  }
+
+  return {
+    total,
+    totalMax: 34,
+    totalElevated,
+    cutoffs: PSC17_CUTOFFS,
+    subscales,
+    scored,
+    unscored,
+    interpretation
+  };
+});
+
+const psc17InterpretationParagraphs = computed(() => {
+  const text = psc17Summary.value?.interpretation || '';
+  return text
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+});
+
+// Visual treatment for known clinical sections so PSC/Trauma/Goals each get a
+// distinct tint without losing the unified card grid look.
+const CLINICAL_SECTION_CARD_VARIANT = new Map([
+  ['PSC-17 Behavioral Assessment', 'ov-card--clinical-psc'],
+  ['Clinical Questions', 'ov-card--clinical-questions'],
+  ['Clinical Intake Fields', 'ov-card--clinical-questions'],
+  ['Trauma / Abuse History', 'ov-card--clinical-trauma'],
+  ['Counseling Goals', 'ov-card--clinical-goals'],
+  ['Additional Notes & Medical', 'ov-card--clinical-notes'],
+  ['Additional Intake Responses', 'ov-card--clinical-other']
+]);
+const clinicalSectionCardClass = (section) =>
+  CLINICAL_SECTION_CARD_VARIANT.get(section?.title) || 'ov-card--clinical-other';
+
 const fetchClinicalResponses = async () => {
   if (!props.client?.id) return;
   try {
@@ -4127,6 +4546,88 @@ const demoDuplicateCount = computed(() => {
 });
 
 const demoHasDuplicates = computed(() => demoDuplicateCount.value > 0);
+
+// Friendly labels for the most common intake field keys. The backend can
+// fall through to using the raw key as a label when an intake form was
+// authored without a `label`, so the UI defensively maps known keys here.
+// Anything not in this map gets a generic snake_case → Title Case humanizer.
+const FRIENDLY_DEMO_LABELS = {
+  client_first: 'First Name',
+  client_last: 'Last Name',
+  client_dob: 'Date of Birth',
+  client_sex: 'Sex / Gender',
+  client_grade: 'Grade',
+  client_school: 'School',
+  client_street: 'Street Address',
+  client_apt: 'Apt / Unit',
+  client_city: 'City',
+  client_state: 'State',
+  client_zip: 'Zip Code',
+  client_email: 'Email',
+  client_phone: 'Phone',
+  client_address: 'Street Address',
+  guardian_first: 'First Name',
+  guardian_last: 'Last Name',
+  guardian_address: 'Street Address',
+  guardian_apt: 'Apt / Unit',
+  guardian_city: 'City',
+  guardian_state: 'State',
+  guardian_zip: 'Zip Code',
+  guardian_phone: 'Phone',
+  guardian_email: 'Email',
+  guardian_email_pref: 'Email',
+  guardian_phone_pref: 'Phone',
+  guardian_relationship: 'Relationship',
+  emergency_contact: 'Emergency Contact',
+  additional_guardian: 'Additional Guardian',
+  contact_phone: 'Phone',
+  address_street: 'Street Address',
+  address_apt: 'Apt / Unit',
+  address_city: 'City',
+  address_state: 'State',
+  address_zip: 'Zip Code'
+};
+
+// Convert a raw snake/camel-case key into a readable title-case label.
+const humanizeDemoKey = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  // Strip leading client_ / guardian_ scope so the key shows the field, not
+  // the scope (the card already groups by client vs guardian).
+  const stripped = s.replace(/^(client|guardian)_/i, '');
+  return stripped
+    // camelCase → camel Case
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    // snake/kebab to spaces
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+const prettyDemoLabel = (field) => {
+  if (!field) return '';
+  const key = String(field.key || '').trim();
+  const label = String(field.label || '').trim();
+  // Treat the label as "raw" if it's empty, equal to the key, or all
+  // lowercase snake_case (the typical fallback shape).
+  const looksRaw = !label
+    || label.toLowerCase() === key.toLowerCase()
+    || /^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)+$/.test(label);
+  if (!looksRaw) return label;
+  return FRIENDLY_DEMO_LABELS[key] || humanizeDemoKey(key || label);
+};
+
+// Visual variant per demographic group so Profile / Client / Guardian / Address
+// read as distinct cards in the grid.
+const DEMO_GROUP_CARD_VARIANT = {
+  profile: 'ov-card--demo-profile',
+  client_intake: 'ov-card--demo-client',
+  guardian_intake: 'ov-card--demo-guardian',
+  address: 'ov-card--demo-address'
+};
+const demoGroupCardClass = (group) =>
+  DEMO_GROUP_CARD_VARIANT[group?.id] || '';
 
 const fetchDemographics = async () => {
   if (!props.client?.id) return;
@@ -4839,6 +5340,419 @@ watch(
 .school-roi-overview-cta {
   grid-column: 1 / -1;
 }
+
+/* ---------------------------------------------------------------
+   Overview tab: grouped section cards (Identity, Status, Documents,
+   Care Team, Education, Languages, Guardian, School ROI). Replaces
+   the old "one card per field" layout to reduce visual noise and
+   group related questions (esp. guardian) into a single card.
+   --------------------------------------------------------------- */
+.ov-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+  align-items: start;
+}
+
+.ov-card {
+  background: #fff;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-top: 3px solid rgba(198, 154, 43, 0.32);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.ov-card--full {
+  grid-column: 1 / -1;
+}
+
+.ov-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, #fffaf0 0%, #fff 100%);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+}
+
+.ov-card-header h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: #8a5b12;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.ov-card-body {
+  padding: 6px 16px 12px;
+}
+
+.ov-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 38%) 1fr;
+  gap: 14px;
+  align-items: start;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(241, 235, 220, 0.85);
+}
+
+.ov-row:last-child {
+  border-bottom: none;
+}
+
+.ov-row--block {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.ov-row-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #8a5b12;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1.4;
+  padding-top: 2px;
+}
+
+.ov-row-value {
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 500;
+  line-height: 1.45;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.ov-row.admin-note-row.is-popover-open {
+  position: relative;
+  z-index: 50;
+}
+
+.ov-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0 4px;
+}
+
+.ov-card--guardian .ov-card-header {
+  background: linear-gradient(180deg, #f6f9ff 0%, #fff 100%);
+  border-bottom-color: rgba(214, 222, 238, 0.85);
+}
+
+.ov-card--guardian {
+  border-top-color: rgba(89, 116, 188, 0.45);
+}
+
+.ov-card--cta .ov-card-body {
+  padding-top: 12px;
+}
+
+@media (max-width: 640px) {
+  .ov-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+/* Shared meta bar for tab headers (Clinical / Demographics) */
+.tab-meta-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: var(--bg-alt, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  margin-bottom: 16px;
+}
+.tab-meta-bar-spacer { flex: 1 1 auto; }
+
+/* Per-section accent colors so each card in Clinical/Demographics gets a
+   recognizable hue without breaking the unified card grid. The color shows
+   on the card's top border and header background. */
+.ov-card--demo-profile     { border-top-color: rgba(198, 154, 43, 0.45); }
+.ov-card--demo-client      { border-top-color: rgba(45, 130, 95, 0.45); }
+.ov-card--demo-client .ov-card-header { background: linear-gradient(180deg, #f1faf5 0%, #fff 100%); }
+.ov-card--demo-guardian    { border-top-color: rgba(89, 116, 188, 0.55); }
+.ov-card--demo-guardian .ov-card-header { background: linear-gradient(180deg, #f6f9ff 0%, #fff 100%); }
+.ov-card--demo-address     { border-top-color: rgba(168, 86, 196, 0.45); }
+.ov-card--demo-address .ov-card-header { background: linear-gradient(180deg, #faf3fc 0%, #fff 100%); }
+
+.ov-card--clinical-psc        { border-top-color: rgba(220, 90, 90, 0.55); }
+.ov-card--clinical-psc .ov-card-header { background: linear-gradient(180deg, #fdf3f3 0%, #fff 100%); }
+.ov-card--clinical-questions  { border-top-color: rgba(45, 130, 95, 0.55); }
+.ov-card--clinical-questions .ov-card-header { background: linear-gradient(180deg, #f1faf5 0%, #fff 100%); }
+.ov-card--clinical-trauma     { border-top-color: rgba(189, 92, 39, 0.55); }
+.ov-card--clinical-trauma .ov-card-header { background: linear-gradient(180deg, #fdf6ee 0%, #fff 100%); }
+.ov-card--clinical-goals      { border-top-color: rgba(89, 116, 188, 0.55); }
+.ov-card--clinical-goals .ov-card-header { background: linear-gradient(180deg, #f6f9ff 0%, #fff 100%); }
+.ov-card--clinical-notes      { border-top-color: rgba(168, 86, 196, 0.45); }
+.ov-card--clinical-notes .ov-card-header { background: linear-gradient(180deg, #faf3fc 0%, #fff 100%); }
+.ov-card--clinical-other      { border-top-color: rgba(100, 116, 139, 0.45); }
+
+/* Duplicate-row treatment inside demographics cards. */
+.ov-row.is-duplicate {
+  background: #fbf7ee;
+  border-radius: 8px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+.ov-row.is-duplicate .ov-row-label {
+  color: #8a5b12;
+  opacity: 0.85;
+}
+
+/* ─── PSC-17 score summary ────────────────────────────────────────────── */
+.psc-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 6px 0 4px;
+}
+
+.psc-total-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fff 0%, #fdf6f6 100%);
+  border: 1px solid #f1d8d8;
+}
+.psc-total-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: #8a5b12;
+}
+.psc-total-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1;
+  margin-top: 4px;
+}
+.psc-out-of {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+}
+
+.psc-flag {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 8px 12px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+.psc-flag--elevated {
+  background: #fdecec;
+  color: #b42318;
+  border: 1px solid #f5b8b3;
+}
+.psc-flag--normal {
+  background: #ecfdf3;
+  color: #027a48;
+  border: 1px solid #b6e7c8;
+}
+.psc-flag-cutoff {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  opacity: 0.85;
+  text-transform: none;
+}
+
+.psc-subscale-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.psc-subscale {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.psc-subscale.is-elevated {
+  border-color: #f3b9b3;
+  background: #fff8f8;
+}
+.psc-subscale.is-normal {
+  border-color: #c8ead7;
+  background: #f7fefa;
+}
+.psc-subscale-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.psc-subscale-name {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-primary);
+}
+.psc-subscale-flag {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.psc-subscale.is-elevated .psc-subscale-flag {
+  background: #fdecec;
+  color: #b42318;
+}
+.psc-subscale.is-normal .psc-subscale-flag {
+  background: #ecfdf3;
+  color: #027a48;
+}
+.psc-subscale-score {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-primary);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.psc-subscale-cutoff {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+}
+.psc-subscale-bar {
+  width: 100%;
+  height: 6px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.psc-subscale-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #34a853 0%, #fbbc05 60%, #ea4335 100%);
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.psc-warning { padding: 0 4px; }
+
+.psc-interpretation {
+  background: #fffaf0;
+  border: 1px solid #f1e3c2;
+  border-left: 3px solid #c69a2b;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.psc-interpretation-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-weight: 800;
+  color: #8a5b12;
+  margin-bottom: 6px;
+}
+.psc-interpretation-body {
+  font-size: 14px;
+  color: var(--text-primary);
+  margin: 0 0 6px;
+  line-height: 1.5;
+}
+.psc-interpretation-disclaimer {
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  margin: 0;
+  line-height: 1.45;
+  font-style: italic;
+}
+
+/* PSC items expand button */
+.psc-expand-btn {
+  margin-top: 10px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-alt, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.psc-expand-btn:hover {
+  background: #fdf6e9;
+  border-color: rgba(198, 154, 43, 0.45);
+}
+.psc-expand-caret {
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+.psc-expand-caret.is-open { transform: rotate(180deg); }
+
+.psc-items {
+  margin-top: 8px;
+  padding: 4px 0;
+  border-top: 1px dashed rgba(226, 232, 240, 0.85);
+}
+.psc-item-row {
+  align-items: center;
+}
+.psc-item-num {
+  display: inline-block;
+  min-width: 22px;
+  margin-right: 8px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #8a5b12;
+  background: #fdf6e9;
+  border-radius: 6px;
+  text-align: center;
+}
+.psc-item-value {
+  font-weight: 700;
+}
+.psc-item-sub {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+}
+.psc-item-row.is-often .psc-item-value { color: #b42318; }
+.psc-item-row.is-sometimes .psc-item-value { color: #b54708; }
+.psc-item-row.is-never .psc-item-value { color: #027a48; }
+.psc-item-row.is-unscored .psc-item-value { color: var(--text-secondary, #64748b); font-style: italic; }
 
 .info-item {
   display: flex;

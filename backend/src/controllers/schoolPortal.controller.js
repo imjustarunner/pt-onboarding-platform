@@ -28,6 +28,8 @@ import { callGeminiText } from '../services/geminiText.service.js';
 import { ensureIssuedRoiSigningLinkForClient } from './clientSchoolRoiAccess.controller.js';
 import { assertSchoolPortalAccess } from './schoolPortalIntakeLinks.controller.js';
 import { buildIntakeAnswersText, buildClinicalSummaryText } from './publicIntake.controller.js';
+import { decryptIntakeSubmissionRows } from '../services/intakeResponsesEncryption.service.js';
+import { decryptIntakeSubmissionClientRow } from '../models/IntakeSubmissionClient.model.js';
 import {
   getSupervisorSuperviseeIds,
   isAdminLikeRole,
@@ -2321,6 +2323,10 @@ export const restoreSchoolPortalIntakeArtifacts = async (req, res, next) => {
          s.client_id,
          s.ip_address,
          s.intake_data,
+         s.payload_encrypted,
+         s.payload_iv_b64,
+         s.payload_auth_tag_b64,
+         s.payload_key_id,
          s.retention_expires_at,
          l.organization_id,
          l.scope_type,
@@ -2330,11 +2336,12 @@ export const restoreSchoolPortalIntakeArtifacts = async (req, res, next) => {
        FROM intake_submissions s
        JOIN intake_links l ON l.id = s.intake_link_id
        WHERE l.organization_id = ?
-         AND s.intake_data IS NOT NULL
+         AND (s.intake_data IS NOT NULL OR s.payload_encrypted IS NOT NULL)
        ORDER BY s.id DESC
        LIMIT 500`,
       [orgId]
     );
+    decryptIntakeSubmissionRows(submissionRows);
 
     const fallbackAgencyId = await resolveActiveAgencyIdForOrg(orgId);
     const counters = {
@@ -5391,8 +5398,16 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
              s.id,
              s.submitted_at,
              s.signer_name,
+             s.payload_encrypted,
+             s.payload_iv_b64,
+             s.payload_auth_tag_b64,
+             s.payload_key_id,
              s.client_id,
              isc.full_name AS client_full_name,
+             isc.pii_encrypted AS isc_pii_encrypted,
+             isc.pii_iv_b64 AS isc_pii_iv_b64,
+             isc.pii_auth_tag_b64 AS isc_pii_auth_tag_b64,
+             isc.pii_key_id AS isc_pii_key_id,
              c.initials AS client_initials,
              c.identifier_code AS client_identifier_code
            FROM intake_submissions s
@@ -5406,6 +5421,22 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
            LIMIT 200`,
           [orgId]
         );
+        decryptIntakeSubmissionRows(intakeRows);
+        // Hydrate per-child full_name when only the encrypted blob exists
+        // (intake_submission_clients PII encryption — migration 726).
+        for (const r of intakeRows) {
+          if (!r.client_full_name && r.isc_pii_encrypted) {
+            const tmp = decryptIntakeSubmissionClientRow({
+              full_name: null,
+              contact_phone: null,
+              pii_encrypted: r.isc_pii_encrypted,
+              pii_iv_b64: r.isc_pii_iv_b64,
+              pii_auth_tag_b64: r.isc_pii_auth_tag_b64,
+              pii_key_id: r.isc_pii_key_id
+            });
+            if (tmp?.full_name) r.client_full_name = tmp.full_name;
+          }
+        }
         const seen = new Set();
         intakePacketSubmitted = (intakeRows || [])
           .filter((r) => {

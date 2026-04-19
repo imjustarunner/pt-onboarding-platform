@@ -9,6 +9,7 @@ import pool from '../config/database.js';
 import multer from 'multer';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
+import { decryptIntakeSubmissionRows } from '../services/intakeResponsesEncryption.service.js';
 
 // Upload (authenticated): PDF/JPG/PNG up to 10MB
 const upload = multer({
@@ -286,6 +287,10 @@ export const listClientIntakeResponses = async (req, res, next) => {
            s.created_at,
            s.updated_at,
            s.intake_data,
+           s.payload_encrypted,
+           s.payload_iv_b64,
+           s.payload_auth_tag_b64,
+           s.payload_key_id,
            l.title AS intake_link_title,
            l.form_type,
            l.scope_type
@@ -293,10 +298,11 @@ export const listClientIntakeResponses = async (req, res, next) => {
          LEFT JOIN intake_links l ON l.id = s.intake_link_id
          LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
          WHERE (s.client_id = ? OR isc.client_id = ?)
-           AND s.intake_data IS NOT NULL
+           AND (s.intake_data IS NOT NULL OR s.payload_encrypted IS NOT NULL)
          GROUP BY
            s.id, s.intake_link_id, s.status, s.signer_name, s.signer_email,
            s.submitted_at, s.created_at, s.updated_at, s.intake_data,
+           s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id,
            l.title, l.form_type, l.scope_type
          ORDER BY COALESCE(s.submitted_at, s.updated_at, s.created_at) DESC
          LIMIT 20`,
@@ -316,19 +322,24 @@ export const listClientIntakeResponses = async (req, res, next) => {
            s.created_at,
            s.updated_at,
            s.intake_data,
+           s.payload_encrypted,
+           s.payload_iv_b64,
+           s.payload_auth_tag_b64,
+           s.payload_key_id,
            l.title AS intake_link_title,
            l.form_type,
            l.scope_type
          FROM intake_submissions s
          LEFT JOIN intake_links l ON l.id = s.intake_link_id
          WHERE s.client_id = ?
-           AND s.intake_data IS NOT NULL
+           AND (s.intake_data IS NOT NULL OR s.payload_encrypted IS NOT NULL)
          ORDER BY COALESCE(s.submitted_at, s.updated_at, s.created_at) DESC
          LIMIT 20`,
         [clientId]
       );
       rows = fallbackRows || [];
     }
+    decryptIntakeSubmissionRows(rows);
 
     const submissionIds = Array.from(
       new Set((rows || []).map((row) => Number(row?.id || 0)).filter((id) => Number.isFinite(id) && id > 0))

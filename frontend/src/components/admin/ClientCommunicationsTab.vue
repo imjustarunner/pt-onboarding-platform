@@ -19,7 +19,9 @@
         <select v-model="statusFilter" class="form-select">
           <option value="">All statuses</option>
           <option value="opened">Opened (email)</option>
-          <option value="sent">Sent</option>
+          <option value="delivered">Delivered (no open yet)</option>
+          <option value="sent">Sent (no delivery confirmation)</option>
+          <option value="pending">Pending (not yet sent)</option>
           <option value="failed">Failed / Bounced</option>
         </select>
       </div>
@@ -57,6 +59,11 @@
                 class="dir-chip dir-in"
                 title="Received from this client / guardian"
               >Inbound</span>
+              <span
+                class="status-pill"
+                :class="`status-${statusInfo(item).key}`"
+                :title="statusInfo(item).tooltip"
+              >{{ statusInfo(item).label }}</span>
               <h4 :title="item.subject || item.body || ''">
                 {{ titleFor(item) }}
               </h4>
@@ -85,20 +92,26 @@
                 <strong>{{ item.direction === 'inbound' ? 'Received:' : 'Sent:' }}</strong>
                 {{ formatDate(item.sentAt) }}
               </span>
+              <span v-if="item.deliveredAt" class="meta-item delivered-chip" title="Provider confirmed delivery to recipient mailbox">
+                Delivered {{ formatRelative(item.deliveredAt) }}
+              </span>
               <span v-if="item.openedAt" class="meta-item open-chip" title="Tracking pixel detected an open">
                 Opened {{ formatRelative(item.openedAt) }}
               </span>
+              <span v-if="item.firstClickedAt" class="meta-item clicked-chip" title="Recipient clicked a tracked link">
+                Clicked {{ formatRelative(item.firstClickedAt) }}
+              </span>
               <span
-                v-else-if="item.channel === 'email' && item.deliveryStatus === 'sent'"
+                v-if="item.channel === 'email' && !item.openedAt && !isFailureStatus(item.deliveryStatus) && (item.deliveryStatus === 'sent' || item.deliveryStatus === 'delivered')"
                 class="meta-item muted small"
-                title="No open detected (recipient may have images blocked)"
+                title="No open detected yet — recipient may have images blocked, may not have opened it, or the email may have been sent without an open-tracking pixel (fallback path)"
               >Open not yet detected</span>
               <span
                 v-if="isFailureStatus(item.deliveryStatus)"
                 class="meta-item failed-chip"
                 :title="item.errorMessage || ''"
               >
-                {{ String(item.deliveryStatus).toUpperCase() }}
+                {{ String(item.deliveryStatus).toUpperCase() }}{{ item.errorMessage ? ` — ${truncate(item.errorMessage, 80)}` : '' }}
               </span>
               <span v-if="item.agencyName" class="meta-item muted small">
                 {{ item.agencyName }}
@@ -140,6 +153,16 @@
         </div>
         <div class="modal-body">
           <div class="view-meta">
+            <div class="view-meta-status-row">
+              <span
+                class="status-pill status-pill--lg"
+                :class="`status-${statusInfo(viewingEmail).key}`"
+                :title="statusInfo(viewingEmail).tooltip"
+              >{{ statusInfo(viewingEmail).label }}</span>
+              <span v-if="viewingEmail.deliveryStatus" class="muted small">
+                provider status: {{ viewingEmail.deliveryStatus }}
+              </span>
+            </div>
             <p><strong>To:</strong>
               <template v-if="viewingEmail.recipientIsGuardian">
                 Guardian {{ viewingEmail.recipientUserName || '' }}
@@ -149,11 +172,78 @@
                 {{ viewingEmail.recipientUserName || viewingEmail.recipientAddress || '—' }}
               </template>
             </p>
-            <p v-if="viewingEmail.sentAt"><strong>Sent:</strong> {{ formatDate(viewingEmail.sentAt) }}</p>
-            <p v-if="viewingEmail.openedAt"><strong>Opened:</strong> {{ formatDate(viewingEmail.openedAt) }}</p>
-            <p v-if="viewingEmail.deliveryStatus"><strong>Status:</strong> {{ viewingEmail.deliveryStatus }}</p>
             <p v-if="viewingEmail.templateType"><strong>Type:</strong> {{ viewingEmail.templateType }}</p>
-            <p v-if="viewingEmail.externalMessageId" class="muted small">
+
+            <div class="delivery-timeline">
+              <div
+                class="timeline-step"
+                :class="{ 'is-done': !!viewingEmail.sentAt, 'is-current': !viewingEmail.sentAt && viewingEmail.deliveryStatus === 'pending' }"
+              >
+                <span class="timeline-dot" />
+                <div>
+                  <div class="timeline-label">Sent to provider</div>
+                  <div class="timeline-time">{{ viewingEmail.sentAt ? formatDate(viewingEmail.sentAt) : 'Not yet sent' }}</div>
+                </div>
+              </div>
+              <div
+                class="timeline-step"
+                :class="{ 'is-done': !!viewingEmail.deliveredAt }"
+              >
+                <span class="timeline-dot" />
+                <div>
+                  <div class="timeline-label">Delivered to mailbox</div>
+                  <div class="timeline-time">
+                    {{
+                      viewingEmail.deliveredAt
+                        ? formatDate(viewingEmail.deliveredAt)
+                        : (viewingEmail.sentAt ? 'No delivery webhook received yet' : '—')
+                    }}
+                  </div>
+                </div>
+              </div>
+              <div
+                class="timeline-step"
+                :class="{ 'is-done': !!viewingEmail.openedAt }"
+              >
+                <span class="timeline-dot" />
+                <div>
+                  <div class="timeline-label">Opened by recipient</div>
+                  <div class="timeline-time">
+                    {{
+                      viewingEmail.openedAt
+                        ? formatDate(viewingEmail.openedAt)
+                        : 'No open detected yet'
+                    }}
+                  </div>
+                  <div v-if="!viewingEmail.openedAt" class="timeline-hint muted small">
+                    Opens are detected via a tracking pixel — recipients with images blocked
+                    will appear as not-yet-opened even if they actually read it.
+                  </div>
+                </div>
+              </div>
+              <div
+                v-if="viewingEmail.firstClickedAt"
+                class="timeline-step is-done"
+              >
+                <span class="timeline-dot" />
+                <div>
+                  <div class="timeline-label">Clicked a link</div>
+                  <div class="timeline-time">{{ formatDate(viewingEmail.firstClickedAt) }}</div>
+                </div>
+              </div>
+              <div
+                v-if="isFailureStatus(viewingEmail.deliveryStatus)"
+                class="timeline-step is-error"
+              >
+                <span class="timeline-dot" />
+                <div>
+                  <div class="timeline-label">{{ String(viewingEmail.deliveryStatus).toUpperCase() }}</div>
+                  <div v-if="viewingEmail.errorMessage" class="timeline-time">{{ viewingEmail.errorMessage }}</div>
+                </div>
+              </div>
+            </div>
+
+            <p v-if="viewingEmail.externalMessageId" class="muted small" style="margin-top: 8px;">
               Provider message id: {{ viewingEmail.externalMessageId }}
             </p>
           </div>
@@ -207,17 +297,61 @@ const bodyIframeRef = ref(null);
 
 const isFailureStatus = (status) => /failed|bounced|undelivered/i.test(String(status || ''));
 
+/**
+ * Resolve a single canonical status for an email/SMS row, used for the
+ * always-visible status pill and for filter bucketing. Order of precedence:
+ *   inbound → received
+ *   failure  → failed/bounced/undelivered
+ *   opened   → opened (highest engagement)
+ *   delivered → delivered
+ *   sent     → sent (provider accepted, no delivery confirmation yet)
+ *   pending  → pending (not yet sent)
+ */
+const statusInfo = (item) => {
+  if (item?.direction === 'inbound') {
+    return { key: 'received', label: 'Received', tooltip: 'Inbound message received from the recipient' };
+  }
+  if (isFailureStatus(item?.deliveryStatus)) {
+    const label = String(item.deliveryStatus || 'failed').toUpperCase();
+    return {
+      key: 'failed',
+      label,
+      tooltip: item?.errorMessage
+        ? `${label}: ${item.errorMessage}`
+        : `${label} — provider rejected delivery`
+    };
+  }
+  if (item?.openedAt) {
+    return { key: 'opened', label: 'Opened', tooltip: 'Tracking pixel was loaded by the recipient' };
+  }
+  if (item?.deliveredAt) {
+    return { key: 'delivered', label: 'Delivered', tooltip: 'Provider confirmed delivery, but no open detected yet' };
+  }
+  const ds = String(item?.deliveryStatus || '').toLowerCase();
+  if (ds === 'sent') {
+    return { key: 'sent', label: 'Sent', tooltip: 'Provider accepted the message; no delivery/open confirmation yet' };
+  }
+  if (ds === 'pending') {
+    return { key: 'pending', label: 'Pending', tooltip: 'Message generated but not yet handed off to the provider' };
+  }
+  if (ds) {
+    return { key: 'other', label: ds.charAt(0).toUpperCase() + ds.slice(1), tooltip: `Status: ${ds}` };
+  }
+  return { key: 'unknown', label: 'Unknown', tooltip: 'No status information was recorded for this message' };
+};
+
+const truncate = (s, n) => {
+  const str = String(s || '');
+  return str.length > n ? `${str.slice(0, n)}…` : str;
+};
+
 const filteredItems = computed(() => {
   let arr = items.value;
   if (channelFilter.value) {
     arr = arr.filter((i) => i.channel === channelFilter.value);
   }
-  if (statusFilter.value === 'opened') {
-    arr = arr.filter((i) => !!i.openedAt);
-  } else if (statusFilter.value === 'sent') {
-    arr = arr.filter((i) => String(i.deliveryStatus || '').toLowerCase() === 'sent');
-  } else if (statusFilter.value === 'failed') {
-    arr = arr.filter((i) => isFailureStatus(i.deliveryStatus));
+  if (statusFilter.value) {
+    arr = arr.filter((i) => statusInfo(i).key === statusFilter.value);
   }
   return arr;
 });
@@ -440,6 +574,31 @@ defineExpose({ reload: loadCommunications });
   text-transform: uppercase;
 }
 .dir-in { background: #dcfce7; color: #14532d; }
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.status-pill--lg {
+  font-size: 12px;
+  padding: 4px 12px;
+}
+.status-opened     { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+.status-clicked    { background: #cffafe; color: #155e75; border-color: #a5f3fc; }
+.status-delivered  { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; }
+.status-sent       { background: #fef9c3; color: #854d0e; border-color: #fde68a; }
+.status-pending    { background: #f3f4f6; color: #4b5563; border-color: #e5e7eb; }
+.status-failed     { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.status-received   { background: #ede9fe; color: #5b21b6; border-color: #ddd6fe; }
+.status-other,
+.status-unknown    { background: #f3f4f6; color: #6b7280; border-color: #e5e7eb; }
 .communication-meta {
   display: flex;
   flex-wrap: wrap;
@@ -458,6 +617,22 @@ defineExpose({ reload: loadCommunications });
 .open-chip {
   background: #dcfce7;
   color: #166534;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 12px;
+}
+.delivered-chip {
+  background: #dbeafe;
+  color: #1e40af;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 12px;
+}
+.clicked-chip {
+  background: #cffafe;
+  color: #155e75;
   padding: 2px 8px;
   border-radius: 999px;
   font-weight: 700;
@@ -528,6 +703,67 @@ defineExpose({ reload: loadCommunications });
 .view-meta p {
   margin: 4px 0;
   font-size: 13px;
+}
+.view-meta-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px 0;
+}
+.delivery-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--bg-alt, #f8fafc);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+}
+.timeline-step {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 4px 0;
+  color: #6b7280;
+}
+.timeline-step .timeline-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d1d5db;
+  margin-top: 5px;
+}
+.timeline-step.is-done {
+  color: #111827;
+}
+.timeline-step.is-done .timeline-dot {
+  background: #16a34a;
+}
+.timeline-step.is-current .timeline-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px #fde68a;
+}
+.timeline-step.is-error {
+  color: #991b1b;
+}
+.timeline-step.is-error .timeline-dot {
+  background: #dc2626;
+}
+.timeline-label {
+  font-weight: 700;
+  font-size: 13px;
+}
+.timeline-time {
+  font-size: 12px;
+  color: inherit;
+  opacity: 0.85;
+}
+.timeline-hint {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.4;
 }
 .email-html-frame {
   border: 1px solid var(--border, #e5e7eb);

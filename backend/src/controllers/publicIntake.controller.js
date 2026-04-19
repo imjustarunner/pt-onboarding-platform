@@ -17,6 +17,7 @@ import {
 import { fetchRegistrationCatalogItems } from '../services/registrationCatalog.service.js';
 import { enrollClientsInCompanyEvent } from '../services/skillBuildersIntakeEnrollment.service.js';
 import applyClientRoiCompletion from '../services/clientRoiCompletion.service.js';
+import applyClientIntakeCompletion from '../services/clientIntakeCompletion.service.js';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
@@ -4898,7 +4899,9 @@ export const finalizePublicIntake = async (req, res, next) => {
                 subject,
                 text,
                 html,
-                source: 'auto'
+                source: 'auto',
+                clientId: boundClient?.id || null,
+                templateType: 'school_roi_signer_completion'
               }),
               new Promise((_, reject) => {
                 setTimeout(() => reject(new Error('roi_signer_email_timeout')), 15000);
@@ -4926,7 +4929,9 @@ export const finalizePublicIntake = async (req, res, next) => {
                 replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
                 attachments: null,
                 source: 'auto',
-                agencyId: boundClient?.agency_id || agency?.id || null
+                agencyId: boundClient?.agency_id || agency?.id || null,
+                clientId: boundClient?.id || null,
+                templateType: 'school_roi_signer_completion'
               }),
               new Promise((_, reject) => {
                 setTimeout(() => reject(new Error('roi_signer_email_timeout')), 15000);
@@ -5723,6 +5728,25 @@ export const finalizePublicIntake = async (req, res, next) => {
             );
           } catch { /* column may not exist yet (migration pending) */ }
         }
+
+        // Auto-mark the per-client Document Status checklist as RECEIVED.
+        // Intake completion delivers every item on the checklist (emailed
+        // packet, ROI, new docs, disclosure & consent, insurance info, etc.),
+        // so leaving them flagged "Needed" forces unnecessary manual work.
+        try {
+          await applyClientIntakeCompletion({
+            clientId,
+            completedAt: now,
+            note: 'Marked received automatically after intake/ROI completion',
+            actorUserId: null
+          });
+        } catch (intakeCompletionErr) {
+          console.error('[publicIntake] applyClientIntakeCompletion failed (school-roi flow)', {
+            clientId,
+            submissionId,
+            error: intakeCompletionErr?.message || intakeCompletionErr
+          });
+        }
       }
     }
 
@@ -5983,7 +6007,9 @@ export const finalizePublicIntake = async (req, res, next) => {
               subject: packetEmail.subject,
               text: packetEmail.text,
               html: packetEmail.html,
-              source: 'auto'
+              source: 'auto',
+              clientId: updatedSubmission?.client_id || null,
+              templateType: 'intake_packet_completion'
             });
           } else {
             if (!EmailService.isConfigured()) {
@@ -6008,7 +6034,9 @@ export const finalizePublicIntake = async (req, res, next) => {
               replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
               attachments: null,
               source: 'auto',
-              agencyId: link?.organization_id || null
+              agencyId: link?.organization_id || null,
+              clientId: updatedSubmission?.client_id || null,
+              templateType: 'intake_packet_completion'
             });
           }
           emailDelivery.sent = true;
@@ -6499,6 +6527,24 @@ export const submitPublicIntake = async (req, res, next) => {
           expiresAt: retentionExpiresAt,
           organizationId: req.body?.organizationId || null
         });
+
+        // Auto-mark the per-client Document Status checklist as RECEIVED on
+        // intake/registration completion. See clientIntakeCompletion.service.js
+        // for the rationale and the rollup logic.
+        try {
+          await applyClientIntakeCompletion({
+            clientId,
+            completedAt: now,
+            note: 'Marked received automatically after intake/registration completion',
+            actorUserId: null
+          });
+        } catch (intakeCompletionErr) {
+          console.error('[publicIntake] applyClientIntakeCompletion failed (registration flow)', {
+            clientId,
+            submissionId,
+            error: intakeCompletionErr?.message || intakeCompletionErr
+          });
+        }
       }
     }
 
@@ -6723,7 +6769,9 @@ export const submitPublicIntake = async (req, res, next) => {
               subject: packetEmail.subject,
               text: packetEmail.text,
               html: packetEmail.html,
-              source: 'auto'
+              source: 'auto',
+              clientId: updatedSubmission?.client_id || null,
+              templateType: 'intake_packet_completion'
             });
           } else {
             const fallbackSignatureIdentity = await resolveFallbackSignatureIdentity({
@@ -6745,7 +6793,9 @@ export const submitPublicIntake = async (req, res, next) => {
               replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
               attachments: null,
               source: 'auto',
-              agencyId: link?.organization_id || null
+              agencyId: link?.organization_id || null,
+              clientId: updatedSubmission?.client_id || null,
+              templateType: 'intake_packet_completion'
             });
           }
           emailDelivery.sent = true;
@@ -6944,10 +6994,12 @@ export const getPublicRegistrationReceipt = async (req, res) => {
       return res.status(404).json({ error: { message: 'Not found' } });
     }
     let intakeData = {};
-    try {
-      intakeData = sub.intake_data ? JSON.parse(sub.intake_data) : {};
-    } catch {
-      intakeData = {};
+    if (sub.intake_data) {
+      if (typeof sub.intake_data === 'object') {
+        intakeData = sub.intake_data;
+      } else {
+        try { intakeData = JSON.parse(sub.intake_data); } catch { intakeData = {}; }
+      }
     }
     const eventPlaceholders = await loadRegistrationEventFieldPlaceholders(intakeData, link);
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink: null, boundClient: null });

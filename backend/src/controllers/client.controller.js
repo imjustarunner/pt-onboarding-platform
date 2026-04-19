@@ -22,6 +22,7 @@ import crypto from 'crypto';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { isSkillsClientFlag } from '../utils/skillsClientFlag.js';
 import { bumpGradeCanonical, normalizeGradeForSave } from '../utils/clientGrade.js';
+import { decryptIntakeSubmissionRows } from '../services/intakeResponsesEncryption.service.js';
 
 function normalizeSixDigitClientCode(value) {
   const raw = String(value || '').trim();
@@ -3887,6 +3888,22 @@ const hasVal = (v) => v !== null && v !== undefined && String(v).trim() !== '';
 const normalizeLabel = (s) => String(s || '').trim();
 
 /**
+ * Tolerant parser for `intake_submissions.intake_data`. Depending on the
+ * mysql2 driver mode the column comes back either as a JSON string or as an
+ * already-parsed object. Calling `JSON.parse` on the latter throws, which
+ * silently zeroed out the demographics/clinical extractors and made every
+ * tab look empty even when the data was present. Always go through this.
+ */
+const parseIntakeData = (raw) => {
+  if (raw === null || raw === undefined) return {};
+  if (typeof raw === 'object') return raw;
+  if (typeof raw !== 'string') return {};
+  const trimmed = raw.trim();
+  if (!trimmed) return {};
+  try { return JSON.parse(trimmed); } catch { return {}; }
+};
+
+/**
  * Backward-compatible category inference for fields that don't carry an
  * explicit `category` (older intake_links saved before Phase 3). Returns
  * one of: 'demographic' | 'clinical' | 'consent' | 'profile' | 'guardian' | 'other'.
@@ -4083,13 +4100,15 @@ export const getClientClinicalResponses = async (req, res, next) => {
     let submRows = [];
     try {
       [submRows] = await pool.execute(
-        `SELECT DISTINCT s.id, s.intake_data, s.intake_link_id, s.submitted_at, s.status
+        `SELECT DISTINCT s.id, s.intake_data, s.intake_link_id, s.submitted_at, s.status,
+                s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id
          FROM intake_submissions s
          LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
          WHERE (s.client_id = ? OR isc.client_id = ?)
          ORDER BY s.submitted_at DESC, s.id DESC`,
         [clientId, clientId]
       );
+      decryptIntakeSubmissionRows(submRows);
     } catch (tableErr) {
       if (String(tableErr?.message || '').includes("doesn't exist") || tableErr?.errno === 1146) {
         return res.json({ sections: [], capturedAt: null, ...(debug ? { _debug: debugInfo } : {}) });
@@ -4133,8 +4152,7 @@ export const getClientClinicalResponses = async (req, res, next) => {
     // For each candidate submission, score it scoped to THIS client.
     let best = null;
     for (const row of submRows) {
-      let submissionData = {};
-      try { submissionData = JSON.parse(row.intake_data || '{}'); } catch { /* ignore */ }
+      const submissionData = parseIntakeData(row.intake_data);
 
       // Resolve the per-child client_id ordering for this submission.
       let clientIdsForSubmission = [];
@@ -4182,8 +4200,7 @@ export const getClientClinicalResponses = async (req, res, next) => {
     // Fall back to the most recent submission if nothing scored.
     if (!best) {
       const row = submRows[0];
-      let submissionData = {};
-      try { submissionData = JSON.parse(row.intake_data || '{}'); } catch { /* ignore */ }
+      const submissionData = parseIntakeData(row.intake_data);
       const link = await loadLink(row.intake_link_id);
       best = {
         row,
@@ -4509,7 +4526,8 @@ export const getClientDemographics = async (req, res, next) => {
     let submRows = [];
     try {
       [submRows] = await pool.execute(
-        `SELECT DISTINCT s.id, s.intake_data, s.intake_link_id, s.submitted_at
+        `SELECT DISTINCT s.id, s.intake_data, s.intake_link_id, s.submitted_at,
+                s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id
          FROM intake_submissions s
          LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
          WHERE (s.client_id = ? OR isc.client_id = ?)
@@ -4517,6 +4535,7 @@ export const getClientDemographics = async (req, res, next) => {
          LIMIT 5`,
         [clientId, clientId]
       );
+      decryptIntakeSubmissionRows(submRows);
     } catch (tableErr) {
       if (String(tableErr?.message || '').includes("doesn't exist") || tableErr?.errno === 1146) {
         submRows = [];
@@ -4533,8 +4552,7 @@ export const getClientDemographics = async (req, res, next) => {
       // Pick the most recent submission as canonical (matches prior behavior).
       const sub = submRows[0];
       capturedAt = sub.submitted_at || null;
-      let submissionData = {};
-      try { submissionData = JSON.parse(sub.intake_data || '{}'); } catch { /* ignore */ }
+      const submissionData = parseIntakeData(sub.intake_data);
 
       // Resolve per-child responses and field metadata (labels, scope, category).
       let clientIdsForSubmission = [];
@@ -4710,8 +4728,7 @@ export const getClientDemographics = async (req, res, next) => {
     // ── 3. Backfill primary_insurer_name from intake (existing behavior) ────
     if (submRows.length) {
       const sub = submRows[0];
-      let submissionData = {};
-      try { submissionData = JSON.parse(sub.intake_data || '{}'); } catch { /* ignore */ }
+      const submissionData = parseIntakeData(sub.intake_data);
       const insurerName = String(submissionData?.responses?.submission?.insuranceInfo?.primary?.insurerName || '').trim();
       if (insurerName) {
         try {
