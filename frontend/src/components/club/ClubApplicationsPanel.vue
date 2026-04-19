@@ -22,14 +22,39 @@
     <!-- ── Invite Panel ──────────────────────────────────── -->
     <div v-if="showInvitePanel" class="cap-invite-panel">
       <h3 class="cap-invite-title">Invite Links</h3>
+      <p class="cap-invite-help">
+        Generate a link your recruits can click to create their account, join the club, and
+        (optionally) drop straight into a specific season — no extra clicks.
+      </p>
       <div class="cap-invite-form">
         <div class="cap-field">
-          <label>Label <span class="cap-opt">(internal, e.g. "Spring 2026")</span></label>
+          <label>Label <span class="cap-opt">(internal, e.g. "Spring 2026 recruits")</span></label>
           <input v-model="newInvite.label" type="text" class="cap-input" placeholder="Optional" />
         </div>
         <div class="cap-field">
-          <label>Pre-fill email <span class="cap-opt">(optional)</span></label>
-          <input v-model="newInvite.email" type="email" class="cap-input" placeholder="recruit@email.com" />
+          <label>
+            Season fast-track
+            <span class="cap-opt">(optional — recruit is auto-enrolled in this season)</span>
+          </label>
+          <select v-model="newInvite.learningClassId" class="cap-input">
+            <option :value="''">— Club only (no specific season) —</option>
+            <option v-for="s in invitableSeasons" :key="s.id" :value="s.id">
+              {{ s.name }}{{ seasonOptionSuffix(s) }}
+            </option>
+          </select>
+          <p v-if="invitableSeasons.length === 0" class="cap-hint">
+            No upcoming seasons yet. Create a season first to use the season fast-track.
+          </p>
+        </div>
+        <div class="cap-field cap-field--row">
+          <div class="cap-field" style="flex:1;">
+            <label>Pre-fill email <span class="cap-opt">(optional, locks the link to one address)</span></label>
+            <input v-model="newInvite.email" type="email" class="cap-input" placeholder="recruit@email.com" />
+          </div>
+          <div class="cap-field" style="width:140px;">
+            <label>Max signups <span class="cap-opt">(blank = unlimited)</span></label>
+            <input v-model="newInvite.maxUses" type="number" min="1" step="1" class="cap-input" placeholder="∞" />
+          </div>
         </div>
         <div class="cap-field">
           <label>Expires</label>
@@ -53,12 +78,14 @@
         <div v-for="inv in invites" :key="inv.id" class="cap-invite-row">
           <div class="cap-invite-meta">
             <span class="cap-invite-label">{{ inv.label || 'Invite link' }}</span>
+            <span v-if="inv.season_name" class="cap-tag cap-tag--season">Season: {{ inv.season_name }}</span>
             <span v-if="inv.email" class="cap-invite-email">→ {{ inv.email }}</span>
             <span v-if="inv.auto_approve" class="cap-tag cap-tag--auto">auto-approve</span>
-            <span v-if="inv.used_at" class="cap-tag cap-tag--used">used</span>
+            <span class="cap-tag cap-tag--uses">{{ formatUses(inv) }}</span>
+            <span v-if="inv.exhausted" class="cap-tag cap-tag--used">used up</span>
           </div>
           <div class="cap-invite-actions">
-            <button class="btn btn-ghost btn-xs" @click="copyLink(inv.joinUrl)">
+            <button class="btn btn-ghost btn-xs" :disabled="inv.exhausted" @click="copyLink(inv.joinUrl)">
               {{ copied === inv.id ? '✓ Copied' : 'Copy Link' }}
             </button>
             <button class="btn btn-danger btn-xs" @click="revokeInvite(inv.id)">Revoke</button>
@@ -196,7 +223,40 @@ const invitesLoading  = ref(false);
 const inviteError     = ref('');
 const creatingInvite  = ref(false);
 const copied          = ref(null);
-const newInvite = ref({ label: '', email: '', expiresAt: '', autoApprove: false });
+const newInvite = ref({
+  label: '',
+  email: '',
+  expiresAt: '',
+  autoApprove: false,
+  learningClassId: '',
+  maxUses: ''
+});
+const invitableSeasons = ref([]);
+
+const loadInvitableSeasons = async () => {
+  try {
+    const { data } = await api.get(
+      `/summit-stats/clubs/${props.clubId}/invitable-seasons`,
+      { skipGlobalLoading: true }
+    );
+    invitableSeasons.value = data?.seasons || [];
+  } catch { /* non-fatal — older backends may not have this endpoint yet */ }
+};
+
+const seasonOptionSuffix = (s) => {
+  const phase = String(s?.joinPhase || '').toLowerCase();
+  if (phase === 'open') return ' — enrollment open';
+  if (phase === 'request_only') return ' — past enrollment deadline';
+  if (phase === 'not_open') return ' — enrollment not open yet';
+  return '';
+};
+
+const formatUses = (inv) => {
+  const used = Number(inv?.times_used || 0);
+  const max = inv?.max_uses == null ? null : Number(inv.max_uses);
+  if (max == null) return used === 0 ? 'unlimited' : `${used} signed up`;
+  return `${used}/${max} signed up`;
+};
 
 const loadApplications = async () => {
   appsLoading.value = true;
@@ -255,12 +315,23 @@ const createInvite = async () => {
   inviteError.value = '';
   try {
     await api.post(`/summit-stats/clubs/${props.clubId}/invites`, {
-      label:       newInvite.value.label || null,
-      email:       newInvite.value.email || null,
-      autoApprove: newInvite.value.autoApprove,
-      expiresAt:   newInvite.value.expiresAt || null
+      label:           newInvite.value.label || null,
+      email:           newInvite.value.email || null,
+      autoApprove:     newInvite.value.autoApprove,
+      expiresAt:       newInvite.value.expiresAt || null,
+      learningClassId: newInvite.value.learningClassId || null,
+      maxUses:         newInvite.value.maxUses === '' || newInvite.value.maxUses == null
+        ? null
+        : Number(newInvite.value.maxUses)
     });
-    newInvite.value = { label: '', email: '', expiresAt: '', autoApprove: false };
+    newInvite.value = {
+      label: '',
+      email: '',
+      expiresAt: '',
+      autoApprove: false,
+      learningClassId: '',
+      maxUses: ''
+    };
     await loadInvites();
   } catch (e) {
     inviteError.value = e?.response?.data?.error?.message || 'Failed to create invite';
@@ -351,7 +422,12 @@ const applicantInitials = (app) => {
 };
 
 onMounted(async () => {
-  await Promise.all([loadApplications(), loadPendingCount(), loadInvites()]);
+  await Promise.all([
+    loadApplications(),
+    loadPendingCount(),
+    loadInvites(),
+    loadInvitableSeasons()
+  ]);
 });
 </script>
 
@@ -569,6 +645,10 @@ onMounted(async () => {
 .cap-tag--direct { background: #f0fdf4; color: #166534; }
 .cap-tag--auto   { background: #fef3c7; color: #92400e; }
 .cap-tag--used   { background: #f1f5f9; color: #94a3b8; }
+.cap-tag--season { background: #ede9fe; color: #5b21b6; }
+.cap-tag--uses   { background: #ecfeff; color: #0e7490; }
+.cap-invite-help { font-size: 12px; color: var(--text-secondary, #64748b); margin: -4px 0 12px; }
+.cap-field--row  { display: flex; flex-direction: row; align-items: flex-end; gap: 10px; }
 
 /* Status */
 .cap-status {

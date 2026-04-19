@@ -80,6 +80,7 @@ import {
   reviewApplication,
   createInvite,
   listInvites,
+  listInvitableSeasons,
   revokeInvite,
   getMyReferralLink,
   getPendingApplicationCount,
@@ -206,6 +207,7 @@ router.put('/clubs/:id/applications/:appId', reviewApplication);
 
 // Invite tokens (manager CRUD)
 router.get('/clubs/:id/invites', listInvites);
+router.get('/clubs/:id/invitable-seasons', listInvitableSeasons);
 router.post('/clubs/:id/invites', createInvite);
 router.delete('/clubs/:id/invites/:inviteId', revokeInvite);
 

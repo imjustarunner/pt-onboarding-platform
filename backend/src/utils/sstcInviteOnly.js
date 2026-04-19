@@ -15,7 +15,22 @@ export function isSstcInviteOnlyMemberSignup() {
 }
 
 /**
- * Active invite for this club: not revoked, not used, not expired.
+ * True when the invite has used up all of its allotted accepts.
+ * - max_uses NULL    → unlimited
+ * - max_uses present → exhausted when times_used >= max_uses
+ * - legacy rows that only have used_at default to a single use
+ */
+export function inviteIsExhausted(inv) {
+  if (!inv) return true;
+  const maxUses = inv.max_uses == null ? 1 : Number(inv.max_uses);
+  const timesUsed = Number(inv.times_used || 0);
+  if (!Number.isFinite(maxUses)) return false;
+  if (maxUses <= 0) return false;
+  return timesUsed >= maxUses;
+}
+
+/**
+ * Active invite for this club: not revoked, not exhausted, not expired.
  */
 export async function getActiveInviteForTokenAndClub(token, clubId) {
   const t = String(token || '').trim();
@@ -28,7 +43,7 @@ export async function getActiveInviteForTokenAndClub(token, clubId) {
   );
   const inv = rows?.[0];
   if (!inv) return null;
-  if (inv.used_at) return null;
+  if (inviteIsExhausted(inv)) return null;
   if (inv.expires_at && new Date(inv.expires_at) < new Date()) return null;
   return inv;
 }

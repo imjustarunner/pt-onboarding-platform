@@ -173,7 +173,11 @@
         <a :href="verificationUrl">Verify email</a>
       </p>
       <p v-if="inviteData?.autoApprove && !verificationRequired" class="success-auto">
-        You've been automatically approved! <a :href="`/${orgSlug}`">Sign in to get started →</a>
+        You've been automatically approved!
+        <span v-if="inviteData?.season">
+          You're in <strong>{{ inviteData.season.name }}</strong>.
+        </span>
+        <a :href="`/${orgSlug}`">Sign in to get started →</a>
       </p>
       <router-link :to="`/${orgSlug}/login`" class="btn btn-primary">Sign in to your account</router-link>
     </div>
@@ -207,6 +211,13 @@
           <div class="club-hero-text">
             <div class="hero-eyebrow">You're joining</div>
             <h1 class="hero-club-name">{{ clubDisplayName }}</h1>
+            <div v-if="inviteData?.season" class="hero-season">
+              <span class="hero-season-eyebrow">Season fast-track</span>
+              <span class="hero-season-name">{{ inviteData.season.name }}</span>
+              <span v-if="formatSeasonRange(inviteData.season)" class="hero-season-dates">
+                {{ formatSeasonRange(inviteData.season) }}
+              </span>
+            </div>
             <div v-if="inviteData?.label" class="hero-tag">{{ inviteData.label }}</div>
             <div v-if="referralInfo" class="hero-referral">
               Referred by <strong>{{ referralInfo }}</strong>
@@ -612,6 +623,23 @@ const previousApplicationDenied = computed(
 );
 const customFields   = ref([]);
 const referralInfo   = ref('');
+
+/** Format a season's date range for the invite landing hero. */
+const formatSeasonRange = (season) => {
+  if (!season) return '';
+  const fmt = (v) => {
+    if (!v) return '';
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+  const startsAt = fmt(season.startsAt);
+  const endsAt = fmt(season.endsAt);
+  if (startsAt && endsAt) return `${startsAt} – ${endsAt}`;
+  if (startsAt) return `Starts ${startsAt}`;
+  if (endsAt) return `Through ${endsAt}`;
+  return '';
+};
 
 // Branding
 const platformLogoUrl = ref('');
@@ -1378,6 +1406,35 @@ const handleSubmit = async () => {
   color: rgba(255,255,255,0.92);
   backdrop-filter: blur(6px);
   align-self: flex-start;
+}
+.hero-season {
+  margin-top: 10px;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  align-self: flex-start;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: rgba(124, 58, 237, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(6px);
+  color: #ffffff;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.55);
+}
+.hero-season-eyebrow {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: rgba(255,255,255,0.85);
+}
+.hero-season-name {
+  font-size: 15px;
+  font-weight: 700;
+}
+.hero-season-dates {
+  font-size: 11.5px;
+  color: rgba(255,255,255,0.85);
 }
 .hero-referral {
   margin-top: 4px;

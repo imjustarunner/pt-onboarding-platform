@@ -116,6 +116,32 @@ const resolveClubByPublicRef = async (clubRef) => {
   return resolveClubByPublicSlug(clubRef);
 };
 
+/**
+ * Increment an invite's accepted-uses counter. When the invite reaches its
+ * cap (or has no cap, i.e. legacy single-use), also stamp `used_at`.
+ * Falls back to the legacy `used_at = NOW()` write when migration 715 has
+ * not yet run on this environment.
+ */
+async function markInviteAccepted(inviteId) {
+  if (!inviteId) return;
+  try {
+    await pool.execute(
+      `UPDATE challenge_member_invites
+       SET times_used = times_used + 1,
+           used_at = CASE
+             WHEN max_uses IS NULL OR (times_used + 1) >= max_uses THEN NOW()
+             ELSE used_at
+           END
+       WHERE id = ?`,
+      [inviteId]
+    );
+  } catch (e) {
+    const tolerable = e?.code === 'ER_BAD_FIELD_ERROR' || String(e?.message || '').includes('Unknown column');
+    if (!tolerable) throw e;
+    await pool.execute('UPDATE challenge_member_invites SET used_at = NOW() WHERE id = ?', [inviteId]);
+  }
+}
+
 /** Enrollment window for SSTC season join UI (open vs deadline passed → request-only). */
 const computeJoinPhase = (row, now = new Date()) => {
   if (!row) return null;
@@ -1021,16 +1047,40 @@ export const resolveInviteToken = async (req, res, next) => {
     const { token } = req.params;
     if (!token) return res.status(400).json({ error: { message: 'Token required' } });
 
-    const [rows] = await pool.execute(
-      `SELECT i.*, a.name AS club_name, a.logo_url, a.logo_path, a.id AS club_id
-       FROM challenge_member_invites i
-       JOIN agencies a ON a.id = i.agency_id
-       WHERE i.token = ? AND i.is_active = 1 LIMIT 1`,
-      [token]
-    );
-    const invite = rows?.[0];
+    let invite = null;
+    try {
+      const [rows] = await pool.execute(
+        `SELECT i.*, a.name AS club_name, a.logo_url, a.logo_path, a.id AS club_id,
+                c.id AS season_id, c.class_name AS season_name, c.starts_at AS season_starts_at,
+                c.ends_at AS season_ends_at, c.status AS season_status,
+                c.enrollment_opens_at AS season_enrollment_opens_at,
+                c.enrollment_closes_at AS season_enrollment_closes_at
+         FROM challenge_member_invites i
+         JOIN agencies a ON a.id = i.agency_id
+         LEFT JOIN learning_program_classes c ON c.id = i.learning_class_id
+         WHERE i.token = ? AND i.is_active = 1 LIMIT 1`,
+        [token]
+      );
+      invite = rows?.[0] || null;
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const tolerable = e?.code === 'ER_BAD_FIELD_ERROR' || msg.includes('Unknown column');
+      if (!tolerable) throw e;
+      const [rows] = await pool.execute(
+        `SELECT i.*, a.name AS club_name, a.logo_url, a.logo_path, a.id AS club_id
+         FROM challenge_member_invites i
+         JOIN agencies a ON a.id = i.agency_id
+         WHERE i.token = ? AND i.is_active = 1 LIMIT 1`,
+        [token]
+      );
+      invite = rows?.[0] || null;
+    }
     if (!invite) return res.status(404).json({ error: { message: 'Invite link not found or expired' } });
-    if (invite.used_at) return res.status(410).json({ error: { message: 'This invite link has already been used' } });
+    const inviteMaxUses = invite.max_uses == null ? 1 : Number(invite.max_uses);
+    const inviteTimesUsed = Number(invite.times_used || 0);
+    const usedLegacy = inviteTimesUsed === 0 && invite.used_at && (invite.max_uses == null);
+    const exhausted = (Number.isFinite(inviteMaxUses) && inviteMaxUses > 0 && inviteTimesUsed >= inviteMaxUses) || usedLegacy;
+    if (exhausted) return res.status(410).json({ error: { message: 'This invite link has reached its limit' } });
     if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
       return res.status(410).json({ error: { message: 'This invite link has expired' } });
     }
@@ -1053,6 +1103,18 @@ export const resolveInviteToken = async (req, res, next) => {
     let logoUrl = invite.logo_url || null;
     if (invite.logo_path) logoUrl = `${baseUrl}/uploads/${invite.logo_path.replace(/^uploads\//, '')}`;
 
+    const seasonInfo = invite.season_id
+      ? {
+          id: Number(invite.season_id),
+          name: String(invite.season_name || '').trim() || `Season ${invite.season_id}`,
+          status: invite.season_status || null,
+          startsAt: invite.season_starts_at || null,
+          endsAt: invite.season_ends_at || null,
+          enrollmentOpensAt: invite.season_enrollment_opens_at || null,
+          enrollmentClosesAt: invite.season_enrollment_closes_at || null
+        }
+      : null;
+
     return res.json({
       invite: {
         clubId:        invite.agency_id,
@@ -1062,6 +1124,7 @@ export const resolveInviteToken = async (req, res, next) => {
         email:         invite.email || null,
         autoApprove:   !!invite.auto_approve,
         label:         invite.label || null,
+        season:        seasonInfo,
         genderOptions: publicPageConfig.genderOptions,
         allowCustomPronouns: publicPageConfig.allowCustomPronouns === true,
         bannerImageUrl: publicPageConfig.bannerImageUrl || null
@@ -1545,18 +1608,35 @@ export const submitApplication = async (req, res, next) => {
     });
 
     if (inviteForApply) {
-      await pool.execute('UPDATE challenge_member_invites SET used_at = NOW() WHERE id = ?', [inviteForApply.id]);
+      await markInviteAccepted(inviteForApply.id);
       if (inviteForApply.auto_approve && !verification.required) {
         await _approveApplication(appId, null, 'Auto-approved via invite link');
+        if (inviteForApply.learning_class_id) {
+          try {
+            await LearningProgramClass.addProviderMember({
+              classId: Number(inviteForApply.learning_class_id),
+              providerUserId: userId,
+              membershipStatus: 'active',
+              roleLabel: null,
+              notes: 'Auto-enrolled via season invite link',
+              actorUserId: null
+            });
+          } catch (enrollErr) {
+            console.warn('[invite] season auto-enroll failed', enrollErr?.message || enrollErr);
+          }
+        }
         return res.status(201).json({
           ok: true,
           applicationId: appId,
           verificationRequired: !!verification.required,
           verificationSent: !!verification.verificationSent,
           verifyUrl: verification.verifyUrl || null,
+          seasonId: inviteForApply.learning_class_id ? Number(inviteForApply.learning_class_id) : null,
           message: verification.required
             ? 'Application submitted and club access is ready once you verify your email.'
-            : 'Welcome! You have been added to the club automatically.'
+            : (inviteForApply.learning_class_id
+                ? 'Welcome! You have been added to the club and season automatically.'
+                : 'Welcome! You have been added to the club automatically.')
         });
       }
     }
@@ -1595,7 +1675,13 @@ export const submitInviteApplication = async (req, res, next) => {
     );
     const invite = inviteRows?.[0];
     if (!invite) return res.status(404).json({ error: { message: 'Invite link not found' } });
-    if (invite.used_at) return res.status(410).json({ error: { message: 'This invite has already been used' } });
+    {
+      const maxUses = invite.max_uses == null ? 1 : Number(invite.max_uses);
+      const timesUsed = Number(invite.times_used || 0);
+      const usedLegacy = timesUsed === 0 && invite.used_at && (invite.max_uses == null);
+      const exhausted = (Number.isFinite(maxUses) && maxUses > 0 && timesUsed >= maxUses) || usedLegacy;
+      if (exhausted) return res.status(410).json({ error: { message: 'This invite has reached its limit' } });
+    }
     if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
       return res.status(410).json({ error: { message: 'This invite has expired' } });
     }
@@ -1683,23 +1769,38 @@ export const submitInviteApplication = async (req, res, next) => {
       waiverUserAgent: normalizeShortText(req.get('user-agent'), 255)
     });
 
-    // Mark invite as used
-    await pool.execute(
-      `UPDATE challenge_member_invites SET used_at = NOW() WHERE id = ?`,
-      [invite.id]
-    );
+    await markInviteAccepted(invite.id);
 
     // Auto-approve if the invite flag is set
     if (invite.auto_approve && !verification.required) {
       await _approveApplication(appId, null /* no manager */, 'Auto-approved via invite link');
+      // Season fast-track: if the invite was scoped to a season, drop the
+      // brand-new member straight into it so they land on the season feed.
+      if (invite.learning_class_id) {
+        try {
+          await LearningProgramClass.addProviderMember({
+            classId: Number(invite.learning_class_id),
+            providerUserId: userId,
+            membershipStatus: 'active',
+            roleLabel: null,
+            notes: 'Auto-enrolled via season invite link',
+            actorUserId: null
+          });
+        } catch (enrollErr) {
+          console.warn('[invite] season auto-enroll failed', enrollErr?.message || enrollErr);
+        }
+      }
       return res.status(201).json({
         ok: true, applicationId: appId,
         verificationRequired: !!verification.required,
         verificationSent: !!verification.verificationSent,
         verifyUrl: verification.verifyUrl || null,
+        seasonId: invite.learning_class_id ? Number(invite.learning_class_id) : null,
         message: verification.required
           ? 'Application submitted and club access is ready once you verify your email.'
-          : 'Welcome! You have been added to the club automatically.'
+          : (invite.learning_class_id
+              ? 'Welcome! You have been added to the club and season automatically.'
+              : 'Welcome! You have been added to the club automatically.')
       });
     }
 
@@ -1811,6 +1912,33 @@ const _approveApplication = async (appId, reviewedByUserId, notes = '') => {
      WHERE id = ?`,
     [userId, reviewedByUserId || null, notes || null, appId]
   );
+
+  // Season fast-track: if this application originated from a season-scoped
+  // invite, drop the (now-approved) member straight into that season too so
+  // they don't have to find/join it manually.
+  if (app.invite_id) {
+    try {
+      const [invRows] = await pool.execute(
+        `SELECT learning_class_id FROM challenge_member_invites WHERE id = ? LIMIT 1`,
+        [app.invite_id]
+      );
+      const seasonId = Number(invRows?.[0]?.learning_class_id || 0);
+      if (seasonId) {
+        await LearningProgramClass.addProviderMember({
+          classId: seasonId,
+          providerUserId: userId,
+          membershipStatus: 'active',
+          roleLabel: null,
+          notes: 'Auto-enrolled via season invite link (manager approval)',
+          actorUserId: reviewedByUserId || null
+        });
+      }
+    } catch (enrollErr) {
+      const msg = String(enrollErr?.message || '');
+      const tolerable = enrollErr?.code === 'ER_BAD_FIELD_ERROR' || msg.includes('Unknown column');
+      if (!tolerable) console.warn('[invite] season auto-enroll on approval failed', msg || enrollErr);
+    }
+  }
 
   return { userId };
 };
@@ -2011,9 +2139,51 @@ export const reviewApplication = async (req, res, next) => {
 // ── MANAGER: INVITE TOKENS ────────────────────────────────────────────────
 
 /**
+ * GET /summit-stats/clubs/:id/invitable-seasons
+ * Manager — list seasons that an invite link can be scoped to (current and
+ * upcoming, excluding archived/cancelled). Used to populate the season
+ * picker on the create-invite form.
+ */
+export const listInvitableSeasons = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const club   = await assertManagerAccess(req, res, clubId);
+    if (!club) return;
+
+    const [rows] = await pool.execute(
+      `SELECT id, class_name, status, starts_at, ends_at,
+              enrollment_opens_at, enrollment_closes_at
+       FROM learning_program_classes
+       WHERE organization_id = ?
+         AND LOWER(COALESCE(status, '')) NOT IN ('archived', 'cancelled')
+         AND (ends_at IS NULL OR ends_at >= NOW() - INTERVAL 1 DAY)
+       ORDER BY COALESCE(starts_at, created_at) ASC, id ASC`,
+      [clubId]
+    );
+
+    const seasons = (rows || []).map((row) => ({
+      id: Number(row.id),
+      name: String(row.class_name || '').trim() || `Season ${row.id}`,
+      status: row.status || null,
+      startsAt: row.starts_at || null,
+      endsAt: row.ends_at || null,
+      enrollmentOpensAt: row.enrollment_opens_at || null,
+      enrollmentClosesAt: row.enrollment_closes_at || null,
+      joinPhase: computeJoinPhase(row)
+    }));
+
+    return res.json({ seasons });
+  } catch (e) { next(e); }
+};
+
+/**
  * POST /summit-stats/clubs/:id/invites
  * Manager — create an invite token.
- * Body: { email?, label?, autoApprove?, expiresAt? }
+ * Body: { email?, label?, autoApprove?, expiresAt?, learningClassId?, maxUses? }
+ *
+ * When `learningClassId` is set, the invite acts as a "season fast-track":
+ * accepting it adds the recruit to the club AND drops them straight into
+ * that season as an active member.
  */
 export const createInvite = async (req, res, next) => {
   try {
@@ -2021,29 +2191,86 @@ export const createInvite = async (req, res, next) => {
     const club   = await assertManagerAccess(req, res, clubId);
     if (!club) return;
 
-    const { email, label, autoApprove, expiresAt } = req.body;
+    const { email, label, autoApprove, expiresAt, learningClassId, maxUses } = req.body;
     const token = genToken(32);
 
-    await pool.execute(
-      `INSERT INTO challenge_member_invites
-         (agency_id, created_by, token, email, label, auto_approve, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        clubId,
-        req.user.id,
-        token,
-        email ? String(email).trim().toLowerCase() : null,
-        label ? String(label).trim() : null,
-        autoApprove ? 1 : 0,
-        expiresAt || null
-      ]
-    );
+    // Validate optional season scope: must belong to this club.
+    let learningClassIdValue = null;
+    if (learningClassId !== undefined && learningClassId !== null && learningClassId !== '') {
+      const lcId = toInt(learningClassId);
+      if (!lcId) return res.status(400).json({ error: { message: 'Invalid season id' } });
+      const klass = await LearningProgramClass.findById(lcId);
+      if (!klass || Number(klass.organization_id) !== Number(clubId)) {
+        return res.status(400).json({ error: { message: 'That season does not belong to this club' } });
+      }
+      const statusLower = String(klass.status || '').toLowerCase();
+      if (['archived', 'cancelled'].includes(statusLower)) {
+        return res.status(400).json({ error: { message: 'Cannot create an invite for an archived or cancelled season' } });
+      }
+      learningClassIdValue = lcId;
+    }
+
+    // Optional max_uses cap. Anything <=0 or unparseable becomes unlimited (NULL).
+    let maxUsesValue = null;
+    if (maxUses !== undefined && maxUses !== null && maxUses !== '') {
+      const mu = Number(maxUses);
+      if (Number.isFinite(mu) && mu > 0) maxUsesValue = Math.floor(mu);
+    }
+
+    let insertResult;
+    try {
+      [insertResult] = await pool.execute(
+        `INSERT INTO challenge_member_invites
+           (agency_id, learning_class_id, created_by, token, email, label, auto_approve, max_uses, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          clubId,
+          learningClassIdValue,
+          req.user.id,
+          token,
+          email ? String(email).trim().toLowerCase() : null,
+          label ? String(label).trim() : null,
+          autoApprove ? 1 : 0,
+          maxUsesValue,
+          expiresAt || null
+        ]
+      );
+    } catch (e) {
+      // Fallback for environments where migration 715 has not run yet:
+      // store the invite without the new columns so club managers can still
+      // create classic single-use, club-only invite links.
+      const msg = String(e?.message || '');
+      const tolerable = e?.code === 'ER_BAD_FIELD_ERROR' || msg.includes('Unknown column');
+      if (!tolerable) throw e;
+      [insertResult] = await pool.execute(
+        `INSERT INTO challenge_member_invites
+           (agency_id, created_by, token, email, label, auto_approve, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          clubId,
+          req.user.id,
+          token,
+          email ? String(email).trim().toLowerCase() : null,
+          label ? String(label).trim() : null,
+          autoApprove ? 1 : 0,
+          expiresAt || null
+        ]
+      );
+      learningClassIdValue = null;
+      maxUsesValue = null;
+    }
 
     const baseUrl = process.env.FRONTEND_URL || process.env.VITE_APP_URL || '';
-    // Build join URL using the platform slug  
     const joinUrl = `${baseUrl}/sstc/join?invite=${token}`;
 
-    return res.status(201).json({ ok: true, token, joinUrl });
+    return res.status(201).json({
+      ok: true,
+      inviteId: insertResult?.insertId || null,
+      token,
+      joinUrl,
+      learningClassId: learningClassIdValue,
+      maxUses: maxUsesValue
+    });
   } catch (e) { next(e); }
 };
 
@@ -2057,20 +2284,51 @@ export const listInvites = async (req, res, next) => {
     const club   = await assertManagerAccess(req, res, clubId);
     if (!club) return;
 
-    const [rows] = await pool.execute(
-      `SELECT i.*, CONCAT(u.first_name, ' ', u.last_name) AS created_by_name
-       FROM challenge_member_invites i
-       LEFT JOIN users u ON u.id = i.created_by
-       WHERE i.agency_id = ? AND i.is_active = 1
-       ORDER BY i.created_at DESC`,
-      [clubId]
-    );
+    let rows = [];
+    try {
+      const [r] = await pool.execute(
+        `SELECT i.*, CONCAT(u.first_name, ' ', u.last_name) AS created_by_name,
+                c.class_name AS season_name
+         FROM challenge_member_invites i
+         LEFT JOIN users u ON u.id = i.created_by
+         LEFT JOIN learning_program_classes c ON c.id = i.learning_class_id
+         WHERE i.agency_id = ? AND i.is_active = 1
+         ORDER BY i.created_at DESC`,
+        [clubId]
+      );
+      rows = r || [];
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const tolerable = e?.code === 'ER_BAD_FIELD_ERROR' || msg.includes('Unknown column');
+      if (!tolerable) throw e;
+      const [r] = await pool.execute(
+        `SELECT i.*, CONCAT(u.first_name, ' ', u.last_name) AS created_by_name
+         FROM challenge_member_invites i
+         LEFT JOIN users u ON u.id = i.created_by
+         WHERE i.agency_id = ? AND i.is_active = 1
+         ORDER BY i.created_at DESC`,
+        [clubId]
+      );
+      rows = (r || []).map((row) => ({ ...row, season_name: null }));
+    }
 
     const baseUrl = process.env.FRONTEND_URL || process.env.VITE_APP_URL || '';
-    const invites = (rows || []).map(inv => ({
-      ...inv,
-      joinUrl: `${baseUrl}/sstc/join?invite=${inv.token}`
-    }));
+    const invites = rows.map(inv => {
+      const maxUses = inv.max_uses == null ? null : Number(inv.max_uses);
+      const timesUsed = Number(inv.times_used || 0);
+      // Legacy invite rows that pre-date migration 715 only track used_at.
+      // Treat them as single-use so they still display correctly in the UI.
+      const effectiveMaxUses = maxUses == null && inv.used_at && timesUsed === 0 ? 1 : maxUses;
+      const effectiveTimesUsed = timesUsed === 0 && inv.used_at ? 1 : timesUsed;
+      const exhausted = effectiveMaxUses != null && effectiveTimesUsed >= effectiveMaxUses;
+      return {
+        ...inv,
+        joinUrl: `${baseUrl}/sstc/join?invite=${inv.token}`,
+        max_uses: effectiveMaxUses,
+        times_used: effectiveTimesUsed,
+        exhausted
+      };
+    });
 
     return res.json({ invites });
   } catch (e) { next(e); }

@@ -554,13 +554,52 @@ export const applyToClub = async (req, res, next) => {
 
     await User.assignToAgency(user.id, clubId, { clubRole: 'member', isActive: true });
 
+    let enrolledSeasonId = null;
     if (inviteForJoin) {
-      await pool.execute('UPDATE challenge_member_invites SET used_at = NOW() WHERE id = ?', [inviteForJoin.id]);
+      // Bump the times_used counter; for environments where migration 715
+      // has not yet run, fall back to the legacy single-use behavior.
+      try {
+        await pool.execute(
+          `UPDATE challenge_member_invites
+           SET times_used = times_used + 1,
+               used_at = CASE
+                 WHEN max_uses IS NULL OR (times_used + 1) >= max_uses THEN NOW()
+                 ELSE used_at
+               END
+           WHERE id = ?`,
+          [inviteForJoin.id]
+        );
+      } catch (e) {
+        const tolerable = e?.code === 'ER_BAD_FIELD_ERROR' || String(e?.message || '').includes('Unknown column');
+        if (!tolerable) throw e;
+        await pool.execute('UPDATE challenge_member_invites SET used_at = NOW() WHERE id = ?', [inviteForJoin.id]);
+      }
+
+      // Season fast-track: drop the user into the linked season as well.
+      if (inviteForJoin.learning_class_id) {
+        try {
+          const LearningProgramClass = (await import('../models/LearningProgramClass.model.js')).default;
+          await LearningProgramClass.addProviderMember({
+            classId: Number(inviteForJoin.learning_class_id),
+            providerUserId: user.id,
+            membershipStatus: 'active',
+            roleLabel: null,
+            notes: 'Auto-enrolled via season invite link',
+            actorUserId: null
+          });
+          enrolledSeasonId = Number(inviteForJoin.learning_class_id);
+        } catch (enrollErr) {
+          console.warn('[invite] season auto-enroll failed', enrollErr?.message || enrollErr);
+        }
+      }
     }
 
     const club = await Agency.findById(clubId);
     res.status(201).json({
-      message: 'You have joined the club.',
+      message: enrolledSeasonId
+        ? 'You have joined the club and the season.'
+        : 'You have joined the club.',
+      seasonId: enrolledSeasonId,
       club: club ? { id: club.id, name: club.name, slug: club.slug } : null
     });
   } catch (error) {
