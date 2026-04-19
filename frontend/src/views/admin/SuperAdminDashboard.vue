@@ -438,6 +438,17 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'sstc_clubs_admin',
+    title: 'SSTC Clubs (Admin)',
+    description: 'Create SSTC clubs on behalf of a manager and remove memberships',
+    to: '/admin/sstc/clubs',
+    emoji: '🏔️',
+    iconKey: 'manage_agencies',
+    category: 'Platform',
+    roles: ['super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'manage_clients',
     title: 'Manage Clients',
     description: 'Create and manage clients',
@@ -761,6 +772,7 @@ const defaultQuickActionIds = computed(() => ([
   'executive_report',
   'presence',
   'beta_feedback',
+  'sstc_clubs_admin',
   'manage_organizations',
   'manage_clients',
   ...((clinicalNoteGeneratorEnabledForAgency.value || !currentAgency.value) ? ['tools_aids', 'clinical_note_generator'] : []),

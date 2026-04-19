@@ -1691,6 +1691,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['super_admin'] }
   },
   {
+    path: '/admin/sstc/clubs',
+    name: 'SstcClubsAdmin',
+    component: () => import('../views/admin/SstcClubsAdmin.vue'),
+    meta: { requiresAuth: true, requiresRole: ['super_admin'] }
+  },
+  {
     path: '/admin/management-team',
     name: 'AgencyManagementTeam',
     component: () => import('../views/admin/AgencyManagementTeamView.vue'),

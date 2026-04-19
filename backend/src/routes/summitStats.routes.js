@@ -18,7 +18,10 @@ import {
   upsertClubRecords,
   listClubRecordVerifications,
   reviewClubRecordVerification,
-  getClubMemberStats
+  getClubMemberStats,
+  removeClubMember,
+  setClubMemberRole,
+  getUserSstcClubAffiliations
 } from '../controllers/summitStats.controller.js';
 import { postClubShareWithEmployer } from '../controllers/clubEmployerShare.controller.js';
 import {
@@ -145,7 +148,11 @@ router.get('/club-manager-context', getClubManagerContext);
 router.post('/clubs/:clubId/share-with-employer', postClubShareWithEmployer);
 router.post('/clubs', [
   body('name').trim().notEmpty().withMessage('Club name is required'),
-  body('slug').optional().trim().isString()
+  body('slug').optional().trim().isString(),
+  body('city').optional().trim().isString(),
+  body('state').optional().trim().isString(),
+  body('managerUserId').optional({ nullable: true }).isInt({ min: 1 }),
+  body('assistantManagerUserIds').optional({ nullable: true }).isArray()
 ], createClub);
 router.post('/clubs/:id/apply', applyToClub);
 router.post('/clubs/:id/add-member', [
@@ -231,6 +238,9 @@ router.get('/clubs/:id/members/:userId/season-history', getClubMemberSeasonHisto
 router.put('/clubs/:id/members/:userId/profile', putClubMemberProfile);
 router.put('/clubs/:id/members/:userId/team-captain', putClubMemberTeamCaptain);
 router.put('/clubs/:id/members/:userId/status', setClubMemberStatus);
+router.put('/clubs/:id/members/:userId/role', setClubMemberRole);
+router.delete('/clubs/:id/members/:userId', removeClubMember);
+router.get('/users/:userId/club-affiliations', getUserSstcClubAffiliations);
 router.post('/clubs/:clubId/seasons/:classId/teams/:teamId/announcements', postTeamAnnouncementForTeam);
 
 // Club stats (computed + seed)

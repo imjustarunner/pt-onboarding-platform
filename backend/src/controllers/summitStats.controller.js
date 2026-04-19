@@ -1,6 +1,7 @@
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import pool from '../config/database.js';
 import { validationResult } from 'express-validator';
 import {
@@ -267,7 +268,14 @@ export const createClub = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
-    const { name, slug: inputSlug, city, state } = req.body;
+    const {
+      name,
+      slug: inputSlug,
+      city,
+      state,
+      managerUserId: rawManagerUserId,
+      assistantManagerUserIds: rawAssistantIds
+    } = req.body;
     const nameTrimmed = String(name || '').trim();
     if (!nameTrimmed) {
       return res.status(400).json({ error: { message: 'Club name is required' } });
@@ -285,14 +293,54 @@ export const createClub = async (req, res, next) => {
       return res.status(401).json({ error: { message: 'Sign in required' } });
     }
 
-    const emailVerified = await hasUserEmailVerified(user.id);
-    if (!emailVerified) {
-      return res.status(403).json({
-        error: {
-          message: 'Email verification required before creating a club.',
-          code: 'EMAIL_VERIFICATION_REQUIRED'
+    const callerRole = String(user.role || '').trim().toLowerCase();
+    const callerIsSuperAdmin = callerRole === 'super_admin';
+
+    const parsedManagerId = parseInt(rawManagerUserId, 10);
+    const overrideManagerId =
+      callerIsSuperAdmin && Number.isFinite(parsedManagerId) && parsedManagerId > 0
+        ? parsedManagerId
+        : null;
+    const targetManagerId = overrideManagerId || user.id;
+
+    let assistantManagerIds = [];
+    if (callerIsSuperAdmin && Array.isArray(rawAssistantIds)) {
+      const seen = new Set();
+      for (const raw of rawAssistantIds) {
+        const id = parseInt(raw, 10);
+        if (!Number.isFinite(id) || id < 1) continue;
+        if (id === targetManagerId) continue;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        assistantManagerIds.push(id);
+      }
+    }
+
+    if (overrideManagerId) {
+      const managerExists = await User.findById(overrideManagerId);
+      if (!managerExists) {
+        return res.status(400).json({ error: { message: 'Manager user not found' } });
+      }
+    }
+    if (assistantManagerIds.length) {
+      for (const aid of assistantManagerIds) {
+        const exists = await User.findById(aid);
+        if (!exists) {
+          return res.status(400).json({ error: { message: `Assistant manager user ${aid} not found` } });
         }
-      });
+      }
+    }
+
+    if (!callerIsSuperAdmin) {
+      const emailVerified = await hasUserEmailVerified(user.id);
+      if (!emailVerified) {
+        return res.status(403).json({
+          error: {
+            message: 'Email verification required before creating a club.',
+            code: 'EMAIL_VERIFICATION_REQUIRED'
+          }
+        });
+      }
     }
 
     const finalSlug = inputSlug?.trim() ? slugify(inputSlug) : slugify(nameTrimmed);
@@ -318,13 +366,24 @@ export const createClub = async (req, res, next) => {
       isActive: true
     });
 
-    const currentRole = String(user.role || '').trim().toLowerCase();
-    if (!['super_admin', 'admin', 'support'].includes(currentRole)) {
-      await User.update(user.id, { role: 'club_manager' });
-    }
+    // Promote the *target* manager (not the caller, when superadmin acts on behalf of someone).
+    const promoteIfNeeded = async (uid) => {
+      const target = await User.findById(uid);
+      const role = String(target?.role || '').trim().toLowerCase();
+      if (!['super_admin', 'admin', 'support', 'club_manager'].includes(role)) {
+        await User.update(uid, { role: 'club_manager' });
+      }
+    };
 
-    await User.assignToAgency(user.id, platformAgencyId, { isActive: true });
-    await User.assignToAgency(user.id, agency.id, { clubRole: 'manager', isActive: true });
+    await promoteIfNeeded(targetManagerId);
+    await User.assignToAgency(targetManagerId, platformAgencyId, { isActive: true });
+    await User.assignToAgency(targetManagerId, agency.id, { clubRole: 'manager', isActive: true });
+
+    for (const aid of assistantManagerIds) {
+      await promoteIfNeeded(aid);
+      await User.assignToAgency(aid, platformAgencyId, { isActive: true });
+      await User.assignToAgency(aid, agency.id, { clubRole: 'assistant_manager', isActive: true });
+    }
 
     const dbName = process.env.DB_NAME || 'onboarding_stage';
     const [agencyCols] = await pool.execute(
@@ -1485,6 +1544,256 @@ export const getClubMemberStats = async (req, res, next) => {
     const active = Math.max(0, total - dormant);
 
     return res.json({ total, active, dormant });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Authorize: caller is super_admin OR a manager of `clubId`.
+ * Returns the resolved club row, or sends a 4xx response and returns null.
+ */
+async function assertSuperAdminOrClubManager(req, res, clubId) {
+  const user = req.user;
+  if (!user?.id) {
+    res.status(401).json({ error: { message: 'Sign in required' } });
+    return null;
+  }
+  const id = parseInt(clubId, 10);
+  if (!Number.isFinite(id) || id < 1) {
+    res.status(400).json({ error: { message: 'Invalid club id' } });
+    return null;
+  }
+  const [rows] = await pool.execute(
+    `SELECT id, name, slug, organization_type
+     FROM agencies
+     WHERE id = ?
+     LIMIT 1`,
+    [id]
+  );
+  const club = rows?.[0];
+  if (!club) {
+    res.status(404).json({ error: { message: 'Club not found' } });
+    return null;
+  }
+  if (String(club.organization_type || '').toLowerCase() !== 'affiliation') {
+    res.status(400).json({ error: { message: 'That organization is not a club' } });
+    return null;
+  }
+  const role = String(user.role || '').trim().toLowerCase();
+  if (role === 'super_admin') return club;
+  const canManage = await canUserManageClub({ user, clubId: id });
+  if (!canManage) {
+    res.status(403).json({ error: { message: 'Club manager or super admin access required' } });
+    return null;
+  }
+  return club;
+}
+
+/**
+ * DELETE /summit-stats/clubs/:id/members/:userId
+ * Remove a member from a club. Super admin OR club manager.
+ */
+export const removeClubMember = async (req, res, next) => {
+  try {
+    const club = await assertSuperAdminOrClubManager(req, res, req.params.id);
+    if (!club) return;
+    const userId = parseInt(req.params.userId, 10);
+    if (!Number.isFinite(userId) || userId < 1) {
+      return res.status(400).json({ error: { message: 'Invalid user id' } });
+    }
+
+    const [existing] = await pool.execute(
+      'SELECT id, club_role FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [userId, club.id]
+    );
+    if (!existing?.[0]?.id) {
+      return res.status(404).json({ error: { message: 'Member not found in this club' } });
+    }
+
+    // Guard: do not let a non-super_admin manager remove the last remaining manager.
+    const callerRole = String(req.user.role || '').trim().toLowerCase();
+    if (callerRole !== 'super_admin' && existing[0].club_role === 'manager') {
+      const [managerRows] = await pool.execute(
+        `SELECT COUNT(*) AS c FROM user_agencies WHERE agency_id = ? AND club_role = 'manager'`,
+        [club.id]
+      );
+      const managerCount = Number(managerRows?.[0]?.c || 0);
+      if (managerCount <= 1) {
+        return res.status(400).json({ error: { message: 'Cannot remove the last manager of the club' } });
+      }
+    }
+
+    await User.removeFromAgency(userId, club.id);
+
+    try {
+      await AdminAuditLog.logAction({
+        actionType: 'sstc_club_member_removed',
+        actorUserId: req.user.id,
+        targetUserId: userId,
+        agencyId: club.id,
+        metadata: null
+      });
+    } catch (e) {
+      console.warn('Admin audit log failed:', e?.message || e);
+    }
+
+    return res.json({ ok: true, clubId: club.id, userId });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * PUT /summit-stats/clubs/:id/members/:userId/role
+ * Body: { clubRole: 'manager' | 'assistant_manager' | 'member' }
+ * Super admin OR existing club manager.
+ */
+export const setClubMemberRole = async (req, res, next) => {
+  try {
+    const club = await assertSuperAdminOrClubManager(req, res, req.params.id);
+    if (!club) return;
+    const userId = parseInt(req.params.userId, 10);
+    if (!Number.isFinite(userId) || userId < 1) {
+      return res.status(400).json({ error: { message: 'Invalid user id' } });
+    }
+    const requested = String(req.body?.clubRole || '').trim().toLowerCase();
+    const allowed = ['manager', 'assistant_manager', 'member'];
+    if (!allowed.includes(requested)) {
+      return res.status(400).json({ error: { message: 'clubRole must be one of: manager, assistant_manager, member' } });
+    }
+
+    const [existing] = await pool.execute(
+      'SELECT id, club_role FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [userId, club.id]
+    );
+    if (!existing?.[0]?.id) {
+      return res.status(404).json({ error: { message: 'Member not found in this club' } });
+    }
+
+    const callerRole = String(req.user.role || '').trim().toLowerCase();
+    // Don't let a non-super_admin manager demote the last remaining manager.
+    if (
+      callerRole !== 'super_admin' &&
+      existing[0].club_role === 'manager' &&
+      requested !== 'manager'
+    ) {
+      const [managerRows] = await pool.execute(
+        `SELECT COUNT(*) AS c FROM user_agencies WHERE agency_id = ? AND club_role = 'manager'`,
+        [club.id]
+      );
+      const managerCount = Number(managerRows?.[0]?.c || 0);
+      if (managerCount <= 1) {
+        return res.status(400).json({ error: { message: 'Cannot demote the last manager of the club' } });
+      }
+    }
+
+    await User.setAgencyClubRole(userId, club.id, requested);
+
+    // If we're promoting to a manager-ish role and the user has a basic platform role,
+    // bump them up so the dashboard shows manager affordances.
+    if (requested === 'manager' || requested === 'assistant_manager') {
+      try {
+        const target = await User.findById(userId);
+        const r = String(target?.role || '').trim().toLowerCase();
+        if (!['super_admin', 'admin', 'support', 'club_manager'].includes(r)) {
+          await User.update(userId, { role: 'club_manager' });
+        }
+      } catch (e) {
+        console.warn('Promote-to-club_manager failed:', e?.message || e);
+      }
+    }
+
+    try {
+      await AdminAuditLog.logAction({
+        actionType: 'sstc_club_member_role_changed',
+        actorUserId: req.user.id,
+        targetUserId: userId,
+        agencyId: club.id,
+        metadata: { from: existing[0].club_role || null, to: requested }
+      });
+    } catch (e) {
+      console.warn('Admin audit log failed:', e?.message || e);
+    }
+
+    return res.json({ ok: true, clubId: club.id, userId, clubRole: requested });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /summit-stats/users/:userId/club-affiliations
+ * Super admin only.
+ * Returns SSTC clubs the user belongs to, with role + isActive + city/state when available.
+ */
+export const getUserSstcClubAffiliations = async (req, res, next) => {
+  try {
+    const callerRole = String(req.user?.role || '').trim().toLowerCase();
+    if (callerRole !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+    const userId = parseInt(req.params.userId, 10);
+    if (!Number.isFinite(userId) || userId < 1) {
+      return res.status(400).json({ error: { message: 'Invalid user id' } });
+    }
+
+    const platformIds = await getPlatformAgencyIds(null);
+    const plat = sqlAffiliationUnderSummitPlatform('a', platformIds);
+    if (!plat) return res.json({ user: null, clubs: [] });
+
+    const dbName = process.env.DB_NAME || 'onboarding_stage';
+    const [agencyCols] = await pool.execute(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('city','state')",
+      [dbName]
+    );
+    const colNames = new Set((agencyCols || []).map((r) => r.COLUMN_NAME));
+    const cityCol = colNames.has('city') ? 'a.city' : "NULL";
+    const stateCol = colNames.has('state') ? 'a.state' : "NULL";
+
+    const [userRows] = await pool.execute(
+      `SELECT id, email, first_name, last_name, role, status FROM users WHERE id = ? LIMIT 1`,
+      [userId]
+    );
+    const userRow = userRows?.[0] || null;
+    if (!userRow) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT a.id, a.name, a.slug, ${cityCol} AS city, ${stateCol} AS state,
+              ua.club_role, ua.is_active
+       FROM user_agencies ua
+       INNER JOIN agencies a ON a.id = ua.agency_id
+       WHERE ua.user_id = ?
+         AND a.organization_type = 'affiliation'
+         AND a.is_active = 1
+         ${plat.sql}
+       ORDER BY a.name ASC`,
+      [userId, ...plat.params]
+    );
+
+    const clubs = (rows || []).map((r) => ({
+      id: Number(r.id),
+      name: r.name || '',
+      slug: r.slug || '',
+      city: r.city || null,
+      state: r.state || null,
+      clubRole: r.club_role || 'member',
+      isActive: Number(r.is_active || 0) === 1
+    }));
+
+    return res.json({
+      user: {
+        id: userRow.id,
+        email: userRow.email || '',
+        firstName: userRow.first_name || '',
+        lastName: userRow.last_name || '',
+        role: userRow.role || '',
+        status: userRow.status || ''
+      },
+      clubs
+    });
   } catch (e) {
     next(e);
   }
