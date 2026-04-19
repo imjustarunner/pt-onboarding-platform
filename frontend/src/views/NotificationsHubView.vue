@@ -509,6 +509,22 @@ const openNotification = async (notification) => {
     router.push(`${base}/admin/users/${userIdTarget}`);
     return;
   }
+  if (
+    notification.type === 'company_event_registration_submitted'
+    && entityType === 'company_event'
+    && notification.related_entity_id
+  ) {
+    const eventId = Number(notification.related_entity_id || 0);
+    if (eventId) {
+      const slug = orgSlug.value;
+      if (slug) {
+        router.push(`/${slug}/skill-builders/event/${eventId}`);
+      } else {
+        router.push(`/skill-builders/event/${eventId}`);
+      }
+      return;
+    }
+  }
   if (notification.type === 'support_ticket_created' && isAdminLikeRole) {
     router.push(`${base}/tickets`);
     return;
@@ -585,6 +601,7 @@ const isUrgent = (n) => String(n?.severity || '').toLowerCase() === 'urgent';
 
 const typeLabelMap = {
   new_packet_uploaded: 'New packet uploaded',
+  company_event_registration_submitted: 'New event registration',
   support_ticket_created: 'Support ticket',
   support_ticket_forwarded_to_provider: 'Forwarded client message',
   office_availability_request_pending: 'Office request',

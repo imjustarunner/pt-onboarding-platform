@@ -31,6 +31,27 @@ function normalizeSixDigitClientCode(value) {
   return digits;
 }
 
+/**
+ * Strip identifying name fields from a client (or array of clients) when the
+ * caller is a school_staff user. School portals must always render initials
+ * or code, never legal names. Always returns a NEW object/array — never
+ * mutates the input.
+ */
+function redactClientNamesForRole(input, role) {
+  const isSchoolStaff = String(role || '').toLowerCase() === 'school_staff';
+  if (!isSchoolStaff) return input;
+  if (input == null) return input;
+  if (Array.isArray(input)) {
+    return input.map((row) => redactClientNamesForRole(row, role));
+  }
+  if (typeof input !== 'object') return input;
+  const copy = { ...input };
+  if ('full_name' in copy) copy.full_name = null;
+  if ('first_name' in copy) copy.first_name = null;
+  if ('last_name' in copy) copy.last_name = null;
+  return copy;
+}
+
 const CLIENT_TYPE_ORDER = ['basic_nonclinical', 'school', 'learning', 'clinical'];
 
 function normalizeClientType(value, fallback = 'basic_nonclinical') {
@@ -312,10 +333,12 @@ export const getClients = async (req, res, next) => {
     // Default behavior: archived clients should not appear in the main client list.
     // They are managed via Settings -> Archive, or by explicitly requesting status=ARCHIVED/includeArchived=true.
     const statusNorm = String(status || '').toUpperCase();
-    const out =
+    const filtered =
       includeArchived || statusNorm === 'ARCHIVED'
         ? providerScopedClients
         : providerScopedClients.filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+    // PII gating: strip full/first/last names for school_staff regardless of agency scope.
+    const out = redactClientNamesForRole(filtered, userRole);
     const shouldPaginate = userRole === 'super_admin' && paginateRequested;
     if (!shouldPaginate) {
       return res.json(out);
@@ -518,7 +541,9 @@ export const getClientById = async (req, res, next) => {
       }
     }
     logClientAccess(req, client.id, 'view_client').catch(() => {});
-    res.json(client);
+    // PII gating: strip full/first/last names for school_staff even when they
+    // happen to also have agency access (defense-in-depth).
+    res.json(redactClientNamesForRole(client, userRole));
   } catch (error) {
     console.error('Get client by ID error:', error);
     next(error);
@@ -3862,19 +3887,75 @@ const hasVal = (v) => v !== null && v !== undefined && String(v).trim() !== '';
 const normalizeLabel = (s) => String(s || '').trim();
 
 /**
+ * Backward-compatible category inference for fields that don't carry an
+ * explicit `category` (older intake_links saved before Phase 3). Returns
+ * one of: 'demographic' | 'clinical' | 'consent' | 'profile' | 'guardian' | 'other'.
+ *
+ * Order of precedence: explicit category → step type → scope → key/label sniff.
+ */
+const inferCategory = (field, step = null) => {
+  if (field?.category) return field.category;
+  const stepType = String(step?.type || '').toLowerCase();
+  if (stepType === 'demographics') return 'demographic';
+  if (stepType === 'clinical_questions') return 'clinical';
+  if (stepType === 'document') return 'consent';
+  const scope = String(field?.scope || '').toLowerCase();
+  if (scope === 'clinical') return 'clinical';
+  if (scope === 'guardian') return 'guardian';
+  if (scope === 'profile') return 'profile';
+  const key = String(field?.key || '');
+  const label = String(field?.label || '');
+  if (/^psc[_-]?\d/i.test(key)) return 'clinical';
+  const haystack = `${key} ${label}`.toLowerCase();
+  if (/(dob|birth|gender|sex|ethnicity|race|address|street|apt|zip|city|state|grade|school|phone|email)/.test(haystack)) {
+    return 'demographic';
+  }
+  if (/(guardian|parent|emergency contact|additional contact)/.test(haystack)) return 'guardian';
+  return 'other';
+};
+
+/**
+ * Build a (key → effectiveCategory) map for a list of intake_fields, using
+ * the matching step from intake_steps (if available) for the `inferCategory`
+ * fallback. This ensures legacy forms still route correctly.
+ */
+const buildEffectiveCategoryMap = (intakeFields = [], intakeSteps = []) => {
+  const stepByFieldKey = new Map();
+  for (const step of (Array.isArray(intakeSteps) ? intakeSteps : [])) {
+    for (const f of (step?.fields || [])) {
+      if (f?.key) stepByFieldKey.set(String(f.key), step);
+    }
+  }
+  const out = new Map();
+  for (const f of (Array.isArray(intakeFields) ? intakeFields : [])) {
+    if (!f?.key) continue;
+    out.set(String(f.key), inferCategory(f, stepByFieldKey.get(String(f.key)) || null));
+  }
+  return out;
+};
+
+/**
  * Extract all labeled fields from a submission, returning { key, label, value } for each non-empty answer.
  * Uses the link's intake_fields as the label source; also falls back to key as label.
+ *
+ * `scopedClientResponses` (optional): when provided, used as the per-client
+ * response bag instead of `responses.clients[0]`. This is what makes the
+ * helper safe to use for the second/third child on a multi-child submission.
  */
-const extractLabeledFieldsFromSubmission = (submissionData, intakeFields = []) => {
+const extractLabeledFieldsFromSubmission = (submissionData, intakeFields = [], scopedClientResponses = null) => {
   const labelMap = new Map();
   for (const f of intakeFields) {
     if (f?.key) labelMap.set(String(f.key), { label: f.label || f.key, scope: f.scope || 'submission' });
   }
 
+  const clientBag = scopedClientResponses && typeof scopedClientResponses === 'object'
+    ? scopedClientResponses
+    : (Array.isArray(submissionData?.responses?.clients) ? (submissionData.responses.clients[0] || {}) : {});
+
   const allResponses = {
     ...((submissionData?.responses?.guardian) || {}),
     ...((submissionData?.responses?.submission) || {}),
-    ...(Array.isArray(submissionData?.responses?.clients) ? (submissionData.responses.clients[0] || {}) : {})
+    ...clientBag
   };
 
   const result = [];
@@ -3894,10 +3975,89 @@ const extractLabeledFieldsFromSubmission = (submissionData, intakeFields = []) =
 };
 
 /**
- * Get clinical responses from the client's most recent intake submission.
- * Covers both new-style clinical_questions step data AND legacy PSC-17 / clinical
- * fields from any existing intake.
+ * Tolerant PSC-17 key matcher. Accepts `psc_1` … `psc_17`, `psc-1`, `PSC1`,
+ * `psc01`, etc. Returns the 1-based item number, or 0 if not a PSC key.
+ */
+const matchPscKey = (key) => {
+  const m = String(key || '').match(/^psc[_-]?0*(\d{1,2})$/i);
+  if (!m) return 0;
+  const n = parseInt(m[1], 10);
+  return n >= 1 && n <= 17 ? n : 0;
+};
+
+/**
+ * Find the responses object on a submission that corresponds to a given
+ * client id. Falls back to the first client when no explicit match is found.
+ * Submissions store an array `responses.clients[*]` whose order matches the
+ * `intake_submission_clients` rows for the same submission.
+ */
+const pickClientResponseForId = ({ submissionData, clientIdsForSubmission, targetClientId }) => {
+  const clients = Array.isArray(submissionData?.responses?.clients)
+    ? submissionData.responses.clients
+    : [];
+  if (!clients.length) return {};
+  const ids = Array.isArray(clientIdsForSubmission) ? clientIdsForSubmission : [];
+  const idx = ids.findIndex((cid) => parseInt(cid, 10) === parseInt(targetClientId, 10));
+  if (idx >= 0 && clients[idx]) return clients[idx] || {};
+  return clients[0] || {};
+};
+
+/**
+ * Build a flat "all responses" object from a submission, scoped to the target
+ * client. Order is guardian < submission < this client's per-child responses,
+ * so per-child wins on conflicts.
+ */
+const buildScopedResponseBag = ({ submissionData, clientResponses }) => ({
+  ...((submissionData?.responses?.guardian) || {}),
+  ...((submissionData?.responses?.submission) || {}),
+  ...(clientResponses || {})
+});
+
+/**
+ * Score how clinical-rich a submission is, so we can prefer the submission
+ * with the most usable clinical signal (instead of just "latest"). Used to
+ * recover from cases where the latest submission was a thin re-submit.
+ */
+const countClinicalSignals = ({ submissionData, clientResponses, intakeFields }) => {
+  const responses = buildScopedResponseBag({ submissionData, clientResponses });
+  let count = 0;
+  // PSC variants — scan all responses + submission + this client's bag.
+  for (const key of Object.keys(responses || {})) {
+    if (matchPscKey(key) && hasVal(responses[key])) count += 1;
+  }
+  // clinicalResponses bucket
+  const clinicalResponses = submissionData?.responses?.submission?.clinicalResponses || {};
+  for (const v of Object.values(clinicalResponses)) {
+    if (hasVal(v)) count += 1;
+  }
+  // scope=clinical or category=clinical fields (use inferCategory for legacy)
+  const scopedFields = (Array.isArray(intakeFields) ? intakeFields : []).filter(
+    (f) => f?.key && (f.scope === 'clinical' || inferCategory(f) === 'clinical')
+  );
+  for (const f of scopedFields) {
+    if (hasVal(responses[f.key])) count += 1;
+  }
+  // explicit clinical buckets
+  for (const [k] of TRAUMA_INTAKE_KEYS) if (hasVal(responses[k])) count += 1;
+  for (const [k] of GOALS_INTAKE_KEYS) if (hasVal(responses[k])) count += 1;
+  for (const [k] of ADDITIONAL_INTAKE_KEYS) if (hasVal(responses[k])) count += 1;
+  return count;
+};
+
+/**
+ * Get clinical responses from the client's intake submission(s).
+ *
+ * Strategy (resilient to multi-child submissions and naming variants):
+ *   1. Find every intake_submission this client touches (either via
+ *      `intake_submissions.client_id` OR `intake_submission_clients.client_id`).
+ *   2. For each candidate submission, score the clinical signal scoped to
+ *      THIS client's per-child responses bag.
+ *   3. Pick the highest-scoring submission, breaking ties with submitted_at DESC.
+ *   4. Render: clinical_questions, scope=clinical/category=clinical fields,
+ *      tolerant PSC, trauma, goals, additional, then generic catch-all.
+ *
  * GET /api/clients/:id/clinical-responses
+ *   ?debug=1  (super_admin only) → include diagnostic info
  */
 export const getClientClinicalResponses = async (req, res, next) => {
   try {
@@ -3913,51 +4073,141 @@ export const getClientClinicalResponses = async (req, res, next) => {
     const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: userRole, clientId });
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    // Fetch the latest submitted intake for this client
+    const debug = userRole === 'super_admin' && String(req.query?.debug || '') === '1';
+    const debugInfo = debug ? { candidateSubmissions: [], chosen: null } : null;
+
+    // Fetch every submission this client appears on, either as the primary
+    // client_id on intake_submissions or via intake_submission_clients. We
+    // intentionally include status='draft' rows so a partially-saved intake
+    // still surfaces clinical signal.
     let submRows = [];
     try {
       [submRows] = await pool.execute(
-        `SELECT s.id, s.intake_data, s.intake_link_id, s.submitted_at
+        `SELECT DISTINCT s.id, s.intake_data, s.intake_link_id, s.submitted_at, s.status
          FROM intake_submissions s
-         WHERE s.client_id = ? AND s.status = 'submitted'
-         ORDER BY s.submitted_at DESC
-         LIMIT 1`,
-        [clientId]
+         LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
+         WHERE (s.client_id = ? OR isc.client_id = ?)
+         ORDER BY s.submitted_at DESC, s.id DESC`,
+        [clientId, clientId]
       );
     } catch (tableErr) {
-      // Table may not exist in all environments (staging/dev); return empty gracefully
       if (String(tableErr?.message || '').includes("doesn't exist") || tableErr?.errno === 1146) {
-        return res.json({ sections: [], capturedAt: null });
+        return res.json({ sections: [], capturedAt: null, ...(debug ? { _debug: debugInfo } : {}) });
       }
       throw tableErr;
     }
 
-    if (!submRows.length) return res.json({ sections: [], capturedAt: null });
+    if (!submRows.length) {
+      return res.json({ sections: [], capturedAt: null, ...(debug ? { _debug: debugInfo } : {}) });
+    }
 
-    const sub = submRows[0];
-    let submissionData = {};
-    try { submissionData = JSON.parse(sub.intake_data || '{}'); } catch { /* ignore */ }
+    // Cache: link_id → { intakeFields, formConfig, categoryMap }
+    const linkCache = new Map();
+    const loadLink = async (linkId) => {
+      if (!linkId) return { intakeFields: [], formConfig: { intakeSteps: [] }, categoryMap: new Map() };
+      if (linkCache.has(linkId)) return linkCache.get(linkId);
+      let intakeFields = [];
+      let formConfig = { intakeSteps: [] };
+      try {
+        const [linkRows] = await pool.execute(
+          `SELECT intake_fields, intake_steps FROM intake_links WHERE id = ? LIMIT 1`,
+          [linkId]
+        );
+        if (linkRows.length) {
+          try {
+            const rawSteps = JSON.parse(linkRows[0].intake_steps || '[]');
+            formConfig = { intakeSteps: Array.isArray(rawSteps) ? rawSteps : [] };
+          } catch { /* ignore */ }
+          try {
+            const raw = JSON.parse(linkRows[0].intake_fields || '[]');
+            intakeFields = Array.isArray(raw) ? raw : [];
+          } catch { /* ignore */ }
+        }
+      } catch { /* ignore */ }
+      const categoryMap = buildEffectiveCategoryMap(intakeFields, formConfig.intakeSteps);
+      const out = { intakeFields, formConfig, categoryMap };
+      linkCache.set(linkId, out);
+      return out;
+    };
 
-    // Get the link to resolve all field labels and scopes
-    let intakeFields = [];
-    let formConfig = {};
-    if (sub.intake_link_id) {
-      const [linkRows] = await pool.execute(
-        `SELECT intake_fields, intake_steps FROM intake_links WHERE id = ? LIMIT 1`,
-        [sub.intake_link_id]
-      );
-      if (linkRows.length) {
-        try {
-          const rawSteps = JSON.parse(linkRows[0].intake_steps || '[]');
-          formConfig = { intakeSteps: Array.isArray(rawSteps) ? rawSteps : [] };
-        } catch { /* ignore */ }
-        try {
-          const raw = JSON.parse(linkRows[0].intake_fields || '[]');
-          intakeFields = Array.isArray(raw) ? raw : [];
-        } catch { /* ignore */ }
+    // For each candidate submission, score it scoped to THIS client.
+    let best = null;
+    for (const row of submRows) {
+      let submissionData = {};
+      try { submissionData = JSON.parse(row.intake_data || '{}'); } catch { /* ignore */ }
+
+      // Resolve the per-child client_id ordering for this submission.
+      let clientIdsForSubmission = [];
+      try {
+        const [iscRows] = await pool.execute(
+          `SELECT client_id FROM intake_submission_clients WHERE intake_submission_id = ? ORDER BY id ASC`,
+          [row.id]
+        );
+        clientIdsForSubmission = (iscRows || []).map((r) => r?.client_id);
+      } catch { /* table may not exist on older DBs */ }
+
+      const clientResponses = pickClientResponseForId({
+        submissionData,
+        clientIdsForSubmission,
+        targetClientId: clientId
+      });
+      const { intakeFields } = await loadLink(row.intake_link_id);
+      const score = countClinicalSignals({ submissionData, clientResponses, intakeFields });
+
+      if (debug) {
+        debugInfo.candidateSubmissions.push({
+          submission_id: row.id,
+          status: row.status,
+          submitted_at: row.submitted_at,
+          intake_link_id: row.intake_link_id,
+          clientIdsForSubmission,
+          chosenClientIndex: clientIdsForSubmission.findIndex(
+            (cid) => parseInt(cid, 10) === parseInt(clientId, 10)
+          ),
+          clinicalSignalCount: score,
+          topLevelKeys: Object.keys(submissionData?.responses?.submission || {}).slice(0, 60),
+          clientKeys: Object.keys(clientResponses || {}).slice(0, 60),
+          pscKeysFound: [
+            ...Object.keys(clientResponses || {}).filter((k) => matchPscKey(k)),
+            ...Object.keys(submissionData?.responses?.submission || {}).filter((k) => matchPscKey(k))
+          ]
+        });
+      }
+
+      if (!best || score > best.score) {
+        best = { row, submissionData, clientResponses, intakeFields, formConfig: (await loadLink(row.intake_link_id)).formConfig, score };
       }
     }
 
+    // Fall back to the most recent submission if nothing scored.
+    if (!best) {
+      const row = submRows[0];
+      let submissionData = {};
+      try { submissionData = JSON.parse(row.intake_data || '{}'); } catch { /* ignore */ }
+      const link = await loadLink(row.intake_link_id);
+      best = {
+        row,
+        submissionData,
+        clientResponses: pickClientResponseForId({
+          submissionData,
+          clientIdsForSubmission: [],
+          targetClientId: clientId
+        }),
+        intakeFields: link.intakeFields,
+        formConfig: link.formConfig,
+        score: 0
+      };
+    }
+
+    if (debug) {
+      debugInfo.chosen = {
+        submission_id: best.row.id,
+        clinicalSignalCount: best.score,
+        intake_link_id: best.row.intake_link_id
+      };
+    }
+
+    const { row: sub, submissionData, clientResponses, intakeFields, formConfig } = best;
     const sections = [];
 
     // ── 1. New-style clinical_questions step data ───────────────────────────
@@ -3981,36 +4231,53 @@ export const getClientClinicalResponses = async (req, res, next) => {
       sections.push({ title: 'Clinical Questions', fields: newClinicalFields });
     }
 
-    // ── 2. Legacy: scope=clinical fields from intake_fields ─────────────────
-    const legacyScopedFields = intakeFields.filter((f) => f?.scope === 'clinical' && f?.key);
+    // ── 2. Any field whose effective category is "clinical" ─────────────────
+    // This is the Phase 3 routing path: a question explicitly tagged
+    // category=clinical (or whose inferred category resolves to clinical)
+    // surfaces here regardless of which step it lives in.
+    const { categoryMap } = await loadLink(sub.intake_link_id);
+    const clinicalFieldsByCategory = intakeFields.filter(
+      (f) => f?.key && categoryMap.get(String(f.key)) === 'clinical'
+    );
     const legacyScopedResults = [];
-    const allSub = {
-      ...((submissionData?.responses?.guardian) || {}),
-      ...((submissionData?.responses?.submission) || {}),
-      ...(Array.isArray(submissionData?.responses?.clients) ? (submissionData.responses.clients[0] || {}) : {})
-    };
-    for (const f of legacyScopedFields) {
+    const allSub = buildScopedResponseBag({ submissionData, clientResponses });
+    for (const f of clinicalFieldsByCategory) {
       const value = allSub[f.key];
       if (!hasVal(value)) continue;
+      // Skip if already covered by clinical_questions step bucket above.
+      if (newClinicalFields.some((n) => n.key === f.key)) continue;
       legacyScopedResults.push({ key: f.key, label: f.label || f.key, value: String(value).trim() });
     }
     if (legacyScopedResults.length) {
       sections.push({ title: 'Clinical Intake Fields', fields: legacyScopedResults });
     }
 
-    // ── 3. Legacy: PSC-17 items ─────────────────────────────────────────────
-    const pscFields = [];
-    const clientResponses = Array.isArray(submissionData?.responses?.clients)
-      ? (submissionData.responses.clients[0] || {})
-      : {};
+    // ── 3. PSC-17 items (tolerant key matching) ─────────────────────────────
+    // Look in BOTH the per-child bag and the top-level submission/guardian bag,
+    // since older forms stored PSC at submission level.
     const labelMap = new Map(intakeFields.map((f) => [String(f.key || ''), f.label || f.key]));
-    for (let i = 1; i <= 17; i++) {
-      const key = `psc_${i}`;
-      const raw = clientResponses[key] ?? allSub[key];
-      if (!hasVal(raw)) continue;
-      const label = labelMap.get(key) || `PSC item ${i}`;
-      pscFields.push({ key, label, value: String(raw).trim() });
+    const pscByItem = new Map(); // itemNumber → { key, label, value }
+    const considerPscBag = (bag) => {
+      if (!bag || typeof bag !== 'object') return;
+      for (const [k, v] of Object.entries(bag)) {
+        const item = matchPscKey(k);
+        if (!item) continue;
+        if (!hasVal(v)) continue;
+        if (pscByItem.has(item)) continue;
+        const label = labelMap.get(k) || `PSC item ${item}`;
+        pscByItem.set(item, { key: k, label, value: String(v).trim() });
+      }
+    };
+    considerPscBag(clientResponses);
+    considerPscBag(submissionData?.responses?.submission);
+    considerPscBag(submissionData?.responses?.guardian);
+    // Also try every per-child responses bag so a misordered submission still surfaces.
+    if (Array.isArray(submissionData?.responses?.clients)) {
+      for (const c of submissionData.responses.clients) considerPscBag(c);
     }
+    const pscFields = Array.from(pscByItem.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([, v]) => v);
     if (pscFields.length) {
       sections.push({ title: 'PSC-17 Behavioral Assessment', fields: pscFields });
     }
@@ -4049,8 +4316,6 @@ export const getClientClinicalResponses = async (req, res, next) => {
     }
 
     // ── 7. Legacy: all other submission/client fields that look clinical ─────
-    // (anything not excluded by the clinical summary exclude patterns, and not
-    //  already surfaced in the previous sections, and not demographic)
     const seenKeys = new Set([
       ...newClinicalFields.map((f) => f.key),
       ...legacyScopedResults.map((f) => f.key),
@@ -4060,14 +4325,13 @@ export const getClientClinicalResponses = async (req, res, next) => {
       ...additionalFields.map((f) => f.key),
       ...EXPLICIT_CLINICAL_KEYS,
     ]);
-    const allLabeled = extractLabeledFieldsFromSubmission(submissionData, intakeFields);
+    const allLabeled = extractLabeledFieldsFromSubmission(submissionData, intakeFields, clientResponses);
     const generalClinicalFields = allLabeled.filter(({ key, label, value }) => {
       if (seenKeys.has(key)) return false;
+      if (matchPscKey(key)) return false; // already captured
       if (EXPLICIT_DEMO_KEYS.has(key)) return false;
-      // Skip demographic-looking fields
       if (DEMO_KEY_PATTERN.test(key)) return false;
       if (DEMO_LABEL_PATTERN.test(label) && !DEMO_SKIP_LABEL_PATTERN.test(label)) return false;
-      // Skip admin/contact fields
       if (CLINICAL_SKIP_KEY_PATTERN.test(key)) return false;
       if (CLINICAL_SKIP_LABEL_PATTERN.test(label)) return false;
       return hasVal(value);
@@ -4079,16 +4343,82 @@ export const getClientClinicalResponses = async (req, res, next) => {
       });
     }
 
-    res.json({ sections, capturedAt: sub.submitted_at || null });
+    res.json({
+      sections,
+      capturedAt: sub.submitted_at || null,
+      ...(debug ? { _debug: debugInfo } : {})
+    });
   } catch (e) {
     next(e);
   }
 };
 
+// Map of common intake-key aliases → canonical "logical key" for de-duplication
+// across the profile (clients table) and intake responses. Keys here are the
+// intake-side keys; values are the canonical key (typically the clients-table
+// column name). When two fields hash to the same logical key we mark all but
+// the first as `duplicateOf`.
+const DEMO_LOGICAL_KEY_MAP = {
+  // identity
+  full_name: 'full_name', fullName: 'full_name',
+  client_full_name: 'full_name', clientFullName: 'full_name',
+  initials: 'initials', client_initials: 'initials',
+  identifier_code: 'identifier_code', client_code: 'identifier_code',
+
+  // dob
+  date_of_birth: 'date_of_birth', dob: 'date_of_birth',
+  client_dob: 'date_of_birth', dateOfBirth: 'date_of_birth',
+
+  // sex/gender
+  gender: 'gender', sex: 'gender',
+  client_sex: 'gender', client_gender: 'gender',
+
+  // ethnicity / language
+  ethnicity: 'ethnicity', race: 'ethnicity',
+  preferred_language: 'preferred_language', preferredLanguage: 'preferred_language',
+  primary_language: 'primary_client_language', primaryLanguage: 'primary_client_language',
+  primary_client_language: 'primary_client_language',
+  primary_parent_language: 'primary_parent_language',
+
+  // phone / email
+  contact_phone: 'contact_phone', phone: 'contact_phone',
+  client_phone: 'contact_phone', cellPhone: 'contact_phone',
+  email: 'client_email', client_email: 'client_email',
+
+  // address
+  address_street: 'address_street', addressStreet: 'address_street',
+  street: 'address_street', client_street: 'address_street',
+  address_apt: 'address_apt', addressApt: 'address_apt',
+  apt: 'address_apt', client_apt: 'address_apt',
+  address_city: 'address_city', addressCity: 'address_city', client_city: 'address_city',
+  address_state: 'address_state', addressState: 'address_state', client_state: 'address_state',
+  address_zip: 'address_zip', addressZip: 'address_zip', client_zip: 'address_zip',
+
+  // school / grade
+  grade: 'grade', client_grade: 'grade',
+  school: 'school',
+};
+
+const logicalDemoKey = (key) => {
+  const k = String(key || '');
+  return DEMO_LOGICAL_KEY_MAP[k] || k;
+};
+
 /**
- * Get demographic profile data for a client from the DB + latest intake submission.
- * Covers new demographics step data AND legacy address/demographic fields from any intake.
+ * Get demographic profile data for a client.
+ *
+ * Returns a structured response that lets the UI render Profile, Client (intake),
+ * Guardian (intake), and Address sub-sections. Every field is tagged with:
+ *   - source: 'profile' | 'intake_demographics' | 'intake_client' | 'intake_guardian'
+ *   - category: 'demographic' | 'guardian' | 'profile' | 'other'
+ *   - logicalKey: canonical key used for de-duplication
+ *   - duplicateOf: key from a higher-priority source if this is a dup
+ *
+ * Backward compatibility: legacy callers still receive `profileFields` and
+ * `intakeDemoFields` flat arrays.
+ *
  * GET /api/clients/:id/demographics
+ *   ?debug=1  (super_admin only) → include diagnostics
  */
 export const getClientDemographics = async (req, res, next) => {
   try {
@@ -4104,8 +4434,9 @@ export const getClientDemographics = async (req, res, next) => {
     const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: userRole, clientId });
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
+    const debug = userRole === 'super_admin' && String(req.query?.debug || '') === '1';
+
     // ── 1. Known demographics columns from clients table ────────────────────
-    // Use a safe column list that degrades gracefully if migration 616 hasn't run yet
     let clientRow = {};
     try {
       const [clientRows] = await pool.execute(
@@ -4119,7 +4450,6 @@ export const getClientDemographics = async (req, res, next) => {
       );
       clientRow = clientRows[0] || {};
     } catch (colErr) {
-      // New address columns may not exist yet (migration pending); fall back to base columns
       try {
         const [clientRows] = await pool.execute(
           `SELECT full_name, initials, identifier_code, date_of_birth, gender,
@@ -4132,7 +4462,27 @@ export const getClientDemographics = async (req, res, next) => {
       } catch { clientRow = {}; }
     }
 
-    // Coerce NULLs to empty strings for consistent handling
+    // Build profile-source fields (highest priority for de-duplication)
+    const PROFILE_SECTION_BY_KEY = {
+      full_name: 'Identity', initials: 'Identity', identifier_code: 'Identity',
+      date_of_birth: 'Identity', gender: 'Identity', ethnicity: 'Identity',
+      preferred_language: 'Languages', primary_client_language: 'Languages',
+      primary_parent_language: 'Languages',
+      contact_phone: 'Address & Contact',
+      address_street: 'Address & Contact', address_apt: 'Address & Contact',
+      address_city: 'Address & Contact', address_state: 'Address & Contact',
+      address_zip: 'Address & Contact',
+      submission_date: 'Administrative', source: 'Administrative',
+    };
+
+    const tagField = (f) => ({
+      ...f,
+      source: f.source || 'profile',
+      category: f.category || 'demographic',
+      section: f.section || PROFILE_SECTION_BY_KEY[f.key] || 'Other',
+      logicalKey: logicalDemoKey(f.key)
+    });
+
     const profileFields = [
       { key: 'full_name',               label: 'Full Name',             value: clientRow.full_name || '' },
       { key: 'initials',                label: 'Initials',              value: clientRow.initials || '' },
@@ -4151,18 +4501,21 @@ export const getClientDemographics = async (req, res, next) => {
       { key: 'address_zip',             label: 'Zip Code',              value: clientRow.address_zip || '' },
       { key: 'submission_date',         label: 'Submission Date',       value: clientRow.submission_date ? String(clientRow.submission_date).slice(0, 10) : '' },
       { key: 'source',                  label: 'Source',                value: clientRow.source || '' },
-    ].filter((f) => hasVal(f.value));
+    ].filter((f) => hasVal(f.value)).map(tagField);
 
-    // ── 2. Latest submitted intake – new-style demographicsInfo block ───────
+    // ── 2. Find candidate intake submission scoped to THIS client ──────────
+    // Same multi-child-aware lookup as clinical-responses: include submissions
+    // where this client appears via intake_submission_clients.
     let submRows = [];
     try {
       [submRows] = await pool.execute(
-        `SELECT s.intake_data, s.intake_link_id, s.submitted_at
+        `SELECT DISTINCT s.id, s.intake_data, s.intake_link_id, s.submitted_at
          FROM intake_submissions s
-         WHERE s.client_id = ? AND s.status = 'submitted'
-         ORDER BY s.submitted_at DESC
-         LIMIT 1`,
-        [clientId]
+         LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
+         WHERE (s.client_id = ? OR isc.client_id = ?)
+         ORDER BY s.submitted_at DESC, s.id DESC
+         LIMIT 5`,
+        [clientId, clientId]
       );
     } catch (tableErr) {
       if (String(tableErr?.message || '').includes("doesn't exist") || tableErr?.errno === 1146) {
@@ -4173,127 +4526,246 @@ export const getClientDemographics = async (req, res, next) => {
     let intakeFields = [];
     let capturedAt = null;
     const intakeDemoFields = [];
+    const intakeGuardianFields = [];
+    const debugInfo = debug ? { walked: [] } : null;
 
     if (submRows.length) {
+      // Pick the most recent submission as canonical (matches prior behavior).
       const sub = submRows[0];
       capturedAt = sub.submitted_at || null;
       let submissionData = {};
       try { submissionData = JSON.parse(sub.intake_data || '{}'); } catch { /* ignore */ }
 
-      // Resolve field labels from the link
+      // Resolve per-child responses and field metadata (labels, scope, category).
+      let clientIdsForSubmission = [];
+      try {
+        const [iscRows] = await pool.execute(
+          `SELECT client_id FROM intake_submission_clients WHERE intake_submission_id = ? ORDER BY id ASC`,
+          [sub.id]
+        );
+        clientIdsForSubmission = (iscRows || []).map((r) => r?.client_id);
+      } catch { /* older DB */ }
+
+      const clientResponses = pickClientResponseForId({
+        submissionData,
+        clientIdsForSubmission,
+        targetClientId: clientId
+      });
+
+      let intakeStepsForLink = [];
       if (sub.intake_link_id) {
         const [linkRows] = await pool.execute(
-          `SELECT intake_fields FROM intake_links WHERE id = ? LIMIT 1`,
+          `SELECT intake_fields, intake_steps FROM intake_links WHERE id = ? LIMIT 1`,
           [sub.intake_link_id]
         );
         if (linkRows.length) {
           try { intakeFields = JSON.parse(linkRows[0].intake_fields || '[]') || []; } catch { /* ignore */ }
+          try { intakeStepsForLink = JSON.parse(linkRows[0].intake_steps || '[]') || []; } catch { /* ignore */ }
         }
       }
 
-      const labelMap = new Map(intakeFields.map((f) => [String(f.key || ''), f.label || f.key]));
+      const categoryMap = buildEffectiveCategoryMap(intakeFields, intakeStepsForLink);
+      const fieldMetaByKey = new Map();
+      for (const f of intakeFields) {
+        if (f?.key) {
+          fieldMetaByKey.set(String(f.key), {
+            label: f.label || f.key,
+            scope: f.scope || 'submission',
+            category: categoryMap.get(String(f.key)) || null,
+            section: f.section || null
+          });
+        }
+      }
 
-      // New-style demographicsInfo namespace
+      // Helpers
+      const considerField = ({ key, value, source, defaultLabel, defaultSection, defaultCategory, bag }) => {
+        if (!hasVal(value)) return;
+        if (bag.some((f) => f.key === key)) return;
+        const meta = fieldMetaByKey.get(String(key));
+        const label = meta?.label || defaultLabel || key;
+        const section = meta?.section || defaultSection;
+        const explicitCategory = meta?.category || defaultCategory;
+        bag.push(tagField({
+          key,
+          label,
+          value: String(value).trim(),
+          source,
+          section,
+          category: explicitCategory || 'demographic',
+        }));
+      };
+
+      // 2a. New-style demographicsInfo namespace (full walker, not fixed map)
       const di = submissionData?.responses?.submission?.demographicsInfo;
       if (di && typeof di === 'object') {
-        const demoMap = [
-          ['firstName', 'First Name (intake)'],
-          ['lastName', 'Last Name (intake)'],
-          ['fullName', 'Full Name (intake)'],
-          ['dob', 'Date of Birth (intake)'],
-          ['gender', 'Gender (intake)'],
-          ['ethnicity', 'Race / Ethnicity (intake)'],
-          ['preferredLanguage', 'Preferred Language (intake)'],
-          ['primaryLanguage', 'Primary Language (intake)'],
-          ['phone', 'Phone (intake)'],
-          ['email', 'Email (intake)'],
-          ['addressStreet', 'Street Address (intake)'],
-          ['addressApt', 'Apt / Unit (intake)'],
-          ['addressCity', 'City (intake)'],
-          ['addressState', 'State (intake)'],
-          ['addressZip', 'Zip Code (intake)'],
-          ['grade', 'Grade (intake)'],
-          ['school', 'School (intake)'],
-          ['referralSource', 'Referral Source (intake)'],
-          ['guardianName', 'Guardian Name (intake)'],
-          ['guardianPhone', 'Guardian Phone (intake)'],
-          ['guardianEmail', 'Guardian Email (intake)'],
-          ['guardianRelationship', 'Guardian Relationship (intake)'],
-        ];
-        for (const [k, label] of demoMap) {
-          if (hasVal(di[k])) intakeDemoFields.push({ key: k, label, value: String(di[k]) });
+        const KNOWN_DI_LABELS = {
+          firstName: 'First Name', lastName: 'Last Name', fullName: 'Full Name',
+          dob: 'Date of Birth', gender: 'Gender', ethnicity: 'Race / Ethnicity',
+          preferredLanguage: 'Preferred Language', primaryLanguage: 'Primary Language',
+          phone: 'Phone', email: 'Email',
+          addressStreet: 'Street Address', addressApt: 'Apt / Unit',
+          addressCity: 'City', addressState: 'State', addressZip: 'Zip Code',
+          grade: 'Grade', school: 'School', referralSource: 'Referral Source',
+          guardianName: 'Guardian Name', guardianPhone: 'Guardian Phone',
+          guardianEmail: 'Guardian Email', guardianRelationship: 'Guardian Relationship',
+        };
+        for (const [k, v] of Object.entries(di)) {
+          const isGuardianish = /^guardian/i.test(k) || k === 'emergencyContact';
+          considerField({
+            key: k,
+            value: v,
+            source: 'intake_demographics',
+            defaultLabel: `${KNOWN_DI_LABELS[k] || k} (intake)`,
+            defaultSection: isGuardianish ? 'Guardian (intake)' : 'Client (intake)',
+            defaultCategory: isGuardianish ? 'guardian' : 'demographic',
+            bag: isGuardianish ? intakeGuardianFields : intakeDemoFields
+          });
         }
       }
 
-      // Explicit: client intake demographic fields (client_first, client_last, etc.)
-      const allResponses = {
-        ...((submissionData?.responses?.guardian) || {}),
-        ...((submissionData?.responses?.submission) || {}),
-        ...(Array.isArray(submissionData?.responses?.clients) ? (submissionData.responses.clients[0] || {}) : {})
+      // 2b. Per-child responses bag (client_first, client_dob, etc., plus PSC etc. — but we only keep demographic-shaped here)
+      for (const [key, value] of Object.entries(clientResponses || {})) {
+        if (!hasVal(value)) continue;
+        if (typeof value === 'object') continue; // skip nested blocks
+        const meta = fieldMetaByKey.get(String(key));
+        const explicitCategory = meta?.category;
+        const isExplicitClientDemo = EXPLICIT_DEMO_KEYS.has(key) && !key.startsWith('guardian_');
+        const looksDemoByKey = DEMO_KEY_PATTERN.test(key);
+        const looksDemoByLabel = meta?.label && DEMO_LABEL_PATTERN.test(meta.label) && !DEMO_SKIP_LABEL_PATTERN.test(meta.label);
+        if (explicitCategory === 'demographic' || isExplicitClientDemo || looksDemoByKey || looksDemoByLabel) {
+          considerField({
+            key,
+            value,
+            source: 'intake_client',
+            defaultLabel: meta?.label || key,
+            defaultSection: 'Client (intake)',
+            defaultCategory: 'demographic',
+            bag: intakeDemoFields
+          });
+        }
+      }
+
+      // 2c. Guardian responses bag (anything in submissionData.responses.guardian + explicit guardian keys at any layer)
+      const guardianBag = submissionData?.responses?.guardian || {};
+      const submissionBag = submissionData?.responses?.submission || {};
+      const considerGuardianBag = (bag) => {
+        for (const [key, value] of Object.entries(bag || {})) {
+          if (!hasVal(value)) continue;
+          if (typeof value === 'object') continue;
+          const meta = fieldMetaByKey.get(String(key));
+          const explicitCategory = meta?.category;
+          const isExplicitGuardian = key.startsWith('guardian_') || key === 'emergency_contact' || key === 'additional_guardian';
+          const looksGuardianByLabel = meta?.label && /guardian|emergency contact|additional contact/i.test(meta.label);
+          if (explicitCategory === 'guardian' || isExplicitGuardian || looksGuardianByLabel) {
+            considerField({
+              key,
+              value,
+              source: 'intake_guardian',
+              defaultLabel: meta?.label || key,
+              defaultSection: 'Guardian (intake)',
+              defaultCategory: 'guardian',
+              bag: intakeGuardianFields
+            });
+          }
+        }
       };
-      for (const [key, label] of CLIENT_INTAKE_DEMO_KEYS) {
-        const raw = allResponses[key];
-        if (!hasVal(raw)) continue;
+      considerGuardianBag(guardianBag);
+      considerGuardianBag(submissionBag);
+
+      // 2d. Walk the submission top-level for any field tagged `category: 'demographic'`
+      // (Phase 3 forward-compat: forms that explicitly mark a question as demographic
+      // should land here regardless of step type.)
+      for (const [key, value] of Object.entries(submissionBag || {})) {
+        if (!hasVal(value) || typeof value === 'object') continue;
+        const meta = fieldMetaByKey.get(String(key));
+        if (!meta || meta.category !== 'demographic') continue;
         if (intakeDemoFields.some((f) => f.key === key)) continue;
-        intakeDemoFields.push({ key, label: labelMap.get(key) || label, value: String(raw).trim() });
+        considerField({
+          key,
+          value,
+          source: 'intake_demographics',
+          defaultLabel: meta.label,
+          defaultSection: meta.section || 'Client (intake)',
+          defaultCategory: 'demographic',
+          bag: intakeDemoFields
+        });
       }
 
-      // Explicit: guardian / contact fields from intake
-      const guardianFields = [];
-      for (const [key, label] of GUARDIAN_INTAKE_KEYS) {
-        const raw = allResponses[key];
-        if (!hasVal(raw)) continue;
-        guardianFields.push({ key, label: labelMap.get(key) || label, value: String(raw).trim() });
-      }
-      if (guardianFields.length) {
-        // Mark guardian fields separately so the frontend can group them
-        for (const f of guardianFields) {
-          f.section = 'Guardian / Contact Information';
-        }
-        intakeDemoFields.push(...guardianFields);
-      }
-
-      // Legacy: scan ALL submission fields for demographic-pattern keys/labels
-      // (only include what's not already covered by profileFields or explicit keys)
-      const profileKeys = new Set(profileFields.map((f) => f.key));
-      const intakeDemoKeys = new Set(intakeDemoFields.map((f) => f.key));
-      const allLabeled = extractLabeledFieldsFromSubmission(submissionData, intakeFields);
-      for (const { key, label, value } of allLabeled) {
-        if (profileKeys.has(key) || intakeDemoKeys.has(key)) continue;
-        if (EXPLICIT_DEMO_KEYS.has(key) || EXPLICIT_CLINICAL_KEYS.has(key)) continue;
-        const matchesKey = DEMO_KEY_PATTERN.test(key);
-        const matchesLabel = DEMO_LABEL_PATTERN.test(label) && !DEMO_SKIP_LABEL_PATTERN.test(label);
-        if (!matchesKey && !matchesLabel) continue;
-        intakeDemoFields.push({ key, label: labelMap.get(key) || label, value });
+      if (debug) {
+        debugInfo.walked.push({
+          submission_id: sub.id,
+          intake_link_id: sub.intake_link_id,
+          clientIdsForSubmission,
+          chosenClientIndex: clientIdsForSubmission.findIndex(
+            (cid) => parseInt(cid, 10) === parseInt(clientId, 10)
+          ),
+          demographicsInfoKeys: Object.keys(di || {}),
+          submissionTopLevelKeys: Object.keys(submissionBag || {}).slice(0, 80),
+          guardianKeys: Object.keys(guardianBag || {}).slice(0, 40),
+          clientKeys: Object.keys(clientResponses || {}).slice(0, 80)
+        });
       }
     }
 
-    // ── 3. Also backfill primary_insurer_name from latest submission if DB column is empty ──
-    // This catches existing clients who submitted intakes before migration 616 ran.
+    // ── 3. Backfill primary_insurer_name from intake (existing behavior) ────
     if (submRows.length) {
       const sub = submRows[0];
       let submissionData = {};
       try { submissionData = JSON.parse(sub.intake_data || '{}'); } catch { /* ignore */ }
       const insurerName = String(submissionData?.responses?.submission?.insuranceInfo?.primary?.insurerName || '').trim();
       if (insurerName) {
-        // Try to persist it back to DB so the Overview picks it up next time
         try {
           await pool.execute(
             `UPDATE clients SET primary_insurer_name = ? WHERE id = ? AND (primary_insurer_name IS NULL OR primary_insurer_name = '')`,
             [insurerName.slice(0, 255), clientId]
           );
         } catch { /* column may not exist yet */ }
-        // Always include in the response so the caller can use it immediately
         if (!profileFields.some((f) => f.key === 'primary_insurer_name')) {
-          profileFields.push({ key: 'primary_insurer_name', label: 'Primary Insurance (from intake)', value: insurerName });
+          profileFields.push(tagField({
+            key: 'primary_insurer_name',
+            label: 'Primary Insurance (from intake)',
+            value: insurerName,
+            section: 'Administrative'
+          }));
         }
       }
     }
 
+    // ── 4. Server-side de-duplication ───────────────────────────────────────
+    // Profile beats intake_demographics beats intake_client beats intake_guardian.
+    const SOURCE_PRIORITY = { profile: 4, intake_demographics: 3, intake_client: 2, intake_guardian: 1 };
+    const allFields = [...profileFields, ...intakeDemoFields, ...intakeGuardianFields];
+    // Sort stable by descending priority so the first occurrence per logicalKey wins.
+    const seenLogical = new Map(); // logicalKey -> winning {source, key}
+    allFields
+      .slice()
+      .sort((a, b) => (SOURCE_PRIORITY[b.source] || 0) - (SOURCE_PRIORITY[a.source] || 0))
+      .forEach((f) => {
+        const lk = f.logicalKey || f.key;
+        if (!seenLogical.has(lk)) {
+          seenLogical.set(lk, { source: f.source, key: f.key });
+        } else {
+          const winner = seenLogical.get(lk);
+          // Mark this field as a duplicate of the winning one.
+          f.duplicateOf = winner.source;
+          f.duplicateOfKey = winner.key;
+        }
+      });
+
     res.json({
-      profileFields,     // From clients DB columns
-      intakeDemoFields,  // From intake submission (new + legacy)
-      capturedAt
+      // Backward compatibility (existing UI keeps working):
+      profileFields,
+      intakeDemoFields: [...intakeDemoFields, ...intakeGuardianFields],
+      // New, structured payload:
+      sections: [
+        { id: 'profile', title: 'Profile', source: 'profile', fields: profileFields },
+        { id: 'client_intake', title: 'Client (intake)', source: 'intake_client', fields: [
+          ...intakeDemoFields.filter((f) => f.source === 'intake_demographics' || f.source === 'intake_client')
+        ] },
+        { id: 'guardian_intake', title: 'Guardian (intake)', source: 'intake_guardian', fields: intakeGuardianFields },
+      ],
+      capturedAt,
+      ...(debug ? { _debug: debugInfo } : {})
     });
   } catch (e) {
     next(e);

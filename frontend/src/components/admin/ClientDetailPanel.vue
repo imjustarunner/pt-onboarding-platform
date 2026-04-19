@@ -1,72 +1,109 @@
 <template>
   <div :class="props.fullPage ? 'cdp-page-shell' : 'modal-overlay'" @click.self="props.fullPage ? undefined : handleClose">
     <div :class="props.fullPage ? 'cdp-page-body' : 'modal-content large'" @click.stop>
-      <div class="modal-header">
-        <div style="display:flex; flex-direction: column; gap: 6px;">
-          <h2 style="margin:0;">Client: {{ client.initials }}</h2>
-          <div style="display:flex; gap: 8px; align-items:center; flex-wrap: wrap;">
-            <span class="muted" style="font-weight: 800;">Type:</span>
-            <span class="badge badge-info">{{ clientTypeLabel }}</span>
-            <template v-if="canEditClientType">
-              <select v-model="clientTypeDraft" class="inline-select" :disabled="savingClientType">
+      <div class="modal-header cdp-header">
+        <div class="cdp-header-main">
+          <div class="cdp-avatar" :style="avatarColor" aria-hidden="true">
+            {{ avatarText }}
+          </div>
+          <div class="cdp-header-info">
+            <div class="cdp-eyebrow">Client profile</div>
+            <h2 class="cdp-title">
+              <template v-if="canSeeClientFullName && client.full_name">
+                {{ client.full_name }}
+                <span class="cdp-title-initials">({{ client.initials || '—' }})</span>
+              </template>
+              <template v-else>{{ client.initials || '—' }}</template>
+            </h2>
+            <div class="cdp-meta-row">
+              <span class="cdp-pill cdp-pill--type">
+                <span class="cdp-pill__dot"></span>
+                {{ clientTypeLabel }}
+              </span>
+              <span
+                class="cdp-pill"
+                :class="statusPillClass"
+                :title="isClientTerminated && client.termination_reason ? client.termination_reason : undefined"
+              >
+                {{ isClientArchived ? 'Archived' : (client.client_status_label || 'No status') }}
+              </span>
+            </div>
+
+            <div v-if="client.organization_name || client.identifier_code" class="cdp-submeta-row">
+              <span v-if="client.organization_name" class="cdp-submeta">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 21h18" />
+                  <path d="M5 21V7l7-4 7 4v14" />
+                  <path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01" />
+                </svg>
+                <span>{{ client.organization_name }}</span>
+              </span>
+              <span v-if="client.identifier_code" class="cdp-submeta cdp-submeta--code" :title="`Client code ${client.identifier_code}`">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M7 7h.01M3 12l9 9 9-9-9-9-9 9z" />
+                </svg>
+                <span class="mono">{{ client.identifier_code }}</span>
+              </span>
+            </div>
+
+            <div v-if="canEditClientType" class="cdp-inline-controls">
+              <span class="cdp-inline-controls__label">Update type</span>
+              <select v-model="clientTypeDraft" class="inline-select cdp-inline-select" :disabled="savingClientType">
                 <option v-for="opt in clientTypeOptions" :key="opt.value" :value="opt.value">
                   {{ opt.label }}
                 </option>
               </select>
               <button
                 type="button"
-                class="btn btn-secondary btn-sm"
+                class="btn btn-secondary btn-sm cdp-soft-button"
                 :disabled="savingClientType || !clientTypeDraft || clientTypeDraft === effectiveClientType"
                 @click="saveClientType"
               >
-                {{ savingClientType ? 'Saving…' : 'Update type' }}
+                {{ savingClientType ? 'Saving…' : 'Save type' }}
               </button>
-            </template>
-          </div>
-          <div v-if="isBackofficeRole" style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap;">
-            <template v-if="switchableAgencies.length > 1">
-              <span class="muted" style="font-weight: 800;">Agency:</span>
-              <select
-                v-model="selectedAgencyId"
-                class="inline-select"
-                :disabled="switchingAgency"
-                @change="onSwitchAgency(true)"
-              >
-                <option v-for="a in switchableAgencies" :key="a.id" :value="String(a.id)">
-                  {{ a.name }}
-                </option>
-              </select>
-              <span v-if="switchingAgency" class="muted">Switching…</span>
-            </template>
-            <template v-else-if="clientAgenciesNote">
-              <span class="muted">{{ clientAgenciesNote }}</span>
-            </template>
+            </div>
+
+            <div v-if="isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote)" class="cdp-inline-controls cdp-inline-controls--muted">
+              <template v-if="switchableAgencies.length > 1">
+                <span class="cdp-inline-controls__label">Agency</span>
+                <select
+                  v-model="selectedAgencyId"
+                  class="inline-select cdp-inline-select"
+                  :disabled="switchingAgency"
+                  @change="onSwitchAgency(true)"
+                >
+                  <option v-for="a in switchableAgencies" :key="a.id" :value="String(a.id)">
+                    {{ a.name }}
+                  </option>
+                </select>
+                <span v-if="switchingAgency" class="muted">Switching…</span>
+              </template>
+              <template v-else-if="clientAgenciesNote">
+                <span class="muted">{{ clientAgenciesNote }}</span>
+              </template>
+            </div>
           </div>
         </div>
-        <div style="display:flex; align-items:center; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+
+        <div class="cdp-header-actions">
           <button
             v-if="canOpenClientDirectoryProfile && !props.fullPage"
-            class="btn btn-secondary btn-sm"
+            class="btn btn-secondary btn-sm cdp-soft-button"
             type="button"
             @click="openClientDirectoryProfile"
           >
             Open in Client Directory
           </button>
-          <div
-            v-if="hasClientNavigation"
-            style="display:flex; align-items:center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-alt);"
-          >
-            <button class="btn btn-secondary btn-sm" type="button" :disabled="!canNavigatePrevious" @click="requestNavigate('previous')">
-              Previous
+          <div v-if="hasClientNavigation" class="cdp-nav-pill">
+            <button class="cdp-nav-btn" type="button" :disabled="!canNavigatePrevious" @click="requestNavigate('previous')" aria-label="Previous client">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
             </button>
-            <span class="muted" style="font-weight: 800; white-space: nowrap;">
-              {{ currentClientPositionLabel }}
-            </span>
-            <button class="btn btn-secondary btn-sm" type="button" :disabled="!canNavigateNext" @click="requestNavigate('next')">
-              Next
+            <span class="cdp-nav-pill__label">{{ currentClientPositionLabel }}</span>
+            <button class="cdp-nav-btn" type="button" :disabled="!canNavigateNext" @click="requestNavigate('next')" aria-label="Next client">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
             </button>
           </div>
-          <button v-if="!props.fullPage" @click="handleClose" class="btn-close">×</button>
+          <button v-if="!props.fullPage" @click="handleClose" class="btn-close" aria-label="Close">×</button>
         </div>
       </div>
 
@@ -222,9 +259,10 @@
                 {{ isClientArchived ? 'Yes' : 'No' }}
               </div>
             </div>
-            <div v-if="canViewAdminNote" class="info-item admin-note-item">
+            <div v-if="canViewAdminNote" class="info-item admin-note-item" :class="{ 'is-popover-open': adminNotePopoverOpen }">
               <label>Admin Note</label>
               <div
+                ref="adminNoteTriggerEl"
                 class="info-value admin-note-trigger"
                 @mouseenter="openAdminNotePopover"
                 @mouseleave="closeAdminNotePopoverSoon"
@@ -235,10 +273,13 @@
                   <span class="muted" style="margin-left: 8px;">Hover to view/edit</span>
                 </span>
                 <span v-else class="muted">Hover to add</span>
+              </div>
 
+              <Teleport to="body">
                 <div
                   v-if="adminNotePopoverOpen"
-                  class="admin-note-popover"
+                  class="admin-note-popover admin-note-popover--floating"
+                  :style="adminNotePopoverStyle"
                   @mouseenter="cancelCloseAdminNotePopover"
                   @mouseleave="closeAdminNotePopoverSoon"
                 >
@@ -258,7 +299,7 @@
                     </button>
                   </div>
                 </div>
-              </div>
+              </Teleport>
             </div>
             <div class="info-item">
               <label>Provider</label>
@@ -718,6 +759,20 @@
               Clinical data appears here automatically from completed intakes —
               including PSC-17 scores, trauma indicators, goals, and any Clinical Questions step data.
             </p>
+            <div v-if="isSuperAdmin" style="margin-top: 12px;">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="loadClinicalDebug"
+                :disabled="clinicalDebugLoading"
+              >
+                {{ clinicalDebugLoading ? 'Investigating…' : 'Why is this empty?' }}
+              </button>
+              <pre
+                v-if="clinicalDebug"
+                style="margin-top: 12px; padding: 12px; background: var(--bg-alt, #f8fafc); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; max-height: 360px; overflow: auto; white-space: pre-wrap;"
+              >{{ clinicalDebug }}</pre>
+            </div>
           </div>
           <div v-else>
             <p v-if="clinicalCapturedAt" class="muted" style="font-size: 13px; margin-bottom: 16px;">
@@ -748,40 +803,41 @@
             </p>
           </div>
           <div v-else>
-            <div v-if="demoProfileFields.length" style="margin-bottom: 24px;">
-              <h4 class="clinical-section-title">Profile</h4>
-              <div class="clinical-field-list">
-                <div v-for="f in demoProfileFields" :key="f.key" class="clinical-field-row">
-                  <div class="clinical-field-label">{{ f.label }}</div>
-                  <div class="clinical-field-value">{{ f.value }}</div>
-                </div>
-              </div>
-            </div>
-            <div v-if="demoIntakeFields.length">
-              <h4 class="clinical-section-title">
-                From Intake
-                <span v-if="demoCapturedAt" class="muted" style="font-weight: 400; font-size: 12px; margin-left: 6px;">
-                  ({{ new Date(demoCapturedAt).toLocaleDateString() }})
+            <div class="demo-toolbar">
+              <div class="muted" style="font-size: 13px;">
+                <span v-if="demoCapturedAt">
+                  Latest intake: {{ new Date(demoCapturedAt).toLocaleDateString() }} ·
                 </span>
-              </h4>
-              <!-- Client-level intake fields (no section tag) -->
-              <div class="clinical-field-list" style="margin-bottom: 16px;">
-                <div v-for="f in demoIntakeFields.filter(f => !f.section)" :key="f.key" class="clinical-field-row">
-                  <div class="clinical-field-label">{{ f.label }}</div>
-                  <div class="clinical-field-value">{{ f.value }}</div>
-                </div>
+                Showing {{ demoVisibleCount }} of {{ demoTotalCount }} fields.
               </div>
-              <!-- Grouped sections (e.g. Guardian / Contact Information) -->
-              <template v-for="sectionName in demoIntakeSections" :key="sectionName">
-                <h5 class="clinical-section-subtitle">{{ sectionName }}</h5>
-                <div class="clinical-field-list" style="margin-bottom: 16px;">
-                  <div v-for="f in demoIntakeFields.filter(f => f.section === sectionName)" :key="f.key" class="clinical-field-row">
-                    <div class="clinical-field-label">{{ f.label }}</div>
+              <label v-if="demoHasDuplicates" class="demo-toggle">
+                <input type="checkbox" v-model="showDemoDuplicates" />
+                Show duplicates ({{ demoDuplicateCount }})
+              </label>
+            </div>
+
+            <template v-for="group in demoGroupedSections" :key="group.id">
+              <div v-if="group.fields.length" class="demo-section">
+                <div class="demo-section-header">
+                  <h4 class="clinical-section-title" style="margin: 0;">{{ group.title }}</h4>
+                  <span v-if="group.subtitle" class="muted" style="font-size: 12px;">{{ group.subtitle }}</span>
+                </div>
+                <div class="clinical-field-list">
+                  <div
+                    v-for="f in group.fields"
+                    :key="`${group.id}-${f.key}`"
+                    class="clinical-field-row"
+                    :class="{ 'is-duplicate': !!f.duplicateOf }"
+                  >
+                    <div class="clinical-field-label">
+                      {{ f.label }}
+                      <span v-if="f.duplicateOf" class="demo-dup-chip" :title="`Also present in ${f.duplicateOf}`">dup</span>
+                    </div>
                     <div class="clinical-field-value">{{ f.value }}</div>
                   </div>
                 </div>
-              </template>
-            </div>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -983,6 +1039,11 @@
               </button>
             </div>
           </div>
+        </div>
+
+        <!-- Communications Tab -->
+        <div v-if="activeTab === 'communications'" class="detail-section">
+          <ClientCommunicationsTab :client-id="Number(props.client.id)" />
         </div>
 
         <!-- Guardians Tab -->
@@ -1779,12 +1840,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import PhiDocumentsPanel from './PhiDocumentsPanel.vue';
 import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
+import ClientCommunicationsTab from './ClientCommunicationsTab.vue';
 import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
 import ClientSkillBuildersProgramTab from '../skillBuilders/ClientSkillBuildersProgramTab.vue';
 import { isSkillsClientFlag } from '../../utils/skillsClientFlag.js';
@@ -2331,7 +2393,7 @@ const CLIENT_TYPE_ORDER = ['basic_nonclinical', 'school', 'learning', 'clinical'
 const CLIENT_TYPE_LABELS = {
   basic_nonclinical: 'Basic (Non-Clinical)',
   school: 'School',
-  learning: 'Learning',
+  learning: 'Learning/Program',
   clinical: 'Clinical'
 };
 const normalizeClientType = (value) => {
@@ -2358,6 +2420,44 @@ const clientTypeOptions = CLIENT_TYPE_ORDER.map((value) => ({
   value,
   label: CLIENT_TYPE_LABELS[value] || value
 }));
+
+const canSeeClientFullName = computed(() => {
+  // Backoffice roles only see full name. School staff and other portal roles stay on initials/code.
+  return ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value);
+});
+
+const avatarText = computed(() => {
+  const initials = String(props.client?.initials || '').trim();
+  if (!initials) return '?';
+  const letters = initials.replace(/[^A-Za-z0-9]/g, '');
+  if (!letters) return initials.slice(0, 2).toUpperCase();
+  if (letters.length === 1) return letters.toUpperCase();
+  return (letters[0] + letters[letters.length > 3 ? 3 : 1]).toUpperCase();
+});
+
+const avatarColor = computed(() => {
+  const seed = String(props.client?.identifier_code || props.client?.initials || props.client?.id || 'x');
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  const hue = hash % 360;
+  return {
+    background: `linear-gradient(135deg, hsl(${hue}, 65%, 52%) 0%, hsl(${(hue + 28) % 360}, 70%, 42%) 100%)`,
+    boxShadow: `0 6px 18px -8px hsla(${hue}, 70%, 35%, 0.55)`
+  };
+});
+
+const statusPillClass = computed(() => {
+  if (isClientArchived.value) return 'cdp-pill--archived';
+  if (isClientTerminated.value) return 'cdp-pill--terminated';
+  const label = String(props.client?.client_status_label || '').toLowerCase();
+  if (!label) return 'cdp-pill--neutral';
+  if (label.includes('active') || label.includes('enrolled')) return 'cdp-pill--success';
+  if (label.includes('packet') || label.includes('intake') || label.includes('pending')) return 'cdp-pill--info';
+  if (label.includes('hold') || label.includes('wait')) return 'cdp-pill--warning';
+  return 'cdp-pill--neutral';
+});
 const canEditClientType = computed(() => isSuperAdmin.value);
 const clientTypeDraft = ref('basic_nonclinical');
 const savingClientType = ref(false);
@@ -2390,6 +2490,7 @@ const tabs = computed(() => {
     { id: 'history', label: 'Status History' },
     { id: 'access', label: 'Access Log' },
     { id: 'messages', label: 'Messages / Notes' },
+    { id: 'communications', label: 'Communications' },
     { id: 'guardians', label: 'Guardians' },
     { id: 'phi', label: 'Documentation' }
   );
@@ -2721,6 +2822,60 @@ let adminNoteCloseTimer = null;
 // Prevent the hover popover from immediately re-opening right after a save
 // (common if the mouse is still positioned over the trigger element).
 const adminNoteSuppressOpenUntil = ref(0);
+// Position-tracking for the teleported popover so it escapes overflow/transform
+// stacking contexts created by parent cards/scroll containers.
+const adminNoteTriggerEl = ref(null);
+const adminNotePopoverPos = ref({ top: 0, left: 0, width: 520 });
+const adminNotePopoverStyle = computed(() => {
+  const { top, left, width } = adminNotePopoverPos.value || {};
+  return {
+    position: 'fixed',
+    top: `${Math.max(8, Math.round(top || 0))}px`,
+    left: `${Math.max(8, Math.round(left || 0))}px`,
+    width: `${width || 520}px`,
+    zIndex: 2000
+  };
+});
+
+const recomputeAdminNotePopoverPos = () => {
+  const el = adminNoteTriggerEl.value;
+  if (!el || typeof el.getBoundingClientRect !== 'function') return;
+  const rect = el.getBoundingClientRect();
+  const desiredWidth = Math.min(520, Math.max(280, window.innerWidth - 24));
+  // Prefer placing below the trigger; clamp to viewport edges with 8px margin.
+  let left = rect.left;
+  if (left + desiredWidth > window.innerWidth - 8) {
+    left = window.innerWidth - desiredWidth - 8;
+  }
+  const top = rect.bottom + 8;
+  adminNotePopoverPos.value = { top, left, width: desiredWidth };
+};
+
+let adminNotePosListenersAttached = false;
+const attachAdminNotePosListeners = () => {
+  if (adminNotePosListenersAttached) return;
+  window.addEventListener('scroll', recomputeAdminNotePopoverPos, true);
+  window.addEventListener('resize', recomputeAdminNotePopoverPos);
+  adminNotePosListenersAttached = true;
+};
+const detachAdminNotePosListeners = () => {
+  if (!adminNotePosListenersAttached) return;
+  window.removeEventListener('scroll', recomputeAdminNotePopoverPos, true);
+  window.removeEventListener('resize', recomputeAdminNotePopoverPos);
+  adminNotePosListenersAttached = false;
+};
+watch(adminNotePopoverOpen, async (open) => {
+  if (open) {
+    await nextTick();
+    recomputeAdminNotePopoverPos();
+    attachAdminNotePosListeners();
+  } else {
+    detachAdminNotePosListeners();
+  }
+});
+onBeforeUnmount(() => {
+  detachAdminNotePosListeners();
+});
 
 const fetchAdminNote = async () => {
   if (!canViewAdminNote.value || !props.client?.id) return;
@@ -3887,14 +4042,17 @@ const clinicalSections = ref([]);
 const clinicalCapturedAt = ref(null);
 const clinicalLoading = ref(false);
 const clinicalError = ref('');
+const clinicalDebug = ref('');
+const clinicalDebugLoading = ref(false);
 
 const fetchClinicalResponses = async () => {
   if (!props.client?.id) return;
   try {
     clinicalLoading.value = true;
     clinicalError.value = '';
+    clinicalDebug.value = '';
     const r = await api.get(`/clients/${props.client.id}/clinical-responses`);
-    // Backend returns { sections: [{title, fields}], capturedAt } 
+    // Backend returns { sections: [{title, fields}], capturedAt }
     clinicalSections.value = r.data?.sections || [];
     clinicalCapturedAt.value = r.data?.capturedAt || null;
   } catch (e) {
@@ -3904,21 +4062,71 @@ const fetchClinicalResponses = async () => {
   }
 };
 
+const loadClinicalDebug = async () => {
+  if (!props.client?.id) return;
+  try {
+    clinicalDebugLoading.value = true;
+    const r = await api.get(`/clients/${props.client.id}/clinical-responses`, { params: { debug: 1 } });
+    clinicalDebug.value = JSON.stringify(r.data?._debug || r.data || {}, null, 2);
+  } catch (e) {
+    clinicalDebug.value = `Debug fetch failed: ${e.response?.data?.error?.message || e.message}`;
+  } finally {
+    clinicalDebugLoading.value = false;
+  }
+};
+
 // Demographics tab
 const demoProfileFields = ref([]);
 const demoIntakeFields = ref([]);
+const demoSections = ref([]); // Structured: [{id, title, source, fields:[{key,label,value,duplicateOf,...}]}]
 const demoCapturedAt = ref(null);
 const demoLoading = ref(false);
 const demoError = ref('');
-// Unique section names from intake fields that have a section tag (preserves order of first appearance)
-const demoIntakeSections = computed(() => {
-  const seen = new Set();
-  const order = [];
-  for (const f of demoIntakeFields.value) {
-    if (f.section && !seen.has(f.section)) { seen.add(f.section); order.push(f.section); }
-  }
-  return order;
+const showDemoDuplicates = ref(false);
+
+// Render groups derived from the structured `sections` payload, merged with
+// the legacy address bag for clarity. Address & Contact gets pulled out of
+// Profile so it reads as its own subsection per the design.
+const demoGroupedSections = computed(() => {
+  const include = (f) => (showDemoDuplicates.value ? true : !f.duplicateOf);
+  const profileAll = (demoSections.value.find((s) => s.id === 'profile')?.fields) || demoProfileFields.value;
+  const clientIntake = (demoSections.value.find((s) => s.id === 'client_intake')?.fields) || [];
+  const guardianIntake = (demoSections.value.find((s) => s.id === 'guardian_intake')?.fields) || [];
+
+  const ADDRESS_KEYS = new Set([
+    'address_street', 'address_apt', 'address_city', 'address_state', 'address_zip',
+    'contact_phone'
+  ]);
+  const profileIdentity = profileAll.filter((f) => !ADDRESS_KEYS.has(f.key)).filter(include);
+  const profileAddress = profileAll.filter((f) => ADDRESS_KEYS.has(f.key)).filter(include);
+
+  return [
+    { id: 'profile', title: 'Profile', subtitle: 'From the client record', fields: profileIdentity },
+    { id: 'client_intake', title: 'Client (intake)', subtitle: 'From the latest submitted intake form', fields: clientIntake.filter(include) },
+    { id: 'guardian_intake', title: 'Guardian (intake)', subtitle: 'Reported by the guardian', fields: guardianIntake.filter(include) },
+    { id: 'address', title: 'Address & Contact', subtitle: 'Profile address and phone', fields: profileAddress },
+  ];
 });
+
+const demoTotalCount = computed(() => {
+  const profileAll = (demoSections.value.find((s) => s.id === 'profile')?.fields) || demoProfileFields.value;
+  const clientIntake = (demoSections.value.find((s) => s.id === 'client_intake')?.fields) || [];
+  const guardianIntake = (demoSections.value.find((s) => s.id === 'guardian_intake')?.fields) || [];
+  return profileAll.length + clientIntake.length + guardianIntake.length;
+});
+
+const demoVisibleCount = computed(() =>
+  demoGroupedSections.value.reduce((acc, g) => acc + g.fields.length, 0)
+);
+
+const demoDuplicateCount = computed(() => {
+  const profileAll = (demoSections.value.find((s) => s.id === 'profile')?.fields) || demoProfileFields.value;
+  const clientIntake = (demoSections.value.find((s) => s.id === 'client_intake')?.fields) || [];
+  const guardianIntake = (demoSections.value.find((s) => s.id === 'guardian_intake')?.fields) || [];
+  return [...profileAll, ...clientIntake, ...guardianIntake].filter((f) => f.duplicateOf).length;
+});
+
+const demoHasDuplicates = computed(() => demoDuplicateCount.value > 0);
 
 const fetchDemographics = async () => {
   if (!props.client?.id) return;
@@ -3928,6 +4136,7 @@ const fetchDemographics = async () => {
     const r = await api.get(`/clients/${props.client.id}/demographics`);
     demoProfileFields.value = r.data?.profileFields || [];
     demoIntakeFields.value = r.data?.intakeDemoFields || [];
+    demoSections.value = Array.isArray(r.data?.sections) ? r.data.sections : [];
     demoCapturedAt.value = r.data?.capturedAt || null;
   } catch (e) {
     demoError.value = e.response?.data?.error?.message || 'Failed to load demographics';
@@ -4133,6 +4342,18 @@ watch(
   padding: 10px 12px;
 }
 
+/* When teleported to <body>, the popover uses fixed positioning supplied
+   inline by the component, escapes overflow/transform stacking contexts,
+   and renders above sibling cards. */
+.admin-note-popover--floating {
+  width: min(520px, 92vw);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px -10px rgba(15, 23, 42, 0.25), 0 4px 12px -4px rgba(15, 23, 42, 0.12);
+  padding: 12px 14px;
+}
+
 .admin-note-textarea {
   width: 100%;
   border: 1px solid var(--border);
@@ -4150,7 +4371,8 @@ watch(
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -4159,70 +4381,314 @@ watch(
 
 .modal-content.large {
   background: white;
-  border-radius: 12px;
+  border-radius: 16px;
   width: min(1200px, 96vw);
   max-width: min(1200px, 96vw);
-  max-height: 90vh;
+  max-height: 92vh;
   display: flex;
   flex-direction: column;
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 25px 60px -20px rgba(15, 23, 42, 0.45), 0 10px 25px -10px rgba(15, 23, 42, 0.25);
+  overflow: hidden;
 }
 
-.modal-header {
+/* ───────────── Modern client header ───────────── */
+.modal-header.cdp-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 2px solid var(--border);
+  align-items: flex-start;
+  gap: 24px;
+  padding: 22px 28px 20px;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(ellipse 80% 120% at 100% 0%, rgba(58, 76, 107, 0.06), transparent 60%),
+    linear-gradient(180deg, #ffffff 0%, var(--bg-alt) 100%);
 }
 
-.modal-header h2 {
+.cdp-header-main {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1;
+}
+
+.cdp-avatar {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--font-display, var(--font-header));
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.5px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.18);
+  user-select: none;
+}
+
+.cdp-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cdp-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  opacity: 0.85;
+}
+
+.cdp-title {
   margin: 0;
+  font-family: var(--font-display, var(--font-header));
+  font-size: 28px;
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.cdp-title-initials {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0;
+  margin-left: 6px;
+  vertical-align: baseline;
+}
+
+.cdp-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.cdp-submeta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.cdp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(8px);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.cdp-pill svg { flex: 0 0 auto; opacity: 0.75; }
+.cdp-pill .mono { font-size: 11px; }
+
+.cdp-pill__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 0 0 3px rgba(198, 154, 43, 0.18);
+}
+
+.cdp-pill--type {
+  background: rgba(198, 154, 43, 0.10);
+  border-color: rgba(198, 154, 43, 0.35);
+  color: #6b4d10;
+}
+
+.cdp-pill--success { background: #dcfce7; border-color: #bbf7d0; color: #166534; }
+.cdp-pill--success .cdp-pill__dot { background: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,0.20); }
+
+.cdp-pill--info { background: #e0f2fe; border-color: #bae6fd; color: #075985; }
+.cdp-pill--warning { background: #fef3c7; border-color: #fde68a; color: #92400e; }
+.cdp-pill--terminated { background: #fee2e2; border-color: #fecaca; color: #991b1b; }
+.cdp-pill--archived { background: #e2e8f0; border-color: #cbd5e1; color: #475569; }
+.cdp-pill--neutral { background: #f1f5f9; border-color: #e2e8f0; color: #475569; }
+.cdp-pill--org { background: #eef2ff; border-color: #c7d2fe; color: #3730a3; }
+.cdp-pill--code { background: #f8fafc; border-color: var(--border); color: var(--text-secondary); }
+
+.cdp-submeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.03);
+}
+
+.cdp-submeta--code {
+  color: #8a5b12;
+  background: rgba(198, 154, 43, 0.10);
+  border-color: rgba(198, 154, 43, 0.18);
+}
+
+.cdp-inline-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.cdp-inline-controls--muted { border-top-color: transparent; padding-top: 0; }
+
+.cdp-inline-controls__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.cdp-inline-select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
   color: var(--text-primary);
 }
 
-.btn-close {
-  background: none;
+.cdp-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.cdp-nav-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.cdp-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: transparent;
   border: none;
-  font-size: 28px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
+}
+.cdp-nav-btn:hover:not(:disabled) {
+  background: var(--bg-alt);
+  color: var(--text-primary);
+}
+.cdp-nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.cdp-nav-pill__label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  padding: 0 6px;
+}
+
+.cdp-soft-button {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(247, 248, 250, 0.95) 100%);
+  border-color: rgba(226, 232, 240, 0.95);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.cdp-soft-button:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #f6f8fb 100%);
+  border-color: rgba(198, 154, 43, 0.32);
+}
+
+.btn-close {
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid transparent;
+  font-size: 22px;
   color: var(--text-secondary);
   cursor: pointer;
   padding: 0;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
   display: flex;
   align-items: center;
   justify-content: center;
   line-height: 1;
+  transition: all 0.15s ease;
 }
 
 .btn-close:hover {
   color: var(--text-primary);
+  background: rgba(15, 23, 42, 0.08);
 }
 
+/* ───────────── Modern tab navigation ───────────── */
 .modal-tabs {
   display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 0 24px;
-  border-bottom: 2px solid var(--border);
-  overflow: visible;
-  white-space: normal;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+  background: #fff;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: thin;
 }
+.modal-tabs::-webkit-scrollbar { height: 6px; }
+.modal-tabs::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.18);
+  border-radius: 999px;
+}
+.modal-tabs::-webkit-scrollbar-track { background: transparent; }
 
 .tab-button {
-  padding: 11px 16px;
-  background: none;
-  border: none;
-  border-bottom: 3px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
   cursor: pointer;
-  font-size: 15px;
-  font-weight: 500;
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--text-secondary);
-  transition: all 0.2s;
-  margin-bottom: -2px;
-  flex: 0 1 auto;
+  transition: all 0.15s ease;
+  margin: 0;
+  white-space: nowrap;
 }
 
 .tab-button:hover {
@@ -4232,29 +4698,38 @@ watch(
 
 .tab-button.active {
   color: var(--primary);
-  border-bottom-color: var(--primary);
-  font-weight: 600;
+  background: linear-gradient(180deg, rgba(198, 154, 43, 0.12) 0%, rgba(198, 154, 43, 0.08) 100%);
+  border-color: rgba(198, 154, 43, 0.28);
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
 }
 
 .tab-content {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 30px;
+  background: linear-gradient(180deg, var(--bg-page, #fafbfd) 0%, #f7f9fc 100%);
 }
 
 @media (max-width: 980px) {
-  .modal-header {
-    padding: 16px;
+  .modal-header.cdp-header {
+    padding: 16px 18px;
+    gap: 14px;
+    flex-direction: column;
+    align-items: stretch;
   }
+  .cdp-header-actions { justify-content: flex-start; }
+  .cdp-avatar { width: 52px; height: 52px; font-size: 18px; border-radius: 14px; }
+  .cdp-title { font-size: 22px; }
   .modal-tabs {
-    gap: 6px;
-    padding: 0 16px;
+    padding: 8px 12px;
   }
   .tab-button {
-    padding: 10px 14px;
+    padding: 8px 12px;
+    font-size: 13px;
   }
   .tab-content {
-    padding: 16px;
+    padding: 18px 16px;
   }
 }
 
@@ -4356,8 +4831,8 @@ watch(
 
 .info-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 16px;
   margin-bottom: 32px;
 }
 
@@ -4369,19 +4844,71 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 16px 17px 15px;
+  background: #fff;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-top: 3px solid rgba(198, 154, 43, 0.18);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, border-top-color 0.15s ease;
+  position: relative;
+  min-height: 82px;
+}
+
+.info-item:hover {
+  border-color: rgba(198, 154, 43, 0.26);
+  border-top-color: rgba(198, 154, 43, 0.38);
+  box-shadow: 0 8px 20px -14px rgba(15, 23, 42, 0.22);
+  transform: translateY(-1px);
+}
+
+/* Don't lift the admin-note card while its popover is open — the lift
+   creates a new stacking context that can interact poorly with neighbors,
+   and we want the floating popover to feel anchored. */
+.info-item.admin-note-item.is-popover-open,
+.info-item.admin-note-item.is-popover-open:hover {
+  transform: none;
+  z-index: 50;
 }
 
 .info-item label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  color: #8a5b12;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.75px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.info-item label::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 10px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #e6b74b 0%, rgba(198, 154, 43, 0.45) 100%);
+  flex: 0 0 auto;
 }
 
 .info-value {
-  font-size: 15px;
+  font-size: 14px;
   color: var(--text-primary);
+  font-weight: 500;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.info-value .muted {
+  font-style: italic;
+  font-size: 13.5px;
+}
+
+/* Make the school-roi cta card span full row gracefully */
+.school-roi-overview-cta {
+  background: linear-gradient(135deg, rgba(198, 154, 43, 0.06) 0%, rgba(58, 76, 107, 0.05) 100%);
+  border-color: rgba(198, 154, 43, 0.22);
 }
 
 .editable-field {
@@ -4859,6 +5386,56 @@ watch(
   color: var(--text-primary, #1e293b);
   white-space: pre-wrap;
 }
+
+.demo-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: var(--bg-alt, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.demo-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  user-select: none;
+}
+.demo-toggle input { margin: 0; }
+.demo-section {
+  margin-bottom: 24px;
+}
+.demo-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.clinical-field-row.is-duplicate {
+  border-style: dashed;
+  background: #fbf7ee;
+}
+.demo-dup-chip {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: rgba(198, 154, 43, 0.15);
+  color: #9a6b00;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  vertical-align: middle;
+}
 .chart-block {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -4876,12 +5453,41 @@ watch(
 .cdp-page-shell {
   width: 100%;
   min-height: 100%;
-  background: var(--bg-page, #f8fafc);
+  background: var(--bg-page, #f4f6fb);
+  padding: 16px 0 56px;
 }
 .cdp-page-body {
-  max-width: 1120px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 24px 20px 48px;
-  background: var(--bg-page, #f8fafc);
+  padding: 0 20px;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+}
+/* When rendered in full-page mode, give the panel modal-like card chrome */
+.cdp-page-body > .modal-header,
+.cdp-page-body > .modal-tabs,
+.cdp-page-body > .tab-content {
+  background: #ffffff;
+}
+.cdp-page-body > .modal-header.cdp-header {
+  border-radius: 16px 16px 0 0;
+  border: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+}
+.cdp-page-body > .modal-tabs {
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.cdp-page-body > .tab-content {
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 16px 16px;
+  box-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.18);
+}
+@media (max-width: 980px) {
+  .cdp-page-body { padding: 0 12px; }
 }
 </style>

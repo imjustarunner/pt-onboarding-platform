@@ -54,6 +54,16 @@
                 <option value="guardian">Guardian (one-time)</option>
                 <option value="submission">One-time (global)</option>
               </select>
+              <select v-model="field.category" title="Where this question belongs on the client profile">
+                <option value="">Auto-categorize</option>
+                <option value="demographic">Demographic</option>
+                <option value="clinical">Clinical</option>
+                <option value="consent">Consent</option>
+                <option value="profile">Profile</option>
+                <option value="guardian">Guardian</option>
+                <option value="other">Other</option>
+              </select>
+              <span v-if="field.category" class="category-badge" :data-category="field.category">{{ field.category }}</span>
               <label class="checkbox">
                 <input v-model="field.required" type="checkbox" :disabled="field.type === 'info'" />
                 Required
@@ -1381,6 +1391,19 @@
                           <option value="guardian">Guardian (one-time)</option>
                           <option value="submission">One-time (global)</option>
                         </select>
+                        <select v-model="field.category" title="Where this question belongs on the client profile">
+                          <option value="">Auto ({{ defaultCategoryForField(field, step) }})</option>
+                          <option value="demographic">Demographic</option>
+                          <option value="clinical">Clinical</option>
+                          <option value="consent">Consent</option>
+                          <option value="profile">Profile</option>
+                          <option value="guardian">Guardian</option>
+                          <option value="other">Other</option>
+                        </select>
+                        <span
+                          class="category-badge"
+                          :data-category="field.category || defaultCategoryForField(field, step)"
+                        >{{ field.category || defaultCategoryForField(field, step) }}</span>
                         <label class="checkbox">
                           <input v-model="field.required" type="checkbox" :disabled="field.type === 'info'" />
                           Required
@@ -2323,6 +2346,7 @@ const addQSetField = () => {
     required: false,
     helperText: '',
     scope: 'self',
+    category: '',
     visibility: 'always',
     showIf: { fieldKey: '', equals: '' },
     options: []
@@ -2339,6 +2363,7 @@ const addQSetFieldAfter = (idx) => {
     required: false,
     helperText: '',
     scope: 'self',
+    category: '',
     visibility: 'always',
     showIf: { fieldKey: '', equals: '' },
     options: []
@@ -4111,6 +4136,7 @@ const addField = (step) => {
     required: false,
     helperText: '',
     scope: 'submission',
+    category: '',
     visibility: 'always',
     showIf: { fieldKey: '', equals: '' },
     options: []
@@ -4128,6 +4154,7 @@ const addFieldAfter = (step, idx) => {
     required: false,
     helperText: '',
     scope: 'submission',
+    category: '',
     visibility: 'always',
     showIf: { fieldKey: '', equals: '' },
     options: []
@@ -4698,6 +4725,28 @@ const removeOption = (field, idx) => {
   field.options.splice(idx, 1);
 };
 
+/**
+ * Default a question's category from its step type and scope. Admins can
+ * override this per-question via the Category select in the field editor.
+ * Returning a stable category lets the backend route fields to the right
+ * profile tab (Demographics/Clinical) regardless of which step they live in.
+ */
+const defaultCategoryForField = (field, step) => {
+  if (field?.category) return field.category;
+  const stepType = String(step?.type || '');
+  if (stepType === 'demographics') return 'demographic';
+  if (stepType === 'clinical_questions') return 'clinical';
+  if (stepType === 'document') return 'consent';
+  if (stepType === 'questions') {
+    const scope = String(field?.scope || '').toLowerCase();
+    if (scope === 'clinical') return 'clinical';
+    if (scope === 'guardian') return 'guardian';
+    if (scope === 'profile') return 'profile';
+    return 'other';
+  }
+  return 'other';
+};
+
 const buildPayloadFromSteps = () => {
   const intakeSteps = sanitizeSteps(form.intakeSteps, { formType: form.formType }).map((step) => ({ ...step }));
   intakeSteps.forEach((step) => {
@@ -4705,11 +4754,19 @@ const buildPayloadFromSteps = () => {
       refreshRegistrationStepOptions(step);
       onRegistrationRuleChange(step);
     }
+    // Stamp a default category on every question for routing — admins may
+    // override this in the editor; we never overwrite an explicit value.
+    if (Array.isArray(step?.fields)) {
+      step.fields = step.fields.map((f) => {
+        if (!f || f.type === 'info') return f;
+        return { ...f, category: f.category || defaultCategoryForField(f, step) };
+      });
+    }
   });
   const intakeFields = [];
   const allowedDocumentTemplateIds = [];
   intakeSteps.forEach((step) => {
-    if (step.type === 'questions' || step.type === 'clinical_questions') {
+    if (step.type === 'questions' || step.type === 'clinical_questions' || step.type === 'demographics') {
       (step.fields || []).forEach((f) => {
         if (f.type === 'info') return;
         intakeFields.push({
@@ -4720,7 +4777,8 @@ const buildPayloadFromSteps = () => {
           options: f.options || [],
           helperText: f.helperText || '',
           showIf: f.showIf || null,
-          scope: step.type === 'clinical_questions' ? 'clinical' : (f.scope || 'submission')
+          scope: step.type === 'clinical_questions' ? 'clinical' : (f.scope || 'submission'),
+          category: f.category || defaultCategoryForField(f, step)
         });
       });
     } else if (step.type === 'document' && step.templateId) {
@@ -4789,6 +4847,26 @@ watch(
   gap: 12px;
   margin-bottom: 16px;
 }
+.category-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #eef2f7;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+.category-badge[data-category="demographic"] { background: #e0f2fe; color: #075985; border-color: #bae6fd; }
+.category-badge[data-category="clinical"]    { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.category-badge[data-category="consent"]     { background: #ede9fe; color: #5b21b6; border-color: #ddd6fe; }
+.category-badge[data-category="profile"]     { background: #ecfccb; color: #3f6212; border-color: #d9f99d; }
+.category-badge[data-category="guardian"]    { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+.category-badge[data-category="other"]       { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
 .filters {
   display: flex;
   gap: 10px;

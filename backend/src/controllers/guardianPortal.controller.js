@@ -14,6 +14,7 @@ import { loadSessionCurriculumRow } from '../services/skillBuildersSessionClinic
 import IntakeSubmissionDocument from '../models/IntakeSubmissionDocument.model.js';
 import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
 import { isClientAdultLockedForGuardian } from '../services/guardianWaivers.service.js';
+import { notifyCompanyEventRegistrationSubmitted } from '../services/clientNotifications.service.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
@@ -883,6 +884,27 @@ export const guardianEnrollCompanyEvent = async (req, res, next) => {
       const msg = enrollment.error;
       if (msg === 'Event not found') return res.status(404).json({ error: { message: msg } });
       return res.status(400).json({ error: { message: msg } });
+    }
+
+    try {
+      const okClientIds = (enrollment.results || [])
+        .filter((r) => r?.ok)
+        .map((r) => Number(r.clientId))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      if (okClientIds.length) {
+        await notifyCompanyEventRegistrationSubmitted({
+          agencyId,
+          eventId,
+          clientIds: okClientIds,
+          actorUserId: uid,
+          source: 'guardian_portal'
+        }).catch(() => null);
+      }
+    } catch (notifyErr) {
+      console.error('[guardianPortal] company event registration notification failed', {
+        eventId,
+        message: notifyErr?.message || notifyErr
+      });
     }
 
     res.json({ ok: true, results: enrollment.results });

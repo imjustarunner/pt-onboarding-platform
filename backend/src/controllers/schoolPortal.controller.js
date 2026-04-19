@@ -1823,9 +1823,14 @@ export const getSchoolPortalAffiliation = async (req, res, next) => {
     if (!sid) return res.status(400).json({ error: { message: 'Invalid schoolId' } });
 
     const org = await Agency.findById(sid);
-    if (!org) return res.status(404).json({ error: { message: 'School organization not found' } });
+    if (!org) return res.status(404).json({ error: { message: 'Organization not found' } });
     const orgType = String(org.organization_type || 'agency').toLowerCase();
-    if (orgType !== 'school') return res.status(400).json({ error: { message: 'This endpoint is only available for school organizations' } });
+    // Schools, programs, and learning orgs all have an "active agency" relationship via
+    // organization_affiliations / agency_school. The affiliation gate is identical for all
+    // portal-style organization types.
+    if (orgType !== 'school' && orgType !== 'program' && orgType !== 'learning') {
+      return res.status(400).json({ error: { message: 'This endpoint is only available for portal organizations (school/program/learning)' } });
+    }
 
     const activeAgencyId = await resolveActiveAgencyIdForOrg(sid);
     const userId = req.user?.id;
@@ -2097,17 +2102,18 @@ export const searchSchoolPortalClientAssignments = async (req, res, next) => {
       return t ? `%${t}%` : null;
     };
 
+    // School portal must NEVER expose legal names. We match only on initials
+    // and the 6-digit client code, and we return code/initials only.
     let tokenSql = '1=1';
     const tokenParams = [];
     for (const tok of tokens) {
       const like = likeFragment(tok);
       if (!like) continue;
       tokenSql += ` AND (
-        LOWER(TRIM(CONCAT(IFNULL(c.first_name,''), ' ', IFNULL(c.last_name,'')))) LIKE ?
-        OR LOWER(REPLACE(IFNULL(c.initials,''), ' ', '')) LIKE ?
+        LOWER(REPLACE(IFNULL(c.initials,''), ' ', '')) LIKE ?
         OR LOWER(IFNULL(c.identifier_code,'')) LIKE ?
       )`;
-      tokenParams.push(like, like, like);
+      tokenParams.push(like, like);
     }
 
     if (!tokenParams.length) return res.json({ matches: [] });
@@ -2117,8 +2123,7 @@ export const searchSchoolPortalClientAssignments = async (req, res, next) => {
         SELECT DISTINCT
           c.id AS client_id,
           c.initials,
-          c.first_name,
-          c.last_name,
+          c.identifier_code,
           cpa.provider_user_id,
           cpa.service_day AS weekday,
           u.first_name AS provider_first_name,
@@ -2141,8 +2146,7 @@ export const searchSchoolPortalClientAssignments = async (req, res, next) => {
         SELECT DISTINCT
           c.id AS client_id,
           c.initials,
-          c.first_name,
-          c.last_name,
+          c.identifier_code,
           c.provider_id AS provider_user_id,
           c.service_day AS weekday,
           u.first_name AS provider_first_name,
@@ -2167,7 +2171,7 @@ export const searchSchoolPortalClientAssignments = async (req, res, next) => {
           )
           AND (${tokenSql})
       ) t
-      ORDER BY t.last_name, t.first_name, t.provider_last_name, t.provider_first_name, t.weekday
+      ORDER BY t.initials, t.identifier_code, t.provider_last_name, t.provider_first_name, t.weekday
       LIMIT 40
     `;
 
@@ -2185,8 +2189,7 @@ export const searchSchoolPortalClientAssignments = async (req, res, next) => {
     const matches = (rows || []).map((r) => ({
       client_id: Number(r.client_id),
       initials: r.initials || null,
-      first_name: r.first_name || null,
-      last_name: r.last_name || null,
+      identifier_code: r.identifier_code || null,
       provider_user_id: Number(r.provider_user_id),
       weekday: r.weekday || null,
       provider_first_name: r.provider_first_name || null,

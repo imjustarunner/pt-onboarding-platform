@@ -112,7 +112,21 @@
       <div v-for="comm in communications" :key="comm.id" class="communication-card">
         <div class="communication-header">
           <div class="communication-info">
-            <h4>{{ comm.subject }}</h4>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px;">
+              <h4 style="margin: 0;">{{ comm.subject }}</h4>
+              <button
+                v-if="comm.client_id"
+                type="button"
+                class="re-client-chip"
+                :title="comm.client_initials ? `Open client ${comm.client_initials}` : 'Open client profile'"
+                @click="openClientProfile(comm.client_id)"
+              >
+                Re: client {{ comm.client_initials || `#${comm.client_id}` }}
+              </button>
+              <span v-if="comm.opened_at" class="open-chip" title="Tracking pixel detected an open">
+                Opened
+              </span>
+            </div>
             <div class="communication-meta">
               <span class="meta-item">
                 <strong>Agency:</strong> {{ comm.agency_name }}
@@ -252,7 +266,24 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '../../services/api';
+
+const router = useRouter();
+
+/**
+ * Jump to a client's profile when the user clicks the "Re: client X" chip.
+ * Uses the org-scoped slug when this view is itself rendered under an org slug,
+ * otherwise falls back to the global admin route.
+ */
+const openClientProfile = (clientId) => {
+  if (!clientId) return;
+  const slug = router.currentRoute?.value?.params?.organizationSlug;
+  const path = slug
+    ? `/${slug}/admin/clients/${clientId}`
+    : `/admin/clients/${clientId}`;
+  router.push({ path, query: { tab: 'communications' } });
+};
 
 const props = defineProps({
   userId: {
@@ -683,5 +714,34 @@ onMounted(() => {
   background: #fee2e2;
   border-radius: 6px;
   margin-bottom: 20px;
+}
+
+.re-client-chip {
+  display: inline-flex;
+  align-items: center;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 120ms;
+}
+.re-client-chip:hover {
+  background: #dbeafe;
+}
+
+.open-chip {
+  display: inline-flex;
+  align-items: center;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
 }
 </style>

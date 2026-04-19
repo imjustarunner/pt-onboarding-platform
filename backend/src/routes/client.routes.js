@@ -58,6 +58,10 @@ import {
 } from '../controllers/clientSchoolRoiAccess.controller.js';
 import { listClientGuardians, upsertClientGuardian, updateClientGuardian, removeClientGuardian } from '../controllers/clientGuardian.controller.js';
 import { getClientGuardianWaiverAudit } from '../controllers/guardianWaiver.controller.js';
+import {
+  listClientCommunications,
+  getClientCommunicationBody
+} from '../controllers/clientCommunications.controller.js';
 import { authenticate, requireBackofficeAdmin, requireGuardianListAccess } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -120,6 +124,11 @@ router.put('/:id/document-status', updateClientDocumentStatus);
 
 // Access log (admin/support)
 router.get('/:id/access-log', getClientAccessLog);
+
+// Communications history (emails + SMS sent on behalf of / about this client,
+// including messages addressed to linked guardians).
+router.get('/:id/communications', listClientCommunications);
+router.get('/:id/communications/email/:commId/body', getClientCommunicationBody);
 
 // Log a profile view (best-effort; called on panel mount)
 router.post('/:id/log-view', logClientProfileView);

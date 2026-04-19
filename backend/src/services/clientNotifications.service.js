@@ -353,6 +353,166 @@ export async function notifyNewPacketUploaded({
   }).catch(() => null);
 }
 
+/** Resolve recipient user IDs for a company-event registration notification.
+ * Targets agency admin/staff plus any portal staff (school_staff role) on the
+ * program organization that hosts the event, plus any user flagged as a
+ * Skill Builders coordinator within the agency. Returns a deduped list.
+ */
+async function getCompanyEventRegistrationRecipientUserIds({ agencyId, programOrganizationId }) {
+  const ids = new Set();
+  try {
+    const agencyStaff = await getAgencyAdminStaffUserIds(agencyId);
+    agencyStaff.forEach((id) => ids.add(Number(id)));
+  } catch {
+    // ignore
+  }
+  if (programOrganizationId) {
+    try {
+      // Same shape as getSchoolStaffUserIds: any user_agencies row on the
+      // program org with role school_staff (program portals reuse this role).
+      const portalStaff = await getSchoolStaffUserIds(programOrganizationId);
+      portalStaff.forEach((id) => ids.add(Number(id)));
+    } catch {
+      // ignore
+    }
+  }
+  try {
+    const [coordRows] = await pool.execute(
+      `SELECT DISTINCT u.id
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND u.is_active = TRUE
+         AND u.has_skill_builder_coordinator_access = TRUE`,
+      [agencyId]
+    );
+    (coordRows || []).forEach((r) => ids.add(Number(r.id)));
+  } catch {
+    // Column may not exist on older deployments — safe to ignore.
+  }
+  return Array.from(ids).filter((n) => Number.isFinite(n) && n > 0);
+}
+
+async function alreadyNotifiedCompanyEventRegistration({ agencyId, userId, eventId, clientId }) {
+  const [rows] = await pool.execute(
+    `SELECT id FROM notifications
+     WHERE agency_id = ?
+       AND user_id = ?
+       AND type = 'company_event_registration_submitted'
+       AND related_entity_type = 'company_event'
+       AND related_entity_id = ?
+       AND (message LIKE ? OR ? = 0)
+       AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+     LIMIT 1`,
+    [agencyId, userId, eventId, `%client #${clientId}%`, clientId ? 1 : 0]
+  );
+  return !!rows[0]?.id;
+}
+
+/** Notify staff that a guardian/applicant submitted a registration to a Skill Builders / program company event.
+ * Creates per-user notifications so push + personal-only roles can see them.
+ */
+export async function notifyCompanyEventRegistrationSubmitted({
+  agencyId,
+  eventId,
+  clientIds = [],
+  clientLabels = {},
+  actorUserId = null,
+  source = 'public_intake'
+}) {
+  const aid = Number(agencyId || 0);
+  const eid = Number(eventId || 0);
+  const ids = (Array.isArray(clientIds) ? clientIds : [])
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (!aid || !eid || !ids.length) return;
+
+  let event = null;
+  try {
+    const [evRows] = await pool.execute(
+      `SELECT id, agency_id, organization_id, title, starts_at
+       FROM company_events
+       WHERE id = ? AND agency_id = ?
+       LIMIT 1`,
+      [eid, aid]
+    );
+    event = evRows?.[0] || null;
+  } catch {
+    event = null;
+  }
+  if (!event) return;
+
+  const programOrganizationId = Number(event.organization_id || 0) || null;
+
+  const recipients = await getCompanyEventRegistrationRecipientUserIds({
+    agencyId: aid,
+    programOrganizationId
+  });
+  if (!recipients.length) return;
+
+  const eventTitle = String(event.title || `Event ${eid}`).trim();
+  const startLabel = (() => {
+    if (!event.starts_at) return '';
+    try {
+      const d = new Date(event.starts_at);
+      if (Number.isNaN(d.getTime())) return '';
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch {
+      return '';
+    }
+  })();
+
+  const clientCount = ids.length;
+  const firstLabel = clientLabels[ids[0]] || `client #${ids[0]}`;
+  const labelSuffix =
+    clientCount === 1
+      ? `for ${firstLabel}`
+      : `for ${firstLabel} and ${clientCount - 1} other${clientCount > 2 ? 's' : ''}`;
+  const dateSuffix = startLabel ? ` (starts ${startLabel})` : '';
+  const sourceSuffix =
+    source === 'guardian_portal'
+      ? ' via guardian portal'
+      : source === 'public_intake'
+        ? ' via public intake'
+        : '';
+
+  const title = 'New event registration';
+  const message = `New registration ${labelSuffix} for "${eventTitle}"${dateSuffix}${sourceSuffix}.`;
+
+  await Promise.all(
+    recipients.map((userId) =>
+      (async () => {
+        try {
+          if (
+            await alreadyNotifiedCompanyEventRegistration({
+              agencyId: aid,
+              userId,
+              eventId: eid,
+              clientId: ids[0]
+            })
+          ) {
+            return null;
+          }
+        } catch {
+          // proceed even if dedup check fails
+        }
+        return await createNotificationAndDispatch({
+          type: 'company_event_registration_submitted',
+          severity: 'info',
+          title,
+          message,
+          userId,
+          agencyId: aid,
+          relatedEntityType: 'company_event',
+          relatedEntityId: eid,
+          actorUserId,
+          actorSource: actorUserId ? null : 'System'
+        });
+      })().catch(() => null)
+    )
+  );
+}
+
 export async function notifyPaperworkReceived({ agencyId, schoolOrganizationId, clientId, clientNameOrIdentifier }) {
   if (!agencyId || !clientId) return;
   if (await alreadyNotifiedPaperworkReceivedAgencyWide({ agencyId, clientId })) return;

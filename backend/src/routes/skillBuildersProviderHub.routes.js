@@ -22,6 +22,7 @@ import {
   quickEnrollClientToSkillBuilderEvent,
   listAffiliatedProgramOrgsForSkillBuildersDirectory,
   listSkillBuildersEventsDirectory,
+  getProgramPortalDashboardSummary,
   getSkillBuilderPortalCompanyEventForEdit,
   putSkillBuilderPortalCompanyEventForEdit,
   getSkillBuilderEventSkillsGroupRoster,
@@ -121,6 +122,7 @@ router.delete(
 
 router.get('/events/directory', listSkillBuildersEventsDirectory);
 router.get('/directory/agency/:agencyId/affiliated-program-orgs', listAffiliatedProgramOrgsForSkillBuildersDirectory);
+router.get('/program/:organizationId/dashboard-summary', getProgramPortalDashboardSummary);
 router.get('/coordinator/master-clients', listMasterSkillBuilderClients);
 router.get('/coordinator/company-events-search', listCoordinatorSkillBuilderCompanyEvents);
 router.patch('/coordinator/clients/:clientId', patchCoordinatorSkillBuilderClient);

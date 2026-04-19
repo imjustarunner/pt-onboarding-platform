@@ -44,6 +44,7 @@ class Notification {
     // Client pipeline automation
     'paperwork_received',
     'new_packet_uploaded', // Packet uploaded from school portal
+    'company_event_registration_submitted', // Guardian/applicant enrolled into a Skill Builders / program company event
     'client_became_current',
     'client_checklist_updated',
     'client_terminated',

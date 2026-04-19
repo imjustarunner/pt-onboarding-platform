@@ -31,19 +31,23 @@ class CommunicationLoggingService {
    */
   static async logGeneratedCommunication(params) {
     const {
-      userId,
+      userId = null,
+      clientId = null,
       agencyId,
       templateType,
       templateId = null,
       subject = null,
       body,
-      generatedByUserId,
+      generatedByUserId = null,
       channel = 'email',
-      recipientAddress = null
+      recipientAddress = null,
+      trackingToken = null,
+      metadata = null
     } = params;
 
     return await UserCommunication.create({
       userId,
+      clientId,
       agencyId,
       templateType,
       templateId,
@@ -52,7 +56,9 @@ class CommunicationLoggingService {
       generatedByUserId,
       channel,
       recipientAddress,
-      deliveryStatus: 'pending'
+      deliveryStatus: 'pending',
+      trackingToken,
+      metadata
     });
   }
 

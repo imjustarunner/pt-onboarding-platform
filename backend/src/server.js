@@ -131,6 +131,7 @@ import publicSchoolsRoutes from './routes/publicSchools.routes.js';
 import skillBuildersProviderHubRoutes from './routes/skillBuildersProviderHub.routes.js';
 import publicSkillBuildersRoutes from './routes/publicSkillBuilders.routes.js';
 import publicHiringReferenceRoutes from './routes/publicHiringReference.routes.js';
+import communicationTrackingRoutes from './routes/communicationTracking.routes.js';
 import publicMarketingPagesRoutes from './routes/publicMarketingPages.routes.js';
 import publicMarketingPagesAdminRoutes from './routes/publicMarketingPagesAdmin.routes.js';
 import agentsRoutes from './routes/agents.routes.js';
@@ -564,6 +565,7 @@ app.use('/api/public/schools', publicSchoolsRoutes);
 app.use('/api/public/skill-builders', publicSkillBuildersRoutes);
 app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
 app.use('/api/public/hiring/reference', publicHiringReferenceRoutes);
+app.use('/api/email', communicationTrackingRoutes);
 app.use('/api/company-events', companyEventsPublicRoutes);
 
 // Club manager email verification (public, no auth) - mount before auth to avoid any auth middleware

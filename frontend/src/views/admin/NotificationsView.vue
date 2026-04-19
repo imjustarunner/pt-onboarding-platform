@@ -19,6 +19,7 @@
         <select v-model="filters.type" @change="applyFilters" class="filter-select">
           <option :value="null">All Types</option>
           <option value="new_packet_uploaded">New Packet Uploaded</option>
+          <option value="company_event_registration_submitted">New Event Registration</option>
           <option value="status_expired">Status Expired</option>
           <option value="temp_password_expired">Temp Password Expired</option>
           <option value="task_overdue">Task Overdue</option>
@@ -361,6 +362,7 @@ const getTypeLabel = (type) => {
     password_changed: 'Password Changed',
     support_ticket_created: 'Support Tickets',
     new_packet_uploaded: 'New Packet Uploaded',
+    company_event_registration_submitted: 'New Event Registration',
     office_availability_request_pending: 'Office Requests',
     school_availability_request_pending: 'School Requests',
     kudos_earned_admin_digest: 'Kudos Earned',

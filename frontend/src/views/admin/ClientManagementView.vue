@@ -61,8 +61,8 @@
           @keydown.enter.prevent="applyFilters"
           data-tour="clients-search"
         />
-        <!-- Display mode toggle -->
-        <div class="display-mode-toggle" title="Toggle how clients are identified in the table">
+        <!-- Display mode toggle (hidden for school staff who must always see initials) -->
+        <div v-if="!isSchoolStaffRole" class="display-mode-toggle" title="Toggle how clients are identified in the table">
           <button
             type="button"
             :class="['display-mode-btn', { active: displayMode === 'initials' }]"
@@ -73,7 +73,7 @@
             type="button"
             :class="['display-mode-btn', { active: displayMode === 'full_name' }]"
             @click="displayMode = 'full_name'; applyFilters()"
-            title="Show full name"
+            title="Show full name with initials"
           >Name</button>
           <button
             type="button"
@@ -336,7 +336,10 @@
                 v-if="client.organization_slug"
                 type="button"
                 class="link-button"
-                @click.stop="router.push(`/${client.organization_slug}/dashboard`)"
+                @click.stop="router.push({
+                  path: `/${client.organization_slug}/dashboard`,
+                  query: { focusClientId: String(client.id) }
+                })"
               >
                 {{ client.organization_name || '-' }}
               </button>
@@ -924,20 +927,33 @@ const skillsOnly = ref(false);
 const sortBy = ref('submission_date-desc');
 
 // Display mode: 'initials' (default/private), 'full_name', 'code'
+// School staff is forced to 'initials' regardless of saved preference (PII gating).
+const isSchoolStaffRole = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
 const DISPLAY_MODE_STORAGE_KEY = `cmv_display_mode_v1_${authStore.user?.id || 'anon'}`;
 const displayMode = ref(
-  (() => { try { return localStorage.getItem(DISPLAY_MODE_STORAGE_KEY) || 'initials'; } catch { return 'initials'; } })()
+  (() => {
+    if (isSchoolStaffRole.value) return 'initials';
+    try { return localStorage.getItem(DISPLAY_MODE_STORAGE_KEY) || 'initials'; } catch { return 'initials'; }
+  })()
 );
 watch(() => displayMode.value, (v) => {
+  if (isSchoolStaffRole.value) return;
   try { localStorage.setItem(DISPLAY_MODE_STORAGE_KEY, v); } catch { /* ignore */ }
 });
 const clientDisplayLabel = computed(() => {
-  if (displayMode.value === 'full_name') return 'Name';
+  if (isSchoolStaffRole.value) return 'Initials';
+  if (displayMode.value === 'full_name') return 'Name + Initials';
   if (displayMode.value === 'code') return 'Code';
   return 'Initials';
 });
 const getClientDisplay = (client) => {
-  if (displayMode.value === 'full_name') return client.full_name || client.initials || '-';
+  if (isSchoolStaffRole.value) return client.initials || client.identifier_code || '-';
+  if (displayMode.value === 'full_name') {
+    if (client.full_name) {
+      return client.initials ? `${client.full_name} (${client.initials})` : client.full_name;
+    }
+    return client.initials || '-';
+  }
   if (displayMode.value === 'code') return client.identifier_code || client.initials || '-';
   return client.initials || '-';
 };

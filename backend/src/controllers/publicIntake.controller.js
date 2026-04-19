@@ -66,7 +66,7 @@ import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import PlatformRetentionSettings from '../models/PlatformRetentionSettings.model.js';
 import Notification from '../models/Notification.model.js';
-import { notifyNewPacketUploaded } from '../services/clientNotifications.service.js';
+import { notifyNewPacketUploaded, notifyCompanyEventRegistrationSubmitted } from '../services/clientNotifications.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
@@ -297,6 +297,7 @@ const enrollSmartRegistrationSelections = async ({
     ...emptyRegistrationResult(),
     selectionCount: selections.length
   };
+  result.enrolledCompanyEvents = [];
   if (!selections.length) return result;
   result.attempted = true;
   const uniqueClientIds = Array.from(new Set((Array.isArray(clientIds) ? clientIds : [])
@@ -316,6 +317,14 @@ const enrollSmartRegistrationSelections = async ({
     } catch {
       agencyIdForEnrollment = null;
     }
+  }
+  // Fall back to the link's agency_id when none of the clients have one
+  // attached yet — happens when the kids were just created in the same
+  // request and the in-memory `clientIds` resolved before the SELECT could
+  // see them. Without this, multi-child company-event enrollment silently
+  // skips the entire batch (no rows returned → agencyIdForEnrollment null).
+  if (!agencyIdForEnrollment) {
+    agencyIdForEnrollment = Number(link?.agency_id || 0) || null;
   }
   let participantUserId = Number(guardianUserId || 0) || null;
   if (!participantUserId) {
@@ -411,8 +420,19 @@ const enrollSmartRegistrationSelections = async ({
           });
           continue;
         }
-        const okCount = (bulk.results || []).filter((r) => r?.ok).length;
+        const okClientIds = (bulk.results || [])
+          .filter((r) => r?.ok)
+          .map((r) => Number(r.clientId))
+          .filter((n) => Number.isFinite(n) && n > 0);
+        const okCount = okClientIds.length;
         result.companyEventEnrollments += okCount;
+        if (okCount > 0) {
+          result.enrolledCompanyEvents.push({
+            eventId,
+            agencyId: agencyIdForEnrollment,
+            clientIds: okClientIds
+          });
+        }
         for (const r of bulk.results || []) {
           if (!r?.ok) {
             result.errors.push({
@@ -1005,8 +1025,17 @@ const resolvePacketCompletionEmailContent = async ({
   registrationReceiptUrl = null,
   fromAddress = null,
   eventPlaceholders = null,
-  returningMatchClientInitials = null
+  returningMatchClientInitials = null,
+  // Multi-child support: when present, render a per-child summary section so a
+  // single confirmation email summarizes EVERY child + their signed documents,
+  // alongside the combined download link.
+  // Shape: [{ clientId, clientName, downloadUrl, signedDocuments: [{ name, downloadUrl }] }]
+  clientBundles = []
 }) => {
+  const safeClientBundles = Array.isArray(clientBundles)
+    ? clientBundles.filter((b) => b && (b.clientName || b.clientId || b.downloadUrl))
+    : [];
+  const isMultiChildSummary = safeClientBundles.length > 1;
   const customMessages = link?.custom_messages && typeof link.custom_messages === 'object'
     ? link.custom_messages
     : {};
@@ -1090,6 +1119,32 @@ const resolvePacketCompletionEmailContent = async ({
       ].filter(Boolean).join('\n')
     : '';
 
+  // Per-child plain-text section (only when 2+ children share the submission).
+  // Each child gets a header + their per-child download link + a list of any
+  // signed-document links surfaced via clientBundles[i].signedDocuments.
+  const perChildTextBlock = isMultiChildSummary
+    ? [
+        '',
+        '— Registered clients —',
+        ...safeClientBundles.map((bundle, idx) => {
+          const lines = [];
+          const label = String(bundle.clientName || `Client ${idx + 1}`).trim();
+          lines.push(`${idx + 1}. ${label}`);
+          if (bundle.downloadUrl) {
+            lines.push(`   Intake packet: ${bundle.downloadUrl}`);
+          }
+          const docs = Array.isArray(bundle.signedDocuments) ? bundle.signedDocuments : [];
+          docs.forEach((d) => {
+            const dn = String(d?.name || 'Signed document').trim();
+            const du = String(d?.downloadUrl || '').trim();
+            if (du) lines.push(`   • ${dn}: ${du}`);
+            else lines.push(`   • ${dn}`);
+          });
+          return lines.join('\n');
+        })
+      ].join('\n')
+    : '';
+
   const fallbackSubject = `Thank you for completing your intake packet${params.SCHOOL_NAME ? ` for ${params.SCHOOL_NAME}` : ''}`;
   const fallbackText = [
     `Hello ${params.SIGNER_NAME || 'there'},`,
@@ -1099,14 +1154,17 @@ const resolvePacketCompletionEmailContent = async ({
     'Our staff will be in touch with next steps.',
     'Once your client is assigned to a provider, they will reach out to schedule intake and begin services.',
     credsBlock,
+    perChildTextBlock,
     '',
     params.DOWNLOAD_URL
-      ? `You can view/download your signed copy here:\n${params.DOWNLOAD_URL}\n\nThis link expires in ${params.LINK_EXPIRES_DAYS} days.`
+      ? (isMultiChildSummary
+        ? `Combined intake packet (all clients):\n${params.DOWNLOAD_URL}\n\nThis link expires in ${params.LINK_EXPIRES_DAYS} days.`
+        : `You can view/download your signed copy here:\n${params.DOWNLOAD_URL}\n\nThis link expires in ${params.LINK_EXPIRES_DAYS} days.`)
       : 'Your signed copy is available in our system. If you would like a copy resent, reply to this email and our team can help.',
     '',
     'Thank you,',
     'ITSCO Support'
-  ].join('\n');
+  ].filter((l) => l !== '' || true).join('\n');
 
   const customSubject = String(customMessages?.completionEmailSubject || '').trim();
   const customBody = String(customMessages?.completionEmailBody || '').trim();
@@ -1138,6 +1196,35 @@ const resolvePacketCompletionEmailContent = async ({
     text = stripEmptyTemporaryPasswordLines(text);
   }
 
+  // HTML per-child summary cards: one per registered client with their
+  // per-child packet button + nested signed document links.
+  const perChildHtmlBlock = isMultiChildSummary
+    ? `<div style="margin:16px 0;">
+         <p style="margin:0 0 8px 0;font-weight:600;">Registered clients</p>
+         ${safeClientBundles.map((bundle, idx) => {
+           const label = String(bundle.clientName || `Client ${idx + 1}`).trim();
+           const docs = Array.isArray(bundle.signedDocuments) ? bundle.signedDocuments : [];
+           const docList = docs.length
+             ? `<ul style="margin:8px 0 0 0;padding-left:18px;color:#333;">${docs.map((d) => {
+                 const dn = escapeHtml(String(d?.name || 'Signed document'));
+                 const du = String(d?.downloadUrl || '').trim();
+                 return du
+                   ? `<li><a href="${escapeHtml(du)}">${dn}</a></li>`
+                   : `<li>${dn}</li>`;
+               }).join('')}</ul>`
+             : '';
+           const bundleBtn = bundle.downloadUrl
+             ? `<p style="margin:8px 0;"><a href="${escapeHtml(bundle.downloadUrl)}" style="display:inline-block;padding:8px 12px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;font-size:13px;">View ${escapeHtml(label)}'s intake packet</a></p>`
+             : '';
+           return `<div style="margin:8px 0;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
+                     <p style="margin:0;font-weight:600;">${escapeHtml(label)}</p>
+                     ${bundleBtn}
+                     ${docList}
+                   </div>`;
+         }).join('')}
+       </div>`
+    : '';
+
   const html = selectedTemplate?.body || customBody
     ? toSimpleHtmlEmail(text)
     : `
@@ -1159,8 +1246,9 @@ const resolvePacketCompletionEmailContent = async ({
                ${regEvent ? `<p><strong>Event:</strong> ${escapeHtml(regEvent)}</p>` : ''}
              </div>`
           : ''}
+        ${perChildHtmlBlock}
         ${params.DOWNLOAD_URL
-          ? `<p><a href="${escapeHtml(params.DOWNLOAD_URL)}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">View Signed Packet</a></p>
+          ? `<p><a href="${escapeHtml(params.DOWNLOAD_URL)}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">${isMultiChildSummary ? 'Combined Packet (all clients)' : 'View Signed Packet'}</a></p>
              <p style="color:#777;">This link expires in ${params.LINK_EXPIRES_DAYS} days.</p>`
           : '<p style="color:#555;">Your signed copy is available in our system. Reply to this email if you need another copy.</p>'}
       </div>
@@ -2530,6 +2618,18 @@ const createIntakeTextDocuments = async ({
   }
 };
 
+/**
+ * Create the per-client "Intake Packet" PHI document row pointing at the
+ * given storage path.
+ *
+ * IMPORTANT: `client_phi_documents.storage_path` has a UNIQUE constraint, so
+ * the caller MUST pass a per-client storage path when there are multiple
+ * children on a single submission. The previous behavior of passing the
+ * combined-bundle path for every child caused silent failures for child 2+.
+ *
+ * Returns { ok: true, phiDoc } on success, or { ok: false, reason, error } on
+ * failure so callers can decide whether to surface a banner / retry.
+ */
 const createIntakePacketDocument = async ({
   clientId,
   clientRow,
@@ -2540,7 +2640,9 @@ const createIntakePacketDocument = async ({
   link,
   organizationId = null
 }) => {
-  if (!clientId || !storagePath) return;
+  if (!clientId || !storagePath) {
+    return { ok: false, reason: 'missing_required', clientId, storagePath };
+  }
   const agencyId = clientRow?.agency_id || link?.organization_id || null;
   const orgId =
     clientRow?.organization_id ||
@@ -2572,16 +2674,29 @@ const createIntakePacketDocument = async ({
       ipAddress: ipAddress || null,
       metadata: { submissionId, kind: 'intake_packet' }
     });
+    return { ok: true, phiDoc };
   } catch (err) {
-    // best-effort; do not block public intake
-    console.error('createIntakePacketDocument failed', {
+    const isDuplicate = err?.code === 'ER_DUP_ENTRY' || /duplicate/i.test(err?.message || '');
+    // Surface clearly — multi-child submissions used to silently lose child 2+
+    // because callers reused the combined bundle path. Loud logging here means
+    // we can detect and retry, while the caller can decide if it's fatal.
+    console.error('[multi_child_packet_failures] createIntakePacketDocument failed', {
       clientId,
       submissionId,
       storagePath,
+      duplicate: isDuplicate,
       error: err?.message || err,
       code: err?.code,
       sqlState: err?.sqlState
     });
+    return {
+      ok: false,
+      reason: isDuplicate ? 'duplicate_storage_path' : 'create_failed',
+      error: err?.message || String(err),
+      code: err?.code || null,
+      clientId,
+      storagePath
+    };
   }
 };
 
@@ -3881,8 +3996,36 @@ export const signPublicIntakeDocument = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'signatureData is required for signature documents' } });
     }
 
+    // Optional clientIndex: when the wizard knows it is signing on behalf of
+    // a specific child (multi-child intake), pass clientIndex so per-child
+    // tokens (printed name, dob, initials, …) are baked in correctly. The
+    // frontend can call this endpoint once per child for templates with
+    // child-specific tokens, ensuring child 2+ never inherits child 1's
+    // prefilled values. When omitted, behavior is unchanged (clientIndex=0).
+    const requestedClientIndex = (() => {
+      const raw = req.body?.clientIndex;
+      if (raw === undefined || raw === null || raw === '') return 0;
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+    })();
+
     const existingDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
-    const existing = existingDocs.find((d) => d.document_template_id === templateId);
+    // Multi-child: allow N rows for the same template (one per clientIndex)
+    // by recording clientIndex into audit_trail. We only short-circuit if
+    // there's already a row for this exact (template, clientIndex) pair.
+    const existing = existingDocs.find((d) => {
+      if (d.document_template_id !== templateId) return false;
+      let trail = null;
+      try {
+        trail = d.audit_trail
+          ? (typeof d.audit_trail === 'string' ? JSON.parse(d.audit_trail) : d.audit_trail)
+          : null;
+      } catch {
+        trail = null;
+      }
+      const existingIdx = Number(trail?.clientIndex ?? 0) || 0;
+      return existingIdx === requestedClientIndex;
+    });
     if (existing) {
       return res.json({ success: true, document: existing, alreadySigned: true });
     }
@@ -3924,7 +4067,7 @@ export const signPublicIntakeDocument = async (req, res, next) => {
       const baseValues = buildDocumentFieldValuesForClient({
         link,
         intakeData,
-        clientIndex: 0,
+        clientIndex: requestedClientIndex,
         baseFieldValues: {}
       });
       const normalize = (val) =>
@@ -4009,7 +4152,11 @@ export const signPublicIntakeDocument = async (req, res, next) => {
         documentReference: result.referenceNumber || null,
         documentName: template.name || null,
         fieldValues,
-        signatureData: signatureData || null
+        signatureData: signatureData || null,
+        // Persist clientIndex so finalize can detect per-child wizard
+        // signatures and avoid the "child 2 inherits child 1's prefilled
+        // tokens" bug for templates with child-specific tokens.
+        clientIndex: requestedClientIndex
       }
     });
 
@@ -5225,6 +5372,20 @@ export const finalizePublicIntake = async (req, res, next) => {
         clientIds: rawClients.map((c) => Number(c?.id || 0)).filter((id) => Number.isFinite(id) && id > 0),
         guardianUserId: updatedSubmission?.guardian_user_id || null
       });
+      // Surface any per-child enrollment failures (e.g. second kiddo not
+      // registered for the event). These were previously silently collected
+      // in the `errors` array and discarded — making "child 2 missed the
+      // event" effectively invisible to operators.
+      if (Array.isArray(registrationEnrollment?.errors) && registrationEnrollment.errors.length) {
+        console.error('[multi_child_registration] enrollment errors during finalize', {
+          submissionId,
+          childIds: rawClients.map((c) => c?.id).filter(Boolean),
+          totalChildren: rawClients.length,
+          companyEventEnrollments: registrationEnrollment.companyEventEnrollments,
+          classEnrollments: registrationEnrollment.classEnrollments,
+          errors: registrationEnrollment.errors
+        });
+      }
     } catch (registrationErr) {
       console.error('[publicIntake] smart registration enrollment failed (continuing finalize)', {
         submissionId,
@@ -5232,10 +5393,49 @@ export const finalizePublicIntake = async (req, res, next) => {
       });
     }
 
+    // Fire staff/coordinator notifications for any company-event enrollments. This runs
+    // regardless of whether the intake had document templates (registration-only intakes
+    // produced no `pdfPaths` and therefore never triggered notifyNewPacketUploaded).
+    try {
+      const enrolledEvents = Array.isArray(registrationEnrollment?.enrolledCompanyEvents)
+        ? registrationEnrollment.enrolledCompanyEvents
+        : [];
+      if (enrolledEvents.length) {
+        const labelByClientId = {};
+        for (const c of rawClients) {
+          const cid = Number(c?.id || 0);
+          if (Number.isFinite(cid) && cid > 0) {
+            labelByClientId[cid] = c?.fullName || c?.initials || `client #${cid}`;
+          }
+        }
+        await Promise.all(
+          enrolledEvents.map((entry) =>
+            notifyCompanyEventRegistrationSubmitted({
+              agencyId: entry.agencyId,
+              eventId: entry.eventId,
+              clientIds: entry.clientIds,
+              clientLabels: labelByClientId,
+              source: 'public_intake'
+            }).catch(() => null)
+          )
+        );
+      }
+    } catch (notifyErr) {
+      console.error('[publicIntake] company event registration notification failed', {
+        submissionId,
+        error: notifyErr?.message || notifyErr
+      });
+    }
+
     const intakeClientRows = [];
     const isMultiClient = rawClients.length > 1;
     const docAuditByTemplate = new Map();
-    signedDocsOrdered.forEach((doc) => {
+    // Index any per-child wizard signatures by (templateId, clientIndex) so
+    // finalize can use the right pre-signed PDF for each child instead of
+    // reusing child 0's PDF for child 2+. Falls back gracefully when no
+    // per-child wizard signature was provided.
+    const docByTemplateAndChildIndex = new Map();
+    signedDocs.forEach((doc) => {
       if (!doc) return;
       const rawTrail = doc.audit_trail;
       let trail = null;
@@ -5244,7 +5444,13 @@ export const finalizePublicIntake = async (req, res, next) => {
       } catch {
         trail = null;
       }
-      docAuditByTemplate.set(doc.document_template_id, trail || {});
+      const tplId = doc.document_template_id;
+      const idx = Number(trail?.clientIndex ?? 0) || 0;
+      docByTemplateAndChildIndex.set(`${tplId}|${idx}`, { doc, trail: trail || {} });
+      // Keep first-seen audit per template for backward compatibility
+      if (!docAuditByTemplate.has(tplId)) {
+        docAuditByTemplate.set(tplId, trail || {});
+      }
     });
 
     let roiCompletionPhiDocument = null;
@@ -5267,7 +5473,12 @@ export const finalizePublicIntake = async (req, res, next) => {
 
       if (isMultiClient) {
         for (const template of packetDocumentTemplates) {
-          const baseAudit = docAuditByTemplate.get(template.id) || {};
+          // Prefer the per-child wizard signature for this template+childIndex
+          // when present (frontend signed once per child); otherwise fall
+          // back to whichever audit we have for this template.
+          const perChildEntry = docByTemplateAndChildIndex.get(`${template.id}|${i}`);
+          const baseAudit = perChildEntry?.trail || docAuditByTemplate.get(template.id) || {};
+          const perChildPreSignedDoc = perChildEntry?.doc || null;
           const signatureData = baseAudit?.signatureData || null;
           const baseFieldValues = baseAudit?.fieldValues && typeof baseAudit.fieldValues === 'object' ? baseAudit.fieldValues : {};
           const fieldDefinitions = parseFieldDefinitions(template.field_definitions);
@@ -5286,9 +5497,40 @@ export const finalizePublicIntake = async (req, res, next) => {
           let pdfHash = null;
           let referenceNumber = null;
 
+          // Heuristic: detect templates whose tokens depend on which child we
+          // are signing for (printed name, first/last, dob, initials, etc.).
+          // When such a template is reused as-is for child 2+, the resulting
+          // PDF would carry child 1's prefilled values — definitively wrong.
+          const hasChildSpecificTokens = (() => {
+            try {
+              const keys = (fieldDefinitions || []).map((d) => String(
+                d?.prefillKey || d?.prefill_key || d?.id || d?.label || d?.name || ''
+              ).toLowerCase());
+              const childTokenRe = /(client[_\s-]?(first|last|full|name|initials|dob|birth|age|gender|sex)|child[_\s-]?(name|first|last|dob)|patient[_\s-]?name|printed[_\s-]?(client|patient|child)[_\s-]?name)/;
+              return keys.some((k) => childTokenRe.test(k));
+            } catch {
+              return false;
+            }
+          })();
+
           if (template.document_action_type === 'signature' && !signatureData) {
-            const sharedDoc = signedByTemplate.get(template.id);
+            // Reuse the shared signed PDF only as a last resort. For multi-child
+            // submissions, this means child 2+ will display child 1's
+            // prefilled tokens in their copy of the signed document — log
+            // loudly so admins can detect and re-sign per child if needed.
+            // Prefer the per-child wizard-signed doc when available.
+            const sharedDoc = perChildPreSignedDoc || signedByTemplate.get(template.id);
             if (sharedDoc?.signed_pdf_path) {
+              if (hasChildSpecificTokens) {
+                console.warn('[multi_child_signed_pdf_reuse] child 2+ may inherit child 1\'s prefilled tokens', {
+                  submissionId,
+                  templateId: template.id,
+                  templateName: template.name || null,
+                  childIndex: i,
+                  clientId,
+                  reason: 'no_signature_data_to_regenerate'
+                });
+              }
               storagePath = sharedDoc.signed_pdf_path;
               pdfHash = sharedDoc.pdf_hash || null;
               if (clientId) {
@@ -5303,7 +5545,8 @@ export const finalizePublicIntake = async (req, res, next) => {
                     ...clientAuditTrail,
                     documentName: template.name || null,
                     fieldValues,
-                    signatureData: null
+                    signatureData: null,
+                    childSpecificTokensReused: hasChildSpecificTokens || undefined
                   }
                 });
               }
@@ -5431,6 +5674,10 @@ export const finalizePublicIntake = async (req, res, next) => {
             bundle_pdf_path: clientBundleResult.relativePath,
             bundle_pdf_hash: clientBundleHash
           });
+          // Keep in-memory row in sync so the per-child packet attachment
+          // below can rely on bundle_pdf_path without re-querying.
+          targetRow.bundle_pdf_path = clientBundleResult.relativePath;
+          targetRow.bundle_pdf_hash = clientBundleHash;
         }
         clientBundles.push({
           clientId: clientPayload?.id || null,
@@ -5528,7 +5775,16 @@ export const finalizePublicIntake = async (req, res, next) => {
       });
       downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 7);
 
-      for (const clientPayload of rawClients) {
+      // Multi-child safe per-client packet attachment.
+      // We must NOT pass `bundleResult.relativePath` (the combined bundle) for
+      // every child — `client_phi_documents.storage_path` is UNIQUE so child 2+
+      // would silently fail. Use the per-client bundle saved on
+      // `intake_submission_clients.bundle_pdf_path`, falling back to the
+      // combined bundle only for single-child submissions.
+      const isMultiClientFinalize = Array.isArray(rawClients) && rawClients.length > 1;
+      const packetFailures = [];
+      for (let pi = 0; pi < rawClients.length; pi += 1) {
+        const clientPayload = rawClients[pi];
         const clientId = clientPayload?.id || null;
         if (!clientId) continue;
         let clientRow = null;
@@ -5537,16 +5793,37 @@ export const finalizePublicIntake = async (req, res, next) => {
         } catch {
           clientRow = null;
         }
-        await createIntakePacketDocument({
-          clientId,
-          clientRow,
-          submissionId,
-          storagePath: bundleResult.relativePath,
-          ipAddress: updatedSubmission.ip_address || null,
-          expiresAt: retentionExpiresAt,
-          link,
-          organizationId: req.body?.organizationId || null
-        });
+        const perClientRow = intakeClientRows[pi] || null;
+        const perClientBundlePath = perClientRow?.bundle_pdf_path || null;
+        const packetStoragePath = isMultiClientFinalize
+          ? (perClientBundlePath || null)
+          : (perClientBundlePath || bundleResult.relativePath);
+        if (!packetStoragePath) {
+          packetFailures.push({
+            clientId,
+            reason: 'missing_per_child_bundle_path',
+            multiChild: isMultiClientFinalize
+          });
+        } else {
+          const packetResult = await createIntakePacketDocument({
+            clientId,
+            clientRow,
+            submissionId,
+            storagePath: packetStoragePath,
+            ipAddress: updatedSubmission.ip_address || null,
+            expiresAt: retentionExpiresAt,
+            link,
+            organizationId: req.body?.organizationId || null
+          });
+          if (!packetResult?.ok) {
+            packetFailures.push({
+              clientId,
+              reason: packetResult?.reason || 'unknown',
+              error: packetResult?.error || null,
+              storagePath: packetStoragePath
+            });
+          }
+        }
 
         // Notify admin/CPA team (same as paper packet upload) so they can process the intake
         let agencyId = clientRow?.agency_id || null;
@@ -5579,6 +5856,13 @@ export const finalizePublicIntake = async (req, res, next) => {
           clientInitials: clientRow?.initials || clientPayload?.initials || null,
           mode: 'digital_submission'
         }).catch(() => {});
+      }
+      if (packetFailures.length) {
+        console.error('[multi_child_packet_failures] some children did not get an Intake Packet PHI doc', {
+          submissionId,
+          totalChildren: rawClients.length,
+          failures: packetFailures
+        });
       }
 
       // Resolve event summary once so it can be used by both the email and the persist block.
@@ -5626,6 +5910,43 @@ export const finalizePublicIntake = async (req, res, next) => {
             regFlow && link.create_guardian && (newGuardianPasswordlessLoginUrl || '')
               ? (newGuardianPasswordlessLoginUrl || '')
               : '';
+          // Build a per-child signed-documents list so the single confirmation
+          // email can show every child's name, their per-child packet link,
+          // and links to each signed document. Only meaningful when 2+ kids.
+          const bundlesForEmail = await Promise.all(
+            (clientBundles || []).map(async (bundle) => {
+              const enriched = { ...bundle, signedDocuments: [] };
+              try {
+                const docs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
+                const childDocs = (docs || []).filter((d) => Number(d.client_id || 0) === Number(bundle.clientId || 0));
+                const signedDocuments = [];
+                for (const d of childDocs) {
+                  if (!d?.signed_pdf_path) continue;
+                  let templateName = 'Signed Document';
+                  try {
+                    const [tplRows] = await pool.execute(
+                      'SELECT name FROM document_templates WHERE id = ? LIMIT 1',
+                      [d.document_template_id]
+                    );
+                    if (tplRows?.[0]?.name) templateName = String(tplRows[0].name);
+                  } catch { /* template lookup best-effort */ }
+                  let url = '';
+                  try {
+                    url = await StorageService.getSignedUrl(d.signed_pdf_path, 60 * 24 * 7);
+                  } catch { /* signed url failure non-fatal */ }
+                  signedDocuments.push({ name: templateName, downloadUrl: url });
+                }
+                enriched.signedDocuments = signedDocuments;
+              } catch (lookupErr) {
+                console.error('[publicIntake] failed to enrich clientBundles for email', {
+                  submissionId,
+                  clientId: bundle?.clientId,
+                  error: lookupErr?.message || lookupErr
+                });
+              }
+              return enriched;
+            })
+          );
           const packetEmail = await resolvePacketCompletionEmailContent({
             link,
             agencyId: link?.agency_id || agency?.id || null,
@@ -5648,7 +5969,8 @@ export const finalizePublicIntake = async (req, res, next) => {
             registrationReceiptUrl,
             fromAddress: completionEmailFromAddress,
             eventPlaceholders: eventPlaceholdersForEmail,
-            returningMatchClientInitials: returningAutoMatchInitialsForEmail || ''
+            returningMatchClientInitials: returningAutoMatchInitialsForEmail || '',
+            clientBundles: bundlesForEmail
           });
           const identity = await resolveIntakeSenderIdentity({
             organizationId: link?.organization_id || null,
@@ -6144,6 +6466,11 @@ export const submitPublicIntake = async (req, res, next) => {
               bundle_pdf_path: clientBundleResult.relativePath,
               bundle_pdf_hash: clientBundleHash
             });
+            // Keep in-memory row in sync so the per-child packet attachment
+            // (createIntakePacketDocument loop below) can use the per-child
+            // path and avoid the UNIQUE(storage_path) collision on child 2+.
+            targetRow.bundle_pdf_path = clientBundleResult.relativePath;
+            targetRow.bundle_pdf_hash = clientBundleHash;
           }
         }
         clientBundles.push({
@@ -6195,7 +6522,13 @@ export const submitPublicIntake = async (req, res, next) => {
       });
       downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 7);
 
-      for (const clientPayload of rawClients) {
+      // Multi-child safe per-client packet attachment.
+      // See createIntakePacketDocument doc comment — combined bundle path
+      // can NOT be used for every child due to UNIQUE(storage_path).
+      const isMultiClientFinalize = Array.isArray(rawClients) && rawClients.length > 1;
+      const packetFailures = [];
+      for (let pi = 0; pi < rawClients.length; pi += 1) {
+        const clientPayload = rawClients[pi];
         const clientId = clientPayload?.id || null;
         if (!clientId) continue;
         let clientRow = null;
@@ -6204,16 +6537,37 @@ export const submitPublicIntake = async (req, res, next) => {
         } catch {
           clientRow = null;
         }
-        await createIntakePacketDocument({
-          clientId,
-          clientRow,
-          submissionId,
-          storagePath: bundleResult.relativePath,
-          ipAddress: updatedSubmission.ip_address || null,
-          expiresAt: retentionExpiresAt,
-          link,
-          organizationId: req.body?.organizationId || null
-        });
+        const perClientRow = intakeClientRows[pi] || null;
+        const perClientBundlePath = perClientRow?.bundle_pdf_path || null;
+        const packetStoragePath = isMultiClientFinalize
+          ? (perClientBundlePath || null)
+          : (perClientBundlePath || bundleResult.relativePath);
+        if (!packetStoragePath) {
+          packetFailures.push({
+            clientId,
+            reason: 'missing_per_child_bundle_path',
+            multiChild: isMultiClientFinalize
+          });
+        } else {
+          const packetResult = await createIntakePacketDocument({
+            clientId,
+            clientRow,
+            submissionId,
+            storagePath: packetStoragePath,
+            ipAddress: updatedSubmission.ip_address || null,
+            expiresAt: retentionExpiresAt,
+            link,
+            organizationId: req.body?.organizationId || null
+          });
+          if (!packetResult?.ok) {
+            packetFailures.push({
+              clientId,
+              reason: packetResult?.reason || 'unknown',
+              error: packetResult?.error || null,
+              storagePath: packetStoragePath
+            });
+          }
+        }
 
         // Notify admin/CPA team (same as paper packet upload) so they can process the intake
         let agencyId = clientRow?.agency_id || null;
@@ -6246,6 +6600,13 @@ export const submitPublicIntake = async (req, res, next) => {
           clientInitials: clientRow?.initials || clientPayload?.initials || null,
           mode: 'digital_submission'
         }).catch(() => {});
+      }
+      if (packetFailures.length) {
+        console.error('[multi_child_packet_failures] some children did not get an Intake Packet PHI doc', {
+          submissionId,
+          totalChildren: rawClients.length,
+          failures: packetFailures
+        });
       }
 
       const eventPlaceholdersForEmailSubmit = await loadRegistrationEventFieldPlaceholders(intakeData, link);
@@ -6290,6 +6651,41 @@ export const submitPublicIntake = async (req, res, next) => {
           regFlowEmail && link.create_guardian && (newGuardianPasswordlessLoginUrl || '')
             ? (newGuardianPasswordlessLoginUrl || '')
             : '';
+        // Per-child enrichment for the single confirmation email (multi-child)
+        const bundlesForEmailSubmit = await Promise.all(
+          (clientBundles || []).map(async (bundle) => {
+            const enriched = { ...bundle, signedDocuments: [] };
+            try {
+              const docs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
+              const childDocs = (docs || []).filter((d) => Number(d.client_id || 0) === Number(bundle.clientId || 0));
+              const signedDocuments = [];
+              for (const d of childDocs) {
+                if (!d?.signed_pdf_path) continue;
+                let templateName = 'Signed Document';
+                try {
+                  const [tplRows] = await pool.execute(
+                    'SELECT name FROM document_templates WHERE id = ? LIMIT 1',
+                    [d.document_template_id]
+                  );
+                  if (tplRows?.[0]?.name) templateName = String(tplRows[0].name);
+                } catch { /* template lookup best-effort */ }
+                let url = '';
+                try {
+                  url = await StorageService.getSignedUrl(d.signed_pdf_path, 60 * 24 * 7);
+                } catch { /* signed url failure non-fatal */ }
+                signedDocuments.push({ name: templateName, downloadUrl: url });
+              }
+              enriched.signedDocuments = signedDocuments;
+            } catch (lookupErr) {
+              console.error('[publicIntake] failed to enrich clientBundles for email', {
+                submissionId,
+                clientId: bundle?.clientId,
+                error: lookupErr?.message || lookupErr
+              });
+            }
+            return enriched;
+          })
+        );
         const packetEmail = await resolvePacketCompletionEmailContent({
           link,
           agencyId: link?.agency_id || agency?.id || null,
@@ -6312,7 +6708,8 @@ export const submitPublicIntake = async (req, res, next) => {
           registrationReceiptUrl: registrationReceiptUrlSubmit,
           fromAddress: completionEmailFromAddressSubmit,
           eventPlaceholders: eventPlaceholdersForEmailSubmit,
-          returningMatchClientInitials: returningAutoMatchInitialsForEmailSubmit || ''
+          returningMatchClientInitials: returningAutoMatchInitialsForEmailSubmit || '',
+          clientBundles: bundlesForEmailSubmit
         });
         try {
           const identity = await resolveIntakeSenderIdentity({
@@ -6440,11 +6837,12 @@ export const submitPublicIntake = async (req, res, next) => {
     // Enroll clients and guardian in any classes or events selected during the registration step.
     // This mirrors the same call in finalizePublicIntake so that forms using the submit
     // pathway also complete registration (e.g. smart_registration forms).
+    let submitRegistrationEnrollment = null;
     try {
       const enrollClientIds = rawClients
         .map((c) => Number(c?.id || 0))
         .filter((id) => Number.isFinite(id) && id > 0);
-      await enrollSmartRegistrationSelections({
+      submitRegistrationEnrollment = await enrollSmartRegistrationSelections({
         link,
         intakeData,
         payload: req.body || {},
@@ -6452,10 +6850,53 @@ export const submitPublicIntake = async (req, res, next) => {
         clientIds: enrollClientIds,
         guardianUserId: updatedSubmission?.guardian_user_id || null
       });
+      // Surface per-child enrollment failures (mirror of the finalize log).
+      if (Array.isArray(submitRegistrationEnrollment?.errors) && submitRegistrationEnrollment.errors.length) {
+        console.error('[multi_child_registration] enrollment errors during submit', {
+          submissionId,
+          childIds: enrollClientIds,
+          totalChildren: enrollClientIds.length,
+          companyEventEnrollments: submitRegistrationEnrollment.companyEventEnrollments,
+          classEnrollments: submitRegistrationEnrollment.classEnrollments,
+          errors: submitRegistrationEnrollment.errors
+        });
+      }
     } catch (enrollErr) {
       console.error('[publicIntake] smart registration enrollment failed (submit)', {
         submissionId,
         message: enrollErr?.message || enrollErr
+      });
+    }
+
+    // Notify staff/coordinators about any company-event registrations completed above.
+    try {
+      const enrolledEvents = Array.isArray(submitRegistrationEnrollment?.enrolledCompanyEvents)
+        ? submitRegistrationEnrollment.enrolledCompanyEvents
+        : [];
+      if (enrolledEvents.length) {
+        const labelByClientId = {};
+        for (const c of rawClients) {
+          const cid = Number(c?.id || 0);
+          if (Number.isFinite(cid) && cid > 0) {
+            labelByClientId[cid] = c?.fullName || c?.initials || `client #${cid}`;
+          }
+        }
+        await Promise.all(
+          enrolledEvents.map((entry) =>
+            notifyCompanyEventRegistrationSubmitted({
+              agencyId: entry.agencyId,
+              eventId: entry.eventId,
+              clientIds: entry.clientIds,
+              clientLabels: labelByClientId,
+              source: 'public_intake'
+            }).catch(() => null)
+          )
+        );
+      }
+    } catch (notifyErr) {
+      console.error('[publicIntake] company event registration notification failed (submit)', {
+        submissionId,
+        message: notifyErr?.message || notifyErr
       });
     }
 

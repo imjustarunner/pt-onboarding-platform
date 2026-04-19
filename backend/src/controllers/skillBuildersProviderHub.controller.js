@@ -4458,3 +4458,280 @@ WHERE n.id IS NULL`;
     next(e);
   }
 };
+
+/**
+ * GET /api/skill-builders/program/:organizationId/dashboard-summary?agencyId=
+ *
+ * Aggregates everything the program portal dashboard needs in a single round-trip:
+ *   - Events under this program org (with per-event registration count, providers count, sessions count today/total)
+ *   - Program-level KPI roll-ups (active events, upcoming events, total registrations, providers on roster, sessions today)
+ *   - Recent applicants (last 14 days) by company-event registration
+ *
+ * Available to agency staff/admin/super_admin/support, Skill Builders coordinators, and
+ * providers who are eligible (limited to events they're rostered on).
+ */
+export const getProgramPortalDashboardSummary = async (req, res, next) => {
+  try {
+    const programOrganizationId = parsePositiveInt(req.params.organizationId);
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const userId = parsePositiveInt(req.user?.id);
+    if (!programOrganizationId || !agencyId || !userId) {
+      return res.status(400).json({ error: { message: 'organizationId and agencyId are required' } });
+    }
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+
+    const staffLike = await isAgencyStaffLikeForSkillBuilders(req, agencyId);
+    const sbCoord = await getSkillBuilderCoordinatorAccess(userId);
+    const eligibleProvider = await getSkillBuilderEligibility(userId);
+
+    let rows = [];
+    if (staffLike || sbCoord) {
+      const [r] = await pool.execute(
+        `SELECT ce.id,
+                ce.title,
+                ce.starts_at,
+                ce.ends_at,
+                ce.is_active,
+                ce.organization_id AS program_organization_id,
+                sg.id AS skills_group_id,
+                sg.organization_id AS school_organization_id,
+                sch.name AS school_name,
+                LOWER(TRIM(prog.slug)) AS program_portal_slug,
+                prog.name AS program_name
+         FROM company_events ce
+         LEFT JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
+         LEFT JOIN agencies sch ON sch.id = sg.organization_id
+         LEFT JOIN agencies prog ON prog.id = ce.organization_id
+         WHERE ce.agency_id = ?
+           AND ce.organization_id = ?
+         ORDER BY (ce.ends_at < NOW()) ASC, ce.starts_at DESC, ce.id DESC
+         LIMIT 200`,
+        [agencyId, programOrganizationId]
+      );
+      rows = r || [];
+    } else if (eligibleProvider) {
+      const [r] = await pool.execute(
+        `SELECT ce.id,
+                ce.title,
+                ce.starts_at,
+                ce.ends_at,
+                ce.is_active,
+                ce.organization_id AS program_organization_id,
+                sg.id AS skills_group_id,
+                sg.organization_id AS school_organization_id,
+                sch.name AS school_name,
+                LOWER(TRIM(prog.slug)) AS program_portal_slug,
+                prog.name AS program_name
+         FROM skills_group_providers sgp
+         INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id AND sg.agency_id = ?
+         INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = sg.agency_id
+         INNER JOIN agencies sch ON sch.id = sg.organization_id
+         LEFT JOIN agencies prog ON prog.id = ce.organization_id
+         WHERE sgp.provider_user_id = ?
+           AND ce.organization_id = ?
+         ORDER BY (ce.ends_at < NOW()) ASC, ce.starts_at DESC, ce.id DESC
+         LIMIT 200`,
+        [agencyId, userId, programOrganizationId]
+      );
+      rows = r || [];
+    } else {
+      return res.status(403).json({ error: { message: 'Skill Builders access required' } });
+    }
+
+    const eventIds = [...new Set((rows || []).map((r) => Number(r.id)).filter((n) => n > 0))];
+    const sgIds = [...new Set((rows || []).map((r) => Number(r.skills_group_id)).filter((n) => n > 0))];
+
+    const registrationsByEvent = new Map();
+    if (eventIds.length) {
+      try {
+        const ph = eventIds.map(() => '?').join(',');
+        const [regRows] = await pool.execute(
+          `SELECT company_event_id, COUNT(DISTINCT client_id) AS cnt
+           FROM company_event_clients
+           WHERE company_event_id IN (${ph})
+             AND agency_id = ?
+             AND is_active = TRUE
+           GROUP BY company_event_id`,
+          [...eventIds, agencyId]
+        );
+        for (const r of regRows || []) {
+          registrationsByEvent.set(Number(r.company_event_id), Number(r.cnt) || 0);
+        }
+      } catch (regErr) {
+        if (regErr?.code !== 'ER_NO_SUCH_TABLE' && regErr?.code !== 'ER_BAD_FIELD_ERROR') {
+          throw regErr;
+        }
+      }
+    }
+
+    const providersByGroup = new Map();
+    const weekdaysByGroup = new Map();
+    if (sgIds.length) {
+      try {
+        const ph = sgIds.map(() => '?').join(',');
+        const [provRows] = await pool.execute(
+          `SELECT skills_group_id, COUNT(DISTINCT provider_user_id) AS cnt
+           FROM skills_group_providers
+           WHERE skills_group_id IN (${ph})
+           GROUP BY skills_group_id`,
+          sgIds
+        );
+        for (const r of provRows || []) {
+          providersByGroup.set(Number(r.skills_group_id), Number(r.cnt) || 0);
+        }
+      } catch {
+        // ignore
+      }
+      try {
+        const ph = sgIds.map(() => '?').join(',');
+        const [meetRows] = await pool.execute(
+          `SELECT skills_group_id, weekday
+           FROM skills_group_meetings
+           WHERE skills_group_id IN (${ph})
+           ORDER BY FIELD(weekday,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')`,
+          sgIds
+        );
+        for (const m of meetRows || []) {
+          const id = Number(m.skills_group_id);
+          if (!weekdaysByGroup.has(id)) weekdaysByGroup.set(id, new Set());
+          weekdaysByGroup.get(id).add(String(m.weekday || '').trim());
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const sessionsByEvent = new Map();
+    const todaySessionsByEvent = new Map();
+    if (eventIds.length) {
+      try {
+        const ph = eventIds.map(() => '?').join(',');
+        const [sRows] = await pool.execute(
+          `SELECT company_event_id, COUNT(*) AS total,
+                  SUM(CASE WHEN DATE(scheduled_start_at) = CURDATE() THEN 1 ELSE 0 END) AS today_total
+           FROM company_event_sessions
+           WHERE company_event_id IN (${ph})
+           GROUP BY company_event_id`,
+          eventIds
+        );
+        for (const r of sRows || []) {
+          sessionsByEvent.set(Number(r.company_event_id), Number(r.total) || 0);
+          todaySessionsByEvent.set(Number(r.company_event_id), Number(r.today_total) || 0);
+        }
+      } catch (sessErr) {
+        if (sessErr?.code !== 'ER_NO_SUCH_TABLE' && sessErr?.code !== 'ER_BAD_FIELD_ERROR') {
+          // ignore — sessions table may not exist on older deployments
+        }
+      }
+    }
+
+    const nowMs = Date.now();
+    const in30dMs = nowMs + 30 * 24 * 60 * 60 * 1000;
+    const events = (rows || []).map((row) => {
+      const startsMs = row.starts_at ? new Date(row.starts_at).getTime() : 0;
+      const endsMs = row.ends_at ? new Date(row.ends_at).getTime() : 0;
+      const isPast = Number.isFinite(endsMs) && endsMs > 0 && endsMs < nowMs;
+      const isLive = !isPast && Number.isFinite(startsMs) && startsMs <= nowMs && (!endsMs || endsMs >= nowMs);
+      const isUpcomingSoon = !isPast && !isLive && Number.isFinite(startsMs) && startsMs > nowMs && startsMs <= in30dMs;
+      const sgId = Number(row.skills_group_id) || null;
+      const wset = sgId ? (weekdaysByGroup.get(sgId) || new Set()) : new Set();
+      return {
+        companyEventId: Number(row.id),
+        title: String(row.title || '').trim() || `Event ${row.id}`,
+        startsAt: row.starts_at,
+        endsAt: row.ends_at,
+        isActive: !!(row.is_active === true || row.is_active === 1),
+        isPast,
+        isLive,
+        isUpcomingSoon,
+        statusKey: isLive ? 'live' : (isPast ? 'past' : 'upcoming'),
+        skillsGroupId: sgId,
+        schoolOrganizationId: Number(row.school_organization_id) || null,
+        schoolName: row.school_name || null,
+        programPortalSlug: row.program_portal_slug || null,
+        programName: row.program_name || null,
+        registrationsCount: registrationsByEvent.get(Number(row.id)) || 0,
+        providersCount: sgId ? (providersByGroup.get(sgId) || 0) : 0,
+        sessionsTotal: sessionsByEvent.get(Number(row.id)) || 0,
+        sessionsToday: todaySessionsByEvent.get(Number(row.id)) || 0,
+        weekdays: Array.from(wset)
+      };
+    });
+
+    const summary = {
+      activeEvents: events.filter((e) => e.isLive).length,
+      upcomingEvents: events.filter((e) => e.isUpcomingSoon).length,
+      pastEvents: events.filter((e) => e.isPast).length,
+      totalRegistrations: events.reduce((acc, e) => acc + (e.registrationsCount || 0), 0),
+      sessionsToday: events.reduce((acc, e) => acc + (e.sessionsToday || 0), 0),
+      providersOnRoster: 0
+    };
+
+    try {
+      const [provRows] = await pool.execute(
+        `SELECT COUNT(DISTINCT sgp.provider_user_id) AS cnt
+         FROM skills_group_providers sgp
+         INNER JOIN skills_groups sg ON sg.id = sgp.skills_group_id AND sg.agency_id = ?
+         INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = sg.agency_id
+         WHERE ce.organization_id = ?`,
+        [agencyId, programOrganizationId]
+      );
+      summary.providersOnRoster = Number(provRows?.[0]?.cnt) || 0;
+    } catch {
+      summary.providersOnRoster = 0;
+    }
+
+    let recentApplicants = [];
+    if (eventIds.length) {
+      try {
+        const ph = eventIds.map(() => '?').join(',');
+        const [appRows] = await pool.execute(
+          `SELECT cec.client_id,
+                  cec.company_event_id,
+                  cec.created_at,
+                  c.full_name,
+                  c.initials,
+                  c.identifier_code,
+                  ce.title AS event_title
+           FROM company_event_clients cec
+           INNER JOIN clients c ON c.id = cec.client_id
+           INNER JOIN company_events ce ON ce.id = cec.company_event_id
+           WHERE cec.company_event_id IN (${ph})
+             AND cec.agency_id = ?
+             AND cec.is_active = TRUE
+             AND cec.created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+           ORDER BY cec.created_at DESC
+           LIMIT 25`,
+          [...eventIds, agencyId]
+        );
+        recentApplicants = (appRows || []).map((r) => ({
+          clientId: Number(r.client_id),
+          companyEventId: Number(r.company_event_id),
+          eventTitle: String(r.event_title || '').trim(),
+          createdAt: r.created_at,
+          clientLabel:
+            String(r.full_name || '').trim()
+            || String(r.initials || '').trim()
+            || String(r.identifier_code || '').trim()
+            || `Client ${r.client_id}`
+        }));
+      } catch (appErr) {
+        if (appErr?.code !== 'ER_NO_SUCH_TABLE' && appErr?.code !== 'ER_BAD_FIELD_ERROR') {
+          // swallow — applicants are an optional surface
+        }
+      }
+    }
+    summary.recentApplicantsCount = recentApplicants.length;
+
+    res.json({
+      ok: true,
+      summary,
+      events,
+      recentApplicants
+    });
+  } catch (e) {
+    next(e);
+  }
+};

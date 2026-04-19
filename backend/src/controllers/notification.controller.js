@@ -25,6 +25,7 @@ const IN_APP_CATEGORY_BY_TYPE = {
   client_became_current: 'clients_checklist_updates',
   paperwork_received: 'clients_new_intakes',
   new_packet_uploaded: 'clients_new_intakes',
+  company_event_registration_submitted: 'clients_new_intakes',
   school_availability_request_pending: 'scheduling_schedule_changes',
   school_provider_availability_confirmed: 'school_portal_provider_slots',
   school_provider_availability_updated: 'school_portal_provider_slots',

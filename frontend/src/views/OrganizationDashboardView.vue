@@ -1,6 +1,7 @@
 <template>
-  <!-- For portal orgs (schools/programs/learning), use the school portal dashboard; otherwise use standard dashboard -->
-  <SchoolPortalView v-if="isPortalOrg" :preview-mode="isSuperadminPreview" />
+  <!-- Programs get a dedicated dashboard tuned for events; schools/learning use the school portal; agencies use the standard dashboard. -->
+  <ProgramPortalView v-if="isProgramPortal" :preview-mode="isSuperadminPreview" />
+  <SchoolPortalView v-else-if="isPortalOrg" :preview-mode="isSuperadminPreview" />
   <DashboardView
     v-else
     :preview-mode="isSuperadminPreview"
@@ -17,6 +18,7 @@ import { useSuperadminPlatformPreview } from '../composables/useSuperadminPlatfo
 import { createMockDashboardData } from '../utils/previewUtils';
 import DashboardView from './DashboardView.vue';
 import SchoolPortalView from './school/SchoolPortalView.vue';
+import ProgramPortalView from './program/ProgramPortalView.vue';
 
 const route = useRoute();
 const organizationStore = useOrganizationStore();
@@ -41,6 +43,10 @@ const organizationType = computed(() => {
 const isPortalOrg = computed(() => {
   const t = String(organizationType.value || '').toLowerCase();
   return t === 'school' || t === 'program' || t === 'learning';
+});
+
+const isProgramPortal = computed(() => {
+  return String(organizationType.value || '').toLowerCase() === 'program';
 });
 
 const ensureOrgLoaded = async () => {
