@@ -348,6 +348,7 @@ export const getCurrentUser = async (req, res, next) => {
       has_supervisor_privileges: !!(user.has_supervisor_privileges === true || user.has_supervisor_privileges === 1 || user.has_supervisor_privileges === '1'),
       has_provider_access: !!(user.has_provider_access === true || user.has_provider_access === 1 || user.has_provider_access === '1'),
       has_staff_access: !!(user.has_staff_access === true || user.has_staff_access === 1 || user.has_staff_access === '1'),
+      has_games_access: !!(user.has_games_access === true || user.has_games_access === 1 || user.has_games_access === '1'),
       skill_builder_eligible: !!(user.skill_builder_eligible === true || user.skill_builder_eligible === 1 || user.skill_builder_eligible === '1'),
       has_skill_builder_coordinator_access: !!(
         user.has_skill_builder_coordinator_access === true ||
@@ -2168,6 +2169,7 @@ export const updateUser = async (req, res, next) => {
       isHourlyWorker,
       hasHiringAccess,
       hasMedicalRecordsReleaseAccess,
+      hasGamesAccess,
       externalBusyIcsUrl,
       providerStartDate,
       work_role: workRoleRaw
@@ -2657,6 +2659,14 @@ export const updateUser = async (req, res, next) => {
       const targetUserBefore = await User.findById(id);
       prevMedicalRecordsReleaseAccess = !!(targetUserBefore?.has_medical_records_release_access === 1 || targetUserBefore?.has_medical_records_release_access === true);
       updateData.hasMedicalRecordsReleaseAccess = Boolean(hasMedicalRecordsReleaseAccess);
+    }
+
+    // Games access entitlement (per-user billing model)
+    if (hasGamesAccess !== undefined) {
+      if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: { message: 'Only admins or super admins can change Games access' } });
+      }
+      updateData.hasGamesAccess = Boolean(hasGamesAccess);
     }
 
     // External busy calendar (ICS) URL (admin/support/super admin only)
@@ -6289,6 +6299,7 @@ export const getAccountInfo = async (req, res, next) => {
       isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
       hasHiringAccess: !!(user.has_hiring_access === 1 || user.has_hiring_access === true || user.has_hiring_access === '1'),
       hasMedicalRecordsReleaseAccess: !!(user.has_medical_records_release_access === 1 || user.has_medical_records_release_access === true || user.has_medical_records_release_access === '1'),
+      hasGamesAccess: !!(user.has_games_access === 1 || user.has_games_access === true || user.has_games_access === '1'),
       companyCardEnabled: !!(user.company_card_enabled === 1 || user.company_card_enabled === true || user.company_card_enabled === '1'),
       companyCarSubmitAccess: !!(user.company_car_submit_access === 1 || user.company_car_submit_access === true || user.company_car_submit_access === '1'),
       companyCarManageAccess: !!(user.company_car_manage_access === 1 || user.company_car_manage_access === true || user.company_car_manage_access === '1'),

@@ -558,6 +558,7 @@
                   </button>
                   <div v-if="gamesMenuOpen" class="nav-dropdown-menu">
                     <a href="#" role="menuitem" @click.prevent="openTestGameWindow">Test Game</a>
+                    <a href="#" role="menuitem" @click.prevent="openThoughtExplorerWindow">Thought Explorer</a>
                   </div>
                 </div>
               
@@ -821,6 +822,12 @@
               class="mobile-nav-link mobile-nav-button"
               @click="openTestGameWindow(); closeMobileMenu()"
             >Games — Test Game</button>
+            <button
+              v-if="canSeeGamesNav"
+              type="button"
+              class="mobile-nav-link mobile-nav-button"
+              @click="openThoughtExplorerWindow(); closeMobileMenu()"
+            >Games — Thought Explorer</button>
 
             <template v-if="canSeePortalNav && canSeeFullPortalNav">
               <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
@@ -1740,6 +1747,12 @@ const openTestGameWindow = () => {
   window.open(url, 'PlotTwistTestGame', 'noopener,noreferrer,width=800,height=680');
 };
 
+const openThoughtExplorerWindow = () => {
+  gamesMenuOpen.value = false;
+  const url = `${gamesStaticOrigin.value}/games-content/thought-explorer-main/dist/index.html`;
+  window.open(url, 'PlotTwistThoughtExplorer', 'noopener,noreferrer,width=1280,height=820');
+};
+
 const pushWithSlug = (slug) => {
   const slugNorm = String(slug || '').trim().toLowerCase();
   const hostPortal = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase();
@@ -2109,7 +2122,7 @@ const currentAgencyFeatureFlags = computed(() => {
   return parseFeatureFlags(a?.feature_flags);
 });
 
-/** Super admins always see Games (testing). Other roles see Games when the tenant flag is on. */
+/** Super admins always see Games. Other users need per-user games entitlement. */
 const canSeeGamesNav = computed(() => {
   if (!authStore.isAuthenticated) return false;
   if (hideGlobalNavForSchoolStaff.value) return false;
@@ -2117,7 +2130,7 @@ const canSeeGamesNav = computed(() => {
   if (isSscSstcTenant.value) return false;
   const role = String(user.value?.role || '').toLowerCase();
   if (role === 'super_admin') return true;
-  return isTruthyFlag(currentAgencyFeatureFlags.value?.gamesPlatformEnabled);
+  return isTruthyFlag(user.value?.has_games_access) || isTruthyFlag(user.value?.hasGamesAccess);
 });
 
 /** School Portals hub (overview + all portals). Same roles as prior School Overview links; gated by platform + tenant flags. */

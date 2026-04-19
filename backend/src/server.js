@@ -155,6 +155,7 @@ import garminRoutes from './routes/garmin.routes.js';
 import clinicalDataRoutes from './routes/clinicalData.routes.js';
 import betaFeedbackRoutes from './routes/betaFeedback.routes.js';
 import meRoutes from './routes/me.routes.js';
+import gameProgressRoutes from './routes/gameProgress.routes.js';
 import billingPolicyRoutes from './routes/billingPolicy.routes.js';
 import companyEventClientsRoutes from './routes/companyEventClients.routes.js';
 import companyEventsPublicRoutes from './routes/companyEventsPublic.routes.js';
@@ -589,6 +590,7 @@ app.use('/api/agencies', agencyDepartmentsRoutes);
 app.use('/api/agencies', agencyDashboardRoutes);
 app.use('/api/agencies', socialFeedLinksRoutes);
 app.use('/api/me', meRoutes);
+app.use('/api/games', gameProgressRoutes);
 app.use('/api/tracks', trackRoutes);
 app.use('/api/training-focuses', trackRoutes); // Alias for new terminology
 app.use('/api/acknowledgments', acknowledgmentRoutes);

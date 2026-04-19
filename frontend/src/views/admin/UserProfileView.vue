@@ -836,6 +836,21 @@
                   </div>
                 </label>
                 <label
+                  class="compact-toggle"
+                  title="Per-user entitlement for Games access (user-based billing)."
+                >
+                  <span class="compact-title">Games access</span>
+                  <div class="toggle-switch toggle-switch-sm">
+                    <input
+                      id="games-access-toggle"
+                      type="checkbox"
+                      v-model="accountForm.hasGamesAccess"
+                      :disabled="!isEditingAccount"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+                <label
                   v-if="canToggleSupervisorPrivileges"
                   class="compact-toggle"
                   title="Allows this user to be assigned as a supervisor while maintaining their primary role."
@@ -3339,6 +3354,7 @@ const accountForm = ref({
   isHourlyWorker: false,
   hasHiringAccess: false,
   hasMedicalRecordsReleaseAccess: false,
+  hasGamesAccess: false,
   providerStartDate: ''
 });
 
@@ -4657,6 +4673,7 @@ const fetchUser = async () => {
       isHourlyWorker: user.value?.is_hourly_worker === true || user.value?.is_hourly_worker === 1 || user.value?.is_hourly_worker === '1' || accountForm.value?.isHourlyWorker || false,
       hasHiringAccess: user.value?.has_hiring_access === true || user.value?.has_hiring_access === 1 || user.value?.has_hiring_access === '1' || accountForm.value?.hasHiringAccess || false,
       hasMedicalRecordsReleaseAccess: user.value?.has_medical_records_release_access === true || user.value?.has_medical_records_release_access === 1 || user.value?.has_medical_records_release_access === '1' || accountForm.value?.hasMedicalRecordsReleaseAccess || false,
+      hasGamesAccess: user.value?.has_games_access === true || user.value?.has_games_access === 1 || user.value?.has_games_access === '1' || accountForm.value?.hasGamesAccess || false,
       providerStartDate:
         toDateInputValue(user.value.provider_start_date) ||
         toDateInputValue(accountForm.value?.providerStartDate) ||
@@ -5484,6 +5501,7 @@ const saveAccount = async () => {
       isHourlyWorker: Boolean(accountForm.value.isHourlyWorker),
       hasHiringAccess: Boolean(accountForm.value.hasHiringAccess),
       hasMedicalRecordsReleaseAccess: Boolean(accountForm.value.hasMedicalRecordsReleaseAccess),
+      hasGamesAccess: Boolean(accountForm.value.hasGamesAccess),
       credential: credentialText || null,
       role: accountForm.value.role
     };

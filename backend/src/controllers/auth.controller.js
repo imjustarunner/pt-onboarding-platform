@@ -917,6 +917,7 @@ export const login = async (req, res, next) => {
         has_supervisor_privileges: !!(freshUser?.has_supervisor_privileges === true || freshUser?.has_supervisor_privileges === 1 || freshUser?.has_supervisor_privileges === '1'),
         has_provider_access: !!(freshUser?.has_provider_access === true || freshUser?.has_provider_access === 1 || freshUser?.has_provider_access === '1'),
         has_staff_access: !!(freshUser?.has_staff_access === true || freshUser?.has_staff_access === 1 || freshUser?.has_staff_access === '1'),
+        has_games_access: !!(freshUser?.has_games_access === true || freshUser?.has_games_access === 1 || freshUser?.has_games_access === '1'),
         skill_builder_eligible: !!(freshUser?.skill_builder_eligible === true || freshUser?.skill_builder_eligible === 1 || freshUser?.skill_builder_eligible === '1'),
         has_skill_builder_coordinator_access: !!(
           freshUser?.has_skill_builder_coordinator_access === true ||
@@ -2031,6 +2032,7 @@ export const passwordlessTokenLogin = async (req, res, next) => {
           has_supervisor_privileges: !!(fullUser?.has_supervisor_privileges === true || fullUser?.has_supervisor_privileges === 1 || fullUser?.has_supervisor_privileges === '1'),
           has_provider_access: !!(fullUser?.has_provider_access === true || fullUser?.has_provider_access === 1 || fullUser?.has_provider_access === '1'),
           has_staff_access: !!(fullUser?.has_staff_access === true || fullUser?.has_staff_access === 1 || fullUser?.has_staff_access === '1'),
+          has_games_access: !!(fullUser?.has_games_access === true || fullUser?.has_games_access === 1 || fullUser?.has_games_access === '1'),
           skill_builder_eligible: !!(fullUser?.skill_builder_eligible === true || fullUser?.skill_builder_eligible === 1 || fullUser?.skill_builder_eligible === '1'),
           has_skill_builder_coordinator_access: !!(
             fullUser?.has_skill_builder_coordinator_access === true ||
@@ -2261,6 +2263,7 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
           has_supervisor_privileges: !!(fullUser?.has_supervisor_privileges === true || fullUser?.has_supervisor_privileges === 1 || fullUser?.has_supervisor_privileges === '1'),
           has_provider_access: !!(fullUser?.has_provider_access === true || fullUser?.has_provider_access === 1 || fullUser?.has_provider_access === '1'),
           has_staff_access: !!(fullUser?.has_staff_access === true || fullUser?.has_staff_access === 1 || fullUser?.has_staff_access === '1'),
+          has_games_access: !!(fullUser?.has_games_access === true || fullUser?.has_games_access === 1 || fullUser?.has_games_access === '1'),
           skill_builder_eligible: !!(fullUser?.skill_builder_eligible === true || fullUser?.skill_builder_eligible === 1 || fullUser?.skill_builder_eligible === '1'),
           has_skill_builder_coordinator_access: !!(
             fullUser?.has_skill_builder_coordinator_access === true ||
