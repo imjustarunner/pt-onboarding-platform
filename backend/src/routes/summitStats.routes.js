@@ -21,7 +21,8 @@ import {
   getClubMemberStats,
   removeClubMember,
   setClubMemberRole,
-  getUserSstcClubAffiliations
+  getUserSstcClubAffiliations,
+  listSstcEligibleUsers
 } from '../controllers/summitStats.controller.js';
 import { postClubShareWithEmployer } from '../controllers/clubEmployerShare.controller.js';
 import {
@@ -241,6 +242,7 @@ router.put('/clubs/:id/members/:userId/status', setClubMemberStatus);
 router.put('/clubs/:id/members/:userId/role', setClubMemberRole);
 router.delete('/clubs/:id/members/:userId', removeClubMember);
 router.get('/users/:userId/club-affiliations', getUserSstcClubAffiliations);
+router.get('/admin/eligible-users', listSstcEligibleUsers);
 router.post('/clubs/:clubId/seasons/:classId/teams/:teamId/announcements', postTeamAnnouncementForTeam);
 
 // Club stats (computed + seed)

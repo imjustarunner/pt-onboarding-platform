@@ -201,8 +201,9 @@ export async function getPlatformAgencyId() {
     const id = parseInt(envId, 10);
     if (Number.isFinite(id) && id > 0) return id;
   }
-  const envSlug = String(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc').trim().toLowerCase();
-  const slugCandidates = Array.from(new Set([envSlug, 'ssc', 'sstc', 'summit-stats'].filter(Boolean)));
+  const envSlug = String(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'sstc').trim().toLowerCase();
+  // Try the most-likely-current slug first, then legacy alternates.
+  const slugCandidates = Array.from(new Set([envSlug, 'sstc', 'ssc', 'summit-stats'].filter(Boolean)));
 
   if (slugCandidates.length) {
     const placeholders = slugCandidates.map(() => '?').join(', ');
@@ -223,7 +224,7 @@ export async function getPlatformAgencyId() {
 }
 
 export async function getPlatformAgencyIds(platformSlug = null) {
-  const envSlug = String(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'ssc').trim().toLowerCase();
+  const envSlug = String(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'sstc').trim().toLowerCase();
   const requestedSlug = String(platformSlug || '').trim().toLowerCase();
   const isSummitStatsAlias = ['ssc', 'sstc', 'summit-stats', envSlug].includes(requestedSlug);
   const slugSet = new Set();
@@ -1717,6 +1718,138 @@ export const setClubMemberRole = async (req, res, next) => {
     }
 
     return res.json({ ok: true, clubId: club.id, userId, clubRole: requested });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /summit-stats/admin/eligible-users
+ * Super admin only.
+ * Returns users who are already in the SSTC ecosystem — i.e. members of the
+ * platform tenant, OR members of any club affiliated under the SSTC platform.
+ * Each row includes the user's existing club affiliations + roles for context.
+ *
+ * Query params:
+ *   q  – optional substring to filter by name/email (server-side)
+ *   limit – cap (default 200)
+ */
+export const listSstcEligibleUsers = async (req, res, next) => {
+  try {
+    const callerRole = String(req.user?.role || '').trim().toLowerCase();
+    if (callerRole !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+    const platformIds = await getPlatformAgencyIds(null);
+    if (!platformIds.length) {
+      return res.status(503).json({
+        error: { message: `${SUMMIT_STATS_TEAM_CHALLENGE_NAME} is not configured.` }
+      });
+    }
+
+    const q = String(req.query?.q || '').trim();
+    const limit = Math.trunc(Math.min(500, Math.max(10, parseInt(req.query?.limit, 10) || 200)));
+
+    const platformPh = platformIds.map(() => '?').join(', ');
+
+    // SSTC-affiliated user ids:
+    //   (a) Direct members of any platform tenant agency (sstc/ssc/summit-stats)
+    //   (b) Members of any club affiliated under one of those platform tenants
+    const idParams = [...platformIds, ...platformIds];
+    const [idRows] = await pool.execute(
+      `SELECT DISTINCT user_id FROM (
+         SELECT ua.user_id
+         FROM user_agencies ua
+         WHERE ua.agency_id IN (${platformPh})
+         UNION
+         SELECT ua.user_id
+         FROM user_agencies ua
+         INNER JOIN agencies a ON a.id = ua.agency_id
+         INNER JOIN organization_affiliations oa ON oa.organization_id = a.id
+         WHERE a.organization_type = 'affiliation'
+           AND oa.is_active = 1
+           AND oa.agency_id IN (${platformPh})
+       ) AS combined`,
+      idParams
+    );
+
+    const eligibleIds = (idRows || [])
+      .map((r) => Number(r.user_id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    if (!eligibleIds.length) {
+      return res.json({ users: [], total: 0 });
+    }
+
+    // Pull the user rows. Apply optional search filter server-side.
+    const idPh = eligibleIds.map(() => '?').join(', ');
+    const params = [...eligibleIds];
+    let where = `u.id IN (${idPh}) AND (u.is_archived IS NULL OR u.is_archived = 0)`;
+    if (q) {
+      const qLike = `%${q.replace(/%/g, '\\%')}%`;
+      where += ` AND (u.email LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ?
+                     OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)`;
+      params.push(qLike, qLike, qLike, qLike);
+    }
+
+    const [userRows] = await pool.execute(
+      `SELECT u.id, u.email, u.first_name, u.last_name, u.role, u.status
+       FROM users u
+       WHERE ${where}
+       ORDER BY u.first_name ASC, u.last_name ASC, u.id ASC
+       LIMIT ${limit}`,
+      params
+    );
+
+    const userIds = (userRows || []).map((r) => Number(r.id));
+    const affilByUser = new Map();
+    if (userIds.length) {
+      const uph = userIds.map(() => '?').join(', ');
+      const plat = sqlAffiliationUnderSummitPlatform('a', platformIds);
+      const platSql = plat ? plat.sql : '';
+      const platParams = plat ? plat.params : [];
+      const [affilRows] = await pool.execute(
+        `SELECT ua.user_id, a.id AS club_id, a.name AS club_name, a.slug AS club_slug,
+                ua.club_role, ua.is_active
+         FROM user_agencies ua
+         INNER JOIN agencies a ON a.id = ua.agency_id
+         WHERE ua.user_id IN (${uph})
+           AND a.organization_type = 'affiliation'
+           AND a.is_active = 1
+           ${platSql}`,
+        [...userIds, ...platParams]
+      );
+      for (const row of affilRows || []) {
+        const uid = Number(row.user_id);
+        if (!affilByUser.has(uid)) affilByUser.set(uid, []);
+        affilByUser.get(uid).push({
+          clubId: Number(row.club_id),
+          clubName: row.club_name || '',
+          clubSlug: row.club_slug || '',
+          clubRole: row.club_role || 'member',
+          isActive: Number(row.is_active || 0) === 1
+        });
+      }
+    }
+
+    const users = (userRows || []).map((u) => {
+      const memberships = affilByUser.get(Number(u.id)) || [];
+      const isManagerSomewhere = memberships.some(
+        (m) => m.clubRole === 'manager' || m.clubRole === 'assistant_manager'
+      );
+      return {
+        id: Number(u.id),
+        email: u.email || '',
+        firstName: u.first_name || '',
+        lastName: u.last_name || '',
+        role: u.role || '',
+        status: u.status || '',
+        sstcMemberships: memberships,
+        isClubManagerSomewhere: isManagerSomewhere
+      };
+    });
+
+    return res.json({ users, total: users.length });
   } catch (e) {
     next(e);
   }

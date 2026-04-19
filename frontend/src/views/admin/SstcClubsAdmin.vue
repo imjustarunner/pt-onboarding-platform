@@ -13,6 +13,11 @@
 
     <div v-if="loadError" class="alert alert-danger">{{ loadError }}</div>
 
+    <div class="muted small scope-note">
+      Showing only users already in the SSTC ecosystem (members of the SSTC platform
+      or members of any SSTC club). Includes managers, assistant managers and members.
+    </div>
+
     <!-- ─────────── Create new club ─────────── -->
     <section class="card create-card">
       <div class="card-head">
@@ -218,13 +223,20 @@
               </span>
             </div>
             <div class="club-row-actions" @click.stop>
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="busyKey === `open-${club.id}`"
+                @click="openAsSuperAdmin(club)"
+                title="Enter this club's interface as super admin (preview mode)"
+              >Open as super admin</button>
               <a
                 v-if="club.slug"
                 class="btn btn-secondary btn-sm"
                 :href="`/clubs/${club.slug}`"
                 target="_blank"
                 rel="noopener"
-              >Open public page</a>
+              >Public page</a>
             </div>
           </div>
 
@@ -284,9 +296,14 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import UserPicker from '../../components/admin/sstc/UserPicker.vue';
 import UserMultiPicker from '../../components/admin/sstc/UserMultiPicker.vue';
+import { useAgencyStore } from '../../store/agency';
+
+const router = useRouter();
+const agencyStore = useAgencyStore();
 
 const slugify = (s) =>
   String(s || '')
@@ -306,26 +323,29 @@ const displayName = (u) => {
 
 const loadError = ref('');
 
-// Users (for pickers + lookup)
+// SSTC-eligible users only (members of platform tenant or any SSTC club).
+// Includes their existing club memberships so the picker can show context.
 const users = ref([]);
 const usersLoading = ref(false);
 const loadUsers = async () => {
   usersLoading.value = true;
   try {
-    const res = await api.get('/users');
-    const list = Array.isArray(res.data) ? res.data : [];
-    users.value = list
-      .filter((u) => u && Number.isFinite(Number(u.id)))
-      .map((u) => ({
-        id: Number(u.id),
-        firstName: u.first_name || '',
-        lastName: u.last_name || '',
-        email: u.email || '',
-        role: u.role || '',
-        status: u.status || ''
-      }));
+    const res = await api.get('/summit-stats/admin/eligible-users', {
+      params: { limit: 500 }
+    });
+    const list = Array.isArray(res.data?.users) ? res.data.users : [];
+    users.value = list.map((u) => ({
+      id: Number(u.id),
+      firstName: u.firstName || '',
+      lastName: u.lastName || '',
+      email: u.email || '',
+      role: u.role || '',
+      status: u.status || '',
+      sstcMemberships: Array.isArray(u.sstcMemberships) ? u.sstcMemberships : [],
+      isClubManagerSomewhere: !!u.isClubManagerSomewhere
+    }));
   } catch (e) {
-    loadError.value = e?.response?.data?.error?.message || 'Failed to load users';
+    loadError.value = e?.response?.data?.error?.message || 'Failed to load eligible users';
   } finally {
     usersLoading.value = false;
   }
@@ -347,7 +367,21 @@ const loadClubs = async () => {
   clubsLoading.value = true;
   try {
     const res = await api.get('/summit-stats/clubs', { params: { limit: 100 } });
-    clubs.value = Array.isArray(res.data) ? res.data : [];
+    const list = Array.isArray(res.data?.clubs)
+      ? res.data.clubs
+      : Array.isArray(res.data)
+        ? res.data
+        : [];
+    clubs.value = list.map((c) => ({
+      id: Number(c.id),
+      name: c.name || '',
+      slug: c.slug || '',
+      city: c.city || null,
+      state: c.state || null,
+      isActive: c.is_active !== 0 && c.is_active !== false,
+      primaryManagerName: c.primaryManagerName || null,
+      primaryManagerUserId: c.primaryManagerUserId || null
+    }));
   } catch (e) {
     loadError.value = e?.response?.data?.error?.message || 'Failed to load clubs';
   } finally {
@@ -535,6 +569,33 @@ const removeFromLookupClub = async (club) => {
   }
 };
 
+// Enter the club's interface as super admin. Hydrates the club into the
+// agency store, then routes to the SSTC dashboard with previewMode=superadmin
+// so the access guards in challenge controllers/views allow read+write.
+const openAsSuperAdmin = async (club) => {
+  if (!club?.id) return;
+  busyKey.value = `open-${club.id}`;
+  try {
+    let hydrated = null;
+    try {
+      hydrated = await agencyStore.hydrateAgencyById(club.id);
+    } catch (_) {
+      hydrated = null;
+    }
+    if (hydrated) agencyStore.setCurrentAgency(hydrated);
+
+    await router.push({
+      path: '/sstc/my_club_dashboard',
+      query: {
+        previewMode: 'superadmin',
+        previewAgencyId: String(club.id)
+      }
+    });
+  } finally {
+    busyKey.value = '';
+  }
+};
+
 onMounted(async () => {
   await Promise.all([loadUsers(), loadClubs()]);
 });
@@ -557,6 +618,12 @@ onMounted(async () => {
 .muted { color: var(--text-secondary); }
 .muted.small, .small { font-size: 12px; }
 .required { color: #dc2626; margin-left: 2px; }
+.scope-note {
+  background: #f1f5f9;
+  border-left: 4px solid #4f46e5;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
 
 .card {
   background: white;

@@ -36,6 +36,17 @@
           <span>{{ u.email }}</span>
           <span v-if="u.role" class="role-pill">{{ u.role }}</span>
         </div>
+        <div v-if="(u.sstcMemberships || []).length" class="picker-row-clubs">
+          <span
+            v-for="m in u.sstcMemberships"
+            :key="`um-${u.id}-${m.clubId}`"
+            class="club-pill"
+            :class="`role-${m.clubRole}`"
+            :title="`${m.clubName} · ${m.clubRole}${m.isActive ? '' : ' (inactive)'}`"
+          >
+            {{ m.clubName }} · {{ shortRole(m.clubRole) }}
+          </span>
+        </div>
       </div>
       <div v-if="filtered.length > 25" class="picker-more">
         Showing first 25 of {{ filtered.length }} matches — keep typing to narrow.
@@ -82,6 +93,12 @@ const inputEl = ref(null);
 const displayName = (u) => {
   const name = `${u?.firstName || ''} ${u?.lastName || ''}`.trim();
   return name || u?.email || `User ${u?.id || ''}`;
+};
+
+const shortRole = (role) => {
+  if (role === 'manager') return 'mgr';
+  if (role === 'assistant_manager') return 'asst';
+  return 'mem';
 };
 
 const selected = computed(() =>
@@ -213,4 +230,25 @@ const commitCursor = () => {
   text-align: center;
   border-top: 1px solid var(--border);
 }
+.picker-row-clubs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.club-pill {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  background: #e0e7ff;
+  color: #3730a3;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.club-pill.role-manager { background: #dcfce7; color: #166534; }
+.club-pill.role-assistant_manager { background: #fef3c7; color: #92400e; }
 </style>

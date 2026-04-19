@@ -310,7 +310,7 @@ export const getClubPlatformTenantAgencyId = async (clubId) => {
      ORDER BY
        CASE
          WHEN LOWER(COALESCE(parent.slug, '')) = ? THEN 0
-         WHEN LOWER(COALESCE(parent.slug, '')) IN ('sstc', 'sstc', 'summit-stats') THEN 1
+         WHEN LOWER(COALESCE(parent.slug, '')) IN ('ssc', 'sstc', 'summit-stats') THEN 1
          ELSE 2
        END,
        oa.agency_id DESC

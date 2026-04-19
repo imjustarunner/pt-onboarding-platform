@@ -55,7 +55,7 @@ async function buildPayrollCaps(user) {
 const SSO_EXCLUDED_ROLES = new Set(['school_staff', 'client_guardian', 'client', 'guardian', 'kiosk']);
 const normalizeTenantSlug = (value) => String(value || '').trim().toLowerCase();
 const SUMMIT_TENANT_SLUGS = new Set(
-  ['sstc', 'sstc', 'summit-stats', normalizeTenantSlug(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'sstc')].filter(Boolean)
+  ['ssc', 'sstc', 'summit-stats', normalizeTenantSlug(process.env.SUMMIT_STATS_PLATFORM_SLUG || 'sstc')].filter(Boolean)
 );
 const isSummitTenantSlug = (value) => {
   const slug = normalizeTenantSlug(value);
