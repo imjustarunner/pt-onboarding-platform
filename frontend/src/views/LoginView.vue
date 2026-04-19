@@ -956,6 +956,24 @@ onMounted(async () => {
       await verifyUsername({ reason: 'remembered_school_staff' });
       return;
     }
+
+    // Summit-family branded logins (e.g. /sstc/login): if "remember username"
+    // was checked on the previous sign-in, repopulate the field and auto-verify
+    // so the user lands directly on the password step. We scope this to Summit
+    // tenants for now so we don't change behavior on other org logins.
+    if (isSummitTenantSlug(currentOrg)) {
+      const rememberedPlatform = getRememberedLogin();
+      if (
+        rememberedPlatform?.username &&
+        rememberedPlatform?.orgSlug &&
+        rememberedPlatform.orgSlug === currentOrg
+      ) {
+        username.value = rememberedPlatform.username;
+        rememberLogin.value = true;
+        await verifyUsername({ reason: 'remembered' });
+        return;
+      }
+    }
   }
 
   // Platform login convenience: restore the remembered username, but do not auto-route away from
