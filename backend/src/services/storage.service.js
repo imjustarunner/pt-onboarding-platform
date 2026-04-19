@@ -963,6 +963,10 @@ class StorageService {
 
     await file.save(fileBuffer, {
       contentType: 'application/pdf',
+      // Force single-shot upload. The default path uses resumable uploads for
+      // payloads ≥ ~10 MB, which can stall indefinitely from this Node client
+      // (see #1 below). Intake PDFs always fit comfortably in a single PUT.
+      resumable: false,
       metadata: {
         submissionId: String(submissionId || ''),
         templateId: String(templateId || ''),
@@ -981,6 +985,10 @@ class StorageService {
 
     await file.save(fileBuffer, {
       contentType: 'application/pdf',
+      // Resumable uploads silently hang here for merged packets > ~10 MB,
+      // which leaves the submission row with combined_pdf_path = NULL and
+      // staff scrambling for a "missing" full packet. Force single-shot.
+      resumable: false,
       metadata: {
         submissionId: String(submissionId || ''),
         uploadedAt: new Date().toISOString()
@@ -998,6 +1006,8 @@ class StorageService {
 
     await file.save(fileBuffer, {
       contentType: 'application/pdf',
+      // Same single-shot upload guard as the parent bundle.
+      resumable: false,
       metadata: {
         submissionId: String(submissionId || ''),
         clientId: String(clientId || ''),
