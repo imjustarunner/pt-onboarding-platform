@@ -43,6 +43,9 @@
         </button>
       </div>
     </div>
+
+    <!-- SSTC clubs the user belongs to (any role). Always visible if they have any. -->
+    <MySstcClubsCard v-if="!hidePortalCards" />
   </div>
 </template>
 
@@ -52,6 +55,7 @@ import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import { useRoute, useRouter } from 'vue-router';
 import { toUploadsUrl } from '../utils/uploadsUrl';
+import MySstcClubsCard from './sstc/MySstcClubsCard.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();

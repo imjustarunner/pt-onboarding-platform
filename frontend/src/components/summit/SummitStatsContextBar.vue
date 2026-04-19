@@ -2,6 +2,18 @@
   <transition name="sstc-bar-slide">
     <div v-if="visible" class="sstc-context-bar" aria-label="Club and team context">
       <div class="sstc-context-inner">
+        <!-- Return-to-work pill (only when user came in from a non-SSTC tenant) -->
+        <button
+          v-if="returnToWorkLabel"
+          type="button"
+          class="sstc-return-pill"
+          :title="`Return to ${returnToWorkLabel}`"
+          @click="returnToWork"
+        >
+          <span class="sstc-return-pill-arrow" aria-hidden="true">←</span>
+          <span class="sstc-return-pill-text">{{ returnToWorkLabel }}</span>
+        </button>
+
         <!-- Club identity -->
         <div class="sstc-club-block">
           <img
@@ -14,6 +26,31 @@
           />
           <span class="sstc-pill-badge">Club</span>
           <span class="sstc-club-name" :title="clubDisplayName">{{ clubDisplayName }}</span>
+
+          <!-- Quick switcher for users with multiple SSTC clubs -->
+          <div v-if="otherClubs.length > 0" class="sstc-club-switcher" v-click-outside="closeSwitcher">
+            <button
+              type="button"
+              class="sstc-club-switch-btn"
+              :title="`Switch to another club (${otherClubs.length + 1} total)`"
+              @click="switcherOpen = !switcherOpen"
+            >
+              <span class="sstc-club-switch-caret" aria-hidden="true">▾</span>
+            </button>
+            <div v-if="switcherOpen" class="sstc-club-switch-menu">
+              <div class="sstc-club-switch-menu-head">Switch club</div>
+              <button
+                v-for="other in otherClubs"
+                :key="`switch-${other.id}`"
+                type="button"
+                class="sstc-club-switch-item"
+                @click="switchToClub(other)"
+              >
+                <span class="sstc-club-switch-name">{{ other.name }}</span>
+                <span class="sstc-club-switch-role">{{ formatRole(other.club_role) }}</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Season / challenge name — pushed to the right on wide screens -->
@@ -35,12 +72,32 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isSummitPlatformRouteSlug } from '../../utils/summitPlatformSlugs.js';
+import {
+  getPreferredWorkAgencyId,
+  setPreferredWorkAgencyId,
+  setSstcSurfaceChoice
+} from '../../utils/sstcSurfaceChoice.js';
+
+const vClickOutside = {
+  mounted(el, binding) {
+    el.__clickOutside__ = (e) => {
+      if (!el.contains(e.target)) binding.value(e);
+    };
+    document.addEventListener('mousedown', el.__clickOutside__, true);
+  },
+  unmounted(el) {
+    if (el.__clickOutside__) {
+      document.removeEventListener('mousedown', el.__clickOutside__, true);
+      el.__clickOutside__ = null;
+    }
+  }
+};
 
 const props = defineProps({
   visible: {
@@ -50,8 +107,11 @@ const props = defineProps({
 });
 
 const route = useRoute();
+const router = useRouter();
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
+const switcherOpen = ref(false);
+const closeSwitcher = () => { switcherOpen.value = false; };
 
 const platformLogoUrl = computed(() =>
   brandingStore.platformBranding?.organization_logo_url ||
@@ -110,6 +170,80 @@ const selectedTeam = computed(() => {
 function challengeLink(row) {
   if (!row?.challengeId || !orgSlug.value) return null;
   return `/${orgSlug.value}/season/${row.challengeId}`;
+}
+
+// ── Cross-tenant return + multi-club switcher ────────────────────
+const isAffiliation = (a) => {
+  const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+  return t === 'affiliation';
+};
+
+const formatRole = (r) => {
+  const v = String(r || '').toLowerCase();
+  if (v === 'manager') return 'Manager';
+  if (v === 'assistant_manager') return 'Asst.';
+  return 'Member';
+};
+
+const sstcClubs = computed(() => {
+  const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  return list.filter(isAffiliation);
+});
+
+const otherClubs = computed(() => {
+  const cur = Number(agencyStore.currentAgency?.id || 0);
+  return sstcClubs.value.filter((c) => Number(c.id) !== cur);
+});
+
+const returnToWorkAgency = computed(() => {
+  // Only show the return pill while inside an SSTC affiliation context.
+  if (!isAffiliation(agencyStore.currentAgency)) return null;
+  const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  const preferredId = getPreferredWorkAgencyId();
+  if (preferredId) {
+    const match = list.find((a) => Number(a?.id) === Number(preferredId) && !isAffiliation(a));
+    if (match) return match;
+  }
+  // Fallback: any non-SSTC agency the user belongs to.
+  return list.find((a) => !isAffiliation(a) && a?.id) || null;
+});
+
+const returnToWorkLabel = computed(() => {
+  const a = returnToWorkAgency.value;
+  if (!a) return null;
+  return String(a.name || a.slug || 'Back').trim() || 'Back';
+});
+
+async function returnToWork() {
+  const a = returnToWorkAgency.value;
+  if (!a) return;
+  setSstcSurfaceChoice('work');
+  setPreferredWorkAgencyId(null);
+  try {
+    const hydrated = await agencyStore.hydrateAgencyById(a.id);
+    agencyStore.setCurrentAgency(hydrated || a);
+  } catch (_) {
+    agencyStore.setCurrentAgency(a);
+  }
+  const slug = String(a.slug || a.portal_url || a.portalUrl || '').trim();
+  if (slug) {
+    await router.push({ path: `/${slug}/dashboard` });
+  } else {
+    await router.push({ path: '/dashboard' });
+  }
+}
+
+async function switchToClub(club) {
+  if (!club?.id) return;
+  switcherOpen.value = false;
+  try {
+    const hydrated = await agencyStore.hydrateAgencyById(club.id);
+    agencyStore.setCurrentAgency(hydrated || club);
+  } catch (_) {
+    agencyStore.setCurrentAgency(club);
+  }
+  const slug = String(club.parent_slug || club.parentSlug || 'sstc').trim() || 'sstc';
+  await router.push({ path: `/${slug}/my_club_dashboard` });
 }
 
 async function loadSummary() {
@@ -205,6 +339,125 @@ watch(
   padding: 8px 28px;
   min-width: 0;
   max-width: 100%;
+}
+
+/* ── Return-to-work pill ─────────────────────── */
+.sstc-return-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(30, 58, 138, 0.25);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--primary, #1e3a8a);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+  flex-shrink: 0;
+}
+.sstc-return-pill:hover {
+  background: #fff;
+  border-color: rgba(30, 58, 138, 0.45);
+  transform: translateY(-1px);
+}
+.sstc-return-pill-arrow {
+  font-size: 13px;
+  line-height: 1;
+}
+.sstc-return-pill-text {
+  max-width: 160px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Multi-club switcher ─────────────────────── */
+.sstc-club-switcher {
+  position: relative;
+  display: inline-block;
+}
+.sstc-club-switch-btn {
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid rgba(30, 58, 138, 0.25);
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--primary, #1e3a8a);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0;
+}
+.sstc-club-switch-btn:hover {
+  background: #fff;
+  border-color: rgba(30, 58, 138, 0.5);
+}
+.sstc-club-switch-caret {
+  line-height: 1;
+}
+.sstc-club-switch-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 240px;
+  max-width: 320px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+.sstc-club-switch-menu-head {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary, #64748b);
+  padding: 6px 8px 4px;
+}
+.sstc-club-switch-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary, #0f172a);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+}
+.sstc-club-switch-item:hover {
+  background: rgba(79, 70, 229, 0.08);
+}
+.sstc-club-switch-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sstc-club-switch-role {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #64748b);
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  margin-left: 8px;
+  flex-shrink: 0;
 }
 
 /* ── Club block ─────────────────────────────── */

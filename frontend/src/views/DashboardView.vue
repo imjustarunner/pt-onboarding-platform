@@ -25,6 +25,9 @@
       </button>
     </div>
 
+    <!-- My SSTC Clubs (visible to any user with one or more SSTC affiliations) -->
+    <MySstcClubsCard v-if="!previewMode" />
+
     <!-- Agency announcement banner (Dashboard) -->
     <div v-if="!previewMode && dashboardBannerTexts.length > 0" class="agency-announcement-banner">
       <div class="agency-announcement-inner">
@@ -1365,6 +1368,7 @@ import { useMomentumListAddon } from '../composables/useMomentumListAddon';
 import ProviderTopSummaryCard from '../components/dashboard/ProviderTopSummaryCard.vue';
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
+import MySstcClubsCard from '../components/sstc/MySstcClubsCard.vue';
 import AdditionalAvailabilitySubmit from '../components/AdditionalAvailabilitySubmit.vue';
 import VirtualWorkingHoursEditor from '../components/availability/VirtualWorkingHoursEditor.vue';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
