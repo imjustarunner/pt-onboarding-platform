@@ -107,7 +107,9 @@ Demo account (Captain + Club Manager):
 
 Notes:
 - The app is a wrapper around our Summit Stats web platform via Capacitor.
-- Sign-in via email/password (and optional Google for clubs that opt in).
+- Sign-in via email/password only on iOS. Google sign-in is intentionally
+  hidden on iOS (Capacitor.getPlatform() === 'ios') so Apple 4.8 (Sign In
+  With Apple) does not apply to this bundle.
 - Permissions:
   * Camera / Photo Library — used when a member taps "Tag workout" and chooses
     a screenshot from their watch app, or to attach an image to a club post.
@@ -213,9 +215,9 @@ Suggested screenshot order:
 - [x] **Block user** in-app + manage list in Settings
 - [x] **Privacy/Camera/Photos/Mic/FaceID/Location usage strings** in `Info.plist`
 - [x] **Encryption declaration** (`ITSAppUsesNonExemptEncryption = false`)
-- [ ] **Sign In With Apple** — required if Google login is offered to public
-      users. Either add SIWA or remove Google login from the iOS bundle.
-      (See section 13.)
+- [x] **Sign In With Apple** — N/A. Google sign-in is now hidden on iOS
+      (`Capacitor.getPlatform() === 'ios'`), so Apple 4.8 does not apply to
+      this bundle. The web app keeps Google for everyone else. (See section 13.)
 - [ ] **Demo account** (apple-review@plottwist.co) provisioned with captain +
       manager + season membership
 - [ ] **Privacy policy + Terms + Support pages** live and reachable
@@ -227,30 +229,40 @@ Suggested screenshot order:
 - [ ] **App Store Connect record** created with bundle id `com.plottwist.sstc`
 - [ ] **Build uploaded** via Xcode → Distribute App → App Store Connect
 
-## 13. Outstanding hard blocker — Sign In With Apple
+## 13. Sign In With Apple — resolved by hiding Google on iOS
 
-App Store Review Guideline **4.8** requires Sign In With Apple any time the
-app offers a third-party social login (Google in our case). The Summit Stats
-public flow exposes Google sign-in, so the iOS bundle must offer SIWA or hide
-Google login behind an enterprise/club-controlled flag that doesn't apply to
-public users.
+App Store Review Guideline **4.8** requires Sign In With Apple any time an app
+offers a third-party social login. We took the lowest-effort path: the iOS
+bundle hides Google sign-in entirely.
 
-Options, lowest-effort first:
+Implementation, in `frontend/src/views/LoginView.vue`:
 
-1. **Hide Google login on iOS.** If only email/password is available, SIWA is
-   not required. Quickest path to ship, costs the convenience.
-2. **Add Sign In With Apple.** Roughly a day of focused work:
-   - Enable the *Sign In with Apple* capability in Xcode.
-   - Install `@capacitor-community/apple-sign-in`.
-   - Add a "Continue with Apple" button on `LoginView.vue`.
-   - Add a backend route that verifies the Apple identity token (`audience`,
-     `nonce`, signature against Apple's JWKS), then upserts the user by the
-     stable Apple `sub` claim and links it to an existing email match.
-   - Handle the private relay email (`@privaterelay.appleid.com`).
-   - Add a "Linked Sign-In Methods" panel so users can connect/disconnect
-     Apple alongside Google.
+- A constant `isIOSNative = Capacitor.getPlatform() === 'ios' && Capacitor.isNativePlatform()`
+  is computed at module load.
+- The "Continue as … with Google" remembered-login button is gated behind
+  `!isIOSNative`.
+- `getRememberedGoogleLogin()` is skipped on iOS, so a stale remembered Google
+  selection cannot pre-fill the form.
+- The `verifyUser` and `currentEmployeeRescue` flows no longer auto-redirect
+  to `/auth/google/start` on iOS — they fall through to password mode with a
+  short message telling the user that Google sign-in is on the web only.
+- `continueWithGoogle()` and `startRememberedGoogleLogin()` are early-returns
+  on iOS as belt-and-suspenders against any future entry point.
 
-Whichever route you pick, document it in section 7 (review notes).
+The web app (and Android, if/when shipped) keep Google login unchanged.
+
+If you ever want to re-enable Google on iOS, you must implement Sign In With
+Apple at the same time. Sketch:
+
+- Enable the *Sign In with Apple* capability in Xcode.
+- Install `@capacitor-community/apple-sign-in`.
+- Add a "Continue with Apple" button on `LoginView.vue`.
+- Add a backend route that verifies the Apple identity token (`audience`,
+  `nonce`, signature against Apple's JWKS), then upserts the user by the
+  stable Apple `sub` claim and links it to an existing email match.
+- Handle the private relay email (`@privaterelay.appleid.com`).
+- Add a "Linked Sign-In Methods" panel so users can connect/disconnect
+  Apple alongside Google.
 
 ## 14. Realistic ship timeline (from today)
 

@@ -228,7 +228,7 @@
         </section>
 
         <button
-          v-if="showRememberedGoogleButton"
+          v-if="showRememberedGoogleButton && !isIOSNative"
           type="button"
           class="btn google-quick-login"
           :disabled="loading || verifying"
@@ -481,6 +481,19 @@ import {
   hasSavedToken,
   authenticateWithBiometrics
 } from '../utils/biometricAuth';
+import { Capacitor } from '@capacitor/core';
+
+// Apple App Store Review Guideline 4.8: any consumer-facing app that offers a
+// third-party login (Google, in our case) must also offer Sign In With Apple.
+// Until SIWA is implemented we simply hide the Google entry points on iOS so
+// the iOS bundle ships with email/password (and biometrics) only.
+const isIOSNative = (() => {
+  try {
+    return Capacitor.getPlatform?.() === 'ios' && Capacitor.isNativePlatform?.();
+  } catch {
+    return false;
+  }
+})();
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 import api from '../services/api';
@@ -955,7 +968,7 @@ onMounted(async () => {
     }
   }
 
-  const rememberedGoogle = getRememberedGoogleLogin();
+  const rememberedGoogle = isIOSNative ? null : getRememberedGoogleLogin();
   const rememberedGoogleSlug = String(rememberedGoogle?.orgSlug || '').trim().toLowerCase();
   const currentSlug = String(loginSlug.value || '').trim().toLowerCase();
   if (rememberedGoogle && currentSlug && rememberedGoogleSlug === currentSlug) {
@@ -1133,12 +1146,14 @@ watch(
 );
 
 const continueWithGoogle = () => {
+  if (isIOSNative) return;
   if (!loginSlug.value) return;
   const base = getBackendBaseUrl();
   window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(String(loginSlug.value).trim().toLowerCase())}`;
 };
 
 const startRememberedGoogleLogin = () => {
+  if (isIOSNative) return;
   const rememberedOrg = String(rememberedGoogleLogin.value?.orgSlug || '').trim().toLowerCase();
   if (!rememberedOrg) return;
   const base = getBackendBaseUrl();
@@ -1269,6 +1284,13 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     // Decide between Google vs password.
     const method = String(data?.login?.method || 'password').toLowerCase();
     if (method === 'google') {
+      if (isIOSNative) {
+        // iOS bundle does not offer Google sign-in (Apple 4.8). Send the user
+        // to password mode and tell them why so they don't get stuck.
+        error.value = 'Google sign-in is only available on the web. Please sign in with your password here, or open the web app to use Google.';
+        showPassword.value = true;
+        return;
+      }
       const path = String(data?.login?.googleStartUrl || '').trim();
       if (path) {
         const base = getBackendBaseUrl();
@@ -1512,6 +1534,10 @@ const submitCurrentEmployeeRescue = async () => {
 
     const method = String(resp?.data?.login?.method || 'password').toLowerCase();
     if (method === 'google') {
+      if (isIOSNative) {
+        recoveryError.value = 'Google sign-in is only available on the web. Use reset password to set a password you can use in this app.';
+        return;
+      }
       const path = String(resp?.data?.login?.googleStartUrl || '').trim();
       if (path) {
         const base = getBackendBaseUrl();
