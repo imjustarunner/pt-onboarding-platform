@@ -828,6 +828,7 @@ export const submitWorkout = async (req, res, next) => {
     if (isTreadmill && treadmillpocalypseEnabled && treadmillpocalypseStartsAtWeek && String(completedWeekStart || '') >= treadmillpocalypseStartsAtWeek) {
       return res.status(400).json({ error: { message: 'Treadmill workouts are blocked for this week (treadmillpocalypse active).' } });
     }
+    const terrain = req.body.terrain ? String(req.body.terrain).trim() : null;
     const weeklyTaskId = req.body.weeklyTaskId ? asInt(req.body.weeklyTaskId) : null;
     let weeklyTask = null;
     if (weeklyTaskId) {
@@ -961,7 +962,6 @@ export const submitWorkout = async (req, res, next) => {
     const raceDistanceMiles = isRace && req.body.raceDistanceMiles != null ? parseFloat(req.body.raceDistanceMiles) : null;
     const raceChipTimeSeconds = isRace && req.body.raceChipTimeSeconds != null ? asInt(req.body.raceChipTimeSeconds) : null;
     const raceOverallPlace = isRace && req.body.raceOverallPlace != null ? asInt(req.body.raceOverallPlace) : null;
-    const terrain = req.body.terrain ? String(req.body.terrain).trim() : null;
     const workout = await ChallengeWorkout.create({
       learningClassId: classId,
       teamId,

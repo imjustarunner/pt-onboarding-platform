@@ -430,15 +430,39 @@ export const listAssignedClientsForProviderDay = async (req, res, next) => {
     const dayOfWeek = normalizeDay(req.query.dayOfWeek);
     if (!dayOfWeek) return res.status(400).json({ error: { message: `dayOfWeek is required (${allowedDays.join(', ')})` } });
 
-    // Return restricted fields only (school portal).
+    // Prefer org-scoped provider/day rows; fall back to legacy clients.organization_id + provider_id + service_day.
+    const sid = parseInt(schoolId, 10);
+    const pid = parseInt(providerId, 10);
     const [rows] = await pool.execute(
-      `SELECT id, initials, identifier_code, status, document_status, provider_id, service_day, roi_expires_at
-       FROM clients
-       WHERE organization_id = ?
-         AND provider_id = ?
-         AND service_day = ?
-       ORDER BY initials ASC`,
-      [parseInt(schoolId, 10), parseInt(providerId, 10), dayOfWeek]
+      `SELECT DISTINCT
+         c.id,
+         c.initials,
+         c.identifier_code,
+         c.status,
+         c.document_status,
+         c.provider_id,
+         c.service_day,
+         c.roi_expires_at
+       FROM clients c
+       JOIN client_organization_assignments coa
+         ON coa.client_id = c.id
+        AND coa.organization_id = ?
+        AND coa.is_active = TRUE
+       LEFT JOIN client_provider_assignments cpa
+         ON cpa.client_id = c.id
+        AND cpa.organization_id = coa.organization_id
+        AND cpa.provider_user_id = ?
+        AND cpa.service_day = ?
+        AND cpa.is_active = TRUE
+       WHERE (cpa.id IS NOT NULL
+         OR (
+           c.organization_id = ?
+           AND c.provider_id = ?
+           AND c.service_day = ?
+         ))
+         AND (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+       ORDER BY c.initials ASC`,
+      [sid, pid, dayOfWeek, sid, pid, dayOfWeek]
     );
 
     // Unread note counts (per user) - best effort if table exists.

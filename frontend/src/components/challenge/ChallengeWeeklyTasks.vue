@@ -590,7 +590,7 @@ async function load() {
       }),
       api.get(`/learning-program-classes/${props.challengeId}`, { skipGlobalLoading: true }),
       api.get(`/learning-program-classes/${props.challengeId}/bye-weeks/my`, { skipGlobalLoading: true }),
-      api.get('/challenges/my-teams', { skipGlobalLoading: true }).catch(() => ({ data: { teams: [] } }))
+      api.get('/learning-program-classes/my/summary', { skipGlobalLoading: true }).catch(() => ({ data: { teams: [] } }))
     ]);
 
     tasks.value = Array.isArray(tasksRes.data?.tasks) ? tasksRes.data.tasks : [];

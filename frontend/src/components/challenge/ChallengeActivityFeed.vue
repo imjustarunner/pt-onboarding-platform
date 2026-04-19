@@ -728,11 +728,18 @@ const clearFilters = () => {
 const filteredWorkouts = computed(() => {
   let list = props.workouts || [];
 
-  // Date filter — show workouts completed on selectedDate
+  // Date filter — show workouts completed on selectedDate. completed_at is stored
+  // as UTC by the backend, so we must convert to the viewer's local date before
+  // comparing; otherwise late-evening workouts (whose UTC date has rolled over)
+  // get hidden from the current day's feed.
   list = list.filter((w) => {
-    if (!w.completed_at) return false;
-    const d = String(w.completed_at).slice(0, 10);
-    return d === selectedDate.value;
+    const raw = w.completed_at || w.created_at;
+    if (!raw) return false;
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) {
+      return String(raw).slice(0, 10) === selectedDate.value;
+    }
+    return dt.toLocaleDateString('en-CA') === selectedDate.value;
   });
 
   // Team filter

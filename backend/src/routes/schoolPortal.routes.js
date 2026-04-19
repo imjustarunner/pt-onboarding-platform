@@ -34,6 +34,7 @@ import {
   updateBulkSchoolPortalAnnouncements,
   deleteBulkSchoolPortalAnnouncements,
   queryComplianceCorner,
+  searchSchoolPortalClientAssignments,
   getSchoolStaffWaiverStatus,
   resetSchoolStaffWaiverStatusForTesting,
   restoreSchoolPortalIntakeArtifacts
@@ -117,6 +118,7 @@ router.delete('/:organizationId/announcements/:announcementId', authenticate, de
 router.post('/:organizationId/compliance-corner/query', authenticate, queryComplianceCorner);
 router.get('/:schoolId/affiliation', authenticate, getSchoolPortalAffiliation);
 router.get('/:organizationId/stats', authenticate, getSchoolPortalStats);
+router.get('/:organizationId/client-assignment-search', authenticate, searchSchoolPortalClientAssignments);
 router.get('/:organizationId/school-staff-waiver/status', authenticate, getSchoolStaffWaiverStatus);
 router.post('/:organizationId/school-staff-waiver/reset', authenticate, resetSchoolStaffWaiverStatusForTesting);
 router.post('/:organizationId/admin-tools/restore-intake-artifacts', authenticate, restoreSchoolPortalIntakeArtifacts);

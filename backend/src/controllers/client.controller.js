@@ -5110,66 +5110,126 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Provider is not part of this agency' } });
       }
 
-      // Upsert with slot accounting
-      const [existingRows] = await connection.execute(
+      const allowOverCapacityReq =
+        req.body?.allow_over_capacity === true || req.body?.allow_over_capacity === 1 || req.body?.allow_over_capacity === '1';
+
+      // Active rows for this client+org+provider (may be multiple weekdays after migration 713).
+      const [activeRows] = await connection.execute(
         `SELECT id, is_active, service_day
          FROM client_provider_assignments
-         WHERE client_id = ? AND organization_id = ? AND provider_user_id = ?
-         LIMIT 1
+         WHERE client_id = ? AND organization_id = ? AND provider_user_id = ? AND is_active = TRUE
          FOR UPDATE`,
         [clientId, orgId, providerUserId]
       );
-      const existing = existingRows?.[0] || null;
+      const activeList = activeRows || [];
+      const existingSameDay =
+        activeList.find((r) => (r.service_day == null && serviceDay == null) || String(r.service_day || '') === String(serviceDay || '')) ||
+        null;
 
-      const oldDay = existing?.service_day ? String(existing.service_day) : null;
-      const wasActive = existing ? (existing.is_active === 1 || existing.is_active === true) : false;
-      const oldConsumesSlot = wasActive && oldDay; // oldDay is NULL or weekday enum
+      const [siblingRows] = await connection.execute(
+        `SELECT COUNT(*) AS cnt
+         FROM client_provider_assignments
+         WHERE client_id = ? AND organization_id = ? AND provider_user_id = ?
+           AND is_active = TRUE
+           AND NOT (service_day <=> ?)`,
+        [clientId, orgId, providerUserId, serviceDay]
+      );
+      const siblingCount = Number(siblingRows?.[0]?.cnt || 0);
+
+      const singleActive = activeList.length === 1 ? activeList[0] : null;
+      const moveSingleDayRow =
+        !!singleActive &&
+        !!serviceDay &&
+        String(singleActive.service_day || '') !== String(serviceDay || '') &&
+        !activeList.some((r) => String(r.service_day || '') === String(serviceDay || ''));
+
+      const wasActive = existingSameDay ? (existingSameDay.is_active === 1 || existingSameDay.is_active === true) : false;
+      const oldDaySameRow = existingSameDay?.service_day ? String(existingSameDay.service_day) : null;
+      const oldConsumesSlot = wasActive && oldDaySameRow;
       const newConsumesSlot = !!serviceDay;
-      const shouldNotifyAssignment = !existing || !wasActive;
 
-      // Refund old slot if active and day changed
-      if (oldConsumesSlot && oldDay !== serviceDay) {
-        await adjustProviderSlots(connection, { providerUserId, schoolId: orgId, dayOfWeek: oldDay, delta: +1 });
-      }
+      const allowNegativeSlot =
+        allowOverCapacityReq || (!!serviceDay && !existingSameDay && siblingCount > 0 && !moveSingleDayRow);
 
-      // Take new slot if newly active or day changed
-      if (newConsumesSlot && (!wasActive || oldDay !== serviceDay || !oldConsumesSlot)) {
-        const take = await adjustProviderSlots(connection, { providerUserId, schoolId: orgId, dayOfWeek: serviceDay, delta: -1 });
+      // Refund + take when moving the only active row from one weekday to another.
+      if (moveSingleDayRow && singleActive?.service_day && serviceDay) {
+        const fromDay = String(singleActive.service_day || '');
+        await adjustProviderSlots(connection, { providerUserId, schoolId: orgId, dayOfWeek: fromDay, delta: +1 });
+        const take = await adjustProviderSlots(connection, {
+          providerUserId,
+          schoolId: orgId,
+          dayOfWeek: serviceDay,
+          delta: -1,
+          allowNegative: allowNegativeSlot
+        });
         if (!take.ok) {
           await connection.rollback();
           return res.status(400).json({ error: { message: take.reason } });
         }
-      }
-
-      // Ensure "primary provider" is tracked (best-effort if column exists).
-      if (requestedPrimary) {
-        try {
-          await connection.execute(
-            `UPDATE client_provider_assignments
-             SET is_primary = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
-             WHERE client_id = ?`,
-            [userId, clientId]
-          );
-        } catch {
-          // ignore (older DBs may not have column yet)
-        }
-      }
-
-      if (!existing) {
-        await connection.execute(
-          `INSERT INTO client_provider_assignments
-            (client_id, organization_id, provider_user_id, service_day, is_active, created_by_user_id, updated_by_user_id${requestedPrimary ? ', is_primary' : ''})
-           VALUES (?, ?, ?, ?, TRUE, ?, ?${requestedPrimary ? ', TRUE' : ''})`,
-          [clientId, orgId, providerUserId, serviceDay, userId, userId]
-        );
-      } else {
         await connection.execute(
           `UPDATE client_provider_assignments
            SET service_day = ?, is_active = TRUE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP${requestedPrimary ? ', is_primary = TRUE' : ''}
            WHERE id = ?`,
-          [serviceDay, userId, existing.id]
+          [serviceDay, userId, singleActive.id]
         );
+      } else {
+        // Refund if reactivating/updating the same row and weekday changes (should not happen when keyed by day, kept for safety)
+        if (existingSameDay && oldConsumesSlot && oldDaySameRow !== serviceDay) {
+          await adjustProviderSlots(connection, { providerUserId, schoolId: orgId, dayOfWeek: oldDaySameRow, delta: +1 });
+        }
+
+        if (newConsumesSlot && (!existingSameDay || !wasActive || (oldDaySameRow !== serviceDay && !moveSingleDayRow))) {
+          const needTake =
+            !existingSameDay || !wasActive || (existingSameDay && oldDaySameRow !== serviceDay && !oldConsumesSlot);
+          if (needTake) {
+            const take = await adjustProviderSlots(connection, {
+              providerUserId,
+              schoolId: orgId,
+              dayOfWeek: serviceDay,
+              delta: -1,
+              allowNegative: allowNegativeSlot
+            });
+            if (!take.ok) {
+              await connection.rollback();
+              return res.status(400).json({ error: { message: take.reason } });
+            }
+          }
+        }
+
+        if (requestedPrimary) {
+          try {
+            await connection.execute(
+              `UPDATE client_provider_assignments
+               SET is_primary = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE client_id = ?`,
+              [userId, clientId]
+            );
+          } catch {
+            // ignore (older DBs may not have column yet)
+          }
+        }
+
+        if (!moveSingleDayRow) {
+          if (!existingSameDay) {
+            await connection.execute(
+              `INSERT INTO client_provider_assignments
+                (client_id, organization_id, provider_user_id, service_day, is_active, created_by_user_id, updated_by_user_id${requestedPrimary ? ', is_primary' : ''})
+               VALUES (?, ?, ?, ?, TRUE, ?, ?${requestedPrimary ? ', TRUE' : ''})`,
+              [clientId, orgId, providerUserId, serviceDay, userId, userId]
+            );
+          } else {
+            await connection.execute(
+              `UPDATE client_provider_assignments
+               SET service_day = ?, is_active = TRUE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP${requestedPrimary ? ', is_primary = TRUE' : ''}
+               WHERE id = ?`,
+              [serviceDay, userId, existingSameDay.id]
+            );
+          }
+        }
       }
+
+      const shouldNotifyAssignment =
+        newConsumesSlot && (!existingSameDay || !wasActive || (moveSingleDayRow && String(singleActive?.service_day || '') !== String(serviceDay || '')));
 
       // Keep legacy single-provider fields in sync with the primary provider.
       if (requestedPrimary) {

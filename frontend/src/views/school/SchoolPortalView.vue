@@ -364,9 +364,25 @@
             <strong>School Staff Waiver required.</strong>
             <span>You can only access Docs/Links until it is signed.</span>
           </div>
-          <div v-if="portalMode === 'days'" class="days-daybar-center">
-            <div data-tour="school-days-daybar">
+          <div v-if="portalMode === 'days'" class="days-top-wrap">
+            <div class="days-daybar-center" data-tour="school-days-daybar">
               <SchoolDayBar v-model="store.selectedWeekday" :days="store.days" />
+            </div>
+            <div v-if="canAccessSchedulingPanels" class="days-client-find" role="search">
+              <label class="sr-only" for="school-days-client-find">Find client on schedules</label>
+              <input
+                id="school-days-client-find"
+                v-model="daysClientFindQuery"
+                class="input days-client-find-input"
+                type="search"
+                autocomplete="off"
+                placeholder="Find client (name or initials)…"
+                @keydown.enter.prevent="runDaysClientFind"
+              />
+              <button class="btn btn-secondary btn-sm" type="button" :disabled="daysClientFindWorking" @click="runDaysClientFind">
+                {{ daysClientFindWorking ? '…' : 'Find' }}
+              </button>
+              <span v-if="daysClientFindMessage" class="days-client-find-msg muted">{{ daysClientFindMessage }}</span>
             </div>
           </div>
           <div v-if="portalMode === 'home'" class="home">
@@ -719,6 +735,8 @@
             :client-label-mode="clientLabelMode"
             :current-user-id="authStore.user?.id || null"
             :current-user-role="authStore.user?.role || ''"
+            :highlight-client-id="daysHighlightClientId"
+            :highlight-provider-user-id="daysHighlightProviderUserId"
             @add-day="handleAddDay"
             @add-provider="handleAddProvider"
             @open-client="openClient"
@@ -735,6 +753,8 @@
         <div data-tour="school-providers-panel">
           <ProvidersDirectoryPanel
             v-if="organizationId"
+            :school-organization-id="organizationId"
+            :organization-slug="organizationSlug"
             :providers="store.eligibleProviders"
             :loading="store.eligibleProvidersLoading"
             @open-provider="goToProviderSchoolProfile"
@@ -1300,7 +1320,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useOrganizationStore } from '../../store/organization';
 import { useBrandingStore } from '../../store/branding';
@@ -1579,6 +1599,13 @@ const announcementDraftEndsAt = ref('');
 const announcementCreating = ref(false);
 const announcementCreateError = ref('');
 const announcementCreateSuccess = ref('');
+
+const daysClientFindQuery = ref('');
+const daysClientFindWorking = ref(false);
+const daysClientFindMessage = ref('');
+const daysHighlightClientId = ref(null);
+const daysHighlightProviderUserId = ref(null);
+let daysFindHighlightTimer = null;
 
 const requestedPortalMode = computed(() => String(route.query?.sp || '').trim().toLowerCase());
 const notificationsFilter = computed(() => String(route.query?.notif || '').trim().toLowerCase());
@@ -2762,6 +2789,59 @@ const loadForDay = async (weekday) => {
   await Promise.all(list.map((p) => store.loadProviderPanel(weekday, p.provider_user_id)));
 };
 
+const runDaysClientFind = async () => {
+  daysClientFindMessage.value = '';
+  const q = String(daysClientFindQuery.value || '').trim();
+  if (q.length < 2) {
+    daysClientFindMessage.value = 'Enter at least 2 characters.';
+    return;
+  }
+  if (!organizationId.value) return;
+  daysClientFindWorking.value = true;
+  try {
+    const r = await api.get(`/school-portal/${organizationId.value}/client-assignment-search`, { params: { q } });
+    const matches = Array.isArray(r.data?.matches) ? r.data.matches : [];
+    if (!matches.length) {
+      daysClientFindMessage.value = 'No assigned clients matched that search.';
+      return;
+    }
+    if (matches.length > 1) {
+      daysClientFindMessage.value = `${matches.length} matches — opening the first. Refine your search to narrow results.`;
+    }
+    const m = matches[0];
+    const weekday = String(m.weekday || '');
+    if (!weekday) {
+      daysClientFindMessage.value = 'Match had no weekday on file.';
+      return;
+    }
+    store.selectedWeekday = weekday;
+    daysHighlightClientId.value = Number(m.client_id) || null;
+    daysHighlightProviderUserId.value = Number(m.provider_user_id) || null;
+    if (daysFindHighlightTimer) clearTimeout(daysFindHighlightTimer);
+    daysFindHighlightTimer = setTimeout(() => {
+      daysHighlightClientId.value = null;
+      daysHighlightProviderUserId.value = null;
+      daysFindHighlightTimer = null;
+    }, 14000);
+    await loadForDay(weekday);
+    await nextTick();
+    try {
+      const cid = daysHighlightClientId.value;
+      const pid = daysHighlightProviderUserId.value;
+      if (cid && pid) {
+        const el = document.getElementById(`school-portal-client-highlight-${pid}-${cid}`);
+        el?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+      }
+    } catch {
+      // ignore
+    }
+  } catch (e) {
+    daysClientFindMessage.value = e.response?.data?.error?.message || e.message || 'Search failed.';
+  } finally {
+    daysClientFindWorking.value = false;
+  }
+};
+
 const handleAddDay = async () => {
   await store.addDay(store.selectedWeekday);
   await loadForDay(store.selectedWeekday);
@@ -2965,16 +3045,15 @@ const navigateAdminClient = async ({ direction }) => {
   }
 };
 
-const goToProviderSchoolProfile = (providerUserId) => {
+const goToProviderSchoolProfile = (providerUserId, query = {}) => {
   const slug = organizationSlug.value;
   if (!slug || !providerUserId) return;
-  router.push(`/${slug}/providers/${providerUserId}`);
+  const q = query && typeof query === 'object' ? query : {};
+  router.push({ path: `/${slug}/providers/${providerUserId}`, query: q });
 };
 
 const messageProvider = (providerUserId) => {
-  const slug = organizationSlug.value;
-  if (!slug || !providerUserId) return;
-  router.push({ path: `/${slug}/providers/${providerUserId}`, query: { chat: '1' } });
+  goToProviderSchoolProfile(providerUserId, { chat: '1' });
 };
 
 onMounted(async () => {
@@ -3484,6 +3563,41 @@ watch(() => store.selectedWeekday, async (weekday) => {
 .nav-rail.locked .nav-item[data-tour="school-nav-docs"] {
   pointer-events: auto;
   opacity: 1;
+}
+
+.days-top-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.days-client-find {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.days-client-find-input {
+  flex: 1 1 220px;
+  min-width: 160px;
+}
+.days-client-find-msg {
+  flex: 1 1 100%;
+  font-size: 13px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .days-daybar-center :deep(.day-bar) {

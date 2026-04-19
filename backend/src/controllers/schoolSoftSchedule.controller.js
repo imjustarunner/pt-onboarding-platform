@@ -490,20 +490,38 @@ export const putSoftScheduleSlots = async (req, res, next) => {
     if (requestedClientIds.length > 0) {
       const unique = Array.from(new Set(requestedClientIds.map((x) => parseInt(x, 10)).filter(Boolean)));
       const placeholders = unique.map(() => '?').join(',');
-      const [clientRows] = await connection.execute(
+      const sid = parseInt(schoolId, 10);
+      const puid = parseInt(providerUserId, 10);
+      const [cpaRows] = await connection.execute(
+        `SELECT cpa.client_id AS id
+         FROM client_provider_assignments cpa
+         JOIN client_organization_assignments coa
+           ON coa.client_id = cpa.client_id
+          AND coa.organization_id = cpa.organization_id
+          AND coa.is_active = TRUE
+         WHERE cpa.client_id IN (${placeholders})
+           AND cpa.organization_id = ?
+           AND cpa.provider_user_id = ?
+           AND cpa.service_day = ?
+           AND cpa.is_active = TRUE`,
+        [...unique, sid, puid, weekday]
+      );
+      const allowedByCpa = new Set((cpaRows || []).map((r) => Number(r.id)));
+      const [legacyRows] = await connection.execute(
         `SELECT id, organization_id, provider_id, service_day
          FROM clients
          WHERE id IN (${placeholders})`,
         unique
       );
-      const byId = new Map((clientRows || []).map((r) => [Number(r.id), r]));
+      const legacyById = new Map((legacyRows || []).map((r) => [Number(r.id), r]));
       for (const cid of unique) {
-        const c = byId.get(Number(cid));
+        if (allowedByCpa.has(Number(cid))) continue;
+        const c = legacyById.get(Number(cid));
         if (!c) throw Object.assign(new Error('Client not found'), { status: 404 });
-        if (parseInt(c.organization_id, 10) !== parseInt(schoolId, 10)) {
+        if (parseInt(c.organization_id, 10) !== sid) {
           throw Object.assign(new Error('Client does not belong to this school organization'), { status: 400 });
         }
-        if (parseInt(c.provider_id || 0, 10) !== parseInt(providerUserId, 10) || String(c.service_day || '') !== String(weekday)) {
+        if (parseInt(c.provider_id || 0, 10) !== puid || String(c.service_day || '') !== String(weekday)) {
           throw Object.assign(new Error('Client is not assigned to this provider/day. Admin/support/provider must assign first.'), { status: 409 });
         }
       }

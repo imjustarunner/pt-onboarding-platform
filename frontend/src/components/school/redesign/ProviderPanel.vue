@@ -61,6 +61,8 @@
         <ClientInitialsList
           :clients="caseloadClients"
           :client-label-mode="clientLabelMode"
+          :highlight-client-id="isHighlightedProvider ? highlightClientId : null"
+          :scroll-anchor-provider-user-id="isHighlightedProvider ? highlightProviderUserId : null"
           @select="handleOpenClient"
         />
       </div>
@@ -70,6 +72,7 @@
         :slots="slots"
         :caseload-clients="caseloadClients"
         :client-label-mode="clientLabelMode"
+        :highlight-client-id="isHighlightedProvider ? highlightClientId : null"
         :saving="saving"
         :error="error"
         @save="$emit('save-slots', $event)"
@@ -79,7 +82,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import ClientInitialsList from './ClientInitialsList.vue';
 import SoftScheduleEditor from './SoftScheduleEditor.vue';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
@@ -94,8 +97,25 @@ const props = defineProps({
   error: { type: String, default: '' },
   clientLabelMode: { type: String, default: 'codes' },
   currentUserId: { type: [Number, String], default: null },
-  currentUserRole: { type: String, default: '' }
+  currentUserRole: { type: String, default: '' },
+  highlightClientId: { type: [Number, String], default: null },
+  highlightProviderUserId: { type: [Number, String], default: null }
 });
+
+const isHighlightedProvider = computed(() => {
+  const hid = Number(props.highlightProviderUserId || 0);
+  const pid = Number(props.provider?.provider_user_id || 0);
+  return Number.isFinite(hid) && hid > 0 && hid === pid;
+});
+
+watch(
+  () => [props.highlightClientId, props.highlightProviderUserId, props.provider?.provider_user_id],
+  () => {
+    const cid = Number(props.highlightClientId || 0);
+    if (!cid || !isHighlightedProvider.value) return;
+    collapsed.value = false;
+  }
+);
 
 const emit = defineEmits(['open-client', 'save-slots', 'open-provider', 'request-availability']);
 

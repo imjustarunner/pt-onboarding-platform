@@ -101,6 +101,8 @@
             :client-label-mode="clientLabelMode"
             :current-user-id="currentUserId"
             :current-user-role="currentUserRole"
+            :highlight-client-id="highlightClientId"
+            :highlight-provider-user-id="highlightProviderUserId"
             :caseload-clients="panelFor(p.provider_user_id)?.caseloadClients || []"
             :slots="panelFor(p.provider_user_id)?.slots || []"
             :loading="panelFor(p.provider_user_id)?.loading || false"
@@ -131,7 +133,9 @@ const props = defineProps({
   panelFor: { type: Function, required: true },
   clientLabelMode: { type: String, default: 'codes' },
   currentUserId: { type: [Number, String], default: null },
-  currentUserRole: { type: String, default: '' }
+  currentUserRole: { type: String, default: '' },
+  highlightClientId: { type: [Number, String], default: null },
+  highlightProviderUserId: { type: [Number, String], default: null }
 });
 
 const emit = defineEmits([

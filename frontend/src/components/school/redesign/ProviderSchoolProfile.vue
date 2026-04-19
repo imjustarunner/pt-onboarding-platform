@@ -60,9 +60,12 @@
               <div v-if="profile?.credential" class="sub">{{ profile.credential }}</div>
               <div v-if="profile?.service_focus" class="sub">{{ profile.service_focus }}</div>
               <div class="sub">Languages: {{ languagesDisplay }}</div>
-              <div v-if="providerContactLine" class="sub">
+              <div v-if="providerContactPhone?.display" class="sub">
                 <span class="contact-label">Phone</span>
-                {{ providerContactLine }}
+                <a v-if="providerContactPhone.telHref" class="contact-phone-link" :href="providerContactPhone.telHref">{{
+                  providerContactPhone.display
+                }}</a>
+                <template v-else>{{ providerContactPhone.display }}</template>
               </div>
               <div v-if="acceptedInsuranceLabels.length" class="insurance-row">
                 <div class="insurance-label">Accepted insurance</div>
@@ -137,6 +140,7 @@
               :slots="softSlots"
               :caseload-clients="selectedDayClients"
               :client-label-mode="clientLabelMode"
+              :highlight-client-id="displayHighlightClientId"
               :saving="softSaving"
               :error="softError"
               @save="saveSoftSlots"
@@ -180,7 +184,10 @@
                   <button
                     v-for="c in (a.clients || []).slice(0, 10)"
                     :key="c.id"
-                    :class="['chip-mini', { 'chip-mini-locked': isLockedClient(c) }]"
+                    :class="[
+                      'chip-mini',
+                      { 'chip-mini-locked': isLockedClient(c), 'chip-mini-highlight': displayHighlightClientId === Number(c.id) }
+                    ]"
                     type="button"
                     :disabled="isLockedClient(c)"
                     @click="$emit('open-client', c)"
@@ -317,7 +324,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../../services/api';
 import SchoolDayBar from './SchoolDayBar.vue';
@@ -325,6 +332,7 @@ import SoftScheduleEditor from './SoftScheduleEditor.vue';
 import ClientListGrid from '../ClientListGrid.vue';
 import { useAuthStore } from '../../../store/auth';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
+import { formatPhoneForDisplay } from '../../../utils/phoneDisplay.js';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
@@ -474,20 +482,33 @@ const recomputeDayBar = () => {
   }
 };
 
-const providerContactLine = computed(() => {
+const providerContactPhone = computed(() => {
   const p = profile.value || {};
-  const agencyPhone = String(p.tenant_contact_phone || '').trim();
-  const agencyExt = String(p.tenant_contact_phone_extension || '').trim();
-  if (agencyPhone) {
-    return agencyExt ? `${agencyPhone} ext ${agencyExt}` : agencyPhone;
+  if (String(p.tenant_contact_phone || '').trim()) {
+    return formatPhoneForDisplay(p.tenant_contact_phone, p.tenant_contact_phone_extension);
   }
-  // No tenant Contact phone: fall back to work / legacy account phone only (not personal cell on school portal).
-  const phone = String(p.work_phone || p.phone_number || '').trim();
-  const ext = String(p.work_phone_extension || '').trim();
-  if (!phone) return '';
-  if (ext) return `${phone} ext ${ext}`;
-  return phone;
+  const phone = p.work_phone || p.phone_number || '';
+  const ext = p.work_phone_extension || '';
+  if (!String(phone || '').trim()) return null;
+  return formatPhoneForDisplay(phone, ext);
 });
+
+const routeHighlightClientId = computed(() => {
+  const raw = route.query?.highlightClient ?? route.query?.highlight_client ?? '';
+  const n = Number.parseInt(String(raw || ''), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+});
+
+const routeFocusWeekday = computed(() => {
+  const d = String(route.query?.weekday || route.query?.week || '').trim();
+  const allowed = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  return allowed.includes(d) ? d : null;
+});
+
+/** Keeps outline visible after we strip navigation query params (soft slots load async). */
+const profileHighlightClientId = ref(null);
+let profileHighlightClearTimer = null;
+const displayHighlightClientId = computed(() => profileHighlightClientId.value ?? routeHighlightClientId.value);
 
 const languagesDisplay = computed(() => {
   const raw = String(profile.value?.languages_spoken || '').trim();
@@ -835,6 +856,60 @@ watch(
     await openChat();
   },
   { immediate: true }
+);
+
+watch(
+  () => [caseload.value, routeHighlightClientId.value],
+  async ([cl, cid]) => {
+    if (!cid || !cl) return;
+    profileHighlightClientId.value = cid;
+    if (profileHighlightClearTimer) clearTimeout(profileHighlightClearTimer);
+    profileHighlightClearTimer = setTimeout(() => {
+      profileHighlightClientId.value = null;
+      profileHighlightClearTimer = null;
+    }, 14000);
+
+    const fixed = routeFocusWeekday.value;
+    if (fixed) {
+      selectedWeekday.value = fixed;
+    } else {
+      const list = Array.isArray(cl.assignments) ? cl.assignments : [];
+      let found = null;
+      for (const a of list) {
+        const clients = Array.isArray(a?.clients) ? a.clients : [];
+        if (clients.some((c) => Number(c?.id) === cid)) {
+          found = String(a.day_of_week || '') || null;
+          break;
+        }
+      }
+      if (found) selectedWeekday.value = found;
+    }
+    await nextTick();
+    try {
+      const q = { ...route.query };
+      let changed = false;
+      if ('highlightClient' in q) {
+        delete q.highlightClient;
+        changed = true;
+      }
+      if ('highlight_client' in q) {
+        delete q.highlight_client;
+        changed = true;
+      }
+      if ('weekday' in q) {
+        delete q.weekday;
+        changed = true;
+      }
+      if ('week' in q) {
+        delete q.week;
+        changed = true;
+      }
+      if (changed) await router.replace({ path: route.path, query: q });
+    } catch {
+      // ignore
+    }
+  },
+  { flush: 'post' }
 );
 </script>
 
@@ -1286,6 +1361,15 @@ label {
 }
 .chip-mini-locked:disabled {
   cursor: default;
+}
+.chip-mini-highlight {
+  outline: 2px solid rgba(79, 70, 229, 0.85);
+  outline-offset: 1px;
+}
+.contact-phone-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .dot {
   display: inline-block;

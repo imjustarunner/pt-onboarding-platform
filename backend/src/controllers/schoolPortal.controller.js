@@ -2073,6 +2073,137 @@ export const getSchoolPortalStats = async (req, res, next) => {
 };
 
 /**
+ * Find clients by name or initials and return active provider/day rows at this school (for portal navigation).
+ * GET /api/school-portal/:organizationId/client-assignment-search?q=...
+ */
+export const searchSchoolPortalClientAssignments = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+    await assertSchoolPortalAccess(req, orgId);
+
+    const rawQ = String(req.query?.q || '').trim();
+    if (rawQ.length < 2) return res.json({ matches: [] });
+
+    const qLower = rawQ.toLowerCase();
+    const tokens = qLower.split(/\s+/).filter(Boolean).slice(0, 8);
+    if (!tokens.length) return res.json({ matches: [] });
+
+    const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const dayPlaceholders = allowedDays.map(() => '?').join(', ');
+
+    const likeFragment = (tok) => {
+      const t = String(tok).replace(/%/g, '').replace(/_/g, '').replace(/'/g, '');
+      return t ? `%${t}%` : null;
+    };
+
+    let tokenSql = '1=1';
+    const tokenParams = [];
+    for (const tok of tokens) {
+      const like = likeFragment(tok);
+      if (!like) continue;
+      tokenSql += ` AND (
+        LOWER(TRIM(CONCAT(IFNULL(c.first_name,''), ' ', IFNULL(c.last_name,'')))) LIKE ?
+        OR LOWER(REPLACE(IFNULL(c.initials,''), ' ', '')) LIKE ?
+        OR LOWER(IFNULL(c.identifier_code,'')) LIKE ?
+      )`;
+      tokenParams.push(like, like, like);
+    }
+
+    if (!tokenParams.length) return res.json({ matches: [] });
+
+    const sql = `
+      SELECT * FROM (
+        SELECT DISTINCT
+          c.id AS client_id,
+          c.initials,
+          c.first_name,
+          c.last_name,
+          cpa.provider_user_id,
+          cpa.service_day AS weekday,
+          u.first_name AS provider_first_name,
+          u.last_name AS provider_last_name
+        FROM client_provider_assignments cpa
+        INNER JOIN client_organization_assignments coa
+          ON coa.client_id = cpa.client_id
+         AND coa.organization_id = cpa.organization_id
+         AND coa.is_active = TRUE
+        INNER JOIN clients c ON c.id = cpa.client_id
+        INNER JOIN users u ON u.id = cpa.provider_user_id
+        WHERE cpa.organization_id = ?
+          AND cpa.is_active = TRUE
+          AND cpa.service_day IN (${dayPlaceholders})
+          AND (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+          AND (${tokenSql})
+
+        UNION
+
+        SELECT DISTINCT
+          c.id AS client_id,
+          c.initials,
+          c.first_name,
+          c.last_name,
+          c.provider_id AS provider_user_id,
+          c.service_day AS weekday,
+          u.first_name AS provider_first_name,
+          u.last_name AS provider_last_name
+        FROM clients c
+        INNER JOIN client_organization_assignments coa
+          ON coa.client_id = c.id
+         AND coa.organization_id = ?
+         AND coa.is_active = TRUE
+        INNER JOIN users u ON u.id = c.provider_id
+        WHERE c.organization_id = ?
+          AND c.provider_id IS NOT NULL
+          AND c.service_day IN (${dayPlaceholders})
+          AND (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+          AND NOT EXISTS (
+            SELECT 1 FROM client_provider_assignments x
+            WHERE x.client_id = c.id
+              AND x.organization_id = coa.organization_id
+              AND x.provider_user_id = c.provider_id
+              AND x.service_day <=> c.service_day
+              AND x.is_active = TRUE
+          )
+          AND (${tokenSql})
+      ) t
+      ORDER BY t.last_name, t.first_name, t.provider_last_name, t.provider_first_name, t.weekday
+      LIMIT 40
+    `;
+
+    const params = [
+      orgId,
+      ...allowedDays,
+      ...tokenParams,
+      orgId,
+      orgId,
+      ...allowedDays,
+      ...tokenParams
+    ];
+
+    const [rows] = await pool.execute(sql, params);
+    const matches = (rows || []).map((r) => ({
+      client_id: Number(r.client_id),
+      initials: r.initials || null,
+      first_name: r.first_name || null,
+      last_name: r.last_name || null,
+      provider_user_id: Number(r.provider_user_id),
+      weekday: r.weekday || null,
+      provider_first_name: r.provider_first_name || null,
+      provider_last_name: r.provider_last_name || null
+    }));
+
+    res.json({ matches });
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (e?.code === 'ER_NO_SUCH_TABLE' || msg.includes("doesn't exist") || msg.includes('Unknown column')) {
+      return res.json({ matches: [] });
+    }
+    next(e);
+  }
+};
+
+/**
  * Get or initialize school-staff waiver task status for the current user.
  * GET /api/school-portal/:organizationId/school-staff-waiver/status
  */

@@ -3571,6 +3571,21 @@ const addProviderAssignment = async () => {
   const providerUserId = addProviderUserId.value ? Number(addProviderUserId.value) : null;
   const day = String(addProviderDay.value || '').trim();
   if (!orgId || !providerUserId || !day) return;
+
+  const existingOtherDaySameProvider = (providerAssignments.value || []).some(
+    (pa) =>
+      Number(pa?.organization_id) === orgId &&
+      Number(pa?.provider_user_id) === providerUserId &&
+      String(pa?.service_day || '').trim() &&
+      String(pa.service_day).trim() !== day
+  );
+  if (existingOtherDaySameProvider) {
+    const ok = window.confirm(
+      'This client already has a different weekday with this provider at this school. Adding another weekday uses an additional slot when the provider has capacity configured for that day.\n\nContinue?'
+    );
+    if (!ok) return;
+  }
+
   try {
     savingProviderAssignment.value = true;
     assignmentsError.value = '';

@@ -3,7 +3,8 @@
     <button
       v-for="c in clients"
       :key="c.id"
-      :class="['chip', { 'chip-locked': isLocked(c) }]"
+      :id="anchorIdFor(c)"
+      :class="['chip', { 'chip-locked': isLocked(c), 'chip-highlight': isHighlighted(c) }]"
       type="button"
       :disabled="isLocked(c)"
       @click="$emit('select', c)"
@@ -21,11 +22,22 @@
 const props = defineProps({
   clients: { type: Array, default: () => [] },
   // 'codes' | 'initials' (codes are default with initials on hover)
-  clientLabelMode: { type: String, default: 'codes' }
+  clientLabelMode: { type: String, default: 'codes' },
+  highlightClientId: { type: [Number, String], default: null },
+  scrollAnchorProviderUserId: { type: [Number, String], default: null }
 });
 defineEmits(['select']);
 
 const isLocked = (c) => c?.school_portal_force_placeholder === true || c?.school_portal_can_open === false;
+
+const isHighlighted = (c) => Number(c?.id || 0) === Number(props.highlightClientId || 0) && Number(props.highlightClientId || 0) > 0;
+
+const anchorIdFor = (c) => {
+  if (!isHighlighted(c)) return undefined;
+  const pid = Number(props.scrollAnchorProviderUserId || 0);
+  if (!Number.isFinite(pid) || pid <= 0) return undefined;
+  return `school-portal-client-highlight-${pid}-${Number(c.id)}`;
+};
 
 const displayId = (c) => {
   const mode = String(props.clientLabelMode || 'codes');
@@ -77,6 +89,11 @@ const chipTitle = (c) => {
   font-weight: 800;
   letter-spacing: 0.05em;
   font-size: 12px;
+}
+.chip-highlight {
+  outline: 2px solid rgba(79, 70, 229, 0.85);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
 }
 .chip-locked {
   background: #f3f4f6;

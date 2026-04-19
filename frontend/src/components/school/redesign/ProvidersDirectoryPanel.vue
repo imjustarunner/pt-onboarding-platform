@@ -1,9 +1,27 @@
 <template>
   <div class="panel">
     <div class="header">
-      <div>
-        <div class="title">Providers</div>
-        <div class="subtitle">Contact cards (school portal)</div>
+      <div class="header-left">
+        <div>
+          <div class="title">Providers</div>
+          <div class="subtitle">Contact cards (school portal)</div>
+        </div>
+        <div v-if="schoolOrganizationId" class="client-find" role="search">
+          <label class="sr-only" for="providers-client-find">Find client by name</label>
+          <input
+            id="providers-client-find"
+            v-model="clientFindQuery"
+            class="client-find-input"
+            type="search"
+            autocomplete="off"
+            placeholder="Find client (name or initials)…"
+            @keydown.enter.prevent="runClientFind"
+          />
+          <button class="btn btn-secondary btn-sm" type="button" :disabled="clientFindWorking" @click="runClientFind">
+            {{ clientFindWorking ? '…' : 'Find' }}
+          </button>
+          <div v-if="clientFindMessage" class="client-find-msg muted">{{ clientFindMessage }}</div>
+        </div>
       </div>
       <div class="actions">
         <input v-model="query" class="search" type="search" placeholder="Search name/email…" />
@@ -81,16 +99,24 @@
 
 <script setup>
 import { computed, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
+import api from '../../../services/api';
 
 const props = defineProps({
+  schoolOrganizationId: { type: [Number, String], default: null },
+  organizationSlug: { type: String, default: '' },
   providers: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false }
 });
 
 defineEmits(['open-provider', 'message-provider']);
 
+const router = useRouter();
 const query = ref('');
+const clientFindQuery = ref('');
+const clientFindWorking = ref(false);
+const clientFindMessage = ref('');
 const normalize = (v) => String(v || '').trim().toLowerCase();
 
 const activeDaysFor = (p) => {
@@ -173,6 +199,50 @@ const filtered = computed(() => {
     return normalize(hay).includes(q);
   });
 });
+
+const runClientFind = async () => {
+  clientFindMessage.value = '';
+  const q = String(clientFindQuery.value || '').trim();
+  if (q.length < 2) {
+    clientFindMessage.value = 'Enter at least 2 characters.';
+    return;
+  }
+  const oid = Number(props.schoolOrganizationId || 0);
+  if (!oid) return;
+  clientFindWorking.value = true;
+  try {
+    const r = await api.get(`/school-portal/${oid}/client-assignment-search`, { params: { q } });
+    const matches = Array.isArray(r.data?.matches) ? r.data.matches : [];
+    if (!matches.length) {
+      clientFindMessage.value = 'No schedule assignment matched.';
+      return;
+    }
+    if (matches.length > 1) {
+      clientFindMessage.value = `${matches.length} matches — opening the first. Refine your search to narrow results.`;
+    }
+    const m = matches[0];
+    const slug = String(props.organizationSlug || '').trim();
+    if (!slug) {
+      clientFindMessage.value = 'Navigation unavailable (missing school slug).';
+      return;
+    }
+    const pid = Number(m.provider_user_id || 0);
+    const cid = Number(m.client_id || 0);
+    const weekday = String(m.weekday || '');
+    if (!pid) {
+      clientFindMessage.value = 'Match was missing a provider.';
+      return;
+    }
+    const navQuery = {};
+    if (cid) navQuery.highlightClient = String(cid);
+    if (weekday) navQuery.weekday = weekday;
+    await router.push({ path: `/${slug}/providers/${pid}`, query: navQuery });
+  } catch (e) {
+    clientFindMessage.value = e.response?.data?.error?.message || e.message || 'Search failed.';
+  } finally {
+    clientFindWorking.value = false;
+  }
+};
 </script>
 
 <style scoped>
@@ -186,9 +256,46 @@ const filtered = computed(() => {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  align-items: center;
+  align-items: flex-start;
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
+}
+.header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.client-find {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 520px;
+}
+.client-find-input {
+  flex: 1 1 200px;
+  min-width: 160px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.client-find-msg {
+  flex: 1 1 100%;
+  font-size: 12px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .title {
   font-weight: 900;

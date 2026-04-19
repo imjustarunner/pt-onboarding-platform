@@ -13,7 +13,11 @@
     <div v-if="error" class="error">{{ error }}</div>
 
     <div class="rows">
-      <div v-for="(s, idx) in draftSlots" :key="slotKey(s, idx)" class="row">
+      <div
+        v-for="(s, idx) in draftSlots"
+        :key="slotKey(s, idx)"
+        :class="['row', { 'row-highlight-client': isHighlightedSlot(s) }]"
+      >
         <div class="client">
           <label class="label-inline" :for="`slot-client-${idx}`">
             <span class="k">Client</span>
@@ -70,8 +74,15 @@ const props = defineProps({
   saving: { type: Boolean, default: false },
   error: { type: String, default: '' },
   // 'codes' | 'initials'
-  clientLabelMode: { type: String, default: 'codes' }
+  clientLabelMode: { type: String, default: 'codes' },
+  highlightClientId: { type: [Number, String], default: null }
 });
+
+const isHighlightedSlot = (s) => {
+  const hid = Number(props.highlightClientId || 0);
+  if (!hid) return false;
+  return Number(s?.client_id || 0) === hid;
+};
 const emit = defineEmits(['save']);
 
 const draftSlots = ref([]);
@@ -166,6 +177,10 @@ const save = () => {
   align-items: center;
   padding: 3px 0;
   border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.row-highlight-client {
+  background: rgba(79, 70, 229, 0.08);
+  border-radius: 8px;
 }
 label {
   display: block;

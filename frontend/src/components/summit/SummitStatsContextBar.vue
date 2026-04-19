@@ -25,7 +25,7 @@
             class="sstc-challenge-btn"
             :to="challengeLink(selectedTeam)"
           >
-            Open challenge
+            Open season
           </router-link>
         </div>
       </div>
@@ -234,7 +234,9 @@ watch(
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 260px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
 }
 
 /* ── Pill badges (Club / Team labels) ────────── */
@@ -424,9 +426,19 @@ watch(
     flex-wrap: wrap;
   }
 
-  .sstc-club-name,
   .sstc-team-name {
     max-width: 180px;
+  }
+
+  .sstc-club-block {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .sstc-club-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
   }
 }
 </style>
