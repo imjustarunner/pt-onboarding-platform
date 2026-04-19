@@ -6,14 +6,14 @@
     @mouseenter="onEnter"
     @mouseleave="onLeave"
   >
-    <div class="rail" :title="needsAgency ? 'Select an agency to use chat' : 'Chat'">
+    <div class="rail" :title="needsAgency ? 'Select an agency to use messages' : 'Messages'">
       <div class="rail-badge rail-badge-top" :class="{ zero: totalUnread <= 0 }">
         {{ totalUnread }}
       </div>
 
       <div class="rail-icon">
-        <img v-if="iconUrl" :src="iconUrl" alt="Chat" />
-        <span v-else class="icon-fallback">Chat</span>
+        <img v-if="iconUrl" :src="iconUrl" alt="Messages" />
+        <span v-else class="icon-fallback">Msgs</span>
       </div>
 
       <div class="rail-badge rail-badge-bottom" :class="{ disabled: needsAgency }">
@@ -24,7 +24,7 @@
     <div class="panel">
       <div class="panel-header">
         <div>
-          <div class="title">Chat</div>
+          <div class="title">Messages</div>
           <div class="subtitle">{{ isClubContext ? 'Club members online' : 'Agency presence + internal messages' }}</div>
         </div>
 

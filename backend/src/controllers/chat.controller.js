@@ -20,6 +20,147 @@ async function hasChatMessageEncryptionColumns() {
   }
 }
 
+async function hasChatMessagesAnnouncementColumn() {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'chat_messages' AND column_name = 'announcement_id'
+       LIMIT 1`
+    );
+    return rows?.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function hasChatMessageAttachmentsTable() {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.tables
+       WHERE table_schema = DATABASE() AND table_name = 'chat_message_attachments'
+       LIMIT 1`
+    );
+    return rows?.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function hasChatMessageReactionsTable() {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.tables
+       WHERE table_schema = DATABASE() AND table_name = 'chat_message_reactions'
+       LIMIT 1`
+    );
+    return rows?.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+const ATTACHMENT_KIND_WHITELIST = new Set(['image', 'gif', 'video', 'file']);
+
+function normalizeIncomingAttachment(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const filePath = String(raw.filePath || raw.file_path || '').trim();
+  if (!filePath || filePath.length > 512) return null;
+  const mimeType = raw.mimeType || raw.mime_type || null;
+  const kindRaw = String(raw.kind || raw.file_kind || 'file').toLowerCase();
+  const kind = ATTACHMENT_KIND_WHITELIST.has(kindRaw) ? kindRaw : 'file';
+  const width = Number.isFinite(Number(raw.width)) ? Number(raw.width) : null;
+  const height = Number.isFinite(Number(raw.height)) ? Number(raw.height) : null;
+  const byteSize = Number.isFinite(Number(raw.byteSize ?? raw.byte_size)) ? Number(raw.byteSize ?? raw.byte_size) : null;
+  const originalFilename = raw.originalFilename || raw.original_filename || null;
+  return { filePath, mimeType, kind, width, height, byteSize, originalFilename };
+}
+
+async function loadAttachmentsForMessages(messageIds) {
+  if (!messageIds.length) return new Map();
+  if (!(await hasChatMessageAttachmentsTable())) return new Map();
+  const placeholders = messageIds.map(() => '?').join(',');
+  const [rows] = await pool.execute(
+    `SELECT id, message_id, file_path, mime_type, file_kind, width, height, byte_size, original_filename, created_at
+       FROM chat_message_attachments
+       WHERE message_id IN (${placeholders})
+       ORDER BY id ASC`,
+    messageIds
+  );
+  const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
+  const out = new Map();
+  for (const r of rows || []) {
+    const arr = out.get(Number(r.message_id)) || [];
+    arr.push({
+      id: Number(r.id),
+      file_path: r.file_path,
+      file_url: `${baseUrl}/uploads/${r.file_path}`,
+      mime_type: r.mime_type || null,
+      file_kind: r.file_kind || 'file',
+      width: r.width != null ? Number(r.width) : null,
+      height: r.height != null ? Number(r.height) : null,
+      byte_size: r.byte_size != null ? Number(r.byte_size) : null,
+      original_filename: r.original_filename || null,
+      created_at: r.created_at
+    });
+    out.set(Number(r.message_id), arr);
+  }
+  return out;
+}
+
+async function loadReactionsForMessages(messageIds, viewerUserId) {
+  if (!messageIds.length) return new Map();
+  if (!(await hasChatMessageReactionsTable())) return new Map();
+  const placeholders = messageIds.map(() => '?').join(',');
+  const [rows] = await pool.execute(
+    `SELECT r.message_id, r.reaction_code, r.user_id,
+            u.first_name, u.last_name,
+            ic.file_path AS icon_file_path
+       FROM chat_message_reactions r
+       JOIN users u ON u.id = r.user_id
+       LEFT JOIN icons ic ON ic.id = r.reaction_icon_id
+      WHERE r.message_id IN (${placeholders})
+      ORDER BY r.created_at ASC`,
+    messageIds
+  );
+  const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
+  const buckets = new Map(); // message_id -> Map(code -> { iconUrl, users[] })
+  for (const r of rows || []) {
+    const mid = Number(r.message_id);
+    let perMsg = buckets.get(mid);
+    if (!perMsg) { perMsg = new Map(); buckets.set(mid, perMsg); }
+    let entry = perMsg.get(r.reaction_code);
+    if (!entry) {
+      entry = {
+        iconUrl: r.icon_file_path ? `${baseUrl}/uploads/${r.icon_file_path}` : null,
+        users: []
+      };
+      perMsg.set(r.reaction_code, entry);
+    }
+    entry.users.push({
+      userId: Number(r.user_id),
+      firstName: r.first_name,
+      lastName: r.last_name
+    });
+  }
+  const out = new Map();
+  for (const [mid, perMsg] of buckets.entries()) {
+    const arr = [];
+    for (const [code, { iconUrl, users }] of perMsg.entries()) {
+      arr.push({
+        code,
+        iconUrl,
+        count: users.length,
+        users,
+        sampleUserNames: users.slice(0, 5).map((u) => `${u.firstName || ''} ${u.lastName || ''}`.trim()).filter(Boolean),
+        mineActive: users.some((u) => Number(u.userId) === Number(viewerUserId))
+      });
+    }
+    arr.sort((a, b) => b.count - a.count);
+    out.set(mid, arr);
+  }
+  return out;
+}
+
 async function assertAgencyOrOrgAccess(reqUser, agencyId, organizationId = null) {
   if (reqUser.role === 'super_admin') return true;
   // Direct user_agencies check (handles club managers in affiliation-type orgs)
@@ -100,7 +241,7 @@ async function assertUsersInAgency(agencyId, userIds) {
   return ids;
 }
 
-async function findOrCreateDirectThread(agencyId, organizationId, userAId, userBId) {
+export async function findOrCreateDirectThread(agencyId, organizationId, userAId, userBId) {
   if (Number(userAId) === Number(userBId)) {
     const err = new Error('Cannot create a chat with yourself');
     err.status = 400;
@@ -134,7 +275,7 @@ async function findOrCreateDirectThread(agencyId, organizationId, userAId, userB
   return threadId;
 }
 
-async function createGroupThreadInDb(agencyId, organizationId, participantUserIds) {
+export async function createGroupThreadInDb(agencyId, organizationId, participantUserIds) {
   const unique = [...new Set(participantUserIds.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0))];
   if (unique.length < 3) {
     const err = new Error('Group threads require at least 3 participants (including you)');
@@ -159,6 +300,215 @@ async function createGroupThreadInDb(agencyId, organizationId, participantUserId
   );
 
   return threadId;
+}
+
+async function hasChatThreadsTeamColumn() {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'chat_threads' AND column_name = 'team_id'
+       LIMIT 1`
+    );
+    return rows?.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Find or lazily create the persistent team-wide chat thread for a given
+ * (clubId, teamId). Adds all current team members + the team manager as
+ * participants. Safe to call repeatedly - O(1) once the row exists.
+ *
+ * Returns { threadId, isNew, participantIds }.
+ */
+export async function getOrCreateTeamThread({ clubId, teamId }) {
+  const club = Number(clubId);
+  const tid = Number(teamId);
+  if (!club || !tid) {
+    const err = new Error('clubId and teamId are required');
+    err.status = 400;
+    throw err;
+  }
+
+  const hasTeamCol = await hasChatThreadsTeamColumn();
+  if (!hasTeamCol) {
+    const err = new Error('Team chat threads require migration 720');
+    err.status = 500;
+    throw err;
+  }
+
+  const [existing] = await pool.execute(
+    `SELECT id FROM chat_threads
+     WHERE agency_id = ? AND team_id = ? AND thread_type = 'team'
+     LIMIT 1`,
+    [club, tid]
+  );
+
+  let threadId;
+  let isNew = false;
+  if (existing?.length) {
+    threadId = Number(existing[0].id);
+  } else {
+    const [ins] = await pool.execute(
+      `INSERT INTO chat_threads (agency_id, organization_id, thread_type, team_id)
+       VALUES (?, ?, 'team', ?)`,
+      [club, null, tid]
+    );
+    threadId = Number(ins.insertId);
+    isNew = true;
+  }
+
+  const [memberRows] = await pool.execute(
+    `SELECT DISTINCT provider_user_id AS user_id
+       FROM challenge_team_members
+       WHERE team_id = ?
+     UNION
+     SELECT team_manager_user_id AS user_id
+       FROM challenge_teams
+       WHERE id = ? AND team_manager_user_id IS NOT NULL`,
+    [tid, tid]
+  );
+  const participantIds = [...new Set((memberRows || []).map((r) => Number(r.user_id)).filter(Boolean))];
+  if (participantIds.length) {
+    const values = participantIds.map(() => '(?, ?)').join(',');
+    const params = [];
+    for (const uid of participantIds) {
+      params.push(threadId, uid);
+    }
+    await pool.execute(
+      `INSERT IGNORE INTO chat_thread_participants (thread_id, user_id) VALUES ${values}`,
+      params
+    );
+  }
+
+  return { threadId, isNew, participantIds };
+}
+
+/**
+ * Find or lazily create the persistent club-wide chat thread for a given clubId.
+ * Adds every user_agencies row for this club as a participant. Heavy clubs
+ * (200+ members) are still cheap because participants are inserted with
+ * INSERT IGNORE.
+ *
+ * Returns { threadId, isNew, participantIds }.
+ */
+export async function getOrCreateClubThread({ clubId }) {
+  const club = Number(clubId);
+  if (!club) {
+    const err = new Error('clubId is required');
+    err.status = 400;
+    throw err;
+  }
+
+  const hasTeamCol = await hasChatThreadsTeamColumn();
+  if (!hasTeamCol) {
+    const err = new Error('Club chat threads require migration 720');
+    err.status = 500;
+    throw err;
+  }
+
+  const [existing] = await pool.execute(
+    `SELECT id FROM chat_threads
+     WHERE agency_id = ? AND team_id IS NULL AND thread_type = 'club'
+     LIMIT 1`,
+    [club]
+  );
+
+  let threadId;
+  let isNew = false;
+  if (existing?.length) {
+    threadId = Number(existing[0].id);
+  } else {
+    const [ins] = await pool.execute(
+      `INSERT INTO chat_threads (agency_id, organization_id, thread_type, team_id)
+       VALUES (?, ?, 'club', NULL)`,
+      [club, null]
+    );
+    threadId = Number(ins.insertId);
+    isNew = true;
+  }
+
+  const [memberRows] = await pool.execute(
+    `SELECT DISTINCT user_id FROM user_agencies WHERE agency_id = ?`,
+    [club]
+  );
+  const participantIds = [...new Set((memberRows || []).map((r) => Number(r.user_id)).filter(Boolean))];
+  if (participantIds.length) {
+    // Batch insert in chunks of 200 to keep statement size reasonable.
+    const CHUNK = 200;
+    for (let i = 0; i < participantIds.length; i += CHUNK) {
+      const chunk = participantIds.slice(i, i + CHUNK);
+      const values = chunk.map(() => '(?, ?)').join(',');
+      const params = [];
+      for (const uid of chunk) {
+        params.push(threadId, uid);
+      }
+      await pool.execute(
+        `INSERT IGNORE INTO chat_thread_participants (thread_id, user_id) VALUES ${values}`,
+        params
+      );
+    }
+  }
+
+  return { threadId, isNew, participantIds };
+}
+
+/**
+ * Best-effort: ensure userId is a participant of the team thread for (clubId, teamId).
+ * Used when someone joins / is added to a team after the thread already exists.
+ */
+export async function ensureUserInTeamThread({ clubId, teamId, userId }) {
+  const club = Number(clubId);
+  const tid = Number(teamId);
+  const uid = Number(userId);
+  if (!club || !tid || !uid) return;
+  try {
+    const hasTeamCol = await hasChatThreadsTeamColumn();
+    if (!hasTeamCol) return;
+    const [rows] = await pool.execute(
+      `SELECT id FROM chat_threads
+       WHERE agency_id = ? AND team_id = ? AND thread_type = 'team'
+       LIMIT 1`,
+      [club, tid]
+    );
+    const threadId = rows?.[0]?.id ? Number(rows[0].id) : null;
+    if (!threadId) return;
+    await pool.execute(
+      `INSERT IGNORE INTO chat_thread_participants (thread_id, user_id) VALUES (?, ?)`,
+      [threadId, uid]
+    );
+  } catch {
+    // Best-effort; callers should never fail because of thread sync.
+  }
+}
+
+/**
+ * Best-effort: ensure userId is a participant of the club-wide thread for clubId.
+ * Used when someone is added to a club after the thread already exists.
+ */
+export async function ensureUserInClubThread({ clubId, userId }) {
+  const club = Number(clubId);
+  const uid = Number(userId);
+  if (!club || !uid) return;
+  try {
+    const hasTeamCol = await hasChatThreadsTeamColumn();
+    if (!hasTeamCol) return;
+    const [rows] = await pool.execute(
+      `SELECT id FROM chat_threads
+       WHERE agency_id = ? AND team_id IS NULL AND thread_type = 'club'
+       LIMIT 1`,
+      [club]
+    );
+    const threadId = rows?.[0]?.id ? Number(rows[0].id) : null;
+    if (!threadId) return;
+    await pool.execute(
+      `INSERT IGNORE INTO chat_thread_participants (thread_id, user_id) VALUES (?, ?)`,
+      [threadId, uid]
+    );
+  } catch {
+    // Best-effort
+  }
 }
 
 async function resolveActiveAgencyIdForOrg(orgId) {
@@ -233,11 +583,13 @@ export const listMyThreads = async (req, res, next) => {
     const userId = req.user.id;
     if (!agencyIds.length) return res.json([]);
     const placeholders = agencyIds.map(() => '?').join(',');
+    const hasTeamCol = await hasChatThreadsTeamColumn();
+    const teamCol = hasTeamCol ? ', t.team_id' : '';
     const [rows] = await pool.execute(
       `SELECT t.id AS thread_id,
               t.agency_id,
               t.organization_id,
-              t.thread_type,
+              t.thread_type${teamCol},
               t.updated_at,
               lm.id AS last_message_id,
               lm.body AS last_message_body,
@@ -293,15 +645,66 @@ export const listMyThreads = async (req, res, next) => {
       }, {});
     }
 
+    // For team / club threads, look up labels (team name or agency name).
+    const teamThreadRows = hasTeamCol
+      ? (rows || []).filter((r) => String(r.thread_type || '').toLowerCase() === 'team' && Number(r.team_id) > 0)
+      : [];
+    const clubThreadRows = (rows || []).filter((r) => String(r.thread_type || '').toLowerCase() === 'club');
+    const teamLabelById = new Map();
+    if (teamThreadRows.length) {
+      const teamIds = [...new Set(teamThreadRows.map((r) => Number(r.team_id)).filter(Boolean))];
+      const ph = teamIds.map(() => '?').join(',');
+      const [trs] = await pool.execute(
+        `SELECT t.id, t.team_name, t.learning_class_id, c.organization_id, c.class_name AS class_title
+           FROM challenge_teams t
+           LEFT JOIN learning_program_classes c ON c.id = t.learning_class_id
+          WHERE t.id IN (${ph})`,
+        teamIds
+      );
+      for (const tr of trs || []) {
+        teamLabelById.set(Number(tr.id), {
+          label: `${tr.team_name || 'Team'}`,
+          season_id: tr.learning_class_id ? Number(tr.learning_class_id) : null,
+          season_name: tr.class_title || null,
+          club_id: tr.organization_id ? Number(tr.organization_id) : null
+        });
+      }
+    }
+    const clubLabelById = new Map();
+    if (clubThreadRows.length) {
+      const clubIds = [...new Set(clubThreadRows.map((r) => Number(r.agency_id)).filter(Boolean))];
+      const ph = clubIds.map(() => '?').join(',');
+      const [crs] = await pool.execute(
+        `SELECT id, name FROM agencies WHERE id IN (${ph})`,
+        clubIds
+      );
+      for (const cr of crs || []) {
+        clubLabelById.set(Number(cr.id), { label: `${cr.name || 'Club'} — Everyone` });
+      }
+    }
+
     const threads = (rows || []).map((r) => {
       const participants = participantsByThread[r.thread_id] || [];
       const others = participants.filter((p) => p.user_id !== userId);
       const other = others[0] || null;
+      const tType = String(r.thread_type || 'direct').toLowerCase();
+      let teamMeta = null;
+      let label = null;
+      if (tType === 'team' && hasTeamCol && Number(r.team_id) > 0) {
+        teamMeta = teamLabelById.get(Number(r.team_id)) || null;
+        label = teamMeta?.label || 'Team thread';
+      } else if (tType === 'club') {
+        const c = clubLabelById.get(Number(r.agency_id));
+        label = c?.label || 'Club thread';
+      }
       return {
         thread_id: r.thread_id,
         agency_id: r.agency_id,
         organization_id: r.organization_id || null,
-        thread_type: r.thread_type || 'direct',
+        thread_type: tType,
+        team_id: hasTeamCol ? (r.team_id || null) : null,
+        thread_label: label,
+        team_meta: teamMeta,
         updated_at: r.updated_at,
         unread_count: Number(r.unread_count || 0),
         last_message: r.last_message_id
@@ -498,12 +901,15 @@ export const listMessages = async (req, res, next) => {
     const parsed = req.query.limit ? parseInt(req.query.limit, 10) : null;
     const limit = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 200) : 60;
     const hasEncryptionCols = await hasChatMessageEncryptionColumns();
+    const hasAnnouncementCol = await hasChatMessagesAnnouncementColumn();
     const encCols = hasEncryptionCols
       ? ', m.body_ciphertext, m.body_iv, m.body_auth_tag, m.encryption_key_id'
       : '';
+    const annCol = hasAnnouncementCol ? ', m.announcement_id' : '';
     const [rows] = await pool.execute(
-      `SELECT m.id, m.thread_id, m.sender_user_id, m.body${encCols}, m.created_at,
-              u.first_name AS sender_first_name, u.last_name AS sender_last_name
+      `SELECT m.id, m.thread_id, m.sender_user_id, m.body${encCols}${annCol}, m.created_at,
+              u.first_name AS sender_first_name, u.last_name AS sender_last_name,
+              u.profile_photo_path AS sender_profile_photo_path
        FROM chat_messages m
        JOIN users u ON u.id = m.sender_user_id
        LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
@@ -515,6 +921,11 @@ export const listMessages = async (req, res, next) => {
     );
     const ordered = (rows || []).reverse();
     const me = Number(req.user.id);
+    const messageIds = ordered.map((m) => Number(m.id)).filter(Boolean);
+    const [attachmentsByMessage, reactionsByMessage] = await Promise.all([
+      loadAttachmentsForMessages(messageIds),
+      loadReactionsForMessages(messageIds, me)
+    ]);
     const enriched = ordered.map((m) => {
       const id = m?.id ? Number(m.id) : null;
       const isMine = Number(m?.sender_user_id) === me;
@@ -532,7 +943,15 @@ export const listMessages = async (req, res, next) => {
           body = '[Unable to decrypt message]';
         }
       }
-      return { ...m, body: body || '', is_read_by_other: isReadByOther };
+      const attachments = attachmentsByMessage.get(Number(m?.id)) || [];
+      const reactions = reactionsByMessage.get(Number(m?.id)) || [];
+      return {
+        ...m,
+        body: body || '',
+        is_read_by_other: isReadByOther,
+        attachments,
+        reactions
+      };
     });
     res.json(enriched);
   } catch (e) {
@@ -544,7 +963,13 @@ export const sendMessage = async (req, res, next) => {
   try {
     const threadId = parseInt(req.params.threadId, 10);
     const body = (req.body?.body || '').trim();
-    if (!threadId || !body) return res.status(400).json({ error: { message: 'body is required' } });
+    const incomingAttachments = Array.isArray(req.body?.attachments)
+      ? req.body.attachments.map(normalizeIncomingAttachment).filter(Boolean).slice(0, 10)
+      : [];
+    if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
+    if (!body && incomingAttachments.length === 0) {
+      return res.status(400).json({ error: { message: 'body or attachments required' } });
+    }
     await assertThreadAccess(req.user.id, threadId);
 
     // Resolve agency + participants
@@ -592,8 +1017,32 @@ export const sendMessage = async (req, res, next) => {
         : 'INSERT INTO chat_messages (thread_id, sender_user_id, body) VALUES (?, ?, ?)',
       hasEncCols && bodyCipher
         ? [threadId, req.user.id, bodyPlain, bodyCipher, bodyIv, bodyTag, bodyKeyId]
-        : [threadId, req.user.id, body]
+        : [threadId, req.user.id, body || '']
     );
+    const insertedMessageId = Number(ins.insertId);
+
+    if (incomingAttachments.length && (await hasChatMessageAttachmentsTable())) {
+      const values = incomingAttachments.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(',');
+      const params = [];
+      for (const a of incomingAttachments) {
+        params.push(
+          insertedMessageId,
+          a.filePath,
+          a.mimeType || null,
+          a.kind,
+          a.width,
+          a.height,
+          a.byteSize,
+          a.originalFilename
+        );
+      }
+      await pool.execute(
+        `INSERT INTO chat_message_attachments
+           (message_id, file_path, mime_type, file_kind, width, height, byte_size, original_filename)
+         VALUES ${values}`,
+        params
+      );
+    }
     await pool.execute('UPDATE chat_threads SET updated_at = NOW() WHERE id = ?', [threadId]);
 
     // Notifications: notify other participant if they are away/offline
@@ -602,11 +1051,12 @@ export const sendMessage = async (req, res, next) => {
 
     const senderUser = await User.findById(req.user.id);
     const senderName = `${senderUser?.first_name || ''} ${senderUser?.last_name || ''}`.trim() || 'Someone';
-    const snippet = body.length > 120 ? body.slice(0, 117) + '…' : body;
+    const notificationBody = body || (incomingAttachments.length ? '[attachment]' : '');
+    const snippet = notificationBody.length > 120 ? notificationBody.slice(0, 117) + '…' : notificationBody;
 
     for (const rid of recipients) {
       // Avoid spamming: only notify if this message is newer than last_notified_message_id
-      const messageId = ins.insertId;
+      const messageId = insertedMessageId;
       const [[readState]] = await pool.execute(
         'SELECT last_notified_message_id FROM chat_thread_reads WHERE thread_id = ? AND user_id = ?',
         [threadId, rid]
@@ -635,16 +1085,21 @@ export const sendMessage = async (req, res, next) => {
       });
     }
 
+    const hasAnnouncementCol = await hasChatMessagesAnnouncementColumn();
+    const annCol = hasAnnouncementCol ? ', m.announcement_id' : '';
     const [row] = await pool.execute(
-      `SELECT m.id, m.thread_id, m.sender_user_id, m.body, m.created_at,
-              u.first_name AS sender_first_name, u.last_name AS sender_last_name
+      `SELECT m.id, m.thread_id, m.sender_user_id, m.body${annCol}, m.created_at,
+              u.first_name AS sender_first_name, u.last_name AS sender_last_name,
+              u.profile_photo_path AS sender_profile_photo_path
        FROM chat_messages m
        JOIN users u ON u.id = m.sender_user_id
        WHERE m.id = ?`,
-      [ins.insertId]
+      [insertedMessageId]
     );
     const out = row[0] || {};
     if (!out.body && body) out.body = body;
+    out.attachments = (await loadAttachmentsForMessages([insertedMessageId])).get(insertedMessageId) || [];
+    out.reactions = (await loadReactionsForMessages([insertedMessageId], req.user.id)).get(insertedMessageId) || [];
     res.status(201).json(out);
   } catch (e) {
     next(e);

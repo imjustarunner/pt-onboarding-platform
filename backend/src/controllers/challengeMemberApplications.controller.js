@@ -29,6 +29,7 @@ import {
   getManagedClubsForUser
 } from '../utils/sscClubAccess.js';
 import { normalizeSplashImageUrl } from './agencyAnnouncements.controller.js';
+import { getOrCreateTeamThread } from './chat.controller.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import StorageService from '../services/storage.service.js';
 import multer from 'multer';
@@ -4969,7 +4970,13 @@ export const postTeamAnnouncementForTeam = async (req, res, next) => {
     const titleRaw = req.body?.title;
     const title = titleRaw === null || titleRaw === undefined ? null : String(titleRaw || '').trim().slice(0, 255) || null;
     const message = String(req.body?.message || '').trim();
-    const displayType = String(req.body?.displayType || req.body?.display_type || 'announcement').trim().toLowerCase() === 'splash' ? 'splash' : 'announcement';
+    const displayTypeRaw = String(req.body?.displayType || req.body?.display_type || 'announcement').trim().toLowerCase();
+    // 'message' = post only to the team chat thread (no banner / splash row).
+    const displayType = displayTypeRaw === 'splash'
+      ? 'splash'
+      : displayTypeRaw === 'message'
+        ? 'message'
+        : 'announcement';
     const splashImageUrl = normalizeSplashImageUrl(req.body?.splashImageUrl ?? req.body?.splash_image_url);
     if (req.body?.splashImageUrl != null || req.body?.splash_image_url != null) {
       const raw = req.body?.splashImageUrl ?? req.body?.splash_image_url;
@@ -4981,55 +4988,116 @@ export const postTeamAnnouncementForTeam = async (req, res, next) => {
     if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
     if (message.length > 1200) return res.status(400).json({ error: { message: 'Message is too long (max 1200 characters)' } });
 
-    const startsAtRaw = req.body?.starts_at || req.body?.startsAt;
-    const endsAtRaw = req.body?.ends_at || req.body?.endsAt;
-    if (!startsAtRaw || !endsAtRaw) return res.status(400).json({ error: { message: 'starts_at and ends_at are required' } });
+    // starts_at / ends_at are only required for banner / splash rows.
+    const writeAnnouncementRow = displayType !== 'message';
+    let startsAt = null;
+    let endsAt = null;
+    if (writeAnnouncementRow) {
+      const startsAtRaw = req.body?.starts_at || req.body?.startsAt;
+      const endsAtRaw = req.body?.ends_at || req.body?.endsAt;
+      if (!startsAtRaw || !endsAtRaw) return res.status(400).json({ error: { message: 'starts_at and ends_at are required' } });
 
-    const startsAt = new Date(startsAtRaw);
-    const endsAt = new Date(endsAtRaw);
-    if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
-      return res.status(400).json({ error: { message: 'Invalid starts_at or ends_at' } });
-    }
-    if (endsAt.getTime() <= startsAt.getTime()) {
-      return res.status(400).json({ error: { message: 'ends_at must be after starts_at' } });
-    }
+      startsAt = new Date(startsAtRaw);
+      endsAt = new Date(endsAtRaw);
+      if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
+        return res.status(400).json({ error: { message: 'Invalid starts_at or ends_at' } });
+      }
+      if (endsAt.getTime() <= startsAt.getTime()) {
+        return res.status(400).json({ error: { message: 'ends_at must be after starts_at' } });
+      }
 
-    const durationDays = (endsAt.getTime() - startsAt.getTime()) / ANNOUNCEMENT_MS_DAY;
-    if (durationDays > 14.0001) {
-      return res.status(400).json({ error: { message: 'Announcements must be time-limited to 2 weeks maximum' } });
-    }
+      const durationDays = (endsAt.getTime() - startsAt.getTime()) / ANNOUNCEMENT_MS_DAY;
+      if (durationDays > 14.0001) {
+        return res.status(400).json({ error: { message: 'Announcements must be time-limited to 2 weeks maximum' } });
+      }
 
-    const maxStart = Date.now() + 364 * ANNOUNCEMENT_MS_DAY;
-    if (startsAt.getTime() > maxStart) {
-      return res.status(400).json({ error: { message: 'Announcements can only be scheduled up to 364 days out' } });
+      const maxStart = Date.now() + 364 * ANNOUNCEMENT_MS_DAY;
+      if (startsAt.getTime() > maxStart) {
+        return res.status(400).json({ error: { message: 'Announcements can only be scheduled up to 364 days out' } });
+      }
     }
 
     const audience = 'everyone';
 
-    const [result] = await pool.execute(
-      `INSERT INTO agency_scheduled_announcements
-       (agency_id, created_by_user_id, title, message, display_type, recipient_user_ids, audience, starts_at, ends_at, splash_image_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [clubId, userId, title, message, displayType, JSON.stringify(recipientUserIds), audience, startsAt, endsAt, splashImageUrl]
-    );
+    let announcementId = null;
+    if (writeAnnouncementRow) {
+      const [result] = await pool.execute(
+        `INSERT INTO agency_scheduled_announcements
+         (agency_id, created_by_user_id, title, message, display_type, recipient_user_ids, audience, starts_at, ends_at, splash_image_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [clubId, userId, title, message, displayType, JSON.stringify(recipientUserIds), audience, startsAt, endsAt, splashImageUrl]
+      );
+      announcementId = result?.insertId ? Number(result.insertId) : null;
+    }
 
-    const id = result?.insertId ? Number(result.insertId) : null;
-    return res.status(201).json({
-      announcement: {
-        id,
-        agency_id: clubId,
-        learning_class_id: classId,
-        team_id: teamId,
-        title,
-        message,
-        splash_image_url: splashImageUrl,
-        display_type: displayType,
-        recipient_user_ids: recipientUserIds,
-        audience,
-        starts_at: startsAt,
-        ends_at: endsAt,
-        created_by_user_id: userId
+    // Bridge: also write the announcement into the persistent team chat thread.
+    let chatThreadId = null;
+    let chatMessageId = null;
+    try {
+      const { threadId } = await getOrCreateTeamThread({ clubId, teamId });
+      chatThreadId = threadId;
+      const bridgedBody = title ? `${title}\n\n${message}` : message;
+      const hasAnnouncementCol = await pool.execute(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_schema = DATABASE() AND table_name = 'chat_messages' AND column_name = 'announcement_id'
+          LIMIT 1`
+      ).then(([r]) => r?.length > 0).catch(() => false);
+      const [msgIns] = hasAnnouncementCol
+        ? await pool.execute(
+            `INSERT INTO chat_messages (thread_id, sender_user_id, body, announcement_id) VALUES (?, ?, ?, ?)`,
+            [threadId, userId, bridgedBody, announcementId]
+          )
+        : await pool.execute(
+            `INSERT INTO chat_messages (thread_id, sender_user_id, body) VALUES (?, ?, ?)`,
+            [threadId, userId, bridgedBody]
+          );
+      chatMessageId = msgIns?.insertId ? Number(msgIns.insertId) : null;
+
+      if (splashImageUrl) {
+        const hasAttachmentsTable = await pool.execute(
+          `SELECT 1 FROM information_schema.tables
+            WHERE table_schema = DATABASE() AND table_name = 'chat_message_attachments'
+            LIMIT 1`
+        ).then(([r]) => r?.length > 0).catch(() => false);
+        if (hasAttachmentsTable && chatMessageId) {
+          // Strip leading host / 'uploads/' so the chat layer reconstructs it consistently.
+          let storedPath = String(splashImageUrl);
+          const upIdx = storedPath.indexOf('/uploads/');
+          if (upIdx >= 0) storedPath = storedPath.slice(upIdx + '/uploads/'.length);
+          await pool.execute(
+            `INSERT INTO chat_message_attachments
+               (message_id, file_path, mime_type, file_kind, original_filename)
+             VALUES (?, ?, ?, 'image', NULL)`,
+            [chatMessageId, storedPath.slice(0, 512), 'image/*']
+          );
+        }
       }
+
+      await pool.execute('UPDATE chat_threads SET updated_at = NOW() WHERE id = ?', [threadId]);
+    } catch (bridgeErr) {
+      // Bridging is best-effort - never fail the announcement because chat is not ready.
+      console.warn('[messages] Failed to bridge team announcement into chat thread:', bridgeErr?.message || bridgeErr);
+    }
+
+    return res.status(201).json({
+      announcement: announcementId
+        ? {
+            id: announcementId,
+            agency_id: clubId,
+            learning_class_id: classId,
+            team_id: teamId,
+            title,
+            message,
+            splash_image_url: splashImageUrl,
+            display_type: displayType,
+            recipient_user_ids: recipientUserIds,
+            audience,
+            starts_at: startsAt,
+            ends_at: endsAt,
+            created_by_user_id: userId
+          }
+        : null,
+      chat: chatThreadId ? { thread_id: chatThreadId, message_id: chatMessageId } : null
     });
   } catch (e) {
     next(e);

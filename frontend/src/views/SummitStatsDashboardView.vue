@@ -66,13 +66,16 @@
     </section>
 
     <section class="dashboard-hero card dash-section dash-section--hero">
-      <div>
+      <div class="dashboard-hero-text">
         <p class="eyebrow">{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }}</p>
         <h1>My club dashboard</h1>
         <p class="hero-copy">
           Your home for clubs and seasons. Open a season to see leaderboards, workouts, and each week's team challenges
           (the weekly tasks your team completes).
         </p>
+        <div v-if="onlinePillClubId" class="dashboard-hero-online">
+          <OnlineMembersPill :club-id="onlinePillClubId" />
+        </div>
       </div>
       <label class="sstc-dark-mode-toggle" :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'">
         <span class="sstc-dark-mode-text">Dark mode</span>
@@ -121,10 +124,13 @@
     </section>
 
     <section class="card dash-section dash-section--seasons-current">
-      <div class="section-header">
+      <div class="section-header section-header--with-online">
         <div>
           <h2>Current and Upcoming Seasons</h2>
           <p>What's live now or coming up — stats here are for each season you're in.</p>
+        </div>
+        <div v-if="onlinePillClubId" class="section-header-online">
+          <OnlineMembersPill :club-id="onlinePillClubId" />
         </div>
       </div>
       <div v-if="currentSeasons.length" class="season-list">
@@ -804,6 +810,7 @@ import { useAuthStore } from '../store/auth';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../utils/summitPlatformSlugs.js';
 import ClubFeedPanel from '../components/sstc/ClubFeedPanel.vue';
+import OnlineMembersPill from '../components/sstc/OnlineMembersPill.vue';
 import {
   AVERAGE_MILES_PER_WEEK_OPTIONS,
   PHYSICAL_ACTIVITY_HOURS_OPTIONS
@@ -979,6 +986,23 @@ const memberships = computed(() => Array.isArray(summary.value?.memberships) ? s
 
 /** Primary club the user is affiliated with — used to render the ClubFeedPanel. */
 const primaryClubId = computed(() => memberships.value?.[0]?.clubId ?? null);
+
+/**
+ * Club id used to scope the "who's online" pill in the SSTC dashboard hero
+ * and seasons header. Prefers the currently-selected affiliation org, falling
+ * back to the user's first managed club, then their primary club membership.
+ */
+const onlinePillClubId = computed(() => {
+  const cur = agencyStore.currentAgency;
+  if (cur && String(cur.organization_type || cur.organizationType || '').toLowerCase() === 'affiliation') {
+    const id = Number(cur.id || 0);
+    if (id > 0) return id;
+  }
+  const managed = managedClubs.value?.[0]?.id;
+  if (Number(managed) > 0) return Number(managed);
+  if (Number(primaryClubId.value) > 0) return Number(primaryClubId.value);
+  return null;
+});
 const currentSeasons = computed(() => Array.isArray(summary.value?.seasons?.current) ? summary.value.seasons.current : []);
 const pastSeasons = computed(() => Array.isArray(summary.value?.seasons?.past) ? summary.value.seasons.past : []);
 const availableSeasons = computed(() => Array.isArray(summary.value?.seasons?.available) ? summary.value.seasons.available : []);
@@ -1651,6 +1675,25 @@ watch(
 .section-header--account {
   flex-wrap: wrap;
   align-items: center;
+}
+
+.section-header--with-online {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.section-header-online {
+  flex-shrink: 0;
+}
+
+.dashboard-hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dashboard-hero-online {
+  margin-top: 6px;
 }
 
 .account-header-actions {

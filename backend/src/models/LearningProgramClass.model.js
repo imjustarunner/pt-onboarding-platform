@@ -275,6 +275,26 @@ class LearningProgramClass {
          removed_at = CASE WHEN VALUES(membership_status) IN ('removed') THEN NOW() ELSE NULL END`,
       [classId, providerUserId, membershipStatus, membershipStatus, roleLabel, notes, actorUserId]
     );
+
+    // Best-effort: if this season is in a club that already has a club-wide
+    // chat thread, attach the new provider so they see it in /messages.
+    if (String(membershipStatus).toLowerCase() === 'active') {
+      try {
+        const [rows] = await pool.execute(
+          `SELECT organization_id AS club_id
+             FROM learning_program_classes
+            WHERE id = ? LIMIT 1`,
+          [classId]
+        );
+        const clubId = rows?.[0]?.club_id ? Number(rows[0].club_id) : null;
+        if (clubId) {
+          const { ensureUserInClubThread } = await import('../controllers/chat.controller.js');
+          await ensureUserInClubThread({ clubId, userId: providerUserId });
+        }
+      } catch {
+        // best-effort
+      }
+    }
   }
 
   static async listClientMembers(classId) {

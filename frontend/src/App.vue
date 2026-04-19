@@ -493,11 +493,11 @@
                     <router-link
                       v-if="canUseEngagementFeed"
                       :to="orgTo('/admin/communications')"
-                    >Messages</router-link>
+                    >Engagement Feed</router-link>
                     <router-link
                       v-if="canUseChats"
-                      :to="orgTo('/admin/communications/chats')"
-                    >Chats</router-link>
+                      :to="orgTo('/admin/communications/messages')"
+                    >Messages</router-link>
                     <router-link
                       v-if="canUseAgencyCampaigns && !isSscSstcTenant"
                       :to="orgTo('/admin/communications/campaigns')"
@@ -1033,13 +1033,13 @@
                 v-if="canUseEngagementFeed && !isSscSstcTenant"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
-              >Messages</router-link>
+              >Engagement Feed</router-link>
               <router-link
-                :to="orgTo('/admin/communications/chats')"
+                :to="orgTo('/admin/communications/messages')"
                 v-if="canUseChats && !isSscSstcTenant"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
-              >Chats</router-link>
+              >Messages</router-link>
               <router-link
                 :to="orgTo('/notifications')"
                 v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && !isSscSstcTenant"
@@ -1133,7 +1133,7 @@
       <BetaFeedbackWidget v-if="isAuthenticated && !isNative" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />
       <TourManager v-if="isAuthenticated && !isSummitStatsChallengeChrome" />
-      <PlatformChatDrawer v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" />
+      <PlatformChatDrawer v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isSscSstcTenant" />
       <SessionLockScreen
         v-if="isAuthenticated"
         :is-locked="sessionLockStore.isLocked"

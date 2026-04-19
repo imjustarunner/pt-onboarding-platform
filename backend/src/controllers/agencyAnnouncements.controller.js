@@ -1,5 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import { canUserManageClub } from '../utils/sscClubAccess.js';
+import { getOrCreateClubThread } from './chat.controller.js';
 
 const DEFAULT_BIRTHDAY_TEMPLATE = 'Happy Birthday, {fullName}';
 const DEFAULT_ANNIVERSARY_TEMPLATE = 'Happy {years}-year anniversary, {fullName}';
@@ -560,6 +562,157 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
         ends_at: endsAt,
         created_by_user_id: userId
       }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Create a club-wide announcement AND mirror it into the persistent club chat
+ * thread. Used by the new "Message the club" UX for managers.
+ *
+ * - displayType 'announcement' (banner) and 'splash' write the announcement
+ *   row + a chat_messages row in the club thread.
+ * - displayType 'message' skips the announcement row and just posts to the
+ *   thread (thread-only message).
+ *
+ * POST /api/agencies/:id/announcements/with-thread
+ */
+export const postClubAnnouncementWithThread = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req.params.id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
+
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const canManage = await canUserManageClub({ user: req.user, clubId: agencyId });
+    if (!canManage) return res.status(403).json({ error: { message: 'Club manager access required' } });
+
+    const titleRaw = req.body?.title;
+    const title = titleRaw === null || titleRaw === undefined
+      ? null
+      : String(titleRaw || '').trim().slice(0, 255) || null;
+    const message = String(req.body?.message || '').trim();
+    const displayTypeRaw = String(req.body?.displayType || req.body?.display_type || 'announcement').trim().toLowerCase();
+    const displayType = displayTypeRaw === 'splash'
+      ? 'splash'
+      : displayTypeRaw === 'message'
+        ? 'message'
+        : 'announcement';
+    const splashImageUrl = normalizeSplashImageUrl(req.body?.splashImageUrl ?? req.body?.splash_image_url);
+    if (req.body?.splashImageUrl != null || req.body?.splash_image_url != null) {
+      const raw = req.body?.splashImageUrl ?? req.body?.splash_image_url;
+      if (raw !== null && raw !== undefined && String(raw).trim() !== '' && !splashImageUrl) {
+        return res.status(400).json({ error: { message: 'splash_image_url must be a valid http(s) URL or /uploads path (max 512 chars)' } });
+      }
+    }
+    if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
+    if (message.length > 1200) return res.status(400).json({ error: { message: 'Message is too long (max 1200 characters)' } });
+
+    const writeAnnouncementRow = displayType !== 'message';
+    let startsAt = null;
+    let endsAt = null;
+    if (writeAnnouncementRow) {
+      const startsAtRaw = req.body?.starts_at || req.body?.startsAt;
+      const endsAtRaw = req.body?.ends_at || req.body?.endsAt;
+      if (!startsAtRaw || !endsAtRaw) return res.status(400).json({ error: { message: 'starts_at and ends_at are required' } });
+      startsAt = new Date(startsAtRaw);
+      endsAt = new Date(endsAtRaw);
+      if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
+        return res.status(400).json({ error: { message: 'Invalid starts_at or ends_at' } });
+      }
+      if (endsAt.getTime() <= startsAt.getTime()) {
+        return res.status(400).json({ error: { message: 'ends_at must be after starts_at' } });
+      }
+      const durationDays = (endsAt.getTime() - startsAt.getTime()) / MS_DAY;
+      if (durationDays > 14.0001) {
+        return res.status(400).json({ error: { message: 'Announcements must be time-limited to 2 weeks maximum' } });
+      }
+      const maxStart = Date.now() + 364 * MS_DAY;
+      if (startsAt.getTime() > maxStart) {
+        return res.status(400).json({ error: { message: 'Announcements can only be scheduled up to 364 days out' } });
+      }
+    }
+
+    const audience = parseAudience(req.body?.audience || 'everyone');
+    const recipientUserIds = parseRecipientUserIds(req.body?.recipientUserIds || req.body?.recipient_user_ids);
+
+    let announcementId = null;
+    if (writeAnnouncementRow) {
+      const [result] = await pool.execute(
+        `INSERT INTO agency_scheduled_announcements
+         (agency_id, created_by_user_id, title, message, display_type, recipient_user_ids, audience, starts_at, ends_at, splash_image_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [agencyId, userId, title, message, displayType, JSON.stringify(recipientUserIds), audience, startsAt, endsAt, splashImageUrl]
+      );
+      announcementId = result?.insertId ? Number(result.insertId) : null;
+    }
+
+    let chatThreadId = null;
+    let chatMessageId = null;
+    try {
+      const { threadId } = await getOrCreateClubThread({ clubId: agencyId });
+      chatThreadId = threadId;
+      const bridgedBody = title ? `${title}\n\n${message}` : message;
+      const [hasAnnCol] = await pool.execute(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_schema = DATABASE() AND table_name = 'chat_messages' AND column_name = 'announcement_id'
+          LIMIT 1`
+      );
+      const hasAnnouncementCol = hasAnnCol?.length > 0;
+      const [msgIns] = hasAnnouncementCol
+        ? await pool.execute(
+            `INSERT INTO chat_messages (thread_id, sender_user_id, body, announcement_id) VALUES (?, ?, ?, ?)`,
+            [threadId, userId, bridgedBody, announcementId]
+          )
+        : await pool.execute(
+            `INSERT INTO chat_messages (thread_id, sender_user_id, body) VALUES (?, ?, ?)`,
+            [threadId, userId, bridgedBody]
+          );
+      chatMessageId = msgIns?.insertId ? Number(msgIns.insertId) : null;
+
+      if (splashImageUrl && chatMessageId) {
+        const [hasAttTable] = await pool.execute(
+          `SELECT 1 FROM information_schema.tables
+            WHERE table_schema = DATABASE() AND table_name = 'chat_message_attachments'
+            LIMIT 1`
+        );
+        if (hasAttTable?.length > 0) {
+          let storedPath = String(splashImageUrl);
+          const upIdx = storedPath.indexOf('/uploads/');
+          if (upIdx >= 0) storedPath = storedPath.slice(upIdx + '/uploads/'.length);
+          await pool.execute(
+            `INSERT INTO chat_message_attachments
+               (message_id, file_path, mime_type, file_kind, original_filename)
+             VALUES (?, ?, ?, 'image', NULL)`,
+            [chatMessageId, storedPath.slice(0, 512), 'image/*']
+          );
+        }
+      }
+      await pool.execute('UPDATE chat_threads SET updated_at = NOW() WHERE id = ?', [threadId]);
+    } catch (bridgeErr) {
+      console.warn('[messages] Failed to bridge club announcement into chat thread:', bridgeErr?.message || bridgeErr);
+    }
+
+    return res.status(201).json({
+      announcement: announcementId
+        ? {
+            id: announcementId,
+            agency_id: agencyId,
+            title,
+            message,
+            splash_image_url: splashImageUrl,
+            display_type: displayType,
+            recipient_user_ids: recipientUserIds,
+            audience,
+            starts_at: startsAt,
+            ends_at: endsAt,
+            created_by_user_id: userId
+          }
+        : null,
+      chat: chatThreadId ? { thread_id: chatThreadId, message_id: chatMessageId } : null
     });
   } catch (e) {
     next(e);

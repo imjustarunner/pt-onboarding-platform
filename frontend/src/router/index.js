@@ -1090,14 +1090,18 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'provider', 'staff', 'clinical_practice_assistant', 'supervisor'], organizationSlug: true }
   },
   {
-    path: '/:organizationSlug/admin/communications/chats',
-    name: 'OrganizationPlatformChats',
+    path: '/:organizationSlug/admin/communications/messages',
+    name: 'OrganizationAdminMessages',
     component: () => import('../views/admin/PlatformChatsView.vue'),
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'],
       organizationSlug: true
     }
+  },
+  {
+    path: '/:organizationSlug/admin/communications/chats',
+    redirect: (to) => ({ path: `/${to.params.organizationSlug}/admin/communications/messages` })
   },
   {
     path: '/:organizationSlug/admin/communications/campaigns',
@@ -1795,10 +1799,14 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'provider', 'staff', 'clinical_practice_assistant', 'supervisor'] }
   },
   {
-    path: '/admin/communications/chats',
-    name: 'PlatformChats',
+    path: '/admin/communications/messages',
+    name: 'AdminMessages',
     component: () => import('../views/admin/PlatformChatsView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff'] }
+  },
+  {
+    path: '/admin/communications/chats',
+    redirect: '/admin/communications/messages'
   },
   {
     path: '/admin/communications/campaigns',

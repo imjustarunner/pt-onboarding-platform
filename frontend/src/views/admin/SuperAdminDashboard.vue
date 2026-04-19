@@ -571,9 +571,9 @@ const quickActions = computed(() => {
   },
   {
     id: 'chats',
-    title: 'Chats',
-    description: 'Open platform chats',
-    to: '/admin/communications/chats',
+    title: 'Messages',
+    description: 'Open platform messages',
+    to: '/admin/communications/messages',
     emoji: '💬',
     iconKey: 'dashboard_chats',
     category: 'Communications',

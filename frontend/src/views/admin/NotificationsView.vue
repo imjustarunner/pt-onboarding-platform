@@ -582,11 +582,11 @@ const getNotificationNavigationPath = async (notification) => {
       const slug = meta.data?.organization_slug || null;
       const agencyId = meta.data?.agency_id || notification.agency_id || '';
       const threadId = meta.data?.thread_id || notification.related_entity_id;
-      if (slug) return `/${slug}/admin/communications/chats?threadId=${encodeURIComponent(String(threadId))}&agencyId=${encodeURIComponent(String(agencyId))}`;
-      return `/admin/communications/chats?threadId=${encodeURIComponent(String(threadId))}&agencyId=${encodeURIComponent(String(agencyId))}`;
+      if (slug) return `/${slug}/admin/communications/messages?threadId=${encodeURIComponent(String(threadId))}&agencyId=${encodeURIComponent(String(agencyId))}`;
+      return `/admin/communications/messages?threadId=${encodeURIComponent(String(threadId))}&agencyId=${encodeURIComponent(String(agencyId))}`;
     } catch {
       const agencyId = notification.agency_id || '';
-      return `/admin/communications/chats?threadId=${encodeURIComponent(String(notification.related_entity_id))}&agencyId=${encodeURIComponent(String(agencyId))}`;
+      return `/admin/communications/messages?threadId=${encodeURIComponent(String(notification.related_entity_id))}&agencyId=${encodeURIComponent(String(agencyId))}`;
     }
   } else if (notification.user_id) {
     // Default: navigate to user profile

@@ -200,6 +200,7 @@
             :my-team-id="myTeamId"
             :is-manager="isChallengeManager"
             :activity-type-options="activityTypeOptions"
+            :all-teams="teams"
             :club-id="challenge?.organization_id"
             :weekly-task-options="taggableWeeklyTaskOptions"
             :moderation-mode="challenge?.season_settings_json?.workoutModeration?.mode || 'treadmill_only'"
@@ -891,13 +892,17 @@
     <div v-if="showTeamMessageModal" class="modal-overlay" @click.self="showTeamMessageModal = false">
       <div class="modal-content modal-wide team-msg-modal" @click.stop>
         <h2>Message your team</h2>
-        <p class="hint">Only members on your team receive this (via the club announcement system).</p>
+        <p class="hint">
+          Banner / splash also post to your team Messages thread so people can reply.
+          Choose <strong>Message (thread only)</strong> to skip the banner entirely.
+        </p>
         <div v-if="teamMsgError" class="error-inline">{{ teamMsgError }}</div>
         <div class="form-row">
           <label>Type</label>
           <select v-model="teamMsgDraft.displayType" class="form-control">
             <option value="announcement">Banner (scrolling line)</option>
             <option value="splash">Splash (pop-up)</option>
+            <option value="message">Message (thread only)</option>
           </select>
         </div>
         <div class="form-row">
@@ -921,7 +926,7 @@
           />
           <span v-if="teamSplashUploading" class="hint">Uploading…</span>
         </div>
-        <div class="form-row form-row--2">
+        <div v-if="teamMsgDraft.displayType !== 'message'" class="form-row form-row--2">
           <label>Starts<br />
             <input v-model="teamMsgDraft.startsAt" type="datetime-local" class="form-control" />
           </label>
@@ -1336,6 +1341,7 @@ const captainTeamId = computed(() => {
 const showTeamMessageModal = ref(false);
 const teamMsgSubmitting = ref(false);
 const teamMsgError = ref('');
+const lastTeamMessageThreadId = ref(null);
 const teamSplashUploading = ref(false);
 const teamSplashFileInput = ref(null);
 const teamMsgDraft = ref({
@@ -1372,6 +1378,7 @@ const openTeamMessageModal = () => {
 const canSubmitTeamMsg = computed(() => {
   const d = teamMsgDraft.value;
   if (!String(d.message || '').trim()) return false;
+  if (d.displayType === 'message') return true;
   if (!d.startsAt || !d.endsAt) return false;
   const starts = new Date(d.startsAt);
   const ends = new Date(d.endsAt);
@@ -1414,14 +1421,19 @@ const submitTeamAnnouncement = async () => {
     const payload = {
       title: String(d.title || '').trim() || null,
       message: String(d.message || '').trim(),
-      display_type: d.displayType === 'splash' ? 'splash' : 'announcement',
-      starts_at: new Date(d.startsAt),
-      ends_at: new Date(d.endsAt)
+      display_type: d.displayType === 'splash' ? 'splash' : (d.displayType === 'message' ? 'message' : 'announcement')
     };
-    const splash = String(d.splashImageUrl || '').trim();
-    if (splash) payload.splash_image_url = splash;
-    await api.post(`/summit-stats/clubs/${cid}/seasons/${classId}/teams/${tid}/announcements`, payload, { skipGlobalLoading: true });
+    if (d.displayType !== 'message') {
+      payload.starts_at = new Date(d.startsAt);
+      payload.ends_at = new Date(d.endsAt);
+      const splash = String(d.splashImageUrl || '').trim();
+      if (splash) payload.splash_image_url = splash;
+    }
+    const resp = await api.post(`/summit-stats/clubs/${cid}/seasons/${classId}/teams/${tid}/announcements`, payload, { skipGlobalLoading: true });
     showTeamMessageModal.value = false;
+    if (resp?.data?.chat?.thread_id) {
+      lastTeamMessageThreadId.value = Number(resp.data.chat.thread_id);
+    }
     await loadClubAnnouncements();
   } catch (err) {
     teamMsgError.value = err.response?.data?.error?.message || 'Failed to post';

@@ -900,8 +900,8 @@ const isActiveCall = (c) => {
 
 const chatsLink = computed(() => {
   const slug = route.params.organizationSlug;
-  if (typeof slug === 'string' && slug) return `/${slug}/admin/communications/chats`;
-  return '/admin/communications/chats';
+  if (typeof slug === 'string' && slug) return `/${slug}/admin/communications/messages`;
+  return '/admin/communications/messages';
 });
 const smsInboxLink = computed(() => {
   const slug = route.params.organizationSlug;
@@ -1510,9 +1510,9 @@ const openItem = async (i) => {
   if (!threadId) return;
   const slug = i.organization_slug || route.params.organizationSlug;
   if (typeof slug === 'string' && slug) {
-    router.push({ path: `/${slug}/admin/communications/chats`, query: { threadId: String(threadId), agencyId: String(i.agency_id || '') } });
+    router.push({ path: `/${slug}/admin/communications/messages`, query: { threadId: String(threadId), agencyId: String(i.agency_id || '') } });
   } else {
-    router.push({ path: '/admin/communications/chats', query: { threadId: String(threadId), agencyId: String(i.agency_id || '') } });
+    router.push({ path: '/admin/communications/messages', query: { threadId: String(threadId), agencyId: String(i.agency_id || '') } });
   }
 };
 

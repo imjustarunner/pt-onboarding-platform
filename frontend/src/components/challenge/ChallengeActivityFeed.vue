@@ -668,6 +668,8 @@ const props = defineProps({
   myUserId: { type: [String, Number], default: null },
   isManager: { type: Boolean, default: false },
   myTeamId: { type: [String, Number], default: null },
+  /** Full roster of teams in the season (independent of who has activity today). */
+  allTeams: { type: Array, default: () => [] },
   activityTypeOptions: { type: Array, default: () => [] },
   clubId: { type: [String, Number], default: null },
   weeklyTaskOptions: { type: Array, default: () => [] },
@@ -705,9 +707,14 @@ const onUserBlocked = ({ userId }) => {
 const todayStr = () => new Date().toLocaleDateString('en-CA');
 const selectedDate = ref(todayStr());
 const isToday = computed(() => selectedDate.value === todayStr());
+const isCompactDateViewport = ref(typeof window !== 'undefined' ? window.innerWidth < 520 : false);
+let compactDateMql = null;
 const formattedDate = computed(() => {
   const d = new Date(selectedDate.value + 'T12:00:00');
-  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const opts = isCompactDateViewport.value
+    ? { month: 'short', day: 'numeric' }
+    : { weekday: 'short', month: 'short', day: 'numeric' };
+  return d.toLocaleDateString(undefined, opts);
 });
 const shiftDate = (delta) => {
   const d = new Date(selectedDate.value + 'T12:00:00');
@@ -721,15 +728,29 @@ const resetDate = () => { selectedDate.value = todayStr(); };
 const teamFilter        = ref(null);   // null | 'my' | '<team_id>'
 const activityTypeFilter = ref(null);  // null | 'running' | 'rucking' | …
 
-/** Unique teams that appear in the current workouts list (for the filter bar). */
+/**
+ * Full team roster for the season. Prefers the parent-supplied `allTeams`
+ * list (so every team shows up as a filter even if they haven't logged
+ * activity for the selected day). Falls back to teams found in the current
+ * workouts list when `allTeams` isn't provided.
+ */
 const teamList = computed(() => {
   const seen = new Map();
-  for (const w of (props.workouts || [])) {
-    if (w.team_id && w.team_name && !seen.has(String(w.team_id))) {
-      seen.set(String(w.team_id), { id: w.team_id, name: w.team_name });
+  for (const t of (props.allTeams || [])) {
+    const id = t?.id ?? t?.team_id;
+    const name = t?.name ?? t?.team_name;
+    if (id != null && name && !seen.has(String(id))) {
+      seen.set(String(id), { id, name });
     }
   }
-  return Array.from(seen.values());
+  if (!seen.size) {
+    for (const w of (props.workouts || [])) {
+      if (w.team_id && w.team_name && !seen.has(String(w.team_id))) {
+        seen.set(String(w.team_id), { id: w.team_id, name: w.team_name });
+      }
+    }
+  }
+  return Array.from(seen.values()).sort((a, b) => String(a.name).localeCompare(String(b.name)));
 });
 
 const otherTeams = computed(() =>
@@ -757,6 +778,14 @@ const activityLabel = (canonical) => {
 
 const activityTypeList = computed(() => {
   const seen = new Map(); // canonical → display label
+  // Prefer the parent-supplied options so all season-allowed activity types
+  // appear as filter pills, even on days when nobody logged that type.
+  for (const opt of (props.activityTypeOptions || [])) {
+    const raw = opt?.value ?? opt?.id ?? opt;
+    if (!raw) continue;
+    const c = canonicalActivity(raw);
+    if (!seen.has(c)) seen.set(c, opt?.label || activityLabel(c));
+  }
   for (const w of (props.workouts || [])) {
     if (!w.activity_type) continue;
     const c = canonicalActivity(w.activity_type);
@@ -1568,10 +1597,24 @@ watch(
 onMounted(async () => {
   await Promise.all([loadKudosBudget(), loadReactionIcons(), loadBlockedUsers()]);
   document.addEventListener('click', onDocumentClick);
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    compactDateMql = window.matchMedia('(max-width: 519px)');
+    isCompactDateViewport.value = compactDateMql.matches;
+    const handler = (e) => { isCompactDateViewport.value = e.matches; };
+    if (compactDateMql.addEventListener) compactDateMql.addEventListener('change', handler);
+    else compactDateMql.addListener(handler);
+    compactDateMql.__handler = handler;
+  }
 });
 
 onUnmounted(() => {
   document.removeEventListener('click', onDocumentClick);
+  if (compactDateMql && compactDateMql.__handler) {
+    if (compactDateMql.removeEventListener) compactDateMql.removeEventListener('change', compactDateMql.__handler);
+    else compactDateMql.removeListener(compactDateMql.__handler);
+    compactDateMql.__handler = null;
+    compactDateMql = null;
+  }
 });
 
 // ── Mile splits ─────────────────────────────────────────────────────────────
@@ -1627,10 +1670,10 @@ const reviewProof = async (workoutId, status) => {
 }
 .activity-feed-header {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px 16px;
+  gap: 8px 12px;
   margin-bottom: 20px;
   padding-bottom: 16px;
   border-bottom: 2px solid #f1f5f9;
@@ -1641,6 +1684,19 @@ const reviewProof = async (workoutId, status) => {
   font-size: 1.25rem;
   font-weight: 800;
   letter-spacing: -0.01em;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .activity-feed-header { gap: 6px 8px; }
+  .challenge-activity-feed h2 { font-size: 1.05rem; }
+}
+@media (max-width: 360px) {
+  .challenge-activity-feed h2 { font-size: 0.95rem; }
 }
 
 .feed-scope-tabs {
@@ -1675,6 +1731,8 @@ const reviewProof = async (workoutId, status) => {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
 }
 .date-nav-btn {
   width: 28px;
@@ -1709,6 +1767,11 @@ const reviewProof = async (workoutId, status) => {
   border-color: #2563eb;
   color: #2563eb;
   background: #eff6ff;
+}
+
+@media (max-width: 480px) {
+  .date-nav-btn { width: 26px; height: 26px; font-size: 14px; }
+  .date-nav-today { padding: 4px 8px; font-size: 0.78rem; }
 }
 
 /* ── Filter bar ────────────────────────────────────────────────── */

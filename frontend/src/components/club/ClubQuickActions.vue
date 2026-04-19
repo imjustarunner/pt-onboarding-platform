@@ -24,15 +24,87 @@
               title="View dormant members (no login in 30+ days)"
             >{{ props.dormantMemberCount }} Dormant</router-link>
           </div>
-          <p>Add someone directly by email, or share your invite link for anyone to apply.</p>
+          <p>Add someone by email, or share an invite link — including a season fast-track that signs people up <em>and</em> drops them straight into a season.</p>
         </div>
         <div class="action-split-btns">
           <button type="button" class="split-btn split-btn--primary" @click="$emit('add-member')">
             + Add by Email
           </button>
-          <button type="button" class="split-btn split-btn--ghost" @click.stop="copyInviteLink">
-            {{ copiedInvite ? '✓ Copied!' : '🔗 Copy Invite Link' }}
-          </button>
+          <div class="invite-menu-wrap" v-click-outside="closeInviteMenu">
+            <button
+              type="button"
+              class="split-btn split-btn--ghost"
+              :class="{ 'split-btn--ghost-open': inviteMenuOpen }"
+              @click.stop="toggleInviteMenu"
+            >
+              {{ copiedInvite ? '✓ Copied!' : '🔗 Invite Link ▾' }}
+            </button>
+
+            <div v-if="inviteMenuOpen" class="invite-menu" @click.stop>
+              <div class="invite-menu-header">
+                <div class="invite-menu-title">Share an invite link</div>
+                <p class="invite-menu-sub">
+                  Pick where new members should land. Season links auto-enroll them on signup.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                class="invite-menu-row"
+                :disabled="generatingFor === 'club'"
+                @click="generateAndCopy(null)"
+              >
+                <div class="invite-menu-row-icon">🏠</div>
+                <div class="invite-menu-row-body">
+                  <div class="invite-menu-row-title">Club only (apply to join)</div>
+                  <div class="invite-menu-row-sub">Sends them to your application page.</div>
+                </div>
+                <div class="invite-menu-row-action">
+                  <span v-if="generatingFor === 'club'">…</span>
+                  <span v-else-if="lastCopiedKey === 'club'">✓ Copied</span>
+                  <span v-else>Copy</span>
+                </div>
+              </button>
+
+              <div v-if="invitableSeasonsLoading" class="invite-menu-empty">Loading seasons…</div>
+              <div v-else-if="invitableSeasonsError" class="invite-menu-error">{{ invitableSeasonsError }}</div>
+              <template v-else>
+                <div v-if="invitableSeasons.length" class="invite-menu-divider">Season fast-track</div>
+                <button
+                  v-for="season in invitableSeasons"
+                  :key="season.id"
+                  type="button"
+                  class="invite-menu-row invite-menu-row--season"
+                  :disabled="generatingFor === `season:${season.id}`"
+                  @click="generateAndCopy(season)"
+                >
+                  <div class="invite-menu-row-icon">🚀</div>
+                  <div class="invite-menu-row-body">
+                    <div class="invite-menu-row-title">{{ season.name }}</div>
+                    <div class="invite-menu-row-sub">
+                      <span v-if="seasonRangeText(season)">{{ seasonRangeText(season) }}</span>
+                      <span v-else>{{ seasonStatusText(season) }}</span>
+                      <span class="invite-menu-row-tag">unlimited uses · auto-enroll</span>
+                    </div>
+                  </div>
+                  <div class="invite-menu-row-action">
+                    <span v-if="generatingFor === `season:${season.id}`">…</span>
+                    <span v-else-if="lastCopiedKey === `season:${season.id}`">✓ Copied</span>
+                    <span v-else>Copy</span>
+                  </div>
+                </button>
+                <div v-if="!invitableSeasons.length" class="invite-menu-empty">
+                  No active or upcoming seasons yet.
+                  <router-link :to="seasonManagementTo" class="invite-menu-link">Create one →</router-link>
+                </div>
+              </template>
+
+              <div v-if="lastCopiedUrl" class="invite-menu-foot">
+                <div class="invite-menu-foot-label">Last link copied:</div>
+                <div class="invite-menu-foot-url">{{ lastCopiedUrl }}</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -105,6 +177,25 @@
           <p>Configure your club name, branding, and challenge management.</p>
         </div>
       </router-link>
+
+      <!-- ── Message the Club ───────────────────────────────────────── -->
+      <div
+        class="action-card action-card--split"
+        v-if="props.agency?.id"
+      >
+        <div class="action-icon-wrap">
+          <span class="action-icon-placeholder">📣</span>
+        </div>
+        <div class="action-content">
+          <h3>Message the Club</h3>
+          <p>Send a banner, splash, or thread-only message that lands in everyone's Messages.</p>
+        </div>
+        <div class="action-split-btns">
+          <button type="button" class="split-btn split-btn--primary" @click="openClubAnnouncementModal">
+            New club message
+          </button>
+        </div>
+      </div>
 
       <!-- ── Notifications ─────────────────────────────────────────── -->
       <div
@@ -270,6 +361,15 @@
     :agency-name="props.agency?.name || 'Club'"
     @close="showNotifModal = false"
   />
+
+  <PostAnnouncementModal
+    v-if="props.agency?.id"
+    :open="clubAnnouncementOpen"
+    mode="club"
+    :club-id="props.agency.id"
+    @close="clubAnnouncementOpen = false"
+    @posted="onClubAnnouncementPosted"
+  />
 </template>
 
 <script setup>
@@ -281,6 +381,7 @@ import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../../utils/summ
 import { isNativePlatform } from '../../utils/biometricAuth.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import NotificationCategoryModal from '../admin/NotificationCategoryModal.vue';
+import PostAnnouncementModal from '../messages/PostAnnouncementModal.vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -300,6 +401,14 @@ const route = useRoute();
 
 // ── Notifications ─────────────────────────────────────────────────
 const showNotifModal = ref(false);
+const clubAnnouncementOpen = ref(false);
+
+const openClubAnnouncementModal = () => {
+  clubAnnouncementOpen.value = true;
+};
+const onClubAnnouncementPosted = () => {
+  // No-op; the modal shows its own "Open in Messages" CTA on success.
+};
 
 const clubNotifCount = computed(() => {
   const id = props.agency?.id;
@@ -394,6 +503,120 @@ const copyToClipboard = async (text, flagRef) => {
 
 const copyPublicLink = () => copyToClipboard(publicPageUrl.value, copiedPublic);
 const copyInviteLink = () => copyToClipboard(invitePageUrl.value, copiedInvite);
+
+// ── Invite link menu (club-only + season fast-track) ───────────────
+const inviteMenuOpen = ref(false);
+const invitableSeasons = ref([]);
+const invitableSeasonsLoading = ref(false);
+const invitableSeasonsError = ref('');
+const generatingFor = ref(null);
+const lastCopiedKey = ref('');
+const lastCopiedUrl = ref('');
+
+const closeInviteMenu = () => { inviteMenuOpen.value = false; };
+
+const loadInvitableSeasons = async () => {
+  const clubId = Number(props.agency?.id || 0);
+  if (!clubId) {
+    invitableSeasons.value = [];
+    return;
+  }
+  try {
+    invitableSeasonsLoading.value = true;
+    invitableSeasonsError.value = '';
+    const { data } = await api.get(`/summit-stats/clubs/${clubId}/invitable-seasons`, { skipGlobalLoading: true });
+    invitableSeasons.value = Array.isArray(data?.seasons) ? data.seasons : [];
+  } catch (e) {
+    invitableSeasonsError.value = 'Couldn\'t load seasons';
+    invitableSeasons.value = [];
+  } finally {
+    invitableSeasonsLoading.value = false;
+  }
+};
+
+const toggleInviteMenu = () => {
+  inviteMenuOpen.value = !inviteMenuOpen.value;
+  if (inviteMenuOpen.value) loadInvitableSeasons();
+};
+
+const SEASON_RANGE_FMT = { month: 'short', day: 'numeric', year: 'numeric' };
+const seasonRangeText = (s) => {
+  const fmt = (v) => {
+    if (!v) return '';
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, SEASON_RANGE_FMT);
+  };
+  const start = fmt(s?.startsAt);
+  const end = fmt(s?.endsAt);
+  if (start && end) return `${start} – ${end}`;
+  if (start) return `Starts ${start}`;
+  if (end) return `Through ${end}`;
+  return '';
+};
+
+const seasonStatusText = (s) => {
+  const phase = String(s?.joinPhase || '').toLowerCase();
+  const status = String(s?.status || '').toLowerCase();
+  if (phase === 'open') return 'Open to join';
+  if (phase === 'upcoming' || status === 'upcoming') return 'Upcoming';
+  if (status === 'active') return 'Active';
+  return 'Available';
+};
+
+const generateAndCopy = async (season) => {
+  const clubId = Number(props.agency?.id || 0);
+  if (!clubId) return;
+  const key = season ? `season:${season.id}` : 'club';
+  generatingFor.value = key;
+  try {
+    const body = {
+      autoApprove: !!season,
+      maxUses: season ? null : null
+    };
+    if (season?.id) body.learningClassId = season.id;
+    const { data } = await api.post(`/summit-stats/clubs/${clubId}/invites`, body, { skipGlobalLoading: true });
+    const url = String(data?.joinUrl || '').trim();
+    if (!url) throw new Error('No invite URL returned');
+    await navigator.clipboard.writeText(url).catch(() => {
+      const el = document.createElement('textarea');
+      el.value = url;
+      el.style.position = 'fixed';
+      el.style.opacity = '0';
+      document.body.appendChild(el);
+      el.focus();
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    });
+    lastCopiedKey.value = key;
+    lastCopiedUrl.value = url;
+    copiedInvite.value = true;
+    setTimeout(() => { copiedInvite.value = false; }, 2500);
+    setTimeout(() => {
+      if (lastCopiedKey.value === key) lastCopiedKey.value = '';
+    }, 4000);
+  } catch (e) {
+    invitableSeasonsError.value = String(e?.response?.data?.error?.message || e?.message || 'Failed to generate invite');
+  } finally {
+    generatingFor.value = null;
+  }
+};
+
+const vClickOutside = {
+  mounted(el, binding) {
+    el.__clickOutside__ = (e) => {
+      if (!el.contains(e.target)) binding.value(e);
+    };
+    document.addEventListener('mousedown', el.__clickOutside__, true);
+  },
+  unmounted(el) {
+    if (el.__clickOutside__) {
+      document.removeEventListener('mousedown', el.__clickOutside__, true);
+      el.__clickOutside__ = null;
+    }
+  }
+};
 
 const goToSite = () => {
   const slug = props.orgSlug;
@@ -721,6 +944,170 @@ watch(() => props.agency?.id, () => {
 .split-btn--ghost:hover {
   background: var(--bg-muted, #e2e8f0);
 }
+.split-btn--ghost-open {
+  background: var(--bg-muted, #e2e8f0);
+  border-color: var(--primary, #2563eb);
+}
+
+/* ── Invite link menu (popover) ──────────────────────────────── */
+.invite-menu-wrap {
+  position: relative;
+  flex: 1 1 auto;
+}
+.invite-menu-wrap .split-btn {
+  width: 100%;
+}
+
+.invite-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: min(360px, calc(100vw - 32px));
+  max-height: 480px;
+  overflow-y: auto;
+  background: var(--bg-surface, #ffffff);
+  color: var(--text-primary, #0f172a);
+  border: 1px solid var(--border, rgba(15, 23, 42, 0.12));
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+  z-index: 60;
+  padding: 14px;
+  text-align: left;
+}
+
+.invite-menu-header { margin-bottom: 8px; }
+.invite-menu-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.invite-menu-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  line-height: 1.4;
+}
+
+.invite-menu-divider {
+  margin: 12px 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-muted, #64748b);
+}
+
+.invite-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px;
+  margin: 4px 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+  color: inherit;
+  font: inherit;
+}
+.invite-menu-row:hover:not(:disabled) {
+  background: var(--bg-alt, #f1f5f9);
+  border-color: var(--border, rgba(15, 23, 42, 0.08));
+}
+.invite-menu-row:disabled { opacity: 0.6; cursor: progress; }
+
+.invite-menu-row-icon {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-alt, #f1f5f9);
+  border-radius: 999px;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.invite-menu-row--season .invite-menu-row-icon {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.18), rgba(59, 130, 246, 0.18));
+}
+
+.invite-menu-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.invite-menu-row-title {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.invite-menu-row-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.invite-menu-row-tag {
+  display: inline-flex;
+  padding: 1px 6px;
+  background: rgba(34, 197, 94, 0.12);
+  color: rgb(22, 101, 52);
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.invite-menu-row-action {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary, #2563eb);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(37, 99, 235, 0.08);
+  min-width: 56px;
+  text-align: center;
+}
+
+.invite-menu-empty,
+.invite-menu-error {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  padding: 8px 4px;
+  text-align: center;
+}
+.invite-menu-error { color: rgb(220, 38, 38); }
+
+.invite-menu-link {
+  margin-left: 6px;
+  color: var(--primary, #2563eb);
+  font-weight: 700;
+  text-decoration: none;
+}
+.invite-menu-link:hover { text-decoration: underline; }
+
+.invite-menu-foot {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border, rgba(15, 23, 42, 0.12));
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+}
+.invite-menu-foot-label { font-weight: 700; }
+.invite-menu-foot-url {
+  margin-top: 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+  color: var(--text-primary, #0f172a);
+}
 
 /* ── Shared icon / text styles ───────────────────────────────── */
 .action-icon-wrap { flex-shrink: 0; }
@@ -982,6 +1369,13 @@ watch(() => props.agency?.id, () => {
   .split-btn {
     font-size: 12px;
     padding: 6px 10px;
+  }
+
+  .invite-menu {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(320px, calc(100vw - 24px));
   }
 }
 

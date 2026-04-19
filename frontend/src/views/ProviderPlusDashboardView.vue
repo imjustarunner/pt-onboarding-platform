@@ -181,9 +181,9 @@ const cards = computed(() => {
   },
   {
     id: 'chats',
-    title: 'Chats',
-    description: 'Coordinate cases and updates through platform chats.',
-    to: orgTo('/admin/communications/chats'),
+    title: 'Messages',
+    description: 'Coordinate cases and updates through platform messages.',
+    to: orgTo('/admin/communications/messages'),
     iconKey: 'dashboard_chats',
     emoji: '💭'
   },

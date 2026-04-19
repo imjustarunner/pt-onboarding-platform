@@ -11,7 +11,8 @@ import {
   createAgencyScheduledAnnouncement,
   updateAgencyScheduledAnnouncement,
   deleteAgencyScheduledAnnouncement,
-  listAnnouncementAudienceGroups
+  listAnnouncementAudienceGroups,
+  postClubAnnouncementWithThread
 } from '../controllers/agencyAnnouncements.controller.js';
 import {
   getManagementTeam,
@@ -508,6 +509,7 @@ router.get('/:id/announcements/banner', authenticate, listAgencyBannerAnnounceme
 router.get('/:id/announcements/list', authenticate, requireBackofficeAdminOrClubManagerForAgency, listAgencyScheduledAnnouncements);
 router.get('/:id/announcements/audience-groups', authenticate, requireBackofficeAdminOrClubManagerForAgency, listAnnouncementAudienceGroups);
 router.post('/:id/announcements', authenticate, requireBackofficeAdminOrClubManagerForAgency, createAgencyScheduledAnnouncement);
+router.post('/:id/announcements/with-thread', authenticate, requireBackofficeAdminOrClubManagerForAgency, postClubAnnouncementWithThread);
 router.put('/:id/announcements/:announcementId', authenticate, requireBackofficeAdminOrClubManagerForAgency, updateAgencyScheduledAnnouncement);
 router.delete('/:id/announcements/:announcementId', authenticate, requireBackofficeAdminOrClubManagerForAgency, deleteAgencyScheduledAnnouncement);
 router.get('/:id/dashboard-banner', authenticate, getAgencyDashboardBanner);

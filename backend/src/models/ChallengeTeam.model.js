@@ -139,6 +139,24 @@ class ChallengeTeam {
        ON DUPLICATE KEY UPDATE joined_at = COALESCE(joined_at, NOW())`,
       [tId, pId]
     );
+    // Best-effort: keep the team chat thread membership in sync. Looked up
+    // dynamically to avoid a circular import with chat.controller.js.
+    try {
+      const [trow] = await pool.execute(
+        `SELECT t.id, c.organization_id AS club_id
+           FROM challenge_teams t
+           INNER JOIN learning_program_classes c ON c.id = t.learning_class_id
+          WHERE t.id = ? LIMIT 1`,
+        [tId]
+      );
+      const clubId = trow?.[0]?.club_id ? Number(trow[0].club_id) : null;
+      if (clubId) {
+        const { ensureUserInTeamThread } = await import('../controllers/chat.controller.js');
+        await ensureUserInTeamThread({ clubId, teamId: tId, userId: pId });
+      }
+    } catch {
+      // best-effort
+    }
     return Number(result?.affectedRows || 0) > 0;
   }
 

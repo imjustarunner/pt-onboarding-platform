@@ -10,7 +10,7 @@
             My Dashboard
           </button>
         </div>
-        <h2 data-tour="chats-title">Platform Chats</h2>
+        <h2 data-tour="chats-title">Messages</h2>
         <p class="subtitle" data-tour="chats-subtitle">Direct and group messages within the selected agency.</p>
       </div>
       <div class="header-actions" data-tour="chats-actions">
@@ -21,7 +21,7 @@
             <option v-for="a in agencyOptions" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
           </select>
         </div>
-        <button class="btn btn-primary" @click="openNewChat" :disabled="loading || !agencyId">New chat</button>
+        <button class="btn btn-primary" @click="openNewChat" :disabled="loading || !agencyId">New message</button>
         <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
       </div>
     </div>
@@ -31,107 +31,35 @@
     </div>
 
     <div v-else class="grid" data-tour="chats-grid">
-      <div class="card threads" data-tour="chats-threads">
-        <div class="card-title">Threads</div>
-        <div v-if="loading" class="muted">Loading…</div>
-        <div v-else-if="error" class="error">{{ error }}</div>
-        <div v-else-if="threads.length === 0" class="muted">No chats yet. Start one from the left chat drawer.</div>
-        <button
-          v-else
-          v-for="t in threads"
-          :key="t.thread_id"
-          class="thread"
-          data-tour="chats-thread"
-          :class="{ active: t.thread_id === activeThreadId }"
-          @click="selectThread(t)"
-        >
-          <div class="thread-top">
-            <div class="thread-name">
-              {{ threadLabel(t) }}
-            </div>
-            <span v-if="t.unread_count" class="pill">{{ t.unread_count }}</span>
-          </div>
-          <div class="thread-preview">
-            {{ t.last_message?.body || 'No messages yet.' }}
-          </div>
-        </button>
+      <div class="thread-list-wrap" data-tour="chats-threads">
+        <div v-if="error" class="error error-box">{{ error }}</div>
+        <MessageThreadList
+          :threads="threads"
+          :active-thread-id="activeThreadId"
+          :loading="loading"
+          @select="selectThread"
+        />
       </div>
 
       <div class="card messages" data-tour="chats-messages">
         <div class="card-title title-row">
           <span>{{ activeThreadLabel }}</span>
           <div v-if="activeThreadId" class="title-actions" data-tour="chats-thread-actions">
-            <button class="btn btn-secondary btn-xs" type="button" @click="toggleSelectMode" :disabled="sending || messagesLoading">
-              {{ selectMode ? 'Cancel' : 'Select' }}
-            </button>
-            <button
-              v-if="selectMode"
-              class="btn btn-danger btn-xs"
-              type="button"
-              @click="deleteSelected"
-              :disabled="sending || selectedMessageIds.length === 0"
-              :title="selectedMessageIds.length ? `Delete ${selectedMessageIds.length} selected` : 'Select messages to delete'"
-            >
-              Delete selected ({{ selectedMessageIds.length }})
-            </button>
             <button class="btn btn-danger btn-xs" type="button" @click="deleteThread" :disabled="sending || messagesLoading">
               Delete thread
             </button>
           </div>
         </div>
 
-        <div v-if="!activeThreadId" class="muted">Select a thread.</div>
-        <div v-else>
-          <div v-if="messagesLoading" class="muted">Loading…</div>
-          <div v-else-if="messagesError" class="error">{{ messagesError }}</div>
-          <div v-else class="bubble-list" ref="messagesEl" data-tour="chats-bubble-list">
-            <div v-for="m in messages" :key="m.id" class="bubble-row" :class="{ mine: m.sender_user_id === meId }">
-              <label v-if="selectMode" class="select-box">
-                <input
-                  type="checkbox"
-                  :checked="isSelected(m.id)"
-                  @change="toggleSelected(m.id)"
-                />
-              </label>
-              <div class="bubble">
-              <div class="meta">
-                <span>{{ m.sender_first_name }} {{ m.sender_last_name }}</span>
-                <span>
-                  {{ formatTime(m.created_at) }}
-                  <span v-if="m.sender_user_id === meId" class="receipt">{{ m.is_read_by_other ? '✓✓' : '✓' }}</span>
-                  <button
-                    v-if="m.sender_user_id === meId && !m.is_read_by_other"
-                    class="unsend"
-                    type="button"
-                    @click="unsend(m)"
-                    :disabled="sending"
-                    title="Unsend (only before read)"
-                  >
-                    Unsend
-                  </button>
-                  <button
-                    class="unsend"
-                    type="button"
-                    @click="deleteForMe(m)"
-                    :disabled="sending"
-                    title="Delete for me"
-                  >
-                    Delete
-                  </button>
-                </span>
-              </div>
-              <div class="text">{{ m.body }}</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="composer" data-tour="chats-composer">
-            <textarea v-model="draft" rows="3" placeholder="Type a message…" />
-            <div class="actions">
-              <button class="btn btn-primary" @click="send" :disabled="sending || !draft.trim()">Send</button>
-            </div>
-          </div>
-        </div>
+        <div v-if="!activeThreadId" class="muted thread-placeholder">Select a thread to start messaging.</div>
+        <MessageThread
+          v-else
+          :key="activeThreadId"
+          :thread-id="activeThreadId"
+          :me-id="meId"
+          mode="pane"
+          @message-sent="onComposerSentNew"
+        />
       </div>
     </div>
   </div>
@@ -192,6 +120,10 @@ import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import { useOrganizationStore } from '../../store/organization';
 import { useRoute, useRouter } from 'vue-router';
+import MessageThread from '../../components/messages/MessageThread.vue';
+import MessageThreadList from '../../components/messages/MessageThreadList.vue';
+
+// onComposerSentNew is declared after loadThreads below.
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -388,7 +320,7 @@ const onAgencyPicked = async () => {
   const curSlug = String(route.params?.organizationSlug || '').trim();
   const query = { ...route.query, agencyId: String(id) };
   if (slug && slug !== curSlug) {
-    await router.push({ path: `/${slug}/admin/communications/chats`, query });
+    await router.push({ path: `/${slug}/admin/communications/messages`, query });
     return;
   }
   await router.push({ path: route.path, query });
@@ -416,6 +348,10 @@ const loadThreads = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const onComposerSentNew = () => {
+  loadThreads();
 };
 
 const scrollToBottom = async () => {
@@ -626,7 +562,10 @@ onMounted(async () => {
 .agency-picker label { font-size: 12px; font-weight: 700; color: var(--text-secondary); }
 .agency-picker select { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: white; min-width: 220px; }
 .subtitle { color: var(--text-secondary); margin: 6px 0 0 0; }
-.grid { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 14px; }
+.grid { display: grid; grid-template-columns: 320px 1fr; gap: 14px; height: calc(100vh - 220px); min-height: 480px; }
+.thread-list-wrap { background: #fff; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
+.error-box { padding: 8px 12px; background: #fee2e2; color: #991b1b; }
+.thread-placeholder { padding: 32px; text-align: center; }
 .card { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
 .card-title { font-weight: 800; margin-bottom: 10px; }
 .title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
