@@ -1,10 +1,9 @@
 <template>
   <section id="section-weekly-goals" class="swtd-tracker">
     <div class="swtd-header">
-      <span class="swtd-icon" aria-hidden="true">🎯</span>
+      <span class="swtd-icon" aria-hidden="true">🏆</span>
       <div class="swtd-titles">
         <h2>{{ headerTitle }}</h2>
-        <p class="swtd-sub">{{ headerSubtitle }}</p>
       </div>
     </div>
 
@@ -183,12 +182,7 @@ const expandedByTeamId = ref({});
 
 const isMiles = computed(() => metricUnit.value === 'mi');
 
-const headerTitle = computed(() => 'Weekly goals');
-const headerSubtitle = computed(() =>
-  isMiles.value
-    ? 'Miles for run/ruck seasons. Team target = per-person minimum × planned roster (Manage season → Teams). Pace uses calendar days 1–7. Use Show more for individuals.'
-    : 'Weekly points vs individual and team targets. Use Show more to see each person on the roster.'
-);
+const headerTitle = computed(() => 'Team Standings');
 
 const seasonWeeks = computed(() => {
   const cutoff = String(props.weekCutoffTime || '00:00').trim() || '00:00';

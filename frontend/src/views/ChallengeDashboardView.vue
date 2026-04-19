@@ -183,63 +183,150 @@
         <button class="dash-nav-pill" type="button" @click="scrollToSection('section-chat')">Chat</button>
         <button class="dash-nav-pill" type="button" @click="scrollToSection('section-leaderboard')">Leaderboard</button>
         <button class="dash-nav-pill" type="button" @click="scrollToSection('section-scoreboard')">Scoreboard</button>
-        <button class="dash-nav-pill" type="button" @click="scrollToSection('section-team-progress')">Team Progress</button>
+        <button class="dash-nav-pill" type="button" @click="scrollToSection('section-team-progress')">Team Standings</button>
         <button class="dash-nav-pill" type="button" @click="scrollToSection('section-summary')">Summary</button>
         <button class="dash-nav-pill" type="button" @click="scrollToSection('section-weekly-challenges')">Weekly Challenges</button>
         <button class="dash-nav-pill" type="button" @click="scrollToSection('section-rules')">Season Rules</button>
+        <span class="dash-section-nav-spacer" aria-hidden="true"></span>
+        <button
+          class="dash-nav-pill dash-nav-pill--customize"
+          :class="{ 'dash-nav-pill--customize-on': dashboardLayout.editMode.value }"
+          type="button"
+          @click="toggleLayoutEdit"
+        >
+          {{ dashboardLayout.editMode.value ? 'Done' : 'Customize layout' }}
+        </button>
+        <button
+          v-if="dashboardLayout.editMode.value"
+          class="dash-nav-pill dash-nav-pill--reset"
+          type="button"
+          @click="resetLayoutOrder"
+        >
+          Reset
+        </button>
       </nav>
+
+      <p v-if="dashboardLayout.editMode.value" class="dash-layout-help">
+        Use the ▲ and ▼ buttons on each card to put your dashboard in the order you want. Saved automatically per user.
+      </p>
 
       <div class="challenge-sections">
         <!-- Activity feed — full-width, dominant, the main interaction surface -->
-        <div id="section-activity" class="challenge-feed-full">
-          <ChallengeActivityFeed
-            :workouts="activity"
-            :loading="activityLoading"
-            :challenge-id="challengeId"
-            :my-user-id="authStore.user?.id"
-            :my-team-id="myTeamId"
-            :is-manager="isChallengeManager"
-            :activity-type-options="activityTypeOptions"
-            :all-teams="teams"
-            :club-id="challenge?.organization_id"
-            :weekly-task-options="taggableWeeklyTaskOptions"
-            :moderation-mode="challenge?.season_settings_json?.workoutModeration?.mode || 'treadmill_only'"
-            @media-uploaded="refreshAfterActivityAction"
-          />
-        </div>
+        <DashboardSectionWrapper
+          :id="'activity'"
+          :label="sectionLabel('activity')"
+          :order="dashboardLayout.orderOf('activity')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('activity')"
+          :disable-down="sectionIsLast('activity')"
+          @move-up="moveSectionUp('activity')"
+          @move-down="moveSectionDown('activity')"
+        >
+          <div id="section-activity" class="challenge-feed-full">
+            <ChallengeActivityFeed
+              :workouts="activity"
+              :loading="activityLoading"
+              :challenge-id="challengeId"
+              :my-user-id="authStore.user?.id"
+              :my-team-id="myTeamId"
+              :is-manager="isChallengeManager"
+              :activity-type-options="activityTypeOptions"
+              :all-teams="teams"
+              :club-id="challenge?.organization_id"
+              :weekly-task-options="taggableWeeklyTaskOptions"
+              :moderation-mode="challenge?.season_settings_json?.workoutModeration?.mode || 'treadmill_only'"
+              @media-uploaded="refreshAfterActivityAction"
+            />
+          </div>
+        </DashboardSectionWrapper>
 
         <!-- Season / Team chat — full-width below the feed -->
-        <div id="section-chat" class="challenge-chat-full">
-          <ChallengeMessageFeed
-            :challenge-id="challengeId"
-            :my-user-id="authStore.user?.id"
-            :is-manager="isChallengeManager"
-            :team-mate-user-ids="myTeamMateUserIds"
-            :mention-slugs="myChatMentionSlugs"
-            team-accent-color="#ea580c"
-          />
-        </div>
+        <DashboardSectionWrapper
+          :id="'chat'"
+          :label="sectionLabel('chat')"
+          :order="dashboardLayout.orderOf('chat')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('chat')"
+          :disable-down="sectionIsLast('chat')"
+          @move-up="moveSectionUp('chat')"
+          @move-down="moveSectionDown('chat')"
+        >
+          <div id="section-chat" class="challenge-chat-full">
+            <ChallengeMessageFeed
+              :challenge-id="challengeId"
+              :my-user-id="authStore.user?.id"
+              :is-manager="isChallengeManager"
+              :team-mate-user-ids="myTeamMateUserIds"
+              :mention-slugs="myChatMentionSlugs"
+              team-accent-color="#ea580c"
+            />
+          </div>
+        </DashboardSectionWrapper>
 
-        <div class="challenge-two-col">
-          <div class="challenge-col-left">
-            <div id="section-leaderboard" class="challenge-section">
-              <ChallengeLeaderboard :leaderboard="leaderboard" :loading="leaderboardLoading" />
-            </div>
-            <div id="section-scoreboard" class="challenge-section">
-              <ChallengeScoreboard :challenge-id="challengeId" :season-starts-at="challenge?.starts_at || challenge?.startsAt" :season-ends-at="challenge?.ends_at || challenge?.endsAt" />
-            </div>
-            <div id="section-team-progress" class="challenge-section">
-              <SeasonWeekTeamDistanceTracker
-                :challenge-id="challengeId"
-                :season-starts-at="challenge?.starts_at || challenge?.startsAt"
-                :season-ends-at="challenge?.ends_at || challenge?.endsAt"
-                :week-cutoff-time="challengeWeekSchedule.cutoff"
-                :week-time-zone="challengeWeekSchedule.tz"
-                :challenge-updated-at="challenge?.updated_at || challenge?.updatedAt || null"
-                @week-boundary="onTeamProgressWeekBoundary"
-              />
-            </div>
-            <div id="section-summary" class="challenge-section">
+        <DashboardSectionWrapper
+          :id="'leaderboard'"
+          :label="sectionLabel('leaderboard')"
+          :order="dashboardLayout.orderOf('leaderboard')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('leaderboard')"
+          :disable-down="sectionIsLast('leaderboard')"
+          @move-up="moveSectionUp('leaderboard')"
+          @move-down="moveSectionDown('leaderboard')"
+        >
+          <div id="section-leaderboard" class="challenge-section">
+            <ChallengeLeaderboard :leaderboard="leaderboard" :loading="leaderboardLoading" />
+          </div>
+        </DashboardSectionWrapper>
+
+        <DashboardSectionWrapper
+          :id="'scoreboard'"
+          :label="sectionLabel('scoreboard')"
+          :order="dashboardLayout.orderOf('scoreboard')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('scoreboard')"
+          :disable-down="sectionIsLast('scoreboard')"
+          @move-up="moveSectionUp('scoreboard')"
+          @move-down="moveSectionDown('scoreboard')"
+        >
+          <div id="section-scoreboard" class="challenge-section">
+            <ChallengeScoreboard :challenge-id="challengeId" :season-starts-at="challenge?.starts_at || challenge?.startsAt" :season-ends-at="challenge?.ends_at || challenge?.endsAt" />
+          </div>
+        </DashboardSectionWrapper>
+
+        <DashboardSectionWrapper
+          :id="'team-standings'"
+          :label="sectionLabel('team-standings')"
+          :order="dashboardLayout.orderOf('team-standings')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('team-standings')"
+          :disable-down="sectionIsLast('team-standings')"
+          @move-up="moveSectionUp('team-standings')"
+          @move-down="moveSectionDown('team-standings')"
+        >
+          <div id="section-team-progress" class="challenge-section">
+            <SeasonWeekTeamDistanceTracker
+              :challenge-id="challengeId"
+              :season-starts-at="challenge?.starts_at || challenge?.startsAt"
+              :season-ends-at="challenge?.ends_at || challenge?.endsAt"
+              :week-cutoff-time="challengeWeekSchedule.cutoff"
+              :week-time-zone="challengeWeekSchedule.tz"
+              :challenge-updated-at="challenge?.updated_at || challenge?.updatedAt || null"
+              @week-boundary="onTeamProgressWeekBoundary"
+            />
+          </div>
+        </DashboardSectionWrapper>
+
+        <DashboardSectionWrapper
+          :id="'summary'"
+          :label="sectionLabel('summary')"
+          :order="dashboardLayout.orderOf('summary')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('summary')"
+          :disable-down="sectionIsLast('summary')"
+          @move-up="moveSectionUp('summary')"
+          @move-down="moveSectionDown('summary')"
+        >
+          <div id="section-summary" class="challenge-section">
               <h2>📈 Weekly leaders + season summary</h2>
               <div v-if="seasonSummaryLoading" class="loading-inline">Loading summary…</div>
               <div v-else-if="!seasonSummary" class="hint">Summary data will appear after workouts are logged.</div>
@@ -252,7 +339,7 @@
                     </li>
                   </ol>
                   <p class="hint" style="margin-top: 8px;">
-                    Weekly team miles and goals are in <a href="#section-weekly-goals">Weekly goals</a> above.
+                    Weekly team miles and goals are in <a href="#section-weekly-goals">Team Standings</a> above.
                   </p>
                 </div>
                 <div class="summary-card">
@@ -282,6 +369,18 @@
                 </div>
               </div>
             </div>
+        </DashboardSectionWrapper>
+
+        <DashboardSectionWrapper
+          :id="'club-records'"
+          :label="sectionLabel('club-records')"
+          :order="dashboardLayout.orderOf('club-records')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('club-records')"
+          :disable-down="sectionIsLast('club-records')"
+          @move-up="moveSectionUp('club-records')"
+          @move-down="moveSectionDown('club-records')"
+        >
             <div class="challenge-section">
               <h2>Club Records</h2>
               <div v-if="recordBoardsLoading" class="loading-inline">Loading records…</div>
@@ -306,8 +405,19 @@
                 </div>
               </div>
             </div>
+        </DashboardSectionWrapper>
 
-            <!-- Race Divisions -->
+        <!-- Race Divisions -->
+        <DashboardSectionWrapper
+          :id="'race-divisions'"
+          :label="sectionLabel('race-divisions')"
+          :order="dashboardLayout.orderOf('race-divisions')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('race-divisions')"
+          :disable-down="sectionIsLast('race-divisions')"
+          @move-up="moveSectionUp('race-divisions')"
+          @move-down="moveSectionDown('race-divisions')"
+        >
             <div class="challenge-section">
               <h2>Race Divisions</h2>
               <p class="section-hint">Members are auto-enrolled when they log a qualifying run distance.</p>
@@ -392,9 +502,21 @@
                 </div>
               </div>
             </div>
+        </DashboardSectionWrapper>
 
-            <!-- Kudos Stats Section -->
-            <div v-if="kudosStats || kudosStatsLoading" class="challenge-section kudos-stats-section">
+        <!-- Kudos Stats Section -->
+        <DashboardSectionWrapper
+          v-if="kudosStats || kudosStatsLoading"
+          :id="'kudos-stats'"
+          :label="sectionLabel('kudos-stats')"
+          :order="dashboardLayout.orderOf('kudos-stats')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('kudos-stats')"
+          :disable-down="sectionIsLast('kudos-stats')"
+          @move-up="moveSectionUp('kudos-stats')"
+          @move-down="moveSectionDown('kudos-stats')"
+        >
+            <div class="challenge-section kudos-stats-section">
               <h2>👊 Kudos This Week</h2>
               <div v-if="kudosStatsLoading" class="loading-inline">Loading kudos…</div>
               <div v-else-if="kudosStats" class="kudos-stats-content">
@@ -492,19 +614,56 @@
               </div>
               <p v-else class="hint">No kudos given this week yet. Be the first!</p>
             </div>
-          </div>
-        </div>
+        </DashboardSectionWrapper>
 
-        <div class="challenge-section">
-          <ChallengeTeamList :teams="teams" :loading="teamsLoading" />
-        </div>
-        <div class="challenge-section">
-          <ChallengeEliminationBoard :challenge-id="challengeId" :is-manager="isChallengeManager" :season-starts-at="challenge?.starts_at || challenge?.startsAt" />
-        </div>
-        <div v-if="isChallengeManager || isTeamCaptain" class="challenge-section">
-          <ChallengeDraftReport :challenge-id="challengeId" :can-edit="isChallengeManager" />
-        </div>
-        <div v-if="treadmillpocalypseWeek" class="challenge-section treadmillpocalypse-banner">
+        <DashboardSectionWrapper
+          :id="'team-list'"
+          :label="sectionLabel('team-list')"
+          :order="dashboardLayout.orderOf('team-list')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('team-list')"
+          :disable-down="sectionIsLast('team-list')"
+          @move-up="moveSectionUp('team-list')"
+          @move-down="moveSectionDown('team-list')"
+        >
+          <div class="challenge-section">
+            <ChallengeTeamList :teams="teams" :loading="teamsLoading" />
+          </div>
+        </DashboardSectionWrapper>
+
+        <DashboardSectionWrapper
+          :id="'elimination'"
+          :label="sectionLabel('elimination')"
+          :order="dashboardLayout.orderOf('elimination')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('elimination')"
+          :disable-down="sectionIsLast('elimination')"
+          @move-up="moveSectionUp('elimination')"
+          @move-down="moveSectionDown('elimination')"
+        >
+          <div class="challenge-section">
+            <ChallengeEliminationBoard :challenge-id="challengeId" :is-manager="isChallengeManager" :season-starts-at="challenge?.starts_at || challenge?.startsAt" />
+          </div>
+        </DashboardSectionWrapper>
+
+        <DashboardSectionWrapper
+          v-if="isChallengeManager || isTeamCaptain"
+          :id="'draft-report'"
+          :label="sectionLabel('draft-report')"
+          :order="dashboardLayout.orderOf('draft-report')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('draft-report')"
+          :disable-down="sectionIsLast('draft-report')"
+          @move-up="moveSectionUp('draft-report')"
+          @move-down="moveSectionDown('draft-report')"
+        >
+          <div class="challenge-section">
+            <ChallengeDraftReport :challenge-id="challengeId" :can-edit="isChallengeManager" />
+          </div>
+        </DashboardSectionWrapper>
+
+        <!-- Treadmillpocalypse banner is contextual; not part of the reorderable layout. -->
+        <div v-if="treadmillpocalypseWeek" class="challenge-section treadmillpocalypse-banner dash-fixed-top">
           <div class="treadmillpocalypse-inner">
             <img v-if="treadmillpocalypseIconUrl" :src="treadmillpocalypseIconUrl" class="treadmillpocalypse-icon" alt="" />
             <div class="treadmillpocalypse-text">
@@ -513,21 +672,43 @@
             </div>
           </div>
         </div>
-        <div id="section-weekly-challenges" class="challenge-section">
-          <ChallengeWeeklyTasks
-            :challenge-id="challengeId"
-            :my-user-id="authStore.user?.id"
-            :is-captain="isTeamCaptain"
-            :is-manager="isChallengeManager"
-            :season-starts-at="challenge?.starts_at || challenge?.startsAt"
-            :season-ends-at="challenge?.ends_at || challenge?.endsAt"
-            @tag-task="openWorkoutTagging"
-          />
-        </div>
+
+        <DashboardSectionWrapper
+          :id="'weekly-challenges'"
+          :label="sectionLabel('weekly-challenges')"
+          :order="dashboardLayout.orderOf('weekly-challenges')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('weekly-challenges')"
+          :disable-down="sectionIsLast('weekly-challenges')"
+          @move-up="moveSectionUp('weekly-challenges')"
+          @move-down="moveSectionDown('weekly-challenges')"
+        >
+          <div id="section-weekly-challenges" class="challenge-section">
+            <ChallengeWeeklyTasks
+              :challenge-id="challengeId"
+              :my-user-id="authStore.user?.id"
+              :is-captain="isTeamCaptain"
+              :is-manager="isChallengeManager"
+              :season-starts-at="challenge?.starts_at || challenge?.startsAt"
+              :season-ends-at="challenge?.ends_at || challenge?.endsAt"
+              @tag-task="openWorkoutTagging"
+            />
+          </div>
+        </DashboardSectionWrapper>
 
         <!-- Captain Applications — manager view + member apply UI -->
-        <section
+        <DashboardSectionWrapper
           v-if="isChallengeManager || (canParticipateInSeason && captainApplicationOpen && !isTeamCaptain)"
+          :id="'captain-applications'"
+          :label="sectionLabel('captain-applications')"
+          :order="dashboardLayout.orderOf('captain-applications')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('captain-applications')"
+          :disable-down="sectionIsLast('captain-applications')"
+          @move-up="moveSectionUp('captain-applications')"
+          @move-down="moveSectionDown('captain-applications')"
+        >
+        <section
           class="challenge-section"
         >
           <h2>Captain Applications</h2>
@@ -603,11 +784,23 @@
             </div>
           </template>
         </section>
+        </DashboardSectionWrapper>
 
-        <!-- Season Rules — pinned to the bottom, reachable via nav anchor -->
-        <div id="section-rules" class="challenge-section">
-          <ChallengeRules :challenge="challenge" />
-        </div>
+        <!-- Season Rules — pinned to the bottom by default; users can re-order. -->
+        <DashboardSectionWrapper
+          :id="'rules'"
+          :label="sectionLabel('rules')"
+          :order="dashboardLayout.orderOf('rules')"
+          :editing="dashboardLayout.editMode.value"
+          :disable-up="sectionIsFirst('rules')"
+          :disable-down="sectionIsLast('rules')"
+          @move-up="moveSectionUp('rules')"
+          @move-down="moveSectionDown('rules')"
+        >
+          <div id="section-rules" class="challenge-section">
+            <ChallengeRules :challenge="challenge" />
+          </div>
+        </DashboardSectionWrapper>
 
         <!-- Log Workout Modal -->
         <div v-if="showLogWorkoutModal" class="modal-overlay" @click.self="showLogWorkoutModal = false">
@@ -983,11 +1176,47 @@ import SeasonWeekTeamDistanceTracker from '../components/challenge/SeasonWeekTea
 import ChallengeMessageFeed from '../components/challenge/ChallengeMessageFeed.vue';
 import ChallengeDraftReport from '../components/challenge/ChallengeDraftReport.vue';
 import ChallengeParticipationAgreementModal from '../components/challenge/ChallengeParticipationAgreementModal.vue';
+import DashboardSectionWrapper from '../components/dashboard/DashboardSectionWrapper.vue';
+import { useDashboardLayout } from '../composables/useDashboardLayout';
+
+const REORDERABLE_SECTIONS = [
+  { id: 'activity', label: 'Recent Activity' },
+  { id: 'chat', label: 'Season Chat' },
+  { id: 'leaderboard', label: 'Leaderboard' },
+  { id: 'scoreboard', label: 'Scoreboard' },
+  { id: 'team-standings', label: 'Team Standings' },
+  { id: 'summary', label: 'Weekly Leaders & Summary' },
+  { id: 'club-records', label: 'Club Records' },
+  { id: 'race-divisions', label: 'Race Divisions' },
+  { id: 'kudos-stats', label: 'Kudos This Week' },
+  { id: 'team-list', label: 'Team Roster' },
+  { id: 'elimination', label: 'Elimination Board' },
+  { id: 'draft-report', label: 'Draft Report' },
+  { id: 'weekly-challenges', label: 'Weekly Challenges' },
+  { id: 'captain-applications', label: 'Captain Applications' },
+  { id: 'rules', label: 'Season Rules' },
+];
+const REORDERABLE_DEFAULT_ORDER = REORDERABLE_SECTIONS.map((s) => s.id);
+const REORDERABLE_LABEL_BY_ID = Object.fromEntries(REORDERABLE_SECTIONS.map((s) => [s.id, s.label]));
 
 const route = useRoute();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const { isSuperadminPreview, appendPreviewQueryToRoute } = useSuperadminPlatformPreview({ route, authStore });
+
+const dashboardLayout = useDashboardLayout({
+  kind: 'season',
+  userId: computed(() => authStore.user?.id ?? null),
+  defaultOrder: REORDERABLE_DEFAULT_ORDER,
+});
+const sectionLabel = (id) => REORDERABLE_LABEL_BY_ID[id] || id;
+const sectionStyle = (id) => dashboardLayout.orderStyle(id);
+const sectionIsFirst = (id) => dashboardLayout.isFirst(id);
+const sectionIsLast = (id) => dashboardLayout.isLast(id);
+const moveSectionUp = (id) => dashboardLayout.moveUp(id);
+const moveSectionDown = (id) => dashboardLayout.moveDown(id);
+const toggleLayoutEdit = () => { dashboardLayout.editMode.value = !dashboardLayout.editMode.value; };
+const resetLayoutOrder = () => dashboardLayout.resetOrder();
 const challenge = ref(null);
 const providerMembers = ref([]);
 const seasonBannerDismissed = ref(false);
@@ -2414,6 +2643,47 @@ watch(() => workoutForm.value.terrain, (terrain) => {
   background: #c8102e;
   color: #fff;
   border-color: #c8102e;
+}
+.dash-section-nav-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dash-nav-pill--customize {
+  border-color: #fb923c;
+  color: #9a3412;
+  background: #fff7ed;
+}
+.dash-nav-pill--customize:hover {
+  background: #fb923c;
+  color: #fff;
+  border-color: #fb923c;
+}
+.dash-nav-pill--customize-on {
+  background: #fb923c;
+  color: #fff;
+  border-color: #fb923c;
+}
+.dash-nav-pill--reset {
+  border-color: #cbd5e1;
+  color: #475569;
+}
+.dash-nav-pill--reset:hover {
+  background: #475569;
+  color: #fff;
+  border-color: #475569;
+}
+.dash-layout-help {
+  margin: -8px 0 12px;
+  padding: 10px 14px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+  border-radius: 10px;
+  font-size: 0.88rem;
+}
+.dash-fixed-top {
+  /* Sits above all reorderable cards regardless of saved order. */
+  order: -1;
 }
 
 .season-action-bar {
