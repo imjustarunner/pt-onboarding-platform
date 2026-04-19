@@ -6,6 +6,16 @@
       subtitle="This preview keeps the club dashboard visible while member-specific actions stay read-only."
       tone="warm"
     />
+    <SeasonAnnouncementSplash v-if="!isSuperadminPreview" />
+    <AnnounceSeasonModal
+      v-if="announceModalSeason"
+      :club-id="announceModalSeason.clubId"
+      :class-id="announceModalSeason.classId"
+      :season-name="announceModalSeason.className"
+      :club-name="announceModalSeason.clubName"
+      @close="announceModalSeason = null"
+      @sent="onSeasonAnnouncementSent"
+    />
     <section v-if="pendingApplications.length" class="card dash-section dash-section--pending-applications">
       <div class="section-header">
         <div>
@@ -210,6 +220,12 @@
                 class="btn btn-upload btn-sm"
                 @click="router.push({ path: `/${navSlug}/season/${season.classId}`, query: { openUpload: '1' } })"
               >⬆ Log Workout</button>
+              <SeasonParticipationPill
+                v-if="season.clubId"
+                :club-id="season.clubId"
+                :class-id="season.classId"
+                source="dashboard_current"
+              />
               <template v-if="isManagedClub(season.clubId) && !isSuperadminPreview">
                 <router-link
                   :to="`/${navSlug}/club/seasons?manageSeason=${season.classId}`"
@@ -219,6 +235,12 @@
                   :to="`/${navSlug}/club/seasons?editSeason=${season.classId}`"
                   class="btn btn-secondary btn-sm"
                 >Edit</router-link>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="openAnnounceSeasonModal(season)"
+                  title="Send a splash to all club members"
+                >📣 Announce</button>
               </template>
             </div>
           </div>
@@ -277,6 +299,12 @@
                 >
                   {{ joiningSeasonId === season.classId ? 'Joining…' : 'Join Season' }}
                 </button>
+                <SeasonParticipationPill
+                  v-if="season.clubId"
+                  :club-id="season.clubId"
+                  :class-id="season.classId"
+                  source="dashboard_available"
+                />
               </div>
             </div>
           </div>
@@ -430,6 +458,8 @@
           </p>
         </div>
       </article>
+
+      <ClubDismissalsCard v-if="!isSuperadminPreview" />
 
       <article ref="accountSnapshotCardRef" class="card account-snapshot-card">
         <div class="section-header section-header--account">
@@ -811,6 +841,10 @@ import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBrandi
 import { NATIVE_APP_ORG_SLUG, isSummitPlatformRouteSlug } from '../utils/summitPlatformSlugs.js';
 import ClubFeedPanel from '../components/sstc/ClubFeedPanel.vue';
 import OnlineMembersPill from '../components/sstc/OnlineMembersPill.vue';
+import SeasonParticipationPill from '../components/sstc/SeasonParticipationPill.vue';
+import SeasonAnnouncementSplash from '../components/sstc/SeasonAnnouncementSplash.vue';
+import AnnounceSeasonModal from '../components/sstc/AnnounceSeasonModal.vue';
+import ClubDismissalsCard from '../components/sstc/ClubDismissalsCard.vue';
 import {
   AVERAGE_MILES_PER_WEEK_OPTIONS,
   PHYSICAL_ACTIVITY_HOURS_OPTIONS
@@ -843,6 +877,19 @@ const navSlug = computed(() => isSummitPlatformRouteSlug(orgSlug.value) ? orgSlu
 const loading = ref(false);
 const dashboardError = ref('');
 const summary = ref(null);
+const announceModalSeason = ref(null);
+const openAnnounceSeasonModal = (season) => {
+  if (!season?.clubId || !season?.classId) return;
+  announceModalSeason.value = {
+    clubId: season.clubId,
+    classId: season.classId,
+    clubName: season.clubName || '',
+    className: season.className || ''
+  };
+};
+const onSeasonAnnouncementSent = () => {
+  announceModalSeason.value = null;
+};
 const applications = ref([]);
 const clubContext = ref(null);
 const contactingApplicationId = ref(null);

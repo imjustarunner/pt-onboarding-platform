@@ -24,6 +24,19 @@ import {
   getUserSstcClubAffiliations,
   listSstcEligibleUsers
 } from '../controllers/summitStats.controller.js';
+import {
+  getMySeasonParticipation,
+  setMySeasonParticipation,
+  getSeasonParticipationSummary,
+  getMyClubInviteDismissals,
+  dismissClubInvitesForever,
+  reEngageClubInvites,
+  createSeasonAnnouncement,
+  listSeasonAnnouncements,
+  cancelSeasonAnnouncement,
+  listMyPendingSeasonAnnouncements,
+  respondToSeasonAnnouncement
+} from '../controllers/seasonParticipation.controller.js';
 import { postClubShareWithEmployer } from '../controllers/clubEmployerShare.controller.js';
 import {
   listCustomFields,
@@ -243,6 +256,47 @@ router.put('/clubs/:id/members/:userId/role', setClubMemberRole);
 router.delete('/clubs/:id/members/:userId', removeClubMember);
 router.get('/users/:userId/club-affiliations', getUserSstcClubAffiliations);
 router.get('/admin/eligible-users', listSstcEligibleUsers);
+
+// ── Season participation (per-season opt-in / sit-out / remind-me) ──
+router.get(
+  '/clubs/:clubId/seasons/:classId/my-participation',
+  getMySeasonParticipation
+);
+router.put(
+  '/clubs/:clubId/seasons/:classId/my-participation',
+  setMySeasonParticipation
+);
+router.get(
+  '/clubs/:clubId/seasons/:classId/participation-summary',
+  getSeasonParticipationSummary
+);
+
+// ── Club invite "decline forever" ──────────────────────────────────
+router.get('/me/club-invite-dismissals', getMyClubInviteDismissals);
+router.post('/me/clubs/:clubId/dismiss-invites', dismissClubInvitesForever);
+router.delete('/me/clubs/:clubId/dismiss-invites', reEngageClubInvites);
+
+// ── Season announcements (manager broadcast + member splash) ──────
+router.post(
+  '/clubs/:clubId/seasons/:classId/announcements',
+  createSeasonAnnouncement
+);
+router.get(
+  '/clubs/:clubId/seasons/:classId/announcements',
+  listSeasonAnnouncements
+);
+router.delete(
+  '/clubs/:clubId/seasons/:classId/announcements/:id',
+  cancelSeasonAnnouncement
+);
+router.get(
+  '/me/pending-season-announcements',
+  listMyPendingSeasonAnnouncements
+);
+router.post(
+  '/me/season-announcements/:id/respond',
+  respondToSeasonAnnouncement
+);
 router.post('/clubs/:clubId/seasons/:classId/teams/:teamId/announcements', postTeamAnnouncementForTeam);
 
 // Club stats (computed + seed)
