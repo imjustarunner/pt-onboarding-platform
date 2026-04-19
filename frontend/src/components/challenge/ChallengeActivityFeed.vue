@@ -95,6 +95,15 @@
               {{ w.terrain }}
             </span>
             <span v-if="Number(w.is_race) === 1" class="race-badge">🏅 Race</span>
+            <ReportContentMenu
+              v-if="Number(w.user_id) !== Number(props.myUserId)"
+              content-type="challenge_workout"
+              :content-id="w.id"
+              :owner-user-id="w.user_id"
+              :owner-display-name="`${w.first_name || ''} ${w.last_name || ''}`.trim()"
+              content-label="workout"
+              @blocked="onUserBlocked"
+            />
           </div>
         </div>
         <div class="activity-meta">
@@ -531,6 +540,15 @@
                 <div class="comment-actions">
                   <button class="btn-link" @click="startReply(w.id, c)">Reply</button>
                   <button v-if="Number(c.user_id) === Number(myUserId)" class="btn-link comment-delete" @click="deleteComment(w.id, c.id)">Delete</button>
+                  <ReportContentMenu
+                    v-if="Number(c.user_id) !== Number(myUserId)"
+                    content-type="challenge_workout_comment"
+                    :content-id="c.id"
+                    :owner-user-id="c.user_id"
+                    :owner-display-name="`${c.first_name || ''} ${c.last_name || ''}`.trim()"
+                    content-label="comment"
+                    @blocked="onUserBlocked"
+                  />
                 </div>
                 <form v-if="replyTarget[w.id] === c.id" class="comment-form reply-form" @submit.prevent="submitReply(w.id, c.id)">
                   <input v-model="replyDraftByWorkout[w.id]" type="text" maxlength="300" :placeholder="`Reply to ${c.first_name}…`" autofocus />
@@ -547,6 +565,15 @@
                     <img v-if="r.attachment_url" :src="r.attachment_url" class="comment-attachment-img" @click="openLightbox(r.attachment_url)" />
                     <div class="comment-actions">
                       <button v-if="Number(r.user_id) === Number(myUserId)" class="btn-link comment-delete" @click="deleteComment(w.id, r.id)">Delete</button>
+                      <ReportContentMenu
+                        v-if="Number(r.user_id) !== Number(myUserId)"
+                        content-type="challenge_workout_comment"
+                        :content-id="r.id"
+                        :owner-user-id="r.user_id"
+                        :owner-display-name="`${r.first_name || ''} ${r.last_name || ''}`.trim()"
+                        content-label="reply"
+                        @blocked="onUserBlocked"
+                      />
                     </div>
                   </div>
                 </div>
@@ -632,6 +659,7 @@ import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
 import api from '../../services/api';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import WorkoutRouteMap from './WorkoutRouteMap.vue';
+import ReportContentMenu from '@/components/safety/ReportContentMenu.vue';
 
 const props = defineProps({
   workouts: { type: Array, default: () => [] },
@@ -651,6 +679,27 @@ const emit = defineEmits(['media-uploaded']);
 
 /** Whole season vs workouts from the viewer's team only (kept for backwards compat). */
 const feedScope = ref('all');
+
+/** Locally-blocked user ids — workouts/comments by these users are filtered out. */
+const blockedUserIds = ref(new Set());
+
+const loadBlockedUsers = async () => {
+  try {
+    const { data } = await api.get('/user-safety/blocks', { skipGlobalLoading: true });
+    const ids = (data?.blocks || []).map((b) => Number(b.userId)).filter(Boolean);
+    blockedUserIds.value = new Set(ids);
+  } catch {
+    blockedUserIds.value = new Set();
+  }
+};
+
+const onUserBlocked = ({ userId }) => {
+  const id = Number(userId);
+  if (!id) return;
+  const next = new Set(blockedUserIds.value);
+  next.add(id);
+  blockedUserIds.value = next;
+};
 
 // ── Date navigation ────────────────────────────────────────────────
 const todayStr = () => new Date().toLocaleDateString('en-CA');
@@ -727,6 +776,10 @@ const clearFilters = () => {
 
 const filteredWorkouts = computed(() => {
   let list = props.workouts || [];
+
+  if (blockedUserIds.value.size) {
+    list = list.filter((w) => !blockedUserIds.value.has(Number(w.user_id)));
+  }
 
   // Date filter — show workouts completed on selectedDate. completed_at is stored
   // as UTC by the backend, so we must convert to the viewer's local date before
@@ -1096,11 +1149,13 @@ const toggleComments = async (workoutId) => {
   if (!open) await loadComments(workoutId);
 };
 
+const isVisibleComment = (c) => !blockedUserIds.value.has(Number(c?.user_id));
+
 const topLevelComments = (workoutId) =>
-  (commentsByWorkout.value[workoutId] || []).filter((c) => !c.parent_comment_id);
+  (commentsByWorkout.value[workoutId] || []).filter((c) => !c.parent_comment_id && isVisibleComment(c));
 
 const repliesFor = (workoutId, parentId) =>
-  (commentsByWorkout.value[workoutId] || []).filter((c) => Number(c.parent_comment_id) === Number(parentId));
+  (commentsByWorkout.value[workoutId] || []).filter((c) => Number(c.parent_comment_id) === Number(parentId) && isVisibleComment(c));
 
 const startReply = (workoutId, comment) => {
   replyTarget.value = { ...replyTarget.value, [workoutId]: comment.id };
@@ -1511,7 +1566,7 @@ watch(
 );
 
 onMounted(async () => {
-  await Promise.all([loadKudosBudget(), loadReactionIcons()]);
+  await Promise.all([loadKudosBudget(), loadReactionIcons(), loadBlockedUsers()]);
   document.addEventListener('click', onDocumentClick);
 });
 

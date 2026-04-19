@@ -149,6 +149,7 @@ import learningRecommendationsRoutes from './routes/learningRecommendations.rout
 import learningClassSessionsRoutes from './routes/learningClassSessions.routes.js';
 import clubStoreRoutes from './routes/clubStore.routes.js';
 import summitStatsRoutes from './routes/summitStats.routes.js';
+import userSafetyRoutes from './routes/userSafety.routes.js';
 import stravaRoutes from './routes/strava.routes.js';
 import garminRoutes from './routes/garmin.routes.js';
 import clinicalDataRoutes from './routes/clinicalData.routes.js';
@@ -670,6 +671,7 @@ app.use('/api/learning-recommendations', learningRecommendationsRoutes);
 app.use('/api/learning-class-sessions', learningClassSessionsRoutes);
 app.use('/api/club-store', clubStoreRoutes);
 app.use('/api/summit-stats', summitStatsRoutes);
+app.use('/api/user-safety', userSafetyRoutes);
 app.use('/api/strava', stravaRoutes);
 app.use('/api/garmin', garminRoutes);
 app.use('/api/billing-policy', billingPolicyRoutes);

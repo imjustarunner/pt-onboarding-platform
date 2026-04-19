@@ -875,6 +875,30 @@
 
           <div class="danger-zone-divider"></div>
 
+          <!-- Blocked users -->
+          <div class="danger-zone-item">
+            <div class="danger-zone-item-info">
+              <strong>Blocked users</strong>
+              <p>
+                People you block can't be seen in your activity feed, comments, or chat. You can unblock them at any time.
+              </p>
+              <ul v-if="blockedUsers.length" class="blocked-users-list">
+                <li v-for="b in blockedUsers" :key="b.userId">
+                  <span class="blocked-user-name">{{ (b.firstName || '') + ' ' + (b.lastName || '') }}</span>
+                  <button type="button" class="btn-link" :disabled="unblockBusyUserId === b.userId" @click="unblockUser(b.userId)">
+                    {{ unblockBusyUserId === b.userId ? 'Unblocking…' : 'Unblock' }}
+                  </button>
+                </li>
+              </ul>
+              <p v-else class="hint" style="margin-top:6px;">You haven't blocked anyone.</p>
+            </div>
+            <button type="button" class="btn-danger-outline" :disabled="blockedUsersLoading" @click="loadBlockedUsers">
+              {{ blockedUsersLoading ? 'Refreshing…' : 'Refresh' }}
+            </button>
+          </div>
+
+          <div class="danger-zone-divider"></div>
+
           <!-- Delete My Account -->
           <div class="danger-zone-item">
             <div class="danger-zone-item-info">
@@ -1719,6 +1743,38 @@ const submitStartClub = async () => {
     startClubSubmitting.value = false;
   }
 };
+
+// --- Danger Zone: Blocked users ---
+const blockedUsers = ref([]);
+const blockedUsersLoading = ref(false);
+const unblockBusyUserId = ref(null);
+
+const loadBlockedUsers = async () => {
+  blockedUsersLoading.value = true;
+  try {
+    const { data } = await api.get('/user-safety/blocks', { skipGlobalLoading: true });
+    blockedUsers.value = Array.isArray(data?.blocks) ? data.blocks : [];
+  } catch {
+    blockedUsers.value = [];
+  } finally {
+    blockedUsersLoading.value = false;
+  }
+};
+
+const unblockUser = async (userId) => {
+  if (!userId) return;
+  unblockBusyUserId.value = userId;
+  try {
+    await api.delete(`/user-safety/blocks/${userId}`);
+    blockedUsers.value = blockedUsers.value.filter((b) => Number(b.userId) !== Number(userId));
+  } catch (e) {
+    window.alert(e?.response?.data?.error?.message || 'Could not unblock user.');
+  } finally {
+    unblockBusyUserId.value = null;
+  }
+};
+
+onMounted(loadBlockedUsers);
 
 // --- Danger Zone: Delete My Account ---
 const deleteAccountStep = ref(0);

@@ -49,5 +49,17 @@
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Summit Stats uses Face ID to securely sign you in without typing your password.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Summit Stats uses the camera so you can snap a photo of your workout watch or treadmill display when logging a workout.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Summit Stats uses your photo library so you can attach a workout screenshot, treadmill photo, or club post image.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Summit Stats can save event QR codes and shareable workout cards to your photo library.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Summit Stats uses the microphone for clinical staff features that record voice dictation. It is not used during normal club or challenge activities.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Summit Stats can use your location only when you tap a feature that needs it, such as suggesting your nearest club. Location is never tracked in the background.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

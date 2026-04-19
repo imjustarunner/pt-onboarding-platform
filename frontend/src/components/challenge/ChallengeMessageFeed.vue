@@ -80,7 +80,7 @@
     <div v-if="loading" class="loading-inline">Loading messages…</div>
     <div ref="messagesListEl" class="messages-list" :class="{ 'messages-list--loading': loading }">
       <article
-        v-for="(m, idx) in messages"
+        v-for="(m, idx) in visibleMessages"
         :key="`msg-${m.id}`"
         :data-msg-id="m.id"
         class="message-card"
@@ -118,6 +118,15 @@
                   {{ Number(m.is_pinned) === 1 ? 'Unpin' : 'Pin' }}
                 </button>
                 <button v-if="canDeleteMessage(m)" type="button" class="btn-link delete-link" @click="deleteMessage(m)">Delete</button>
+                <ReportContentMenu
+                  v-if="Number(m.user_id) !== Number(myUserId)"
+                  content-type="challenge_message"
+                  :content-id="m.id"
+                  :owner-user-id="m.user_id"
+                  :owner-display-name="`${m.first_name || ''} ${m.last_name || ''}`.trim()"
+                  content-label="message"
+                  @blocked="onUserBlocked"
+                />
               </div>
             </header>
 
@@ -174,7 +183,7 @@
           </div>
         </div>
       </article>
-      <div v-if="!messages.length" class="empty-hint">No messages yet. Start the conversation!</div>
+      <div v-if="!visibleMessages.length" class="empty-hint">No messages yet. Start the conversation!</div>
     </div>
   </section>
 
@@ -190,6 +199,7 @@
 <script setup>
 import { ref, watch, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import api from '../../services/api';
+import ReportContentMenu from '@/components/safety/ReportContentMenu.vue';
 
 const props = defineProps({
   challengeId: { type: [String, Number], required: true },
@@ -204,8 +214,31 @@ const props = defineProps({
 });
 
 const messages      = ref([]);
+const blockedUserIds = ref(new Set());
 const loading       = ref(false);
 const posting       = ref(false);
+
+const loadBlockedUsers = async () => {
+  try {
+    const { data } = await api.get('/user-safety/blocks', { skipGlobalLoading: true });
+    const ids = (data?.blocks || []).map((b) => Number(b.userId)).filter(Boolean);
+    blockedUserIds.value = new Set(ids);
+  } catch {
+    blockedUserIds.value = new Set();
+  }
+};
+
+const onUserBlocked = ({ userId }) => {
+  const id = Number(userId);
+  if (!id) return;
+  const next = new Set(blockedUserIds.value);
+  next.add(id);
+  blockedUserIds.value = next;
+};
+
+const visibleMessages = computed(() =>
+  (messages.value || []).filter((m) => !blockedUserIds.value.has(Number(m?.user_id)))
+);
 const draft         = ref('');
 const activeScope   = ref('season');
 const currentTeamId = ref(null);
@@ -493,6 +526,7 @@ const onDocClick = () => { emojiOpen.value = false; reactionPickerFor.value = nu
 watch(() => props.challengeId, load, { immediate: true });
 
 onMounted(() => {
+  loadBlockedUsers();
   loadUnreadCounts();
   unreadPollTimer = window.setInterval(loadUnreadCounts, 15000);
   document.addEventListener('click', onDocClick);
