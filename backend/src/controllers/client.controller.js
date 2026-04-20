@@ -22,7 +22,11 @@ import crypto from 'crypto';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { isSkillsClientFlag } from '../utils/skillsClientFlag.js';
 import { bumpGradeCanonical, normalizeGradeForSave } from '../utils/clientGrade.js';
-import { decryptIntakeSubmissionRows } from '../services/intakeResponsesEncryption.service.js';
+import {
+  decryptIntakePayload,
+  decryptIntakeSubmissionRows,
+  isIntakeResponsesEncryptionConfigured
+} from '../services/intakeResponsesEncryption.service.js';
 
 function normalizeSixDigitClientCode(value) {
   const raw = String(value || '').trim();
@@ -4138,13 +4142,21 @@ export const getClientClinicalResponses = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const debug = userRole === 'super_admin' && String(req.query?.debug || '') === '1';
-    const debugInfo = debug ? { candidateSubmissions: [], chosen: null } : null;
+    const debugInfo = debug
+      ? { candidateSubmissions: [], chosen: null, siblingSubmissionsOnSameLinks: [] }
+      : null;
 
     // Fetch every submission this client appears on, either as the primary
     // client_id on intake_submissions or via intake_submission_clients. We
     // intentionally include status='draft' rows so a partially-saved intake
     // still surfaces clinical signal.
     let submRows = [];
+    // Stash the *pre-decrypt* encrypted-column snapshot per submission id so
+    // the super-admin debug can independently report decryption outcomes.
+    // (decryptIntakeSubmissionRows mutates rows in place — once it runs, we
+    // can't tell "decrypt failed" apart from "decrypt succeeded but the
+    // envelope was empty" without re-attempting it.)
+    const encryptedSnapshotById = new Map();
     try {
       [submRows] = await pool.execute(
         `SELECT DISTINCT s.id, s.intake_data, s.intake_link_id, s.submitted_at, s.status,
@@ -4155,6 +4167,24 @@ export const getClientClinicalResponses = async (req, res, next) => {
          ORDER BY s.submitted_at DESC, s.id DESC`,
         [clientId, clientId]
       );
+      if (debug) {
+        for (const r of submRows) {
+          encryptedSnapshotById.set(r.id, {
+            ciphertextLen: Buffer.isBuffer(r.payload_encrypted)
+              ? r.payload_encrypted.length
+              : (r.payload_encrypted ? String(r.payload_encrypted).length : 0),
+            ivB64: r.payload_iv_b64 || null,
+            authTagB64: r.payload_auth_tag_b64 || null,
+            keyId: r.payload_key_id || null,
+            intakeDataPreDecryptType: r.intake_data === null
+              ? 'null'
+              : (typeof r.intake_data),
+            intakeDataPreDecryptLen: typeof r.intake_data === 'string'
+              ? r.intake_data.length
+              : null
+          });
+        }
+      }
       decryptIntakeSubmissionRows(submRows);
     } catch (tableErr) {
       if (String(tableErr?.message || '').includes("doesn't exist") || tableErr?.errno === 1146) {
@@ -4253,6 +4283,54 @@ export const getClientClinicalResponses = async (req, res, next) => {
         const intakeDataIsEmpty = !responsesWrapper
           && intakeTopLevelKeys.length === 0;
 
+        // ─── Independent decrypt attempt (PHI-safe) ──────────────────────────
+        // Tells us definitively whether the encrypted blob decrypts at all,
+        // and what the decrypted envelope's *shape* is. We never include the
+        // decrypted values themselves — only the envelope's key list and the
+        // shape (object/null/array/string) of intakeData.
+        const snap = encryptedSnapshotById.get(row.id) || {};
+        const decryptDiag = {
+          encryptionKeyConfigured: isIntakeResponsesEncryptionConfigured(),
+          ciphertextLen: snap.ciphertextLen ?? null,
+          payloadKeyId: snap.keyId ?? null,
+          intakeDataPreDecryptType: snap.intakeDataPreDecryptType ?? null,
+          intakeDataPreDecryptLen: snap.intakeDataPreDecryptLen ?? null,
+          attempted: false,
+          succeeded: null,
+          error: null,
+          envelopeKeys: [],
+          intakeDataShape: null,
+          intakeDataKeys: []
+        };
+        if (snap.ciphertextLen && snap.ivB64 && snap.authTagB64) {
+          decryptDiag.attempted = true;
+          if (!isIntakeResponsesEncryptionConfigured()) {
+            decryptDiag.succeeded = false;
+            decryptDiag.error = 'INTAKE_RESPONSES_ENCRYPTION_KEY not configured at read time';
+          } else {
+            try {
+              const env = decryptIntakePayload({
+                ciphertext: row.payload_encrypted,
+                ivB64: snap.ivB64,
+                authTagB64: snap.authTagB64,
+                keyId: snap.keyId
+              });
+              decryptDiag.succeeded = true;
+              decryptDiag.envelopeKeys = env && typeof env === 'object' ? Object.keys(env) : [];
+              const id = env?.intakeData;
+              if (id == null) decryptDiag.intakeDataShape = 'null';
+              else if (Array.isArray(id)) decryptDiag.intakeDataShape = `array(len=${id.length})`;
+              else if (typeof id === 'object') {
+                decryptDiag.intakeDataShape = 'object';
+                decryptDiag.intakeDataKeys = Object.keys(id).slice(0, 60);
+              } else decryptDiag.intakeDataShape = typeof id;
+            } catch (e) {
+              decryptDiag.succeeded = false;
+              decryptDiag.error = e?.message || String(e);
+            }
+          }
+        }
+
         debugInfo.candidateSubmissions.push({
           submission_id: row.id,
           status: row.status,
@@ -4263,7 +4341,7 @@ export const getClientClinicalResponses = async (req, res, next) => {
             (cid) => parseInt(cid, 10) === parseInt(clientId, 10)
           ),
           clinicalSignalCount: score,
-          // Shape of the raw intake_data envelope
+          // Shape of the raw intake_data envelope (post-decrypt)
           intakeDataIsEmpty,
           intakeTopLevelKeys,
           responsesKeys,
@@ -4291,7 +4369,10 @@ export const getClientClinicalResponses = async (req, res, next) => {
           hasEncryptedPayload,
           intakeDataRawType: row.intake_data === null
             ? 'null'
-            : (typeof row.intake_data)
+            : (typeof row.intake_data),
+          // Decryption outcome — distinguishes "decrypt failed" from
+          // "decrypt succeeded but envelope was empty".
+          decrypt: decryptDiag
         });
       }
 
@@ -4325,6 +4406,64 @@ export const getClientClinicalResponses = async (req, res, next) => {
         clinicalSignalCount: best.score,
         intake_link_id: best.row.intake_link_id
       };
+
+      // Sibling scan: do any OTHER submissions on the same intake link(s)
+      // contain populated answers? If yes, the data may have landed on a
+      // sibling row rather than the one we're looking at, which is the
+      // tell-tale of a finalize handoff that wrote intake_data to the wrong
+      // submission id (e.g. multi-child re-entry).
+      try {
+        const linkIds = [...new Set(submRows.map((r) => r.intake_link_id).filter(Boolean))];
+        if (linkIds.length) {
+          const placeholders = linkIds.map(() => '?').join(',');
+          const ourIds = new Set(submRows.map((r) => r.id));
+          const [siblingRows] = await pool.execute(
+            `SELECT s.id, s.intake_link_id, s.client_id, s.status, s.submitted_at,
+                    s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id,
+                    s.intake_data
+               FROM intake_submissions s
+              WHERE s.intake_link_id IN (${placeholders})
+              ORDER BY s.submitted_at DESC, s.id DESC
+              LIMIT 25`,
+            linkIds
+          );
+          decryptIntakeSubmissionRows(siblingRows);
+          for (const sr of siblingRows) {
+            if (ourIds.has(sr.id)) continue;
+            const sd = parseIntakeData(sr.intake_data);
+            const sBag = getSubmissionBag(sd);
+            const gBag = getGuardianBag(sd);
+            const cArr = getClientsArray(sd);
+            const sibPayloadLen = Buffer.isBuffer(sr.payload_encrypted)
+              ? sr.payload_encrypted.length
+              : (sr.payload_encrypted ? String(sr.payload_encrypted).length : 0);
+            debugInfo.siblingSubmissionsOnSameLinks.push({
+              submission_id: sr.id,
+              intake_link_id: sr.intake_link_id,
+              client_id: sr.client_id,
+              status: sr.status,
+              submitted_at: sr.submitted_at,
+              hasEncryptedPayload: !!sr.payload_encrypted,
+              ciphertextLen: sibPayloadLen,
+              submissionBagKeyCount: Object.keys(sBag).length,
+              guardianBagKeyCount: Object.keys(gBag).length,
+              clientsLength: cArr.length,
+              perClientKeyCounts: cArr.map((c, i) => ({
+                index: i,
+                keyCount: c && typeof c === 'object' ? Object.keys(c).length : 0
+              })),
+              topLevelKeys: Object.keys(sBag).slice(0, 60),
+              clinicalResponseKeys: (sBag.clinicalResponses && typeof sBag.clinicalResponses === 'object')
+                ? Object.keys(sBag.clinicalResponses).slice(0, 40)
+                : []
+            });
+          }
+        }
+      } catch (siblingErr) {
+        debugInfo.siblingSubmissionsOnSameLinks.push({
+          error: siblingErr?.message || String(siblingErr)
+        });
+      }
     }
 
     const { row: sub, submissionData, clientResponses, intakeFields, formConfig } = best;
