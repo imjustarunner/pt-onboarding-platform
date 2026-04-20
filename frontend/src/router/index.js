@@ -997,6 +997,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/referral-directory',
+    name: 'OrganizationReferralDirectory',
+    component: () => import('../views/admin/ReferralDirectoryView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/clinical-note-generator',
     name: 'OrganizationClinicalNoteGenerator',
     redirect: (to) => `/${to.params.organizationSlug}/admin/note-aid`,
@@ -1657,6 +1663,12 @@ const routes = [
     path: '/admin/clients',
     name: 'ClientManagement',
     component: () => import('../views/admin/ClientManagementView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] }
+  },
+  {
+    path: '/admin/referral-directory',
+    name: 'ReferralDirectory',
+    component: () => import('../views/admin/ReferralDirectoryView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] }
   },
   {

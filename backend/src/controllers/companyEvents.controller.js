@@ -4193,3 +4193,131 @@ export const detachCompanyEventSessionSurvey = async (req, res, next) => {
     next(error);
   }
 };
+
+// Super-admin utility: duplicate a company event into another agency (and optionally another
+// affiliated program organization). Creates an INACTIVE copy so it will not surface on the
+// target agency's live calendars until a manager turns it on. Audiences are not copied because
+// user/group ids are agency-scoped and would not resolve on the target tenant.
+export const copyCompanyEventToTarget = async (req, res, next) => {
+  try {
+    if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin only' } });
+    }
+    const sourceAgencyId = parsePositiveInt(req.params.id);
+    const sourceEventId = parsePositiveInt(req.params.eventId);
+    const targetAgencyId = parsePositiveInt(req.body?.targetAgencyId);
+    const rawTargetOrgId = req.body?.targetOrganizationId;
+    const targetOrganizationId = rawTargetOrgId === null || rawTargetOrgId === '' || rawTargetOrgId === undefined
+      ? null
+      : parsePositiveInt(rawTargetOrgId);
+    const userId = parsePositiveInt(req.user?.id);
+    const customTitle = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+
+    if (!sourceAgencyId || !sourceEventId || !targetAgencyId || !userId) {
+      return res.status(400).json({ error: { message: 'sourceAgencyId, eventId, targetAgencyId and user are required' } });
+    }
+    if (rawTargetOrgId !== null && rawTargetOrgId !== '' && rawTargetOrgId !== undefined && !targetOrganizationId) {
+      return res.status(400).json({ error: { message: 'Invalid target organization id' } });
+    }
+
+    const sourceRow = await loadEventByIdForAgency(sourceEventId, sourceAgencyId);
+    if (!sourceRow) return res.status(404).json({ error: { message: 'Source event not found' } });
+
+    const [[targetAgency]] = await pool.execute(
+      `SELECT id FROM agencies WHERE id = ? AND (is_archived IS NULL OR is_archived = FALSE) LIMIT 1`,
+      [targetAgencyId]
+    );
+    if (!targetAgency) return res.status(404).json({ error: { message: 'Target agency not found' } });
+
+    if (targetOrganizationId) {
+      const aff = await validateAffiliatedOrganizationForEvent(targetAgencyId, targetOrganizationId);
+      if (aff.error) return res.status(400).json({ error: { message: `Target program: ${aff.error}` } });
+    }
+
+    const newTitle = customTitle || `${String(sourceRow.title || 'Untitled event')} (Copy)`;
+
+    // INSERT ... SELECT copies all non-identifying columns, overriding the few that must change
+    // for the target tenant or that would create unique-constraint conflicts.
+    const [insertResult] = await pool.execute(
+      `INSERT INTO company_events (
+         agency_id, organization_id, created_by_user_id, updated_by_user_id,
+         title, description, event_type, splash_content, public_hero_image_url,
+         public_hero_focal_point, public_listing_details, in_person_public,
+         public_location_address, public_location_lat, public_location_lng,
+         public_age_min, public_age_max, public_session_label, public_session_date_range,
+         starts_at, ends_at, timezone, recurrence_json, is_active,
+         guardian_waiver_required_sections_json, rsvp_mode, voting_config_json,
+         reminder_config_json, voting_closed_at, sms_code, skill_builder_direct_hours,
+         learning_program_class_id, registration_eligible, public_registration_status,
+         public_registration_status_label, medicaid_eligible, cash_eligible,
+         client_check_in_display_time, client_check_out_display_time,
+         employee_report_time, employee_departure_time, virtual_sessions_enabled,
+         kiosk_event_pin_hash, program_cost_billing_mode, program_cost_dollars,
+         per_session_cost_dollars, snacks_available, snack_options_json,
+         meals_available, meal_options_json, guest_policy, potluck_enabled,
+         organizer_providing_json, event_image_url, event_image_urls_json,
+         rsvp_deadline, event_location_name, event_location_address,
+         event_location_phone, family_provision_note, registration_form_url,
+         sms_draft_json
+       )
+       SELECT
+         ?, ?, ?, ?,
+         ?, description, event_type, splash_content, public_hero_image_url,
+         public_hero_focal_point, public_listing_details, in_person_public,
+         public_location_address, public_location_lat, public_location_lng,
+         public_age_min, public_age_max, public_session_label, public_session_date_range,
+         starts_at, ends_at, timezone, recurrence_json, 0,
+         guardian_waiver_required_sections_json, rsvp_mode, voting_config_json,
+         reminder_config_json, voting_closed_at, NULL, skill_builder_direct_hours,
+         NULL, registration_eligible, public_registration_status,
+         public_registration_status_label, medicaid_eligible, cash_eligible,
+         client_check_in_display_time, client_check_out_display_time,
+         employee_report_time, employee_departure_time, virtual_sessions_enabled,
+         NULL, program_cost_billing_mode, program_cost_dollars,
+         per_session_cost_dollars, snacks_available, snack_options_json,
+         meals_available, meal_options_json, guest_policy, potluck_enabled,
+         organizer_providing_json, event_image_url, event_image_urls_json,
+         rsvp_deadline, event_location_name, event_location_address,
+         event_location_phone, family_provision_note, registration_form_url,
+         sms_draft_json
+       FROM company_events
+       WHERE id = ? AND agency_id = ?
+       LIMIT 1`,
+      [
+        targetAgencyId,
+        targetOrganizationId || null,
+        userId,
+        userId,
+        newTitle,
+        sourceEventId,
+        sourceAgencyId
+      ]
+    );
+
+    const newEventId = Number(insertResult?.insertId || 0);
+    if (!newEventId) {
+      return res.status(500).json({ error: { message: 'Failed to create event copy' } });
+    }
+
+    // Regenerate scheduled sessions for the new event (non-fatal if it throws).
+    try {
+      await materializeSessionsForEvent(newEventId, targetAgencyId);
+    } catch (e) {
+      // Intentionally swallow: session materialization is idempotent and will be retried on next
+      // edit. A failure here must not block the copy itself.
+      console.warn('[copyCompanyEventToTarget] session materialize failed:', e?.message || e);
+    }
+
+    const row = await loadEventByIdForAgency(newEventId, targetAgencyId);
+    const event = row ? mapEventRow(row, req) : null;
+    res.status(201).json({
+      ok: true,
+      eventId: newEventId,
+      targetAgencyId,
+      targetOrganizationId: targetOrganizationId || null,
+      event
+    });
+  } catch (error) {
+    next(error);
+  }
+};

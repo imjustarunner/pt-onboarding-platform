@@ -109,6 +109,8 @@ class Notification {
     'school_provider_slot_verification_completed',
     // Budget Management: expense pending approval (department approvers)
     'budget_expense_pending_approval',
+    // Referral Directory: non-admin change request awaiting admin review
+    'referral_directory_pending_approval',
     // School portal: primary sent password reset link (notify agency admin)
     'school_primary_password_reset_sent',
     // School portal: primary removed staff (notify agency admin to remove from school group email)

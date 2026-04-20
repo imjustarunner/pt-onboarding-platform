@@ -500,6 +500,7 @@
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
                     <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" >Guardians</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" >Clients</router-link>
+                    <router-link :to="orgTo('/admin/referral-directory')" v-if="(isAdmin || user?.role === 'provider' || user?.role === 'provider_plus' || user?.role === 'staff' || user?.role === 'support') && !isAffiliationContext" >Referral Directory</router-link>
                   </div>
                 </div>
 
@@ -533,6 +534,7 @@
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" >{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
                     <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" >Guardians</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" >Clients</router-link>
+                    <router-link :to="orgTo('/admin/referral-directory')" v-if="(isAdmin || user?.role === 'provider' || user?.role === 'provider_plus' || user?.role === 'staff' || user?.role === 'support') && !isAffiliationContext" >Referral Directory</router-link>
                     <router-link :to="orgTo('/admin/credentialing')" v-if="canSeeCredentialing" >Credentialing</router-link>
                     <router-link
                       v-if="isSscSstcTenant && canSeeDigitalFormsNav"
@@ -685,6 +687,7 @@
                 Builder
               </button>
               <div class="nav-right-group">
+                <AskAssistantLauncher v-if="isAuthenticated" />
                 <WeatherChip />
                 <router-link
                   v-if="canShowScheduleIcon && !isSscSstcTenant"
@@ -1206,6 +1209,7 @@
               <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
               <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Guardians</router-link>
               <router-link :to="orgTo('/admin/clients')" v-if="(isAdmin || user?.role === 'provider') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
+              <router-link :to="orgTo('/admin/referral-directory')" v-if="(isAdmin || user?.role === 'provider' || user?.role === 'provider_plus' || user?.role === 'staff' || user?.role === 'support') && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-link">Referral Directory</router-link>
               <router-link
                 :to="orgTo('/admin/communications')"
                 v-if="canUseEngagementFeed && !isSscSstcTenant"
@@ -1510,6 +1514,7 @@ import AddToStickyContextMenu from './components/momentum/AddToStickyContextMenu
 import { useMomentumListAddon } from './composables/useMomentumListAddon';
 import { useReminderSnooze } from './composables/useReminderSnooze';
 import WeatherChip from './components/WeatherChip.vue';
+import AskAssistantLauncher from './components/assistant/AskAssistantLauncher.vue';
 import SessionLockScreen from './components/SessionLockScreen.vue';
 import RegistrationPromoToastRail from './components/RegistrationPromoToastRail.vue';
 import OfficeMandatoryReviewSplash from './components/office/OfficeMandatoryReviewSplash.vue';

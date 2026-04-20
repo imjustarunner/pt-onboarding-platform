@@ -63,6 +63,14 @@ export const assist = async (req, res, next) => {
       try {
         const result = await executeToolCall({ req, toolCall: tc });
         toolResults.push(result);
+        // Tools may emit uiCommands (e.g. openEntity returns a navigate command).
+        // Merge them into the top-level uiCommands so the frontend executes them
+        // alongside any commands the LLM included directly.
+        if (Array.isArray(result?.uiCommands) && result.uiCommands.length) {
+          for (const cmd of normalizeUiCommands(result.uiCommands)) {
+            uiCommands.push(cmd);
+          }
+        }
         // Non-blocking audit logging (metadata only; do not log user prompt).
         try {
           ActivityLogService.logActivity(

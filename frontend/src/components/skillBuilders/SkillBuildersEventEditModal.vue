@@ -4,7 +4,87 @@
       <div class="sb-ce-modal" role="dialog" aria-modal="true" aria-labelledby="sb-ce-edit-title" @click.stop>
         <div class="sb-ce-modal-header">
           <h2 id="sb-ce-edit-title" class="sb-ce-modal-title">{{ duplicateMode ? 'Duplicate event' : 'Edit event' }}</h2>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="close">Close</button>
+          <div class="sb-ce-modal-header-actions">
+            <button
+              v-if="isSuperAdmin && !duplicateMode"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="saving || copyToSaving"
+              title="Super admin: duplicate this event into another agency and program"
+              @click="openCopyToPanel"
+            >
+              Copy to…
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="close">Close</button>
+          </div>
+        </div>
+        <div v-if="isSuperAdmin && !duplicateMode && copyToOpen" class="sb-ce-copyto-panel">
+          <div class="sb-ce-copyto-header">
+            <strong>Copy this event to another agency</strong>
+            <button type="button" class="btn btn-link btn-sm sb-ce-copyto-close" @click="copyToOpen = false">Hide</button>
+          </div>
+          <p class="muted small sb-ce-copyto-hint">
+            Creates an <strong>inactive</strong> copy on the target agency (and program, if chosen). Audiences and
+            agency-scoped fields like SMS code, kiosk PIN, and linked learning program class are cleared. Intended
+            for testing — a manager on the target agency can activate or edit the copy afterwards.
+          </p>
+          <div v-if="copyToError" class="error-box sb-ce-copyto-msg">{{ copyToError }}</div>
+          <div v-if="copyToSuccess" class="sb-ce-copyto-success">
+            Created event #{{ copyToSuccess.eventId }} on
+            <strong>{{ copyToSuccess.agencyName || ('agency #' + copyToSuccess.targetAgencyId) }}</strong>
+            <template v-if="copyToSuccess.organizationName">
+              · program <strong>{{ copyToSuccess.organizationName }}</strong>
+            </template>
+          </div>
+          <div class="sb-ce-copyto-grid">
+            <div class="form-group">
+              <label class="sb-ce-lbl">Target agency</label>
+              <select v-model.number="copyToTargetAgencyId" class="input" @change="onCopyToAgencyChange">
+                <option :value="0">Select an agency…</option>
+                <option v-for="a in copyToAgencyOptions" :key="`cp-ag-${a.id}`" :value="Number(a.id)">
+                  {{ a.name }}
+                </option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="sb-ce-lbl">Target program (optional)</label>
+              <select
+                v-model.number="copyToTargetOrganizationId"
+                class="input"
+                :disabled="!copyToTargetAgencyId || copyToProgramsLoading"
+              >
+                <option :value="0">
+                  {{
+                    copyToProgramsLoading
+                      ? 'Loading programs…'
+                      : (copyToProgramOptions.length ? 'Agency-wide (no program)' : 'No programs available')
+                  }}
+                </option>
+                <option v-for="o in copyToProgramOptions" :key="`cp-org-${o.id}`" :value="Number(o.id)">
+                  {{ o.name }}
+                </option>
+              </select>
+            </div>
+            <div class="form-group sb-ce-copyto-title">
+              <label class="sb-ce-lbl">Title override (optional)</label>
+              <input
+                v-model.trim="copyToTitle"
+                class="input"
+                maxlength="255"
+                :placeholder="`${draft.title || 'Event'} (Copy)`"
+              />
+            </div>
+          </div>
+          <div class="sb-ce-copyto-actions">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="!copyToCanSubmit || copyToSaving"
+              @click="submitCopyTo"
+            >
+              {{ copyToSaving ? 'Copying…' : 'Create copy' }}
+            </button>
+          </div>
         </div>
         <div class="sb-ce-modal-body">
           <div v-if="loadError" class="error-box sb-ce-msg">{{ loadError }}</div>
@@ -1013,6 +1093,19 @@ const effectiveAgencyId = ref(0);
 /** JSON.stringify of persist payload right after duplicate prep — save blocked until this changes. */
 const duplicateComparableSnapshot = ref('');
 
+// "Copy to…" (super admin only): duplicate this event into another agency/program for testing.
+const copyToOpen = ref(false);
+const copyToSaving = ref(false);
+const copyToError = ref('');
+const copyToSuccess = ref(null);
+const copyToTargetAgencyId = ref(0);
+const copyToTargetOrganizationId = ref(0);
+const copyToTitle = ref('');
+const copyToAgencyOptions = ref([]);
+const copyToProgramOptions = ref([]);
+const copyToProgramsLoading = ref(false);
+const copyToCanSubmit = computed(() => !!Number(copyToTargetAgencyId.value));
+
 const loading = ref(false);
 const loadError = ref('');
 const formError = ref('');
@@ -2002,6 +2095,92 @@ function close() {
   emit('update:modelValue', false);
 }
 
+async function ensureCopyToAgenciesLoaded() {
+  if (copyToAgencyOptions.value.length) return;
+  try {
+    const { data } = await api.get('/agencies', { params: { minimal: 1 } });
+    const list = Array.isArray(data) ? data : (Array.isArray(data?.agencies) ? data.agencies : []);
+    copyToAgencyOptions.value = (list || [])
+      .filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency')
+      .map((a) => ({ id: Number(a.id), name: String(a.name || '').trim() || `Agency #${a.id}` }))
+      .filter((a) => Number.isFinite(a.id) && a.id > 0);
+  } catch (e) {
+    copyToError.value = e?.response?.data?.error?.message || e?.message || 'Could not load agencies.';
+  }
+}
+
+async function loadCopyToPrograms(agencyId) {
+  copyToProgramOptions.value = [];
+  copyToTargetOrganizationId.value = 0;
+  if (!agencyId) return;
+  copyToProgramsLoading.value = true;
+  try {
+    const { data } = await api.get(`/agencies/${agencyId}/affiliated-organizations`);
+    const list = Array.isArray(data) ? data : [];
+    copyToProgramOptions.value = list
+      .filter((o) => {
+        const t = String(o?.organization_type || '').toLowerCase();
+        return t && t !== 'agency' && t !== 'school';
+      })
+      .map((o) => ({ id: Number(o.id), name: String(o.name || '').trim() || `Org #${o.id}` }))
+      .filter((o) => Number.isFinite(o.id) && o.id > 0);
+  } catch (e) {
+    copyToError.value = e?.response?.data?.error?.message || e?.message || 'Could not load programs for that agency.';
+  } finally {
+    copyToProgramsLoading.value = false;
+  }
+}
+
+async function openCopyToPanel() {
+  copyToError.value = '';
+  copyToSuccess.value = null;
+  copyToOpen.value = true;
+  await ensureCopyToAgenciesLoaded();
+}
+
+function onCopyToAgencyChange() {
+  copyToError.value = '';
+  copyToSuccess.value = null;
+  loadCopyToPrograms(Number(copyToTargetAgencyId.value) || 0);
+}
+
+async function submitCopyTo() {
+  if (!copyToCanSubmit.value || copyToSaving.value) return;
+  copyToError.value = '';
+  copyToSuccess.value = null;
+  copyToSaving.value = true;
+  try {
+    const body = {
+      targetAgencyId: Number(copyToTargetAgencyId.value)
+    };
+    const orgId = Number(copyToTargetOrganizationId.value);
+    if (orgId > 0) body.targetOrganizationId = orgId;
+    const t = String(copyToTitle.value || '').trim();
+    if (t) body.title = t;
+
+    const { data } = await api.post(
+      `/agencies/${props.agencyId}/company-events/${props.eventId}/copy-to`,
+      body
+    );
+    const agencyName = (copyToAgencyOptions.value.find((a) => a.id === body.targetAgencyId) || {}).name || '';
+    const organizationName = orgId > 0
+      ? (copyToProgramOptions.value.find((o) => o.id === orgId) || {}).name || ''
+      : '';
+    copyToSuccess.value = {
+      eventId: data?.eventId || null,
+      targetAgencyId: body.targetAgencyId,
+      agencyName,
+      organizationName
+    };
+    copyToTitle.value = '';
+    emit('saved');
+  } catch (e) {
+    copyToError.value = e?.response?.data?.error?.message || e?.message || 'Copy failed.';
+  } finally {
+    copyToSaving.value = false;
+  }
+}
+
 /** Validates draft and builds the JSON body shared by create (duplicate) and update. Omits kiosk PIN fields. */
 function validateAndBuildPersistPayload() {
   const tz = String(draft.value.timezone || '').trim();
@@ -2336,6 +2515,56 @@ watch(
   font-size: 1.15rem;
   font-weight: 800;
   color: var(--primary, #0f766e);
+}
+.sb-ce-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sb-ce-copyto-panel {
+  margin: 12px 18px 0;
+  padding: 12px 14px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+}
+.sb-ce-copyto-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.sb-ce-copyto-close {
+  padding: 0;
+}
+.sb-ce-copyto-hint {
+  margin: 4px 0 10px;
+  color: #78350f;
+}
+.sb-ce-copyto-msg {
+  margin-bottom: 10px;
+}
+.sb-ce-copyto-success {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  border-radius: 6px;
+  color: #065f46;
+  font-size: 0.92rem;
+}
+.sb-ce-copyto-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.sb-ce-copyto-title {
+  grid-column: 1 / -1;
+}
+.sb-ce-copyto-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 .sb-ce-modal-body {
   padding: 16px 18px 20px;

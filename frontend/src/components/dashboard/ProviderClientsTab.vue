@@ -1,5 +1,29 @@
 <template>
   <div class="provider-clients-tab">
+    <div class="pct-section-switcher" role="tablist" aria-label="Clients sections">
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeSection === 'caseload'"
+        :class="['pct-switch-btn', { 'is-active': activeSection === 'caseload' }]"
+        @click="activeSection = 'caseload'"
+      >
+        My caseload
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeSection === 'referrals'"
+        :class="['pct-switch-btn', { 'is-active': activeSection === 'referrals' }]"
+        @click="activeSection = 'referrals'"
+      >
+        Referral directory
+      </button>
+    </div>
+
+    <ReferralDirectoryPanel v-if="activeSection === 'referrals'" embedded />
+
+    <template v-else>
     <div class="section-header">
       <h2 style="margin: 0;">Clients</h2>
       <div class="filters">
@@ -80,6 +104,7 @@
       search-placeholder="Search clients…"
       @update:needsAttentionCount="(count) => emit('update:needsAttentionCount', count)"
     />
+    </template>
   </div>
 </template>
 
@@ -92,6 +117,9 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import ClientListGrid from '../school/ClientListGrid.vue';
+import ReferralDirectoryPanel from '../referralDirectory/ReferralDirectoryPanel.vue';
+
+const activeSection = ref('caseload');
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
@@ -447,6 +475,29 @@ watch(skillBuildersOnlyFilter, async () => {
 }
 .muted {
   color: var(--text-secondary);
+}
+.pct-section-switcher {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface-muted, #f3f4f6);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.pct-switch-btn {
+  background: transparent;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+}
+.pct-switch-btn.is-active {
+  background: var(--card-bg, #fff);
+  color: var(--text, #111);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 </style>
 

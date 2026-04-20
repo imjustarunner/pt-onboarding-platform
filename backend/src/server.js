@@ -80,6 +80,7 @@ import {
 } from './routes/agencyMarketingSplash.routes.js';
 import socialFeedLinksRoutes from './routes/socialFeedLinks.routes.js';
 import referralRoutes from './routes/referral.routes.js';
+import referralDirectoryRoutes from './routes/referralDirectory.routes.js';
 import bulkImportRoutes from './routes/bulkImport.routes.js';
 import userPreferencesRoutes from './routes/userPreferences.routes.js';
 import officeScheduleRoutes from './routes/officeSchedule.routes.js';
@@ -667,6 +668,7 @@ app.use('/api/school-portal', agencyMarketingSplashPortalRoutes); // School port
 app.use('/api/marketing-splashes', agencyMarketingSplashDashboardRoutes); // Regular dashboard — marketing splash fetch + dismiss
 app.use('/api/agency-marketing-splashes', agencyMarketingSplashManagerRoutes);
 app.use('/api/referrals', referralRoutes); // Referral pipeline routes
+app.use('/api/referral-directory', referralDirectoryRoutes); // External referral source catalog (migrations 735-737)
 app.use('/api/clients', clientRoutes); // Client management routes
 app.use('/api/guardian-portal', guardianPortalRoutes); // Guardian portal routes
 app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy migration tool)

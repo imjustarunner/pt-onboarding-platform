@@ -91,8 +91,143 @@ async function assertCanManageHiring(reqUser) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Ask Assistant (v1) — navigation + entity search tools.
+//
+// These are intentionally separate from the hiring/provider-search tools above
+// so we can role-gate each one independently. Every tool below operates inside
+// the requester's current agency (req.user.agencyId) or refuses; super_admin
+// can cross agencies via an explicit agencyId argument.
+// ---------------------------------------------------------------------------
+
+const NAVIGATION_ROUTE_WHITELIST = {
+  // Dashboards / core
+  Dashboard: { path: '/dashboard', roles: null },
+  MySchedule: { path: '/my-schedule', roles: null },
+  MyAccount: { path: '/my-account', roles: null },
+  Notifications: { path: '/admin/notifications', roles: null },
+
+  // Admin surfaces (gated via requiresRole in router; tool checks role too)
+  ClientManagement: { path: '/admin/clients', roles: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] },
+  ReferralDirectory: { path: '/admin/referral-directory', roles: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] },
+  UserManager: { path: '/admin/users', roles: ['admin', 'super_admin', 'support', 'staff'] },
+  SchoolPortalsHub: { path: '/admin/school-portals-hub', roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'] },
+  SkillBuildersProgramsEvents: { path: '/admin/program-events', roles: ['admin', 'staff', 'support', 'super_admin', 'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'] },
+  ProviderDirectory: { path: '/admin/provider-directory', roles: ['admin', 'support', 'staff', 'super_admin'] },
+  HiringCandidates: { path: '/admin/hiring-candidates', roles: ['admin', 'super_admin'] }
+};
+
+const ENTITY_KINDS = new Set(['school', 'event', 'user']);
+
+function requireAuthed(req) {
+  if (!req?.user?.id) {
+    const err = new Error('Not authenticated');
+    err.status = 401;
+    throw err;
+  }
+}
+
+function roleAllowed(reqUser, allowedRoles) {
+  if (!allowedRoles || !allowedRoles.length) return true;
+  if (reqUser?.role === 'super_admin') return true;
+  return allowedRoles.includes(String(reqUser?.role || '').toLowerCase());
+}
+
+function currentAgencyId(req, fallbackArg) {
+  const fromUser = intOrNull(req?.user?.agencyId);
+  if (fromUser) return fromUser;
+  const fromArg = intOrNull(fallbackArg);
+  if (fromArg && req?.user?.role === 'super_admin') return fromArg;
+  return null;
+}
+
+async function resolveSchoolPortalPath(agencyIdScope, schoolId) {
+  const [rows] = await pool.execute(
+    `SELECT a.id, a.name, a.slug
+     FROM agency_schools asx
+     JOIN agencies a ON a.id = asx.school_organization_id
+     WHERE asx.agency_id = ?
+       AND asx.is_active = TRUE
+       AND asx.school_organization_id = ?
+     LIMIT 1`,
+    [agencyIdScope, schoolId]
+  );
+  const row = rows?.[0];
+  if (!row?.slug) return null;
+  return { slug: row.slug, name: row.name, path: `/${row.slug}/admin/school-portals` };
+}
+
 export function getToolSchemas() {
   return [
+    {
+      name: 'navigateTo',
+      description: 'Navigate the current user to a whitelisted named route. Server resolves the path.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          routeName: {
+            type: 'string',
+            enum: Object.keys(NAVIGATION_ROUTE_WHITELIST)
+          }
+        },
+        required: ['routeName']
+      }
+    },
+    {
+      name: 'searchSchools',
+      description: 'Search school organizations linked to the current agency by name. Returns id, name, and a portalPath to open the school portal.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          query: { type: 'string' },
+          limit: { type: 'integer' }
+        },
+        required: ['query']
+      }
+    },
+    {
+      name: 'searchEvents',
+      description: 'Search program events (company_events) in the current agency by title. Optionally filter by start date range.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          query: { type: 'string' },
+          startsAfter: { type: 'string', description: 'ISO date/time; events starting at or after this time' },
+          startsBefore: { type: 'string', description: 'ISO date/time; events starting at or before this time' },
+          limit: { type: 'integer' }
+        },
+        required: ['query']
+      }
+    },
+    {
+      name: 'searchUsers',
+      description: 'Search users in the current agency by name or email. Admin-only: providers cannot enumerate users.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          query: { type: 'string' },
+          limit: { type: 'integer' }
+        },
+        required: ['query']
+      }
+    },
+    {
+      name: 'openEntity',
+      description: 'Given a resolved entity kind and id from a searchXxx tool, return navigate uiCommand to open it.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          kind: { type: 'string', enum: ['school', 'event', 'user'] },
+          id: { type: 'integer' }
+        },
+        required: ['kind', 'id']
+      }
+    },
     {
       name: 'createTask',
       description: 'Create a training or document task (admin-only).',
@@ -249,6 +384,226 @@ export async function executeToolCall({ req, toolCall }) {
     const err = new Error('Invalid tool call');
     err.status = 400;
     throw err;
+  }
+
+  // -----------------------------------------------------------------------
+  // Ask Assistant: navigation and entity-search tools (role-gated, scoped to
+  // the requester's current agency unless super_admin explicitly crosses).
+  // -----------------------------------------------------------------------
+
+  if (name === 'navigateTo') {
+    requireAuthed(req);
+    const routeName = str(args.routeName, 120);
+    const entry = NAVIGATION_ROUTE_WHITELIST[routeName];
+    if (!entry) {
+      const err = new Error(`Route "${routeName}" is not on the navigation whitelist`);
+      err.status = 400;
+      throw err;
+    }
+    if (!roleAllowed(req.user, entry.roles)) {
+      const err = new Error('You do not have access to that page');
+      err.status = 403;
+      throw err;
+    }
+    return {
+      ok: true,
+      tool: name,
+      result: { routeName, path: entry.path },
+      uiCommands: [{ type: 'navigate', to: entry.path }]
+    };
+  }
+
+  if (name === 'searchSchools') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'])) {
+      const err = new Error('School portals are not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+    const query = str(args.query, 200);
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 10), 25);
+    if (!query) return { ok: true, tool: name, result: { results: [] } };
+    const like = `%${query}%`;
+    const [rows] = await pool.execute(
+      `SELECT a.id, a.name, a.slug
+       FROM agency_schools asx
+       JOIN agencies a ON a.id = asx.school_organization_id
+       WHERE asx.agency_id = ?
+         AND asx.is_active = TRUE
+         AND a.is_active = TRUE
+         AND a.name LIKE ?
+       ORDER BY a.name ASC
+       LIMIT ${limit}`,
+      [agencyId, like]
+    );
+    const results = (rows || []).map((r) => ({
+      id: r.id,
+      name: r.name,
+      slug: r.slug,
+      portalPath: r.slug ? `/${r.slug}/admin/school-portals` : null
+    }));
+    return { ok: true, tool: name, result: { results } };
+  }
+
+  if (name === 'searchEvents') {
+    requireAuthed(req);
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+    if (!roleAllowed(req.user, ['admin', 'staff', 'support', 'super_admin', 'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'])) {
+      const err = new Error('Program events are not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const query = str(args.query, 200);
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 10), 25);
+    const startsAfter = args.startsAfter ? String(args.startsAfter).slice(0, 40) : null;
+    const startsBefore = args.startsBefore ? String(args.startsBefore).slice(0, 40) : null;
+
+    const where = ['agency_id = ?', 'is_active = TRUE'];
+    const params = [agencyId];
+    if (query) {
+      where.push('title LIKE ?');
+      params.push(`%${query}%`);
+    }
+    if (startsAfter) { where.push('starts_at >= ?'); params.push(startsAfter); }
+    if (startsBefore) { where.push('starts_at <= ?'); params.push(startsBefore); }
+
+    const [rows] = await pool.execute(
+      `SELECT id, title, starts_at, ends_at, timezone
+       FROM company_events
+       WHERE ${where.join(' AND ')}
+       ORDER BY starts_at DESC
+       LIMIT ${limit}`,
+      params
+    );
+    const results = (rows || []).map((r) => ({
+      id: r.id,
+      title: r.title,
+      startsAtIso: r.starts_at ? new Date(r.starts_at).toISOString() : null,
+      endsAtIso: r.ends_at ? new Date(r.ends_at).toISOString() : null,
+      timezone: r.timezone || null,
+      url: `/admin/program-events?eventId=${r.id}`
+    }));
+    return { ok: true, tool: name, result: { results } };
+  }
+
+  if (name === 'searchUsers') {
+    // Back-office admin only — mirrors the aiQueryUsers middleware policy.
+    assertBackofficeAdmin(req.user);
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+    const query = str(args.query, 200);
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 10), 25);
+    if (!query) return { ok: true, tool: name, result: { results: [] } };
+    const like = `%${query}%`;
+    const [rows] = await pool.execute(
+      `SELECT u.id,
+              u.first_name AS firstName,
+              u.last_name  AS lastName,
+              u.email,
+              u.role,
+              u.profile_photo_path AS profilePhotoPath
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?
+              OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+       ORDER BY u.last_name, u.first_name
+       LIMIT ${limit}`,
+      [agencyId, like, like, like, like]
+    );
+    const results = (rows || []).map((r) => ({
+      id: r.id,
+      name: [r.firstName, r.lastName].filter(Boolean).join(' ').trim() || r.email,
+      role: r.role,
+      email: r.email,
+      profilePath: `/admin/users/${r.id}`
+    }));
+    return { ok: true, tool: name, result: { results } };
+  }
+
+  if (name === 'openEntity') {
+    requireAuthed(req);
+    const kind = str(args.kind, 40);
+    const id = intOrNull(args.id);
+    if (!ENTITY_KINDS.has(kind) || !id) {
+      const err = new Error('openEntity requires valid kind and id');
+      err.status = 400;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+
+    if (kind === 'school') {
+      const resolved = await resolveSchoolPortalPath(agencyId, id);
+      if (!resolved) {
+        const err = new Error('School not found in your agency');
+        err.status = 404;
+        throw err;
+      }
+      return {
+        ok: true,
+        tool: name,
+        result: { kind, id, name: resolved.name, path: resolved.path },
+        uiCommands: [{ type: 'navigate', to: resolved.path }]
+      };
+    }
+
+    if (kind === 'event') {
+      const [rows] = await pool.execute(
+        `SELECT id, title FROM company_events
+         WHERE agency_id = ? AND id = ? AND is_active = TRUE LIMIT 1`,
+        [agencyId, id]
+      );
+      const row = rows?.[0];
+      if (!row) {
+        const err = new Error('Event not found in your agency');
+        err.status = 404;
+        throw err;
+      }
+      const path = `/admin/program-events?eventId=${row.id}`;
+      return {
+        ok: true,
+        tool: name,
+        result: { kind, id, title: row.title, path },
+        uiCommands: [{ type: 'navigate', to: path }]
+      };
+    }
+
+    if (kind === 'user') {
+      assertBackofficeAdmin(req.user);
+      const inAgency = await ensureCandidateInAgency(id, agencyId);
+      if (!inAgency) {
+        const err = new Error('User not found in your agency');
+        err.status = 404;
+        throw err;
+      }
+      const path = `/admin/users/${id}`;
+      return {
+        ok: true,
+        tool: name,
+        result: { kind, id, path },
+        uiCommands: [{ type: 'navigate', to: path }]
+      };
+    }
   }
 
   if (name === 'createTask') {

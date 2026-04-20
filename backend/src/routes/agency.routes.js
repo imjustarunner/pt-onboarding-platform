@@ -62,7 +62,8 @@ import {
   exportCompanyEventResponsesCsv,
   listCompanyEventSessionSurveys,
   attachCompanyEventSessionSurvey,
-  detachCompanyEventSessionSurvey
+  detachCompanyEventSessionSurvey,
+  copyCompanyEventToTarget
 } from '../controllers/companyEvents.controller.js';
 import { listSchoolStaffUsers, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
 import {
@@ -537,6 +538,7 @@ router.get('/:id/company-events/audience-options', authenticate, listCompanyEven
 router.post('/:id/company-events', authenticate, createCompanyEvent);
 router.put('/:id/company-events/:eventId', authenticate, updateCompanyEvent);
 router.delete('/:id/company-events/:eventId', authenticate, deleteCompanyEvent);
+router.post('/:id/company-events/:eventId/copy-to', authenticate, requireSuperAdmin, copyCompanyEventToTarget);
 router.get('/:id/company-events/:eventId/responses', authenticate, listCompanyEventResponses);
 router.get('/:id/company-events/:eventId/delivery-logs', authenticate, listCompanyEventDeliveryLogs);
 router.get('/:id/company-events/:eventId/analytics', authenticate, getCompanyEventAnalytics);
