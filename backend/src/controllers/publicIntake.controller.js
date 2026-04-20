@@ -8,6 +8,7 @@ import IntakeSubmissionClient from '../models/IntakeSubmissionClient.model.js';
 import DocumentTemplate from '../models/DocumentTemplate.model.js';
 import ClientSchoolRoiSigningLink from '../models/ClientSchoolRoiSigningLink.model.js';
 import PublicIntakeSigningService from '../services/publicIntakeSigning.service.js';
+import { buildRegistrationTicketPdf } from '../services/registrationTicketPdf.service.js';
 import DocumentSigningService from '../services/documentSigning.service.js';
 import PublicIntakeClientService, { deriveInitials } from '../services/publicIntakeClient.service.js';
 import {
@@ -5362,6 +5363,61 @@ export const finalizePublicIntake = async (req, res, next) => {
       answersPdf = null;
     }
 
+    // ---------------------------------------------------------------
+    // Registration ticket setup. We hoist the event-placeholder lookup,
+    // receipt-token write, and org-context fetch up here (they were
+    // previously only computed inside the email block below) so the
+    // ticket PDF rendered for the bundle prefix has the same context as
+    // the email and the live receipt page. Downstream email code reuses
+    // these values via the `*Hoisted` names; the original later writes
+    // were removed to avoid double-issuing receipt tokens.
+    // ---------------------------------------------------------------
+    let eventPlaceholdersHoisted = null;
+    try {
+      eventPlaceholdersHoisted = await loadRegistrationEventFieldPlaceholders(intakeData, link);
+    } catch {
+      eventPlaceholdersHoisted = null;
+    }
+    const portalBaseHoisted = String(config.frontendUrl || '').replace(/\/$/, '');
+    let registrationReceiptUrlHoisted = '';
+    if (portalBaseHoisted) {
+      try {
+        const receiptToken = crypto.randomBytes(32).toString('hex');
+        await IntakeSubmission.updateById(submissionId, { registration_receipt_token: receiptToken });
+        registrationReceiptUrlHoisted = `${portalBaseHoisted}/registration-receipt/${submissionId}?token=${encodeURIComponent(receiptToken)}`;
+      } catch (tokenErr) {
+        console.warn('[publicIntake] failed to issue registration_receipt_token (school-roi flow); ticket will omit live receipt URL', {
+          submissionId,
+          error: tokenErr?.message || tokenErr
+        });
+        registrationReceiptUrlHoisted = '';
+      }
+    }
+    let orgContextHoisted = { organization: null, agency: null };
+    try {
+      orgContextHoisted = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient: null });
+    } catch {
+      orgContextHoisted = { organization: null, agency: null };
+    }
+    let ticketPdf = null;
+    try {
+      ticketPdf = await buildRegistrationTicketPdf({
+        intakeData,
+        submission: updatedSubmission,
+        link,
+        eventPlaceholders: eventPlaceholdersHoisted,
+        registrationReceiptUrl: registrationReceiptUrlHoisted,
+        organization: orgContextHoisted?.organization || null,
+        agency: orgContextHoisted?.agency || null
+      });
+    } catch (ticketErr) {
+      console.warn('[publicIntake] registration ticket PDF build failed (school-roi flow) — continuing without ticket', {
+        submissionId,
+        error: ticketErr?.message || ticketErr
+      });
+      ticketPdf = null;
+    }
+
     let rawClients = createdClients.length
       ? createdClients.map((c) => ({ id: c.id, fullName: c.full_name || c.initials || '', initials: c.initials, contactPhone: c.contact_phone }))
       : (Array.isArray(req.body?.clients) ? req.body.clients : (req.body?.client ? [req.body.client] : []));
@@ -5710,13 +5766,24 @@ export const finalizePublicIntake = async (req, res, next) => {
       }
 
       const mergePaths = clientPaths.length ? clientPaths : pdfPaths;
-      if (mergePaths.length) {
+      const isMultiClient = Array.isArray(rawClients) && rawClients.length > 1;
+      // Storage dedup: for single-child submissions the per-client bundle would
+      // be a near-duplicate of the combined bundle (same per-template signed
+      // PDFs, with the combined bundle additionally including the answers PDF
+      // prefix). Skip the per-client save entirely; we'll point this child's
+      // bundle_pdf_path at the combined bundle after it lands below.
+      if (mergePaths.length && isMultiClient) {
         // Per-client bundle build/upload is wrapped in its own try/catch so a
         // single child's PDF problem (or transient GCS hiccup) does NOT abort
         // the rest of the loop iteration — auto-mark, demographics persist,
         // and the eventual completion email all still need to run.
         try {
-          const prefixBuffers = !clientPaths.length && answersPdf ? [answersPdf] : [];
+          // Prefix order in the per-child packet: registration ticket first
+          // (so the registrant lands on the confirmation page when they open
+          // their packet), then the answers summary if we're using the
+          // submission-wide pdfPaths fallback. Per-template signed docs follow.
+          const fallbackPrefix = !clientPaths.length && answersPdf ? [answersPdf] : [];
+          const prefixBuffers = [ticketPdf, ...fallbackPrefix].filter(Boolean);
           const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(mergePaths, prefixBuffers);
           const clientBundleResult = await StorageService.saveIntakeClientBundle({
             submissionId,
@@ -5849,9 +5916,13 @@ export const finalizePublicIntake = async (req, res, next) => {
       // creation, the completion email, or the staff notifications below.
       // Historically a silent GCS upload hang here orphaned the entire packet.
       try {
+        // Combined bundle prefix order: registration ticket → answers summary
+        // → all per-template signed PDFs. The ticket lands the registrant on
+        // their confirmation page when they open the full packet.
+        const combinedPrefixBuffers = [ticketPdf, answersPdf].filter(Boolean);
         const mergedPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
           pdfPaths,
-          answersPdf ? [answersPdf] : []
+          combinedPrefixBuffers
         );
         const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
         bundleResult = await StorageService.saveIntakeBundle({
@@ -5864,6 +5935,42 @@ export const finalizePublicIntake = async (req, res, next) => {
           combined_pdf_hash: bundleHash
         });
         downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 7);
+
+        // Single-child storage dedup: per-client bundle save was skipped above
+        // because it would duplicate the combined bundle. Point this child's
+        // bundle_pdf_path at the combined bundle so all the existing readers
+        // (per-child receipt download, communications email links, retention
+        // cleanup) keep working unchanged. Also surface a clientBundles entry
+        // so the completion email's per-child packet link resolves.
+        const isSingleChildFinalize = Array.isArray(rawClients) && rawClients.length === 1;
+        if (isSingleChildFinalize) {
+          const onlyClient = rawClients[0] || null;
+          const onlyRow = intakeClientRows[0] || null;
+          if (onlyRow?.id && !onlyRow?.bundle_pdf_path) {
+            try {
+              await IntakeSubmissionClient.updateById(onlyRow.id, {
+                bundle_pdf_path: bundleResult.relativePath,
+                bundle_pdf_hash: bundleHash
+              });
+              onlyRow.bundle_pdf_path = bundleResult.relativePath;
+              onlyRow.bundle_pdf_hash = bundleHash;
+            } catch (dedupErr) {
+              console.warn('[publicIntake] single-child bundle dedup failed to update intake_submission_clients (school-roi flow)', {
+                submissionId,
+                intakeClientRowId: onlyRow.id,
+                error: dedupErr?.message || dedupErr
+              });
+            }
+          }
+          if (!clientBundles.length) {
+            clientBundles.push({
+              clientId: onlyClient?.id || null,
+              clientName: onlyClient?.fullName || null,
+              filename: `intake-bundle-${submissionId}.pdf`,
+              downloadUrl
+            });
+          }
+        }
       } catch (combinedBundleErr) {
         bundleSaveFailed = true;
         console.error('[publicIntake] combined bundle build/save failed (school-roi flow) — continuing so per-client Intake Packet docs and completion email still go out', {
@@ -5986,14 +6093,13 @@ export const finalizePublicIntake = async (req, res, next) => {
         registrationEventSummary = '';
       }
 
-      const eventPlaceholdersForEmail = await loadRegistrationEventFieldPlaceholders(intakeData, link);
-      const portalBaseReceipt = String(config.frontendUrl || '').replace(/\/$/, '');
-      let registrationReceiptUrl = '';
-      if (portalBaseReceipt) {
-        const receiptToken = crypto.randomBytes(32).toString('hex');
-        await IntakeSubmission.updateById(submissionId, { registration_receipt_token: receiptToken });
-        registrationReceiptUrl = `${portalBaseReceipt}/registration-receipt/${submissionId}?token=${encodeURIComponent(receiptToken)}`;
-      }
+      // Reuse the registration ticket setup hoisted earlier (event
+      // placeholders, receipt token + URL, org context). Generating new ones
+      // here would issue a second registration_receipt_token and invalidate
+      // the URL printed in the bundled ticket PDF.
+      const eventPlaceholdersForEmail = eventPlaceholdersHoisted
+        || await loadRegistrationEventFieldPlaceholders(intakeData, link);
+      const registrationReceiptUrl = registrationReceiptUrlHoisted || '';
       const completionEmailFromAddress =
         process.env.GOOGLE_WORKSPACE_FROM_ADDRESS
         || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM
@@ -6003,7 +6109,9 @@ export const finalizePublicIntake = async (req, res, next) => {
         emailDelivery.attempted = true;
         try {
           const clientCount = rawClients.length || 1;
-          const { organization, agency } = await resolveIntakeOrgContext(link, { boundClient: null });
+          const { organization, agency } = orgContextHoisted?.organization || orgContextHoisted?.agency
+            ? orgContextHoisted
+            : await resolveIntakeOrgContext(link, { boundClient: null });
           const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
           const registrationLoginPageUrl = portalBase ? `${portalBase}/login` : '';
           const regFlow = linkSupportsPublicRegistrationFeatures(link);
@@ -6475,6 +6583,59 @@ export const submitPublicIntake = async (req, res, next) => {
       }
     }
 
+    // ---------------------------------------------------------------
+    // Registration ticket setup (registration flow). Mirrors the school-roi
+    // flow above. Hoisted up here so the ticket PDF is available as a prefix
+    // for both per-child packets (multi-child) and the combined bundle, and
+    // so the email block below can reuse the same receipt URL/org context
+    // without double-issuing tokens.
+    // ---------------------------------------------------------------
+    let eventPlaceholdersHoisted = null;
+    try {
+      eventPlaceholdersHoisted = await loadRegistrationEventFieldPlaceholders(intakeData, link);
+    } catch {
+      eventPlaceholdersHoisted = null;
+    }
+    const portalBaseHoistedReg = String(config.frontendUrl || '').replace(/\/$/, '');
+    let registrationReceiptUrlHoisted = '';
+    if (portalBaseHoistedReg) {
+      try {
+        const receiptToken = crypto.randomBytes(32).toString('hex');
+        await IntakeSubmission.updateById(submissionId, { registration_receipt_token: receiptToken });
+        registrationReceiptUrlHoisted = `${portalBaseHoistedReg}/registration-receipt/${submissionId}?token=${encodeURIComponent(receiptToken)}`;
+      } catch (tokenErr) {
+        console.warn('[publicIntake] failed to issue registration_receipt_token (registration flow); ticket will omit live receipt URL', {
+          submissionId,
+          error: tokenErr?.message || tokenErr
+        });
+        registrationReceiptUrlHoisted = '';
+      }
+    }
+    let orgContextHoisted = { organization: null, agency: null };
+    try {
+      orgContextHoisted = await resolveIntakeOrgContext(link, { issuedRoiLink: null, boundClient: null });
+    } catch {
+      orgContextHoisted = { organization: null, agency: null };
+    }
+    let ticketPdf = null;
+    try {
+      ticketPdf = await buildRegistrationTicketPdf({
+        intakeData,
+        submission: updatedSubmission,
+        link,
+        eventPlaceholders: eventPlaceholdersHoisted,
+        registrationReceiptUrl: registrationReceiptUrlHoisted,
+        organization: orgContextHoisted?.organization || null,
+        agency: orgContextHoisted?.agency || null
+      });
+    } catch (ticketErr) {
+      console.warn('[publicIntake] registration ticket PDF build failed (registration flow) — continuing without ticket', {
+        submissionId,
+        error: ticketErr?.message || ticketErr
+      });
+      ticketPdf = null;
+    }
+
     const intakeClientRows = [];
     for (const clientPayload of rawClients) {
       const clientId = clientPayload?.id || null;
@@ -6575,13 +6736,24 @@ export const submitPublicIntake = async (req, res, next) => {
         signedDocs.push(doc);
       }
 
-      if (clientPaths.length) {
+      const isMultiClientReg = Array.isArray(rawClients) && rawClients.length > 1;
+      // Storage dedup: for single-child registration the per-client bundle
+      // would duplicate the combined bundle save below. Skip it in that case;
+      // we'll point bundle_pdf_path at the combined bundle after it lands.
+      if (clientPaths.length && isMultiClientReg) {
         // Per-client bundle build/upload is wrapped in its own try/catch so a
         // single child's PDF problem (or transient GCS hiccup) does NOT abort
         // the rest of the loop iteration — auto-mark, demographics persist,
         // and the eventual completion email all still need to run.
         try {
-          const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(clientPaths);
+          // Per-child packet prefix: registration ticket first so the
+          // registrant lands on their confirmation when they open this child's
+          // packet. Per-template signed docs follow.
+          const perChildPrefix = ticketPdf ? [ticketPdf] : [];
+          const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
+            clientPaths,
+            perChildPrefix
+          );
           const clientBundleResult = await StorageService.saveIntakeClientBundle({
             submissionId,
             clientId: clientId || 'unknown',
@@ -6667,9 +6839,12 @@ export const submitPublicIntake = async (req, res, next) => {
       // or the completion email. (See school-roi flow above for the parallel
       // implementation; same hard-learned lesson.)
       try {
+        // Combined bundle prefix order: registration ticket → answers summary
+        // → all per-template signed PDFs.
+        const combinedPrefixBuffers = [ticketPdf, answersPdf].filter(Boolean);
         const mergedPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
           pdfPaths,
-          answersPdf ? [answersPdf] : []
+          combinedPrefixBuffers
         );
         const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
         bundleResult = await StorageService.saveIntakeBundle({
@@ -6682,6 +6857,41 @@ export const submitPublicIntake = async (req, res, next) => {
           combined_pdf_hash: bundleHash
         });
         downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 7);
+
+        // Single-child storage dedup: per-client bundle save was skipped above.
+        // Point this child's bundle_pdf_path at the combined bundle so all the
+        // existing readers (per-child receipt download, communications email
+        // links, retention cleanup) keep working. Push a clientBundles entry
+        // so the completion email's per-child packet link resolves.
+        const isSingleChildFinalize = Array.isArray(rawClients) && rawClients.length === 1;
+        if (isSingleChildFinalize) {
+          const onlyClient = rawClients[0] || null;
+          const onlyRow = intakeClientRows[0] || null;
+          if (onlyRow?.id && !onlyRow?.bundle_pdf_path) {
+            try {
+              await IntakeSubmissionClient.updateById(onlyRow.id, {
+                bundle_pdf_path: bundleResult.relativePath,
+                bundle_pdf_hash: bundleHash
+              });
+              onlyRow.bundle_pdf_path = bundleResult.relativePath;
+              onlyRow.bundle_pdf_hash = bundleHash;
+            } catch (dedupErr) {
+              console.warn('[publicIntake] single-child bundle dedup failed to update intake_submission_clients (registration flow)', {
+                submissionId,
+                intakeClientRowId: onlyRow.id,
+                error: dedupErr?.message || dedupErr
+              });
+            }
+          }
+          if (!clientBundles.length) {
+            clientBundles.push({
+              clientId: onlyClient?.id || null,
+              clientName: onlyClient?.fullName || null,
+              filename: `intake-bundle-${submissionId}.pdf`,
+              downloadUrl
+            });
+          }
+        }
       } catch (combinedBundleErr) {
         bundleSaveFailed = true;
         console.error('[publicIntake] combined bundle build/save failed (registration flow) — continuing so per-client Intake Packet docs and completion email still go out', {
@@ -6781,14 +6991,13 @@ export const submitPublicIntake = async (req, res, next) => {
         });
       }
 
-      const eventPlaceholdersForEmailSubmit = await loadRegistrationEventFieldPlaceholders(intakeData, link);
-      const portalBaseReceiptSubmit = String(config.frontendUrl || '').replace(/\/$/, '');
-      let registrationReceiptUrlSubmit = '';
-      if (portalBaseReceiptSubmit) {
-        const receiptTokenSubmit = crypto.randomBytes(32).toString('hex');
-        await IntakeSubmission.updateById(submissionId, { registration_receipt_token: receiptTokenSubmit });
-        registrationReceiptUrlSubmit = `${portalBaseReceiptSubmit}/registration-receipt/${submissionId}?token=${encodeURIComponent(receiptTokenSubmit)}`;
-      }
+      // Reuse the registration ticket setup hoisted earlier (event
+      // placeholders, receipt token + URL, org context). Generating new ones
+      // here would issue a second registration_receipt_token and invalidate
+      // the URL printed in the bundled ticket PDF.
+      const eventPlaceholdersForEmailSubmit = eventPlaceholdersHoisted
+        || await loadRegistrationEventFieldPlaceholders(intakeData, link);
+      const registrationReceiptUrlSubmit = registrationReceiptUrlHoisted || '';
       const completionEmailFromAddressSubmit =
         process.env.GOOGLE_WORKSPACE_FROM_ADDRESS
         || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM
@@ -6797,7 +7006,9 @@ export const submitPublicIntake = async (req, res, next) => {
       if (updatedSubmission.signer_email && EmailService.isConfigured()) {
         emailDelivery.attempted = true;
         const clientCount = rawClients.length || 1;
-        const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink: null, boundClient: null });
+        const { organization, agency } = orgContextHoisted?.organization || orgContextHoisted?.agency
+          ? orgContextHoisted
+          : await resolveIntakeOrgContext(link, { issuedRoiLink: null, boundClient: null });
         let registrationEventSummary = '';
         try {
           const evSel = normalizeRegistrationSelections(intakeData).find((s) => registrationEntityType(s) === 'company_event');
