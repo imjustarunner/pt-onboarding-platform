@@ -1415,14 +1415,69 @@ const notifySchoolRoiCompletedForBackoffice = async ({
   }
 };
 
-const buildAnswersPdfBuffer = async ({ link, intakeData }) => {
+// Historical intake_data has landed in the database in two shapes:
+//   1. Nested (older finalize path): { clients, guardian, intakeForSelf, responses: { submission, guardian, clients } }
+//   2. Flat   (newer signing path):   { submission, guardian, clients[] } — where each clients[i] has *both*
+//      identity fields (firstName, fullName, …) *and* the client's response answers at the same level.
+// `buildIntakeAnswersText`, `buildAnswerLinesForScope`, etc. were written against shape (1) and return
+// empty output when handed shape (2), which is why finalized packets from the flat-shape path end up
+// missing their "Intake Responses" pages even though all the data is sitting in intake_data.
+// This normalizer synthesizes a view that always matches shape (1), so every downstream reader works
+// regardless of how the submission was originally written.
+const normalizeIntakeDataShape = (intakeData) => {
+  if (!intakeData || typeof intakeData !== 'object') return intakeData;
+  const flatSubmission = (intakeData.submission && typeof intakeData.submission === 'object' && !Array.isArray(intakeData.submission))
+    ? intakeData.submission : null;
+  const flatGuardianResp = (intakeData.guardianResponses && typeof intakeData.guardianResponses === 'object')
+    ? intakeData.guardianResponses : null;
+  const existingResponses = (intakeData.responses && typeof intakeData.responses === 'object')
+    ? intakeData.responses : null;
+
+  // If a nested responses.submission already exists, trust it; otherwise fall back to flat submission bag.
+  const mergedSubmission = (existingResponses?.submission && typeof existingResponses.submission === 'object')
+    ? { ...(flatSubmission || {}), ...existingResponses.submission }
+    : (flatSubmission || {});
+
+  // Guardian answers: nested responses.guardian wins, else flat guardianResponses, else empty.
+  const mergedGuardianResponses = (existingResponses?.guardian && typeof existingResponses.guardian === 'object')
+    ? { ...(flatGuardianResp || {}), ...existingResponses.guardian }
+    : (flatGuardianResp || {});
+
+  // Per-client answers: prefer nested responses.clients, else derive from flat intakeData.clients
+  // where each client object mixes identity (firstName, lastName, fullName) with its answers at
+  // the same level. We don't need to split identity vs answers here — the downstream lookups are
+  // tolerant of extra keys and the identity keys are intentionally excluded by builtInNameKeys.
+  let mergedClientResponses = null;
+  if (Array.isArray(existingResponses?.clients) && existingResponses.clients.length) {
+    mergedClientResponses = existingResponses.clients;
+  } else if (Array.isArray(intakeData.clients)) {
+    mergedClientResponses = intakeData.clients.map((c) => (c && typeof c === 'object' ? c : {}));
+  }
+
+  return {
+    ...intakeData,
+    responses: {
+      ...(existingResponses || {}),
+      submission: mergedSubmission,
+      guardian: mergedGuardianResponses,
+      clients: mergedClientResponses || (existingResponses?.clients || [])
+    }
+  };
+};
+
+export const buildAnswersPdfBuffer = async ({ link, intakeData, clientIndex = null }) => {
   if (!intakeData) return null;
+  const normalizedIntakeData = normalizeIntakeDataShape(intakeData);
   const pdfStrings = getIntakePdfStrings(link?.language_code);
-  const clients = Array.isArray(intakeData?.clients) ? intakeData.clients : [];
+  const clients = Array.isArray(normalizedIntakeData?.clients) ? normalizedIntakeData.clients : [];
   const totalClients = clients.length || 1;
+  // When clientIndex is a non-negative integer, render only that one child's section — this is the
+  // per-child packet path. Otherwise render every child back-to-back (legacy single-file packet).
+  const startIdx = (Number.isInteger(clientIndex) && clientIndex >= 0) ? clientIndex : 0;
+  const endIdx   = (Number.isInteger(clientIndex) && clientIndex >= 0) ? (clientIndex + 1) : totalClients;
   const sections = [];
-  for (let i = 0; i < totalClients; i += 1) {
-    const rawText = buildIntakeAnswersText({ link, intakeData, clientIndex: i });
+  for (let i = startIdx; i < endIdx; i += 1) {
+    const rawText = buildIntakeAnswersText({ link, intakeData: normalizedIntakeData, clientIndex: i });
     if (!rawText) continue;
     const client = clients[i];
     const clientName =
@@ -2001,11 +2056,16 @@ const buildAnswerLinesForScope = ({ fields, responses }) => {
 
 export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) => {
   if (!intakeData) return '';
+  // Normalize flat-shape intake_data (submission/guardian/clients at top level, no `responses`
+  // wrapper) into the nested shape this builder was originally written against. Without this,
+  // submissions finalized via the newer signing path serialize an empty answers PDF and the
+  // "Intake Responses" pages never appear in the bundled packet.
+  const normalized = normalizeIntakeDataShape(intakeData);
   const { fields } = buildIntakeFieldIndex(link);
-  const intakeForSelf = Boolean(intakeData?.intakeForSelf);
-  const guardianPayload = intakeData?.guardian || {};
-  const clientPayload = Array.isArray(intakeData?.clients) ? intakeData.clients[clientIndex] : null;
-  const responses = intakeData?.responses || {};
+  const intakeForSelf = Boolean(normalized?.intakeForSelf);
+  const guardianPayload = normalized?.guardian || {};
+  const clientPayload = Array.isArray(normalized?.clients) ? normalized.clients[clientIndex] : null;
+  const responses = normalized?.responses || {};
   const guardianResponses = responses?.guardian || {};
   const submissionResponses = responses?.submission || {};
   const clientResponses = Array.isArray(responses?.clients) ? (responses.clients[clientIndex] || {}) : {};
@@ -2258,12 +2318,15 @@ const summaryExcludeKeyPattern = /legal|custodian|sms|text|communication|apartme
 
 export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) => {
   if (!intakeData) return '';
+  // See note in buildIntakeAnswersText: flat-shape submissions need their top-level
+  // submission/guardian/clients promoted under `responses` or this whole summary stays empty.
+  const normalized = normalizeIntakeDataShape(intakeData);
   const { fields, byKey } = buildIntakeFieldIndex(link);
-  const responses = intakeData?.responses || {};
+  const responses = normalized?.responses || {};
   const guardianResponses = responses?.guardian || {};
   const submissionResponses = responses?.submission || {};
   const clientResponses = Array.isArray(responses?.clients) ? (responses.clients[clientIndex] || {}) : {};
-  const clientPayload = Array.isArray(intakeData?.clients) ? intakeData.clients[clientIndex] : null;
+  const clientPayload = Array.isArray(normalized?.clients) ? normalized.clients[clientIndex] : null;
 
   const clientName =
     String(clientPayload?.fullName || '').trim() ||
@@ -3740,28 +3803,30 @@ export const getPublicIntakeStatus = async (req, res, next) => {
       downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 7);
     }
 
+    // Multi-child submissions intentionally have no combined bundle (each
+    // child owns a fully isolated per-child packet). Enumerate per-client
+    // bundles unconditionally so the UI can still surface download links
+    // even when combined_pdf_path is null.
     const clientBundles = [];
-    if (downloadUrl) {
-      try {
-        const clientRows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
-        for (const c of clientRows || []) {
-          if (c?.bundle_pdf_path) {
-            try {
-              const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 7);
-              clientBundles.push({
-                clientId: c.client_id,
-                clientName: c.full_name || null,
-                filename: `intake-client-${c.client_id || 'unknown'}.pdf`,
-                downloadUrl: url
-              });
-            } catch {
-              // best-effort
-            }
+    try {
+      const clientRows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
+      for (const c of clientRows || []) {
+        if (c?.bundle_pdf_path) {
+          try {
+            const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 7);
+            clientBundles.push({
+              clientId: c.client_id,
+              clientName: c.full_name || null,
+              filename: `intake-client-${c.client_id || 'unknown'}.pdf`,
+              downloadUrl: url
+            });
+          } catch {
+            // best-effort
           }
         }
-      } catch {
-        // best-effort
       }
+    } catch {
+      // best-effort
     }
 
     let intakeData = null;
@@ -4264,16 +4329,23 @@ export const finalizePublicIntake = async (req, res, next) => {
           clientBundles: []
         });
       }
-      if (submission.combined_pdf_path) {
+      // Idempotent submitted-retry: surface whatever bundle artifacts already
+      // exist. Multi-child submissions have no combined bundle by design, so
+      // enter this block whenever EITHER the combined bundle OR at least one
+      // per-child bundle exists, and let downstream handle missing pieces.
+      const _existingClientRows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
+      const _hasAnyPerChildBundle = (_existingClientRows || []).some((c) => c?.bundle_pdf_path);
+      if (submission.combined_pdf_path || _hasAnyPerChildBundle) {
         let downloadUrl = null;
-        try {
-          downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 7);
-        } catch {
-          // best-effort
+        if (submission.combined_pdf_path) {
+          try {
+            downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 7);
+          } catch {
+            // best-effort
+          }
         }
-        const clientRows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
         const clientBundles = [];
-        for (const c of clientRows || []) {
+        for (const c of _existingClientRows || []) {
           if (c?.bundle_pdf_path) {
             try {
               const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 7);
@@ -5780,10 +5852,22 @@ export const finalizePublicIntake = async (req, res, next) => {
         try {
           // Prefix order in the per-child packet: registration ticket first
           // (so the registrant lands on the confirmation page when they open
-          // their packet), then the answers summary if we're using the
-          // submission-wide pdfPaths fallback. Per-template signed docs follow.
-          const fallbackPrefix = !clientPaths.length && answersPdf ? [answersPdf] : [];
-          const prefixBuffers = [ticketPdf, ...fallbackPrefix].filter(Boolean);
+          // their packet), then this child's intake responses, then all of
+          // their per-template signed docs. Every child gets a fully isolated
+          // packet — their responses are scoped to clientIndex=i, so no
+          // sibling's PHI ever leaks into this file.
+          let perChildAnswersPdf = null;
+          try {
+            perChildAnswersPdf = await buildAnswersPdfBuffer({ link, intakeData, clientIndex: i });
+          } catch (perChildAnswersErr) {
+            console.error('[publicIntake] per-child answers PDF generation failed (school-roi flow) — continuing without it', {
+              submissionId,
+              clientIndex: i,
+              clientId: clientPayload?.id || null,
+              error: perChildAnswersErr?.message || perChildAnswersErr
+            });
+          }
+          const prefixBuffers = [ticketPdf, perChildAnswersPdf].filter(Boolean);
           const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(mergePaths, prefixBuffers);
           const clientBundleResult = await StorageService.saveIntakeClientBundle({
             submissionId,
@@ -5910,7 +5994,14 @@ export const finalizePublicIntake = async (req, res, next) => {
     let downloadUrl = null;
     let bundleResult = null;
     let bundleSaveFailed = false;
-    if (pdfPaths.length > 0) {
+    // Multi-child submissions deliberately do NOT produce a combined bundle
+    // anymore — each child owns a fully isolated per-child packet built above,
+    // and merging them into a single file would co-mingle their PHI in one
+    // artifact (which we don't want for audit/download/email purposes).
+    // Single-child submissions still produce the combined bundle because it
+    // doubles as the only per-child packet via the dedup block below.
+    const isMultiChildSubmission = Array.isArray(rawClients) && rawClients.length > 1;
+    if (pdfPaths.length > 0 && !isMultiChildSubmission) {
       // Combined-bundle build/upload is wrapped in its own try/catch so that
       // a failure here does NOT abort the per-client Intake Packet PHI doc
       // creation, the completion email, or the staff notifications below.
@@ -6368,37 +6459,45 @@ export const submitPublicIntake = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
 
-    // Idempotent retry: if already submitted, return existing result (no duplicate work, no data loss)
-    if (String(submission.status || '').toLowerCase() === 'submitted' && submission.combined_pdf_path) {
-      let downloadUrl = null;
-      try {
-        downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 7);
-      } catch {
-        // best-effort
-      }
-      const clientRows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
-      const clientBundles = [];
-      for (const c of clientRows || []) {
-        if (c?.bundle_pdf_path) {
+    // Idempotent retry: if already submitted, return existing result (no duplicate work, no data loss).
+    // Multi-child submissions intentionally have no combined bundle (each child gets a fully isolated
+    // per-child packet), so short-circuit when EITHER the combined bundle or at least one per-child
+    // bundle exists, surfacing whatever artifacts are present.
+    if (String(submission.status || '').toLowerCase() === 'submitted') {
+      const _clientRowsForRetry = await IntakeSubmissionClient.listBySubmissionId(submissionId);
+      const _hasAnyPerChildBundleForRetry = (_clientRowsForRetry || []).some((c) => c?.bundle_pdf_path);
+      if (submission.combined_pdf_path || _hasAnyPerChildBundleForRetry) {
+        let downloadUrl = null;
+        if (submission.combined_pdf_path) {
           try {
-            const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 7);
-            clientBundles.push({
-              clientId: c.client_id,
-              clientName: c.full_name || null,
-              filename: `intake-client-${c.client_id || 'unknown'}.pdf`,
-              downloadUrl: url
-            });
+            downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 7);
           } catch {
             // best-effort
           }
         }
+        const clientBundles = [];
+        for (const c of _clientRowsForRetry || []) {
+          if (c?.bundle_pdf_path) {
+            try {
+              const url = await StorageService.getSignedUrl(c.bundle_pdf_path, 60 * 24 * 7);
+              clientBundles.push({
+                clientId: c.client_id,
+                clientName: c.full_name || null,
+                filename: `intake-client-${c.client_id || 'unknown'}.pdf`,
+                downloadUrl: url
+              });
+            } catch {
+              // best-effort
+            }
+          }
+        }
+        return res.json({
+          success: true,
+          submission,
+          downloadUrl,
+          clientBundles
+        });
       }
-      return res.json({
-        success: true,
-        submission,
-        downloadUrl,
-        clientBundles
-      });
     }
 
     const isEmbeddedSmartRoiFinalize = Boolean(
@@ -6637,7 +6736,8 @@ export const submitPublicIntake = async (req, res, next) => {
     }
 
     const intakeClientRows = [];
-    for (const clientPayload of rawClients) {
+    for (let i = 0; i < rawClients.length; i += 1) {
+      const clientPayload = rawClients[i];
       const clientId = clientPayload?.id || null;
       const clientName = String(clientPayload?.fullName || '').trim() || null;
       const auditTrail = buildAuditTrail({
@@ -6746,10 +6846,21 @@ export const submitPublicIntake = async (req, res, next) => {
         // the rest of the loop iteration — auto-mark, demographics persist,
         // and the eventual completion email all still need to run.
         try {
-          // Per-child packet prefix: registration ticket first so the
-          // registrant lands on their confirmation when they open this child's
-          // packet. Per-template signed docs follow.
-          const perChildPrefix = ticketPdf ? [ticketPdf] : [];
+          // Per-child packet prefix: registration ticket first, then this
+          // child's intake responses (scoped to clientIndex=i so nothing from
+          // a sibling bleeds in), then this child's per-template signed docs.
+          let perChildAnswersPdf = null;
+          try {
+            perChildAnswersPdf = await buildAnswersPdfBuffer({ link, intakeData, clientIndex: i });
+          } catch (perChildAnswersErr) {
+            console.error('[publicIntake] per-child answers PDF generation failed (registration flow) — continuing without it', {
+              submissionId,
+              clientIndex: i,
+              clientId: clientId || null,
+              error: perChildAnswersErr?.message || perChildAnswersErr
+            });
+          }
+          const perChildPrefix = [ticketPdf, perChildAnswersPdf].filter(Boolean);
           const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
             clientPaths,
             perChildPrefix
@@ -6833,7 +6944,11 @@ export const submitPublicIntake = async (req, res, next) => {
     let downloadUrl = null;
     let bundleResult = null;
     let bundleSaveFailed = false;
-    if (pdfPaths.length > 0) {
+    // Multi-child submissions deliberately skip the combined bundle — each
+    // child owns a fully isolated per-child packet built above. See the
+    // matching guard in the school-roi flow for the same rationale.
+    const isMultiChildRegSubmission = Array.isArray(rawClients) && rawClients.length > 1;
+    if (pdfPaths.length > 0 && !isMultiChildRegSubmission) {
       // Combined-bundle build/upload is wrapped in its own try/catch so a
       // failure here does NOT abort per-client Intake Packet PHI doc creation
       // or the completion email. (See school-roi flow above for the parallel
