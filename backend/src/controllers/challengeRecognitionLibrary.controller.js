@@ -6,7 +6,7 @@ import pool from '../config/database.js';
 import Icon from '../models/Icon.model.js';
 import { loadRetainedTotalsForClub } from '../utils/summitClubErasureRetainedTotals.js';
 import { parseFeatureFlags } from '../utils/bookClub.js';
-import { canUserManageClub, getClubPlatformTenantAgencyId } from '../utils/sscClubAccess.js';
+import { canUserManageClub, getClubPlatformTenantAgencyId, getClubPlatformTenantAgencyIds } from '../utils/sscClubAccess.js';
 
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
 
@@ -113,7 +113,10 @@ export const listClubIcons = async (req, res, next) => {
     if (!clubId) return res.status(400).json({ error: { message: 'Invalid club id' } });
     if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
+    // Plural: include every SSTC-family tenant the club is affiliated with so legacy/new
+    // tenant agencies (`ssc`/`sstc`/`summit-stats`) all share their icon libraries.
+    const tenantAgencyIds = await getClubPlatformTenantAgencyIds(clubId);
+    const preferredTenantId = await getClubPlatformTenantAgencyId(clubId);
 
     const search      = req.query.search ? String(req.query.search).trim() : null;
     const activityType = req.query.activityType ? String(req.query.activityType).trim() : null;
@@ -123,9 +126,10 @@ export const listClubIcons = async (req, res, next) => {
     const scopeConditions = ['i.agency_id = ?'];
     const params = [clubId];
     scopeConditions.push('i.agency_id IS NULL');
-    if (tenantAgencyId) {
-      scopeConditions.push('i.agency_id = ?');
-      params.push(tenantAgencyId);
+    if (tenantAgencyIds.length > 0) {
+      const placeholders = tenantAgencyIds.map(() => '?').join(', ');
+      scopeConditions.push(`i.agency_id IN (${placeholders})`);
+      params.push(...tenantAgencyIds);
     }
 
     // Start building SQL with LEFT JOIN on icon_club_details for this club
@@ -159,6 +163,7 @@ export const listClubIcons = async (req, res, next) => {
 
     const baseUrl = String(process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || '').replace(/\/$/, '');
     const scopeOrder = { club: 0, tenant: 1, platform: 2 };
+    const tenantIdSet = new Set(tenantAgencyIds.map((n) => Number(n)));
 
     const icons = (rows || []).map((icon) => {
       let url = icon.file_path || '';
@@ -168,7 +173,7 @@ export const listClubIcons = async (req, res, next) => {
       const aid = icon.agency_id != null ? Number(icon.agency_id) : null;
       let scope = 'platform';
       if (aid === clubId) scope = 'club';
-      else if (tenantAgencyId && aid === Number(tenantAgencyId)) scope = 'tenant';
+      else if (aid != null && tenantIdSet.has(aid)) scope = 'tenant';
       return {
         id: icon.id,
         name: icon.name,
@@ -188,7 +193,11 @@ export const listClubIcons = async (req, res, next) => {
       return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
     });
 
-    return res.json({ icons, tenantAgencyId: tenantAgencyId || null });
+    return res.json({
+      icons,
+      tenantAgencyId: preferredTenantId || (tenantAgencyIds[0] ?? null),
+      tenantAgencyIds
+    });
   } catch (e) { next(e); }
 };
 
@@ -506,14 +515,23 @@ export const listTenantAwards = async (req, res, next) => {
     if (!clubId) return res.status(400).json({ error: { message: 'Invalid club id' } });
     if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
-    if (!tenantAgencyId) return res.json({ awards: [], tenantAgencyId: null });
+    // Plural lookup: include awards from every SSTC-family tenant the club is tied to.
+    const tenantAgencyIds = await getClubPlatformTenantAgencyIds(clubId);
+    const preferredTenantId = await getClubPlatformTenantAgencyId(clubId);
+    if (!tenantAgencyIds.length) {
+      return res.json({ awards: [], tenantAgencyId: preferredTenantId || null, tenantAgencyIds: [] });
+    }
 
+    const placeholders = tenantAgencyIds.map(() => '?').join(', ');
     const [rows] = await pool.execute(
-      `SELECT * FROM challenge_recognition_awards WHERE agency_id = ? AND is_tenant_template = 1 AND is_active = 1 ORDER BY label ASC`,
-      [tenantAgencyId]
+      `SELECT * FROM challenge_recognition_awards WHERE agency_id IN (${placeholders}) AND is_tenant_template = 1 AND is_active = 1 ORDER BY label ASC`,
+      tenantAgencyIds
     );
-    return res.json({ awards: (rows || []).map(awardToApi), tenantAgencyId });
+    return res.json({
+      awards: (rows || []).map(awardToApi),
+      tenantAgencyId: preferredTenantId || tenantAgencyIds[0] || null,
+      tenantAgencyIds
+    });
   } catch (e) { next(e); }
 };
 

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 import pool from '../config/database.js';
 import StorageService from '../services/storage.service.js';
-import { canUserManageClub, getClubPlatformTenantAgencyId } from '../utils/sscClubAccess.js';
+import { canUserManageClub, getClubPlatformTenantAgencyId, getClubPlatformTenantAgencyIds } from '../utils/sscClubAccess.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,8 +56,12 @@ const getClubManagerIconScopeAgencyIds = async (user) => {
       const canManage = await canUserManageClub({ user, clubId });
       if (!canManage) continue;
       allowed.add(clubId);
-      const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
-      if (tenantAgencyId) allowed.add(Number(tenantAgencyId));
+      // Include every SSTC-family tenant agency the club is tied to so a club_manager
+      // can read/upload icons to any of them (legacy `ssc`, current `sstc`, etc.).
+      const tenantAgencyIds = await getClubPlatformTenantAgencyIds(clubId);
+      for (const tid of tenantAgencyIds) {
+        if (Number.isFinite(tid) && tid > 0) allowed.add(Number(tid));
+      }
     } catch {
       // ignore individual failures and continue building scope
     }

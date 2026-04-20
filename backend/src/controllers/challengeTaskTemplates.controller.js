@@ -10,7 +10,7 @@
  */
 import pool from '../config/database.js';
 import { parseFeatureFlags } from '../utils/bookClub.js';
-import { canUserManageClub, getClubPlatformTenantAgencyId } from '../utils/sscClubAccess.js';
+import { canUserManageClub, getClubPlatformTenantAgencyId, getClubPlatformTenantAgencyIds } from '../utils/sscClubAccess.js';
 
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
 
@@ -238,17 +238,27 @@ export const listTenantTaskTemplates = async (req, res, next) => {
     if (!clubId) return res.status(400).json({ error: { message: 'Invalid club id' } });
     if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
-    if (!tenantAgencyId) return res.json({ templates: [], tenantAgencyId: null });
+    // Plural lookup: include templates from every SSTC-family tenant the club is tied to,
+    // so legacy/new platform agencies (`ssc`/`sstc`/`summit-stats`) all share a library.
+    const tenantAgencyIds = await getClubPlatformTenantAgencyIds(clubId);
+    const preferredTenantId = await getClubPlatformTenantAgencyId(clubId);
+    if (!tenantAgencyIds.length) {
+      return res.json({ templates: [], tenantAgencyId: preferredTenantId || null, tenantAgencyIds: [] });
+    }
 
+    const placeholders = tenantAgencyIds.map(() => '?').join(', ');
     const [rows] = await pool.execute(
       `SELECT * FROM challenge_task_templates
-       WHERE agency_id = ?
+       WHERE agency_id IN (${placeholders})
          AND COALESCE(is_tenant_template, 0) = 1
        ORDER BY name ASC, updated_at DESC`,
-      [tenantAgencyId]
+      tenantAgencyIds
     );
-    return res.json({ templates: (rows || []).map(templateToApi), tenantAgencyId });
+    return res.json({
+      templates: (rows || []).map(templateToApi),
+      tenantAgencyId: preferredTenantId || tenantAgencyIds[0] || null,
+      tenantAgencyIds
+    });
   } catch (e) { next(e); }
 };
 
@@ -367,14 +377,16 @@ export const cloneTenantTaskTemplate = async (req, res, next) => {
     if (!clubId || !tId) return res.status(400).json({ error: { message: 'Invalid id' } });
     if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
-    if (!tenantAgencyId) return res.status(400).json({ error: { message: 'No tenant found for this club' } });
+    // Allow cloning from any SSTC-family tenant agency the club is affiliated with.
+    const tenantAgencyIds = await getClubPlatformTenantAgencyIds(clubId);
+    if (!tenantAgencyIds.length) return res.status(400).json({ error: { message: 'No tenant found for this club' } });
 
+    const placeholders = tenantAgencyIds.map(() => '?').join(', ');
     const [rows] = await pool.execute(
       `SELECT * FROM challenge_task_templates
-       WHERE id = ? AND agency_id = ? AND COALESCE(is_tenant_template, 0) = 1
+       WHERE id = ? AND agency_id IN (${placeholders}) AND COALESCE(is_tenant_template, 0) = 1
        LIMIT 1`,
-      [tId, tenantAgencyId]
+      [tId, ...tenantAgencyIds]
     );
     const source = rows?.[0];
     if (!source) return res.status(404).json({ error: { message: 'Template not found' } });

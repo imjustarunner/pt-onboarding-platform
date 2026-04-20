@@ -296,6 +296,9 @@ export const formatClubManagerDisplayName = (manager) => {
 /**
  * Parent platform agency (SSTC, SSTC, etc.) for an affiliation club via `organization_affiliations`.
  * Super-admin icons uploaded to that tenant (`icons.agency_id` = platform id) are shared with all clubs under it.
+ *
+ * Returns the single best (preferred-slug-first) tenant id. Use this for WRITE targets where
+ * you need a deterministic destination (e.g., saving a new tenant template).
  */
 export const getClubPlatformTenantAgencyId = async (clubId) => {
   const cid = Number(clubId || 0);
@@ -319,4 +322,55 @@ export const getClubPlatformTenantAgencyId = async (clubId) => {
   );
   const id = rows?.[0]?.agency_id;
   return id != null ? Number(id) : null;
+};
+
+/**
+ * Plural variant: returns ALL tenant agency ids that share assets with this club.
+ *
+ * Why this exists: historically the SSTC tenant has been renamed/migrated across slugs
+ * (`ssc` → `sstc` → `summit-stats`), and the database can carry multiple "Summit Stats"
+ * platform agencies. Assets (icons, tenant challenge templates, tenant awards) saved
+ * under any one of them should be visible to every club affiliated with any of them.
+ *
+ * Includes:
+ *   1. Every active parent agency for this club via `organization_affiliations`.
+ *   2. If any of those parents has an SSTC-family slug (`ssc`/`sstc`/`summit-stats`),
+ *      every other agency with one of those slugs (so a "shared" tenant library is truly shared).
+ *
+ * Use this for READ paths (list/clone tenant assets) — never for writes.
+ */
+export const getClubPlatformTenantAgencyIds = async (clubId) => {
+  const cid = Number(clubId || 0);
+  if (!cid) return [];
+
+  const SSTC_SLUGS = new Set(['ssc', 'sstc', 'summit-stats']);
+  const ids = new Set();
+  let hasSummitParent = false;
+
+  const [parentRows] = await pool.execute(
+    `SELECT oa.agency_id, LOWER(COALESCE(parent.slug, '')) AS slug
+     FROM organization_affiliations oa
+     INNER JOIN agencies parent ON parent.id = oa.agency_id
+     WHERE oa.organization_id = ?
+       AND oa.is_active = 1`,
+    [cid]
+  );
+  for (const row of parentRows || []) {
+    const id = Number(row?.agency_id);
+    if (Number.isFinite(id) && id > 0) ids.add(id);
+    if (SSTC_SLUGS.has(String(row?.slug || ''))) hasSummitParent = true;
+  }
+
+  if (hasSummitParent) {
+    const [summitRows] = await pool.execute(
+      `SELECT id FROM agencies
+       WHERE LOWER(COALESCE(slug, '')) IN ('ssc', 'sstc', 'summit-stats')`
+    );
+    for (const r of summitRows || []) {
+      const id = Number(r?.id);
+      if (Number.isFinite(id) && id > 0) ids.add(id);
+    }
+  }
+
+  return [...ids];
 };
