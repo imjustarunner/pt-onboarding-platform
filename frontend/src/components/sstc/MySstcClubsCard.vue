@@ -108,6 +108,27 @@ const isAffiliation = (a) => {
   return t === 'affiliation';
 };
 
+// Book Clubs intentionally mimic the SSTC affiliation structure (organization_type='affiliation'),
+// but they are their own surface under agencies and must NOT appear in the "My SSTC Clubs" list.
+// Distinguishing signal: agencies.club_kind = 'book_club' (set in bookClub.controller.js).
+const isBookClub = (a) => {
+  const kind = String(a?.club_kind || a?.clubKind || '').trim().toLowerCase();
+  return kind === 'book_club';
+};
+
+// Positive SSTC signal: parent slug is one of the Summit tenants (e.g. 'sstc', 'ssc').
+// Falls back to "any non-book-club affiliation" when parent info is missing, to preserve
+// legacy behavior for SSTC clubs that predate the club_kind column.
+const SUMMIT_PARENT_SLUGS = new Set(['sstc', 'ssc']);
+const isSstcClub = (a) => {
+  if (!isAffiliation(a)) return false;
+  if (isBookClub(a)) return false;
+  const parentSlug = String(a?.parent_slug || a?.parentSlug || '').trim().toLowerCase();
+  if (parentSlug) return SUMMIT_PARENT_SLUGS.has(parentSlug);
+  // No parent context available — assume SSTC (historical default for affiliations).
+  return true;
+};
+
 const sourceList = computed(() => {
   if (Array.isArray(props.agencies)) return props.agencies;
   return Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
@@ -115,7 +136,7 @@ const sourceList = computed(() => {
 
 const clubs = computed(() => {
   return (sourceList.value || [])
-    .filter((a) => a && a.id && isAffiliation(a))
+    .filter((a) => a && a.id && isSstcClub(a))
     .map((a) => ({
       id: Number(a.id),
       name: String(a.name || 'Club').trim(),

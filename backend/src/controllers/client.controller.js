@@ -3965,13 +3965,17 @@ const extractLabeledFieldsFromSubmission = (submissionData, intakeFields = [], s
     if (f?.key) labelMap.set(String(f.key), { label: f.label || f.key, scope: f.scope || 'submission' });
   }
 
+  const submissionBag = getSubmissionBag(submissionData);
+  const guardianBag = getGuardianBag(submissionData);
+  const clientsArr = getClientsArray(submissionData);
+
   const clientBag = scopedClientResponses && typeof scopedClientResponses === 'object'
     ? scopedClientResponses
-    : (Array.isArray(submissionData?.responses?.clients) ? (submissionData.responses.clients[0] || {}) : {});
+    : (clientsArr[0] || {});
 
   const allResponses = {
-    ...((submissionData?.responses?.guardian) || {}),
-    ...((submissionData?.responses?.submission) || {}),
+    ...guardianBag,
+    ...submissionBag,
     ...clientBag
   };
 
@@ -4003,15 +4007,50 @@ const matchPscKey = (key) => {
 };
 
 /**
+ * Shape-tolerant readers. Depending on which intake flow wrote the row,
+ * `intake_data` has appeared in two shapes historically:
+ *
+ *   A. Nested (canonical): { responses: { submission, clients[], guardian } }
+ *   B. Flat (returned by some finalize paths):
+ *        { submission, clients[], guardian }            (no `responses` wrapper)
+ *
+ * These helpers merge both into a single view so downstream extraction never
+ * silently misses answers because of a structural mismatch. When both shapes
+ * carry the same key the nested (A) copy wins, since that was the primary
+ * write path during the transition.
+ */
+const getSubmissionBag = (submissionData) => {
+  const nested = submissionData?.responses?.submission;
+  const flat = submissionData?.submission;
+  const base = (flat && typeof flat === 'object' && !Array.isArray(flat)) ? { ...flat } : {};
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) Object.assign(base, nested);
+  return base;
+};
+const getGuardianBag = (submissionData) => {
+  const nested = submissionData?.responses?.guardian;
+  const flat = submissionData?.guardian;
+  const base = (flat && typeof flat === 'object' && !Array.isArray(flat)) ? { ...flat } : {};
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) Object.assign(base, nested);
+  return base;
+};
+const getClientsArray = (submissionData) => {
+  const nested = submissionData?.responses?.clients;
+  if (Array.isArray(nested) && nested.length) return nested;
+  const flat = submissionData?.clients;
+  if (Array.isArray(flat) && flat.length) return flat;
+  return [];
+};
+
+/**
  * Find the responses object on a submission that corresponds to a given
  * client id. Falls back to the first client when no explicit match is found.
  * Submissions store an array `responses.clients[*]` whose order matches the
- * `intake_submission_clients` rows for the same submission.
+ * `intake_submission_clients` rows for the same submission. Reads tolerantly
+ * from both the canonical nested shape and the flat shape (see shape notes
+ * on `getSubmissionBag`).
  */
 const pickClientResponseForId = ({ submissionData, clientIdsForSubmission, targetClientId }) => {
-  const clients = Array.isArray(submissionData?.responses?.clients)
-    ? submissionData.responses.clients
-    : [];
+  const clients = getClientsArray(submissionData);
   if (!clients.length) return {};
   const ids = Array.isArray(clientIdsForSubmission) ? clientIdsForSubmission : [];
   const idx = ids.findIndex((cid) => parseInt(cid, 10) === parseInt(targetClientId, 10));
@@ -4025,8 +4064,8 @@ const pickClientResponseForId = ({ submissionData, clientIdsForSubmission, targe
  * so per-child wins on conflicts.
  */
 const buildScopedResponseBag = ({ submissionData, clientResponses }) => ({
-  ...((submissionData?.responses?.guardian) || {}),
-  ...((submissionData?.responses?.submission) || {}),
+  ...getGuardianBag(submissionData),
+  ...getSubmissionBag(submissionData),
   ...(clientResponses || {})
 });
 
@@ -4042,9 +4081,17 @@ const countClinicalSignals = ({ submissionData, clientResponses, intakeFields })
   for (const key of Object.keys(responses || {})) {
     if (matchPscKey(key) && hasVal(responses[key])) count += 1;
   }
-  // clinicalResponses bucket
-  const clinicalResponses = submissionData?.responses?.submission?.clinicalResponses || {};
-  for (const v of Object.values(clinicalResponses)) {
+  // clinicalResponses bucket — check BOTH shapes (nested .responses.submission
+  // and flat .submission), plus stash the bag under the top-level intake_data
+  // envelope for defensive resilience.
+  const submissionBag = getSubmissionBag(submissionData);
+  const clinicalResponses = (submissionBag && typeof submissionBag.clinicalResponses === 'object'
+    ? submissionBag.clinicalResponses
+    : null)
+    || (submissionData?.clinicalResponses && typeof submissionData.clinicalResponses === 'object'
+      ? submissionData.clinicalResponses
+      : {});
+  for (const v of Object.values(clinicalResponses || {})) {
     if (hasVal(v)) count += 1;
   }
   // scope=clinical or category=clinical fields (use inferCategory for legacy)
@@ -4173,6 +4220,39 @@ export const getClientClinicalResponses = async (req, res, next) => {
       const score = countClinicalSignals({ submissionData, clientResponses, intakeFields });
 
       if (debug) {
+        // Deeper shape diagnostics so we can tell *where* the answers live
+        // (or don't) when a completed packet has no clinical signal. We only
+        // emit KEYS (never values) because intake_data is PHI.
+        const rawIntake = submissionData && typeof submissionData === 'object' ? submissionData : {};
+        const intakeTopLevelKeys = Object.keys(rawIntake).slice(0, 40);
+        const responsesWrapper = rawIntake.responses && typeof rawIntake.responses === 'object'
+          ? rawIntake.responses
+          : null;
+        const responsesKeys = responsesWrapper ? Object.keys(responsesWrapper).slice(0, 40) : [];
+        const nestedClientsArr = Array.isArray(responsesWrapper?.clients) ? responsesWrapper.clients : [];
+        const flatClientsArr = Array.isArray(rawIntake.clients) ? rawIntake.clients : [];
+        const perClientKeyCounts = [
+          ...nestedClientsArr.map((c, i) => ({
+            shape: 'responses.clients',
+            index: i,
+            keyCount: c && typeof c === 'object' ? Object.keys(c).length : 0,
+            keys: c && typeof c === 'object' ? Object.keys(c).slice(0, 40) : []
+          })),
+          ...flatClientsArr.map((c, i) => ({
+            shape: 'clients (flat)',
+            index: i,
+            keyCount: c && typeof c === 'object' ? Object.keys(c).length : 0,
+            keys: c && typeof c === 'object' ? Object.keys(c).slice(0, 40) : []
+          }))
+        ];
+        // Merged (shape-tolerant) bags — this is what the reader actually
+        // sees, so the debug matches the real extraction.
+        const mergedSubmissionBag = getSubmissionBag(submissionData);
+        const mergedGuardianBag = getGuardianBag(submissionData);
+        const hasEncryptedPayload = !!(row.payload_encrypted || row.payload_iv_b64 || row.payload_auth_tag_b64);
+        const intakeDataIsEmpty = !responsesWrapper
+          && intakeTopLevelKeys.length === 0;
+
         debugInfo.candidateSubmissions.push({
           submission_id: row.id,
           status: row.status,
@@ -4183,12 +4263,35 @@ export const getClientClinicalResponses = async (req, res, next) => {
             (cid) => parseInt(cid, 10) === parseInt(clientId, 10)
           ),
           clinicalSignalCount: score,
-          topLevelKeys: Object.keys(submissionData?.responses?.submission || {}).slice(0, 60),
+          // Shape of the raw intake_data envelope
+          intakeDataIsEmpty,
+          intakeTopLevelKeys,
+          responsesKeys,
+          nestedResponsesClientsLength: nestedClientsArr.length,
+          flatClientsLength: flatClientsArr.length,
+          perClientKeyCounts,
+          // Merged/tolerant view (what the reader actually uses)
+          mergedSubmissionBagKeyCount: Object.keys(mergedSubmissionBag).length,
+          mergedGuardianBagKeyCount: Object.keys(mergedGuardianBag).length,
+          hasClinicalResponsesBag: !!(mergedSubmissionBag.clinicalResponses
+            && typeof mergedSubmissionBag.clinicalResponses === 'object'
+            && Object.keys(mergedSubmissionBag.clinicalResponses).length),
+          clinicalResponsesKeys: (mergedSubmissionBag.clinicalResponses && typeof mergedSubmissionBag.clinicalResponses === 'object')
+            ? Object.keys(mergedSubmissionBag.clinicalResponses).slice(0, 40)
+            : [],
+          topLevelKeys: Object.keys(mergedSubmissionBag).slice(0, 60),
           clientKeys: Object.keys(clientResponses || {}).slice(0, 60),
           pscKeysFound: [
             ...Object.keys(clientResponses || {}).filter((k) => matchPscKey(k)),
-            ...Object.keys(submissionData?.responses?.submission || {}).filter((k) => matchPscKey(k))
-          ]
+            ...Object.keys(mergedSubmissionBag).filter((k) => matchPscKey(k)),
+            ...Object.keys(mergedGuardianBag).filter((k) => matchPscKey(k)),
+            ...Object.keys(rawIntake).filter((k) => matchPscKey(k))
+          ],
+          // Envelope hints for the "did we even store answers?" question
+          hasEncryptedPayload,
+          intakeDataRawType: row.intake_data === null
+            ? 'null'
+            : (typeof row.intake_data)
         });
       }
 
@@ -4228,7 +4331,17 @@ export const getClientClinicalResponses = async (req, res, next) => {
     const sections = [];
 
     // ── 1. New-style clinical_questions step data ───────────────────────────
-    const clinicalResponses = submissionData?.responses?.submission?.clinicalResponses || {};
+    // Read tolerantly from BOTH the nested `responses.submission` and the flat
+    // top-level `submission` bag (some finalize paths have shipped the flat
+    // shape). As a further fallback, honor a top-level `clinicalResponses`
+    // bag directly on the intake_data envelope.
+    const chosenSubmissionBag = getSubmissionBag(submissionData);
+    const clinicalResponses = (chosenSubmissionBag && typeof chosenSubmissionBag.clinicalResponses === 'object'
+      ? chosenSubmissionBag.clinicalResponses
+      : null)
+      || (submissionData?.clinicalResponses && typeof submissionData.clinicalResponses === 'object'
+        ? submissionData.clinicalResponses
+        : {});
     const newClinicalFields = [];
     if (Object.keys(clinicalResponses).length) {
       const clinicalLabelMap = new Map();
@@ -4286,11 +4399,14 @@ export const getClientClinicalResponses = async (req, res, next) => {
       }
     };
     considerPscBag(clientResponses);
-    considerPscBag(submissionData?.responses?.submission);
-    considerPscBag(submissionData?.responses?.guardian);
+    considerPscBag(getSubmissionBag(submissionData));
+    considerPscBag(getGuardianBag(submissionData));
     // Also try every per-child responses bag so a misordered submission still surfaces.
-    if (Array.isArray(submissionData?.responses?.clients)) {
-      for (const c of submissionData.responses.clients) considerPscBag(c);
+    for (const c of getClientsArray(submissionData)) considerPscBag(c);
+    // Last-ditch: scan the raw envelope's top-level keys so a PSC saved outside
+    // any known bag (e.g. flattened directly on intake_data) still surfaces.
+    if (submissionData && typeof submissionData === 'object') {
+      considerPscBag(submissionData);
     }
     const pscFields = Array.from(pscByItem.entries())
       .sort(([a], [b]) => a - b)
@@ -4614,7 +4730,10 @@ export const getClientDemographics = async (req, res, next) => {
       };
 
       // 2a. New-style demographicsInfo namespace (full walker, not fixed map)
-      const di = submissionData?.responses?.submission?.demographicsInfo;
+      // Read tolerantly from both nested (responses.submission) and flat
+      // (top-level submission) shapes so flat-shape submissions aren't skipped.
+      const demoSubmissionBag = getSubmissionBag(submissionData);
+      const di = demoSubmissionBag?.demographicsInfo;
       if (di && typeof di === 'object') {
         const KNOWN_DI_LABELS = {
           firstName: 'First Name', lastName: 'Last Name', fullName: 'Full Name',
@@ -4663,9 +4782,9 @@ export const getClientDemographics = async (req, res, next) => {
         }
       }
 
-      // 2c. Guardian responses bag (anything in submissionData.responses.guardian + explicit guardian keys at any layer)
-      const guardianBag = submissionData?.responses?.guardian || {};
-      const submissionBag = submissionData?.responses?.submission || {};
+      // 2c. Guardian responses bag (anything in responses.guardian or flat top-level guardian + explicit guardian keys at any layer)
+      const guardianBag = getGuardianBag(submissionData);
+      const submissionBag = demoSubmissionBag;
       const considerGuardianBag = (bag) => {
         for (const [key, value] of Object.entries(bag || {})) {
           if (!hasVal(value)) continue;
@@ -4729,7 +4848,7 @@ export const getClientDemographics = async (req, res, next) => {
     if (submRows.length) {
       const sub = submRows[0];
       const submissionData = parseIntakeData(sub.intake_data);
-      const insurerName = String(submissionData?.responses?.submission?.insuranceInfo?.primary?.insurerName || '').trim();
+      const insurerName = String(getSubmissionBag(submissionData)?.insuranceInfo?.primary?.insurerName || '').trim();
       if (insurerName) {
         try {
           await pool.execute(
