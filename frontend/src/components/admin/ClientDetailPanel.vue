@@ -785,6 +785,34 @@
         <div v-if="activeTab === 'clinical'" class="detail-section">
           <div v-if="clinicalLoading" class="loading">Loading clinical responses…</div>
           <div v-else-if="clinicalError" class="error">{{ clinicalError }}</div>
+          <div v-else-if="!clinicalSections.length && clinicalEncryptionKeyMissing" class="empty-state">
+            <p><strong>Clinical answers are stored but can't be displayed right now.</strong></p>
+            <p class="muted" style="font-size: 13px; margin-top: 8px;">
+              This client's intake responses are saved in the database, but the backend is running
+              without the PHI encryption key set in its environment, so they can't be decrypted for
+              display. No data has been lost — setting
+              <code>INTAKE_RESPONSES_ENCRYPTION_KEY_BASE64</code>
+              (or <code>GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64</code>) on the backend and restarting
+              will make them readable again.
+            </p>
+            <p v-if="isSuperAdmin" class="muted" style="font-size: 12px; margin-top: 8px;">
+              Please contact the platform admin / ops to restore the key.
+            </p>
+            <div v-if="isSuperAdmin" style="margin-top: 12px;">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="loadClinicalDebug"
+                :disabled="clinicalDebugLoading"
+              >
+                {{ clinicalDebugLoading ? 'Investigating…' : 'Show diagnostics' }}
+              </button>
+              <pre
+                v-if="clinicalDebug"
+                style="margin-top: 12px; padding: 12px; background: var(--bg-alt, #f8fafc); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; max-height: 360px; overflow: auto; white-space: pre-wrap;"
+              >{{ clinicalDebug }}</pre>
+            </div>
+          </div>
           <div v-else-if="!clinicalSections.length" class="empty-state">
             <p>No clinical responses on file yet.</p>
             <p class="muted" style="font-size: 13px; margin-top: 8px;">
@@ -4209,6 +4237,10 @@ const clinicalLoading = ref(false);
 const clinicalError = ref('');
 const clinicalDebug = ref('');
 const clinicalDebugLoading = ref(false);
+// True when the backend has intake rows with encrypted PHI but no decryption
+// key configured in the runtime env. In that state the data is physically
+// present but unreadable — the UI should say so instead of "no responses".
+const clinicalEncryptionKeyMissing = ref(false);
 
 const clinicalTotalFieldCount = computed(() =>
   (clinicalSections.value || []).reduce((acc, s) => acc + (s?.fields?.length || 0), 0)
@@ -4471,9 +4503,10 @@ const fetchClinicalResponses = async () => {
     clinicalError.value = '';
     clinicalDebug.value = '';
     const r = await api.get(`/clients/${props.client.id}/clinical-responses`);
-    // Backend returns { sections: [{title, fields}], capturedAt }
+    // Backend returns { sections: [{title, fields}], capturedAt, encryptionKeyMissing }
     clinicalSections.value = r.data?.sections || [];
     clinicalCapturedAt.value = r.data?.capturedAt || null;
+    clinicalEncryptionKeyMissing.value = !!r.data?.encryptionKeyMissing;
   } catch (e) {
     clinicalError.value = e.response?.data?.error?.message || 'Failed to load clinical responses';
   } finally {

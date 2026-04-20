@@ -4167,6 +4167,13 @@ export const getClientClinicalResponses = async (req, res, next) => {
          ORDER BY s.submitted_at DESC, s.id DESC`,
         [clientId, clientId]
       );
+      // Detect "blob present + no read key" BEFORE we decrypt, so the response
+      // can tell the UI to render a 'key missing' state instead of the
+      // misleading 'no answers on file' state.
+      const keyConfigured = isIntakeResponsesEncryptionConfigured();
+      const hasAnyEncryptedRow = submRows.some((r) => !!r.payload_encrypted);
+      const encryptionKeyMissing = hasAnyEncryptedRow && !keyConfigured;
+
       if (debug) {
         for (const r of submRows) {
           encryptedSnapshotById.set(r.id, {
@@ -4184,8 +4191,13 @@ export const getClientClinicalResponses = async (req, res, next) => {
               : null
           });
         }
+        debugInfo.encryptionKeyConfigured = keyConfigured;
+        debugInfo.encryptionKeyMissing = encryptionKeyMissing;
       }
       decryptIntakeSubmissionRows(submRows);
+
+      // Stash for use below when we build the response envelope.
+      req._clinicalEncryptionKeyMissing = encryptionKeyMissing;
     } catch (tableErr) {
       if (String(tableErr?.message || '').includes("doesn't exist") || tableErr?.errno === 1146) {
         return res.json({ sections: [], capturedAt: null, ...(debug ? { _debug: debugInfo } : {}) });
@@ -4194,7 +4206,12 @@ export const getClientClinicalResponses = async (req, res, next) => {
     }
 
     if (!submRows.length) {
-      return res.json({ sections: [], capturedAt: null, ...(debug ? { _debug: debugInfo } : {}) });
+      return res.json({
+        sections: [],
+        capturedAt: null,
+        encryptionKeyMissing: !!req._clinicalEncryptionKeyMissing,
+        ...(debug ? { _debug: debugInfo } : {})
+      });
     }
 
     // Cache: link_id → { intakeFields, formConfig, categoryMap }
@@ -4618,6 +4635,11 @@ export const getClientClinicalResponses = async (req, res, next) => {
     res.json({
       sections,
       capturedAt: sub.submitted_at || null,
+      // Signal to the UI that there IS stored data, but the backend can't
+      // decrypt it because the PHI encryption key is not configured in this
+      // environment. Lets the empty-state say "key missing — contact ops"
+      // instead of the misleading "no answers on file yet".
+      encryptionKeyMissing: !!req._clinicalEncryptionKeyMissing,
       ...(debug ? { _debug: debugInfo } : {})
     });
   } catch (e) {
