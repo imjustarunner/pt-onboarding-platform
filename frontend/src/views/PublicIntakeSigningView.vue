@@ -1259,6 +1259,39 @@
         <template v-else>
           <!-- Registration success card -->
           <div v-if="formTypeKey === 'smart_registration'" class="reg-success-card">
+            <!--
+              Top-of-card welcome banner. Parents specifically asked for this
+              post-registration — they wanted to see what they registered for
+              AND hear that we're excited they chose us. This block replaces
+              the previously-silent transition from "filling out the form"
+              to "packet downloads", which left registrants wondering whether
+              anything actually went through.
+            -->
+            <div class="reg-thankyou-banner">
+              <div class="reg-thankyou-title">
+                🎉 You're all set, {{ registrationThankYouName || 'friend' }}!
+              </div>
+              <p class="reg-thankyou-lead">
+                We are so excited you chose
+                <strong>{{ registrationThankYouTenantName }}</strong>
+                for <span v-if="registeredClientNames.length > 1">your children</span><span v-else>your family</span>.
+                Your registration is in — we'll be in touch as soon as possible to welcome you and confirm the next steps.
+              </p>
+              <ul
+                v-if="registeredClientNames.length"
+                class="reg-thankyou-registered-for"
+                aria-label="Registered"
+              >
+                <li v-for="name in registeredClientNames" :key="name">
+                  <span class="reg-thankyou-registered-check">✓</span>
+                  Registered: <strong>{{ name }}</strong>
+                </li>
+              </ul>
+              <p v-if="registrationEmailMessageForBanner" class="reg-thankyou-email">
+                {{ registrationEmailMessageForBanner }}
+              </p>
+            </div>
+
             <p
               v-if="registrationReturningAutoMatch?.matched && registrationReturningAutoMatch?.initials"
               class="reg-returning-match-notice"
@@ -2408,6 +2441,84 @@ const eventWaiverContext = computed(() => {
 
 const registrationCompletion = ref(null);
 const registrationReturningAutoMatch = ref(null);
+
+/**
+ * First-name for the top-of-success banner greeting. We prefer whatever the
+ * guardian explicitly typed for themselves, falling back to the signer name
+ * on the submission. Kept short (first token) so the greeting stays
+ * conversational ("You're all set, Michael!" not "You're all set, Michael A
+ * Mendez!").
+ */
+const registrationThankYouName = computed(() => {
+  const sources = [
+    guardianFirstName.value,
+    intakeResponses?.guardian?.firstName,
+    intakeResponses?.guardian?.first_name,
+    intakeResponses?.submission?.firstName,
+    registrationCompletion.value?.signerFirstName,
+    registrationCompletion.value?.signerName,
+    intakeResponses?.signerInfo?.name
+  ];
+  for (const raw of sources) {
+    const str = String(raw || '').trim();
+    if (!str) continue;
+    return str.split(/\s+/)[0];
+  }
+  return '';
+});
+
+/**
+ * Tenant name for the "we're excited you chose <X>" line. Mirrors the
+ * `communicationsTenantName` fallback chain so the wording stays consistent
+ * with the rest of the flow.
+ */
+const registrationThankYouTenantName = computed(() =>
+  String(
+    agencyInfo.value?.official_name
+    || agencyInfo.value?.name
+    || organizationInfo.value?.official_name
+    || organizationInfo.value?.name
+    || 'our team'
+  ).trim() || 'our team'
+);
+
+/**
+ * Names of each client (child) that was registered, pulled from
+ * `clientBundleLinks` which the backend returns after finalize. This gives
+ * the banner a per-child confirmation line so families with multiple
+ * children can see every registration landed.
+ */
+const registeredClientNames = computed(() => {
+  const bundles = Array.isArray(clientBundleLinks.value) ? clientBundleLinks.value : [];
+  const names = [];
+  const seen = new Set();
+  for (const b of bundles) {
+    const name = String(b?.clientName || '').trim();
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    names.push(name);
+  }
+  return names;
+});
+
+/**
+ * Short email-status line shown inside the banner. We deliberately suppress
+ * this while the packet is still being prepared (polling for downloadUrl)
+ * so the banner doesn't flash a premature "check your email" message.
+ */
+const registrationEmailMessageForBanner = computed(() => {
+  if (!downloadUrl.value) return '';
+  if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
+    return "We couldn't deliver the confirmation email right now — please use the download buttons below to grab your packet.";
+  }
+  const email = String(
+    registrationCompletion.value?.loginEmail || guardianEmail.value || ''
+  ).trim();
+  return email
+    ? `A confirmation with your registration details has been sent to ${email}.`
+    : 'A confirmation with your registration details has been emailed to you.';
+});
+
 const loginHelpSending = ref(false);
 const loginHelpMessage = ref('');
 const missingRequiredQuestionKeys = ref([]);
@@ -5962,6 +6073,58 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background: #fff;
   margin-bottom: 20px;
+}
+/* Parent-facing "thank you" banner that sits at the top of the
+   registration success card. Warm, enthusiastic, but not loud — the goal
+   is to reassure a family that clicked "submit" a minute ago that their
+   registration actually landed and that we're excited they chose us. */
+.reg-thankyou-banner {
+  padding: 22px 22px 16px;
+  background: linear-gradient(135deg, #ecfdf5 0%, #e0f2fe 100%);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+.reg-thankyou-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+  margin-bottom: 8px;
+}
+.reg-thankyou-lead {
+  margin: 0 0 12px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: #0f172a;
+}
+.reg-thankyou-registered-for {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.reg-thankyou-registered-for li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14.5px;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.55);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+.reg-thankyou-registered-check {
+  color: #059669;
+  font-weight: 800;
+  font-size: 14px;
+  line-height: 1;
+}
+.reg-thankyou-email {
+  margin: 10px 0 0;
+  font-size: 13.5px;
+  color: var(--text-secondary, #475569);
 }
 .reg-success-event {
   background: var(--color-primary, #4db6ac);
