@@ -1299,6 +1299,14 @@
                   <button class="btn btn-ghost btn-xs" @click="toggleCriteria(i)">
                     {{ showCriteriaFor[i] ? '▲ Hide criteria' : '▼ Criteria' }}
                   </button>
+                  <button
+                    class="btn btn-ghost btn-xs"
+                    :disabled="!t.name && !t.description"
+                    @click="remixTaskDraft(i)"
+                    title="Re-mix the description and re-parse distance/duration from the title"
+                  >
+                    🎲 Re-mix
+                  </button>
                   <button class="btn btn-ghost btn-xs" @click="saveTaskToLibrary(t)" title="Save as reusable template">
                     💾 Save to library
                   </button>
@@ -2597,28 +2605,135 @@ const guidedDraftProofPolicy = (activityType) => {
   return 'none';
 };
 
-const applyGuidedDraft = () => {
-  const slot = Number.parseInt(weeklyGuidedDraft.value.slot, 10);
-  const activityType = String(weeklyGuidedDraft.value.activityType || 'Run').trim();
-  const title = String(weeklyGuidedDraft.value.name || '').trim() || `${activityType} Builder`;
-  if (!Number.isFinite(slot) || slot < 0 || slot > 2) return;
-  const key = activityType.toLowerCase();
+/**
+ * Try to extract trackable metrics (min distance, min duration, challenge type) from a
+ * human-friendly title such as "5-Mile Run", "10K Tempo", "45 min Swim",
+ * "Half Marathon", or "2 hour trail run". The goal is to seed the rich-criteria block
+ * so the resulting weekly challenge is actually validated against a workout — not just
+ * a free-form card.
+ */
+const parseChallengeMetricsFromTitle = (title) => {
+  const out = { minMiles: null, minMinutes: null, challengeType: null };
+  const raw = String(title || '').toLowerCase();
+  if (!raw) return out;
+
+  // Distance — "5 miles", "5-mile", "5mi", "5 mi"
+  const mileMatch = raw.match(/(\d+(?:\.\d+)?)\s*-?\s*mi(?:les?)?\b/);
+  if (mileMatch) out.minMiles = Number(mileMatch[1]);
+
+  // Distance — "5K", "10k"
+  if (out.minMiles == null) {
+    const kMatch = raw.match(/(\d+(?:\.\d+)?)\s*k\b/);
+    if (kMatch) out.minMiles = Number((Number(kMatch[1]) * 0.621371).toFixed(2));
+  }
+
+  // Distance — "half marathon" / "marathon"
+  if (out.minMiles == null && /half\s*-?\s*marathon/.test(raw)) out.minMiles = 13.1;
+  if (out.minMiles == null && /\bmarathon\b/.test(raw)) out.minMiles = 26.2;
+
+  // Duration — "2 hour", "2hr", "2 hrs"
+  const hrMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:hour|hr)s?\b/);
+  if (hrMatch) out.minMinutes = Math.round(Number(hrMatch[1]) * 60);
+
+  // Duration — "45 minute", "45 min"
+  if (out.minMinutes == null) {
+    const minMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:minute|min)s?\b/);
+    if (minMatch) out.minMinutes = Math.round(Number(minMatch[1]));
+  }
+
+  // Challenge type heuristics
+  if (/\brace\b|\b5k\b|\b10k\b|marathon|time\s*trial/.test(raw)) out.challengeType = 'race';
+  else out.challengeType = 'workout';
+
+  return out;
+};
+
+const pickDescriptionFactory = (activityType, { title = '', avoidText = '' } = {}) => {
+  const key = String(activityType || '').toLowerCase();
   const options = weeklyGuidedDescriptions[key] || weeklyGuidedDescriptions.other;
-  const descriptionFactory = options[Math.floor(Math.random() * options.length)] || weeklyGuidedDescriptions.other[0];
+  if (!options || !options.length) {
+    return { factory: weeklyGuidedDescriptions.other[0], index: 0 };
+  }
+  const seedTitle = String(title || '__probe__');
+  const avoid = String(avoidText || '').trim();
+  const eligible = avoid
+    ? options.map((fn, idx) => ({ fn, idx })).filter(({ fn }) => fn(seedTitle) !== avoid)
+    : options.map((fn, idx) => ({ fn, idx }));
+  const pool = eligible.length ? eligible : options.map((fn, idx) => ({ fn, idx }));
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
+  return { factory: chosen.fn, index: chosen.idx };
+};
+
+/**
+ * Fill a weekly slot with a fully trackable draft. Used by both the Guided Draft Helper
+ * (fresh draft) and the per-slot Re-mix button (re-randomize description + re-parse title).
+ */
+const fillSlotFromGuidedDraft = (slot, {
+  title,
+  activityType,
+  icon,
+  mode,
+  avoidDescription = '',
+  preserveUserCriteria = false
+}) => {
+  if (!Number.isFinite(slot) || slot < 0 || slot > 2) return;
+  const cleanActivity = String(activityType || 'Run').trim();
+  const cleanTitle = String(title || '').trim() || `${cleanActivity} Builder`;
+  const { factory: descriptionFactory } = pickDescriptionFactory(cleanActivity, { title: cleanTitle, avoidText: avoidDescription });
+  const metrics = parseChallengeMetricsFromTitle(cleanTitle);
   const current = weeklyTasksForm.value[slot] || defaultTask();
   const crit = { ...defaultCriteria(), ...(current.criteriaJson || {}) };
-  crit.activityTypes = activityType ? [activityType] : [];
-  if (!crit.distance) crit.distance = { minMiles: null };
-  if (!crit.duration) crit.duration = { minMinutes: null };
+
+  crit.activityTypes = cleanActivity ? [cleanActivity] : [];
+  // Seed distance/duration from title when parseable; don't clobber user-entered values.
+  const existingMiles = Number(current.criteriaJson?.distance?.minMiles) || null;
+  const existingMinutes = Number(current.criteriaJson?.duration?.minMinutes) || null;
+  const nextMiles = preserveUserCriteria
+    ? (existingMiles ?? metrics.minMiles ?? null)
+    : (metrics.minMiles ?? existingMiles ?? null);
+  const nextMinutes = preserveUserCriteria
+    ? (existingMinutes ?? metrics.minMinutes ?? null)
+    : (metrics.minMinutes ?? existingMinutes ?? null);
+
+  crit.distance = { ...(crit.distance || {}), minMiles: nextMiles };
+  crit.duration = { ...(crit.duration || {}), minMinutes: nextMinutes };
+  if (!crit.challengeType && metrics.challengeType) crit.challengeType = metrics.challengeType;
+
   weeklyTasksForm.value[slot] = {
     ...current,
-    name: title,
-    description: descriptionFactory(title),
-    icon: weeklyGuidedIconLabel.value,
-    activityType,
-    proofPolicy: guidedDraftProofPolicy(activityType),
+    name: cleanTitle,
+    description: descriptionFactory(cleanTitle),
+    icon: icon || current.icon || weeklyGuidedIconLabel.value,
+    activityType: cleanActivity,
+    mode: mode || current.mode || 'volunteer_or_elect',
+    proofPolicy: guidedDraftProofPolicy(cleanActivity),
     criteriaJson: crit
   };
+
+  // Expand the rich-criteria block so the populated fields are immediately visible.
+  showCriteriaFor.value[slot] = true;
+};
+
+const applyGuidedDraft = () => {
+  const slot = Number.parseInt(weeklyGuidedDraft.value.slot, 10);
+  fillSlotFromGuidedDraft(slot, {
+    title: weeklyGuidedDraft.value.name,
+    activityType: weeklyGuidedDraft.value.activityType,
+    icon: weeklyGuidedIconLabel.value
+  });
+};
+
+const remixTaskDraft = (i) => {
+  const t = weeklyTasksForm.value[i];
+  if (!t) return;
+  fillSlotFromGuidedDraft(i, {
+    title: t.name,
+    activityType: t.activityType || 'Run',
+    icon: t.icon,
+    mode: t.mode,
+    avoidDescription: t.description || '',
+    preserveUserCriteria: true
+  });
 };
 const closeWeekSaving = ref(false);
 const weeklyAiDraftLoading = ref(false);

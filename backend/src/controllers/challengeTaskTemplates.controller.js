@@ -414,6 +414,61 @@ export const cloneTenantTaskTemplate = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
+/**
+ * POST /summit-stats/clubs/:id/tenant-challenge-templates/clone-from-club/:tId
+ *
+ * Reverse of `cloneTenantTaskTemplate` — takes a club-scoped template and copies it up
+ * into the Summit Stats tenant library so every club under the tenant can reuse it.
+ * Requires the same tenant-write access gate as direct edits to the tenant library.
+ */
+export const cloneClubTaskTemplateToTenant = async (req, res, next) => {
+  try {
+    const clubId = toInt(req.params.id);
+    const tId = toInt(req.params.tId);
+    if (!clubId || !tId) return res.status(400).json({ error: { message: 'Invalid id' } });
+    if (!(await assertClubAccess(req, clubId))) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const tenantAgencyId = await getClubPlatformTenantAgencyId(clubId);
+    if (!tenantAgencyId) return res.status(400).json({ error: { message: 'No tenant found for this club' } });
+    if (!(await assertTenantTemplateWriteAccess(req, tenantAgencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized to add to tenant challenge library' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT * FROM challenge_task_templates
+       WHERE id = ?
+         AND agency_id = ?
+         AND COALESCE(is_tenant_template, 0) = 0
+         AND COALESCE(is_global, 0) = 0
+       LIMIT 1`,
+      [tId, clubId]
+    );
+    const source = rows?.[0];
+    if (!source) return res.status(404).json({ error: { message: 'Club template not found' } });
+
+    const [result] = await pool.execute(
+      `INSERT INTO challenge_task_templates
+       (agency_id, is_global, is_tenant_template, name, description, icon, activity_type, criteria_json, proof_policy, mode, is_season_long, ai_generated, created_by)
+       VALUES (?, 0, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        tenantAgencyId,
+        source.name,
+        source.description || null,
+        source.icon || null,
+        source.activity_type || null,
+        source.criteria_json || null,
+        source.proof_policy || 'none',
+        source.mode || 'volunteer_or_elect',
+        Number(source.is_season_long || 0) ? 1 : 0,
+        Number(source.ai_generated || 0) ? 1 : 0,
+        req.user.id
+      ]
+    );
+    const [createdRows] = await pool.execute(`SELECT * FROM challenge_task_templates WHERE id = ? LIMIT 1`, [result.insertId]);
+    return res.status(201).json({ template: templateToApi(createdRows[0]), tenantAgencyId });
+  } catch (e) { next(e); }
+};
+
 // ── GLOBAL SSTC TEMPLATES ─────────────────────────────────────────────────────
 
 export const listGlobalTemplates = async (req, res, next) => {

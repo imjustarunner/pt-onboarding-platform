@@ -76,6 +76,16 @@
             </div>
           </div>
           <div class="ctlm-row-actions">
+            <button
+              v-if="canWriteTenantLibrary"
+              type="button"
+              class="ctlm-action-btn"
+              :disabled="cloningToTenantId === tpl.id"
+              @click="cloneClubTemplateToTenant(tpl)"
+              title="Copy this template up to the Summit Stats tenant library so every club can use it"
+            >
+              {{ cloningToTenantId === tpl.id ? 'Cloning…' : '↥ Clone to Summit Stats Library' }}
+            </button>
             <button type="button" class="ctlm-action-btn" @click="openTemplateModal('club', tpl)">Edit</button>
             <button type="button" class="ctlm-action-btn ctlm-action-btn--danger" @click="confirmDelete('club', tpl)">Delete</button>
           </div>
@@ -261,6 +271,7 @@ const useLibraryIcon = ref(false);
 const libraryIconId = ref(null);
 const deleteConfirm = ref(null);
 const deleteLoading = ref(false);
+const cloningToTenantId = ref(null);
 
 const canWriteTenantLibrary = computed(() =>
   props.userRole === 'super_admin' ||
@@ -499,6 +510,24 @@ async function cloneTenantTemplate(tpl) {
     await loadClubTemplates();
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Failed to clone challenge template.');
+  }
+}
+
+/**
+ * Reverse clone: push a club-library template up into the Summit Stats tenant library so
+ * every club under the tenant can pick it up. Gated by `canWriteTenantLibrary`.
+ */
+async function cloneClubTemplateToTenant(tpl) {
+  if (!props.clubId || !tpl?.id) return;
+  if (cloningToTenantId.value === tpl.id) return;
+  cloningToTenantId.value = tpl.id;
+  try {
+    await api.post(`/summit-stats/clubs/${props.clubId}/tenant-challenge-templates/clone-from-club/${tpl.id}`);
+    await loadTenantTemplates();
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to clone to Summit Stats library.');
+  } finally {
+    cloningToTenantId.value = null;
   }
 }
 

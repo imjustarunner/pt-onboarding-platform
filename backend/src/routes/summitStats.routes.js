@@ -83,6 +83,7 @@ import {
   updateTenantTaskTemplate,
   deleteTenantTaskTemplate,
   cloneTenantTaskTemplate,
+  cloneClubTaskTemplateToTenant,
   listGlobalTemplates,
   createGlobalTemplate
 } from '../controllers/challengeTaskTemplates.controller.js';
@@ -318,6 +319,7 @@ router.post('/clubs/:id/tenant-challenge-templates', createTenantTaskTemplate);
 router.put('/clubs/:id/tenant-challenge-templates/:tId', updateTenantTaskTemplate);
 router.delete('/clubs/:id/tenant-challenge-templates/:tId', deleteTenantTaskTemplate);
 router.post('/clubs/:id/challenge-templates/clone-from-tenant/:tId', cloneTenantTaskTemplate);
+router.post('/clubs/:id/tenant-challenge-templates/clone-from-club/:tId', cloneClubTaskTemplateToTenant);
 
 // Global SSTC challenge template library
 router.get('/challenge-templates/global', listGlobalTemplates);
