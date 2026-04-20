@@ -6255,12 +6255,16 @@ export const finalizePublicIntake = async (req, res, next) => {
     let downloadUrl = null;
     let bundleResult = null;
     let bundleSaveFailed = false;
+    // Hoisted so the school-ROI completion email can attach the actual packet
+    // PDF (mirrors the registration flow). See registration flow for the
+    // rationale — signed download URLs aren't enough on their own.
+    let combinedPdfBuffer = null;
     // Multi-child submissions deliberately do NOT produce a combined bundle
     // anymore — each child owns a fully isolated per-child packet built above,
     // and merging them into a single file would co-mingle their PHI in one
     // artifact (which we don't want for audit/download/email purposes).
     // Single-child submissions still produce the combined bundle because it
-    // doubles as the only per-child packet via the dedup block below.
+    // doubles as the only per-client packet via the dedup block below.
     const isMultiChildSubmission = Array.isArray(rawClients) && rawClients.length > 1;
     if (pdfPaths.length > 0 && !isMultiChildSubmission) {
       // Combined-bundle build/upload is wrapped in its own try/catch so that
@@ -6283,6 +6287,8 @@ export const finalizePublicIntake = async (req, res, next) => {
           { label: `school-roi-combined-${submissionId}` }
         );
         const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
+        // Capture the buffer for the completion-email attachment below.
+        combinedPdfBuffer = mergedPdf;
         bundleResult = await StorageService.saveIntakeBundle({
           submissionId,
           fileBuffer: mergedPdf,
@@ -6543,6 +6549,16 @@ export const finalizePublicIntake = async (req, res, next) => {
             organizationId: link?.organization_id || null,
             scopeType: link?.scope_type || null
           });
+          // Attach the actual packet PDF (not just the signed download URL)
+          // so the family always has the bytes — see registration flow for
+          // the rationale.
+          const packetAttachments = combinedPdfBuffer
+            ? [{
+                filename: `intake-packet-${submissionId}.pdf`,
+                contentType: 'application/pdf',
+                contentBase64: combinedPdfBuffer.toString('base64')
+              }]
+            : null;
           if (identity?.id) {
             await sendEmailFromIdentity({
               senderIdentityId: identity.id,
@@ -6550,6 +6566,7 @@ export const finalizePublicIntake = async (req, res, next) => {
               subject: packetEmail.subject,
               text: packetEmail.text,
               html: packetEmail.html,
+              attachments: packetAttachments,
               source: 'auto',
               clientId: updatedSubmission?.client_id || null,
               templateType: 'intake_packet_completion'
@@ -6575,7 +6592,7 @@ export const finalizePublicIntake = async (req, res, next) => {
               fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
               fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
               replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-              attachments: null,
+              attachments: packetAttachments,
               source: 'auto',
               agencyId: link?.organization_id || null,
               clientId: updatedSubmission?.client_id || null,
@@ -7259,6 +7276,11 @@ export const submitPublicIntake = async (req, res, next) => {
     let downloadUrl = null;
     let bundleResult = null;
     let bundleSaveFailed = false;
+    // Hoisted so the completion email can ATTACH the actual packet PDF (not
+    // just a download link). Parents have repeatedly reported "no email"
+    // because expiring signed URLs went to spam — sending the bytes inline
+    // means the family always has the packet even if the link rots.
+    let combinedPdfBuffer = null;
     // Multi-child submissions deliberately skip the combined bundle — each
     // child owns a fully isolated per-child packet built above. See the
     // matching guard in the school-roi flow for the same rationale.
@@ -7290,6 +7312,10 @@ export const submitPublicIntake = async (req, res, next) => {
         );
         markSubmitStep('combinedBundleCompress', Date.now() - compressStart);
         const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
+        // Capture the buffer so the completion email can attach the PDF
+        // directly. Big buffers are released the moment the request handler
+        // returns (we never store them past the email send below).
+        combinedPdfBuffer = mergedPdf;
         const saveStart = Date.now();
         bundleResult = await StorageService.saveIntakeBundle({
           submissionId,
@@ -7626,6 +7652,18 @@ export const submitPublicIntake = async (req, res, next) => {
             organizationId: link?.organization_id || null,
             scopeType: link?.scope_type || null
           });
+          // Build the packet attachment array. We attach the actual PDF
+          // bytes (not just the signed download URL) so the family always has
+          // the packet on hand even if the signed link expires or lands in
+          // spam — the user explicitly called this out as how the rest of
+          // the app behaves with email packets.
+          const packetAttachments = combinedPdfBuffer
+            ? [{
+                filename: `intake-packet-${submissionId}.pdf`,
+                contentType: 'application/pdf',
+                contentBase64: combinedPdfBuffer.toString('base64')
+              }]
+            : null;
           let sendResult = null;
           if (identity?.id) {
             sendResult = await sendEmailFromIdentity({
@@ -7634,6 +7672,7 @@ export const submitPublicIntake = async (req, res, next) => {
               subject: packetEmail.subject,
               text: packetEmail.text,
               html: packetEmail.html,
+              attachments: packetAttachments,
               source: 'auto',
               clientId: updatedSubmission?.client_id || null,
               templateType: 'intake_packet_completion'
@@ -7656,7 +7695,7 @@ export const submitPublicIntake = async (req, res, next) => {
               fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
               fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
               replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-              attachments: null,
+              attachments: packetAttachments,
               source: 'auto',
               agencyId: link?.organization_id || null,
               clientId: updatedSubmission?.client_id || null,
