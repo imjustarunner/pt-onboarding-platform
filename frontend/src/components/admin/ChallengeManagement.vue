@@ -144,7 +144,7 @@
               </small>
             </div>
           </div>
-          <div v-if="!editingChallenge" class="form-group participation-agreement-block">
+          <div class="form-group participation-agreement-block">
             <label style="font-weight:700;">Season Billing (Coming soon)</label>
             <p class="hint" style="margin: 6px 0 12px 0;">
               Billing is scaffolded for future Stripe support and is disabled by default. New seasons can be pre-configured now.
@@ -3245,6 +3245,7 @@ const openCreateModal = () => {
     additionalMetricsText: '',
     eventCategory: 'run_ruck',
     challengeAssignmentMode: 'volunteer_or_elect',
+    runRuckScoringMetric: 'distance',
     runMilesPerPoint: 1,
     ruckMilesPerPoint: 1,
     caloriesPerPoint: 100,
@@ -3261,6 +3262,7 @@ const openCreateModal = () => {
     postseasonBreakWeekNumber: 11,
     playoffWeekNumber: 11,
     championshipWeekNumber: 12,
+    weekPhases: [],
     playoffSeedCount: 4,
     playoffMatchupMode: '1v4_2v3',
     runRuckStartMilesPerPerson: 0,
