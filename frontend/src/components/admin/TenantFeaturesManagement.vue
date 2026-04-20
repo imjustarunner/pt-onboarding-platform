@@ -3,14 +3,14 @@
     <div class="section-header">
       <h2>Features</h2>
       <p class="section-description">
-        Scope what this tenant can buy, what it costs, and whether a-la-carte selection is currently open.
+        Scope what this {{ contextNoun }} can buy, what it costs, and whether a-la-carte selection is currently open.
       </p>
     </div>
 
     <div v-if="!currentAgencyId" class="placeholder-content">
       <div class="placeholder-icon">🎛️</div>
-      <h3>Select a tenant</h3>
-      <p>Choose a tenant context above to manage feature access.</p>
+      <h3>{{ isSuperAdmin ? 'Select a tenant' : 'Select an organization' }}</h3>
+      <p>Choose a {{ contextNoun }} context above to manage feature access.</p>
     </div>
 
     <template v-else>
@@ -72,12 +72,12 @@
         </div>
 
         <div v-else-if="featureControls.allAlaCarteDisabled" class="feature-banner feature-banner-warning">
-          A-la-carte is paused for this tenant right now. Pricing stays visible, but tenant admins cannot change
-          selections until superadmin turns it back on.
+          A-la-carte is paused for this {{ contextNoun }} right now. Pricing stays visible, but admins cannot change
+          selections until a superadmin turns it back on.
         </div>
 
         <div v-else-if="!canUseLiveBilling" class="feature-banner">
-          Billing is still in coming-soon mode for this tenant, so self-serve feature selection will stay locked until
+          Billing is still in coming-soon mode for this {{ contextNoun }}, so self-serve feature selection will stay locked until
           billing goes live.
         </div>
 
@@ -257,7 +257,7 @@
           <div>
             <h3>Available platform features</h3>
             <p class="muted">
-              Only the features enabled for this tenant show here. Selections feed the billing subscription automatically.
+              Only the features enabled for this {{ contextNoun }} show here. Selections feed the billing subscription automatically.
             </p>
           </div>
           <button class="btn" type="button" :disabled="saveSelectionsDisabled" @click="saveTenantSelections">
@@ -266,7 +266,7 @@
         </div>
 
         <div v-if="pricingError" class="error">{{ pricingError }}</div>
-        <div v-if="tenantVisibleFeatures.length === 0" class="empty">No features are available for this tenant yet.</div>
+        <div v-if="tenantVisibleFeatures.length === 0" class="empty">No features are available for this {{ contextNoun }} yet.</div>
 
         <div v-else class="feature-list">
           <article v-for="feature in tenantVisibleFeatures" :key="`tenant-feature-${feature.key}`" class="feature-row">
@@ -322,8 +322,9 @@ const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id || null);
-const currentAgencyName = computed(() => agencyStore.currentAgency?.name || 'This tenant');
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
+const contextNoun = computed(() => (isSuperAdmin.value ? 'tenant' : 'organization'));
+const currentAgencyName = computed(() => agencyStore.currentAgency?.name || `This ${contextNoun.value}`);
 
 const loadError = ref('');
 const pricingError = ref('');
@@ -541,7 +542,7 @@ const displayFeaturePrice = (feature) => {
     const parts = [];
     if (effectiveTenant > 0) {
       const isOverride = feature.tenantMonthlyOverrideDollars != null;
-      parts.push(`$${effectiveTenant.toFixed(2)} tenant/mo${isOverride ? ' (override)' : ''}`);
+      parts.push(`$${effectiveTenant.toFixed(2)} ${contextNoun.value}/mo${isOverride ? ' (override)' : ''}`);
     }
     if (effectiveUser > 0 && feature.perUserBillable) {
       const isOverride = feature.userMonthlyOverrideDollars != null;

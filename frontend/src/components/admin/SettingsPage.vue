@@ -3,7 +3,7 @@
     <div class="page-header">
       <div class="page-title">
         <h1>Settings</h1>
-        <div class="subtitle">Manage platform and agency settings.</div>
+        <div class="subtitle">Manage platform and organization settings.</div>
       </div>
       <div class="page-actions">
         <button @click="goBack" class="btn btn-secondary">Back</button>

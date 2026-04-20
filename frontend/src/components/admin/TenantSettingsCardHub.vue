@@ -6,7 +6,7 @@
         {{
           isSuperAdmin
             ? 'Pick an area below. Use Hub home and the quick links above for directory and platform-wide defaults.'
-            : 'Pick an area below. Use the agency bar at the top if you manage more than one tenant.'
+            : 'Pick an area below. Use the organization bar at the top if you manage more than one organization.'
         }}
       </p>
     </header>
@@ -42,7 +42,7 @@
 
     <section class="hub-section">
       <h3 class="hub-section-title">You & your admins</h3>
-      <p class="hub-section-hint">Day-to-day tenant configuration (admins see the same screens with role limits).</p>
+      <p class="hub-section-hint">Day-to-day {{ contextNoun }} configuration (admins see the same screens with role limits).</p>
       <div class="hub-cards">
         <button type="button" class="hub-card" @click="openArea('general', 'company-profile')">
           <span class="hub-card-icon" aria-hidden="true">
@@ -51,7 +51,7 @@
           </span>
           <span class="hub-card-body">
             <span class="hub-card-label">Company profile</span>
-            <span class="hub-card-desc">Branding, features, terminology, org structure for this tenant.</span>
+            <span class="hub-card-desc">Branding, features, terminology, org structure for this {{ contextNoun }}.</span>
           </span>
         </button>
         <button type="button" class="hub-card" @click="openArea('general', 'tenant-features')">
@@ -61,7 +61,7 @@
           </span>
           <span class="hub-card-body">
             <span class="hub-card-label">Features</span>
-            <span class="hub-card-desc">Scoped feature availability, pricing, and a-la-carte controls for this tenant.</span>
+            <span class="hub-card-desc">Scoped feature availability, pricing, and a-la-carte controls for this {{ contextNoun }}.</span>
           </span>
         </button>
         <button type="button" class="hub-card" @click="openArea('general', 'team-roles')">
@@ -71,7 +71,7 @@
           </span>
           <span class="hub-card-body">
             <span class="hub-card-label">Team & roles</span>
-            <span class="hub-card-desc">Who can access what inside this tenant.</span>
+            <span class="hub-card-desc">Who can access what inside this {{ contextNoun }}.</span>
           </span>
         </button>
       </div>
@@ -80,7 +80,7 @@
     <section class="hub-section">
       <h3 class="hub-section-title">Billing account</h3>
       <p class="hub-section-hint">
-        Charges, invoices, receipts, payment methods, and merchant setup for this tenant.
+        Charges, invoices, receipts, payment methods, and merchant setup for this {{ contextNoun }}.
       </p>
       <div class="hub-cards hub-cards-single">
         <button type="button" class="hub-card" @click="openArea('general', 'billing')">
@@ -90,7 +90,7 @@
           </span>
             <span class="hub-card-body">
               <span class="hub-card-label">Billing</span>
-            <span class="hub-card-desc">Charges, invoices, receipts, payment methods, and billing history for this tenant.</span>
+            <span class="hub-card-desc">Charges, invoices, receipts, payment methods, and billing history for this {{ contextNoun }}.</span>
             </span>
         </button>
       </div>
@@ -136,7 +136,8 @@ const props = defineProps({
 
 const agencyStore = useAgencyStore();
 
-const tenantName = computed(() => agencyStore.currentAgency?.name || 'This tenant');
+const contextNoun = computed(() => (props.isSuperAdmin ? 'tenant' : 'organization'));
+const tenantName = computed(() => agencyStore.currentAgency?.name || `This ${contextNoun.value}`);
 
 const tenantOverviewCardLabel = computed(() => {
   const n = String(agencyStore.currentAgency?.name || '').trim();

@@ -67,14 +67,14 @@
         <div v-if="showTenantPickerShell" class="settings-tenant-picker-shell">
           <div class="tenant-picker-shell-head">
             <div class="tenant-picker-shell-title">
-              {{ isSuperAdmin ? 'Tenant' : 'Agency' }} context
+              {{ contextNounTitle }} context
             </div>
             <input
               v-model="tenantPickerSearch"
               type="search"
               class="tenant-picker-search"
-              placeholder="Search tenants…"
-              aria-label="Search tenants"
+              :placeholder="isSuperAdmin ? 'Search tenants…' : 'Search organizations…'"
+              :aria-label="isSuperAdmin ? 'Search tenants' : 'Search organizations'"
             />
             <div v-if="agencyStore.currentAgency" class="tenant-picker-active-pill">
               <div
@@ -100,7 +100,7 @@
               Platform mode — tenant-scoped items will ask you to select a tenant first.
             </p>
             <p v-else-if="!agencyStore.currentAgency" class="tenant-picker-hint muted">
-              Select a tenant below for Company Profile, billing, and other tenant settings.
+              Select {{ isSuperAdmin ? 'a tenant' : 'an organization' }} below for Company Profile, billing, and other {{ contextNoun }} settings.
             </p>
           </div>
           <div v-if="showTenantPickerShell && isSuperAdmin && !platformSettingsCardHubActive" class="tenant-mode-toggle-row" role="group" aria-label="Workspace mode">
@@ -240,7 +240,7 @@
         <div class="settings-content" :class="{ 'settings-content--solo-hub': platformSettingsCardHubActive }">
           <div v-if="tenantHubDrillInActive" class="tenant-hub-back-row">
             <button type="button" class="btn btn-link tenant-hub-back-btn" @click="selectItem('platform', 'tenant-ws-home')">
-              ← Tenant home
+              ← {{ isSuperAdmin ? 'Tenant home' : 'Home' }}
             </button>
           </div>
           <div v-if="platformHubDrillInActive" class="tenant-hub-back-row">
@@ -881,6 +881,10 @@ const allCategories = [
 
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 
+const contextNoun = computed(() => (isSuperAdmin.value ? 'tenant' : 'organization'));
+const contextNounTitle = computed(() => (isSuperAdmin.value ? 'Tenant' : 'Organization'));
+const contextPlural = computed(() => (isSuperAdmin.value ? 'tenants' : 'organizations'));
+
 /** Full sidebar tree for the signed-in user; tenant workspace hub items are excluded here so they only appear in the slim hub sidebar. */
 const roleFilteredCategories = computed(() => {
   const userRole = authStore.user?.role;
@@ -1026,7 +1030,7 @@ const tenantHubSecondaryBlocks = computed(() => {
         item: i.id,
         label: i.label,
         icon: i.icon,
-        description: PLATFORM_HUB_CARD_DESC[i.id] || '',
+        description: HUB_CARD_DESC.value[i.id] || '',
         superadminOnly: !!(i.roles?.length === 1 && i.roles[0] === 'super_admin')
       }))
     });
@@ -1047,34 +1051,34 @@ const platformSettingsCardHubActive = computed(() => {
   return true;
 });
 
-const PLATFORM_HUB_CARD_DESC = {
-  'client-settings': 'Programs, paths, and client catalog — pick a tenant first.',
-  'school-settings': 'School catalog and portal links — tenant-scoped.',
-  'provider-settings': 'Provider records and catalog — tenant-scoped.',
-  'provider-scheduling': 'Scheduling templates and rules — tenant-scoped.',
-  'availability-intake': 'Provider availability and intake — agency tenants.',
-  'shift-programs': 'Shift programs and publishing — needs tenant + feature flag.',
-  'payroll-schedule': 'Pay schedules and payroll — agency tenants with Payroll enabled.',
-  'departments': 'Org departments — tenant with budget management.',
-  packages: 'Onboarding packages — requires Onboarding & Training for this tenant.',
+const HUB_CARD_DESC = computed(() => ({
+  'client-settings': `Programs, paths, and client catalog — pick an ${contextNoun.value} first.`,
+  'school-settings': `School catalog and portal links — ${contextNoun.value}-scoped.`,
+  'provider-settings': `Provider records and catalog — ${contextNoun.value}-scoped.`,
+  'provider-scheduling': `Scheduling templates and rules — ${contextNoun.value}-scoped.`,
+  'availability-intake': `Provider availability and intake — agency ${contextPlural.value}.`,
+  'shift-programs': `Shift programs and publishing — needs ${contextNoun.value} + feature flag.`,
+  'payroll-schedule': `Pay schedules and payroll — agency ${contextPlural.value} with Payroll enabled.`,
+  departments: `Org departments — ${contextNoun.value} with budget management.`,
+  packages: `Onboarding packages — requires Onboarding & Training for this ${contextNoun.value}.`,
   'digital-forms': 'Intake and digital form links — requires Onboarding & Training.',
   'challenge-management': 'Seasons and challenges — Learning or Affiliation orgs.',
   'checklist-items':
-    'Platform-wide checklist templates (superadmin). Affects defaults for all tenants unless a tenant overrides.',
-  'checklist-items-agency': 'Tenant checklist assignments — requires Onboarding & Training.',
+    `Platform-wide checklist templates (superadmin). Affects defaults for all ${contextPlural.value} unless an ${contextNoun.value} overrides.`,
+  'checklist-items-agency': `${contextNounTitle.value} checklist assignments — requires Onboarding & Training.`,
   'field-definitions':
-    'Platform-wide profile field catalog (superadmin). Shared field definitions across tenants.',
-  'branding-config': 'Colors, fonts, logos — usually edited per tenant.',
+    `Platform-wide profile field catalog (superadmin). Shared field definitions across ${contextPlural.value}.`,
+  'branding-config': `Colors, fonts, logos — usually edited per ${contextNoun.value}.`,
   'branding-templates': 'Email and document templates.',
   assets: 'Icons, fonts, and shared creative assets.',
-  'note-aid-kb': 'Note Aid knowledge base — tenant with Note Aid enabled.',
+  'note-aid-kb': `Note Aid knowledge base — ${contextNoun.value} with Note Aid enabled.`,
   communications: 'Transactional email templates.',
-  'sms-numbers': 'Texting numbers — tenant-scoped.',
+  'sms-numbers': `Texting numbers — ${contextNoun.value}-scoped.`,
   'email-settings': 'SMTP and platform email defaults.',
   integrations: 'Third-party connections and API-related settings.',
-  'management-team-config': 'Executive visibility — agency tenants.',
+  'management-team-config': `Executive visibility — agency ${contextPlural.value}.`,
   archive: 'Soft-deleted records and restore tools.'
-};
+}));
 
 const platformHubSecondaryBlocks = computed(() => {
   if (!platformSettingsCardHubActive.value) return [];
@@ -1089,7 +1093,7 @@ const platformHubSecondaryBlocks = computed(() => {
         item: i.id,
         label: i.label,
         icon: i.icon,
-        description: PLATFORM_HUB_CARD_DESC[i.id] || '',
+        description: HUB_CARD_DESC.value[i.id] || '',
         superadminOnly: !!(i.roles?.length === 1 && i.roles[0] === 'super_admin')
       }));
     if (!items.length) return;
@@ -1293,12 +1297,12 @@ const isChallengeManagement = computed(() => selectedCategory.value === 'workflo
 
 const agencyContextLabel = computed(() => {
   if (isChallengeManagement.value) return 'Organization';
-  return isSuperAdmin.value ? 'Tenant' : 'Agency';
+  return contextNounTitle.value;
 });
 
 const agencyContextPlaceholder = computed(() => {
   if (isChallengeManagement.value) return 'Select a Learning or Affiliation organization…';
-  return isSuperAdmin.value ? 'Select a tenant…' : 'Select an agency…';
+  return isSuperAdmin.value ? 'Select a tenant…' : 'Select an organization…';
 });
 
 const agencyContextEmptyMessage = computed(() => {
@@ -1306,7 +1310,7 @@ const agencyContextEmptyMessage = computed(() => {
   if (isSuperAdmin.value && !agencyStore.currentAgency && agencyStore.platformMode) {
     return 'Select a tenant from the logo bar above to use this screen.';
   }
-  return isSuperAdmin.value ? 'Select a tenant to continue.' : 'Select an agency to continue.';
+  return isSuperAdmin.value ? 'Select a tenant to continue.' : 'Select an organization to continue.';
 });
 
 const selectedAgencyIsAgencyOrg = computed(() => {

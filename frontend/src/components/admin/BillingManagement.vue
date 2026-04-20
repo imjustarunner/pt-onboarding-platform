@@ -3,23 +3,23 @@
     <div class="section-header">
       <h2>Billing</h2>
       <p class="section-description">
-        Subscription account, charges, invoices, receipts, and merchant controls for this tenant.
+        Subscription account, charges, invoices, receipts, and merchant controls for this {{ contextNoun }}.
       </p>
     </div>
     
     <div v-if="!currentAgencyId" class="placeholder-content">
       <div class="placeholder-icon">💳</div>
-      <h3>Select an Agency</h3>
-      <p>Choose an agency context to view billing details.</p>
+      <h3>{{ isSuperAdmin ? 'Select a tenant' : 'Select an organization' }}</h3>
+      <p>Choose a {{ contextNoun }} context to view billing details.</p>
       <div class="agency-picker" v-if="billingAgencies.length > 0">
         <input
           v-model="agencySearch"
           class="input"
           type="text"
-          placeholder="Search agencies…"
+          :placeholder="isSuperAdmin ? 'Search tenants…' : 'Search organizations…'"
         />
         <select v-model="selectedAgencyId" class="select">
-          <option value="">Select an agency…</option>
+          <option value="">{{ isSuperAdmin ? 'Select a tenant…' : 'Select an organization…' }}</option>
           <option v-for="a in filteredBillingAgencies" :key="a.id" :value="String(a.id)">
             {{ a.name }} ({{ a.slug }})
           </option>
@@ -101,8 +101,8 @@
             <h3>{{ billingRolloutActive ? 'Billing is live' : 'Billing coming soon' }}</h3>
             <p class="muted">
               {{ billingRolloutActive
-                ? 'Invoices, receipts, payment collection, and billing history are active for this tenant.'
-                : (billingRollout?.comingSoonMessage || 'Platform billing is coming soon for this tenant.') }}
+                ? `Invoices, receipts, payment collection, and billing history are active for this ${contextNoun}.`
+                : (billingRollout?.comingSoonMessage || `Platform billing is coming soon for this ${contextNoun}.`) }}
             </p>
           </div>
           <span :class="['pill', billingRolloutActive ? 'pill-on' : 'pill-off']">
@@ -288,8 +288,8 @@
             <div class="label">Who handles platform billing</div>
             <div class="inline">
               <select v-model="subscriptionMerchantMode" class="select">
-                <option value="platform_managed">Use platform billing (tenant pays you)</option>
-                <option value="agency_managed">Use tenant billing account</option>
+                <option value="platform_managed">Use platform billing ({{ contextNoun }} pays you)</option>
+                <option value="agency_managed">Use {{ contextNoun }} billing account</option>
               </select>
               <button class="btn" :disabled="savingSettings" @click="saveBillingSettings">
                 {{ savingSettings ? 'Saving…' : 'Save' }}
@@ -353,8 +353,8 @@
             </div>
             <div v-else-if="subscriptionMerchantMode === 'agency_managed'" class="value">
               {{ subscriptionProviderStatus?.isConnected
-                ? 'This tenant has an active Stripe Connect account for subscription billing.'
-                : 'This tenant must finish Stripe Connect onboarding before Stripe subscription cards can be saved.' }}
+                ? `This ${contextNoun} has an active Stripe Connect account for subscription billing.`
+                : `This ${contextNoun} must finish Stripe Connect onboarding before Stripe subscription cards can be saved.` }}
             </div>
             <div v-else class="value">
               {{ subscriptionProviderStatus?.isConnected
@@ -374,16 +374,16 @@
         </div>
 
         <div class="merchant-choice-callout">
-          <strong>{{ subscriptionMerchantMode === 'platform_managed' ? 'Use platform billing' : 'Use tenant billing account' }}</strong>
+          <strong>{{ subscriptionMerchantMode === 'platform_managed' ? 'Use platform billing' : `Use ${contextNoun} billing account` }}</strong>
           <span>
             {{
               subscriptionMerchantMode === 'platform_managed'
                 ? (usingStripeForSubscription
-                  ? 'This tenant will pay the platform through your platform Stripe account.'
-                  : 'This tenant will pay the platform through your platform QuickBooks merchant.')
+                  ? `This ${contextNoun} will pay the platform through your platform Stripe account.`
+                  : `This ${contextNoun} will pay the platform through your platform QuickBooks merchant.`)
                 : (usingStripeForSubscription
-                  ? 'This tenant will use its own Stripe-connected billing account to pay the platform.'
-                  : 'This tenant will use its own QuickBooks billing connection to pay the platform.')
+                  ? `This ${contextNoun} will use its own Stripe-connected billing account to pay the platform.`
+                  : `This ${contextNoun} will use its own QuickBooks billing connection to pay the platform.`)
             }}
           </span>
         </div>
@@ -396,8 +396,8 @@
         </div>
         <div v-if="usingStripeForSubscription && !subscriptionProviderStatus?.paymentsEnabled" class="error" style="margin-top: 10px;">
           {{ subscriptionMerchantMode === 'platform_managed'
-            ? 'Platform Stripe is not configured yet for tenant subscription billing.'
-            : 'Stripe Connect must be active for this tenant before Stripe subscription billing can charge cards.' }}
+            ? `Platform Stripe is not configured yet for ${contextNoun} subscription billing.`
+            : `Stripe Connect must be active for this ${contextNoun} before Stripe subscription billing can charge cards.` }}
         </div>
 
         <div class="card" style="margin-top: 16px;">
@@ -582,7 +582,7 @@
                         <table class="sub-table">
                           <tbody>
                             <tr v-if="tenantPortionFor(inv, fk)" class="tenant-row">
-                              <td>Tenant fee</td>
+                              <td>{{ isSuperAdmin ? 'Tenant fee' : 'Organization fee' }}</td>
                               <td class="mono">
                                 {{ tenantPortionFor(inv, fk).billableDays }}/{{ invoiceFeatureBilling(inv).daysInPeriod }} days
                                 @ {{ money(tenantPortionFor(inv, fk).unitMonthlyCents) }}/mo
@@ -743,6 +743,7 @@ const router = useRouter();
 
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id || null);
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
+const contextNoun = computed(() => (isSuperAdmin.value ? 'tenant' : 'organization'));
 const agencySearch = ref('');
 const selectedAgencyId = ref('');
 
@@ -854,7 +855,7 @@ const subscriptionPaymentProvider = ref('QUICKBOOKS');
 const clientPaymentsMode = ref('not_configured');
 const billingRollout = ref({
   status: 'coming_soon',
-  comingSoonMessage: 'Platform billing is coming soon for this tenant. Invoices and payment collection will appear here once billing is activated.',
+  comingSoonMessage: 'Platform billing is coming soon for this organization. Invoices and payment collection will appear here once billing is activated.',
   activationLabel: null,
   isActive: false
 });
@@ -1450,7 +1451,7 @@ const loadStripePaymentSetup = async () => {
     const connectedAccountId = res.data?.connectedAccountId || null;
     stripeClientSecret = res.data?.clientSecret || null;
     if (!publishableKey || !stripeClientSecret) {
-      throw new Error('Stripe setup is incomplete for this tenant.');
+      throw new Error(`Stripe setup is incomplete for this ${contextNoun}.`);
     }
     stripeInstance = connectedAccountId
       ? await loadStripe(publishableKey, { stripeAccount: connectedAccountId })
