@@ -1,7 +1,7 @@
 import { GoogleAuth } from 'google-auth-library';
 import config from '../../config/config.js';
 import { parseGoogleWorkspaceServiceAccountFromEnv } from '../googleWorkspaceAuth.service.js';
-import { getToolSchemas } from './toolRegistry.service.js';
+import { getToolSchemasForUser } from './toolRegistry.service.js';
 
 function sanitizeText(v, { maxLen }) {
   const s = String(v ?? '')
@@ -32,12 +32,9 @@ async function getAccessToken() {
   return token;
 }
 
-function buildSystemPrompt({ includeSearch, agentConfig }) {
+function buildSystemPrompt({ includeSearch, agentConfig, user }) {
   const cfg = agentConfig && typeof agentConfig === 'object' ? agentConfig : null;
-  const allowedToolsRaw = Array.isArray(cfg?.allowedTools) ? cfg.allowedTools : null;
-  const allowedSet = allowedToolsRaw ? new Set(allowedToolsRaw.map((t) => String(t || '').trim()).filter(Boolean)) : null;
-  const allTools = getToolSchemas();
-  const tools = allowedSet ? allTools.filter((t) => allowedSet.has(t.name)) : allTools;
+  const tools = getToolSchemasForUser(user, cfg);
   const agentSystemPrompt = cfg?.systemPrompt == null ? null : String(cfg.systemPrompt).slice(0, 6000);
   return [
     'You are the in-app assistant for a business web application.',
@@ -55,6 +52,7 @@ function buildSystemPrompt({ includeSearch, agentConfig }) {
     '- Do not include markdown or explanations outside JSON (no ``` fences, no tool_code blocks).',
     '- Put tools ONLY in the top-level JSON property "toolCalls" (camelCase). Do not use "tool_calls" or put tool JSON inside assistantText.',
     '- If you are unsure, do not call tools; ask a clarifying question in assistantText.',
+    '- uiCommands from the model are ignored for navigation; only use toolCalls (navigateTo, openEntity, etc.). Leave uiCommands empty or omit it.',
     '- uiCommands must be minimal and safe.',
     '',
     'Navigation rubric (Ask Assistant v1):',
@@ -63,8 +61,11 @@ function buildSystemPrompt({ includeSearch, agentConfig }) {
     '- To open a specific program event: call searchEvents({ query, startsAfter?, startsBefore? }) first, then openEntity({ kind: "event", id }).',
     '- To open a specific user profile (admins only): call searchUsers({ query }) first, then openEntity({ kind: "user", id }).',
     '- For generic pages ("my schedule", "the dashboard", "clients page", "referral directory"), call navigateTo({ routeName }) using one of the whitelisted routeNames in the tool schema — never fabricate a path.',
+    '- For the signed-in user\'s own payroll questions (last paycheck / pay amount, how many NO_NOTE or unpaid draft documentation rows, delinquency), call getMyPayrollSummary({}) and explain the returned JSON in plain language — do not guess pay figures.',
+    '- When the user needs referral options for a client (e.g. pediatrics, psychiatry, speech therapy) or asks "who should I refer to", call searchReferralDirectory({ query }) with the specialties or service types they mentioned, then list the returned entries clearly (name, organization, phone, specialties). If nothing matches, say so and suggest refining the query or opening the Referral Directory page.',
     '- If a search returns no results or ambiguous matches, ask the user a clarifying question in assistantText instead of guessing.',
-    '- toolCalls must match these allowed tools exactly:',
+    '- If no tools are listed below, answer from general product guidance only; do not invent tenant-specific data.',
+    '- toolCalls must match these allowed tools exactly (this list is scoped to the signed-in user\'s role):',
     JSON.stringify(tools, null, 2),
     '',
     includeSearch
@@ -198,7 +199,7 @@ async function callReasoningEngineStreamQuerySse({ token, projectId, location, r
   }
 }
 
-async function callAdkService({ url, prompt, context, userId, allowSearch, timeoutMs }) {
+async function callAdkService({ url, prompt, context, userId, allowSearch, timeoutMs, user }) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -208,8 +209,12 @@ async function callAdkService({ url, prompt, context, userId, allowSearch, timeo
       signal: controller.signal,
       body: JSON.stringify({
         prompt,
-        context: context && typeof context === 'object' ? context : {},
+        context:
+          context && typeof context === 'object'
+            ? { ...context, userRole: user?.role || null }
+            : { userRole: user?.role || null },
         userId: userId || null,
+        userRole: user?.role || null,
         allowSearch: !!allowSearch
       })
     });
@@ -241,13 +246,14 @@ async function callAdkService({ url, prompt, context, userId, allowSearch, timeo
   }
 }
 
-export async function runAgentAssist({ userId, prompt, context, agentConfig, allowSearch }) {
+export async function runAgentAssist({ userId, prompt, context, agentConfig, allowSearch, user }) {
   const cleanedPrompt = sanitizeText(prompt, { maxLen: 8000 });
   const ctx = context && typeof context === 'object' ? context : {};
 
-  const systemPrompt = buildSystemPrompt({ includeSearch: !!allowSearch, agentConfig });
+  const systemPrompt = buildSystemPrompt({ includeSearch: !!allowSearch, agentConfig, user });
   const userPrompt = [
     `UserId: ${String(userId || '')}`,
+    `UserRole: ${String(user?.role || '')}`,
     `RouteName: ${String(ctx.routeName || '')}`,
     `PlacementKey: ${String(ctx.placementKey || '')}`,
     `AgencyId: ${String(ctx.agencyId || '')}`,
@@ -273,6 +279,7 @@ export async function runAgentAssist({ userId, prompt, context, agentConfig, all
       prompt: [systemPrompt, '', userPrompt].join('\n'),
       context: ctx,
       userId,
+      user,
       allowSearch,
       timeoutMs
     });

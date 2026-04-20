@@ -595,7 +595,7 @@
               </div>
               <div class="step-actions">
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
-                <button v-if="questionSets.length" class="btn btn-secondary btn-sm" type="button" @click="openQSetPicker">+ Add Question Set</button>
+                <button v-if="questionSets.length" class="btn btn-secondary btn-sm" type="button" @click="openQSetPicker()" title="Insert a saved question set as a new step at the end of the form">+ Add Question Set (new step)</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('registration')">+ Add Registration</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
                 <button
@@ -1368,9 +1368,65 @@
                       <option value="new_client_only">New clients only (hide when existing client match)</option>
                     </select>
                   </div>
+                  <!--
+                    Group Select / Save-as-Group toolbar. Admins toggle
+                    this on to multi-select questions in the step and save
+                    the selection as a reusable Question Set — the
+                    intended workflow when rolling out a handful of new
+                    questions across many existing forms.
+                  -->
+                  <div class="qlist-toolbar">
+                    <button
+                      class="btn btn-xs"
+                      :class="isGroupSelectModeForStep(step) ? 'btn-primary' : 'btn-secondary'"
+                      type="button"
+                      @click="toggleGroupSelectMode(step.id)"
+                      :title="isGroupSelectModeForStep(step) ? 'Exit Group Select mode' : 'Turn on Group Select to pick questions to save as a reusable set'"
+                    >{{ isGroupSelectModeForStep(step) ? '✓ Group Select on' : 'Group Select' }}</button>
+                    <template v-if="isGroupSelectModeForStep(step)">
+                      <span class="muted" style="font-size:12px;">
+                        {{ groupSelectFieldIds.size }} selected — tick the boxes next to questions you want to save together.
+                      </span>
+                      <button class="btn btn-xs btn-secondary" type="button" @click="selectAllFieldsInStep(step)">Select all</button>
+                      <button class="btn btn-xs btn-secondary" type="button" @click="clearFieldGroupSelection">Clear</button>
+                      <div class="qlist-toolbar-spacer"></div>
+                      <button
+                        class="btn btn-xs btn-primary"
+                        type="button"
+                        :disabled="!groupSelectFieldIds.size || savingGroupFromSelection"
+                        @click="saveSelectionAsQuestionSet(step)"
+                      >{{ savingGroupFromSelection ? 'Saving…' : `Save ${groupSelectFieldIds.size} as Question Set…` }}</button>
+                    </template>
+                    <template v-else>
+                      <span class="muted" style="font-size:12px;">
+                        Tip: turn on Group Select to save 2+ questions as a reusable set you can drop into any form.
+                      </span>
+                      <div class="qlist-toolbar-spacer"></div>
+                      <button
+                        v-if="questionSets.length"
+                        class="btn btn-xs btn-secondary"
+                        type="button"
+                        @click="openQSetPicker({ step, index: getStepFields(step).length - 1 })"
+                        title="Insert a saved group of questions at the end of this step"
+                      >+ Add Group here</button>
+                    </template>
+                  </div>
+
                   <div class="question-list">
-                    <div v-for="(field, fIdx) in getStepFields(step)" :key="field.id || fIdx" class="question-block">
+                    <div
+                      v-for="(field, fIdx) in getStepFields(step)"
+                      :key="field.id || fIdx"
+                      class="question-block"
+                      :class="{ 'qblock-selected': isGroupSelectModeForStep(step) && isFieldGroupSelected(field) }"
+                    >
                       <div class="question-label-row">
+                        <label v-if="isGroupSelectModeForStep(step)" class="group-select-checkbox" :title="'Include this question in the saved group'">
+                          <input
+                            type="checkbox"
+                            :checked="isFieldGroupSelected(field)"
+                            @change="toggleFieldInGroupSelect(field)"
+                          />
+                        </label>
                         <div class="question-index">#{{ fIdx + 1 }}</div>
                         <input v-model="field.label" placeholder="Question label" class="question-label-input" />
                       </div>
@@ -1413,10 +1469,17 @@
                           <option value="new_client_only">New clients only</option>
                         </select>
                         <div class="question-controls">
-                          <button class="btn btn-xs btn-secondary" type="button" @click="moveField(step, fIdx, -1)" :disabled="fIdx === 0">↑</button>
-                          <button class="btn btn-xs btn-secondary" type="button" @click="moveField(step, fIdx, 1)" :disabled="fIdx === getStepFields(step).length - 1">↓</button>
-                          <button class="btn btn-xs btn-secondary" type="button" @click="addFieldAfter(step, fIdx)">＋</button>
-                          <button class="btn btn-xs btn-danger" type="button" @click="removeField(step, fIdx)">×</button>
+                          <button class="btn btn-xs btn-secondary" type="button" @click="moveField(step, fIdx, -1)" :disabled="fIdx === 0" title="Move up">↑</button>
+                          <button class="btn btn-xs btn-secondary" type="button" @click="moveField(step, fIdx, 1)" :disabled="fIdx === getStepFields(step).length - 1" title="Move down">↓</button>
+                          <button class="btn btn-xs btn-secondary" type="button" @click="addFieldAfter(step, fIdx)" title="Add a single question after this one">＋</button>
+                          <button
+                            class="btn btn-xs btn-secondary"
+                            type="button"
+                            :disabled="!questionSets.length"
+                            :title="questionSets.length ? 'Insert a saved group of questions after this one' : 'No saved question sets yet — use Group Select to save one'"
+                            @click="openQSetPicker({ step, index: fIdx })"
+                          >＋ Grp</button>
+                          <button class="btn btn-xs btn-danger" type="button" @click="removeField(step, fIdx)" title="Delete this question">×</button>
                         </div>
                       </div>
                       <div class="question-meta">
@@ -1477,13 +1540,22 @@
                       </div>
                     </div>
                   </div>
-                  <button class="btn btn-xs btn-secondary" type="button" @click="addField(step)">+ Add Question</button>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn-xs btn-secondary" type="button" @click="addField(step)">+ Add Question</button>
+                    <button
+                      v-if="questionSets.length"
+                      class="btn btn-xs btn-secondary"
+                      type="button"
+                      @click="openQSetPicker({ step, index: getStepFields(step).length - 1 })"
+                      title="Insert a saved group of questions at the end of this step"
+                    >+ Add Group</button>
+                  </div>
                 </div>
               </div>
 
               <div v-if="safeSteps.length" class="step-actions step-actions-bottom">
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
-                <button v-if="questionSets.length" class="btn btn-secondary btn-sm" type="button" @click="openQSetPicker">+ Add Question Set</button>
+                <button v-if="questionSets.length" class="btn btn-secondary btn-sm" type="button" @click="openQSetPicker()" title="Insert a saved question set as a new step at the end of the form">+ Add Question Set (new step)</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('registration')">+ Add Registration</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
                 <button
@@ -1914,15 +1986,26 @@
 
   <!-- Question Set Picker Modal — teleported to body to escape any parent stacking context -->
   <Teleport to="body">
-  <div v-if="showQSetPicker" class="modal-backdrop qset-backdrop" @click.self="showQSetPicker = false">
-    <div class="modal-box qset-modal-box" style="max-width:480px;">
+  <div v-if="showQSetPicker" class="modal-backdrop qset-backdrop" @click.self="closeQSetPicker">
+    <div class="modal-box qset-modal-box" style="max-width:520px;">
       <div class="modal-header">
-        <h3 style="margin:0;">Insert a Question Set</h3>
-        <button class="btn btn-xs btn-secondary" type="button" @click="showQSetPicker = false">✕</button>
+        <h3 style="margin:0;">{{ qsetInsertTarget ? 'Insert Group Into This Step' : 'Insert a Question Set' }}</h3>
+        <button class="btn btn-xs btn-secondary" type="button" @click="closeQSetPicker">✕</button>
       </div>
       <div class="modal-body" style="padding:16px;">
-        <p class="muted" style="margin-top:0;">Choose a question set to insert as a new Questions step in the form. <strong>Remember to save the form after inserting.</strong></p>
-        <div v-if="!questionSets.length" class="muted">No question sets saved yet. Create one using the "Question Sets" button above.</div>
+        <p class="muted" style="margin-top:0;">
+          <template v-if="qsetInsertTarget">
+            Questions will be spliced <strong>inline</strong> into the current step
+            <template v-if="qsetInsertTarget.index != null"> right after question #{{ qsetInsertTarget.index + 1 }}</template>
+            <template v-else> at the end</template>,
+            exactly as they were designed in the saved set.
+          </template>
+          <template v-else>
+            Choose a question set to insert as a <strong>new Questions step</strong> at the end of the form.
+          </template>
+          <strong>Remember to save the form after inserting.</strong>
+        </p>
+        <div v-if="!questionSets.length" class="muted">No question sets saved yet. Use <strong>Group Select</strong> inside a step (or the "Question Sets" button above) to create one.</div>
         <div v-for="qs in questionSets" :key="qs.id" class="question-set-picker-row">
           <div>
             <strong>{{ qs.name || 'Unnamed Set' }}</strong>
@@ -2393,8 +2476,116 @@ const getQSetConditionalTargets = (idx) => {
     .map((f) => ({ key: f.key, label: f.label }));
 };
 
-const openQSetPicker = () => {
+// Target for the next question-set insert: when null, insert as a new step
+// (legacy behavior). When {step,index}, insert inline at step.fields[index+1].
+const qsetInsertTarget = ref(null);
+
+/**
+ * Open the Question Set picker.
+ *
+ * @param {{ step:object, index:number }|null} target - omit/null to insert as
+ *   a new step (legacy behavior of the "+ Add Question Set" bottom button).
+ *   Pass `{ step, index }` to splice the set's questions inline into an
+ *   existing step after the given field index, preserving every field
+ *   exactly as the admin designed it.
+ */
+const openQSetPicker = (target = null) => {
+  qsetInsertTarget.value = target && target.step ? {
+    step: target.step,
+    index: Number.isFinite(Number(target.index)) ? Number(target.index) : null
+  } : null;
   showQSetPicker.value = true;
+};
+
+const closeQSetPicker = () => {
+  showQSetPicker.value = false;
+  qsetInsertTarget.value = null;
+};
+
+// ─── Group Select mode ────────────────────────────────────────────────────────
+// Lets admins multi-select questions inside a step and save the selection as
+// a reusable Question Set — the intended workflow when rolling out a handful
+// of new questions across many existing forms.
+const groupSelectStepId = ref(null);
+const groupSelectFieldIds = ref(new Set());
+const savingGroupFromSelection = ref(false);
+
+const toggleGroupSelectMode = (stepId) => {
+  if (groupSelectStepId.value === stepId) {
+    groupSelectStepId.value = null;
+    groupSelectFieldIds.value = new Set();
+  } else {
+    groupSelectStepId.value = stepId;
+    groupSelectFieldIds.value = new Set();
+  }
+};
+
+const isGroupSelectModeForStep = (step) =>
+  !!step && groupSelectStepId.value === step.id;
+
+const isFieldGroupSelected = (field) =>
+  !!field && groupSelectFieldIds.value.has(field.id);
+
+const toggleFieldInGroupSelect = (field) => {
+  if (!field?.id) return;
+  const next = new Set(groupSelectFieldIds.value);
+  if (next.has(field.id)) next.delete(field.id);
+  else next.add(field.id);
+  groupSelectFieldIds.value = next;
+};
+
+const selectAllFieldsInStep = (step) => {
+  const fields = getStepFields(step) || [];
+  const next = new Set();
+  for (const f of fields) if (f?.id) next.add(f.id);
+  groupSelectFieldIds.value = next;
+};
+
+const clearFieldGroupSelection = () => {
+  groupSelectFieldIds.value = new Set();
+};
+
+const saveSelectionAsQuestionSet = async (step) => {
+  if (!selectedAgencyId.value) {
+    alert('Pick an agency first.');
+    return;
+  }
+  const fields = (getStepFields(step) || []).filter((f) => groupSelectFieldIds.value.has(f.id));
+  if (!fields.length) return;
+  const defaultName = step?.label ? `${step.label} – saved group` : 'Question Set';
+  const name = String(prompt('Name this group of questions (e.g., "Standard Intake 6"):', defaultName) || '').trim();
+  if (!name) return;
+  savingGroupFromSelection.value = true;
+  try {
+    // Clone and strip server-generated ids so new inserts get fresh ones.
+    const fieldsJson = JSON.parse(JSON.stringify(fields)).map((f) => {
+      const copy = { ...f };
+      delete copy.id;
+      if (Array.isArray(copy.options)) {
+        copy.options = copy.options.map((o) => {
+          const c = { ...o };
+          delete c.id;
+          return c;
+        });
+      }
+      return copy;
+    });
+    await api.post('/intake-field-templates', {
+      agencyId: selectedAgencyId.value,
+      name,
+      fieldsJson,
+      templateType: 'question_set'
+    });
+    await loadQuestionSets();
+    groupSelectStepId.value = null;
+    groupSelectFieldIds.value = new Set();
+    qsetInsertedNotice.value = true;
+    setTimeout(() => { qsetInsertedNotice.value = false; }, 6000);
+  } catch (e) {
+    alert('Failed to save question set: ' + (e?.response?.data?.error?.message || e.message));
+  } finally {
+    savingGroupFromSelection.value = false;
+  }
 };
 
 const openAddOnPreviewModal = () => {
@@ -2416,18 +2607,37 @@ const backToAddOnList = () => {
 };
 
 const insertQuestionSet = (qs) => {
-  const clonedFields = JSON.parse(JSON.stringify(qs.fields)).map((f) => ({
-    ...f,
-    id: createId('field')
-  }));
-  const step = {
-    id: createId('step'),
-    type: 'questions',
-    fields: clonedFields,
-    visibility: 'always',
-    label: qs.name || ''
-  };
-  form.intakeSteps.push(step);
+  // Deep-clone and reassign ids so editing one inserted copy never mutates
+  // another form's saved set (same reason option ids are regenerated).
+  const clonedFields = JSON.parse(JSON.stringify(qs.fields || [])).map((f) => {
+    const copy = { ...f, id: createId('field') };
+    if (Array.isArray(copy.options)) {
+      copy.options = copy.options.map((o) => ({ ...o, id: o?.id || createId('opt') }));
+    }
+    return copy;
+  });
+
+  const target = qsetInsertTarget.value;
+  if (target && target.step && Array.isArray(target.step.fields)) {
+    // Inline insert: splice into the current step right after the clicked
+    // question. This preserves the step's other fields, ordering, and the
+    // set's internal ordering as designed.
+    const fields = target.step.fields;
+    const at = target.index == null ? fields.length : Math.min(fields.length, target.index + 1);
+    fields.splice(at, 0, ...clonedFields);
+  } else {
+    // Legacy: append as a brand new Questions step at the end of the form.
+    const step = {
+      id: createId('step'),
+      type: 'questions',
+      fields: clonedFields,
+      visibility: 'always',
+      label: qs.name || ''
+    };
+    form.intakeSteps.push(step);
+  }
+
+  qsetInsertTarget.value = null;
   showQSetPicker.value = false;
   qsetInsertedNotice.value = true;
   setTimeout(() => { qsetInsertedNotice.value = false; }, 6000);
@@ -4906,15 +5116,28 @@ watch(
   z-index: 1200;
 }
 .modal {
-  width: 860px;
-  max-width: 95vw;
-  max-height: 92vh;
+  /* Desktop-first: we build & edit digital forms on big screens. Mobile
+     editing is an emergency case only, so this modal intentionally favors
+     breathing room for the field editor rows. */
+  width: 1180px;
+  max-width: 97vw;
+  max-height: 94vh;
   background: white;
   border-radius: 12px;
   border: 1px solid var(--border);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+@media (max-width: 900px) {
+  /* Emergency-only mobile editing: fall back to a full-bleed sheet so the
+     editor is still usable without redesigning the row layout. */
+  .modal {
+    width: 100%;
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+  }
 }
 .modal-header {
   padding: 12px 14px;
@@ -5088,7 +5311,19 @@ watch(
   flex: 1;
   min-width: 0;
 }
-.question-row,
+.question-row {
+  /* Deliberately wraps to two lines so admins can actually read each
+     control. On desktop (the primary editing surface), each input/select
+     claims enough space to show its label/value without truncation, and the
+     action cluster is pinned to the right edge. */
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 10px;
+  row-gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
 .option-row {
   display: flex;
   gap: 8px;
@@ -5100,14 +5335,22 @@ watch(
   margin-bottom: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 8px;
+  padding: 10px 12px;
   background: #fff;
+}
+
+.question-block.qblock-selected {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
+  background: #f0f7ff;
 }
 
 .question-controls {
   display: flex;
   gap: 6px;
   align-items: center;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .question-index {
@@ -5117,10 +5360,45 @@ watch(
   color: var(--text-secondary);
 }
 
-.question-row input,
-.option-row input,
-.question-row select {
+.question-row > input,
+.question-row > select {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+
+.question-row > .category-badge {
+  flex: 0 0 auto;
+}
+
+.question-row > .checkbox {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.option-row input {
   flex: 1;
+}
+
+.qlist-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  background: #f8fafc;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.qlist-toolbar .qlist-toolbar-spacer {
+  flex: 1;
+}
+
+.group-select-checkbox {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 8px;
 }
 
 .option-row input {

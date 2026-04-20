@@ -1,4 +1,5 @@
 import config from '../config/config.js';
+import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -9,6 +10,42 @@ import User from '../models/User.model.js';
 import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
 import { resolvePaperworkStatusId, seedClientAffiliations, seedClientPaperworkItems } from '../utils/clientProvisioning.js';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
+
+/**
+ * Guardian accounts created through public intake were being inserted into
+ * `users` without any matching `user_agencies` row. That meant:
+ *   • `GET /api/users/guardians` (which scopes to the viewer's agencies) did
+ *     not return them, so staff saw a "Linked Clients: 0 / no agency" gap
+ *     even though the child was correctly attached.
+ *   • Agency filters on the Guardians view skipped them entirely.
+ *   • Any downstream permission code keyed off user_agencies (portal access,
+ *     cross-tenant isolation) treated the guardian as tenant-less.
+ * This helper is the single seam for every intake path to make sure a new OR
+ * pre-existing guardian is affiliated with the same tenant that owns the
+ * child(ren) the guardian is being linked to.
+ */
+const ensureGuardianAgencyAffiliation = async (guardianUserId, agencyId) => {
+  const uid = Number(guardianUserId || 0) || null;
+  const aid = Number(agencyId || 0) || null;
+  if (!uid || !aid) return;
+  try {
+    await pool.execute(
+      `INSERT INTO user_agencies (user_id, agency_id)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE user_id = user_id`,
+      [uid, aid]
+    );
+  } catch (err) {
+    // Best-effort — surface visibly so the guardian silently-missing-from-agency
+    // class of bugs can't recur without us noticing. Downstream intake flow
+    // continues regardless so we don't break packet delivery.
+    console.warn('[publicIntakeClient] user_agencies affiliation failed for guardian', {
+      guardianUserId: uid,
+      agencyId: aid,
+      message: err?.message || err
+    });
+  }
+};
 
 const linkHasRegistrationIntakeStep = (link) => {
   const raw = link?.intake_steps;
@@ -215,6 +252,12 @@ class PublicIntakeClientService {
         }
       }
 
+      // Always attach the guardian to the child's tenant, even if the guardian
+      // row pre-existed (they might have been created in a different agency
+      // context earlier). This keeps the Guardians list + agency filters in
+      // sync with the client(s) they're actually linked to.
+      await ensureGuardianAgencyAffiliation(guardianUser.id, agencyId);
+
       for (const client of createdClients) {
         await ClientGuardian.upsertLink({
           clientId: client.id,
@@ -304,6 +347,11 @@ class PublicIntakeClientService {
         });
       }
     }
+
+    // Returning-family path goes through here with an existing child row; tie
+    // the guardian to the resolved agency so the Guardians admin view sees
+    // them scoped to the same tenant as their kids.
+    await ensureGuardianAgencyAffiliation(guardianUser.id, agencyId);
 
     for (const client of createdClients) {
       await ClientGuardian.upsertLink({

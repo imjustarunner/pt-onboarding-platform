@@ -18000,6 +18000,49 @@ async function buildDashboardSummaryPayload(userId, resolvedAgencyId) {
   };
 }
 
+/**
+ * Compact payroll + documentation-note counts for Ask Assistant (`getMyPayrollSummary`).
+ * Same membership rules as GET /api/payroll/me/dashboard-summary (non-admins must be in user_agencies).
+ */
+export async function buildAssistantPayrollMeSummary(req) {
+  const userId = req.user?.id;
+  if (!userId) {
+    const err = new Error('Not authenticated');
+    err.status = 401;
+    throw err;
+  }
+  const rawAgencyId = parseInt(String(req.user?.agencyId ?? ''), 10);
+  if (!Number.isFinite(rawAgencyId) || rawAgencyId <= 0) {
+    const err = new Error('No agency context for payroll');
+    err.status = 400;
+    throw err;
+  }
+  const resolvedAgencyId = await resolvePayrollAgencyId(rawAgencyId);
+  if (!resolvedAgencyId) {
+    const err = new Error('Invalid agency');
+    err.status = 400;
+    throw err;
+  }
+  if (!isAdminRole(req.user.role)) {
+    const [rows] = await pool.execute(
+      'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [userId, resolvedAgencyId]
+    );
+    if (!rows || rows.length === 0) {
+      const err = new Error('Access denied');
+      err.status = 403;
+      throw err;
+    }
+  }
+  const full = await buildDashboardSummaryPayload(userId, resolvedAgencyId);
+  return {
+    agencyId: resolvedAgencyId,
+    lastPaycheck: full.lastPaycheck,
+    unpaidNotes: full.unpaidNotes,
+    delinquencyScore: full.delinquencyScore
+  };
+}
+
 export const getMyDashboardSummary = async (req, res, next) => {
   try {
     const userId = req.user?.id;

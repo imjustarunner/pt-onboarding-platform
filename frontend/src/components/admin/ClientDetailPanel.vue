@@ -5428,8 +5428,8 @@ watch(
 
 .ov-row {
   display: grid;
-  grid-template-columns: minmax(140px, 38%) 1fr;
-  gap: 14px;
+  grid-template-columns: minmax(180px, 44%) 1fr;
+  gap: 18px;
   align-items: start;
   padding: 10px 0;
   border-bottom: 1px solid rgba(241, 235, 220, 0.85);
@@ -5452,6 +5452,12 @@ watch(
   letter-spacing: 0.5px;
   line-height: 1.4;
   padding-top: 2px;
+  /* Long machine-style keys (REGISTRATIONSELECTIONIDSBYSTEP, etc.) were
+     overflowing into the value column. Allow them to wrap so the label
+     and value remain clearly separated at any width. */
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .ov-row-value {

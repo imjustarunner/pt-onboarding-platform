@@ -22,8 +22,9 @@
         :value="row.phone"
         class="input"
         type="tel"
-        placeholder="Phone"
+        placeholder="Phone *"
         :disabled="disabled || declineEmergencyContacts"
+        :aria-required="!declineEmergencyContacts"
         @input="patchRow(idx, 'phone', $event.target.value)"
       />
       <input

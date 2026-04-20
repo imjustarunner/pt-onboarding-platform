@@ -3983,11 +3983,41 @@ const extractLabeledFieldsFromSubmission = (submissionData, intakeFields = [], s
     ...clientBag
   };
 
+  // Internal/plumbing keys that never belong in the Additional Intake Responses
+  // card — they're either structured payloads the UI can't flatten sensibly
+  // (would render as "[object Object]") or transient per-step pickers the
+  // parent won't want to see as a labeled answer.
+  const SKIP_KEYS = new Set([
+    'clinicalResponses',
+    'demographicsInfo',
+    'insuranceInfo',
+    'communicationPreferences',
+    'registrationSelections',
+    'registrationSelectionsByStep',
+    'registrationSelectionIdsByStep',
+    'registrationParticipantByStep',
+    'registrationHasAccount',
+    'registrationClientMatch',
+    'registration_has_account',
+    'registration_client_match',
+    'guardianWaiverIntake',
+    'paymentInfo'
+  ]);
+
+  const isPlainObjectLike = (v) => {
+    if (v == null) return false;
+    if (Array.isArray(v)) return true;
+    if (typeof v === 'object') return true;
+    return false;
+  };
+
   const result = [];
   for (const [key, value] of Object.entries(allResponses)) {
-    if (key === 'clinicalResponses' || key === 'demographicsInfo' || key === 'insuranceInfo'
-      || key === 'communicationPreferences' || key === 'registrationSelections') continue;
+    if (SKIP_KEYS.has(key)) continue;
     if (!hasVal(value)) continue;
+    // Complex values always stringify to "[object Object]" in the UI. We don't
+    // want those polluting the Additional Intake Responses card.
+    if (isPlainObjectLike(value)) continue;
     const meta = labelMap.get(key);
     result.push({
       key,
@@ -5833,8 +5863,21 @@ export const listClientEventAssignments = async (req, res, next) => {
     if (!agencyId) return res.json([]);
 
     try {
-      const [rows] = await pool.execute(
-        `SELECT sgc.skills_group_id,
+      // The client can be enrolled in an event via two different tables depending
+      // on how the event was configured:
+      //   • skills_group_clients — Skill Builders "skills group" scaffolding
+      //     (an event backed by a skills_groups row).
+      //   • company_event_clients — plain program/agency events enrolled directly
+      //     (e.g. registration intake links that splice the client straight into
+      //     the company_event without ever creating a skills_groups row).
+      // Historically this endpoint only read the first path, which is why a
+      // client who registered for a plain program event (see "Twain Test Demo"
+      // in ITSCO) appeared with "No event assignments found" despite showing up
+      // on the event's Participants tab. Union both sources here and de-dupe on
+      // company_event_id so a single event never shows twice.
+      const [sgRows] = await pool.execute(
+        `SELECT 'skills_group' AS source,
+                sgc.skills_group_id,
                 sgc.active_for_providers,
                 sg.name AS skills_group_name,
                 sg.start_date AS group_start_date,
@@ -5857,6 +5900,45 @@ export const listClientEventAssignments = async (req, res, next) => {
         [agencyId, clientId]
       );
 
+      let cecRows = [];
+      try {
+        const [rows] = await pool.execute(
+          `SELECT 'company_event' AS source,
+                  NULL AS skills_group_id,
+                  NULL AS active_for_providers,
+                  NULL AS skills_group_name,
+                  NULL AS group_start_date,
+                  NULL AS group_end_date,
+                  ce.organization_id,
+                  org.name AS organization_name,
+                  org.organization_type,
+                  ce.id AS company_event_id,
+                  ce.title AS company_event_title,
+                  ce.starts_at AS company_event_starts_at,
+                  ce.ends_at AS company_event_ends_at
+           FROM company_event_clients cec
+           INNER JOIN company_events ce
+             ON ce.id = cec.company_event_id
+            AND ce.agency_id = ?
+           LEFT JOIN agencies org ON org.id = ce.organization_id
+           WHERE cec.client_id = ?
+             AND cec.agency_id = ?
+             AND (cec.is_active = TRUE OR cec.is_active IS NULL)
+           ORDER BY ce.starts_at DESC, ce.id DESC`,
+          [agencyId, clientId, agencyId]
+        );
+        cecRows = rows || [];
+      } catch (cecErr) {
+        // Older installs may not have company_event_clients yet; fall through with just
+        // the skills_group path so this endpoint never 500s over a missing table.
+        const msg = String(cecErr?.message || '');
+        if (!(msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE'))) {
+          console.warn('[listClientEventAssignments] company_event_clients read failed', {
+            clientId, agencyId, message: cecErr?.message
+          });
+        }
+      }
+
       const now = Date.now();
       const parseTimeMs = (value) => {
         if (!value) return null;
@@ -5864,7 +5946,24 @@ export const listClientEventAssignments = async (req, res, next) => {
         return Number.isFinite(t) ? t : null;
       };
 
-      return res.json((rows || []).map((row) => {
+      const seenEventIds = new Set();
+      const merged = [];
+      // Skills-group rows win over plain company-event rows when an event is
+      // served by both (skills_groups carries provider activation + program
+      // scaffolding the UI also shows).
+      for (const row of sgRows || []) {
+        const ceId = Number(row.company_event_id || 0) || null;
+        if (ceId) seenEventIds.add(ceId);
+        merged.push(row);
+      }
+      for (const row of cecRows) {
+        const ceId = Number(row.company_event_id || 0) || null;
+        if (ceId && seenEventIds.has(ceId)) continue;
+        merged.push(row);
+        if (ceId) seenEventIds.add(ceId);
+      }
+
+      return res.json(merged.map((row) => {
         const startsAt = row.company_event_starts_at || row.group_start_date || null;
         const endsAt = row.company_event_ends_at || row.group_end_date || null;
         const startMs = parseTimeMs(startsAt);
@@ -5873,6 +5972,7 @@ export const listClientEventAssignments = async (req, res, next) => {
         if (endMs !== null && endMs < now) timeframe = 'past';
         else if (startMs !== null && startMs <= now && (endMs === null || endMs >= now)) timeframe = 'current';
         return {
+          source: row.source || null,
           skills_group_id: Number(row.skills_group_id || 0) || null,
           skills_group_name: row.skills_group_name || null,
           active_for_providers: row.active_for_providers === 1 || row.active_for_providers === true,

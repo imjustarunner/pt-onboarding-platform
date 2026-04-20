@@ -142,7 +142,36 @@ export const AUDIT_ACTION_REGISTRY = {
   dashboard_view: { label: 'Dashboard viewed', category: 'Page Views' },
   audit_center_viewed: { label: 'Audit Center viewed', category: 'Page Views' },
   admin_dashboard_view: { label: 'Admin dashboard viewed', category: 'Page Views' },
-  admin_page_view: { label: 'Admin page viewed', category: 'Page Views' }
+  admin_page_view: { label: 'Admin page viewed', category: 'Page Views' },
+
+  // Back-filled labels for action types that were previously rejected by the
+  // user_activity_log ENUM (see migration 738). These all flow through
+  // logAuditEvent() and emit rows now that the column is VARCHAR.
+  demo_switch_view: { label: 'Demo view switched', category: 'Authentication' },
+  conference_call_started: { label: 'Conference call started', category: 'Communications' },
+  call_transferred: { label: 'Call transferred', category: 'Communications' },
+  call_held: { label: 'Call placed on hold', category: 'Communications' },
+  call_resumed: { label: 'Call resumed from hold', category: 'Communications' },
+  sms_thread_forwarded_to_support: { label: 'SMS thread forwarded to support', category: 'Communications' },
+  client_school_roi_signing_link_issued: { label: 'School ROI signing link issued', category: 'Communications' },
+  client_school_roi_signing_text_sent: { label: 'School ROI signing link text sent', category: 'Communications' },
+  client_school_roi_expiration_updated: { label: 'School ROI expiration updated', category: 'Client Access' },
+  client_school_roi_revoked: { label: 'School ROI access revoked', category: 'Client Access' },
+  client_school_staff_roi_access_updated: { label: 'School-staff ROI access updated', category: 'Client Access' },
+  school_roi_signing_config_updated: { label: 'School ROI signing configuration updated', category: 'Client Access' },
+  school_provider_availability_updated_by_provider: { label: 'Provider updated school availability', category: 'School Portal' },
+  school_provider_slot_verification_pushed: { label: 'Provider slot verification pushed', category: 'School Portal' },
+  school_provider_slot_verification_cancelled: { label: 'Provider slot verification cancelled', category: 'School Portal' },
+  school_portal_school_staff_added: { label: 'School staff added to portal', category: 'School Portal' },
+  school_portal_school_staff_updated: { label: 'School staff updated', category: 'School Portal' },
+  school_portal_school_staff_removed: { label: 'School staff removed from portal', category: 'School Portal' },
+  school_portal_school_staff_password_reset_sent: { label: 'School staff password reset sent', category: 'School Portal' },
+  school_portal_school_staff_role_flags_updated: { label: 'School staff role flags updated', category: 'School Portal' },
+  school_portal_school_admin_assigned: { label: 'School admin assigned', category: 'School Portal' },
+  school_portal_school_admin_forfeited: { label: 'School admin role forfeited', category: 'School Portal' },
+  school_portal_bulk_announcements_created: { label: 'School bulk announcements created', category: 'School Portal' },
+  school_portal_bulk_announcements_updated: { label: 'School bulk announcements updated', category: 'School Portal' },
+  school_portal_bulk_announcements_deleted: { label: 'School bulk announcements deleted', category: 'School Portal' }
 };
 
 /** Ordered category list for display and grouping */

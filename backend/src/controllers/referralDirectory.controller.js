@@ -11,6 +11,18 @@ const DIRECT_EDIT_ROLES = new Set(['super_admin', 'admin']);
 
 const isAdminRole = (role) => DIRECT_EDIT_ROLES.has(String(role || '').toLowerCase());
 
+// Must match frontend router meta for /admin/referral-directory (tenant-scoped data).
+const REFERRAL_DIRECTORY_VIEWER_ROLES = new Set(['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus']);
+
+function assertReferralDirectoryViewer(req, res) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (!REFERRAL_DIRECTORY_VIEWER_ROLES.has(role)) {
+    res.status(403).json({ error: { message: 'You do not have access to the referral directory' } });
+    return false;
+  }
+  return true;
+}
+
 const resolveAgencyId = (req) => {
   const fromUser = Number(req.user?.agencyId);
   if (fromUser && Number.isFinite(fromUser)) return fromUser;
@@ -69,6 +81,7 @@ async function notifyAdminsPendingReview({ agencyId, changeRequest, submitterId,
 // GET /api/referral-directory/categories
 export async function listCategories(req, res) {
   try {
+    if (!assertReferralDirectoryViewer(req, res)) return;
     const agencyId = resolveAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     // Auto-seed the default set the first time an agency opens the directory;
@@ -87,6 +100,7 @@ export async function listCategories(req, res) {
 // POST /api/referral-directory/categories — admins only.
 export async function createCategory(req, res) {
   try {
+    if (!assertReferralDirectoryViewer(req, res)) return;
     if (!isAdminRole(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Admin privileges required to add categories' } });
     }
@@ -110,6 +124,7 @@ export async function createCategory(req, res) {
 // PUT /api/referral-directory/categories/:id — admins only.
 export async function updateCategory(req, res) {
   try {
+    if (!assertReferralDirectoryViewer(req, res)) return;
     if (!isAdminRole(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Admin privileges required' } });
     }
@@ -132,6 +147,7 @@ export async function updateCategory(req, res) {
 // DELETE /api/referral-directory/categories/:id — admins only.
 export async function deleteCategory(req, res) {
   try {
+    if (!assertReferralDirectoryViewer(req, res)) return;
     if (!isAdminRole(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Admin privileges required' } });
     }
@@ -154,6 +170,7 @@ export async function deleteCategory(req, res) {
 // GET /api/referral-directory/entries
 export async function listEntries(req, res) {
   try {
+    if (!assertReferralDirectoryViewer(req, res)) return;
     const agencyId = resolveAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     const entries = await ReferralDirectoryEntry.listForAgency(agencyId, {
@@ -173,6 +190,7 @@ export async function listEntries(req, res) {
 // Non-admin: queues a create change request.
 export async function createEntry(req, res) {
   try {
+    if (!assertReferralDirectoryViewer(req, res)) return;
     const agencyId = resolveAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     const payload = extractSanitizedPayload(req.body || {});
@@ -219,6 +237,7 @@ export async function createEntry(req, res) {
 // Non-admin: queues an update change request.
 export async function updateEntry(req, res) {
   try {
+    if (!assertReferralDirectoryViewer(req, res)) return;
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: { message: 'Invalid id' } });
     const agencyId = resolveAgencyId(req);
@@ -263,6 +282,7 @@ export async function updateEntry(req, res) {
 // Non-admin: queues a delete change request.
 export async function deleteEntry(req, res) {
   try {
+    if (!assertReferralDirectoryViewer(req, res)) return;
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: { message: 'Invalid id' } });
     const agencyId = resolveAgencyId(req);
@@ -309,6 +329,7 @@ export async function deleteEntry(req, res) {
 // GET /api/referral-directory/change-requests?status=pending
 export async function listChangeRequests(req, res) {
   try {
+    if (!assertReferralDirectoryViewer(req, res)) return;
     if (!isAdminRole(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Admin privileges required' } });
     }
@@ -328,6 +349,7 @@ export async function listChangeRequests(req, res) {
 // GET /api/referral-directory/change-requests/pending-count
 export async function pendingChangeRequestsCount(req, res) {
   try {
+    if (!assertReferralDirectoryViewer(req, res)) return;
     const agencyId = resolveAgencyId(req);
     if (!agencyId) return res.json({ count: 0 });
     if (!isAdminRole(req.user?.role)) return res.json({ count: 0 });
@@ -342,6 +364,7 @@ export async function pendingChangeRequestsCount(req, res) {
 // POST /api/referral-directory/change-requests/:id/approve
 export async function approveChangeRequest(req, res) {
   try {
+    if (!assertReferralDirectoryViewer(req, res)) return;
     if (!isAdminRole(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Admin privileges required' } });
     }
@@ -394,6 +417,7 @@ export async function approveChangeRequest(req, res) {
 // POST /api/referral-directory/change-requests/:id/reject
 export async function rejectChangeRequest(req, res) {
   try {
+    if (!assertReferralDirectoryViewer(req, res)) return;
     if (!isAdminRole(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Admin privileges required' } });
     }

@@ -824,6 +824,27 @@ const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {}, ac
       status: 'PENDING_SETUP'
     });
   }
+  // Tie the guardian to the client's agency the same way the intake-client
+  // service does; historically this path only wrote client_guardians, which
+  // caused intake-created guardians to be missing their user_agencies row.
+  try {
+    const [cAgency] = await pool.execute('SELECT agency_id FROM clients WHERE id = ? LIMIT 1', [cid]);
+    const aid = Number(cAgency?.[0]?.agency_id || 0) || null;
+    if (aid) {
+      await pool.execute(
+        `INSERT INTO user_agencies (user_id, agency_id)
+         VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE user_id = user_id`,
+        [Number(guardianUser.id), aid]
+      );
+    }
+  } catch (err) {
+    console.warn('[publicIntake] guardian tenant affiliation (smart roi) failed', {
+      clientId: cid,
+      guardianUserId: guardianUser?.id || null,
+      message: err?.message || err
+    });
+  }
   await ClientGuardian.upsertLink({
     clientId: cid,
     guardianUserId: Number(guardianUser.id),
@@ -6445,6 +6466,17 @@ export const finalizePublicIntake = async (req, res, next) => {
 };
 
 export const submitPublicIntake = async (req, res, next) => {
+  // Total-duration breadcrumb for the public-intake finalize path. Parents
+  // reported ~8 minute waits for the packet to be ready (see Issue 5 in the
+  // registration fixes thread); this marker lets us confirm subsequent
+  // improvements in real request logs and flag regressions as they appear.
+  const submitStartedAt = Date.now();
+  const submitTimings = [];
+  const markSubmitStep = (label, ms) => {
+    if (typeof ms === 'number' && Number.isFinite(ms)) {
+      submitTimings.push({ step: label, ms });
+    }
+  };
   try {
     const emailDelivery = {
       attempted: false,
@@ -6958,7 +6990,9 @@ export const submitPublicIntake = async (req, res, next) => {
       }
     }
 
+    const answersPdfStart = Date.now();
     const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
+    markSubmitStep('answersPdfBuild', Date.now() - answersPdfStart);
 
     let downloadUrl = null;
     let bundleResult = null;
@@ -6967,6 +7001,11 @@ export const submitPublicIntake = async (req, res, next) => {
     // child owns a fully isolated per-child packet built above. See the
     // matching guard in the school-roi flow for the same rationale.
     const isMultiChildRegSubmission = Array.isArray(rawClients) && rawClients.length > 1;
+    // Hoisted so multiple downstream blocks (email body, completion hints
+    // persist) can read the summarized event string without hitting a
+    // ReferenceError when the email branch is skipped. Reassigned inside the
+    // email block when we actually resolve the event details.
+    let registrationEventSummary = '';
     if (pdfPaths.length > 0 && !isMultiChildRegSubmission) {
       // Combined-bundle build/upload is wrapped in its own try/catch so a
       // failure here does NOT abort per-client Intake Packet PHI doc creation
@@ -6976,20 +7015,26 @@ export const submitPublicIntake = async (req, res, next) => {
         // Combined bundle prefix order: registration ticket → answers summary
         // → all per-template signed PDFs.
         const combinedPrefixBuffers = [ticketPdf, answersPdf].filter(Boolean);
+        const mergeStart = Date.now();
         const mergedPdfRaw = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
           pdfPaths,
           combinedPrefixBuffers
         );
+        markSubmitStep('combinedBundleMerge', Date.now() - mergeStart);
+        const compressStart = Date.now();
         const { buffer: mergedPdf } = await compressPdfBuffer(
           Buffer.isBuffer(mergedPdfRaw) ? mergedPdfRaw : Buffer.from(mergedPdfRaw),
           { label: `registration-combined-${submissionId}` }
         );
+        markSubmitStep('combinedBundleCompress', Date.now() - compressStart);
         const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
+        const saveStart = Date.now();
         bundleResult = await StorageService.saveIntakeBundle({
           submissionId,
           fileBuffer: mergedPdf,
           filename: `intake-bundle-${submissionId}.pdf`
         });
+        markSubmitStep('combinedBundleUpload', Date.now() - saveStart);
         await IntakeSubmission.updateById(submissionId, {
           combined_pdf_path: bundleResult.relativePath,
           combined_pdf_hash: bundleHash
@@ -7040,6 +7085,19 @@ export const submitPublicIntake = async (req, res, next) => {
         });
       }
 
+    }
+
+    // ---------------------------------------------------------------------
+    // Per-child Intake Packet PHI attach + email delivery — MUST run for both
+    // single-child and multi-child finalizes. Previously these were both
+    // nested inside the `!isMultiChildRegSubmission` guard above, which meant
+    // multi-child submissions skipped the packet PHI doc AND got no
+    // completion email. The per-child bundles are already written in the
+    // earlier rawClients loop (see line ~6858), so we pick either the per-
+    // child bundle path or fall back to the combined bundle for single-child
+    // submissions where we deliberately skipped the per-client bundle save.
+    // ---------------------------------------------------------------------
+    if (pdfPaths.length > 0) {
       // Multi-child safe per-client packet attachment.
       // See createIntakePacketDocument doc comment — combined bundle path
       // can NOT be used for every child due to UNIQUE(storage_path).
@@ -7141,30 +7199,42 @@ export const submitPublicIntake = async (req, res, next) => {
         || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM
         || '';
 
+      // Resolve the event summary BEFORE checking email configuration so the
+      // completion-hints persist block (further below) can save it even when
+      // email delivery is off or fails.
+      try {
+        const evSelForSummary = normalizeRegistrationSelections(intakeData)
+          .find((s) => registrationEntityType(s) === 'company_event');
+        const aidForSummary = Number(
+          orgContextHoisted?.agency?.id || link?.agency_id || 0
+        ) || null;
+        if (evSelForSummary?.entityId && aidForSummary) {
+          const [erows] = await pool.execute(
+            'SELECT title, starts_at FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1',
+            [Number(evSelForSummary.entityId), aidForSummary]
+          );
+          const er = erows?.[0];
+          if (er) {
+            const st = er.starts_at ? new Date(er.starts_at).toLocaleString() : '';
+            registrationEventSummary = [String(er.title || '').trim(), st]
+              .filter(Boolean)
+              .join(' — ');
+          }
+        }
+      } catch (summaryErr) {
+        console.warn('[publicIntake] registrationEventSummary resolve failed', {
+          submissionId,
+          message: summaryErr?.message || summaryErr
+        });
+        registrationEventSummary = '';
+      }
+
       if (updatedSubmission.signer_email && EmailService.isConfigured()) {
         emailDelivery.attempted = true;
         const clientCount = rawClients.length || 1;
         const { organization, agency } = orgContextHoisted?.organization || orgContextHoisted?.agency
           ? orgContextHoisted
           : await resolveIntakeOrgContext(link, { issuedRoiLink: null, boundClient: null });
-        let registrationEventSummary = '';
-        try {
-          const evSel = normalizeRegistrationSelections(intakeData).find((s) => registrationEntityType(s) === 'company_event');
-          const aid = Number(agency?.id || link?.agency_id || 0) || null;
-          if (evSel?.entityId && aid) {
-            const [erows] = await pool.execute(
-              'SELECT title, starts_at FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1',
-              [Number(evSel.entityId), aid]
-            );
-            const er = erows?.[0];
-            if (er) {
-              const st = er.starts_at ? new Date(er.starts_at).toLocaleString() : '';
-              registrationEventSummary = [String(er.title || '').trim(), st].filter(Boolean).join(' — ');
-            }
-          }
-        } catch {
-          registrationEventSummary = '';
-        }
         const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
         const registrationLoginPageUrl = portalBase ? `${portalBase}/login` : '';
         const regFlowEmail = linkSupportsPublicRegistrationFeatures(link);
@@ -7172,30 +7242,66 @@ export const submitPublicIntake = async (req, res, next) => {
           regFlowEmail && link.create_guardian && (newGuardianPasswordlessLoginUrl || '')
             ? (newGuardianPasswordlessLoginUrl || '')
             : '';
-        // Per-child enrichment for the single confirmation email (multi-child)
+        // Per-child enrichment for the single confirmation email (multi-child).
+        //
+        // Performance note (see Issue 5 in the registration-delay thread):
+        // this block used to call `IntakeSubmissionDocument.listBySubmissionId`
+        // ONCE PER CHILD, look up each template name with its own SQL, and
+        // generate every signed URL sequentially. For a ~5-doc / 1-child
+        // packet that's 5 round-trips to GCS for signed URLs alone, each
+        // blocking the HTTP response. For multi-child it multiplies.
+        //
+        // Fetch the submission docs + template-name map ONCE, then issue all
+        // signed-URL requests in parallel with Promise.all so the total email-
+        // prep cost scales with the slowest single signed-URL call instead of
+        // the sum.
+        const enrichStart = Date.now();
+        const allSubmissionDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
+        const templateIdSet = new Set(
+          (allSubmissionDocs || [])
+            .map((d) => Number(d?.document_template_id || 0))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        );
+        const templateNameById = new Map();
+        if (templateIdSet.size) {
+          try {
+            const placeholders = Array.from(templateIdSet).map(() => '?').join(',');
+            const [tplRows] = await pool.execute(
+              `SELECT id, name FROM document_templates WHERE id IN (${placeholders})`,
+              Array.from(templateIdSet)
+            );
+            for (const r of tplRows || []) {
+              templateNameById.set(Number(r.id), String(r.name || 'Signed Document'));
+            }
+          } catch (tplLookupErr) {
+            console.warn('[publicIntake] batch template name lookup failed (email enrichment)', {
+              submissionId,
+              message: tplLookupErr?.message || tplLookupErr
+            });
+          }
+        }
         const bundlesForEmailSubmit = await Promise.all(
           (clientBundles || []).map(async (bundle) => {
             const enriched = { ...bundle, signedDocuments: [] };
             try {
-              const docs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
-              const childDocs = (docs || []).filter((d) => Number(d.client_id || 0) === Number(bundle.clientId || 0));
-              const signedDocuments = [];
-              for (const d of childDocs) {
-                if (!d?.signed_pdf_path) continue;
-                let templateName = 'Signed Document';
-                try {
-                  const [tplRows] = await pool.execute(
-                    'SELECT name FROM document_templates WHERE id = ? LIMIT 1',
-                    [d.document_template_id]
-                  );
-                  if (tplRows?.[0]?.name) templateName = String(tplRows[0].name);
-                } catch { /* template lookup best-effort */ }
-                let url = '';
-                try {
-                  url = await StorageService.getSignedUrl(d.signed_pdf_path, 60 * 24 * 7);
-                } catch { /* signed url failure non-fatal */ }
-                signedDocuments.push({ name: templateName, downloadUrl: url });
-              }
+              const childDocs = (allSubmissionDocs || []).filter(
+                (d) => Number(d.client_id || 0) === Number(bundle.clientId || 0)
+              );
+              const signedDocuments = await Promise.all(
+                childDocs
+                  .filter((d) => d?.signed_pdf_path)
+                  .map(async (d) => {
+                    const templateName = templateNameById.get(Number(d.document_template_id)) || 'Signed Document';
+                    let url = '';
+                    try {
+                      url = await StorageService.getSignedUrl(d.signed_pdf_path, 60 * 24 * 7);
+                    } catch {
+                      // best-effort — email still goes, the per-doc link will
+                      // just be blank for this particular file.
+                    }
+                    return { name: templateName, downloadUrl: url };
+                  })
+              );
               enriched.signedDocuments = signedDocuments;
             } catch (lookupErr) {
               console.error('[publicIntake] failed to enrich clientBundles for email', {
@@ -7207,6 +7313,17 @@ export const submitPublicIntake = async (req, res, next) => {
             return enriched;
           })
         );
+        const enrichMs = Date.now() - enrichStart;
+        if (enrichMs > 5000) {
+          // This is THE loop that tended to dominate the multi-minute
+          // registration wait, so log loudly when it's still slow.
+          console.warn('[publicIntake] clientBundles email enrichment slow', {
+            submissionId,
+            bundleCount: (clientBundles || []).length,
+            docCount: (allSubmissionDocs || []).length,
+            ms: enrichMs
+          });
+        }
         const packetEmail = await resolvePacketCompletionEmailContent({
           link,
           agencyId: link?.agency_id || agency?.id || null,
@@ -7274,13 +7391,30 @@ export const submitPublicIntake = async (req, res, next) => {
             });
           }
           emailDelivery.sent = true;
-        } catch {
+        } catch (emailSendErr) {
+          // Historically this catch was blank (`} catch {`), which meant any
+          // real failure (Google Workspace auth, SPF rejection, template
+          // render error, network timeout) reported only
+          // "emailDelivery.error = 'send_failed'" with NO visibility into why.
+          // Log the actual error so we can diagnose missed completion emails.
+          console.error('[publicIntake] registration completion email send failed', {
+            submissionId,
+            to: updatedSubmission?.signer_email || null,
+            templateType: 'intake_packet_completion',
+            message: emailSendErr?.message || String(emailSendErr || ''),
+            stack: emailSendErr?.stack || null
+          });
           emailDelivery.error = 'send_failed';
+          emailDelivery.errorMessage = String(emailSendErr?.message || 'send_failed').slice(0, 500);
         }
       } else if (updatedSubmission.signer_email && !EmailService.isConfigured()) {
         emailDelivery.attempted = true;
         emailDelivery.sent = false;
         emailDelivery.error = 'email_not_configured';
+        console.warn('[publicIntake] registration completion email skipped — EmailService not configured', {
+          submissionId,
+          to: updatedSubmission?.signer_email || null
+        });
       }
     }
 
@@ -7430,6 +7564,23 @@ export const submitPublicIntake = async (req, res, next) => {
         link,
         submission: updatedSubmission,
         docCount: signedDocs.length
+      });
+    }
+
+    const submitTotalMs = Date.now() - submitStartedAt;
+    // Parents reported ~8 minute waits during registration finalize (see
+    // Issue 5 in the registration fixes thread). Log total duration + step
+    // breakdown whenever we exceed a generous threshold so the bottleneck is
+    // obvious in production logs without spamming for fast runs.
+    if (submitTotalMs > 30000 || submitTimings.some((t) => t.ms > 10000)) {
+      console.warn('[publicIntake] submitPublicIntake slow finalize', {
+        submissionId,
+        totalMs: submitTotalMs,
+        clientCount: Array.isArray(rawClients) ? rawClients.length : 0,
+        templateCount: Array.isArray(packetDocumentTemplates) ? packetDocumentTemplates.length : 0,
+        emailAttempted: !!emailDelivery?.attempted,
+        emailSent: !!emailDelivery?.sent,
+        timings: submitTimings
       });
     }
 
@@ -7796,6 +7947,141 @@ export const saveInsuranceCardPhotos = async (req, res, next) => {
 };
 
 /**
+ * Resolve the tenant (agency_id) that owns this intake link.
+ * Used by the Stripe/QB payment flow which runs BEFORE final intake submit,
+ * before `link.agency_id` is always available (e.g. school-scoped links).
+ */
+const resolveAgencyIdForLink = async (link) => {
+  let agencyId = Number(link?.agency_id || 0) || null;
+  if (!agencyId && link?.organization_id) {
+    const scope = String(link?.scope_type || '').toLowerCase();
+    if (scope === 'school') {
+      agencyId = await AgencySchool.getActiveAgencyIdForSchool(link.organization_id);
+    }
+    if (!agencyId) {
+      agencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(link.organization_id);
+    }
+    if (!agencyId) {
+      agencyId = Number(link.organization_id || 0) || null;
+    }
+  }
+  return agencyId;
+};
+
+/**
+ * Ensure a guardian `users` row exists for this in-progress submission so the
+ * payment-collection step can attach a Stripe customer / QuickBooks profile
+ * BEFORE the user has completed the final intake submit.
+ *
+ * Previously the payment step required `submission.guardian_user_id` (only
+ * populated at final submit) or `User.findByEmail(signer_email)`. For brand
+ * new families signing up for the first time, neither was true, so the user
+ * always saw "Guardian account not yet established" — which was accurate but
+ * a UX dead end.
+ *
+ * This helper is safe to call repeatedly; it is a no-op when the guardian
+ * already exists. It also affiliates the guardian to the correct tenant
+ * (user_agencies) so Guardians admin view can see them immediately.
+ */
+const ensureEarlyGuardianForPayment = async (submission, link, agencyId) => {
+  if (!submission) return { guardianUserId: null, guardianEmail: null, guardianName: null };
+
+  const intakeData = (() => {
+    const raw = submission.intake_data;
+    if (!raw) return {};
+    if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return {}; } }
+    return (raw && typeof raw === 'object') ? raw : {};
+  })();
+
+  const guardianBlock = (intakeData && typeof intakeData === 'object' && intakeData.guardian && typeof intakeData.guardian === 'object')
+    ? intakeData.guardian
+    : {};
+  const email = String(
+    guardianBlock.email
+      || intakeData?.signerInfo?.email
+      || submission.signer_email
+      || ''
+  ).trim().toLowerCase();
+
+  // Existing guardian path
+  let guardianUserId = Number(submission.guardian_user_id || 0) || null;
+  let guardianName = null;
+  if (!guardianUserId && email) {
+    const userRow = await User.findByEmail(email);
+    if (userRow?.id) {
+      guardianUserId = userRow.id;
+      guardianName = `${userRow.first_name || ''} ${userRow.last_name || ''}`.trim() || null;
+    }
+  }
+
+  // Fall through: auto-provision when we have enough to identify them
+  if (!guardianUserId && email) {
+    const firstName = String(guardianBlock.firstName || submission.signer_name || '').split(/\s+/)[0]?.trim() || 'Guardian';
+    const lastParts = String(guardianBlock.lastName || submission.signer_name || '').trim().split(/\s+/);
+    const lastName = guardianBlock.lastName ? String(guardianBlock.lastName).trim() : (lastParts.length > 1 ? lastParts.slice(1).join(' ') : '');
+    const phoneNumber = String(guardianBlock.phone || submission.signer_phone || '').trim() || null;
+    try {
+      const created = await User.create({
+        email,
+        passwordHash: null,
+        firstName,
+        lastName,
+        phoneNumber,
+        personalEmail: email,
+        role: 'client_guardian',
+        status: 'ACTIVE_EMPLOYEE'
+      });
+      guardianUserId = created?.id || null;
+      guardianName = `${firstName} ${lastName}`.trim() || null;
+    } catch (err) {
+      console.warn('[publicIntake.payment] early guardian provisioning failed', {
+        submissionId: submission.id,
+        email,
+        message: err?.message || err
+      });
+      // Race condition — someone just created this email. Re-read.
+      const again = await User.findByEmail(email);
+      guardianUserId = again?.id || null;
+      guardianName = again ? `${again.first_name || ''} ${again.last_name || ''}`.trim() || null : null;
+    }
+  }
+
+  if (guardianUserId) {
+    // Persist the link so subsequent payment-card calls skip this provisioning.
+    if (!submission.guardian_user_id) {
+      try {
+        await IntakeSubmission.updateById(submission.id, { guardian_user_id: guardianUserId });
+      } catch (err) {
+        console.warn('[publicIntake.payment] submission guardian link persist failed', {
+          submissionId: submission.id,
+          guardianUserId,
+          message: err?.message || err
+        });
+      }
+    }
+    // Tenant scoping so Guardians admin sees them even if they abandon intake.
+    if (agencyId) {
+      try {
+        await pool.execute(
+          `INSERT INTO user_agencies (user_id, agency_id)
+           VALUES (?, ?)
+           ON DUPLICATE KEY UPDATE user_id = user_id`,
+          [guardianUserId, agencyId]
+        );
+      } catch (err) {
+        console.warn('[publicIntake.payment] user_agencies affiliation failed', {
+          guardianUserId,
+          agencyId,
+          message: err?.message || err
+        });
+      }
+    }
+  }
+
+  return { guardianUserId, guardianEmail: email || null, guardianName };
+};
+
+/**
  * GET /:publicKey/stripe-config
  * Returns the Stripe publishable key + connected account ID so the frontend
  * can initialize Stripe.js scoped to the agency's own Stripe account.
@@ -7852,34 +8138,19 @@ export const createStripeSetupIntent = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
 
-    // Resolve guardian user
-    const intakeData = (() => {
-      const raw = submission.intake_data;
-      if (!raw) return {};
-      if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return {}; } }
-      return (raw && typeof raw === 'object') ? raw : {};
-    })();
-    const signerEmail = String(intakeData?.signerInfo?.email || submission.signer_email || '').trim().toLowerCase();
-    let guardianUserId = submission.guardian_user_id || null;
-    let guardianEmail = signerEmail || null;
-    let guardianName = null;
-    if (!guardianUserId && signerEmail) {
-      const userRow = await User.findByEmail(signerEmail);
-      guardianUserId = userRow?.id || null;
-      guardianName = userRow ? `${userRow.first_name || ''} ${userRow.last_name || ''}`.trim() || null : null;
-    }
+    const agencyId = await resolveAgencyIdForLink(link);
+
+    // Auto-provision the guardian if the final submit hasn't happened yet so
+    // the payment step isn't a dead end for first-time families.
+    const { guardianUserId, guardianEmail, guardianName } = await ensureEarlyGuardianForPayment(
+      submission,
+      link,
+      agencyId
+    );
     if (!guardianUserId) {
       return res.status(400).json({
-        error: { message: 'Guardian account not yet established. Please complete the earlier steps first.' }
+        error: { message: 'We need your email from the earlier steps to prepare a secure payment form. Please go back and enter your email, then try again.' }
       });
-    }
-
-    let agencyId = Number(link?.agency_id || 0) || null;
-    if (!agencyId && link?.organization_id) {
-      const scope = String(link?.scope_type || '').toLowerCase();
-      if (scope === 'school') agencyId = await AgencySchool.getActiveAgencyIdForSchool(link.organization_id);
-      if (!agencyId) agencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(link.organization_id);
-      if (!agencyId) agencyId = Number(link.organization_id || 0) || null;
     }
 
     const connectedAccountId = await getAgencyStripeConnectAccountId(agencyId);
@@ -7939,41 +8210,21 @@ export const saveGuardianPaymentCard = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
 
-    let agencyId = Number(link?.agency_id || 0) || null;
-    if (!agencyId && link?.organization_id) {
-      const scope = String(link?.scope_type || '').toLowerCase();
-      if (scope === 'school') {
-        agencyId = await AgencySchool.getActiveAgencyIdForSchool(link.organization_id);
-      }
-      if (!agencyId) {
-        agencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(link.organization_id);
-      }
-      if (!agencyId) {
-        agencyId = Number(link.organization_id || 0) || null;
-      }
-    }
+    const agencyId = await resolveAgencyIdForLink(link);
     if (!agencyId) {
       return res.status(400).json({ error: { message: 'No agency associated with this intake link' } });
     }
 
-    // Resolve guardian user ID from the submission's signer data.
-    const intakeData = (() => {
-      const raw = submission.intake_data;
-      if (!raw) return {};
-      if (typeof raw === 'string') {
-        try { return JSON.parse(raw); } catch { return {}; }
-      }
-      return (raw && typeof raw === 'object') ? raw : {};
-    })();
-    const signerEmail = String(intakeData?.signerInfo?.email || submission.signer_email || '').trim().toLowerCase();
-    let guardianUserId = submission.guardian_user_id || null;
-    if (!guardianUserId && signerEmail) {
-      const userRow = await User.findByEmail(signerEmail);
-      guardianUserId = userRow?.id || null;
-    }
+    // Mirrors the setup-intent flow — payment can be captured before the final
+    // intake submit, so provision the guardian account just-in-time here too.
+    const { guardianUserId } = await ensureEarlyGuardianForPayment(
+      submission,
+      link,
+      agencyId
+    );
     if (!guardianUserId) {
       return res.status(400).json({
-        error: { message: 'Guardian account not yet established. Please complete the earlier steps first.' }
+        error: { message: 'We need your email from the earlier steps to save your payment method. Please go back and enter your email, then try again.' }
       });
     }
 

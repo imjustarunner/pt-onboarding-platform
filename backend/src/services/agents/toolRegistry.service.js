@@ -1,10 +1,13 @@
 import pool from '../../config/database.js';
+import ReferralDirectoryEntry from '../../models/ReferralDirectoryEntry.model.js';
 import User from '../../models/User.model.js';
 import Task from '../../models/Task.model.js';
 import HiringProfile from '../../models/HiringProfile.model.js';
 import HiringNote from '../../models/HiringNote.model.js';
 import ProviderSearchIndex from '../../models/ProviderSearchIndex.model.js';
 import ProviderAvailabilityService from '../providerAvailability.service.js';
+import UserActivityLog from '../../models/UserActivityLog.model.js';
+import auditActionRegistry from '../../config/auditActionRegistry.js';
 import { getUserCapabilities } from '../../utils/capabilities.js';
 
 function str(v, maxLen = 2000) {
@@ -119,6 +122,186 @@ const NAVIGATION_ROUTE_WHITELIST = {
 
 const ENTITY_KINDS = new Set(['school', 'event', 'user']);
 
+// Same audience as ReferralDirectory route + navigateTo whitelist.
+const REFERRAL_DIRECTORY_TOOL_ROLES = ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'];
+
+// Keep in sync with router `SKILL_BUILDERS_PROGRAM_EVENTS_ROLES` + executeToolCall searchEvents gate.
+const PROGRAM_EVENTS_SEARCH_ROLES = [
+  'admin',
+  'staff',
+  'support',
+  'super_admin',
+  'provider',
+  'provider_plus',
+  'intern',
+  'intern_plus',
+  'clinical_practice_assistant'
+];
+
+const SCHOOL_PORTAL_SEARCH_ROLES = ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'];
+
+const BACKOFFICE_USER_ENUM_ROLES = ['admin', 'super_admin', 'support'];
+
+const PROVIDER_DIRECTORY_TOOL_ROLES = ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'];
+
+const PAYROLL_SUMMARY_TOOL_ROLES = [
+  'admin',
+  'super_admin',
+  'support',
+  'staff',
+  'provider',
+  'provider_plus',
+  'intern',
+  'intern_plus',
+  'clinical_practice_assistant',
+  'supervisor'
+];
+
+const HIRING_AGENT_TOOL_ROLES = ['admin', 'super_admin', 'support'];
+
+// Only admin-tier roles can search across other users' activity in the
+// agency audit log. Individual users can always see their own recent
+// activity via listMyRecentActivity (no role gate).
+const AUDIT_SEARCH_TOOL_ROLES = ['admin', 'super_admin', 'support'];
+
+// Restricted whitelist of action types the assistant will accept as filters.
+// Anything outside this list is dropped before it hits the DB — prevents
+// the LLM (or a caller) from crafting weird SQL-ish values or enumerating
+// internal-only audit events.
+const ASSISTANT_AUDIT_ACTION_TYPES = new Set([
+  'login', 'logout', 'timeout', 'password_change', 'password_reset_link_sent',
+  'dashboard_view', 'admin_dashboard_view', 'admin_page_view', 'audit_center_viewed',
+  'module_start', 'module_end', 'module_complete',
+  'intake_approval', 'public_intake_login_help',
+  'note_aid_execute', 'agent_assist', 'agent_tool_execute',
+  'hiring_reference_event',
+  'demo_switch_view',
+  'sms_sent', 'sms_send_failed', 'sms_inbound_received',
+  'sms_opt_in', 'sms_opt_out',
+  'sms_thread_deleted', 'sms_message_deleted', 'sms_thread_forwarded_to_support',
+  'outbound_call_started', 'outbound_call_failed', 'voicemail_listened',
+  'conference_call_started', 'call_transferred', 'call_held', 'call_resumed',
+  'smart_school_roi_permissions_applied',
+  'client_school_staff_roi_access_updated', 'client_school_roi_expiration_updated',
+  'client_school_roi_revoked', 'school_roi_signing_config_updated',
+  'client_school_roi_signing_link_issued', 'client_school_roi_signing_text_sent',
+  'client_school_roi_signing_email_sent',
+  'school_portal_roster_viewed', 'school_portal_comments_viewed',
+  'school_portal_comment_posted',
+  'school_portal_waitlist_viewed', 'school_portal_waitlist_updated',
+  'school_portal_school_staff_added', 'school_portal_school_staff_updated',
+  'school_portal_school_staff_removed', 'school_portal_school_staff_password_reset_sent',
+  'school_portal_school_staff_role_flags_updated',
+  'school_portal_school_admin_assigned', 'school_portal_school_admin_forfeited',
+  'school_portal_bulk_announcements_created', 'school_portal_bulk_announcements_updated',
+  'school_portal_bulk_announcements_deleted',
+  'school_provider_availability_updated_by_provider',
+  'school_provider_slot_verification_pushed', 'school_provider_slot_verification_cancelled'
+]);
+
+function clipForAssistant(s, maxLen) {
+  const t = String(s ?? '').trim();
+  if (!maxLen) return t;
+  return t.length > maxLen ? `${t.slice(0, maxLen)}…` : t;
+}
+
+function clipMetadataForAssistant(raw) {
+  if (raw == null) return null;
+  let stringified;
+  try {
+    stringified = typeof raw === 'string' ? raw : JSON.stringify(raw);
+  } catch {
+    return null;
+  }
+  if (!stringified) return null;
+  return clipForAssistant(stringified, 240) || null;
+}
+
+function shapeActivityRow(row) {
+  if (!row) return null;
+  const actionType = String(row.action_type || '').trim();
+  const firstName = row.user_first_name || '';
+  const lastName = row.user_last_name || '';
+  const fullName = `${firstName} ${lastName}`.trim();
+  return {
+    id: Number(row.id),
+    actionType,
+    actionLabel: auditActionRegistry.getActionLabel(actionType),
+    category: auditActionRegistry.getActionCategory(actionType),
+    userId: row.user_id ?? null,
+    userEmail: row.user_email || null,
+    userName: fullName || null,
+    agencyId: row.agency_id ?? null,
+    ipAddress: row.ip_address || null,
+    moduleId: row.module_id ?? null,
+    moduleTitle: row.module_title || null,
+    durationSeconds:
+      row.duration_seconds == null ? null : Number(row.duration_seconds),
+    metadata: clipMetadataForAssistant(row.metadata),
+    createdAt: row.created_at
+      ? new Date(row.created_at).toISOString()
+      : null
+  };
+}
+
+function parseIsoOrNull(s) {
+  if (!s) return null;
+  const str_ = String(s).trim().slice(0, 40);
+  if (!str_) return null;
+  const ymd = /^(\d{4}-\d{2}-\d{2})(?:[T ].*)?$/.exec(str_);
+  if (ymd) return ymd[1];
+  const d = new Date(str_);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function shapeReferralDirectoryRow(r) {
+  return {
+    id: Number(r.id),
+    name: r.name || null,
+    organizationName: r.organization_name || null,
+    category: r.category_name || null,
+    phone: r.phone || null,
+    email: r.email || null,
+    website: r.website || null,
+    address: r.address || null,
+    specialties: clipForAssistant(r.specialties, 420) || null,
+    insurancesAccepted: clipForAssistant(r.insurances_accepted, 220) || null,
+    notes: clipForAssistant(r.notes, 420) || null
+  };
+}
+
+/**
+ * OR-style search: full phrase plus each token so "pediatrics psychiatry" finds
+ * rows that match either specialty term.
+ */
+async function searchReferralDirectoryEntriesForTool(agencyId, rawQuery, limitCap) {
+  const lim = Math.min(Math.max(1, intOrNull(limitCap) || 20), 40);
+  const q = String(rawQuery || '').trim();
+  if (!q) return [];
+  const tokens = q
+    .split(/[\s,;]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2)
+    .slice(0, 10);
+  const uniq = new Map();
+  const ingest = async (search) => {
+    const needle = String(search || '').trim();
+    if (!needle) return;
+    const rows = await ReferralDirectoryEntry.listForAgency(agencyId, { search: needle, limit: 150 });
+    for (const row of rows || []) {
+      if (row?.id != null) uniq.set(Number(row.id), row);
+    }
+  };
+  await ingest(q);
+  for (const tok of tokens) {
+    if (tok !== q) await ingest(tok);
+  }
+  return Array.from(uniq.values())
+    .slice(0, lim)
+    .map(shapeReferralDirectoryRow);
+}
+
 function requireAuthed(req) {
   if (!req?.user?.id) {
     const err = new Error('Not authenticated');
@@ -157,6 +340,97 @@ async function resolveSchoolPortalPath(agencyIdScope, schoolId) {
   return { slug: row.slug, name: row.name, path: `/${row.slug}/admin/school-portals` };
 }
 
+/** Route names this user may use with navigateTo (matches NAVIGATION_ROUTE_WHITELIST role gates). */
+export function navigableRouteNamesForUser(reqUser) {
+  if (!reqUser) return [];
+  const names = [];
+  for (const routeName of Object.keys(NAVIGATION_ROUTE_WHITELIST)) {
+    const entry = NAVIGATION_ROUTE_WHITELIST[routeName];
+    if (roleAllowed(reqUser, entry.roles)) names.push(routeName);
+  }
+  return names;
+}
+
+function buildNavigateToSchemaForUser(reqUser) {
+  const names = navigableRouteNamesForUser(reqUser);
+  const enumNames = names.length ? names : ['Dashboard'];
+  return {
+    name: 'navigateTo',
+    description: 'Navigate the current user to a whitelisted named route. Server resolves the path.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        routeName: {
+          type: 'string',
+          enum: enumNames
+        }
+      },
+      required: ['routeName']
+    }
+  };
+}
+
+/**
+ * Tool schemas exposed to the LLM for this user. Prevents the model from planning tools
+ * the caller cannot execute; intersects optional agentConfig.allowedTools (cannot expand access).
+ */
+export function getToolSchemasForUser(reqUser, agentConfig = null) {
+  if (!reqUser?.id) return [];
+  const baseList = getToolSchemas().filter((t) => t.name !== 'navigateTo');
+  const withNav = [buildNavigateToSchemaForUser(reqUser), ...baseList];
+
+  const canSeeTool = (name) => {
+    switch (name) {
+      case 'navigateTo':
+        return navigableRouteNamesForUser(reqUser).length > 0;
+      case 'getMyPayrollSummary':
+        return roleAllowed(reqUser, PAYROLL_SUMMARY_TOOL_ROLES);
+      case 'searchReferralDirectory':
+        return roleAllowed(reqUser, REFERRAL_DIRECTORY_TOOL_ROLES);
+      case 'listMyRecentActivity':
+        // Anyone authenticated can see their own activity log.
+        return true;
+      case 'searchAgencyActivity':
+      case 'getAgencyActivityStats':
+        return roleAllowed(reqUser, AUDIT_SEARCH_TOOL_ROLES);
+      case 'searchSchools':
+        return roleAllowed(reqUser, SCHOOL_PORTAL_SEARCH_ROLES);
+      case 'searchEvents':
+        return roleAllowed(reqUser, PROGRAM_EVENTS_SEARCH_ROLES);
+      case 'searchUsers':
+        return roleAllowed(reqUser, BACKOFFICE_USER_ENUM_ROLES);
+      case 'openEntity':
+        return (
+          roleAllowed(reqUser, SCHOOL_PORTAL_SEARCH_ROLES) ||
+          roleAllowed(reqUser, PROGRAM_EVENTS_SEARCH_ROLES) ||
+          roleAllowed(reqUser, BACKOFFICE_USER_ENUM_ROLES)
+        );
+      case 'createTask':
+        return roleAllowed(reqUser, BACKOFFICE_USER_ENUM_ROLES);
+      case 'createHiringCandidate':
+      case 'addHiringNote':
+      case 'setHiringStage':
+        return roleAllowed(reqUser, HIRING_AGENT_TOOL_ROLES);
+      case 'searchProviders':
+      case 'getProviderProfileFields':
+      case 'getProviderIntakeAvailability':
+        return roleAllowed(reqUser, PROVIDER_DIRECTORY_TOOL_ROLES);
+      default:
+        return false;
+    }
+  };
+
+  let out = withNav.filter((s) => canSeeTool(s.name));
+  const cfgSet = Array.isArray(agentConfig?.allowedTools)
+    ? new Set(agentConfig.allowedTools.map((t) => String(t || '').trim()).filter(Boolean))
+    : null;
+  if (cfgSet?.size) {
+    out = out.filter((s) => cfgSet.has(s.name));
+  }
+  return out;
+}
+
 export function getToolSchemas() {
   return [
     {
@@ -172,6 +446,107 @@ export function getToolSchemas() {
           }
         },
         required: ['routeName']
+      }
+    },
+    {
+      name: 'getMyPayrollSummary',
+      description:
+        "Fetch the signed-in user's payroll summary for their current agency: last posted paycheck (period dates, total pay), unpaid documentation counts (NO_NOTE rows and non-payable DRAFT rows in the last period), prior unpaid buckets, and delinquency score. Use for questions like last paycheck amount, how many no-notes, or unpaid documentation.",
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {}
+      }
+    },
+    {
+      name: 'listMyRecentActivity',
+      description:
+        "List the signed-in user's own most recent activity log rows (logins, page views, SMS sent by them, password changes, module progress, etc.). Use for questions like 'when did I last log in?', 'what did I do today?', 'how many logins did I have this week?'. Never returns other users' activity.",
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          limit: { type: 'integer', description: 'Max rows to return (default 15, max 50).' },
+          since: {
+            type: 'string',
+            description: 'Optional ISO date (YYYY-MM-DD) — only return rows on or after this date.'
+          },
+          actionType: {
+            type: 'string',
+            description: 'Optional narrow filter to a single action_type (e.g. "login", "sms_sent").'
+          }
+        }
+      }
+    },
+    {
+      name: 'searchAgencyActivity',
+      description:
+        "Admin-only. Search this agency's audit log (user_activity_log) by action type, user email/name, date range, and free-text. Use for questions like 'who logged in from a new IP yesterday?', 'how many SMS did we send this week?', 'who accessed the school portal roster today?', 'which admins sent password reset links in the last 7 days?'. Always scoped to the signed-in user's current agency.",
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          actionTypes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'One or more action_type strings to filter by (e.g. ["login","timeout"]). Unknown/non-whitelisted values are ignored.'
+          },
+          search: {
+            type: 'string',
+            description: 'Free-text match against user email, user name, action_type, metadata, ip_address, or session_id.'
+          },
+          userEmail: {
+            type: 'string',
+            description: 'Narrow to a single user in the agency by exact email.'
+          },
+          startDate: { type: 'string', description: 'YYYY-MM-DD or ISO (inclusive).' },
+          endDate: { type: 'string', description: 'YYYY-MM-DD or ISO (inclusive).' },
+          limit: { type: 'integer', description: 'Max rows to return (default 25, max 100).' }
+        }
+      }
+    },
+    {
+      name: 'getAgencyActivityStats',
+      description:
+        "Admin-only. Return top action_type counts for this agency in a date range. Use for questions like 'what are people doing most this week?', 'how many logins yesterday?', 'how many SMS we sent last month?'. Returns an ordered breakdown by count.",
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          startDate: {
+            type: 'string',
+            description: 'YYYY-MM-DD or ISO. Defaults to 7 days ago.'
+          },
+          endDate: {
+            type: 'string',
+            description: 'YYYY-MM-DD or ISO. Defaults to now.'
+          },
+          topN: {
+            type: 'integer',
+            description: 'Max distinct action_types to return (default 20, max 50).'
+          },
+          userEmail: {
+            type: 'string',
+            description: 'Optional: narrow stats to a single user in the agency by exact email.'
+          }
+        }
+      }
+    },
+    {
+      name: 'searchReferralDirectory',
+      description:
+        'Search this agency\'s referral directory (approved external providers/resources). Use when the user needs referrals for a client — e.g. pediatrics, psychiatry, speech, OT — or asks who to refer to for a specialty. Returns names, organizations, phones, specialties, categories. After listing, you may suggest navigateTo ReferralDirectory if they want the full editable list.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Specialty, discipline, provider type, organization name fragment, or comma/space-separated terms (e.g. "pediatric psychiatry").'
+          },
+          limit: { type: 'integer', description: 'Max rows to return (default 20, max 40)' }
+        },
+        required: ['query']
       }
     },
     {
@@ -413,9 +788,249 @@ export async function executeToolCall({ req, toolCall }) {
     };
   }
 
+  if (name === 'getMyPayrollSummary') {
+    requireAuthed(req);
+    const { buildAssistantPayrollMeSummary } = await import('../../controllers/payroll.controller.js');
+    const result = await buildAssistantPayrollMeSummary(req);
+    return { ok: true, tool: name, result };
+  }
+
+  if (name === 'searchReferralDirectory') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, REFERRAL_DIRECTORY_TOOL_ROLES)) {
+      const err = new Error('Referral directory search is not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+    const query = str(args.query, 400);
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 20), 40);
+    const entries = await searchReferralDirectoryEntriesForTool(agencyId, query, limit);
+    return { ok: true, tool: name, result: { entries } };
+  }
+
+  if (name === 'listMyRecentActivity') {
+    requireAuthed(req);
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 15), 50);
+    const sinceYmd = parseIsoOrNull(args.since);
+    const wantedAction = str(args.actionType, 100);
+    const filterAction =
+      wantedAction && ASSISTANT_AUDIT_ACTION_TYPES.has(wantedAction) ? wantedAction : null;
+
+    const rows = await UserActivityLog.getActivityForUser(req.user.id, {
+      limit,
+      startDate: sinceYmd,
+      actionType: filterAction
+    });
+    const shaped = (rows || []).map(shapeActivityRow).filter(Boolean);
+    return {
+      ok: true,
+      tool: name,
+      result: {
+        total: shaped.length,
+        since: sinceYmd,
+        actionType: filterAction,
+        rows: shaped
+      }
+    };
+  }
+
+  if (name === 'searchAgencyActivity') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, AUDIT_SEARCH_TOOL_ROLES)) {
+      const err = new Error('Audit log search is only available to admins');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 25), 100);
+    const startDate = parseIsoOrNull(args.startDate);
+    const endDate = parseIsoOrNull(args.endDate);
+    const search = str(args.search, 200);
+
+    let actionTypes = Array.isArray(args.actionTypes)
+      ? args.actionTypes
+          .map((a) => str(a, 100))
+          .filter((a) => a && ASSISTANT_AUDIT_ACTION_TYPES.has(a))
+      : [];
+    if (actionTypes.length > 25) actionTypes = actionTypes.slice(0, 25);
+
+    // Resolve optional userEmail → userId. Avoid cross-agency enumeration:
+    // require the target user to share the caller's agency.
+    let targetUserId = null;
+    if (args.userEmail) {
+      const email = str(args.userEmail, 254).toLowerCase();
+      if (email) {
+        const [urows] = await pool.execute(
+          `SELECT u.id
+           FROM users u
+           JOIN user_agencies ua ON ua.user_id = u.id
+           WHERE LOWER(u.email) = ? AND ua.agency_id = ?
+           LIMIT 1`,
+          [email, agencyId]
+        );
+        if (urows?.[0]?.id) {
+          targetUserId = Number(urows[0].id);
+        } else {
+          return {
+            ok: true,
+            tool: name,
+            result: {
+              total: 0,
+              rows: [],
+              note: `No user with email ${email} in this agency.`
+            }
+          };
+        }
+      }
+    }
+
+    const [rows, total] = await Promise.all([
+      UserActivityLog.getAgencyActivityLog({
+        agencyId,
+        userId: targetUserId,
+        actionTypes: actionTypes.length ? actionTypes : null,
+        startDate,
+        endDate,
+        search: search || null,
+        limit,
+        sortBy: 'createdAt',
+        sortOrder: 'DESC'
+      }),
+      UserActivityLog.countAgencyActivityLog({
+        agencyId,
+        userId: targetUserId,
+        actionTypes: actionTypes.length ? actionTypes : null,
+        startDate,
+        endDate,
+        search: search || null
+      }).catch(() => null)
+    ]);
+
+    const shaped = (rows || []).map(shapeActivityRow).filter(Boolean);
+    return {
+      ok: true,
+      tool: name,
+      result: {
+        agencyId,
+        total: total == null ? shaped.length : Number(total),
+        returned: shaped.length,
+        startDate,
+        endDate,
+        filters: {
+          actionTypes: actionTypes.length ? actionTypes : null,
+          userEmail: args.userEmail ? String(args.userEmail).toLowerCase() : null,
+          search: search || null
+        },
+        rows: shaped
+      }
+    };
+  }
+
+  if (name === 'getAgencyActivityStats') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, AUDIT_SEARCH_TOOL_ROLES)) {
+      const err = new Error('Audit stats are only available to admins');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) {
+      const err = new Error('Your session has no agency context');
+      err.status = 400;
+      throw err;
+    }
+
+    const topN = Math.min(Math.max(1, intOrNull(args.topN) || 20), 50);
+
+    const defaultEnd = new Date();
+    const defaultStart = new Date(defaultEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const startYmd = parseIsoOrNull(args.startDate) || defaultStart.toISOString().slice(0, 10);
+    const endYmd = parseIsoOrNull(args.endDate) || defaultEnd.toISOString().slice(0, 10);
+
+    let userFilterSql = '';
+    const params = [agencyId, `${startYmd} 00:00:00`, `${endYmd} 23:59:59`];
+    if (args.userEmail) {
+      const email = str(args.userEmail, 254).toLowerCase();
+      if (email) {
+        const [urows] = await pool.execute(
+          `SELECT u.id
+           FROM users u
+           JOIN user_agencies ua ON ua.user_id = u.id
+           WHERE LOWER(u.email) = ? AND ua.agency_id = ?
+           LIMIT 1`,
+          [email, agencyId]
+        );
+        if (!urows?.[0]?.id) {
+          return {
+            ok: true,
+            tool: name,
+            result: {
+              agencyId,
+              startDate: startYmd,
+              endDate: endYmd,
+              total: 0,
+              actions: [],
+              note: `No user with email ${email} in this agency.`
+            }
+          };
+        }
+        userFilterSql = ' AND user_id = ?';
+        params.push(Number(urows[0].id));
+      }
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT action_type, COUNT(*) AS cnt
+       FROM user_activity_log
+       WHERE agency_id = ?
+         AND created_at >= ?
+         AND created_at <= ?
+         ${userFilterSql}
+       GROUP BY action_type
+       ORDER BY cnt DESC, action_type ASC
+       LIMIT ${topN}`,
+      params
+    );
+
+    const actions = (rows || []).map((r) => {
+      const at = String(r.action_type || '').trim();
+      return {
+        actionType: at,
+        actionLabel: auditActionRegistry.getActionLabel(at),
+        category: auditActionRegistry.getActionCategory(at),
+        count: Number(r.cnt || 0)
+      };
+    });
+    const total = actions.reduce((sum, a) => sum + a.count, 0);
+    return {
+      ok: true,
+      tool: name,
+      result: {
+        agencyId,
+        startDate: startYmd,
+        endDate: endYmd,
+        userEmail: args.userEmail ? String(args.userEmail).toLowerCase() : null,
+        total,
+        actions
+      }
+    };
+  }
+
   if (name === 'searchSchools') {
     requireAuthed(req);
-    if (!roleAllowed(req.user, ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'])) {
+    if (!roleAllowed(req.user, SCHOOL_PORTAL_SEARCH_ROLES)) {
       const err = new Error('School portals are not available for your role');
       err.status = 403;
       throw err;
@@ -459,7 +1074,7 @@ export async function executeToolCall({ req, toolCall }) {
       err.status = 400;
       throw err;
     }
-    if (!roleAllowed(req.user, ['admin', 'staff', 'support', 'super_admin', 'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'])) {
+    if (!roleAllowed(req.user, PROGRAM_EVENTS_SEARCH_ROLES)) {
       const err = new Error('Program events are not available for your role');
       err.status = 403;
       throw err;
@@ -553,6 +1168,11 @@ export async function executeToolCall({ req, toolCall }) {
     }
 
     if (kind === 'school') {
+      if (!roleAllowed(req.user, SCHOOL_PORTAL_SEARCH_ROLES)) {
+        const err = new Error('School portals are not available for your role');
+        err.status = 403;
+        throw err;
+      }
       const resolved = await resolveSchoolPortalPath(agencyId, id);
       if (!resolved) {
         const err = new Error('School not found in your agency');
@@ -568,6 +1188,11 @@ export async function executeToolCall({ req, toolCall }) {
     }
 
     if (kind === 'event') {
+      if (!roleAllowed(req.user, PROGRAM_EVENTS_SEARCH_ROLES)) {
+        const err = new Error('Program events are not available for your role');
+        err.status = 403;
+        throw err;
+      }
       const [rows] = await pool.execute(
         `SELECT id, title FROM company_events
          WHERE agency_id = ? AND id = ? AND is_active = TRUE LIMIT 1`,
@@ -757,6 +1382,12 @@ export async function executeToolCall({ req, toolCall }) {
   }
 
   if (name === 'searchProviders') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, PROVIDER_DIRECTORY_TOOL_ROLES)) {
+      const err = new Error('Provider directory tools are not available for your role');
+      err.status = 403;
+      throw err;
+    }
     const agencyId = intOrNull(args.agencyId);
     await ensureAgencyAccess(req.user, agencyId);
     const textQuery = args.textQuery == null ? '' : str(args.textQuery, 500);
@@ -776,6 +1407,12 @@ export async function executeToolCall({ req, toolCall }) {
   }
 
   if (name === 'getProviderProfileFields') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, PROVIDER_DIRECTORY_TOOL_ROLES)) {
+      const err = new Error('Provider directory tools are not available for your role');
+      err.status = 403;
+      throw err;
+    }
     const agencyId = intOrNull(args.agencyId);
     const providerId = intOrNull(args.providerId);
     await ensureAgencyAccess(req.user, agencyId);
@@ -804,6 +1441,12 @@ export async function executeToolCall({ req, toolCall }) {
   }
 
   if (name === 'getProviderIntakeAvailability') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, PROVIDER_DIRECTORY_TOOL_ROLES)) {
+      const err = new Error('Provider directory tools are not available for your role');
+      err.status = 403;
+      throw err;
+    }
     const agencyId = intOrNull(args.agencyId);
     const providerId = intOrNull(args.providerId);
     await ensureAgencyAccess(req.user, agencyId);

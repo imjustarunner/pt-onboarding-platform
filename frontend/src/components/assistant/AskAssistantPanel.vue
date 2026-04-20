@@ -21,14 +21,25 @@
           </div>
           <div class="aap-head-text">
             <div class="aap-title">Assistant</div>
-            <div class="aap-sub">Open pages · find schools, events &amp; people</div>
+            <div class="aap-sub">Navigate · schools &amp; events · referrals · payroll · activity</div>
           </div>
         </div>
-        <button type="button" class="aap-close" @click="close" aria-label="Close">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6L6 18M6 6l12 12" stroke-linecap="round" />
-          </svg>
-        </button>
+        <div class="aap-head-actions">
+          <button
+            v-if="turns.length > 0"
+            type="button"
+            class="aap-clear"
+            title="Clear conversation"
+            @click="clearChat"
+          >
+            Clear
+          </button>
+          <button type="button" class="aap-close" @click="close" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6L6 18M6 6l12 12" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
       </header>
 
       <div ref="turnsRef" class="aap-body">
@@ -157,7 +168,7 @@
 </template>
 
 <script setup>
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -174,11 +185,21 @@ const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
-const suggestions = [
-  'Open the school portal for Valley Elementary',
-  'Find the spring recital event',
-  'Take me to my schedule'
-];
+const ADMIN_AUDIT_ROLES = new Set(['admin', 'super_admin', 'support']);
+const suggestions = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  const base = [
+    'I need a few pediatrics or psychiatry referrals for my client',
+    'When did I last log in?',
+    'Show me what I did today',
+    'Take me to my schedule'
+  ];
+  if (ADMIN_AUDIT_ROLES.has(role)) {
+    base.push('What activity happened in my agency this week?');
+    base.push('Who sent password reset links in the last 7 days?');
+  }
+  return base;
+});
 
 const prompt = ref('');
 const busy = ref(false);
@@ -230,6 +251,20 @@ function applySuggestion(s) {
 function close() {
   if (isListening.value) stopListening();
   emit('close');
+}
+
+/** Nothing is written to disk; this clears in-memory transcript and draft (also runs when the drawer closes). */
+function clearChat() {
+  turns.value = [];
+  error.value = '';
+  prompt.value = '';
+  if (isListening.value) stopListening();
+  nextTick(() => {
+    const ta = textareaRef.value;
+    if (ta) ta.style.height = 'auto';
+    autoGrow();
+    textareaRef.value?.focus?.();
+  });
 }
 
 function toggleMic() {
@@ -330,13 +365,15 @@ function handleKeydown(e) {
 watch(
   () => props.open,
   (v) => {
-    if (v) {
-      nextTick(() => {
-        textareaRef.value?.focus?.();
-        autoGrow();
-        scrollTurnsToBottom();
-      });
+    if (!v) {
+      clearChat();
+      return;
     }
+    nextTick(() => {
+      textareaRef.value?.focus?.();
+      autoGrow();
+      scrollTurnsToBottom();
+    });
   }
 );
 
@@ -429,6 +466,31 @@ onUnmounted(() => {
   gap: 12px;
   padding: 16px 18px 14px;
   border-bottom: 1px solid var(--aap-line);
+}
+
+.aap-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.aap-clear {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--aap-muted);
+  background: rgba(148, 163, 184, 0.12);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.aap-clear:hover {
+  background: rgba(13, 148, 136, 0.12);
+  color: var(--aap-teal-d);
 }
 
 .aap-head-main {

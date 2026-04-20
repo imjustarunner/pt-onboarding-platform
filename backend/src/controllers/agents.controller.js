@@ -1,6 +1,6 @@
 import ActivityLogService from '../services/activityLog.service.js';
 import { runAgentAssist, safeParseAgentJson } from '../services/agents/agentRuntime.service.js';
-import { executeToolCall } from '../services/agents/toolRegistry.service.js';
+import { executeToolCall, getToolSchemasForUser } from '../services/agents/toolRegistry.service.js';
 
 function normalizeUiCommands(raw) {
   const arr = Array.isArray(raw) ? raw : [];
@@ -167,6 +167,91 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
       lines.push(nm ? `Opened: ${nm}` : path ? `Opened: ${path}` : 'Opened the requested page.');
     } else if (r.tool === 'navigateTo') {
       lines.push(r.result?.path ? `Opened ${r.result.path}.` : 'Navigation updated.');
+    } else if (r.tool === 'searchReferralDirectory') {
+      const list = r.result?.entries || [];
+      if (!list.length) {
+        lines.push('No referral directory entries matched that search in your agency.');
+      } else {
+        const parts = list.slice(0, 15).map((e) => {
+          const org = e.organizationName ? ` (${e.organizationName})` : '';
+          const ph = e.phone ? ` — ${e.phone}` : '';
+          const cat = e.category ? ` [${e.category}]` : '';
+          const sp = e.specialties ? ` — ${String(e.specialties).slice(0, 140)}${String(e.specialties).length > 140 ? '…' : ''}` : '';
+          return `• ${e.name || 'Entry'}${org}${cat}${ph}${sp}`;
+        });
+        lines.push(`Matches (${list.length}):\n${parts.join('\n')}`);
+      }
+    } else if (r.tool === 'listMyRecentActivity') {
+      const rows = r.result?.rows || [];
+      if (!rows.length) {
+        lines.push('No recent activity found for you in that window.');
+      } else {
+        const header = `Your recent activity (${rows.length}${r.result?.since ? ` since ${r.result.since}` : ''}):`;
+        const items = rows.slice(0, 15).map((row) => {
+          const when = row.createdAt ? String(row.createdAt).replace('T', ' ').slice(0, 16) : '—';
+          const label = row.actionLabel || row.actionType || 'Activity';
+          const ip = row.ipAddress ? ` (${row.ipAddress})` : '';
+          return `• ${when} — ${label}${ip}`;
+        });
+        lines.push(`${header}\n${items.join('\n')}`);
+      }
+    } else if (r.tool === 'searchAgencyActivity') {
+      const rows = r.result?.rows || [];
+      const total = Number(r.result?.total || rows.length);
+      if (!rows.length) {
+        lines.push('No matching activity rows found with those filters.');
+      } else {
+        const range = [r.result?.startDate, r.result?.endDate].filter(Boolean).join(' → ');
+        const rangeSuffix = range ? ` (${range})` : '';
+        const header = `Found ${total} matching row(s)${rangeSuffix}${total > rows.length ? `, showing ${rows.length}` : ''}:`;
+        const items = rows.slice(0, 20).map((row) => {
+          const when = row.createdAt ? String(row.createdAt).replace('T', ' ').slice(0, 16) : '—';
+          const who = row.userEmail || row.userName || (row.userId ? `user #${row.userId}` : 'unknown user');
+          const what = row.actionLabel || row.actionType || 'Activity';
+          const ip = row.ipAddress ? ` @ ${row.ipAddress}` : '';
+          return `• ${when} — ${who} — ${what}${ip}`;
+        });
+        lines.push(`${header}\n${items.join('\n')}`);
+      }
+    } else if (r.tool === 'getAgencyActivityStats') {
+      const actions = r.result?.actions || [];
+      if (!actions.length) {
+        lines.push('No audit events in that window.');
+      } else {
+        const range = [r.result?.startDate, r.result?.endDate].filter(Boolean).join(' → ');
+        const total = Number(r.result?.total || 0);
+        const header = `Top ${actions.length} activity type(s) ${range ? `(${range})` : ''} — ${total} total:`;
+        const items = actions.slice(0, 20).map((a) => `• ${a.actionLabel || a.actionType}: ${a.count}`);
+        lines.push(`${header}\n${items.join('\n')}`);
+      }
+    } else if (r.tool === 'getMyPayrollSummary') {
+      const pay = r.result;
+      if (!pay || typeof pay !== 'object') {
+        lines.push('No payroll summary is available.');
+      } else {
+        const lp = pay.lastPaycheck;
+        if (lp) {
+          const amt = Number(lp.totalPay || 0);
+          const amtStr = Number.isFinite(amt) ? amt.toFixed(2) : String(lp.totalPay ?? '');
+          lines.push(`Last paycheck: ${lp.periodStart || '?'}–${lp.periodEnd || '?'}, total $${amtStr}.`);
+        } else {
+          lines.push('No posted paycheck found for you in this agency yet.');
+        }
+        const lastNotes = pay.unpaidNotes?.lastPayPeriod;
+        if (lastNotes) {
+          const nn = Number(lastNotes.noNoteNotes || 0);
+          const dr = Number(lastNotes.draftNotes || 0);
+          if (nn || dr) {
+            lines.push(
+              `In that pay period you had ${nn} NO_NOTE row(s) and ${dr} unpaid draft documentation row(s) counted as non-payable.`
+            );
+          } else if (!lp) {
+            /* no extra line */
+          } else {
+            lines.push('No unpaid NO_NOTE or non-payable draft rows in that pay period.');
+          }
+        }
+      }
     }
   }
   const out = lines.filter(Boolean).join('\n\n');
@@ -190,6 +275,7 @@ export const assist = async (req, res, next) => {
     const started = Date.now();
     const { rawText, runtime } = await runAgentAssist({
       userId: req.user?.id || null,
+      user: req.user,
       prompt,
       context,
       agentConfig,
@@ -199,11 +285,18 @@ export const assist = async (req, res, next) => {
     const parsed = safeParseAgentJson(rawText);
     const merged = mergeAssistParsedModelShape(parsed);
     let assistantText = String(merged.assistantText || '').trim();
-    const uiCommands = merged.uiCommands;
+    // Never trust model-supplied navigation/highlight; only successful tools may emit uiCommands.
+    const uiCommands = [];
     let toolCalls = merged.toolCalls;
+
+    const allowedToolNames = new Set(getToolSchemasForUser(req.user, agentConfig).map((t) => t.name));
 
     const toolResults = [];
     for (const tc of toolCalls) {
+      if (!allowedToolNames.has(tc.name)) {
+        toolResults.push({ ok: false, tool: tc.name, error: { message: 'Tool not allowed for your role' } });
+        continue;
+      }
       try {
         const result = await executeToolCall({ req, toolCall: tc });
         toolResults.push(result);

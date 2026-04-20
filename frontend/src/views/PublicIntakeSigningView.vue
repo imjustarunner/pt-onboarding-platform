@@ -490,7 +490,20 @@
             </div>
           </div>
 
-          <div v-if="!intakeForSelf" class="clients-footer">
+          <!--
+            The "Add another child" button was previously shown for every
+            guardian-led intake, which let parents append sibling profiles even
+            when they hadn't declared a multi-client packet up front. That path
+            also repeated all of the per-client questions, confused signers,
+            and created sibling records before the multi-client signature
+            consent was captured. Gate the button on the multi-client plan
+            selection + consent so it only appears for parents who explicitly
+            opted into packaging multiple children together.
+          -->
+          <div
+            v-if="!intakeForSelf && multiClientPlanChoice === 'multiple' && multiClientConsentAccepted"
+            class="clients-footer"
+          >
             <button
               class="btn btn-secondary btn-sm"
               type="button"
@@ -826,6 +839,7 @@
             :cost-display="paymentCostDisplay"
             @update:model-value="(v) => { intakeResponses.submission.paymentInfo = v; }"
             @card-saved="onPaymentCardSaved"
+            @skip-acknowledged="onPaymentSkipAcknowledged"
           />
         </div>
 
@@ -4052,6 +4066,19 @@ const completeGuardianWaiverStep = () => {
           emergencyPulseTimer = setTimeout(() => { emergencyPulse.value = false; }, 2600);
           return;
         }
+        const touchedWithoutPhone = ecRows.find((row) => {
+          const name = String(row?.name ?? '').trim();
+          const rel = String(row?.relationship ?? '').trim();
+          const phone = String(row?.phone ?? '').trim();
+          return (name || rel) && !phone;
+        });
+        if (touchedWithoutPhone) {
+          stepError.value = `Phone number is required for each emergency contact you list for ${label}.`;
+          emergencyPulse.value = true;
+          if (emergencyPulseTimer) clearTimeout(emergencyPulseTimer);
+          emergencyPulseTimer = setTimeout(() => { emergencyPulse.value = false; }, 2600);
+          return;
+        }
       }
       if (!sec) {
         stepError.value = `Please complete ${guardianWaiverSectionLabels[key] || 'all waiver sections'} for ${label}.`;
@@ -4238,6 +4265,18 @@ const onPaymentCardSaved = (cardInfo) => {
     intakeResponses.submission.paymentInfo = {};
   }
   Object.assign(intakeResponses.submission.paymentInfo, { cardSaved: true, ...cardInfo });
+};
+
+// Fired when the guardian confirms "Continue without payment method".
+// Auto-advances to the next step so they don't have to click the footer
+// Continue button a second time (redundant UX).
+const onPaymentSkipAcknowledged = (skipModel) => {
+  if (!intakeResponses.submission.paymentInfo) {
+    intakeResponses.submission.paymentInfo = {};
+  }
+  Object.assign(intakeResponses.submission.paymentInfo, skipModel || { skipAcknowledged: true });
+  stepError.value = '';
+  void nextFlowStep();
 };
 
 const paymentCostDisplay = computed(() => {
@@ -5138,13 +5177,32 @@ const loadAgencyRegistrationCatalog = async () => {
 
 const preselectLinkedCompanyEvent = (regStep) => {
   const stepId = String(regStep?.id || '').trim();
-  const ceid = Number(link.value?.company_event_id || 0);
-  if (!stepId || !ceid) return;
-  const optId = `cat_company_event_${ceid}`;
-  const opts = currentRegistrationOptions.value;
-  if (!opts.some((o) => String(o.id) === optId)) return;
+  if (!stepId) return;
   if (getRegistrationSelectionIds(stepId).length) return;
-  setRegistrationSelectionIds(stepId, [optId]);
+  const opts = currentRegistrationOptions.value;
+  if (!Array.isArray(opts) || !opts.length) return;
+  const ceid = Number(link.value?.company_event_id || 0) || null;
+  // Prefer matching the link's locked company_event_id across source types
+  // (agency_catalog OR manual options). This was previously only checking the
+  // agency_catalog-shaped id ("cat_company_event_<id>"), which left manual
+  // single-event registration links with a hidden picker AND no selection —
+  // the parent would tap "Next" on the 2nd page and hit
+  // "Please select at least one option" even though there was nothing to pick.
+  if (ceid) {
+    const matchingByEntity = opts.find((o) =>
+      ['company_event', 'event'].includes(String(o.entityType || '').toLowerCase())
+      && Number(o.entityId) === ceid
+    );
+    if (matchingByEntity?.id) {
+      setRegistrationSelectionIds(stepId, [String(matchingByEntity.id)]);
+      return;
+    }
+  }
+  // When the picker would be hidden because only one option exists AND the
+  // link is locked to that event, auto-select it so validation never trips.
+  if (opts.length === 1 && ceid) {
+    setRegistrationSelectionIds(stepId, [String(opts[0].id)]);
+  }
 };
 
 watch(currentFlowStep, async (step) => {
@@ -5176,6 +5234,12 @@ watch(currentFlowStep, async (step) => {
       if (!agencyRegistrationCatalog.value.length) {
         await loadAgencyRegistrationCatalog();
       }
+      await nextTick();
+      preselectLinkedCompanyEvent(step);
+    } else {
+      // Manual-option registration steps also benefit from preselect when the
+      // link is locked to a single event. Without this, manual links produced
+      // the "please select at least one option" error reported by parents.
       await nextTick();
       preselectLinkedCompanyEvent(step);
     }
@@ -6308,6 +6372,270 @@ onBeforeUnmount(() => {
   .actions .btn,
   .actions a.btn {
     width: 100%;
+  }
+}
+
+/* -----------------------------------------------------------------
+   Public intake / digital forms — modern visual refresh.
+   Feedback from parents (screenshot 3 + "really don't like how the form
+   looks, not modern at all, bulky") was that our public form looked dated:
+   heavy borders, thick section boxes, small tap targets, cramped labels,
+   and hard 90s-era radio clusters. This block layers a cleaner skin on top
+   of the existing structural styles without replacing them, so every
+   form-type (smart_registration, smart_school_roi, intake, job_application,
+   medical_records) inherits the polish automatically.
+
+   Design goals:
+     • Softer neutrals, gentler shadows, larger radii.
+     • Generous padding + breathing room for inputs and section cards.
+     • Taller, easier-to-tap inputs with a clear focus ring.
+     • Unified modern button treatment (pill radius, subtle elevation).
+     • Typography tweaks for readability on mobile.
+   ----------------------------------------------------------------- */
+.intake-card {
+  border-radius: 18px;
+  padding: 28px 32px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 10px 30px -12px rgba(15, 23, 42, 0.12);
+}
+.form-grid {
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+.form-group label {
+  font-weight: 600;
+  font-size: 13.5px;
+  letter-spacing: 0.01em;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+.form-group input,
+.form-group textarea,
+.form-group select,
+.field-inputs input,
+.field-inputs textarea,
+.field-inputs select {
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  background: #fff;
+  font-size: 15px;
+  line-height: 1.4;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.form-group input:hover,
+.form-group textarea:hover,
+.form-group select:hover,
+.field-inputs input:hover,
+.field-inputs textarea:hover,
+.field-inputs select:hover {
+  border-color: rgba(15, 23, 42, 0.24);
+}
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus,
+.field-inputs input:focus,
+.field-inputs textarea:focus,
+.field-inputs select:focus {
+  outline: none;
+  border-color: var(--primary, #2563eb);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+}
+.form-group input[type='date'],
+.field-inputs input[type='date'] {
+  min-height: 44px;
+}
+.radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.radio-row {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  background: #fff;
+  font-size: 14px;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+/* Keep the radio/checkbox pinned to the top of the pill and guarantee a
+   consistent hit area. This prevents the dot from "floating" above the
+   label text inside narrow grid columns, which was the "jacked up bubbles"
+   issue parents were seeing on the clinical PSC-17 questions. */
+.radio-row input[type='radio'],
+.radio-row input[type='checkbox'] {
+  accent-color: var(--primary, #2563eb);
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex-shrink: 0;
+}
+.radio-row > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.radio-row:hover {
+  border-color: rgba(15, 23, 42, 0.28);
+  background: #f8fafc;
+}
+/* Highlight a selected pill — we can't use :has() reliably everywhere, so
+   rely on focus-within + the radio row sitting on a slightly tinted bg when
+   its input is checked. */
+.radio-row input:checked + span {
+  color: var(--primary, #2563eb);
+  font-weight: 600;
+}
+/* When a pill sits inside a narrow grid column the text can wrap — make sure
+   the pill flexes full-width in that case so the circle stays left-aligned
+   with the label text instead of stacking on top of it. */
+.radio-group .radio-row {
+  max-width: 100%;
+}
+.clients-block {
+  gap: 18px;
+}
+.client-card {
+  border-radius: 16px;
+  padding: 20px;
+  background: #fafbff;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+.client-card-alt {
+  background: #f5f8ff;
+}
+.client-card-header strong {
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+.clients-header h4,
+.field-inputs h4,
+.multi-client-plan-block h4,
+.multi-client-consent-panel h4 {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.multi-client-plan-block {
+  border-radius: 14px;
+  border-color: rgba(44, 128, 188, 0.18);
+  background: #f2f8ff;
+}
+.multi-client-consent-panel {
+  border-radius: 14px;
+}
+.multi-client-decline-notice,
+.multi-client-consent-confirmed {
+  border-radius: 12px;
+}
+.bound-client-card {
+  border-radius: 14px;
+  padding: 16px 18px;
+  border-color: rgba(15, 23, 42, 0.08);
+  background: #fafbff;
+}
+.consent-box {
+  border-radius: 14px;
+  padding: 16px 18px;
+  background: #fafbff;
+}
+.draft-restored-banner {
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 13.5px;
+}
+.intake-inline-error-banner {
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 14px;
+}
+/* Button polish. Scoped to .btn so we don't fight with library buttons that
+   already style themselves. Preserves existing color variants (primary,
+   secondary, outline, link) and just updates geometry + elevation. */
+.btn {
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-size: 14px;
+  transition: transform 0.05s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.btn.btn-primary {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 14px -6px rgba(37, 99, 235, 0.45);
+}
+.btn.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.08), 0 10px 22px -8px rgba(37, 99, 235, 0.55);
+}
+.btn.btn-secondary,
+.btn.btn-outline {
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  color: #0f172a;
+}
+.btn.btn-secondary:hover,
+.btn.btn-outline:hover {
+  border-color: rgba(15, 23, 42, 0.28);
+  background: #f8fafc;
+}
+.btn.btn-sm {
+  padding: 7px 13px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+.btn.btn-xs {
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.55;
+  transform: none !important;
+  box-shadow: none !important;
+  cursor: not-allowed;
+}
+/* Section headings inside the intake card. */
+.intake-card h2,
+.intake-card h3,
+.intake-card h4 {
+  letter-spacing: -0.01em;
+}
+/* Soft background for the whole surface keeps the card lifted. */
+:global(.signing-view-body),
+:global(.public-intake-body) {
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+}
+
+@media (max-width: 720px) {
+  .intake-card {
+    padding: 18px 16px;
+    border-radius: 14px;
+  }
+  .client-card {
+    padding: 16px;
+    border-radius: 14px;
+  }
+  .form-group input,
+  .form-group textarea,
+  .form-group select,
+  .field-inputs input,
+  .field-inputs textarea,
+  .field-inputs select {
+    font-size: 16px; /* keeps iOS from zooming the viewport */
+  }
+  .btn {
+    padding: 11px 18px;
+    font-size: 14px;
   }
 }
 </style>

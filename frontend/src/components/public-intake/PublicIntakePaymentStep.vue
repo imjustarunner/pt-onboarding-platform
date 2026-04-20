@@ -206,7 +206,7 @@ const props = defineProps({
   submissionId: { type: [Number, String], default: null },
   costDisplay: { type: String, default: '' }
 });
-const emit = defineEmits(['update:modelValue', 'card-saved']);
+const emit = defineEmits(['update:modelValue', 'card-saved', 'skip-acknowledged']);
 
 const costDisclosure = computed(() => String(props.stepConfig?.costDisclosureText || '').trim());
 const costSummary = computed(() => String(props.costDisplay || props.stepConfig?.costSummary || '').trim());
@@ -450,11 +450,15 @@ function skipForNow() {
     formError.value = 'Please acknowledge the payment responsibility statement to continue.';
     return;
   }
-  emit('update:modelValue', {
+  const nextModel = {
     cardSaved: false,
     skipAcknowledged: true,
     skipAcknowledgedAt: new Date().toISOString()
-  });
+  };
+  emit('update:modelValue', nextModel);
+  // Advance immediately — having the user click "Continue" again after
+  // "Continue without payment method" was redundant and confusing.
+  emit('skip-acknowledged', nextModel);
 }
 </script>
 

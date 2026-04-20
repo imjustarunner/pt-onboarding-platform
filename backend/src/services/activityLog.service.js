@@ -60,62 +60,40 @@ class ActivityLogService {
   }
 
   /**
-   * Validate activity data
-   * @param {Object} data - Activity data to validate
-   * @returns {Object} Validation result with isValid and errors
+   * Validate activity data.
+   *
+   * Historical note: this method used to enforce a hardcoded whitelist of ~20
+   * action types. That silently blocked every other action the codebase emits
+   * (school portal views, SMS, call, ROI, client, document, payroll, task, and
+   * billing events) before they ever reached the database. Combined with the
+   * ENUM column in user_activity_log (see migration 738), audit coverage was
+   * effectively limited to auth + training + a few AI surfaces.
+   *
+   * The canonical list of human-readable labels lives in
+   * backend/src/config/auditActionRegistry.js and the frontend mirror; new
+   * action types are added there. This validator only enforces shape + size
+   * to prevent SQL/ENUM errors and injection of unreasonable values.
    */
   static validateActivityData(data) {
     const errors = [];
 
-    // actionType is required
     if (!data.actionType || typeof data.actionType !== 'string') {
       errors.push('actionType is required and must be a string');
+    } else {
+      const at = data.actionType.trim();
+      if (!/^[A-Za-z][A-Za-z0-9_]{0,99}$/.test(at)) {
+        errors.push('actionType must start with a letter and contain only letters, digits, or underscores (max 100 chars)');
+      }
     }
 
-    // Validate actionType is one of the allowed values
-    const allowedActionTypes = [
-      'login',
-      'logout',
-      'timeout',
-      'page_view',
-      'api_call',
-      'module_start',
-      'module_end',
-      'module_complete',
-      'page_navigation',
-      'password_change',
-      'intake_approval',
-      'public_intake_login_help',
-      'password_reset_link_sent',
-      'dashboard_view',
-      'audit_center_viewed',
-      'admin_dashboard_view',
-      'admin_page_view',
-
-      // AI / helper tools (do NOT log sensitive content in metadata)
-      'note_aid_execute',
-      'agent_assist',
-      'agent_tool_execute',
-
-      // Hiring (metadata may include outbound email copy; keep access-controlled in UI)
-      'hiring_reference_event'
-    ];
-    
-    if (data.actionType && !allowedActionTypes.includes(data.actionType)) {
-      errors.push(`actionType must be one of: ${allowedActionTypes.join(', ')}`);
-    }
-
-    // userId should be a number if provided
     if (data.userId !== null && data.userId !== undefined && typeof data.userId !== 'number') {
       errors.push('userId must be a number or null');
     }
 
-    // moduleId should be a number if provided (for module-related actions)
     if (data.moduleId !== null && data.moduleId !== undefined && typeof data.moduleId !== 'number') {
       errors.push('moduleId must be a number or null');
     }
 
-    // durationSeconds should be a number if provided
     if (data.durationSeconds !== null && data.durationSeconds !== undefined && typeof data.durationSeconds !== 'number') {
       errors.push('durationSeconds must be a number or null');
     }
@@ -142,26 +120,18 @@ class ActivityLogService {
    * @returns {Promise<void>}
    */
   static logActivity(activityData, req = null) {
-    // Make this non-async at the top level, handle async internally
-    console.log(`[ActivityLogService] logActivity called for actionType: ${activityData?.actionType}`);
-    
     if (!activityData || !activityData.actionType) {
       console.error('[ActivityLogService] Invalid activityData provided:', activityData);
       return;
     }
-    
-    // Execute all async operations in a single IIFE
+
     (async () => {
       try {
-        // Extract context from request if provided
         let context = {};
-        if (req) {
-          context = this.extractContext(req);
-        }
+        if (req) context = this.extractContext(req);
 
-        // Merge provided data with extracted context (provided data takes precedence)
         const finalData = {
-          actionType: activityData.actionType,
+          actionType: String(activityData.actionType || '').trim(),
           userId: activityData.userId !== undefined ? activityData.userId : context.userId,
           agencyId: activityData.agencyId !== undefined ? activityData.agencyId : context.agencyId,
           ipAddress: activityData.ipAddress !== undefined ? activityData.ipAddress : context.ipAddress,
@@ -172,58 +142,40 @@ class ActivityLogService {
           metadata: activityData.metadata || null
         };
 
-        // Get agency ID if not provided but userId is available
         if (!finalData.agencyId && finalData.userId) {
           finalData.agencyId = await this.getPrimaryAgencyId(finalData.userId);
-          console.log(`[ActivityLogService] Resolved agencyId: ${finalData.agencyId} for userId: ${finalData.userId}`);
         }
 
-        console.log(`[ActivityLogService] Final data before validation:`, {
-          actionType: finalData.actionType,
-          userId: finalData.userId,
-          agencyId: finalData.agencyId,
-          hasIpAddress: !!finalData.ipAddress,
-          hasUserAgent: !!finalData.userAgent,
-          sessionId: finalData.sessionId
-        });
-
-        // Validate the activity data
         const validation = this.validateActivityData(finalData);
         if (!validation.isValid) {
-          console.error('[ActivityLogService] Invalid activity data:', validation.errors);
-          console.error('[ActivityLogService] Activity data:', finalData);
-          return; // Don't log invalid data
+          console.error('[ActivityLogService] Invalid activity data:', validation.errors, {
+            actionType: finalData.actionType,
+            userId: finalData.userId
+          });
+          return;
         }
-        
-        console.log(`[ActivityLogService] Validation passed, inserting into database`);
 
-        // Insert into database
-        console.log(`[ActivityLogService] Attempting to log ${finalData.actionType} for user ${finalData.userId || 'unknown'}`);
-        const result = await UserActivityLog.logActivity(finalData);
-        console.log(`[ActivityLogService] ✅ Successfully logged ${finalData.actionType} activity for user ${finalData.userId || 'unknown'}, ID: ${result?.id || 'unknown'}`);
+        await UserActivityLog.logActivity(finalData);
       } catch (err) {
-        // Log error but don't throw - activity logging should never break the main functionality
-        console.error('[ActivityLogService] ❌ Failed to log activity:', err);
-        console.error('[ActivityLogService] Error details:', {
-          message: err.message,
-          code: err.code,
-          errno: err.errno,
-          sqlState: err.sqlState,
-          sqlMessage: err.sqlMessage,
-          stack: err.stack
+        console.error('[ActivityLogService] Failed to log activity:', {
+          actionType: activityData?.actionType,
+          message: err?.message,
+          code: err?.code,
+          errno: err?.errno,
+          sqlState: err?.sqlState,
+          sqlMessage: err?.sqlMessage
         });
         if (
           Number(err?.errno) === 1265 &&
           String(err?.sqlMessage || err?.message || '').includes('action_type')
         ) {
           console.error(
-            '[ActivityLogService] user_activity_log.action_type rejected this value (ENUM out of date). ' +
-              'Apply migrations 590 and 708 (user_activity_log + hiring reference events) on this database.'
+            '[ActivityLogService] user_activity_log.action_type rejected this value. ' +
+              'Apply migration 738 (user_activity_log_action_type_varchar) on this database.'
           );
         }
       }
-    })().catch(err => {
-      // Catch any unhandled errors in the async IIFE
+    })().catch((err) => {
       console.error('[ActivityLogService] Unhandled error in async logging:', err);
     });
   }

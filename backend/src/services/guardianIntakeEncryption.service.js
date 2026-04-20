@@ -18,11 +18,37 @@ function decodeKeyMaterialFromBase64(b64) {
   }
 }
 
+let didWarnAboutFallbackKey = false;
+
 function getPrimaryKeyMaterial() {
-  return decodeKeyMaterialFromBase64(
+  // Dedicated guardian-intake key (preferred).
+  const dedicated = decodeKeyMaterialFromBase64(
     process.env.GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64
     || process.env.CONTACT_COMMS_ENCRYPTION_KEY_BASE64
   );
+  if (dedicated) return dedicated;
+
+  // Last-resort fallback: reuse the already-provisioned chat encryption key so
+  // the Overview tab's "Guardian (latest intake)" card actually gets populated
+  // in environments that never configured a dedicated guardian key. Without
+  // this fallback, `encryptGuardianIntake` throws inside `persistGuardianProfileForClient`
+  // and the try/catch silently eats the failure — leaving every profile empty.
+  // Production tenants should still configure GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64
+  // for proper domain separation; this is a compatibility seam, not the goal state.
+  const fallback = decodeKeyMaterialFromBase64(process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64);
+  if (fallback) {
+    if (!didWarnAboutFallbackKey) {
+      didWarnAboutFallbackKey = true;
+      console.warn(
+        '[guardianIntakeEncryption] Using CLIENT_CHAT_ENCRYPTION_KEY_BASE64 as a fallback key. '
+        + 'Configure GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64 (or CONTACT_COMMS_ENCRYPTION_KEY_BASE64) '
+        + 'for proper domain separation. See backend/src/scripts/generateIntakeResponsesEncryptionKey.js.'
+      );
+    }
+    return fallback;
+  }
+
+  return null;
 }
 
 export function isGuardianIntakeEncryptionConfigured() {
@@ -32,6 +58,7 @@ export function isGuardianIntakeEncryptionConfigured() {
 export function getGuardianIntakeEncryptionKeyId() {
   return process.env.GUARDIAN_INTAKE_ENCRYPTION_KEY_ID
     || process.env.CONTACT_COMMS_ENCRYPTION_KEY_ID
+    || (process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64 && process.env.CLIENT_CHAT_ENCRYPTION_KEY_ID)
     || 'v1';
 }
 
