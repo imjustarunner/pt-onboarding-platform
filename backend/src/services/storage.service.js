@@ -1037,6 +1037,34 @@ class StorageService {
     return { path: key, key, filename: sanitizedFilename, relativePath: key };
   }
 
+  /**
+   * Save a single per-client artifact PDF (answers PDF, registration ticket
+   * PDF, etc.) so each intake "piece" has its own object in storage instead
+   * of only existing inside the merged bundle. The combined bundle is fragile
+   * (large merge + single-shot upload + UNIQUE storage_path) so we persist
+   * every piece independently and treat the bundle as a convenience artifact.
+   */
+  static async saveIntakePieceDocument({ submissionId, clientId, fileBuffer, filename }) {
+    const sanitizedFilename = this.sanitizeFilename(
+      filename || `intake-piece-${clientId || 'unknown'}-${Date.now()}.pdf`
+    );
+    const key = `intake_signed/${submissionId || 'unknown'}/client_${clientId || 'unknown'}/pieces/${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: 'application/pdf',
+      resumable: false,
+      metadata: {
+        submissionId: String(submissionId || ''),
+        clientId: String(clientId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
   static async saveIntakeTextDocument({ submissionId, clientId, fileBuffer, filename }) {
     const sanitizedFilename = this.sanitizeFilename(filename || `intake-text-${clientId || 'unknown'}-${Date.now()}.txt`);
     const key = `intake_signed/${submissionId || 'unknown'}/intake_text/${sanitizedFilename}`;

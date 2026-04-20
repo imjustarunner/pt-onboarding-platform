@@ -791,6 +791,15 @@ const persistClientDemographicsIfProvided = async ({ clientId, demographicsInfo 
   addIfPresent('gender', demographicsInfo.gender);
   addIfPresent('ethnicity', demographicsInfo.ethnicity);
   addIfPresent('preferred_language', demographicsInfo.preferredLanguage);
+  // The Overview tab reads `primary_client_language` and `primary_parent_language`
+  // (the columns the bulk client upload writes). Without mirroring here, the
+  // intake's `client_preferred_language` / `guardian_preferred_language` answers
+  // landed in `preferred_language` only and Overview displayed "-" for both
+  // language rows even after a complete intake. Mirror them so the Overview
+  // panels and the existing `preferred_language` reader (clinical card, demo
+  // export) both stay populated from the intake answers.
+  addIfPresent('primary_client_language', demographicsInfo.preferredLanguage);
+  addIfPresent('primary_parent_language', demographicsInfo.guardianPreferredLanguage);
   addIfPresent('address_street', demographicsInfo.addressStreet);
   addIfPresent('address_apt', demographicsInfo.addressApt);
   addIfPresent('address_city', demographicsInfo.addressCity);
@@ -2772,6 +2781,147 @@ const createIntakeTextDocuments = async ({
         submissionId,
         filename: doc.filename,
         error: err?.message || err,
+        code: err?.code,
+        sqlState: err?.sqlState
+      });
+    }
+  }
+};
+
+/**
+ * Persist each "piece" of the intake packet (the answers PDF and, when
+ * applicable, the registration confirmation PDF) as its own per-client PHI
+ * document, independent of the combined bundle.
+ *
+ * Why this exists: the combined "Intake Packet (Signed)" merge + GCS upload
+ * + UNIQUE storage_path PHI insert is fragile — when any link in that chain
+ * fails, the answers and ticket disappear because they only ever lived inside
+ * the bundle. Persisting each piece independently here means a parent's
+ * answers and the registrant's ticket are guaranteed on the client's
+ * Documentation tab even if the bundled packet save later fails.
+ */
+const createIntakePiecePdfDocuments = async ({
+  clientId,
+  clientRow,
+  submissionId,
+  link,
+  intakeData,
+  clientIndex = null,
+  ticketPdf = null,
+  ipAddress = null,
+  expiresAt = null,
+  organizationId = null
+}) => {
+  if (!clientId) return;
+
+  const agencyId = clientRow?.agency_id || link?.organization_id || null;
+  const orgId =
+    clientRow?.organization_id ||
+    clientRow?.school_organization_id ||
+    organizationId ||
+    link?.organization_id ||
+    null;
+  const schoolOrganizationId = orgId || agencyId;
+
+  // 1) Per-child answers PDF — same renderer the bundle uses, scoped to this
+  //    child so nothing from a sibling bleeds into the file.
+  let answersPdf = null;
+  try {
+    answersPdf = await buildAnswersPdfBuffer({ link, intakeData, clientIndex });
+  } catch (err) {
+    console.error('[publicIntake] piece: answers PDF build failed', {
+      clientId,
+      submissionId,
+      clientIndex,
+      error: err?.message || err
+    });
+    answersPdf = null;
+  }
+
+  if (answersPdf) {
+    try {
+      const storageResult = await StorageService.saveIntakePieceDocument({
+        submissionId,
+        clientId,
+        fileBuffer: answersPdf,
+        filename: `intake-answers-client-${clientId}.pdf`
+      });
+      const phiDoc = await ClientPhiDocument.create({
+        clientId,
+        agencyId,
+        schoolOrganizationId,
+        intakeSubmissionId: submissionId,
+        storagePath: storageResult.relativePath,
+        originalName: 'Intake Responses (Answers).pdf',
+        documentTitle: 'Intake Responses (Answers)',
+        documentType: 'Intake Responses',
+        mimeType: 'application/pdf',
+        uploadedByUserId: null,
+        scanStatus: 'clean',
+        expiresAt: expiresAt || null
+      });
+      await PhiDocumentAuditLog.create({
+        documentId: phiDoc.id,
+        clientId,
+        action: 'uploaded',
+        actorUserId: null,
+        actorLabel: 'public_intake',
+        ipAddress: ipAddress || null,
+        metadata: { submissionId, kind: 'intake_answers_pdf' }
+      }).catch(() => {});
+    } catch (err) {
+      // Loud log so a NOT NULL / FK / dup-key failure here is diagnosable.
+      // Do NOT throw — answers .txt + per-template signed PDFs still landed.
+      console.error('[publicIntake] piece: answers PDF PHI insert failed', {
+        clientId,
+        submissionId,
+        message: err?.message || String(err || ''),
+        code: err?.code,
+        sqlState: err?.sqlState
+      });
+    }
+  }
+
+  // 2) Registration confirmation ticket PDF (only present on registration
+  //    flows). The same buffer is shared across siblings; we save a
+  //    per-client copy so each child's Documentation tab shows it without
+  //    colliding on storage_path.
+  if (ticketPdf && Buffer.isBuffer(ticketPdf) && ticketPdf.length > 0) {
+    try {
+      const storageResult = await StorageService.saveIntakePieceDocument({
+        submissionId,
+        clientId,
+        fileBuffer: ticketPdf,
+        filename: `registration-confirmation-client-${clientId}.pdf`
+      });
+      const phiDoc = await ClientPhiDocument.create({
+        clientId,
+        agencyId,
+        schoolOrganizationId,
+        intakeSubmissionId: submissionId,
+        storagePath: storageResult.relativePath,
+        originalName: 'Registration Confirmation.pdf',
+        documentTitle: 'Registration Confirmation',
+        documentType: 'Registration Confirmation',
+        mimeType: 'application/pdf',
+        uploadedByUserId: null,
+        scanStatus: 'clean',
+        expiresAt: expiresAt || null
+      });
+      await PhiDocumentAuditLog.create({
+        documentId: phiDoc.id,
+        clientId,
+        action: 'uploaded',
+        actorUserId: null,
+        actorLabel: 'public_intake',
+        ipAddress: ipAddress || null,
+        metadata: { submissionId, kind: 'registration_confirmation_pdf' }
+      }).catch(() => {});
+    } catch (err) {
+      console.error('[publicIntake] piece: registration confirmation PHI insert failed', {
+        clientId,
+        submissionId,
+        message: err?.message || String(err || ''),
         code: err?.code,
         sqlState: err?.sqlState
       });
@@ -6016,6 +6166,22 @@ export const finalizePublicIntake = async (req, res, next) => {
           organizationId: req.body?.organizationId || null
         });
 
+        // Persist each intake "piece" (answers PDF, registration ticket PDF)
+        // as its own per-client PHI doc, so they survive even when the
+        // combined bundle merge/upload fails. See helper for rationale.
+        await createIntakePiecePdfDocuments({
+          clientId,
+          clientRow,
+          submissionId,
+          link,
+          intakeData,
+          clientIndex: i,
+          ticketPdf,
+          ipAddress: updatedSubmission.ip_address || null,
+          expiresAt: retentionExpiresAt,
+          organizationId: req.body?.organizationId || null
+        });
+
         // Save demographics + mapped clinical intake fields to client / guardian profile
         const demographicsInfo = buildMergedDemographicsForPersist(intakeData?.responses?.submission || {});
         if (demographicsInfo) {
@@ -7045,6 +7211,22 @@ export const submitPublicIntake = async (req, res, next) => {
           link,
           intakeData,
           clientIndex,
+          ipAddress: updatedSubmission.ip_address || null,
+          expiresAt: retentionExpiresAt,
+          organizationId: req.body?.organizationId || null
+        });
+
+        // Persist each intake "piece" (answers PDF, registration ticket PDF)
+        // as its own per-client PHI doc, so they survive even when the
+        // combined bundle merge/upload fails. See helper for rationale.
+        await createIntakePiecePdfDocuments({
+          clientId,
+          clientRow,
+          submissionId,
+          link,
+          intakeData,
+          clientIndex,
+          ticketPdf,
           ipAddress: updatedSubmission.ip_address || null,
           expiresAt: retentionExpiresAt,
           organizationId: req.body?.organizationId || null

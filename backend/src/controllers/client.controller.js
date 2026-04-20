@@ -91,6 +91,61 @@ async function buildGuardianProfileFallbackFromLinked(clientId) {
 }
 
 /**
+ * Merge a fallback guardian profile (built from the linked client_guardians
+ * user) into an intake-encrypted guardian profile, filling in ONLY the fields
+ * the intake row left blank. Without this, an intake row with `email` set but
+ * no `firstName`/`phone` would mask the linked guardian's name and number,
+ * leaving the Overview panel stuck on "-" for those rows.
+ *
+ * Returns the merged object, or the fallback if `intake` is null, or null if
+ * neither has anything useful.
+ */
+function mergeGuardianIntakeWithFallback(intake, fallback) {
+  if (!intake && !fallback) return null;
+  if (!intake) return fallback;
+  if (!fallback) return intake;
+  const pick = (a, b) => {
+    const av = String(a ?? '').trim();
+    if (av) return a;
+    const bv = String(b ?? '').trim();
+    return bv ? b : (a ?? b ?? null);
+  };
+  const merged = {
+    ...intake,
+    firstName: pick(intake.firstName, fallback.firstName),
+    lastName: pick(intake.lastName, fallback.lastName),
+    fullName: pick(intake.fullName, fallback.fullName),
+    email: pick(intake.email, fallback.email),
+    phone: pick(intake.phone, fallback.phone),
+    relationship: pick(intake.relationship, fallback.relationship),
+    dateOfBirth: pick(intake.dateOfBirth, fallback.dateOfBirth),
+    primaryLanguage: pick(intake.primaryLanguage, fallback.primaryLanguage)
+  };
+  // If the merged result is recomputable as a fullName, refresh it from the
+  // possibly-just-filled first/last so the panel header reads cleanly.
+  const computedFullName = [merged.firstName, merged.lastName]
+    .filter((v) => String(v || '').trim())
+    .join(' ')
+    .trim();
+  if (computedFullName) merged.fullName = computedFullName;
+  return merged;
+}
+
+/**
+ * Returns true when an intake-shaped guardian profile object lacks every
+ * identifying field we expect to render on the Overview panel. An intake row
+ * that exists but is essentially empty (e.g. only `primaryLanguage` set) was
+ * still being treated as "good enough" by the previous null-check, which kept
+ * the panel showing "-" for everything.
+ */
+function guardianIntakeProfileMissingIdentity(profile) {
+  if (!profile || typeof profile !== 'object') return true;
+  const hasAny = ['firstName', 'lastName', 'fullName', 'email', 'phone', 'relationship', 'dateOfBirth']
+    .some((k) => String(profile[k] ?? '').trim());
+  return !hasAny;
+}
+
+/**
  * Strip identifying name fields from a client (or array of clients) when the
  * caller is a school_staff user. School portals must always render initials
  * or code, never legal names. Always returns a NEW object/array — never
@@ -511,9 +566,18 @@ export const getClientById = async (req, res, next) => {
           message: gipErr?.message || String(gipErr || '')
         });
       }
-      if (!client.guardian_intake_profile) {
+      // Always try to enrich from the linked guardian user — an intake row
+      // can be present but "essentially empty" (only primaryLanguage set,
+      // for example), which previously bypassed the fallback and left the
+      // Overview panel stuck on "-" for every identifying field.
+      if (guardianIntakeProfileMissingIdentity(client.guardian_intake_profile)) {
         const fallback = await buildGuardianProfileFallbackFromLinked(client.id);
-        if (fallback) client.guardian_intake_profile = fallback;
+        if (fallback) {
+          client.guardian_intake_profile = mergeGuardianIntakeWithFallback(
+            client.guardian_intake_profile,
+            fallback
+          );
+        }
       }
       logClientAccess(req, client.id, 'view_client').catch(() => {});
       return res.json(client);
@@ -612,12 +676,17 @@ export const getClientById = async (req, res, next) => {
           message: gipErr?.message || String(gipErr || '')
         });
       }
-      if (!client.guardian_intake_profile) {
-        // Fall back to the linked guardian user so the Overview panel at
-        // least shows their name/email/phone/relationship when the
-        // encrypted intake row is missing or unreadable.
+      // Always merge the linked-guardian fallback into whatever the intake
+      // row gave us so partially-populated intakes (e.g. only email present)
+      // still get name + phone + relationship from the linked user record.
+      if (guardianIntakeProfileMissingIdentity(client.guardian_intake_profile)) {
         const fallback = await buildGuardianProfileFallbackFromLinked(client.id);
-        if (fallback) client.guardian_intake_profile = fallback;
+        if (fallback) {
+          client.guardian_intake_profile = mergeGuardianIntakeWithFallback(
+            client.guardian_intake_profile,
+            fallback
+          );
+        }
       }
     }
     logClientAccess(req, client.id, 'view_client').catch(() => {});
