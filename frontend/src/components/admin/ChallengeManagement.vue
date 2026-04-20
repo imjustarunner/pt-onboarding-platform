@@ -1185,7 +1185,7 @@
               <div class="guided-draft-head">
                 <div>
                   <strong>Guided draft helper</strong>
-                  <p>Keep the full AI draft button for a fresh 3-pack. This helper is for when you already know the icon, title, and activity and want a matching example workout fast.</p>
+                  <p>Pick an icon or emoji (or hit Randomly choose), optionally type a title, then press Generate example. Keep clicking Generate to cycle through smart variations.</p>
                 </div>
               </div>
               <div class="guided-draft-fields">
@@ -1198,7 +1198,7 @@
                   <option v-for="opt in activityTypeOptions" :key="opt" :value="opt">{{ opt }}</option>
                   <option value="Fitness">Fitness</option>
                 </select>
-                <input v-model="weeklyGuidedDraft.name" type="text" class="task-input guided-draft-name" placeholder="Challenge title" />
+                <input v-model="weeklyGuidedDraft.name" type="text" class="task-input guided-draft-name" placeholder="Challenge title (optional — leave blank to let Generate invent one)" />
               </div>
               <div class="guided-draft-fields">
                 <div class="guided-icon-mode">
@@ -1223,6 +1223,15 @@
                     @update:modelValue="weeklyGuidedDraft.libraryIconId = $event"
                   />
                 </div>
+                <button
+                  class="btn btn-ghost btn-sm"
+                  type="button"
+                  :disabled="guidedDraftShuffling"
+                  @click="shuffleGuidedDraftIcon"
+                  :title="weeklyGuidedDraft.useLibraryIcon ? 'Pick a random icon from the library' : 'Pick a random emoji'"
+                >
+                  {{ guidedDraftShuffling ? 'Randomizing…' : '🎲 Randomly choose' }}
+                </button>
                 <button class="btn btn-secondary btn-sm" @click="applyGuidedDraft">Generate example</button>
               </div>
             </div>
@@ -2408,6 +2417,11 @@ const weeklyGuidedDraft = ref({
   useLibraryIcon: false,
   libraryIconId: null
 });
+const guidedDraftShuffling = ref(false);
+// Per-slot signature (title+activity) of the last auto-generated draft — when Generate example
+// is pressed again with the same signature we treat it as a "next variation" cycle and
+// randomize the variables smartly instead of re-rendering the same thing.
+const guidedDraftLastSignature = ref({ 0: '', 1: '', 2: '' });
 const weeklyTemplateIconCache = ref({});
 
 // Map: templateName (lowercased) → array of week labels where it was used
@@ -2714,13 +2728,172 @@ const fillSlotFromGuidedDraft = (slot, {
   showCriteriaFor.value[slot] = true;
 };
 
+const randomPick = (arr) => (arr && arr.length ? arr[Math.floor(Math.random() * arr.length)] : null);
+
+/**
+ * Invent a sensible challenge title for the given activity. Titles always embed a
+ * measurable metric (miles, minutes, or a named race distance) so
+ * `parseChallengeMetricsFromTitle` can seed the rich-criteria block automatically.
+ */
+const generateAutoTitleForActivity = (activity, { avoidTitle = '' } = {}) => {
+  const key = String(activity || '').toLowerCase();
+  const miles = () => randomPick([2, 3, 4, 5, 6, 8, 10]);
+  const longMiles = () => randomPick([8, 10, 12, 14, 16]);
+  const rideMiles = () => randomPick([10, 15, 20, 25, 30]);
+  const minutes = () => randomPick([20, 30, 45, 60, 75]);
+
+  const runConcepts = [
+    () => `${miles()}-Mile Run`,
+    () => `${miles()}-Mile Tempo Run`,
+    () => `${minutes()}-Minute Steady Run`,
+    () => `5K Time Trial`,
+    () => `10K Benchmark Run`,
+    () => `Half Marathon Tune-Up`,
+    () => `${longMiles()}-Mile Long Run`
+  ];
+  const trailConcepts = [
+    () => `${miles()}-Mile Trail Run`,
+    () => `${minutes()}-Minute Trail Mission`,
+    () => `${randomPick([1, 2])}-Hour Mountain Trail Run`,
+    () => `Hilly ${miles()}-Mile Trail Loop`
+  ];
+  const ruckConcepts = [
+    () => `${miles()}-Mile Ruck`,
+    () => `${minutes()}-Minute Ruck March`,
+    () => `Heavy Pack ${miles()}-Mile Ruck`
+  ];
+  const walkConcepts = [
+    () => `${miles()}-Mile Power Walk`,
+    () => `${minutes()}-Minute Brisk Walk`,
+    () => `${minutes()}-Minute Morning Movement Walk`
+  ];
+  const bikeConcepts = [
+    () => `${rideMiles()}-Mile Ride`,
+    () => `${minutes()}-Minute Tempo Ride`,
+    () => `${minutes()}-Minute Interval Bike Session`
+  ];
+  const swimConcepts = [
+    () => `${minutes()}-Minute Swim Set`,
+    () => `${minutes()}-Minute Endurance Swim`,
+    () => `${minutes()}-Minute Technique Swim`
+  ];
+  const fitnessConcepts = [
+    () => `${minutes()}-Minute Strength Circuit`,
+    () => `${minutes()}-Minute Core & Conditioning`,
+    () => `${minutes()}-Minute Full-Body Session`
+  ];
+  const otherConcepts = [
+    () => `${minutes()}-Minute Signature Session`,
+    () => `${minutes()}-Minute Effort Builder`,
+    () => `${miles()}-Mile Challenge Session`
+  ];
+
+  const pool = (
+    key.includes('trail') ? trailConcepts :
+    key.includes('ruck')  ? ruckConcepts  :
+    key.includes('walk')  ? walkConcepts  :
+    key.includes('bike')  ? bikeConcepts  :
+    key.includes('swim')  ? swimConcepts  :
+    key.includes('fit')   ? fitnessConcepts :
+    key.includes('run')   ? runConcepts   :
+    otherConcepts
+  );
+
+  const avoid = String(avoidTitle || '').trim().toLowerCase();
+  let title = '';
+  for (let i = 0; i < 6; i++) {
+    title = randomPick(pool)();
+    if (!avoid || String(title).toLowerCase() !== avoid) return title;
+  }
+  return title;
+};
+
+/**
+ * Generate example:
+ * - If the user typed a title, honor it on the first click (we just fill description + parse metrics).
+ * - If the user's title field is empty, invent a sensible metric-bearing title for the chosen activity.
+ * - If the user clicks again with the same inputs (same activity + same typed/empty title) we treat it
+ *   as a "next variation" cycle — we invent a fresh concept (new title/metrics/description) so the
+ *   challenge actually switches instead of just re-rolling the description.
+ */
 const applyGuidedDraft = () => {
   const slot = Number.parseInt(weeklyGuidedDraft.value.slot, 10);
+  if (!Number.isFinite(slot) || slot < 0 || slot > 2) return;
+
+  const draft = weeklyGuidedDraft.value;
+  const activity = String(draft.activityType || 'Run').trim();
+  const userTypedTitle = String(draft.name || '').trim();
+  const currentSlot = weeklyTasksForm.value[slot] || defaultTask();
+  const sig = `${activity}::${userTypedTitle}`;
+  const lastSig = guidedDraftLastSignature.value[slot] || '';
+  const isRepeatClick = lastSig && lastSig === sig;
+
+  let title;
+  let preserveUserCriteria = false;
+
+  if (userTypedTitle && !isRepeatClick) {
+    // First time with this typed title — honor it verbatim.
+    title = userTypedTitle;
+    preserveUserCriteria = true;
+  } else {
+    // Empty title, or repeated click with the same inputs → invent a fresh concept.
+    const avoidTitle = String(currentSlot.name || '').trim();
+    title = generateAutoTitleForActivity(activity, { avoidTitle });
+  }
+
   fillSlotFromGuidedDraft(slot, {
-    title: weeklyGuidedDraft.value.name,
-    activityType: weeklyGuidedDraft.value.activityType,
-    icon: weeklyGuidedIconLabel.value
+    title,
+    activityType: activity,
+    icon: weeklyGuidedIconLabel.value,
+    avoidDescription: currentSlot.description || '',
+    preserveUserCriteria
   });
+
+  guidedDraftLastSignature.value = {
+    ...guidedDraftLastSignature.value,
+    [slot]: sig
+  };
+};
+
+/**
+ * Icon randomizer for the guided draft helper. In Emoji mode it picks from the curated
+ * emoji list; in Library mode it fetches the club's icon library and selects one at random.
+ */
+const shuffleGuidedDraftIcon = async () => {
+  if (guidedDraftShuffling.value) return;
+  const emojiPool = ['🏃', '🥾', '🌲', '👟', '🚴', '🌊', '💪', '🔥', '⚡', '🎯', '🏔', '⭐', '🏆'];
+  if (!weeklyGuidedDraft.value.useLibraryIcon) {
+    const current = weeklyGuidedDraft.value.icon;
+    const filtered = emojiPool.filter((e) => e !== current);
+    weeklyGuidedDraft.value.icon = randomPick(filtered.length ? filtered : emojiPool);
+    return;
+  }
+  const clubId = organizationId.value;
+  if (!clubId) {
+    alert('Select a club before randomizing a library icon.');
+    return;
+  }
+  guidedDraftShuffling.value = true;
+  try {
+    const { data } = await api.get(`/summit-stats/clubs/${clubId}/icons`, { params: { limit: 400 } });
+    const icons = Array.isArray(data?.icons) ? data.icons : [];
+    if (!icons.length) {
+      alert('No library icons available yet. Upload some in the Icon Library first.');
+      return;
+    }
+    const currentId = Number(weeklyGuidedDraft.value.libraryIconId) || null;
+    const eligible = currentId ? icons.filter((ic) => Number(ic.id) !== currentId) : icons;
+    const chosen = randomPick(eligible.length ? eligible : icons);
+    const chosenId = Number(chosen?.id);
+    if (!Number.isFinite(chosenId) || chosenId <= 0) return;
+    weeklyGuidedDraft.value.libraryIconId = chosenId;
+    // Cache the URL so weeklyTemplateIconUrl renders immediately when the icon is applied.
+    if (chosen?.url) weeklyTemplateIconCache.value[chosenId] = chosen.url;
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to fetch library icons.');
+  } finally {
+    guidedDraftShuffling.value = false;
+  }
 };
 
 const remixTaskDraft = (i) => {
