@@ -2875,11 +2875,20 @@ const shuffleGuidedDraftIcon = async () => {
   }
   guidedDraftShuffling.value = true;
   try {
-    const { data } = await api.get(`/summit-stats/clubs/${clubId}/icons`, { params: { limit: 400 } });
-    const icons = Array.isArray(data?.icons) ? data.icons : [];
+    // These are weekly-challenge slots, so only pull from the "Challenge" sub-category.
+    // Fall back to the full library if no challenge-tagged icons exist yet so users still
+    // get a random pick instead of an empty-state error.
+    const { data } = await api.get(`/summit-stats/clubs/${clubId}/icons`, {
+      params: { subCategory: 'Challenge', limit: 400 }
+    });
+    let icons = Array.isArray(data?.icons) ? data.icons : [];
     if (!icons.length) {
-      alert('No library icons available yet. Upload some in the Icon Library first.');
-      return;
+      const fallback = await api.get(`/summit-stats/clubs/${clubId}/icons`, { params: { limit: 400 } });
+      icons = Array.isArray(fallback?.data?.icons) ? fallback.data.icons : [];
+      if (!icons.length) {
+        alert('No library icons available yet. Upload some in the Icon Library first.');
+        return;
+      }
     }
     const currentId = Number(weeklyGuidedDraft.value.libraryIconId) || null;
     const eligible = currentId ? icons.filter((ic) => Number(ic.id) !== currentId) : icons;
