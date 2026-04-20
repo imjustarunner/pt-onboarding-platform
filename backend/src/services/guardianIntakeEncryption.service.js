@@ -18,34 +18,53 @@ function decodeKeyMaterialFromBase64(b64) {
   }
 }
 
-let didWarnAboutFallbackKey = false;
+let warnedFallbackSource = null;
 
+/**
+ * Pick the best-available encryption key for guardian intake profiles.
+ *
+ * Preference order:
+ *   1. Dedicated guardian key (GUARDIAN_INTAKE or CONTACT_COMMS) — ideal.
+ *   2. INTAKE_RESPONSES_ENCRYPTION_KEY_BASE64 — same domain (intake form
+ *      data), so reusing it keeps the "Guardian (latest intake)" card on the
+ *      Overview tab populated with zero extra .env config in environments
+ *      that already provisioned intake-responses encryption.
+ *   3. CLIENT_CHAT_ENCRYPTION_KEY_BASE64 — last-resort fallback so older
+ *      deployments still render guardian info instead of silently failing.
+ *
+ * We log once per fallback source so operators can see which key is active.
+ */
 function getPrimaryKeyMaterial() {
-  // Dedicated guardian-intake key (preferred).
   const dedicated = decodeKeyMaterialFromBase64(
     process.env.GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64
     || process.env.CONTACT_COMMS_ENCRYPTION_KEY_BASE64
   );
   if (dedicated) return dedicated;
 
-  // Last-resort fallback: reuse the already-provisioned chat encryption key so
-  // the Overview tab's "Guardian (latest intake)" card actually gets populated
-  // in environments that never configured a dedicated guardian key. Without
-  // this fallback, `encryptGuardianIntake` throws inside `persistGuardianProfileForClient`
-  // and the try/catch silently eats the failure — leaving every profile empty.
-  // Production tenants should still configure GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64
-  // for proper domain separation; this is a compatibility seam, not the goal state.
-  const fallback = decodeKeyMaterialFromBase64(process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64);
-  if (fallback) {
-    if (!didWarnAboutFallbackKey) {
-      didWarnAboutFallbackKey = true;
+  const intakeResponses = decodeKeyMaterialFromBase64(process.env.INTAKE_RESPONSES_ENCRYPTION_KEY_BASE64);
+  if (intakeResponses) {
+    if (warnedFallbackSource !== 'intake_responses') {
+      warnedFallbackSource = 'intake_responses';
       console.warn(
-        '[guardianIntakeEncryption] Using CLIENT_CHAT_ENCRYPTION_KEY_BASE64 as a fallback key. '
-        + 'Configure GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64 (or CONTACT_COMMS_ENCRYPTION_KEY_BASE64) '
-        + 'for proper domain separation. See backend/src/scripts/generateIntakeResponsesEncryptionKey.js.'
+        '[guardianIntakeEncryption] Using INTAKE_RESPONSES_ENCRYPTION_KEY_BASE64 as the guardian-intake key. '
+        + 'This is a reasonable fallback (same data domain). Set GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64 '
+        + 'if you want per-feature key separation.'
       );
     }
-    return fallback;
+    return intakeResponses;
+  }
+
+  const chatFallback = decodeKeyMaterialFromBase64(process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64);
+  if (chatFallback) {
+    if (warnedFallbackSource !== 'client_chat') {
+      warnedFallbackSource = 'client_chat';
+      console.warn(
+        '[guardianIntakeEncryption] Using CLIENT_CHAT_ENCRYPTION_KEY_BASE64 as a last-resort fallback. '
+        + 'Configure GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64 or INTAKE_RESPONSES_ENCRYPTION_KEY_BASE64 '
+        + 'for proper domain separation.'
+      );
+    }
+    return chatFallback;
   }
 
   return null;
@@ -56,10 +75,22 @@ export function isGuardianIntakeEncryptionConfigured() {
 }
 
 export function getGuardianIntakeEncryptionKeyId() {
-  return process.env.GUARDIAN_INTAKE_ENCRYPTION_KEY_ID
-    || process.env.CONTACT_COMMS_ENCRYPTION_KEY_ID
-    || (process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64 && process.env.CLIENT_CHAT_ENCRYPTION_KEY_ID)
-    || 'v1';
+  // Track which key ID is associated with whatever key getPrimaryKeyMaterial
+  // ultimately used, so new rows can be decrypted later if operators rotate in
+  // a dedicated key. Each ID defaults to 'v1' when not explicitly configured.
+  if (process.env.GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64) {
+    return process.env.GUARDIAN_INTAKE_ENCRYPTION_KEY_ID || 'v1';
+  }
+  if (process.env.CONTACT_COMMS_ENCRYPTION_KEY_BASE64) {
+    return process.env.CONTACT_COMMS_ENCRYPTION_KEY_ID || 'v1';
+  }
+  if (process.env.INTAKE_RESPONSES_ENCRYPTION_KEY_BASE64) {
+    return process.env.INTAKE_RESPONSES_ENCRYPTION_KEY_ID || 'v1';
+  }
+  if (process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64) {
+    return process.env.CLIENT_CHAT_ENCRYPTION_KEY_ID || 'v1';
+  }
+  return 'v1';
 }
 
 export function encryptGuardianIntake(plaintext) {

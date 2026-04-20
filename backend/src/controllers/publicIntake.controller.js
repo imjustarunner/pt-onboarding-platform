@@ -525,13 +525,33 @@ const enrollSmartRegistrationSelections = async ({
   }
   return result;
 };
-const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {} } = {}) => {
+const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {}, submission = null } = {}) => {
   const guardianBody = payload?.guardian && typeof payload.guardian === 'object' ? payload.guardian : {};
   const guardianIntake = intakeData?.guardian && typeof intakeData.guardian === 'object' ? intakeData.guardian : {};
+  // The submission row itself has signer_* columns that are populated the
+  // moment the user types their name/email on the first step. Including them
+  // here lets `persistGuardianProfileForClient` build a usable profile even
+  // mid-flow (e.g. when the payment step triggers early guardian
+  // provisioning and we haven't yet collected the full "guardian" block).
+  const submissionRow = submission && typeof submission === 'object' ? submission : {};
+  const payloadSignerName = payload?.signer_name || payload?.signerName || submissionRow?.signer_name || '';
+  const payloadSignerEmail = payload?.signer_email || payload?.signerEmail || submissionRow?.signer_email || '';
+  const payloadSignerPhone = payload?.signer_phone || payload?.signerPhone || submissionRow?.signer_phone || '';
   const responses = intakeData?.responses && typeof intakeData.responses === 'object' ? intakeData.responses : {};
   const guardianResponses = responses?.guardian && typeof responses.guardian === 'object' ? responses.guardian : {};
   const submissionResponses = responses?.submission && typeof responses.submission === 'object' ? responses.submission : {};
+  // Signer/signature step often stashes the guardian's typed name here; check
+  // both nested shapes used by different intake types.
+  const signerResponses = responses?.signer && typeof responses.signer === 'object' ? responses.signer : {};
+  const guardianInfoResponses = responses?.guardianInfo && typeof responses.guardianInfo === 'object' ? responses.guardianInfo : {};
   const pick = (...values) => values.find((v) => String(v || '').trim()) || '';
+  // When the intake only captured a single "signer_name" string, split it on
+  // the first whitespace so we still get first/last separately for the
+  // guardian profile card.
+  const signerNameStr = String(payloadSignerName || '').trim();
+  const signerNameParts = signerNameStr ? signerNameStr.split(/\s+/) : [];
+  const signerFirst = signerNameParts[0] || '';
+  const signerLast = signerNameParts.length > 1 ? signerNameParts.slice(1).join(' ') : '';
   const firstName = normalizeName(
     pick(
       guardianBody?.firstName,
@@ -543,11 +563,16 @@ const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {} } = {
       guardianResponses?.guardianFirstName,
       guardianResponses?.guardian_first_name,
       guardianResponses?.guardian_first,
+      guardianInfoResponses?.firstName,
+      guardianInfoResponses?.first_name,
       submissionResponses?.firstName,
       submissionResponses?.first_name,
       submissionResponses?.guardianFirstName,
       submissionResponses?.guardian_first_name,
-      submissionResponses?.guardian_first
+      submissionResponses?.guardian_first,
+      signerResponses?.firstName,
+      signerResponses?.first_name,
+      signerFirst
     )
   ) || null;
   const lastName = normalizeName(
@@ -561,14 +586,19 @@ const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {} } = {
       guardianResponses?.guardianLastName,
       guardianResponses?.guardian_last_name,
       guardianResponses?.guardian_last,
+      guardianInfoResponses?.lastName,
+      guardianInfoResponses?.last_name,
       submissionResponses?.lastName,
       submissionResponses?.last_name,
       submissionResponses?.guardianLastName,
       submissionResponses?.guardian_last_name,
-      submissionResponses?.guardian_last
+      submissionResponses?.guardian_last,
+      signerResponses?.lastName,
+      signerResponses?.last_name,
+      signerLast
     )
   ) || null;
-  const fullName = normalizeName(`${firstName || ''} ${lastName || ''}`) || null;
+  const fullName = normalizeName(`${firstName || ''} ${lastName || ''}`) || signerNameStr || null;
   const email = normalizeName(
     pick(
       guardianBody?.email,
@@ -577,10 +607,13 @@ const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {} } = {
       guardianResponses?.guardianEmail,
       guardianResponses?.guardian_email,
       guardianResponses?.email_address,
+      guardianInfoResponses?.email,
       submissionResponses?.email,
       submissionResponses?.guardianEmail,
       submissionResponses?.guardian_email,
-      submissionResponses?.email_address
+      submissionResponses?.email_address,
+      signerResponses?.email,
+      payloadSignerEmail
     )
   ).toLowerCase() || null;
   const phone = normalizeName(
@@ -596,11 +629,15 @@ const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {} } = {
       guardianResponses?.guardian_phone,
       guardianResponses?.phoneNumber,
       guardianResponses?.phone_number,
+      guardianInfoResponses?.phone,
+      guardianInfoResponses?.phoneNumber,
       submissionResponses?.phone,
       submissionResponses?.guardianPhone,
       submissionResponses?.guardian_phone,
       submissionResponses?.phoneNumber,
-      submissionResponses?.phone_number
+      submissionResponses?.phone_number,
+      signerResponses?.phone,
+      payloadSignerPhone
     )
   ) || null;
   const relationship = normalizeName(
@@ -610,9 +647,11 @@ const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {} } = {
       guardianResponses?.relationship,
       guardianResponses?.guardianRelationship,
       guardianResponses?.guardian_relationship,
+      guardianInfoResponses?.relationship,
       submissionResponses?.relationship,
       submissionResponses?.guardianRelationship,
-      submissionResponses?.guardian_relationship
+      submissionResponses?.guardian_relationship,
+      signerResponses?.relationship
     )
   ) || null;
   const dateOfBirth = normalizeDateOnly(
@@ -620,6 +659,8 @@ const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {} } = {
     || guardianIntake?.dateOfBirth
     || guardianBody?.dob
     || guardianIntake?.dob
+    || guardianInfoResponses?.dateOfBirth
+    || guardianInfoResponses?.dob
     || findDateLikeValue(guardianResponses)
     || findDateLikeValue(submissionResponses)
   );
@@ -627,10 +668,16 @@ const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {} } = {
   const hasAny = Object.values(profile).some((v) => String(v || '').trim());
   return hasAny ? profile : null;
 };
-const persistGuardianProfileForClient = async ({ clientId, payload = {}, intakeData = {}, source = 'public_intake' } = {}) => {
+const persistGuardianProfileForClient = async ({
+  clientId,
+  payload = {},
+  intakeData = {},
+  submission = null,
+  source = 'public_intake'
+} = {}) => {
   const cid = Number(clientId || 0);
   if (!cid) return;
-  const profile = extractGuardianProfileFromPayload({ payload, intakeData });
+  const profile = extractGuardianProfileFromPayload({ payload, intakeData, submission });
   if (!profile) return;
   await ClientGuardianIntakeProfile.upsertForClient({
     clientId: cid,
@@ -4971,11 +5018,13 @@ export const finalizePublicIntake = async (req, res, next) => {
           clientId: boundClient.id,
           payload: req.body || {},
           intakeData,
+          submission: updatedSubmission,
           source: 'smart_school_roi'
         });
         const guardianProfile = extractGuardianProfileFromPayload({
           payload: req.body || {},
-          intakeData
+          intakeData,
+          submission: updatedSubmission
         });
         if (guardianProfile?.email) {
           await ensureGuardianAccountLinkedForClient({
@@ -6401,12 +6450,14 @@ export const finalizePublicIntake = async (req, res, next) => {
       try {
         const guardianProfile = extractGuardianProfileFromPayload({
           payload: req.body || {},
-          intakeData
+          intakeData,
+          submission: updatedSubmission
         });
         await persistGuardianProfileForClient({
           clientId,
           payload: req.body || {},
           intakeData,
+          submission: updatedSubmission,
           source: 'public_intake'
         });
         if (guardianProfile?.email) {
@@ -7231,6 +7282,16 @@ export const submitPublicIntake = async (req, res, next) => {
 
       if (updatedSubmission.signer_email && EmailService.isConfigured()) {
         emailDelivery.attempted = true;
+        // NOTE (parent feedback follow-up): the completion email was not
+        // arriving even for single-client registrations. Only the inner
+        // sendEmail call used to be inside a try/catch — anything that ran
+        // BEFORE send (org-context lookup, template-name lookup, signed-URL
+        // enrichment, resolvePacketCompletionEmailContent) could throw and
+        // bubble all the way up to Express, which bailed out of the whole
+        // submission handler before the send ever ran. Wrap the entire
+        // prep+send in one try/catch so email prep errors are logged and
+        // recorded on `emailDelivery` instead of aborting the response.
+        try {
         const clientCount = rawClients.length || 1;
         const { organization, agency } = orgContextHoisted?.organization || orgContextHoisted?.agency
           ? orgContextHoisted
@@ -7407,6 +7468,23 @@ export const submitPublicIntake = async (req, res, next) => {
           emailDelivery.error = 'send_failed';
           emailDelivery.errorMessage = String(emailSendErr?.message || 'send_failed').slice(0, 500);
         }
+        } catch (emailPrepErr) {
+          // Catches everything BEFORE the inner send's try — org-context
+          // resolution, template/doc enrichment, resolvePacketCompletionEmailContent,
+          // etc. Without this, a failure here aborted the whole request
+          // even though the submission, PDFs, and enrollment were already
+          // persisted. Parents reported this as "no completion email even
+          // though the packet was processed" — this guard ensures the
+          // response still returns 200 with emailDelivery.error populated.
+          console.error('[publicIntake] registration completion email prep failed', {
+            submissionId,
+            to: updatedSubmission?.signer_email || null,
+            message: emailPrepErr?.message || String(emailPrepErr || ''),
+            stack: emailPrepErr?.stack || null
+          });
+          emailDelivery.error = emailDelivery.error || 'prep_failed';
+          emailDelivery.errorMessage = String(emailPrepErr?.message || 'prep_failed').slice(0, 500);
+        }
       } else if (updatedSubmission.signer_email && !EmailService.isConfigured()) {
         emailDelivery.attempted = true;
         emailDelivery.sent = false;
@@ -7414,6 +7492,15 @@ export const submitPublicIntake = async (req, res, next) => {
         console.warn('[publicIntake] registration completion email skipped — EmailService not configured', {
           submissionId,
           to: updatedSubmission?.signer_email || null
+        });
+      } else if (!updatedSubmission.signer_email) {
+        // Parents occasionally reported no email even with a single client —
+        // trace exactly why so we can tell the difference between
+        // "EmailService isn't configured" and "signer never gave us an email".
+        console.warn('[publicIntake] registration completion email skipped — submission has no signer_email', {
+          submissionId,
+          hasSignerEmail: false,
+          emailServiceConfigured: EmailService.isConfigured()
         });
       }
     }
@@ -7451,12 +7538,14 @@ export const submitPublicIntake = async (req, res, next) => {
       try {
         const guardianProfile = extractGuardianProfileFromPayload({
           payload: req.body || {},
-          intakeData
+          intakeData,
+          submission: updatedSubmission
         });
         await persistGuardianProfileForClient({
           clientId,
           payload: req.body || {},
           intakeData,
+          submission: updatedSubmission,
           source: 'public_intake'
         });
         if (guardianProfile?.email) {
@@ -8075,6 +8164,78 @@ const ensureEarlyGuardianForPayment = async (submission, link, agencyId) => {
           message: err?.message || err
         });
       }
+    }
+
+    // Parent feedback: "it creates a guardian account, but maybe not until the
+    // end… therefore it should be adding to the guardian's account info in
+    // the process and then post to their profile when created." Persist
+    // whatever guardian fields we have so far (signer name + email + phone,
+    // plus any guardian-block data already typed) onto every client attached
+    // to this submission. The Overview tab's "Guardian (latest intake)" card
+    // then fills in as the user progresses, instead of only after final
+    // submit. Runs best-effort so a profile write failure never blocks the
+    // payment step.
+    try {
+      const subClients = await IntakeSubmissionClient.listBySubmissionId(submission.id);
+      for (const sc of subClients || []) {
+        const cidCandidate = Number(sc?.client_id || 0) || null;
+        if (!cidCandidate) continue;
+        try {
+          await persistGuardianProfileForClient({
+            clientId: cidCandidate,
+            payload: {
+              // Let extractGuardianProfileFromPayload pull from the signer_*
+              // submission columns via the `submission` arg — no need to
+              // synthesize a guardian object here.
+            },
+            intakeData,
+            submission,
+            source: 'payment_step_early_provision'
+          });
+        } catch (profileErr) {
+          console.warn('[publicIntake.payment] mid-flow guardian profile persist failed', {
+            submissionId: submission.id,
+            clientId: cidCandidate,
+            message: profileErr?.message || profileErr
+          });
+        }
+      }
+
+      // Keep the users row in sync with whatever guardian info we've now
+      // seen. For the first-time-payment race the phone and last name may
+      // have been blank when the user was created; fill them in lazily.
+      try {
+        // Only overwrite fields that are currently blank on the users row so
+        // we never clobber data a guardian typed directly into their account
+        // after the fact. We write via raw SQL (instead of User.update) to
+        // avoid the role-change / audit plumbing in the model layer — this
+        // is a passive data sync, not an admin mutation.
+        const phoneNumber = String(guardianBlock?.phone || submission.signer_phone || '').trim() || null;
+        const nameParts = guardianName ? guardianName.split(/\s+/) : [];
+        const firstCandidate = nameParts[0] || null;
+        const lastCandidate = nameParts.length > 1 ? nameParts.slice(1).join(' ') : null;
+        if (phoneNumber || firstCandidate || lastCandidate) {
+          await pool.execute(
+            `UPDATE users
+             SET
+               phone_number = COALESCE(NULLIF(TRIM(phone_number), ''), ?),
+               first_name  = COALESCE(NULLIF(TRIM(first_name), ''),  ?),
+               last_name   = COALESCE(NULLIF(TRIM(last_name), ''),   ?)
+             WHERE id = ?`,
+            [phoneNumber, firstCandidate, lastCandidate, guardianUserId]
+          );
+        }
+      } catch (userSyncErr) {
+        console.warn('[publicIntake.payment] user row sync skipped', {
+          guardianUserId,
+          message: userSyncErr?.message || userSyncErr
+        });
+      }
+    } catch (listErr) {
+      console.warn('[publicIntake.payment] mid-flow profile sync — submission clients lookup failed', {
+        submissionId: submission.id,
+        message: listErr?.message || listErr
+      });
     }
   }
 
