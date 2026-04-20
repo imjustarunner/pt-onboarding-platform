@@ -5028,10 +5028,79 @@ export const getClientDemographics = async (req, res, next) => {
       }
     }
 
+    // ── 3b. Intake communication / consent answers → Communications tab (not Guardian card)
+    const INTAKE_COMM_PREF_GUARDIAN_KEYS = new Set([
+      'consent', 'doc_request', 'document_request', 'documentrequest',
+      'guardian_email_pref', 'guardian_phone_pref', 'communications_consent',
+      'sms_opt_in', 'sms_optin', 'email_opt_in', 'email_optin', 'text_opt_in', 'marketing_opt_in'
+    ]);
+    const intakeValueLooksLikeChannelPreferenceAnswer = (val) => {
+      const s = String(val ?? '').trim().toLowerCase();
+      if (!s) return false;
+      if (['yes', 'no', 'all', 'maybe', 'example'].includes(s)) return true;
+      if (s === 'scheduling_only' || s === 'scheduling only' || s === 'schedulingonly') return true;
+      if (['yes_full', 'yes_restricted', 'yes_partial', 'yes_limited'].includes(s)) return true;
+      if (/^yes_/.test(s) || /^no_/.test(s)) return true;
+      return false;
+    };
+    const isGuardianIntakeCommunicationPreferenceRow = (f) => {
+      if (!f || typeof f !== 'object') return false;
+      const key = String(f.key || '').toLowerCase();
+      const label = String(f.label || '');
+      if (INTAKE_COMM_PREF_GUARDIAN_KEYS.has(key)) return true;
+      if (/\b(doc request|document request|communication preference)\b/i.test(label)) return true;
+      if ((key === 'email' || key === 'phone' || key === 'sms') && intakeValueLooksLikeChannelPreferenceAnswer(f.value)) {
+        return true;
+      }
+      return false;
+    };
+
+    const intakeCommunicationPreferenceFields = [];
+    if (submRows.length) {
+      const sub0 = submRows[0];
+      const submissionDataComm = parseIntakeData(sub0.intake_data);
+      const bag0 = getSubmissionBag(submissionDataComm);
+      const cp = bag0?.communicationPreferences;
+      if (cp && typeof cp === 'object') {
+        const addCp = (key, label, val) => {
+          if (val == null || val === '') return;
+          const strVal = typeof val === 'string' ? val.trim() : String(val);
+          if (!strVal) return;
+          intakeCommunicationPreferenceFields.push(tagField({
+            key: `intake_comm__${key}`,
+            label,
+            value: strVal,
+            source: 'intake_communication_preferences',
+            category: 'communication',
+            section: 'Intake communication preferences'
+          }));
+        };
+        addCp('emailPreference', 'Email (program messages)', cp.emailPreference);
+        addCp('smsPreference', 'SMS / text messages', cp.smsPreference);
+        addCp('providerTextingOptIn', 'Provider / care-team texting', cp.providerTextingOptIn);
+        addCp('programUpdatesOptIn', 'Program updates', cp.programUpdatesOptIn);
+        addCp('internalWorkforceOptIn', 'Workforce notifications', cp.internalWorkforceOptIn);
+      }
+      const seenCpEmail = intakeCommunicationPreferenceFields.some((f) => String(f.key) === 'intake_comm__emailPreference');
+      const seenCpSms = intakeCommunicationPreferenceFields.some((f) => String(f.key) === 'intake_comm__smsPreference');
+      for (const f of intakeGuardianFields) {
+        if (!isGuardianIntakeCommunicationPreferenceRow(f)) continue;
+        const lk = String(f.key || '').toLowerCase();
+        if (seenCpEmail && lk === 'email') continue;
+        if (seenCpSms && lk === 'phone') continue;
+        intakeCommunicationPreferenceFields.push({
+          ...f,
+          section: 'Intake communication preferences'
+        });
+      }
+    }
+
+    const intakeGuardianFieldsForApi = intakeGuardianFields.filter((f) => !isGuardianIntakeCommunicationPreferenceRow(f));
+
     // ── 4. Server-side de-duplication ───────────────────────────────────────
     // Profile beats intake_demographics beats intake_client beats intake_guardian.
     const SOURCE_PRIORITY = { profile: 4, intake_demographics: 3, intake_client: 2, intake_guardian: 1 };
-    const allFields = [...profileFields, ...intakeDemoFields, ...intakeGuardianFields];
+    const allFields = [...profileFields, ...intakeDemoFields, ...intakeGuardianFieldsForApi];
     // Sort stable by descending priority so the first occurrence per logicalKey wins.
     const seenLogical = new Map(); // logicalKey -> winning {source, key}
     allFields
@@ -5052,16 +5121,21 @@ export const getClientDemographics = async (req, res, next) => {
     res.json({
       // Backward compatibility (existing UI keeps working):
       profileFields,
-      intakeDemoFields: [...intakeDemoFields, ...intakeGuardianFields],
+      intakeDemoFields: [...intakeDemoFields, ...intakeGuardianFieldsForApi],
       // New, structured payload:
       sections: [
         { id: 'profile', title: 'Profile', source: 'profile', fields: profileFields },
         { id: 'client_intake', title: 'Client (intake)', source: 'intake_client', fields: [
           ...intakeDemoFields.filter((f) => f.source === 'intake_demographics' || f.source === 'intake_client')
         ] },
-        { id: 'guardian_intake', title: 'Guardian (intake)', source: 'intake_guardian', fields: intakeGuardianFields },
+        { id: 'guardian_intake', title: 'Guardian (intake)', source: 'intake_guardian', fields: intakeGuardianFieldsForApi },
       ],
       capturedAt,
+      // Guardian / submission communication choices (also shown on client Communications tab)
+      intakeCommunicationPreferences: {
+        capturedAt,
+        fields: intakeCommunicationPreferenceFields
+      },
       ...(debug ? { _debug: debugInfo } : {})
     });
   } catch (e) {

@@ -17,17 +17,160 @@ function normalizeUiCommands(raw) {
     .filter(Boolean);
 }
 
+/** One tool-call entry from various LLM / API shapes → { name, args }. */
+function toolCallEntryToNormalized(t) {
+  if (!t || typeof t !== 'object') return null;
+  const fn = t.function && typeof t.function === 'object' ? t.function : null;
+  const name = String(t?.name || t?.tool || fn?.name || '').trim();
+  let args = {};
+  if (t.args && typeof t.args === 'object') args = { ...t.args };
+  else if (typeof t.arguments === 'string') {
+    try {
+      const o = JSON.parse(t.arguments);
+      if (o && typeof o === 'object') args = o;
+    } catch {
+      /* noop */
+    }
+  } else if (fn && typeof fn.arguments === 'string') {
+    try {
+      const o = JSON.parse(fn.arguments);
+      if (o && typeof o === 'object') args = o;
+    } catch {
+      /* noop */
+    }
+  }
+  if (!name) return null;
+  return { name, args };
+}
+
 function normalizeToolCalls(raw) {
   const arr = Array.isArray(raw) ? raw : [];
-  return arr
-    .map((t) => {
-      const name = String(t?.name || t?.tool || '').trim();
-      const args = t?.args && typeof t.args === 'object' ? t.args : {};
-      if (!name) return null;
-      return { name, args };
-    })
-    .filter(Boolean)
-    .slice(0, 8); // hard cap for safety
+  return arr.map(toolCallEntryToNormalized).filter(Boolean).slice(0, 8);
+}
+
+function dedupeToolCalls(list) {
+  const seen = new Set();
+  const out = [];
+  for (const tc of list || []) {
+    const k = `${tc.name}:${JSON.stringify(tc.args)}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(tc);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+/**
+ * Models often return snake_case keys, wrap JSON in markdown fences, or put
+ * tool JSON in assistantText. Normalize so executeToolCall always receives
+ * camelCase toolCalls with real args.
+ */
+function mergeAssistParsedModelShape(parsed) {
+  const p = parsed && typeof parsed === 'object' ? parsed : {};
+  const collected = [];
+
+  const ingestToolArray = (arr) => {
+    for (const tc of normalizeToolCalls(arr)) collected.push(tc);
+  };
+
+  ingestToolArray(p.toolCalls);
+  ingestToolArray(p.tool_calls);
+
+  let assistantText = String(p.assistantText ?? '').trim();
+
+  if (assistantText.startsWith('{')) {
+    try {
+      const o = JSON.parse(assistantText);
+      ingestToolArray(o.toolCalls);
+      ingestToolArray(o.tool_calls);
+      if (typeof o.assistantText === 'string' && o.assistantText.trim()) assistantText = o.assistantText.trim();
+      else if (o.tool_calls || o.toolCalls) assistantText = '';
+    } catch {
+      /* leave assistantText */
+    }
+  }
+
+  assistantText = assistantText.replace(/```(?:\w*)\s*([\s\S]*?)```/g, (_, inner) => {
+    const s = String(inner || '').trim();
+    if (s.startsWith('{')) {
+      try {
+        const o = JSON.parse(s);
+        ingestToolArray(o.toolCalls);
+        ingestToolArray(o.tool_calls);
+      } catch {
+        /* noop */
+      }
+    }
+    return '';
+  });
+  assistantText = assistantText.replace(/\n{3,}/g, '\n\n').trim();
+
+  const uiCommands = normalizeUiCommands(p.uiCommands || p.ui_commands || []);
+
+  return {
+    assistantText,
+    toolCalls: dedupeToolCalls(collected),
+    uiCommands
+  };
+}
+
+function assistantTextLooksLikeToolDump(t) {
+  const s = String(t || '').trim();
+  if (!s) return true;
+  if (/^```/.test(s)) return true;
+  if (/\{"tool_calls"\s*:/i.test(s) || /\{"toolCalls"\s*:/i.test(s)) return true;
+  if (s === '(No response)') return true;
+  return false;
+}
+
+function buildAssistantReplyFromTools(assistantText, toolResults) {
+  if (!assistantTextLooksLikeToolDump(assistantText)) return assistantText;
+
+  const openedSchool = toolResults.some((x) => x?.ok && x.tool === 'openEntity' && x.result?.kind === 'school');
+  const openedEvent = toolResults.some((x) => x?.ok && x.tool === 'openEntity' && x.result?.kind === 'event');
+  const openedUser = toolResults.some((x) => x?.ok && x.tool === 'openEntity' && x.result?.kind === 'user');
+
+  const lines = [];
+  for (const r of toolResults) {
+    if (!r?.ok) {
+      if (r?.error?.message) lines.push(String(r.error.message));
+      continue;
+    }
+    if (r.tool === 'searchSchools') {
+      const list = r.result?.results || [];
+      if (!list.length) lines.push('No schools in your agency matched that search.');
+      else if (list.length === 1 && openedSchool) {
+        /* openEntity row already explains the navigation */
+      } else if (list.length === 1) {
+        lines.push(`Found: ${list[0].name}. Say “open it” if you want the school portal.`);
+      } else lines.push(`Found ${list.length} schools: ${list.map((x) => x.name).join(', ')}. Say which one to open.`);
+    } else if (r.tool === 'searchEvents') {
+      const list = r.result?.results || [];
+      if (!list.length) lines.push('No program events matched that search.');
+      else if (list.length === 1 && openedEvent) {
+        /* openEntity covers it */
+      } else if (list.length === 1) {
+        lines.push(`Found event: ${list[0].title}. Say “open it” to open that event.`);
+      } else lines.push(`Found ${list.length} events: ${list.map((x) => x.title).join('; ')}. Say which one to open.`);
+    } else if (r.tool === 'searchUsers') {
+      const list = r.result?.results || [];
+      if (!list.length) lines.push('No users matched that search in your agency.');
+      else if (list.length === 1 && openedUser) {
+        /* openEntity covers it */
+      } else if (list.length === 1) {
+        lines.push(`Found: ${list[0].name || list[0].email || 'user'}. Say “open profile” to open them.`);
+      } else lines.push(`Found ${list.length} people: ${list.map((x) => x.name || x.email).join(', ')}. Say which one to open.`);
+    } else if (r.tool === 'openEntity') {
+      const nm = r.result?.name || r.result?.title || '';
+      const path = r.result?.path || '';
+      lines.push(nm ? `Opened: ${nm}` : path ? `Opened: ${path}` : 'Opened the requested page.');
+    } else if (r.tool === 'navigateTo') {
+      lines.push(r.result?.path ? `Opened ${r.result.path}.` : 'Navigation updated.');
+    }
+  }
+  const out = lines.filter(Boolean).join('\n\n');
+  return out || 'Done.';
 }
 
 export const assist = async (req, res, next) => {
@@ -54,9 +197,10 @@ export const assist = async (req, res, next) => {
     });
 
     const parsed = safeParseAgentJson(rawText);
-    const assistantText = String(parsed?.assistantText || '').trim();
-    const uiCommands = normalizeUiCommands(parsed?.uiCommands);
-    const toolCalls = normalizeToolCalls(parsed?.toolCalls);
+    const merged = mergeAssistParsedModelShape(parsed);
+    let assistantText = String(merged.assistantText || '').trim();
+    const uiCommands = merged.uiCommands;
+    let toolCalls = merged.toolCalls;
 
     const toolResults = [];
     for (const tc of toolCalls) {
@@ -93,6 +237,57 @@ export const assist = async (req, res, next) => {
       }
     }
 
+    // If the user asked to open something and the model only searched, pick the
+    // single unambiguous match and open it (avoids raw tool JSON in the UI).
+    const promptLower = prompt.toLowerCase();
+    const impliesNavigate = /\b(open|go to|visit|take me to|show me|navigate)\b/.test(promptLower);
+    const hadOpenEntity = toolCalls.some((tc) => tc.name === 'openEntity');
+    if (impliesNavigate && !hadOpenEntity) {
+      const tryOpen = async (kind, id) => {
+        const extra = await executeToolCall({
+          req,
+          toolCall: { name: 'openEntity', args: { kind, id } }
+        });
+        toolResults.push(extra);
+        if (Array.isArray(extra?.uiCommands) && extra.uiCommands.length) {
+          for (const cmd of normalizeUiCommands(extra.uiCommands)) {
+            uiCommands.push(cmd);
+          }
+        }
+      };
+      const schoolRes = toolResults.find((r) => r?.ok && r.tool === 'searchSchools');
+      const schools = schoolRes?.result?.results;
+      if (Array.isArray(schools) && schools.length === 1) {
+        try {
+          await tryOpen('school', schools[0].id);
+        } catch (e) {
+          toolResults.push({ ok: false, tool: 'openEntity', error: { message: e?.message || 'open failed' } });
+        }
+      } else {
+        const eventRes = toolResults.find((r) => r?.ok && r.tool === 'searchEvents');
+        const events = eventRes?.result?.results;
+        if (Array.isArray(events) && events.length === 1) {
+          try {
+            await tryOpen('event', events[0].id);
+          } catch (e) {
+            toolResults.push({ ok: false, tool: 'openEntity', error: { message: e?.message || 'open failed' } });
+          }
+        } else {
+          const userRes = toolResults.find((r) => r?.ok && r.tool === 'searchUsers');
+          const users = userRes?.result?.results;
+          if (Array.isArray(users) && users.length === 1) {
+            try {
+              await tryOpen('user', users[0].id);
+            } catch (e) {
+              toolResults.push({ ok: false, tool: 'openEntity', error: { message: e?.message || 'open failed' } });
+            }
+          }
+        }
+      }
+    }
+
+    assistantText = buildAssistantReplyFromTools(assistantText, toolResults);
+
     // Non-blocking audit logging for the request itself.
     try {
       ActivityLogService.logActivity(
@@ -115,7 +310,7 @@ export const assist = async (req, res, next) => {
     }
 
     res.json({
-      assistantText: assistantText || '(No response)',
+      assistantText: String(assistantText || '').trim() || '(No response)',
       uiCommands,
       toolCalls,
       toolResults,

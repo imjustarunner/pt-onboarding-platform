@@ -27,6 +27,29 @@
       </div>
     </div>
 
+    <section v-if="intakeCommPrefsLoading" class="intake-comm-prefs muted">Loading intake communication preferences…</section>
+    <section v-else-if="intakeCommPrefsError" class="intake-comm-prefs error-box">{{ intakeCommPrefsError }}</section>
+    <section v-else-if="intakeCommPrefsFields.length" class="intake-comm-prefs-card">
+      <h4 class="intake-comm-prefs-title">Intake communication preferences</h4>
+      <p class="intake-comm-prefs-lead muted">
+        These rows come from the <strong>latest submitted intake</strong> (the communications step and any matching
+        guardian questions). They record what the family agreed to at enrollment — separate from the message history
+        below.
+      </p>
+      <p v-if="intakeCommCapturedAt" class="muted small intake-comm-prefs-meta">
+        Submitted {{ formatDate(intakeCommCapturedAt) }}
+      </p>
+      <dl class="intake-comm-prefs-dl">
+        <template v-for="row in intakeCommPrefsFields" :key="row.key">
+          <dt class="intake-comm-dt">{{ prettyIntakeCommLabel(row) }}</dt>
+          <dd class="intake-comm-dd">
+            <span class="intake-comm-value">{{ formatIntakeCommDisplayValue(row) }}</span>
+            <p v-if="intakeCommFieldHint(row)" class="intake-comm-hint muted small">{{ intakeCommFieldHint(row) }}</p>
+          </dd>
+        </template>
+      </dl>
+    </section>
+
     <div v-if="guardians.length" class="guardian-summary">
       <span class="muted" style="font-weight: 700;">On this client's account:</span>
       <span
@@ -272,7 +295,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -286,6 +309,13 @@ const loading = ref(false);
 const error = ref('');
 const channelFilter = ref('');
 const statusFilter = ref('');
+
+/** Latest intake: communication / consent fields (GET /clients/:id/demographics → intakeCommunicationPreferences). */
+const intakeCommState = ref({ fields: [], capturedAt: null });
+const intakeCommPrefsLoading = ref(false);
+const intakeCommPrefsError = ref('');
+const intakeCommPrefsFields = computed(() => intakeCommState.value.fields || []);
+const intakeCommCapturedAt = computed(() => intakeCommState.value.capturedAt || null);
 
 const viewingEmail = ref(null);
 const bodyHtml = ref('');
@@ -380,6 +410,86 @@ const loadCommunications = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const loadIntakeCommPrefs = async () => {
+  if (!props.clientId) return;
+  intakeCommPrefsLoading.value = true;
+  intakeCommPrefsError.value = '';
+  try {
+    const resp = await api.get(`/clients/${props.clientId}/demographics`);
+    const block = resp.data?.intakeCommunicationPreferences;
+    intakeCommState.value = {
+      fields: Array.isArray(block?.fields) ? block.fields : [],
+      capturedAt: block?.capturedAt || resp.data?.capturedAt || null
+    };
+  } catch (err) {
+    intakeCommPrefsError.value =
+      err.response?.data?.error?.message || 'Failed to load intake communication preferences';
+  } finally {
+    intakeCommPrefsLoading.value = false;
+  }
+};
+
+const prettyIntakeCommLabel = (row) => {
+  const label = String(row?.label || '').trim();
+  if (label) return label;
+  const key = String(row?.key || '').replace(/^intake_comm__/, '');
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+const formatIntakeCommDisplayValue = (row) => {
+  const raw = String(row?.value ?? '').trim();
+  if (!raw) return '—';
+  const v = raw.toLowerCase();
+  const key = String(row?.key || '').toLowerCase();
+  const generic = {
+    all: 'All program emails',
+    scheduling_only: 'Scheduling & essential messages only',
+    no: 'No / opted out',
+    yes: 'Yes',
+    example: 'Example / placeholder (testing)',
+    maybe: 'Maybe / undecided'
+  };
+  if (generic[v]) return generic[v];
+  if (v === 'yes_full') {
+    return 'Yes — broader program email (not “scheduling-only”)';
+  }
+  if (v === 'yes_restricted') {
+    const isSms = key.includes('sms') || key.includes('phone') || /sms|text/i.test(String(row?.label || ''));
+    return isSms
+      ? 'Yes — limited texting (e.g. reminders & essentials, not open-ended chat)'
+      : 'Yes — limited email (narrower than “full”)';
+  }
+  if (v === 'yes_partial') return 'Yes — partial / limited';
+  return raw;
+};
+
+const intakeCommFieldHint = (row) => {
+  const key = String(row?.key || '').toLowerCase();
+  const label = String(row?.label || '').toLowerCase();
+  if (key.includes('intake_comm__emailpreference') || key === 'email' || /email/.test(label)) {
+    return 'How broadly this family agreed your agency may use email for this program (for example all program notices vs. scheduling-related messages only). Raw values like yes_full are internal codes from the intake form.';
+  }
+  if (key.includes('intake_comm__smspreference') || key === 'phone' || key === 'sms' || /sms|text/.test(label)) {
+    return 'Whether texts are allowed and how narrow they are (for example reminders-only). yes_restricted usually means texting is OK for limited, service-related purposes — not unlimited marketing.';
+  }
+  if (key.includes('provider') && key.includes('text')) {
+    return 'Separate opt-in for direct SMS with the assigned provider/care team when that campaign is enabled on the intake link.';
+  }
+  if (key.includes('programupdates') || label.includes('program updates')) {
+    return 'Optional non-urgent program announcements (when that option exists on the intake link).';
+  }
+  if (key.includes('internalworkforce') || label.includes('workforce')) {
+    return 'Optional internal staffing / workforce SMS when that campaign exists on the intake link.';
+  }
+  if (key.includes('consent') || label.includes('consent')) {
+    return 'General intake consent (for example agreement to electronic records, signatures, or your agency’s communications policy) as captured on the form.';
+  }
+  if (key.includes('doc_request') || label.includes('doc request')) {
+    return 'Whether the guardian agreed to receive or act on document-related requests tied to this intake.';
+  }
+  return '';
 };
 
 const looksLikeHtml = (s) => /<[a-z][^>]*>/i.test(String(s || ''));
@@ -478,14 +588,83 @@ const formatPhone = (raw) => {
 
 onMounted(() => {
   loadCommunications();
+  loadIntakeCommPrefs();
 });
 
-defineExpose({ reload: loadCommunications });
+watch(
+  () => props.clientId,
+  () => {
+    loadCommunications();
+    loadIntakeCommPrefs();
+  }
+);
+
+defineExpose({
+  reload: () => {
+    loadCommunications();
+    loadIntakeCommPrefs();
+  }
+});
 </script>
 
 <style scoped>
 .client-communications-tab {
   padding: 8px 4px 24px;
+}
+.intake-comm-prefs {
+  margin-bottom: 14px;
+}
+.intake-comm-prefs-card {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+}
+.intake-comm-prefs-title {
+  margin: 0 0 6px 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #78350f;
+}
+.intake-comm-prefs-lead {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #92400e;
+}
+.intake-comm-prefs-meta {
+  margin: 0 0 10px 0;
+}
+.intake-comm-prefs-dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(120px, 220px) 1fr;
+  gap: 8px 16px;
+  align-items: start;
+}
+.intake-comm-dt {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #92400e;
+}
+.intake-comm-dd {
+  margin: 0;
+  font-size: 14px;
+  color: #0f766e;
+  font-weight: 600;
+}
+.intake-comm-value {
+  display: block;
+}
+.intake-comm-hint {
+  margin: 4px 0 0 0;
+  line-height: 1.4;
+  font-weight: 400;
+  color: #57534e;
 }
 .tab-header {
   display: flex;
