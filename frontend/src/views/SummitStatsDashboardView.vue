@@ -83,11 +83,20 @@
 
     <section class="dashboard-hero card dash-section dash-section--hero">
       <div class="dashboard-hero-text">
-        <p class="eyebrow">{{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }}</p>
-        <h1>My club dashboard</h1>
+        <p class="eyebrow">
+          {{ SUMMIT_STATS_TEAM_CHALLENGE_NAME }}
+          <span v-if="focusedClubId && focusedClubName" class="hero-club-eyebrow"> · {{ focusedClubName }}</span>
+        </p>
+        <h1>{{ focusedClubId && focusedClubName ? `${focusedClubName} dashboard` : 'My club dashboard' }}</h1>
         <p class="hero-copy">
-          Your home for clubs and seasons. Open a season to see leaderboards, workouts, and each week's team challenges
-          (the weekly tasks your team completes).
+          <template v-if="focusedClubId">
+            You're viewing <strong>{{ focusedClubName || 'this club' }}</strong>. Open a season below for leaderboards,
+            workouts, and weekly team challenges. Use the club switcher at the top to jump to another club.
+          </template>
+          <template v-else>
+            Your home for clubs and seasons. Open a season to see leaderboards, workouts, and each week's team challenges
+            (the weekly tasks your team completes).
+          </template>
         </p>
         <div v-if="onlinePillClubId" class="dashboard-hero-online">
           <OnlineMembersPill :club-id="onlinePillClubId" />
@@ -1331,8 +1340,14 @@ const loadDashboard = async () => {
   loading.value = true;
   dashboardError.value = '';
   try {
+    // When a specific SSTC club is the active context (via the universal
+    // switcher in SummitStatsContextBar OR a super-admin preview), scope
+    // the dashboard to that one club so the user sees its seasons —
+    // not every club they happen to belong to across the platform.
+    const dashboardParams = {};
+    if (focusedClubId.value) dashboardParams.clubId = focusedClubId.value;
     const [dashboardRes, applicationsRes, contextRes] = await Promise.all([
-      api.get('/summit-stats/me/dashboard', { skipGlobalLoading: true }),
+      api.get('/summit-stats/me/dashboard', { params: dashboardParams, skipGlobalLoading: true }),
       api.get('/summit-stats/my-applications', { skipGlobalLoading: true }),
       api.get('/summit-stats/club-manager-context', { skipGlobalLoading: true })
     ]);
@@ -1516,16 +1531,26 @@ const canManageThisClub = (clubId) => {
   if (isSuperAdmin.value) return true;
   return isManagedClub(clubId);
 };
-// The club a super admin is currently previewing via the universal SSTC
-// switcher. Used to scope the "Start a new season" CTA below.
-const previewedClubId = computed(() => {
-  if (!isSuperAdmin.value) return null;
+// The currently-focused SSTC club (any user). When set, the dashboard
+// scopes itself to this club's seasons via the `?clubId=` API param.
+// Empty when the user is on the platform-wide dashboard with no specific
+// club picked in the switcher.
+const focusedClubId = computed(() => {
   const cur = agencyStore.currentAgency;
   if (!cur) return null;
   const orgType = String(cur.organization_type || cur.organizationType || '').toLowerCase();
   if (orgType !== 'affiliation') return null;
   const id = Number(cur.id || 0);
   return id > 0 ? id : null;
+});
+const focusedClubName = computed(
+  () => String(agencyStore.currentAgency?.name || '').trim()
+);
+// The club a super admin is currently previewing via the universal SSTC
+// switcher. Used to scope the "Start a new season" CTA below.
+const previewedClubId = computed(() => {
+  if (!isSuperAdmin.value) return null;
+  return focusedClubId.value;
 });
 const previewedClubName = computed(
   () => String(agencyStore.currentAgency?.name || '').trim()
@@ -1573,6 +1598,14 @@ onBeforeUnmount(() => {
 });
 
 watch(() => route.params.organizationSlug, () => {
+  loadDashboard();
+});
+
+// When the user picks a different club via the universal switcher (or a
+// super admin previews a different club), reload so the dashboard
+// reflects that club's seasons instead of staying on the previous one.
+watch(focusedClubId, (next, prev) => {
+  if (Number(next || 0) === Number(prev || 0)) return;
   loadDashboard();
 });
 
@@ -1676,6 +1709,12 @@ watch(
   font-size: 0.78rem;
   color: #d97706;
   font-weight: 700;
+}
+
+.hero-club-eyebrow {
+  color: #475569;
+  font-weight: 600;
+  letter-spacing: 0.06em;
 }
 
 .dashboard-hero h1 {

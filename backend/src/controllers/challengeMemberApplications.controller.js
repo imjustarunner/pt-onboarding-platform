@@ -3727,6 +3727,13 @@ export const getMyDashboardSummary = async (req, res, next) => {
     const userId = toInt(req.user?.id);
     if (!userId) return res.status(401).json({ error: { message: 'Sign in required' } });
 
+    // Optional ?clubId=N narrows the dashboard to a single SSTC club. This is
+    // what powers the universal "switch club" UX: when a user (or a super
+    // admin previewing a club) flips the active club via the context bar,
+    // the dashboard should reflect that one club's seasons rather than
+    // continuing to show every club they personally belong to.
+    const clubIdFilter = toInt(req.query?.clubId) || null;
+
     let userRows;
     try {
       [userRows] = await pool.execute(
@@ -3910,6 +3917,44 @@ export const getMyDashboardSummary = async (req, res, next) => {
       managedClubIds = [];
     }
 
+    // ── Super-admin preview injection ────────────────────────────────
+    // If the caller is filtering to a specific club they don't already
+    // belong to / manage, but they're a super_admin, treat the club like a
+    // managed club for the purposes of season loading and surface it in
+    // the `clubs` list so the dashboard renders it as the active context.
+    const userRoleNorm = String(user.role || '').toLowerCase();
+    const isSuperAdminCaller = userRoleNorm === 'super_admin';
+    const filterClubInScope = clubIdFilter
+      ? (clubs.some((c) => c.id === clubIdFilter) || managedClubIds.includes(clubIdFilter))
+      : false;
+    let previewedClubInjected = false;
+    if (clubIdFilter && !filterClubInScope && isSuperAdminCaller) {
+      const previewParams = plat ? [clubIdFilter, ...plat.params] : [clubIdFilter];
+      const [previewRows] = await pool.execute(
+        `SELECT a.id, a.name, a.slug, a.city, a.state
+         FROM agencies a
+         WHERE a.id = ?
+           AND LOWER(COALESCE(a.organization_type,'')) = 'affiliation'${plat ? plat.sql : ''}
+         LIMIT 1`,
+        previewParams
+      );
+      const previewClub = previewRows?.[0];
+      if (previewClub) {
+        clubs.push({
+          id: Number(previewClub.id),
+          name: previewClub.name || '',
+          slug: previewClub.slug || '',
+          city: previewClub.city || null,
+          state: previewClub.state || null,
+          clubRole: 'super_admin',
+          isActive: true,
+          isPreview: true
+        });
+        if (!managedClubIds.includes(clubIdFilter)) managedClubIds.push(clubIdFilter);
+        previewedClubInjected = true;
+      }
+    }
+
     let mergedSeasonRows = memberSeasonRows;
     if (managedClubIds.length) {
       const placeholders = managedClubIds.map(() => '?').join(',');
@@ -4026,6 +4071,27 @@ export const getMyDashboardSummary = async (req, res, next) => {
         }));
     }
 
+    // ── Apply optional ?clubId= scope filter ─────────────────────────
+    // If a single club was requested AND the caller has access to it
+    // (member, manager, OR super-admin preview injected above), narrow
+    // every collection so the dashboard reflects just that club.
+    let scopedClubs = clubs;
+    let scopedSeasons = seasons;
+    let scopedAvailableSeasons = availableSeasons;
+    if (clubIdFilter) {
+      const accessibleNow =
+        clubs.some((c) => c.id === clubIdFilter) ||
+        managedClubIds.includes(clubIdFilter) ||
+        previewedClubInjected;
+      if (accessibleNow) {
+        scopedClubs = clubs.filter((c) => c.id === clubIdFilter);
+        scopedSeasons = seasons.filter((s) => Number(s.clubId) === clubIdFilter);
+        scopedAvailableSeasons = availableSeasons.filter((s) => Number(s.clubId) === clubIdFilter);
+      }
+      // If not accessible we silently ignore the filter — never block the
+      // caller from seeing their own clubs because of a stale URL param.
+    }
+
     return res.json({
       member: {
         userId,
@@ -4038,7 +4104,11 @@ export const getMyDashboardSummary = async (req, res, next) => {
         status: user.status || '',
         createdAt: user.created_at || null
       },
-      memberships: clubs,
+      scope: {
+        clubId: clubIdFilter,
+        active: clubIdFilter && scopedClubs.length === 1
+      },
+      memberships: scopedClubs,
       accountSettings: {
         genderOptions: accountGenderOptions,
         allowCustomPronouns: accountAllowCustomPronouns
@@ -4058,9 +4128,9 @@ export const getMyDashboardSummary = async (req, res, next) => {
         bestRunPaceMinPerMile: totals.best_run_pace_min_per_mile == null ? null : normalizeNum(totals.best_run_pace_min_per_mile, 2)
       },
       seasons: {
-        current: seasons.filter((season) => season.bucket === 'current' || season.bucket === 'upcoming'),
-        past: seasons.filter((season) => season.bucket === 'past'),
-        available: availableSeasons
+        current: scopedSeasons.filter((season) => season.bucket === 'current' || season.bucket === 'upcoming'),
+        past: scopedSeasons.filter((season) => season.bucket === 'past'),
+        available: scopedAvailableSeasons
       },
       account: {
         billingPlan: 'Free account',
