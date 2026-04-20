@@ -87,6 +87,28 @@ Add these as GitHub Actions **repository secrets** so `deploy-backend.yml` can p
 - `CLIENT_CHAT_ENCRYPTION_KEY_ID`
 - `CLIENT_CHAT_ENCRYPTION_KEY_BASE64`
 
+### Intake PHI encryption (REQUIRED after migration 725)
+Migration `725_intake_submissions_payload_encryption.sql` + the one-time backfill
+(`backend/src/scripts/backfillEncryptIntakeSubmissions.js`) encrypt
+`intake_submissions.intake_data` and the four `signer_*` columns as a single
+AES-256-GCM ciphertext per row. Without these secrets set in the deployed env,
+`client.controller.js` (Clinical + Demographics readers) can't decrypt any
+backfilled row and the UI will show the "encryption key missing" banner instead
+of clinical responses. Set both of the following:
+- `INTAKE_RESPONSES_ENCRYPTION_KEY_ID` (e.g. `v1`)
+- `INTAKE_RESPONSES_ENCRYPTION_KEY_BASE64` (32-byte key, base64-encoded)
+
+`GUARDIAN_INTAKE_ENCRYPTION_KEY_*` are honored as a fallback if the
+`INTAKE_RESPONSES_*` pair is unset; either pair alone is sufficient.
+- `GUARDIAN_INTAKE_ENCRYPTION_KEY_ID`
+- `GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64`
+
+> **Key handling:** Generate once with `node backend/src/scripts/generateIntakeResponsesEncryptionKey.js`,
+> store the base64 value in Settings → Secrets and variables → Actions, and keep
+> a copy in your secrets manager. **Never commit the value** — only the
+> `${{ secrets.* }}` reference in this workflow. Rotating the key requires
+> re-encrypting existing rows under a new key id via the backfill script.
+
 ### Meta / Instagram
 - `META_APP_ID`
 - `META_APP_SECRET`
