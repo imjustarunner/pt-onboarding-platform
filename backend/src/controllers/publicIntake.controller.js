@@ -5860,8 +5860,17 @@ export const finalizePublicIntake = async (req, res, next) => {
                 ipAddress: updatedSubmission.ip_address || null,
                 metadata: { submissionId, templateId: template.id }
               });
-            } catch {
-              // best-effort; do not block public intake
+            } catch (phiDocErr) {
+              // Log PHI doc insert failures so they surface in server logs
+              // instead of silently missing from the client's Documentation tab.
+              console.error('[publicIntake] client_phi_documents insert failed (per-template)', {
+                submissionId,
+                clientId,
+                templateId: template.id,
+                storagePath,
+                message: phiDocErr?.message || String(phiDocErr || ''),
+                stack: phiDocErr?.stack || null
+              });
             }
           }
         }
@@ -5902,8 +5911,15 @@ export const finalizePublicIntake = async (req, res, next) => {
             if (!roiCompletionPhiDocument && issuedRoiLink?.id) {
               roiCompletionPhiDocument = phiDoc;
             }
-          } catch {
-            // best-effort; do not block public intake
+          } catch (phiDocErr) {
+            console.error('[publicIntake] client_phi_documents insert failed (ROI path)', {
+              submissionId,
+              clientId,
+              templateId: template.id,
+              storagePath: docRow.signed_pdf_path,
+              message: phiDocErr?.message || String(phiDocErr || ''),
+              stack: phiDocErr?.stack || null
+            });
           }
         }
       }
@@ -6926,8 +6942,21 @@ export const submitPublicIntake = async (req, res, next) => {
               ipAddress: updatedSubmission.ip_address || null,
               metadata: { submissionId, templateId: template.id }
             });
-          } catch {
-            // best-effort; do not block public intake
+          } catch (phiDocErr) {
+            // Historically this catch was silent ("best-effort"), which meant
+            // PHI row failures (e.g., column mismatch, NULL agency_id, etc.)
+            // caused signed packet PDFs to never appear on the client's
+            // Documentation tab — with no log to tell us why. Surface the
+            // failure loudly so it's diagnosable, while still not aborting the
+            // public intake (the signed PDF in GCS is the source of truth).
+            console.error('[publicIntake] client_phi_documents insert failed', {
+              submissionId,
+              clientId,
+              templateId: template.id,
+              storagePath: result.storagePath,
+              message: phiDocErr?.message || String(phiDocErr || ''),
+              stack: phiDocErr?.stack || null
+            });
           }
         }
 
@@ -7415,8 +7444,9 @@ export const submitPublicIntake = async (req, res, next) => {
             organizationId: link?.organization_id || null,
             scopeType: link?.scope_type || null
           });
+          let sendResult = null;
           if (identity?.id) {
-            await sendEmailFromIdentity({
+            sendResult = await sendEmailFromIdentity({
               senderIdentityId: identity.id,
               to: updatedSubmission.signer_email,
               subject: packetEmail.subject,
@@ -7436,7 +7466,7 @@ export const submitPublicIntake = async (req, res, next) => {
               text: packetEmail.text,
               html: packetEmail.html
             });
-            await EmailService.sendEmail({
+            sendResult = await EmailService.sendEmail({
               to: updatedSubmission.signer_email,
               subject: packetEmail.subject,
               text: signedPacketEmail.text,
@@ -7451,7 +7481,22 @@ export const submitPublicIntake = async (req, res, next) => {
               templateType: 'intake_packet_completion'
             });
           }
-          emailDelivery.sent = true;
+          // The unified sender returns { skipped: true, reason } when the
+          // platform/agency send gate suppresses the email. Treat that as a
+          // non-sent delivery so the API response and the Communications tab
+          // both reflect why no email actually went out.
+          if (sendResult?.skipped) {
+            emailDelivery.sent = false;
+            emailDelivery.error = `skipped_${sendResult.reason || 'gate'}`;
+            emailDelivery.errorMessage = `Send skipped by email gate: ${sendResult.reason || 'unknown'}`;
+            console.warn('[publicIntake] registration completion email skipped by gate', {
+              submissionId,
+              reason: sendResult.reason,
+              to: updatedSubmission?.signer_email || null
+            });
+          } else {
+            emailDelivery.sent = true;
+          }
         } catch (emailSendErr) {
           // Historically this catch was blank (`} catch {`), which meant any
           // real failure (Google Workspace auth, SPF rejection, template

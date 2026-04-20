@@ -5,8 +5,30 @@
       {{ stepConfig.nonMedicaidDisclaimerText }}
     </p>
 
+    <!--
+      Parent feedback: self-pay families were typing "self pay" into the
+      insurance-carrier typeahead, which doesn't match any insurer and makes
+      validation awkward. Surface a first-class toggle at the very top so they
+      can declare self-pay in one click; the rest of the form then collapses
+      to a short confirmation instead of asking for a carrier/member ID they
+      don't have.
+    -->
+    <div class="pi-ins-selfpay">
+      <label class="pi-ins-selfpay-row" :class="{ 'pi-ins-selfpay-row--active': isSelfPay }">
+        <input type="checkbox" :checked="isSelfPay" @change="toggleSelfPay($event.target.checked)" />
+        <span>
+          <strong>I am self-pay</strong>
+          <span class="pi-ins-selfpay-sub">— I don't have insurance to bill, or I prefer to pay out of pocket.</span>
+        </span>
+      </label>
+      <p v-if="isSelfPay" class="pi-ins-selfpay-note">
+        Thanks! We'll record this as self-pay. You can skip the insurance carrier / member ID fields below
+        and proceed to sign the authorization at the bottom of this page.
+      </p>
+    </div>
+
     <!-- PRIMARY INSURANCE -->
-    <div class="pi-ins-card">
+    <div v-if="!isSelfPay" class="pi-ins-card">
       <h4 class="pi-ins-card-title">Primary Insurance</h4>
       <p class="pi-ins-card-tip">
         Start by uploading your insurance card images. We will auto-fill what we can, and you can edit anything below.
@@ -170,19 +192,19 @@
       </div>
     </div>
 
-    <p v-if="displayedSecondaryDisclaimer" class="pi-ins-disclaimer pi-ins-secondary-notice">
+    <p v-if="!isSelfPay && displayedSecondaryDisclaimer" class="pi-ins-disclaimer pi-ins-secondary-notice">
       {{ displayedSecondaryDisclaimer }}
     </p>
 
     <!-- SECONDARY INSURANCE (optional) -->
-    <div class="pi-ins-secondary-toggle">
+    <div v-if="!isSelfPay" class="pi-ins-secondary-toggle">
       <label class="checkbox-row">
         <input v-model="hasSecondary" type="checkbox" />
         <span>I have secondary insurance to add</span>
       </label>
     </div>
 
-    <div v-if="hasSecondary" class="pi-ins-card">
+    <div v-if="!isSelfPay && hasSecondary" class="pi-ins-card">
       <h4 class="pi-ins-card-title">Secondary Insurance</h4>
 
       <div class="form-group">
@@ -256,7 +278,7 @@
       </div>
     </div>
 
-    <div class="pi-ins-card pi-ins-guarantor-card">
+    <div v-if="!isSelfPay" class="pi-ins-card pi-ins-guarantor-card">
       <h4 class="pi-ins-card-title">Responsible Party (Guarantor)</h4>
       <p class="pi-ins-field-note" style="margin-top: 0;">
         Name: Parent/Guardian
@@ -267,7 +289,7 @@
     </div>
 
     <!-- Insurance disclaimer -->
-    <div class="pi-ins-footer-notice">
+    <div v-if="!isSelfPay" class="pi-ins-footer-notice">
       <p>
         <strong>Please note:</strong> Not all insurances are accepted by all providers.
         If this program or class is not covered by your insurance, we may still submit a claim to your
@@ -354,6 +376,14 @@ const local = reactive({
 
 const hasSecondary = ref(!!(props.modelValue?.secondary?.insurerName));
 const noPrimaryCardAvailable = ref(!!props.modelValue?.noPrimaryCardAvailable);
+// Self-pay toggle — persisted alongside the rest of the insurance info so the
+// flag survives save/resume and downstream consumers (billing, reports) can
+// distinguish "declined to provide" from "explicitly self-pay".
+const isSelfPay = ref(
+  !!props.modelValue?.isSelfPay
+  || String(props.modelValue?.primary?.insurerName || '').trim().toLowerCase() === 'self-pay'
+  || String(props.modelValue?.primary?.insurerName || '').trim().toLowerCase() === 'self pay'
+);
 const medicaidByClient = ref(
   Array.isArray(props.modelValue?.medicaidByClient)
     ? props.modelValue.medicaidByClient.map((row) => ({
@@ -503,6 +533,36 @@ function fillPrimarySubscriberFromFirstClient() {
   push();
 }
 
+function toggleSelfPay(checked) {
+  isSelfPay.value = !!checked;
+  if (isSelfPay.value) {
+    // Stamp an explicit "Self-Pay" carrier so back-office reports can filter
+    // on insurer_name and so the typeahead renders a clear value if the
+    // guardian comes back to this step. Clear any Medicaid state so billing
+    // downstream doesn't try to route the file as a Medicaid claim.
+    local.primary.insurerName = 'Self-Pay';
+    local.primary.isMedicaid = false;
+    primaryQuery.value = 'Self-Pay';
+    hasSecondary.value = false;
+    local.secondary.insurerName = '';
+    local.secondary.memberId = '';
+    local.secondary.groupNumber = '';
+    local.secondary.subscriberName = '';
+    local.secondary.isMedicaid = false;
+    noPrimaryCardAvailable.value = true;
+  } else {
+    // Un-toggling clears the "Self-Pay" stamp but leaves every other field
+    // alone so if a guardian re-opens the card form they don't have to
+    // rebuild what they had.
+    if (String(local.primary.insurerName || '').trim().toLowerCase() === 'self-pay') {
+      local.primary.insurerName = '';
+      primaryQuery.value = '';
+    }
+    noPrimaryCardAvailable.value = false;
+  }
+  push();
+}
+
 // ── Emit helpers ─────────────────────────────────────────────────────────────
 function push() {
   const medicaidRows = showMultiClientMedicaidSection.value
@@ -525,7 +585,8 @@ function push() {
     hasSecondary: hasSecondary.value,
     primaryIsMedicaid: primaryIsMedicaid.value,
     medicaidPlanPosition: medicaidPlanPosition.value || null,
-    medicaidByClient: medicaidRows
+    medicaidByClient: medicaidRows,
+    isSelfPay: isSelfPay.value
   };
   emit('update:modelValue', out);
   emit('medicaid-change', primaryIsMedicaid.value);
@@ -547,7 +608,8 @@ function getInsuranceEntryState() {
   );
   return {
     hasPrimaryCardPhoto,
-    noPrimaryCardAvailable: !!noPrimaryCardAvailable.value
+    noPrimaryCardAvailable: !!noPrimaryCardAvailable.value,
+    isSelfPay: !!isSelfPay.value
   };
 }
 
@@ -617,6 +679,39 @@ defineExpose({ getPhotoFiles, getInsuranceEntryState, primaryIsMedicaid, getAuth
   font-size: 14px;
   line-height: 1.5;
   color: #713f12;
+}
+.pi-ins-selfpay {
+  margin-bottom: 4px;
+}
+.pi-ins-selfpay-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  cursor: pointer;
+  font-size: 14px;
+}
+.pi-ins-selfpay-row--active {
+  background: #ecfdf5;
+  border-style: solid;
+  border-color: #86efac;
+}
+.pi-ins-selfpay-sub {
+  color: var(--text-secondary, #64748b);
+  font-weight: 400;
+  margin-left: 6px;
+}
+.pi-ins-selfpay-note {
+  margin: 8px 0 0;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: #166534;
 }
 .pi-ins-secondary-notice {
   background: #eff6ff;

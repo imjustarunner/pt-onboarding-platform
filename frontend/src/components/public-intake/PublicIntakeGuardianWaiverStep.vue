@@ -6,18 +6,29 @@
         <div class="pi-gw-card-head"><h5>Meals</h5></div>
         <p class="muted small">This program does not provide meals. Please plan to bring your own lunch or snacks as needed.</p>
       </div>
-      <div v-for="def in activeSectionDefs" :key="`${cIdx}-${def.key}`" class="pi-gw-card">
+      <div
+        v-for="def in activeSectionDefs"
+        :key="`${cIdx}-${def.key}`"
+        class="pi-gw-card"
+        :class="{ 'pi-gw-card--error': !!sectionError(cIdx, def.key) }"
+        :ref="(el) => registerSectionRef(cIdx, def.key, el)"
+        :data-gw-section="`${cIdx}:${def.key}`"
+      >
         <div class="pi-gw-card-head">
           <h5>{{ def.title }}</h5>
         </div>
         <p v-if="def.blurb" class="muted small">{{ def.blurb }}</p>
+        <div v-if="sectionError(cIdx, def.key) && typeof sectionError(cIdx, def.key) === 'string'" class="pi-gw-section-error">
+          {{ sectionError(cIdx, def.key) }}
+        </div>
 
         <component
           :is="def.fields"
           :model-value="sectionPayload(cIdx, def.key)"
           v-bind="{
             ...(def.extraProps ? def.extraProps(eventWaiverContext) : {}),
-            ...(def.key === 'emergency_contacts' ? { pulse: pulseEmergency } : {})
+            ...(def.key === 'emergency_contacts' ? { pulse: pulseEmergency } : {}),
+            validationError: sectionError(cIdx, def.key)
           }"
           @update:model-value="(v) => setSectionPayload(cIdx, def.key, v)"
         />
@@ -64,7 +75,20 @@ const props = defineProps({
    * Passed down from PublicIntakeSigningView once a registration event is selected.
    */
   eventWaiverContext: { type: Object, default: () => ({}) },
-  pulseEmergency: { type: Boolean, default: false }
+  pulseEmergency: { type: Boolean, default: false },
+  /**
+   * Structured per-section validation errors from the parent step, shaped as:
+   *   { [clientIndex]: { [sectionKey]: 'Error text' | { allergies: '...' } } }
+   * Used both to decorate the offending card with a red border + message
+   * banner, and to pass through `validationError` into the sub-field
+   * components so the guardian sees the exact field they missed without
+   * scrolling back to the top of the page.
+   */
+  validationErrors: { type: Object, default: () => ({}) }
+});
+
+defineExpose({
+  scrollToSection
 });
 
 const eventWaiverContext = toRef(props, 'eventWaiverContext');
@@ -204,6 +228,31 @@ function applySavedSignature(idx, key) {
   const sec = ensureSection(idx, key);
   sec.signatureData = sig;
 }
+
+// Map of section refs for scroll-to-first-error behavior. Key format is
+// `${clientIndex}:${sectionKey}` matching the data-gw-section attribute on the
+// card so we can find it either via the map or via a DOM query from the parent.
+const sectionRefs = new Map();
+function registerSectionRef(cIdx, key, el) {
+  const k = `${cIdx}:${key}`;
+  if (el) sectionRefs.set(k, el);
+  else sectionRefs.delete(k);
+}
+
+function sectionError(cIdx, key) {
+  const map = props.validationErrors || {};
+  const perClient = map[cIdx] || map[String(cIdx)] || {};
+  return perClient[key] || '';
+}
+
+function scrollToSection(cIdx, key) {
+  const k = `${cIdx}:${key}`;
+  const el = sectionRefs.get(k)
+    || document.querySelector(`[data-gw-section="${k}"]`);
+  if (el && typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
 </script>
 
 <style scoped>
@@ -228,6 +277,21 @@ function applySavedSignature(idx, key) {
 }
 .pi-gw-card--notice {
   background: var(--bg-alt, #f8fafc);
+}
+.pi-gw-card--error {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.08);
+  background: #fff8f8;
+}
+.pi-gw-section-error {
+  margin: 6px 0 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 13px;
+  line-height: 1.4;
+  border: 1px solid #fecaca;
 }
 .pi-gw-card-head h5 {
   margin: 0 0 6px;

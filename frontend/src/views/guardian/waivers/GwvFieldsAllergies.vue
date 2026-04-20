@@ -6,12 +6,40 @@
       <p>We do not have a nurse on staff, though we will have first aid kits available for minor incidents.</p>
     </div>
 
-    <label class="gwv-l">Allergies / medical notes</label>
-    <textarea v-model="local.allergies" class="input" rows="3" :disabled="disabled" @input="push" placeholder="List any known allergies, dietary restrictions, or medical conditions staff should be aware of." />
+    <!--
+      Parent feedback: "if none is desired, it should be a checkbox that fills in NONE."
+      When guardians have no medical info to report we let them toggle one box
+      that stamps "None" into all three fields (allergies, approved snacks, notes).
+      Un-checking restores whatever they had typed before (if anything).
+    -->
+    <label class="gwv-none-row" :class="{ 'gwv-none-row--active': local.applyNone }">
+      <input
+        type="checkbox"
+        :checked="local.applyNone"
+        :disabled="disabled"
+        @change="toggleApplyNone"
+      />
+      <span>
+        <strong>No medical info to report</strong>
+        <span class="gwv-sub">— fill every field below with "None"</span>
+      </span>
+    </label>
+
+    <label class="gwv-l" :class="{ 'gwv-l--error': fieldError('allergies') }">Allergies / medical notes</label>
+    <textarea
+      v-model="local.allergies"
+      class="input"
+      :class="{ 'input-error': fieldError('allergies') }"
+      rows="3"
+      :disabled="disabled || local.applyNone"
+      @input="onFieldInput"
+      placeholder="List any known allergies, dietary restrictions, or medical conditions staff should be aware of."
+    />
+    <div v-if="fieldError('allergies')" class="gwv-inline-error">{{ fieldError('allergies') }}</div>
 
     <!-- Snack approval — dynamic checkboxes when the event has specific options -->
     <div class="gwv-snack-block">
-      <label class="gwv-l">
+      <label class="gwv-l" :class="{ 'gwv-l--error': fieldError('approvedSnacks') }">
         Approved snacks
         <span v-if="hasSnackOptions" class="gwv-sub">Select all snacks you approve for your child</span>
       </label>
@@ -54,17 +82,42 @@
           <template v-else>Approved: {{ local.approvedSnacksList.join(', ') }}</template>
         </div>
         <label class="gwv-l" style="margin-top: 8px;">Additional snack notes or restrictions (optional)</label>
-        <textarea v-model="local.approvedSnacks" class="input" rows="2" :disabled="disabled" @input="push" placeholder="Any other snack notes, e.g. nut-free only, no red dye…" />
+        <textarea
+          v-model="local.approvedSnacks"
+          class="input"
+          rows="2"
+          :disabled="disabled || local.applyNone"
+          @input="onFieldInput"
+          placeholder="Any other snack notes, e.g. nut-free only, no red dye…"
+        />
       </template>
 
       <!-- No specific options: free-text field -->
       <template v-else>
-        <textarea v-model="local.approvedSnacks" class="input" rows="2" :disabled="disabled" @input="push" placeholder="List snacks your child may have, or write 'none' if no snacks." />
+        <textarea
+          v-model="local.approvedSnacks"
+          class="input"
+          :class="{ 'input-error': fieldError('approvedSnacks') }"
+          rows="2"
+          :disabled="disabled || local.applyNone"
+          @input="onFieldInput"
+          placeholder="List snacks your child may have, or write 'none' if no snacks."
+        />
       </template>
+      <div v-if="fieldError('approvedSnacks')" class="gwv-inline-error">{{ fieldError('approvedSnacks') }}</div>
     </div>
 
-    <label class="gwv-l">Other medical notes</label>
-    <textarea v-model="local.notes" class="input" rows="2" :disabled="disabled" @input="push" placeholder="Any additional information staff should know." />
+    <label class="gwv-l" :class="{ 'gwv-l--error': fieldError('notes') }">Other medical notes</label>
+    <textarea
+      v-model="local.notes"
+      class="input"
+      :class="{ 'input-error': fieldError('notes') }"
+      rows="2"
+      :disabled="disabled || local.applyNone"
+      @input="onFieldInput"
+      placeholder="Any additional information staff should know."
+    />
+    <div v-if="fieldError('notes')" class="gwv-inline-error">{{ fieldError('notes') }}</div>
   </div>
 </template>
 
@@ -74,7 +127,15 @@ import { reactive, computed, watch } from 'vue';
 const props = defineProps({
   modelValue: { type: Object, required: true },
   disabled: { type: Boolean, default: false },
-  snackOptions: { type: Array, default: () => [] }
+  snackOptions: { type: Array, default: () => [] },
+  /**
+   * Per-field validation errors from the parent step, keyed by one of:
+   *   'allergies' | 'approvedSnacks' | 'notes' | '*'
+   * Falsy entries are ignored. A '*' entry is shown on the first missing
+   * field so the guardian knows what to fix without scrolling back to the
+   * top-of-page banner.
+   */
+  validationError: { type: [String, Object], default: '' }
 });
 const emit = defineEmits(['update:modelValue']);
 
@@ -85,13 +146,41 @@ const local = reactive({
   approvedSnacks: props.modelValue.approvedSnacks || '',
   approvedSnacksList: Array.isArray(props.modelValue.approvedSnacksList) ? [...props.modelValue.approvedSnacksList] : [],
   noSnacks: !!props.modelValue.noSnacks,
-  notes: props.modelValue.notes || ''
+  notes: props.modelValue.notes || '',
+  // Mirror whether the incoming modelValue already looks like an all-"None"
+  // dataset so re-entering the step doesn't silently un-tick the box.
+  applyNone: isAllNone(props.modelValue)
 });
+
+function isAllNone(v) {
+  const matches = (x) => String(x ?? '').trim().toLowerCase() === 'none';
+  return matches(v?.allergies) && matches(v?.approvedSnacks) && matches(v?.notes);
+}
 
 const allSnacksSelected = computed(() =>
   hasSnackOptions.value
   && props.snackOptions.every((o) => local.approvedSnacksList.includes(o))
 );
+
+const errorMap = computed(() => {
+  if (!props.validationError) return {};
+  if (typeof props.validationError === 'string') return { '*': props.validationError };
+  if (typeof props.validationError === 'object') return props.validationError;
+  return {};
+});
+
+function fieldError(key) {
+  const map = errorMap.value;
+  if (map[key]) return map[key];
+  // If a catch-all error is provided, show it on the first empty required field
+  if (map['*']) {
+    const firstEmpty = ['allergies', 'approvedSnacks', 'notes'].find(
+      (k) => String(local[k] ?? '').trim().length === 0
+    );
+    if (firstEmpty === key) return map['*'];
+  }
+  return '';
+}
 
 watch(
   () => props.modelValue,
@@ -101,6 +190,7 @@ watch(
     local.approvedSnacksList = Array.isArray(v.approvedSnacksList) ? [...v.approvedSnacksList] : [];
     local.noSnacks = !!v.noSnacks;
     local.notes = v.notes || '';
+    if (isAllNone(v)) local.applyNone = true;
   },
   { deep: true }
 );
@@ -126,6 +216,33 @@ function toggleAllSnacks() {
 function toggleNoSnacks() {
   local.noSnacks = !local.noSnacks;
   if (local.noSnacks) local.approvedSnacksList = [];
+  push();
+}
+
+function onFieldInput() {
+  // If a guardian starts typing real content, un-tick the "apply None" box so
+  // what they entered is preserved instead of being overwritten back to "None".
+  if (local.applyNone) {
+    const typed = [local.allergies, local.approvedSnacks, local.notes]
+      .some((v) => String(v ?? '').trim().toLowerCase() && String(v ?? '').trim().toLowerCase() !== 'none');
+    if (typed) local.applyNone = false;
+  }
+  push();
+}
+
+function toggleApplyNone(ev) {
+  const checked = !!ev?.target?.checked;
+  local.applyNone = checked;
+  if (checked) {
+    local.allergies = 'None';
+    local.approvedSnacks = 'None';
+    local.notes = 'None';
+  } else {
+    // Clearing goes back to empty fields so the guardian can type real info.
+    if (String(local.allergies).trim().toLowerCase() === 'none') local.allergies = '';
+    if (String(local.approvedSnacks).trim().toLowerCase() === 'none') local.approvedSnacks = '';
+    if (String(local.notes).trim().toLowerCase() === 'none') local.notes = '';
+  }
   push();
 }
 
@@ -164,6 +281,9 @@ function push() {
   font-size: 13px;
   font-weight: 600;
 }
+.gwv-l--error {
+  color: #b91c1c;
+}
 .gwv-sub {
   font-weight: 400;
   font-size: 12px;
@@ -173,6 +293,33 @@ function push() {
 .input {
   width: 100%;
   resize: vertical;
+}
+.input-error {
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.08);
+}
+.gwv-inline-error {
+  color: #b91c1c;
+  font-size: 12.5px;
+  margin: -2px 0 6px;
+  line-height: 1.35;
+}
+.gwv-none-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  font-size: 13.5px;
+  cursor: pointer;
+  margin: 2px 0 4px;
+}
+.gwv-none-row--active {
+  background: #ecfdf5;
+  border-color: #86efac;
+  border-style: solid;
 }
 .gwv-snack-block {
   display: flex;

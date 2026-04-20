@@ -325,7 +325,10 @@ const bodyLoading = ref(false);
 const bodyError = ref('');
 const bodyIframeRef = ref(null);
 
-const isFailureStatus = (status) => /failed|bounced|undelivered/i.test(String(status || ''));
+// "skipped" covers our own gate rejections (manual_only / notifications_disabled)
+// so they surface as a visible non-success pill on the Communications tab
+// instead of looking like a normal "sent" row.
+const isFailureStatus = (status) => /failed|bounced|undelivered|skipped/i.test(String(status || ''));
 
 /**
  * Resolve a single canonical status for an email/SMS row, used for the

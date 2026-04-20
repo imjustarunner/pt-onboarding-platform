@@ -110,6 +110,57 @@ async function resolveRecipientUserIdByEmail(to) {
 }
 
 /**
+ * Write a `user_communications` row for an email that was NOT sent because the
+ * send gate blocked it (manual_only / notifications_disabled) or because
+ * identity resolution failed. Without this row, admins looking at a client's
+ * or guardian's Communications tab see "nothing happened" and have no way to
+ * diagnose why a completion/confirmation email never arrived.
+ *
+ * Status values used:
+ *   - 'skipped'  → send gate returned allowed=false (platform or agency disabled auto mail)
+ *   - 'failed'   → we tried to send but the call threw before a provider ID was issued
+ */
+async function logSkippedOrFailedEmail({
+  to,
+  subject,
+  text,
+  html,
+  agencyId = null,
+  userId = null,
+  clientId = null,
+  templateType = null,
+  templateId = null,
+  generatedByUserId = null,
+  deliveryStatus = 'skipped',
+  errorMessage = null,
+  metadata = null
+}) {
+  try {
+    let resolvedUserId = userId || null;
+    if (!resolvedUserId && to) {
+      resolvedUserId = await resolveRecipientUserIdByEmail(to);
+    }
+    await UserCommunication.create({
+      userId: resolvedUserId || null,
+      clientId: clientId || null,
+      agencyId: agencyId || null,
+      templateType: templateType || 'auto_email',
+      templateId: templateId || null,
+      channel: 'email',
+      subject: subject || null,
+      body: html || text || '',
+      recipientAddress: to || null,
+      deliveryStatus,
+      errorMessage: errorMessage ? String(errorMessage).slice(0, 500) : null,
+      generatedByUserId: generatedByUserId || null,
+      metadata: metadata || null
+    });
+  } catch (e) {
+    console.warn('[unifiedEmail] failed to log skipped/failed email attempt', e?.message || e);
+  }
+}
+
+/**
  * Inject a 1x1 transparent tracking pixel pointing at /api/email/track-open/:token
  * into the supplied HTML. Returns the (possibly unchanged) html.
  *
@@ -199,10 +250,44 @@ export async function sendNotificationEmail({
 }) {
   const gate = await canSendEmail({ source, agencyId });
   if (!gate.allowed) {
+    // Gate blocked — write a visible audit row so admins can see that a send
+    // was attempted but suppressed by platform/agency settings.
+    await logSkippedOrFailedEmail({
+      to,
+      subject,
+      text,
+      html,
+      agencyId,
+      userId,
+      clientId,
+      templateType: templateType || `trigger:${triggerKey}`,
+      templateId,
+      generatedByUserId,
+      deliveryStatus: 'skipped',
+      errorMessage: `send skipped — ${gate.reason}`,
+      metadata: { triggerKey, source, reason: gate.reason }
+    });
     return { skipped: true, reason: gate.reason };
   }
   const identity = await resolveSenderIdentityForTrigger({ agencyId, triggerKey });
   if (!identity) {
+    // Record the missing-identity failure on the Communications tab so it's
+    // visible instead of only appearing in server logs.
+    await logSkippedOrFailedEmail({
+      to,
+      subject,
+      text,
+      html,
+      agencyId,
+      userId,
+      clientId,
+      templateType: templateType || `trigger:${triggerKey}`,
+      templateId,
+      generatedByUserId,
+      deliveryStatus: 'failed',
+      errorMessage: `No sender identity configured for trigger "${triggerKey}"`,
+      metadata: { triggerKey, source, reason: 'missing_sender_identity' }
+    });
     throw new Error(`No sender identity configured for trigger "${triggerKey}" (agency ${agencyId})`);
   }
 
@@ -325,6 +410,28 @@ export async function sendEmailFromIdentity({
   if (!identity) throw new Error('Sender identity not found');
   const gate = await canSendEmail({ source, agencyId: identity?.agency_id || null });
   if (!gate.allowed) {
+    // Gate blocked — log a visible "skipped" row on the recipient's / client's
+    // Communications tab so an absent email is diagnosable instead of silent.
+    await logSkippedOrFailedEmail({
+      to,
+      subject,
+      text,
+      html,
+      agencyId: identity?.agency_id || null,
+      userId,
+      clientId,
+      templateType: templateType || 'identity_send',
+      templateId,
+      generatedByUserId,
+      deliveryStatus: 'skipped',
+      errorMessage: `send skipped — ${gate.reason}`,
+      metadata: {
+        senderIdentityId: identity.id,
+        fromEmail: identity.from_email,
+        source,
+        reason: gate.reason
+      }
+    });
     return { skipped: true, reason: gate.reason };
   }
 

@@ -804,6 +804,7 @@
 
         <div v-if="currentFlowStep?.type === 'guardian_waiver'" class="guardian-waiver-step">
           <PublicIntakeGuardianWaiverStep
+            ref="guardianWaiverStepRef"
             :model-value="guardianWaiverBundleRef"
             :section-keys="currentGuardianWaiverSectionKeys"
             :client-labels="guardianWaiverClientLabels"
@@ -811,6 +812,7 @@
             :saved-signature-data="lastSignatureData"
             :event-waiver-context="eventWaiverContext"
             :pulse-emergency="emergencyPulse"
+            :validation-errors="guardianWaiverErrors"
           />
         </div>
 
@@ -1067,44 +1069,60 @@
           <p class="muted" style="margin-bottom: 16px; font-size: 13px;">
             The following questions help your provider understand your needs. Your answers are confidential and only visible to your assigned provider.
           </p>
-          <div v-for="field in visibleClinicalFields" :key="field.key || field.id" class="question-field-row" :ref="el => fieldRefs[field.key || field.id] = el">
-            <label :class="{ 'required-label': field.required }">
-              {{ field.label }}
-              <span v-if="field.required" class="required-indicator">*</span>
-            </label>
-            <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
-            <select
-              v-if="field.type === 'select'"
-              v-model="clinicalResponses[field.key]"
-              :class="{ 'input-error': isClinicalFieldMissing(field) }"
-            >
-              <option value="">Select…</option>
-              <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-            </select>
-            <div v-else-if="field.type === 'radio'" class="radio-group">
-              <label v-for="opt in field.options" :key="opt.value" class="radio-row">
-                <input type="radio" :name="'cq_' + field.key" :value="opt.value" v-model="clinicalResponses[field.key]" />
-                <span>{{ opt.label }}</span>
-              </label>
+          <div
+            v-for="(group, gIdx) in clinicalFieldGroups"
+            :key="'cg_' + gIdx"
+            class="clinical-field-group"
+            :class="{ 'clinical-field-group--shared': !!group.sharedHelper }"
+          >
+            <!--
+              Hoisted instruction for grouped batteries (e.g. PSC-17). When two
+              or more adjacent clinical fields share identical helper text, we
+              render that helper once at the top of the group instead of
+              repeating it under every question — mirrors the paper scale.
+            -->
+            <div v-if="group.sharedHelper" class="clinical-group-header">
+              {{ group.sharedHelper }}
             </div>
-            <div v-else-if="field.type === 'checkbox'" class="checkbox-group">
-              <label class="checkbox-row">
-                <input type="checkbox" v-model="clinicalResponses[field.key]" :true-value="'yes'" :false-value="'no'" />
-                <span>{{ field.label }}</span>
+            <div v-for="field in group.fields" :key="field.key || field.id" class="question-field-row" :ref="el => fieldRefs[field.key || field.id] = el">
+              <label :class="{ 'required-label': field.required }">
+                {{ field.label }}
+                <span v-if="field.required" class="required-indicator">*</span>
               </label>
+              <div v-if="!group.sharedHelper && field.helperText" class="helper-text">{{ field.helperText }}</div>
+              <select
+                v-if="field.type === 'select'"
+                v-model="clinicalResponses[field.key]"
+                :class="{ 'input-error': isClinicalFieldMissing(field) }"
+              >
+                <option value="">Select…</option>
+                <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <div v-else-if="field.type === 'radio'" class="radio-group">
+                <label v-for="opt in field.options" :key="opt.value" class="radio-row">
+                  <input type="radio" :name="'cq_' + field.key" :value="opt.value" v-model="clinicalResponses[field.key]" />
+                  <span>{{ opt.label }}</span>
+                </label>
+              </div>
+              <div v-else-if="field.type === 'checkbox'" class="checkbox-group">
+                <label class="checkbox-row">
+                  <input type="checkbox" v-model="clinicalResponses[field.key]" :true-value="'yes'" :false-value="'no'" />
+                  <span>{{ field.label }}</span>
+                </label>
+              </div>
+              <textarea
+                v-else-if="field.type === 'textarea'"
+                v-model="clinicalResponses[field.key]"
+                rows="3"
+                :class="{ 'input-error': isClinicalFieldMissing(field) }"
+              />
+              <input
+                v-else
+                v-model="clinicalResponses[field.key]"
+                type="text"
+                :class="{ 'input-error': isClinicalFieldMissing(field) }"
+              />
             </div>
-            <textarea
-              v-else-if="field.type === 'textarea'"
-              v-model="clinicalResponses[field.key]"
-              rows="3"
-              :class="{ 'input-error': isClinicalFieldMissing(field) }"
-            />
-            <input
-              v-else
-              v-model="clinicalResponses[field.key]"
-              type="text"
-              :class="{ 'input-error': isClinicalFieldMissing(field) }"
-            />
           </div>
         </div>
 
@@ -1252,6 +1270,19 @@
       </div>
 
       <div v-else-if="step === 3" class="step">
+        <!--
+          Success-page logo row. Parent feedback: "it should show the logos,
+          etc" on the completion screen. We reuse the same intro-screen logos
+          (agency + organization) already resolved for the cover page so
+          families see something familiar after hitting submit instead of a
+          bare "Successfully Submitted" line.
+        -->
+        <div v-if="successLogoScreens.length" class="intake-success-logos">
+          <div v-for="screen in successLogoScreens" :key="'success-logo-' + screen.key" class="intake-success-logo-card">
+            <img v-if="screen.logoUrl" :src="screen.logoUrl" :alt="screen.altText" />
+            <div class="intake-success-logo-name">{{ screen.displayName }}</div>
+          </div>
+        </div>
         <h3>{{ jobApplicationSubmitted ? 'Application Submitted' : (formTypeKey === 'smart_registration' ? "You're Registered!" : 'Successfully Submitted') }}</h3>
         <p v-if="jobApplicationSubmitted">
           Thank you for your application. We have received your materials and will review them shortly.
@@ -1359,29 +1390,91 @@
             </div>
           </div>
 
-          <p v-if="!downloadUrl && pollingForDownload" class="preparing-message">
-            <span class="preparing-spinner"></span>
-            Your documents are being prepared. A copy will be emailed to the address you provided once ready.
-          </p>
-          <p v-else-if="downloadUrl">{{ completionEmailMessage }}</p>
-          <p v-else-if="formTypeKey !== 'smart_registration'">{{ completionEmailMessage }}</p>
+          <!--
+            Non-registration intake welcome banner. Mirrors the registration
+            flow's "we're excited you chose us" messaging so every completed
+            submission ends on the same warm, reassuring note instead of the
+            bare "Your documents were completed successfully" line parents
+            reported feeling anticlimactic.
+          -->
+          <div v-if="formTypeKey !== 'smart_registration'" class="intake-thankyou-banner">
+            <div class="intake-thankyou-title">
+              🎉 Thank you{{ intakeThankYouName ? ', ' + intakeThankYouName : '' }}!
+            </div>
+            <p class="intake-thankyou-lead">
+              We're so glad you chose
+              <strong>{{ intakeThankYouTenantName }}</strong>.
+              Your submission is in — we'll follow up as soon as possible to welcome you
+              and confirm the next steps.
+            </p>
+            <ul
+              v-if="intakeRegisteredNames.length"
+              class="intake-thankyou-list"
+              aria-label="Submitted for"
+            >
+              <li v-for="name in intakeRegisteredNames" :key="name">
+                <span class="intake-thankyou-check">✓</span>
+                Submitted for: <strong>{{ name }}</strong>
+              </li>
+            </ul>
+            <p class="intake-thankyou-email">
+              {{ intakeSuccessEmailMessage }}
+            </p>
+          </div>
         </template>
-        <p v-if="downloadUrl" class="muted">Download links expire in 7 days.</p>
-        <div v-if="downloadUrl" class="actions">
-          <a class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">
-            {{
-              formTypeKey === 'smart_school_roi'
-                ? 'View Signed ROI'
-                : (jobApplicationSubmitted ? 'View Application Copy' : 'View Packet PDF')
-            }}
-          </a>
-          <a class="btn btn-secondary" :href="downloadUrl" download>
-            {{
-              formTypeKey === 'smart_school_roi'
-                ? 'Download Signed ROI'
-                : (jobApplicationSubmitted ? 'Download Application Copy' : 'Download Packet PDF')
-            }}
-          </a>
+
+        <!--
+          Download section — always rendered once we're on the success step.
+          Parents reported feeling stuck staring at a blank screen while the
+          packet PDF rendered (it can take a minute on big registration
+          packets), so we now show the success banner immediately and just
+          flip the Download buttons into a loading state until the URL is
+          ready. A copy still gets emailed even if they don't wait.
+        -->
+        <div class="intake-download-panel">
+          <div class="intake-download-meta">
+            <div v-if="downloadUrl" class="intake-download-ready-label">✓ Packet ready</div>
+            <div v-else class="intake-download-preparing-label">
+              <span class="preparing-spinner"></span>
+              Preparing your packet… this usually takes under a minute. A copy will also be emailed to you.
+            </div>
+            <p v-if="downloadUrl" class="muted" style="margin: 6px 0 0;">Download links expire in 7 days.</p>
+          </div>
+          <div class="actions intake-download-actions">
+            <a
+              v-if="downloadUrl"
+              class="btn btn-primary"
+              :href="downloadUrl"
+              target="_blank"
+              rel="noopener"
+            >
+              {{
+                formTypeKey === 'smart_school_roi'
+                  ? 'View Signed ROI'
+                  : (jobApplicationSubmitted ? 'View Application Copy' : 'View Packet PDF')
+              }}
+            </a>
+            <button v-else class="btn btn-primary" type="button" disabled>
+              <span class="preparing-spinner preparing-spinner--inline"></span>
+              Preparing PDF…
+            </button>
+            <a
+              v-if="downloadUrl"
+              class="btn btn-secondary"
+              :href="downloadUrl"
+              download
+            >
+              {{
+                formTypeKey === 'smart_school_roi'
+                  ? 'Download Signed ROI'
+                  : (jobApplicationSubmitted ? 'Download Application Copy' : 'Download Packet PDF')
+              }}
+            </a>
+            <button v-else class="btn btn-secondary" type="button" disabled>
+              <span class="preparing-spinner preparing-spinner--inline"></span>
+              Download (preparing)
+            </button>
+          </div>
         </div>
         <div v-if="clientBundleLinks.length && !jobApplicationSubmitted" class="bundle-list">
           <div class="bundle-title">{{ formTypeKey === 'smart_school_roi' ? 'Download per-client releases' : 'Download per-child packets' }}</div>
@@ -1843,6 +1936,32 @@ const isClinicalFieldMissing = (field) => {
   const v = clinicalResponses[field.key];
   return v === undefined || v === null || String(v).trim() === '';
 };
+
+// Parent request: the PSC-17 / symptom batteries repeat the same helper text on
+// every question (e.g. "Please select the answer that best fits your
+// dependent:"). Hoist a run of fields that share identical helper text into a
+// single header above the group — mirrors how the paper scale prints with one
+// instruction and a list of items. Non-repeating helpers fall through and still
+// render inline.
+const clinicalFieldGroups = computed(() => {
+  const fields = visibleClinicalFields.value || [];
+  const groups = [];
+  let current = null;
+  for (const f of fields) {
+    const helper = String(f?.helperText || '').trim();
+    if (current && current.helperKey === helper) {
+      current.fields.push(f);
+    } else {
+      current = { helperKey: helper, fields: [f] };
+      groups.push(current);
+    }
+  }
+  // Only treat a helper as shared when 2+ siblings repeat it.
+  return groups.map((g) => ({
+    sharedHelper: g.fields.length > 1 ? g.helperKey : '',
+    fields: g.fields
+  }));
+});
 const platformTermsUrl = '/terms';
 const platformPrivacyUrl = '/privacypolicy';
 const communicationsAudience = computed(() => {
@@ -2369,6 +2488,16 @@ const navPulse = ref(false);
 let navPulseTimer = null;
 const emergencyPulse = ref(false);
 let emergencyPulseTimer = null;
+// Parent feedback: validation errors for the guardian-waiver step were showing
+// up as one banner at the top of the page with no indication of WHICH child
+// and WHICH section was incomplete. Track per-section errors here so the
+// PublicIntakeGuardianWaiverStep can decorate the right card and the
+// sub-field component can highlight the specific missing input.
+const guardianWaiverStepRef = ref(null);
+const guardianWaiverErrors = reactive({});
+function clearGuardianWaiverErrors() {
+  for (const k of Object.keys(guardianWaiverErrors)) delete guardianWaiverErrors[k];
+}
 const docStatus = reactive({});
 const uploadStatus = reactive({});
 const uploadStepFiles = ref([]);
@@ -2517,6 +2646,45 @@ const registrationEmailMessageForBanner = computed(() => {
   return email
     ? `A confirmation with your registration details has been sent to ${email}.`
     : 'A confirmation with your registration details has been emailed to you.';
+});
+
+// ── Intake (non-registration) success-page helpers ──
+// Parent feedback: the old "Successfully Submitted" screen had no logo, no
+// details, no welcome message — just a bare sentence. The computed props
+// below feed the new `.intake-thankyou-banner` and the logo row so every
+// form type ends on the same reassuring note. These reuse the same name/
+// tenant fallbacks as the registration banner so a tenant that customized
+// one gets the benefit of both.
+const successLogoScreens = computed(() => {
+  const screens = Array.isArray(introScreens.value) ? introScreens.value : [];
+  return screens.filter((s) => s?.logoUrl);
+});
+const intakeThankYouName = computed(() => registrationThankYouName.value);
+const intakeThankYouTenantName = computed(() => registrationThankYouTenantName.value);
+const intakeRegisteredNames = computed(() => {
+  // Prefer the per-client bundle list (always populated after finalize). Fall
+  // back to clientDisplayNames when the form is non-registration and bundles
+  // aren't returned.
+  const fromBundles = registeredClientNames.value;
+  if (fromBundles.length) return fromBundles;
+  const raw = Array.isArray(clientDisplayNames.value) ? clientDisplayNames.value : [];
+  const out = [];
+  const seen = new Set();
+  for (const name of raw) {
+    const s = String(name || '').trim();
+    if (!s || seen.has(s.toLowerCase())) continue;
+    seen.add(s.toLowerCase());
+    out.push(s);
+  }
+  return out;
+});
+const intakeSuccessEmailMessage = computed(() => {
+  if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
+    return "We couldn't send your confirmation email right now — please use the Download buttons below to save your packet.";
+  }
+  const email = String(guardianEmail.value || '').trim();
+  if (email) return `A confirmation with your completed documents has been emailed to ${email}.`;
+  return 'A confirmation with your completed documents has been emailed to you.';
 });
 
 const loginHelpSending = ref(false);
@@ -3112,7 +3280,32 @@ const increaseJobAckPdfZoom = () => {
 const decreaseJobAckPdfZoom = () => {
   jobAckPdfZoom.value = Math.max(75, Number(jobAckPdfZoom.value || 125) - 25);
 };
-const intakeFields = computed(() => Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : []);
+// Parent feedback: some legacy intake fields are worded as "…of the above named
+// minor" because they were copied from paper packets where the child's name
+// appeared above. In the digital flow the child info sits in a different step
+// (usually below this one), so the phrasing reads wrong to guardians. Normalize
+// the label client-side so we don't need a DB migration for every tenant that
+// seeded the legacy text. Keep this list narrow and regex-safe so we don't
+// accidentally mangle a label a tenant actually wants.
+const LABEL_NORMALIZATIONS = Object.freeze([
+  { pattern: /\babove[\s-]?named\s+minor\b/gi, replacement: 'named minor' },
+  { pattern: /\babove[\s-]?named\s+client\b/gi, replacement: 'named client' },
+  { pattern: /\babove[\s-]?named\s+dependent\b/gi, replacement: 'named dependent' }
+]);
+const normalizeIntakeFieldLabel = (raw) => {
+  let s = String(raw || '');
+  for (const { pattern, replacement } of LABEL_NORMALIZATIONS) {
+    s = s.replace(pattern, replacement);
+  }
+  return s;
+};
+const intakeFields = computed(() => {
+  const raw = Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : [];
+  return raw.map((f) => {
+    const label = normalizeIntakeFieldLabel(f?.label);
+    return label === f?.label ? f : { ...f, label };
+  });
+});
 const guardianFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'guardian'));
 const submissionFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'submission'));
 const clientFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'client'));
@@ -4159,6 +4352,22 @@ const completeGuardianWaiverStep = () => {
     stepError.value = 'Missing waiver data. Please refresh and try again.';
     return;
   }
+
+  clearGuardianWaiverErrors();
+  // Collect ALL problems up front so each offending card gets a red banner
+  // + the specific missing field gets highlighted, instead of just the first
+  // one bubbling up to the page-level error.
+  let firstErrorRef = null;
+  let firstErrorMessage = '';
+  const recordError = (cIdx, sectionKey, message, extra) => {
+    if (!guardianWaiverErrors[cIdx]) guardianWaiverErrors[cIdx] = {};
+    guardianWaiverErrors[cIdx][sectionKey] = extra !== undefined ? extra : message;
+    if (!firstErrorRef) {
+      firstErrorRef = { cIdx, sectionKey };
+      firstErrorMessage = message;
+    }
+  };
+
   for (let i = 0; i < gw.clients.length; i += 1) {
     const label = guardianWaiverClientLabels.value[i] || `Child ${i + 1}`;
     for (const key of keys) {
@@ -4171,11 +4380,15 @@ const completeGuardianWaiverStep = () => {
         if (ecPayload.declineEmergencyContacts === true) continue;
         const ecRows = Array.isArray(ecPayload.contacts) ? ecPayload.contacts : [];
         if (!ecRows.some((row) => hasAnyFilledText([row?.name, row?.relationship, row?.phone]))) {
-          stepError.value = `Please add at least one emergency contact for ${label}, or check "I do not want to list emergency contacts at this time."`;
+          recordError(
+            i,
+            key,
+            `Please add at least one emergency contact for ${label}, or check "I do not want to list emergency contacts at this time."`
+          );
           emergencyPulse.value = true;
           if (emergencyPulseTimer) clearTimeout(emergencyPulseTimer);
           emergencyPulseTimer = setTimeout(() => { emergencyPulse.value = false; }, 2600);
-          return;
+          continue;
         }
         const touchedWithoutPhone = ecRows.find((row) => {
           const name = String(row?.name ?? '').trim();
@@ -4184,34 +4397,72 @@ const completeGuardianWaiverStep = () => {
           return (name || rel) && !phone;
         });
         if (touchedWithoutPhone) {
-          stepError.value = `Phone number is required for each emergency contact you list for ${label}.`;
+          recordError(
+            i,
+            key,
+            `Phone number is required for each emergency contact you list for ${label}.`
+          );
           emergencyPulse.value = true;
           if (emergencyPulseTimer) clearTimeout(emergencyPulseTimer);
           emergencyPulseTimer = setTimeout(() => { emergencyPulse.value = false; }, 2600);
-          return;
+          continue;
         }
       }
       if (!sec) {
-        stepError.value = `Please complete ${guardianWaiverSectionLabels[key] || 'all waiver sections'} for ${label}.`;
-        return;
+        recordError(
+          i,
+          key,
+          `Please complete ${guardianWaiverSectionLabels[key] || 'all waiver sections'} for ${label}.`
+        );
+        continue;
       }
       if (String(sec.signatureData || '').trim().length < 10 && savedSig) {
         sec.signatureData = savedSig;
       }
       if (String(sec.signatureData || '').trim().length < 10) {
-        stepError.value = `Please apply your saved signature to the ${guardianWaiverSectionLabels[key] || 'waiver'} section for ${label}.`;
-        return;
+        recordError(
+          i,
+          key,
+          `Please apply your saved signature to the ${guardianWaiverSectionLabels[key] || 'waiver'} section for ${label}.`
+        );
+        continue;
       }
       if (key === 'allergies_snacks') {
         const p = sec?.payload || {};
         const filled = (v) => String(v ?? '').trim().length > 0;
-        if (!filled(p.allergies) || !filled(p.approvedSnacks) || !filled(p.notes)) {
-          stepError.value = `Please complete allergies, approved snacks, and notes for ${label} (type "None" if not applicable).`;
-          return;
+        // Per-field structured errors so GwvFieldsAllergies can highlight the
+        // exact textarea the guardian missed. Falls back to a single message
+        // if every field is blank so we don't spam three identical labels.
+        const missing = {};
+        if (!filled(p.allergies)) missing.allergies = 'Required — type "None" if not applicable.';
+        if (!filled(p.approvedSnacks)) missing.approvedSnacks = 'Required — type "None" if not applicable.';
+        if (!filled(p.notes)) missing.notes = 'Required — type "None" if not applicable.';
+        if (Object.keys(missing).length) {
+          recordError(
+            i,
+            key,
+            `Please complete allergies, approved snacks, and notes for ${label} (use the "No medical info to report" checkbox if none).`,
+            missing
+          );
+          continue;
         }
       }
     }
   }
+
+  if (firstErrorRef) {
+    stepError.value = firstErrorMessage;
+    // Defer to next tick so freshly-rendered error cards are in the DOM
+    // before we try to scroll.
+    nextTick(() => {
+      guardianWaiverStepRef.value?.scrollToSection?.(
+        firstErrorRef.cIdx,
+        firstErrorRef.sectionKey
+      );
+    });
+    return;
+  }
+
   stepError.value = '';
   void nextFlowStep();
 };
@@ -4288,15 +4539,28 @@ const completeInsuranceStep = async () => {
   const memberId = String(insInfo.primary?.memberId || '').trim();
   const medicaidPrimary = isMedicaidInsurer(insurerName);
 
-  if (!hasPrimaryCardImage && !noPrimaryCardAvailable) {
+  // Self-Pay fast path: the dedicated toggle at the top of the insurance step
+  // bypasses every insurer-specific requirement (carrier name, member ID, card
+  // photos). We still require the Insurance Authorization signature below so
+  // there's a paper trail for the assignment-of-benefits language.
+  const selfPayDeclared = !!(insInfo.isSelfPay || insuranceEntryState.isSelfPay);
+  if (selfPayDeclared) {
+    insInfo.isSelfPay = true;
+    insInfo.primary.insurerName = 'Self-Pay';
+    insInfo.primary.memberId = '';
+    insInfo.primary.groupNumber = '';
+    insInfo.primary.patientSuffix = '';
+    insInfo.primary.isMedicaid = false;
+    insInfo.primaryIsMedicaid = false;
+    insInfo.hasSecondary = false;
+    insInfo.secondary = null;
+  } else if (!hasPrimaryCardImage && !noPrimaryCardAvailable) {
     stepError.value = 'Please upload your primary insurance card, or check "I do not have my primary insurance card right now."';
     return;
-  }
-  if (!insInfo.primary?.insurerName && memberId) {
+  } else if (!insInfo.primary?.insurerName && memberId) {
     stepError.value = 'Please select your primary insurance provider before continuing.';
     return;
-  }
-  if (noPrimaryCardAvailable && !insurerName && !memberId) {
+  } else if (noPrimaryCardAvailable && !insurerName && !memberId) {
     insInfo.primary.insurerName = 'Self-Pay / No Insurance';
     insInfo.primary.memberId = '';
     insInfo.primary.groupNumber = String(insInfo.primary.groupNumber || '');
@@ -4488,6 +4752,52 @@ const sendPublicIntakeLoginHelp = async () => {
   }
 };
 
+// Strip heavy fields (large base64 data URLs from insurance card previews,
+// signature preview images, etc.) before sending the finalize payload.
+// Insurance card photos are uploaded out-of-band as multipart to
+// `/insurance-card-photos`; the canonical references that matter for the
+// backend are the resulting `*_url` fields, not the in-memory previews.
+// Without this, parents who upload high-res phone photos can blow past the
+// JSON body limit and get a 413 Content Too Large at /finalize.
+const sanitizeFinalizeResponses = (input) => {
+  const MAX_INLINE_DATA_URL = 200 * 1024; // 200KB safety cap for any data: URL
+  const seen = new WeakSet();
+  const PREVIEW_KEYS = new Set([
+    'primary_front_preview',
+    'primary_back_preview',
+    'secondary_front_preview',
+    'secondary_back_preview'
+  ]);
+  const walk = (val) => {
+    if (val === null || val === undefined) return val;
+    if (typeof val === 'string') {
+      if (val.length > MAX_INLINE_DATA_URL && val.startsWith('data:')) {
+        return '';
+      }
+      return val;
+    }
+    if (Array.isArray(val)) {
+      return val.map(walk);
+    }
+    if (typeof val === 'object') {
+      if (seen.has(val)) return null;
+      seen.add(val);
+      const out = {};
+      for (const [k, v] of Object.entries(val)) {
+        if (PREVIEW_KEYS.has(k)) continue;
+        out[k] = walk(v);
+      }
+      return out;
+    }
+    return val;
+  };
+  try {
+    return walk(input);
+  } catch (_e) {
+    return input;
+  }
+};
+
 const finalizePacket = async () => {
   const previousStep = step.value;
   try {
@@ -4503,6 +4813,7 @@ const finalizePacket = async () => {
       step.value = previousStep;
       return;
     }
+    const sanitizedResponses = sanitizeFinalizeResponses(intakeResponses || {});
     const resp = await api.post(`/public-intake/${publicKey}/${submissionId.value}/finalize`, {
       submissionId: submissionId.value,
       sessionToken: activeSessionToken || null,
@@ -4516,7 +4827,7 @@ const finalizePacket = async () => {
         relationship: guardianRelationship.value
       },
       intakeData: {
-        responses: intakeResponses || {},
+        responses: sanitizedResponses,
         clients: buildClientPayloads(),
         guardian: {
           firstName: guardianFirstName.value,
@@ -4575,7 +4886,13 @@ const finalizePacket = async () => {
   } catch (e) {
     pollingForDownload.value = false;
     step.value = previousStep;
-    error.value = e.response?.data?.error?.message || 'Failed to finalize packet';
+    if (e?.response?.status === 413) {
+      error.value =
+        'Your submission is too large to send (often caused by very high-resolution photo uploads). '
+        + 'Try retaking insurance card photos with your camera held closer to the card so the image is smaller, then submit again.';
+    } else {
+      error.value = e.response?.data?.error?.message || 'Failed to finalize packet';
+    }
   } finally {
     submitLoading.value = false;
   }
@@ -5541,8 +5858,124 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
+.preparing-spinner--inline {
+  width: 13px;
+  height: 13px;
+  border-width: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-color: rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+}
+.btn-secondary .preparing-spinner--inline {
+  border-color: rgba(15, 23, 42, 0.2);
+  border-top-color: var(--primary, #2c3e50);
+}
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+/* ── Intake / non-registration success screen ── */
+.intake-success-logos {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.intake-success-logo-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  min-width: 160px;
+}
+.intake-success-logo-card img {
+  max-height: 56px;
+  max-width: 180px;
+  object-fit: contain;
+}
+.intake-success-logo-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary, #475569);
+  text-align: center;
+}
+.intake-thankyou-banner {
+  padding: 20px 22px 16px;
+  margin: 10px 0 16px;
+  background: linear-gradient(135deg, #ecfdf5 0%, #e0f2fe 100%);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 14px;
+}
+.intake-thankyou-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+}
+.intake-thankyou-lead {
+  margin: 0 0 10px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: #0f172a;
+}
+.intake-thankyou-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.intake-thankyou-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14.5px;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.55);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+.intake-thankyou-check {
+  color: #059669;
+  font-weight: 800;
+}
+.intake-thankyou-email {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  color: var(--text-secondary, #475569);
+}
+.intake-download-panel {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-top: 12px;
+  background: #fff;
+}
+.intake-download-meta {
+  font-size: 13.5px;
+  color: var(--text-secondary, #475569);
+  margin-bottom: 10px;
+}
+.intake-download-ready-label {
+  color: #059669;
+  font-weight: 700;
+}
+.intake-download-preparing-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #475569;
+}
+.intake-download-actions {
+  gap: 10px;
 }
 .intake-card {
   background: white;
@@ -6209,6 +6642,28 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 16px;
 }
+/* Grouped clinical batteries (e.g. PSC-17). When two or more adjacent fields
+   share identical helper text, the group is framed as a panel with one
+   instruction at the top so parents aren't reading the same sentence on every
+   item. */
+.clinical-field-group {
+  display: grid;
+  gap: 14px;
+}
+.clinical-field-group--shared {
+  padding: 14px 16px 8px;
+  background: #f6f9ff;
+  border: 1px solid #dce7f8;
+  border-radius: 12px;
+}
+.clinical-group-header {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #1f2937;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed #cfdcee;
+  margin-bottom: 2px;
+}
 
 .communications-step {
   margin: 16px 0;
@@ -6619,41 +7074,55 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 8px;
-  padding: 9px 14px;
+  /* Parent feedback: the PSC-17 and Yes/No pills were rendering with almost no
+     space between the circle and the label — the native <input type="radio">
+     hugs the next inline element tighter than the 8px we thought we'd get from
+     `gap`. Bump the gap to 12px and give the pill a slightly bigger horizontal
+     pad so the circle doesn't look pinned to the very edge. */
+  gap: 12px;
+  padding: 10px 18px 10px 14px;
   border-radius: 999px;
   border: 1px solid rgba(15, 23, 42, 0.14);
   background: #fff;
   font-size: 14px;
-  line-height: 1.3;
+  line-height: 1.25;
   cursor: pointer;
+  min-height: 40px;
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
-/* Keep the radio/checkbox pinned to the top of the pill and guarantee a
-   consistent hit area. This prevents the dot from "floating" above the
-   label text inside narrow grid columns, which was the "jacked up bubbles"
-   issue parents were seeing on the clinical PSC-17 questions. */
+/* Keep the radio/checkbox on the vertical center of the pill and guarantee a
+   consistent hit area. Also pin `vertical-align: middle` for the rare browsers
+   (older Safari) where the native control sits on the baseline and throws the
+   label off-center inside narrow grid columns. */
 .radio-row input[type='radio'],
 .radio-row input[type='checkbox'] {
   accent-color: var(--primary, #2563eb);
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   margin: 0;
-  flex-shrink: 0;
+  flex: 0 0 16px;
+  vertical-align: middle;
+  position: relative;
+  top: 0;
 }
 .radio-row > span {
   flex: 1 1 auto;
   min-width: 0;
+  /* Was `overflow-wrap: anywhere` which was mid-word-breaking short option
+     labels ("Sometimes" → "Sometim" + "es"). `break-word` only breaks words
+     that genuinely don't fit, which is what we want inside narrow pills. */
+  overflow-wrap: break-word;
+  word-break: normal;
   white-space: normal;
-  overflow-wrap: anywhere;
+  line-height: 1.3;
 }
 .radio-row:hover {
   border-color: rgba(15, 23, 42, 0.28);
   background: #f8fafc;
 }
 /* Highlight a selected pill — we can't use :has() reliably everywhere, so
-   rely on focus-within + the radio row sitting on a slightly tinted bg when
-   its input is checked. */
+   rely on the radio row sitting on a slightly tinted bg when its input is
+   checked. */
 .radio-row input:checked + span {
   color: var(--primary, #2563eb);
   font-weight: 600;

@@ -8,12 +8,25 @@ async function userHasAgencyAccess(userId, agencyId) {
   return (agencies || []).some((a) => a.id === agencyId);
 }
 
+// NOTE: LIMIT/OFFSET are intentionally inlined as validated integers rather
+// than bound as prepared-statement placeholders. mysql2's `.execute()` binds
+// `LIMIT ?` as a string under the hood, which MySQL rejects with
+// "Incorrect arguments to mysqld_stmt_execute" — a red error banner then
+// renders on the Communications tab in the user/guardian profile.
+// The values are clamped via Math.min / parseInt with fallbacks, so there is
+// no SQL-injection surface.
+function safeInt(raw, { def, min = 0, max = 10_000 }) {
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return def;
+  return Math.max(min, Math.min(max, parsed));
+}
+
 export const getMySmsLogs = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const limit = req.query.limit ? Math.min(500, parseInt(req.query.limit)) : 100;
-    const offset = req.query.offset ? parseInt(req.query.offset) : 0;
-    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId) : null;
+    const limit = safeInt(req.query.limit, { def: 100, min: 1, max: 500 });
+    const offset = safeInt(req.query.offset, { def: 0, min: 0, max: 10_000_000 });
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
 
     const params = [userId];
     let where = 'l.user_id = ?';
@@ -21,7 +34,6 @@ export const getMySmsLogs = async (req, res, next) => {
       where += ' AND l.agency_id = ?';
       params.push(agencyId);
     }
-    params.push(limit, offset);
 
     const [rows] = await pool.execute(
       `SELECT
@@ -32,7 +44,7 @@ export const getMySmsLogs = async (req, res, next) => {
        LEFT JOIN notifications n ON l.notification_id = n.id
        WHERE ${where}
        ORDER BY l.created_at DESC
-       LIMIT ? OFFSET ?`,
+       LIMIT ${limit} OFFSET ${offset}`,
       params
     );
     res.json(rows);
@@ -47,10 +59,10 @@ export const getSmsLogs = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
 
-    const limit = req.query.limit ? Math.min(500, parseInt(req.query.limit)) : 200;
-    const offset = req.query.offset ? parseInt(req.query.offset) : 0;
-    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId) : null;
-    const userId = req.query.userId ? parseInt(req.query.userId) : null;
+    const limit = safeInt(req.query.limit, { def: 200, min: 1, max: 500 });
+    const offset = safeInt(req.query.offset, { def: 0, min: 0, max: 10_000_000 });
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
 
     if (!agencyId && !userId) {
       return res.status(400).json({ error: { message: 'agencyId or userId is required' } });
@@ -72,7 +84,6 @@ export const getSmsLogs = async (req, res, next) => {
       clauses.push('l.user_id = ?');
       params.push(userId);
     }
-    params.push(limit, offset);
 
     const [rows] = await pool.execute(
       `SELECT
@@ -83,7 +94,7 @@ export const getSmsLogs = async (req, res, next) => {
        LEFT JOIN notifications n ON l.notification_id = n.id
        WHERE ${clauses.join(' AND ')}
        ORDER BY l.created_at DESC
-       LIMIT ? OFFSET ?`,
+       LIMIT ${limit} OFFSET ${offset}`,
       params
     );
     res.json(rows);

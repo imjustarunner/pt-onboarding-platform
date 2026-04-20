@@ -224,8 +224,17 @@ app.use(cookieParser());
 // Handles both /api/stripe/webhook (direct) and /api/stripe/connect-webhook (Connect).
 app.use('/api/stripe', stripeWebhookRoutes);
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Body-parser limits.
+// The default express.json() limit is 100kb, which is not enough for the
+// public intake `finalize` payload — it can carry a few MB of multi-client
+// responses + signature data when guardians sign for multiple children.
+// (Insurance card photos themselves are uploaded out-of-band via the
+// multipart `/insurance-card-photos` endpoint, but base64 previews and
+// other rich responses can still push the JSON body well past 100kb.)
+// 10mb gives plenty of slack for the legitimate intake payload while still
+// being far smaller than what a malicious actor could meaningfully exploit.
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Request logging middleware with body sanitization
 // Must be after body parsing middleware (express.json, express.urlencoded)

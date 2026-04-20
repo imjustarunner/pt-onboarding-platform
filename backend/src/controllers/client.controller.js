@@ -37,6 +37,60 @@ function normalizeSixDigitClientCode(value) {
 }
 
 /**
+ * Build a guardian-intake-profile-shaped object from the linked
+ * `client_guardians` row(s) on this client. Used as a fallback when the
+ * encrypted `client_guardian_intake_profiles` row is missing or can't be
+ * decrypted — without this, the "Guardian (latest intake)" panel on the
+ * Overview tab stays empty even though a guardian is plainly linked to
+ * the client, which confuses admins and hides useful contact info.
+ *
+ * We prefer the most-recently-linked guardian (matches the intent of
+ * "latest intake") and return null when no guardian is linked yet.
+ */
+async function buildGuardianProfileFallbackFromLinked(clientId) {
+  try {
+    const guardians = await ClientGuardian.listForClient(clientId);
+    if (!Array.isArray(guardians) || guardians.length === 0) return null;
+    const primary = guardians[0];
+    const [uRows] = await pool.execute(
+      `SELECT id, first_name, last_name, email, phone_number, personal_phone, work_phone, date_of_birth
+         FROM users WHERE id = ? LIMIT 1`,
+      [Number(primary.guardian_user_id || 0)]
+    );
+    const u = uRows?.[0] || null;
+    const firstName = String(u?.first_name || primary?.first_name || '').trim() || null;
+    const lastName = String(u?.last_name || primary?.last_name || '').trim() || null;
+    const phone = String(
+      u?.phone_number || u?.personal_phone || u?.work_phone || ''
+    ).trim() || null;
+    const email = String(u?.email || primary?.email || '').trim().toLowerCase() || null;
+    const relationship = String(primary?.relationship_title || 'Guardian').trim() || null;
+    const dob = u?.date_of_birth
+      ? String(u.date_of_birth).slice(0, 10)
+      : null;
+    const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || null;
+    const anyField = [firstName, lastName, email, phone, relationship, dob].some(
+      (v) => String(v || '').trim()
+    );
+    if (!anyField) return null;
+    return {
+      firstName,
+      lastName,
+      fullName,
+      email,
+      phone,
+      relationship,
+      dateOfBirth: dob,
+      primaryLanguage: null,
+      source: 'linked_guardian_fallback',
+      updated_at: null
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Strip identifying name fields from a client (or array of clients) when the
  * caller is a school_staff user. School portals must always render initials
  * or code, never legal names. Always returns a NEW object/array — never
@@ -447,8 +501,19 @@ export const getClientById = async (req, res, next) => {
       try {
         const guardianIntake = await ClientGuardianIntakeProfile.findByClientId(client.id);
         if (guardianIntake) client.guardian_intake_profile = guardianIntake;
-      } catch {
-        // best-effort
+      } catch (gipErr) {
+        // Log instead of silently swallowing: an unreadable encrypted row
+        // (e.g. missing GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64) caused the
+        // "Guardian (latest intake)" Overview panel to stay empty with no
+        // diagnostic. Fallback below still tries linked guardian data.
+        console.warn('[getClientById] guardian_intake_profile load failed', {
+          clientId: client.id,
+          message: gipErr?.message || String(gipErr || '')
+        });
+      }
+      if (!client.guardian_intake_profile) {
+        const fallback = await buildGuardianProfileFallbackFromLinked(client.id);
+        if (fallback) client.guardian_intake_profile = fallback;
       }
       logClientAccess(req, client.id, 'view_client').catch(() => {});
       return res.json(client);
@@ -541,8 +606,18 @@ export const getClientById = async (req, res, next) => {
       try {
         const guardianIntake = await ClientGuardianIntakeProfile.findByClientId(client.id);
         if (guardianIntake) client.guardian_intake_profile = guardianIntake;
-      } catch {
-        // best-effort
+      } catch (gipErr) {
+        console.warn('[getClientById] guardian_intake_profile load failed', {
+          clientId: client.id,
+          message: gipErr?.message || String(gipErr || '')
+        });
+      }
+      if (!client.guardian_intake_profile) {
+        // Fall back to the linked guardian user so the Overview panel at
+        // least shows their name/email/phone/relationship when the
+        // encrypted intake row is missing or unreadable.
+        const fallback = await buildGuardianProfileFallbackFromLinked(client.id);
+        if (fallback) client.guardian_intake_profile = fallback;
       }
     }
     logClientAccess(req, client.id, 'view_client').catch(() => {});

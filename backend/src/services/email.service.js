@@ -73,6 +73,37 @@ class EmailService {
   }) {
     const gate = await this.canSend({ source, agencyId });
     if (!gate.allowed) {
+      // Write a visible "skipped" row so the attempted send shows up on the
+      // recipient/client Communications tab. Without this, a platform or
+      // agency-level notifications-disabled setting silently eats the email
+      // and admins see "no emails sent" with no explanation.
+      try {
+        const { default: CommunicationLoggingService } = await import('./communicationLogging.service.js');
+        const resolvedUserId = userId || await resolveUserIdByEmail(to);
+        const { default: pool } = await import('../config/database.js');
+        const comm = await CommunicationLoggingService.logGeneratedCommunication({
+          userId: resolvedUserId || null,
+          clientId: clientId ? Number(clientId) : null,
+          agencyId: agencyId ? Number(agencyId) : null,
+          templateType: templateType || 'transactional_email',
+          templateId: templateId || null,
+          subject: subject || null,
+          body: html || text || '',
+          generatedByUserId: generatedByUserId || null,
+          channel: 'email',
+          recipientAddress: to
+        });
+        if (comm?.id) {
+          await pool.execute(
+            `UPDATE user_communications
+                SET delivery_status = 'skipped', error_message = ?
+              WHERE id = ?`,
+            [`send skipped — ${gate.reason}`, comm.id]
+          ).catch(() => {});
+        }
+      } catch (logErr) {
+        console.warn('[EmailService] failed to log skipped send', logErr?.message || logErr);
+      }
       return { skipped: true, reason: gate.reason };
     }
     if (!this.isConfigured()) {
