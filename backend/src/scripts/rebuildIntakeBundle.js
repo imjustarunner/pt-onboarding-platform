@@ -39,6 +39,7 @@ import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 import Client from '../models/Client.model.js';
 import StorageService from '../services/storage.service.js';
 import DocumentSigningService from '../services/documentSigning.service.js';
+import { compressPdfBuffer } from '../services/pdfCompression.service.js';
 import { buildAnswersPdfBuffer } from '../controllers/publicIntake.controller.js';
 
 const argv = process.argv.slice(2);
@@ -248,9 +249,18 @@ async function rebuildOneSubmission(submissionId) {
       continue;
     }
 
-    const mergedClientPdf = await mergeBuffersToPdf(childPdfBuffers);
+    const mergedClientPdfRaw = await mergeBuffersToPdf(childPdfBuffers);
+    // Compress the rebuilt bundle the same way the live finalize path does,
+    // so rebuilt packets are the same size as freshly-finalized ones.
+    const { buffer: mergedClientPdf, compressed, originalSize, compressedSize } = await compressPdfBuffer(
+      Buffer.isBuffer(mergedClientPdfRaw) ? mergedClientPdfRaw : Buffer.from(mergedClientPdfRaw),
+      { label: `rebuild-${submissionId}-client-${clientId}` }
+    );
     const mergedHash = DocumentSigningService.calculatePDFHash(mergedClientPdf);
-    console.log(`  [client ${clientId}] merged ${childPdfBuffers.length} PDFs → ${mergedClientPdf.length} bytes${perChildAnswersPdf ? ' (with answers prefix)' : ''}`);
+    const sizeNote = compressed
+      ? `${originalSize}B → ${compressedSize}B compressed`
+      : `${mergedClientPdf.length} bytes (uncompressed)`;
+    console.log(`  [client ${clientId}] merged ${childPdfBuffers.length} PDFs → ${sizeNote}${perChildAnswersPdf ? ' (with answers prefix)' : ''}`);
 
     if (DRY_RUN) {
       perClientBundleResults.push({ clientId, dryRun: true, size: mergedClientPdf.length });

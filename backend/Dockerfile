@@ -59,8 +59,13 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Install Chromium and dependencies for Puppeteer
-# This prevents Puppeteer from downloading Chromium during npm ci (saves ~170MB and build time)
+# Install Chromium (for Puppeteer) and Ghostscript (for post-merge PDF
+# compression of intake packets — see services/pdfCompression.service.js).
+# Chromium prevents Puppeteer from downloading its own bundled browser at npm
+# install time (saves ~170MB and build time). Ghostscript is used ONLY on the
+# final merged bundle buffer before it's uploaded to storage; individual
+# signed template PDFs stay byte-identical (their storage paths and hashes
+# are referenced elsewhere in the codebase and must not change).
 RUN apk add --no-cache \
     chromium \
     nss \
@@ -68,6 +73,7 @@ RUN apk add --no-cache \
     harfbuzz \
     ca-certificates \
     ttf-freefont \
+    ghostscript \
     && rm -rf /var/cache/apk/*
 
 # Set environment variable to skip Puppeteer's Chromium download

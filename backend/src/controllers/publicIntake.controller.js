@@ -24,6 +24,7 @@ import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 import Client from '../models/Client.model.js';
 import StorageService from '../services/storage.service.js';
+import { compressPdfBuffer } from '../services/pdfCompression.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import ReferralOcrService from '../services/referralOcr.service.js';
 import EmailService from '../services/email.service.js';
@@ -5868,7 +5869,15 @@ export const finalizePublicIntake = async (req, res, next) => {
             });
           }
           const prefixBuffers = [ticketPdf, perChildAnswersPdf].filter(Boolean);
-          const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(mergePaths, prefixBuffers);
+          const mergedClientPdfRaw = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(mergePaths, prefixBuffers);
+          // Compress the merged bundle before upload. This is the ONLY place
+          // we touch the PDF bytes post-merge; individual signed docs stay
+          // byte-identical in storage (their hashes/paths are referenced
+          // from intake_submission_documents and must not change).
+          const { buffer: mergedClientPdf } = await compressPdfBuffer(
+            Buffer.isBuffer(mergedClientPdfRaw) ? mergedClientPdfRaw : Buffer.from(mergedClientPdfRaw),
+            { label: `school-roi-client-${submissionId}-${clientPayload?.id || 'unknown'}` }
+          );
           const clientBundleResult = await StorageService.saveIntakeClientBundle({
             submissionId,
             clientId: clientPayload?.id || 'unknown',
@@ -6011,9 +6020,15 @@ export const finalizePublicIntake = async (req, res, next) => {
         // → all per-template signed PDFs. The ticket lands the registrant on
         // their confirmation page when they open the full packet.
         const combinedPrefixBuffers = [ticketPdf, answersPdf].filter(Boolean);
-        const mergedPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
+        const mergedPdfRaw = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
           pdfPaths,
           combinedPrefixBuffers
+        );
+        // Compress the combined bundle right before upload. Hash is taken on
+        // the compressed buffer so combined_pdf_hash matches what's stored.
+        const { buffer: mergedPdf } = await compressPdfBuffer(
+          Buffer.isBuffer(mergedPdfRaw) ? mergedPdfRaw : Buffer.from(mergedPdfRaw),
+          { label: `school-roi-combined-${submissionId}` }
         );
         const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
         bundleResult = await StorageService.saveIntakeBundle({
@@ -6861,9 +6876,13 @@ export const submitPublicIntake = async (req, res, next) => {
             });
           }
           const perChildPrefix = [ticketPdf, perChildAnswersPdf].filter(Boolean);
-          const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
+          const mergedClientPdfRaw = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
             clientPaths,
             perChildPrefix
+          );
+          const { buffer: mergedClientPdf } = await compressPdfBuffer(
+            Buffer.isBuffer(mergedClientPdfRaw) ? mergedClientPdfRaw : Buffer.from(mergedClientPdfRaw),
+            { label: `registration-client-${submissionId}-${clientId || 'unknown'}` }
           );
           const clientBundleResult = await StorageService.saveIntakeClientBundle({
             submissionId,
@@ -6957,9 +6976,13 @@ export const submitPublicIntake = async (req, res, next) => {
         // Combined bundle prefix order: registration ticket → answers summary
         // → all per-template signed PDFs.
         const combinedPrefixBuffers = [ticketPdf, answersPdf].filter(Boolean);
-        const mergedPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
+        const mergedPdfRaw = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
           pdfPaths,
           combinedPrefixBuffers
+        );
+        const { buffer: mergedPdf } = await compressPdfBuffer(
+          Buffer.isBuffer(mergedPdfRaw) ? mergedPdfRaw : Buffer.from(mergedPdfRaw),
+          { label: `registration-combined-${submissionId}` }
         );
         const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
         bundleResult = await StorageService.saveIntakeBundle({
