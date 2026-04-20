@@ -1013,6 +1013,35 @@ if (!isBootstrap) {
     }
   })();
 
+  // Migration 733 – is_required flag on challenge_custom_field_definitions
+  // Without this, public season fast-track invite pages crash with
+  // "Unknown column 'is_required' in 'field list'" because both the
+  // resolveInviteToken endpoint and SstcMemberApplicationView depend on it.
+  (async () => {
+    try {
+      const { default: pool } = await import('./config/database.js');
+      const [tableExists] = await pool.execute(
+        `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'challenge_custom_field_definitions'`
+      );
+      if (!tableExists.length) return; // Table not yet created (pre-637); nothing to do.
+      const [cols] = await pool.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'challenge_custom_field_definitions'
+           AND COLUMN_NAME = 'is_required'`
+      );
+      if (!cols.length) {
+        await pool.execute(
+          `ALTER TABLE challenge_custom_field_definitions
+             ADD COLUMN is_required TINYINT(1) NOT NULL DEFAULT 0 AFTER unit_label`
+        );
+        console.log('[startup] Migration 733 applied: is_required added to challenge_custom_field_definitions');
+      }
+    } catch (err) {
+      console.warn('[startup] Migration 733 check skipped:', err.message);
+    }
+  })();
+
   // Set up periodic processing of terminated and completed users
   // Run every hour to check for users that need to be marked inactive or archived
   setInterval(async () => {

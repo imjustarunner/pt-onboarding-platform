@@ -51,6 +51,7 @@ export const createCustomField = async (req, res, next) => {
     const fieldType = ['number', 'text', 'date'].includes(req.body.fieldType) ? req.body.fieldType : 'number';
     const unitLabel = String(req.body.unitLabel || '').trim() || null;
     const sortOrder = toInt(req.body.sortOrder) ?? 0;
+    const isRequired = req.body.isRequired === true || req.body.isRequired === 1 || req.body.isRequired === '1' || req.body.is_required === 1 ? 1 : 0;
 
     if (!name) return res.status(400).json({ error: { message: '"name" is required (will be snake_cased)' } });
     if (!label) return res.status(400).json({ error: { message: '"label" is required' } });
@@ -62,9 +63,9 @@ export const createCustomField = async (req, res, next) => {
     if (existing.length > 0) return res.status(409).json({ error: { message: `A field named "${name}" already exists for this club` } });
 
     const [result] = await pool.execute(
-      `INSERT INTO challenge_custom_field_definitions (agency_id, name, label, field_type, unit_label, is_active, sort_order)
-       VALUES (?, ?, ?, ?, ?, 1, ?)`,
-      [clubId, name, label, fieldType, unitLabel, sortOrder]
+      `INSERT INTO challenge_custom_field_definitions (agency_id, name, label, field_type, unit_label, is_required, is_active, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+      [clubId, name, label, fieldType, unitLabel, isRequired, sortOrder]
     );
     const [rows] = await pool.execute(
       `SELECT * FROM challenge_custom_field_definitions WHERE id = ? LIMIT 1`,
@@ -96,6 +97,11 @@ export const updateCustomField = async (req, res, next) => {
     if (req.body.unitLabel !== undefined) { setParts.push('unit_label = ?'); params.push(String(req.body.unitLabel || '').trim() || null); }
     if (req.body.sortOrder !== undefined) { setParts.push('sort_order = ?'); params.push(toInt(req.body.sortOrder) ?? 0); }
     if (req.body.isActive !== undefined) { setParts.push('is_active = ?'); params.push(req.body.isActive ? 1 : 0); }
+    if (req.body.isRequired !== undefined || req.body.is_required !== undefined) {
+      const v = req.body.isRequired ?? req.body.is_required;
+      setParts.push('is_required = ?');
+      params.push(v === true || v === 1 || v === '1' ? 1 : 0);
+    }
 
     if (!setParts.length) return res.status(400).json({ error: { message: 'No updateable fields provided' } });
     setParts.push('updated_at = CURRENT_TIMESTAMP');
