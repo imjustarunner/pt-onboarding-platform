@@ -113,12 +113,36 @@
                     </div>
                   </div>
                 </template>
-                <router-link
-                  v-if="sstcActiveSeasonNav"
-                  :to="sstcActiveSeasonNav.to"
-                  class="nav-active-season-link"
-                  @click="closeMobileMenu"
-                >{{ sstcActiveSeasonNav.label }}</router-link>
+                <template v-if="sstcActiveSeasonNav">
+                  <router-link
+                    v-if="!sstcActiveSeasonNav.isDropdown"
+                    :to="sstcActiveSeasonNav.to"
+                    class="nav-active-season-link"
+                    @click="closeMobileMenu"
+                  >{{ sstcActiveSeasonNav.label }}</router-link>
+                  <div v-else class="nav-dropdown nav-active-season-dropdown" @click.stop>
+                    <button
+                      type="button"
+                      class="nav-dropdown-trigger nav-active-season-link"
+                      title="Active Seasons"
+                      :aria-expanded="activeSeasonsMenuOpen ? 'true' : 'false'"
+                      @click.stop="activeSeasonsMenuOpen = !activeSeasonsMenuOpen"
+                    >
+                      <span class="nav-dropdown-label">{{ sstcActiveSeasonNav.label }}</span> <span class="brand-caret">▾</span>
+                    </button>
+                    <div v-if="activeSeasonsMenuOpen" class="nav-dropdown-menu">
+                      <router-link
+                        v-for="s in sstcActiveSeasonList"
+                        :key="`as-mgr-${s.id}`"
+                        :to="s.to"
+                        @click.stop="closeActiveSeasonsMenu"
+                      >
+                        <span class="active-season-club">{{ s.clubName }}</span>
+                        <span class="active-season-name">{{ s.name }}</span>
+                      </router-link>
+                    </div>
+                  </div>
+                </template>
                 <div class="nav-dropdown" @click.stop>
                   <button
                     type="button"
@@ -173,12 +197,36 @@
                     </div>
                   </div>
                 </template>
-                <router-link
-                  v-if="sstcActiveSeasonNav"
-                  :to="sstcActiveSeasonNav.to"
-                  class="nav-active-season-link"
-                  @click="closeMobileMenu"
-                >{{ sstcActiveSeasonNav.label }}</router-link>
+                <template v-if="sstcActiveSeasonNav">
+                  <router-link
+                    v-if="!sstcActiveSeasonNav.isDropdown"
+                    :to="sstcActiveSeasonNav.to"
+                    class="nav-active-season-link"
+                    @click="closeMobileMenu"
+                  >{{ sstcActiveSeasonNav.label }}</router-link>
+                  <div v-else class="nav-dropdown nav-active-season-dropdown" @click.stop>
+                    <button
+                      type="button"
+                      class="nav-dropdown-trigger nav-active-season-link"
+                      title="Active Seasons"
+                      :aria-expanded="activeSeasonsMenuOpen ? 'true' : 'false'"
+                      @click.stop="activeSeasonsMenuOpen = !activeSeasonsMenuOpen"
+                    >
+                      <span class="nav-dropdown-label">{{ sstcActiveSeasonNav.label }}</span> <span class="brand-caret">▾</span>
+                    </button>
+                    <div v-if="activeSeasonsMenuOpen" class="nav-dropdown-menu">
+                      <router-link
+                        v-for="s in sstcActiveSeasonList"
+                        :key="`as-mem-${s.id}`"
+                        :to="s.to"
+                        @click.stop="closeActiveSeasonsMenu"
+                      >
+                        <span class="active-season-club">{{ s.clubName }}</span>
+                        <span class="active-season-name">{{ s.name }}</span>
+                      </router-link>
+                    </div>
+                  </div>
+                </template>
                 <router-link
                   v-if="sstcMemberShowClubEvents"
                   :to="orgTo('/admin/company-events')"
@@ -768,12 +816,34 @@
                   </template>
                 </div>
               </template>
-              <router-link
-                v-if="sstcActiveSeasonNav"
-                :to="sstcActiveSeasonNav.to"
-                class="mobile-nav-link mobile-nav-active-season-link"
-                @click="closeMobileMenu"
-              >{{ sstcActiveSeasonNav.label }}</router-link>
+              <template v-if="sstcActiveSeasonNav">
+                <router-link
+                  v-if="!sstcActiveSeasonNav.isDropdown"
+                  :to="sstcActiveSeasonNav.to"
+                  class="mobile-nav-link mobile-nav-active-season-link"
+                  @click="closeMobileMenu"
+                >{{ sstcActiveSeasonNav.label }}</router-link>
+                <div v-else class="mobile-nav-group mobile-nav-group-collapsible">
+                  <button
+                    type="button"
+                    class="mobile-nav-group-trigger mobile-nav-active-season-trigger"
+                    :aria-expanded="mobileActiveSeasonsExpanded ? 'true' : 'false'"
+                    @click="mobileActiveSeasonsExpanded = !mobileActiveSeasonsExpanded"
+                  >
+                    <span>{{ sstcActiveSeasonNav.label }}</span>
+                    <span class="mobile-nav-group-caret" :class="{ open: mobileActiveSeasonsExpanded }" aria-hidden="true">▸</span>
+                  </button>
+                  <template v-if="mobileActiveSeasonsExpanded">
+                    <router-link
+                      v-for="s in sstcActiveSeasonList"
+                      :key="`mob-as-mgr-${s.id}`"
+                      :to="s.to"
+                      @click="closeMobileMenu"
+                      class="mobile-nav-link mobile-nav-sublink"
+                    >{{ s.clubName }} — {{ s.name }}</router-link>
+                  </template>
+                </div>
+              </template>
               <div class="mobile-nav-group mobile-nav-group-collapsible">
                 <button
                   type="button"
@@ -831,12 +901,34 @@
                   </template>
                 </div>
               </template>
-              <router-link
-                v-if="sstcActiveSeasonNav"
-                :to="sstcActiveSeasonNav.to"
-                class="mobile-nav-link mobile-nav-active-season-link"
-                @click="closeMobileMenu"
-              >{{ sstcActiveSeasonNav.label }}</router-link>
+              <template v-if="sstcActiveSeasonNav">
+                <router-link
+                  v-if="!sstcActiveSeasonNav.isDropdown"
+                  :to="sstcActiveSeasonNav.to"
+                  class="mobile-nav-link mobile-nav-active-season-link"
+                  @click="closeMobileMenu"
+                >{{ sstcActiveSeasonNav.label }}</router-link>
+                <div v-else class="mobile-nav-group mobile-nav-group-collapsible">
+                  <button
+                    type="button"
+                    class="mobile-nav-group-trigger mobile-nav-active-season-trigger"
+                    :aria-expanded="mobileActiveSeasonsExpanded ? 'true' : 'false'"
+                    @click="mobileActiveSeasonsExpanded = !mobileActiveSeasonsExpanded"
+                  >
+                    <span>{{ sstcActiveSeasonNav.label }}</span>
+                    <span class="mobile-nav-group-caret" :class="{ open: mobileActiveSeasonsExpanded }" aria-hidden="true">▸</span>
+                  </button>
+                  <template v-if="mobileActiveSeasonsExpanded">
+                    <router-link
+                      v-for="s in sstcActiveSeasonList"
+                      :key="`mob-as-mem-${s.id}`"
+                      :to="s.to"
+                      @click="closeMobileMenu"
+                      class="mobile-nav-link mobile-nav-sublink"
+                    >{{ s.clubName }} — {{ s.name }}</router-link>
+                  </template>
+                </div>
+              </template>
               <router-link
                 v-if="sstcMemberShowClubEvents"
                 :to="orgTo('/admin/company-events')"
@@ -1490,32 +1582,68 @@ watch(showPublicTranslateWidget, (show) => {
 const mobileMenuOpen = ref(false);
 
 // Active season nav — fetched once when the SSTC chrome is active so every user
-// can see a quick-access link to the current season directly in the nav bar.
+// can see quick-access links to the current seasons (one per club) directly
+// in the nav bar. When the user belongs to 2+ clubs, the nav renders a
+// dropdown so they can jump between each club's currently-running season.
 const activeNavSeason = ref(null);
+const activeNavSeasons = ref([]);
 const activeNavSeasonLoading = ref(false);
 
 const loadNavActiveSeason = async () => {
   if (!isSummitStatsChallengeChrome.value || !isAuthenticated.value) {
     activeNavSeason.value = null;
+    activeNavSeasons.value = [];
     return;
   }
   const agencies = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
   const arr = Array.isArray(agencies) ? agencies : [];
-  const club = arr.find(
+  const clubs = arr.filter(
     (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation'
   );
-  const clubId = Number(club?.id || 0);
-  if (!clubId) { activeNavSeason.value = null; return; }
+  if (!clubs.length) {
+    activeNavSeason.value = null;
+    activeNavSeasons.value = [];
+    return;
+  }
   activeNavSeasonLoading.value = true;
   try {
-    const { data } = await api.get('/learning-program-classes', {
-      params: { organizationId: clubId },
-      skipGlobalLoading: true,
-    });
-    const classes = Array.isArray(data?.classes) ? data.classes : [];
-    activeNavSeason.value = classes.find((c) => c.status === 'active') || null;
-  } catch { activeNavSeason.value = null; }
-  finally { activeNavSeasonLoading.value = false; }
+    const results = await Promise.all(
+      clubs.map(async (club) => {
+        const clubId = Number(club?.id || 0);
+        if (!clubId) return null;
+        try {
+          const { data } = await api.get('/learning-program-classes', {
+            params: { organizationId: clubId },
+            skipGlobalLoading: true
+          });
+          const classes = Array.isArray(data?.classes) ? data.classes : [];
+          const active = classes.find((c) => c.status === 'active');
+          if (!active) return null;
+          return {
+            id: Number(active.id),
+            name: active.class_name || active.className || 'Active Season',
+            clubId,
+            clubName: String(club?.name || '').trim() || 'Club'
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
+    activeNavSeasons.value = results.filter(Boolean);
+    activeNavSeason.value = activeNavSeasons.value[0]
+      ? {
+          id: activeNavSeasons.value[0].id,
+          class_name: activeNavSeasons.value[0].name,
+          status: 'active'
+        }
+      : null;
+  } catch {
+    activeNavSeason.value = null;
+    activeNavSeasons.value = [];
+  } finally {
+    activeNavSeasonLoading.value = false;
+  }
 };
 
 // Global loading overlay (tracks API calls + navigation + icon preloads)
@@ -1684,6 +1812,8 @@ const clubManagementMenuOpen = ref(false);
 const mobileClubMgmtExpanded = ref(false);
 const myClubsMenuOpen = ref(false);
 const mobileMyClubsExpanded = ref(false);
+const activeSeasonsMenuOpen = ref(false);
+const mobileActiveSeasonsExpanded = ref(false);
 const engagementMenuOpen = ref(false);
 
 const navDropdownOpen = computed(() => {
@@ -1985,6 +2115,12 @@ const closeMyClubsMenu = () => {
   closeMobileMenu();
 };
 
+const closeActiveSeasonsMenu = () => {
+  activeSeasonsMenuOpen.value = false;
+  mobileActiveSeasonsExpanded.value = false;
+  closeMobileMenu();
+};
+
 watch(mobileMenuOpen, (open) => {
   if (open) {
     applyDirectorySubgroupStateFromRoute();
@@ -1995,6 +2131,8 @@ watch(() => route.path, () => {
   clubManagementMenuOpen.value = false;
   myClubsMenuOpen.value = false;
   mobileMyClubsExpanded.value = false;
+  activeSeasonsMenuOpen.value = false;
+  mobileActiveSeasonsExpanded.value = false;
 });
 
 // Navigation title - only show if it's not "PlotTwistCo" and there's a valid platform template name.
@@ -2868,13 +3006,27 @@ const sstcMemberMyClubNav = computed(() => {
   return { label: 'My Clubs', to: null, isDropdown: true };
 });
 
-/** Active season nav link — shown for every SSTC user when a season is currently live. */
+/** All currently-live seasons across the user's SSTC clubs, normalized for the
+ *  active-season nav. Each entry links to that season's page. */
+const sstcActiveSeasonList = computed(() => {
+  return (activeNavSeasons.value || []).map((s) => ({
+    id: s.id,
+    name: s.name,
+    clubName: s.clubName,
+    to: orgTo(`/season/${s.id}`)
+  }));
+});
+
+/** Active season nav link — shown for every SSTC user when a season is currently live.
+ *  Single season → direct link; multiple → dropdown of all live seasons across clubs. */
 const sstcActiveSeasonNav = computed(() => {
   if (!isSummitStatsChallengeChrome.value || !isAuthenticated.value) return null;
-  const s = activeNavSeason.value;
-  if (!s?.id || s.status !== 'active') return null;
-  const name = s.class_name || s.className || 'Active Season';
-  return { label: name, to: orgTo(`/season/${s.id}`) };
+  const list = sstcActiveSeasonList.value;
+  if (!list.length) return null;
+  if (list.length === 1) {
+    return { label: list[0].name, to: list[0].to, isDropdown: false };
+  }
+  return { label: 'Active Seasons', to: null, isDropdown: true };
 });
 
 /** Member has at least one active club affiliation — show Club Events in nav. */
@@ -4380,6 +4532,26 @@ onUnmounted(() => {
 @keyframes season-pulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.65; }
+}
+
+/* Active-season dropdown rows: stack club name (small caps) over the season title. */
+.nav-active-season-dropdown .nav-dropdown-menu a {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  line-height: 1.25;
+}
+.nav-active-season-dropdown .active-season-club {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+}
+.nav-active-season-dropdown .active-season-name {
+  font-size: 0.95rem;
+  font-weight: 600;
 }
 
 .nav-badge {
